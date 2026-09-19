@@ -1,0 +1,6 @@
+# AI Video Director 运行依赖（独立项目，零参考项目耦合）
+pydantic>=2.5
+loguru>=0.7
+edge-tts>=6.1
+# pytest 仅测试需要，可注释
+pytest>=7.4
