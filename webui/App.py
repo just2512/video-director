@@ -65,6 +65,7 @@ def main():
             "视频素材（可多选）", type=["mp4", "mov", "mkv", "webm"],
             accept_multiple_files=True,
         )
+        st.caption("提示：文件名带语义（如「战场出征.mp4」）即可自动按内容匹配，无需任何标注")
         uploaded_images = st.file_uploader(
             "图片素材（可多选）", type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,

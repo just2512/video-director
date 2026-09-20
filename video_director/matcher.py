@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from loguru import logger
@@ -76,23 +77,49 @@ def _expand_scene_text(scene_text: str) -> set:
     return expanded
 
 
+def _filename_keywords(asset: AssetRef) -> List[str]:
+    """零依赖素材语义来源：从文件名 stem 提取中文关键词候选。
+
+    用户素材常带语义文件名（"战场出征.mp4"、"送葬队伍_2.mp4"、"factory-tour.mp4"）。
+    提取规则：连续中文片段按 2 字滑动切词 + 完整片段，英文按分隔符切词。
+    这是无 API key、无手工标注、无本地模型时的核心匹配信号。
+    """
+    stem = Path(asset.file).stem
+    kw = set()
+    # 连续中文片段（≥2 字）
+    for seg in re.findall(r"[一-鿿]{2,}", stem):
+        kw.add(seg)                    # 完整片段
+        for i in range(len(seg) - 1):  # 2 字滑动
+            kw.add(seg[i:i + 2])
+    # 英文/数字片段（用 - _ 空格 分隔）
+    for seg in re.split(r"[-_\s]+", stem):
+        s = seg.strip().lower()
+        if re.match(r"^[a-z]{3,}$", s):
+            kw.add(s)
+    return list(kw)
+
+
 def deterministic_match(
     scene_texts: List[str],
     scene_ids: List[str],
     assets: Dict[str, AssetRef],
     used: set,
 ) -> Optional[str]:
-    """确定性 fallback：概念扩展 + 标签/描述全文重合度。
+    """确定性主路（零依赖）：概念桥接 + 标签/描述/文件名语义 全文重合。
 
-    v2（2026-09-18）：引入 CONCEPT_BRIDGES 桥接 + description 全文参与，
-    修复"付之一炬"匹配不到"焚烧"类素材的词面盲区。
+    素材语义来源优先级（第一版零依赖）：
+        P0 文件名语义（本函数，零成本，无需任何配置）
+        P2 手工标注 manifest（用户主动提供）
+        P5 Vision API（增强，配 key 才有，不配不阻塞）
     """
     expanded = _expand_scene_text(scene_texts)
 
     def overlap(asset: AssetRef) -> float:
         score = 0.0
-        # 1) tags 精确词命中（权重 2）
-        for tag in asset.keywords:
+        sources = list(asset.keywords)
+        sources += [k for k in _filename_keywords(asset) if k not in sources]
+        # 1) tags/文件名关键词 精确词命中（权重 2）
+        for tag in sources:
             chars = [c for c in tag if not c.isspace()]
             if not chars:
                 continue
@@ -101,8 +128,8 @@ def deterministic_match(
                 score += 2.0
             elif hits > 0:
                 score += hits / len(chars)
-        # 2) 概念桥接命中（整词在 tags/description 中出现，权重 3）
-        blob = " ".join(asset.keywords) + " " + (asset.description or "")
+        # 2) 概念桥接命中（整词在 tags/description/文件名 中出现，权重 3）
+        blob = " ".join(sources) + " " + (asset.description or "")
         for w in expanded - set(scene_texts):
             if len(w) >= 2 and w in blob:
                 score += 3.0
@@ -116,7 +143,8 @@ def deterministic_match(
     for aid, asset in assets.items():
         if asset.type != "video":
             continue
-        if not (asset.keywords or asset.description):
+        has_signal = asset.keywords or asset.description or _filename_keywords(asset)
+        if not has_signal:
             continue
         bonus = 0.5 if aid not in used else 0.0
         scored.append((overlap(asset) + bonus, aid))

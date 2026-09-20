@@ -77,12 +77,15 @@ def _check_edge_tts() -> CheckResult:
 
 
 def _check_vision() -> CheckResult:
+    """Vision 是可选增强：不配 key 完全不影响使用，核心内容匹配靠
+    文件名语义 + 概念桥接（零依赖零成本）。"""
     import os
     if os.environ.get("COMPOSER_VISION_API_KEY"):
-        return CheckResult("VisionProvider", "PASS",
+        return CheckResult("Vision 增强（可选）", "PASS",
                            os.environ.get("COMPOSER_VISION_MODEL", "gpt-4o"))
-    return CheckResult("VisionProvider", "SKIP",
-                       "未配置（可设 COMPOSER_VISION_API_KEY 激活；无它则依赖手工标注做内容匹配）")
+    return CheckResult("Vision 增强（可选）", "SKIP",
+                       "未配置——不影响使用。核心匹配已用文件名语义零依赖完成；"
+                       "配 COMPOSER_VISION_API_KEY 可升级为视觉级理解")
 
 
 def _check_whisper() -> CheckResult:
