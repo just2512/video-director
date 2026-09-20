@@ -76,7 +76,7 @@ MAX_REPAIR_ROUNDS = 3
 
 def composer_storage_root() -> Path:
     """项目产物根目录 <项目根>/storage/composer/。"""
-    root = Path(__file__).resolve().parent.parent.parent / "storage" / "composer"
+    root = Path(__file__).resolve().parent.parent / "storage" / "composer"
     root.mkdir(parents=True, exist_ok=True)
     return root
 

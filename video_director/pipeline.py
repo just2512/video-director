@@ -208,16 +208,19 @@ def compose_project(
 
     if sfx_plan:
         lib = audio_mod.scan_library()
-        for ev in sfx_plan:
-            aid = ev.get("asset_id") or audio_mod.resolve(
-                {"type": "sfx", "tags": ev.get("tags", [])}, lib
+        # guizang audio-cues：SFX 绑定动作发生点（action_id 驱动语义选择），
+        # 旧格式 {start, tags/asset_id} 向后兼容
+        for ev in audio_mod.normalize_sfx_events(sfx_plan):
+            aid = ev.get("asset_id") or audio_mod.resolve_action_sfx(ev, lib) or (
+                audio_mod.resolve({"type": "sfx", "tags": ev.get("tags") or []}, lib)
             )
             if aid is None:
-                warnings.append(f"NO_SFX: 无匹配音效（intent={ev.get('intent')}），跳过")
+                reason = ev.get("action_id") or ev.get("tags") or "?"
+                warnings.append(f"NO_SFX: 无匹配音效（action={reason}），跳过（不随机替代）")
                 continue
             audio_assets[aid] = lib[aid]
             audio_tracks.append(audio_mod.build_sfx_track(
-                aid, ev["start"], ev.get("duration", 0.7), ev.get("volume"),
+                aid, ev["at"], ev.get("duration", 0.7), ev.get("volume"),
             ))
 
     ir.audio = audio_tracks
@@ -381,6 +384,18 @@ def compose_auto(
     except Exception as exc:
         logger.warning(f"store.create_project 失败（不阻塞主流程）: {exc}")
 
+    # 0.5 Capability Gate（jianying-headless：能力检查必须在 Plan 前面——
+    # 环境必需能力缺失时生成前失败，而不是渲染一半报错）
+    from video_director import doctor
+    doctor_results = doctor.run_doctor()
+    if doctor.has_blocking_failures(doctor_results):
+        fail_detail = "; ".join(f"{r.name}: {r.detail}" for r in doctor_results if r.status == "FAIL")
+        try:
+            store.set_stage(project_id, store.Stage.FAILED, error=f"CAPABILITY_MISSING: {fail_detail}")
+        except Exception:
+            pass
+        raise PipelineError(f"CAPABILITY_MISSING（环境自检未过，禁止盲目继续）: {fail_detail}")
+
     # 1. TTS + 词级对齐（TTSTimestampProvider 主路径，零额外模型）
     store.set_stage(project_id, store.Stage.TTS)
     narration_audio, word_timeline, narration_scenes = narration_mod.synth_narration(
@@ -473,4 +488,32 @@ def compose_auto(
     )
     store.finish_project(project_id, result.final_path, result.narration_duration,
                          result.qc_report)
+    # Run Manifest（jianying-headless 运行审计：providers/版本/输入hash/验证结果）
+    from video_director import runlog
+    try:
+        script_file = dirs["input"] / "script.txt"
+        manifest = runlog.build_run_manifest(
+            project_id=project_id,
+            workflow="script-media-compose",
+            script_path=str(script_file),
+            asset_paths=video_files + image_files,
+            providers={
+                "tts": "edge-tts",
+                "alignment": "edge-tts-word-boundaries",
+                "vision": ("frame-vision" if any(
+                    r.status == "PASS" and "Vision" in r.name for r in doctor_results
+                ) else "manual-manifest" if manual_manifest else "none"),
+                "llm": "none",
+            },
+            verification={
+                "doctor": "PASS",
+                "deterministic_qc": result.qc_report.get("verdict", "?"),
+                "visual_qc": "SKIPPED（第二阶段）",
+            },
+            artifact_path=result.final_path,
+            warnings=result.warnings,
+        )
+        runlog.save_run_manifest(base, manifest)
+    except Exception as exc:
+        logger.warning(f"run manifest 写入失败（不阻塞交付）: {exc}")
     return result

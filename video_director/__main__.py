@@ -21,8 +21,11 @@ def _collect_files(d: str, exts: tuple) -> list:
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser("video_director", description="Script-driven Video Composer")
+    ap = argparse.ArgumentParser("video_director", description="AI Video Director")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    d = sub.add_parser("doctor", help="环境自检：必需能力缺失则在生成前阻塞")
+    d.add_argument("--json", action="store_true", help="输出 JSON（供 WebUI/Skill 消费）")
 
     c = sub.add_parser("compose", help="文案+素材 → final.mp4")
     c.add_argument("--script", required=True, help="文案 txt 文件")
@@ -58,6 +61,19 @@ def main(argv=None):
     auto.add_argument("--json", action="store_true")
 
     a = ap.parse_args(argv)
+
+    if a.cmd == "doctor":
+        from video_director import doctor
+        results = doctor.run_doctor()
+        if getattr(a, "json", False):
+            import json as _json
+            print(_json.dumps(
+                [{"name": r.name, "status": r.status, "detail": r.detail} for r in results],
+                ensure_ascii=False, indent=2,
+            ))
+        else:
+            print(doctor.format_doctor_report(results))
+        sys.exit(1 if doctor.has_blocking_failures(results) else 0)
 
     from video_director import pipeline
 

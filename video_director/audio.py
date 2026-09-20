@@ -26,7 +26,7 @@ class AudioLibraryError(Exception):
 
 #: 音频库根目录（storage/composer/audio_library/，与项目产物平行）
 def library_root() -> Path:
-    root = Path(__file__).resolve().parent.parent.parent / "storage" / "composer" / "audio_library"
+    root = Path(__file__).resolve().parent.parent / "storage" / "composer" / "audio_library"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -127,6 +127,83 @@ def build_sfx_track(
         duration=duration,
         volume=volume if volume is not None else cfg.SFX_DEFAULT_VOLUME,
     )
+
+
+# ---------------------------------------------------------------------------
+# SFX 动作绑定（guizang audio-cues 思想：音效绑定动作发生点，非"每镜头开头
+# 放一个 whoosh"。AI 只声明 action_id + role，Resolver 按 action 语义选 SFX 类别。
+# ---------------------------------------------------------------------------
+
+#: action_id → SFX 语义类别映射（guizang：click/whoosh/impact/resolve 家族）
+ACTION_SFX_MAP = {
+    # 转场/移动类 → whoosh 家族
+    "transition": ["whoosh"],
+    "cut": ["whoosh"],
+    "broll_in": ["whoosh"],
+    "slide": ["whoosh"],
+    # 强调/冲击类 → impact 家族
+    "emphasis": ["impact"],
+    "reveal": ["impact"],
+    "punch": ["impact"],
+    "turning_point": ["impact"],
+    # 交互反馈类 → click 家族
+    "text_appear": ["click"],
+    "toggle": ["click"],
+    "select": ["click"],
+    "feedback": ["click"],
+    # 结果/通知类 → 优先 click（当前库无 ding，类别回退）
+    "result": ["click"],
+    "notification": ["click"],
+    "success": ["click"],
+}
+
+
+def resolve_action_sfx(event: dict, library: Dict[str, AssetRef]) -> Optional[str]:
+    """动作事件 → SFX asset_id（guizang 按类别回退：先精确 tag 再类别，缺则 None）。
+
+    event: {action_id, at, role, tags?} —— action_id 驱动语义，role 可选
+    （feedback/emphasis/transition），tags 显式指定时优先。
+    """
+    action_id = event.get("action_id", "")
+    explicit_tags = event.get("tags") or []
+    if explicit_tags:
+        return resolve({"type": "sfx", "tags": explicit_tags}, library)
+
+    # action_id 语义类别（含 role fallback：emphasis 类 role 同 impact）
+    categories = ACTION_SFX_MAP.get(action_id, None)
+    if categories is None:
+        role = event.get("role", "")
+        if role in ("emphasis", "turning_point"):
+            categories = ["impact"]
+        elif role == "transition":
+            categories = ["whoosh"]
+        elif role == "feedback":
+            categories = ["click"]
+    if not categories:
+        return None
+    return resolve({"type": "sfx", "tags": categories}, library)
+
+
+def normalize_sfx_events(events: List[dict]) -> List[dict]:
+    """统一 SFX 事件输入为 {at, action_id?, tags?, asset_id?, role?}（向后兼容）。
+
+    旧格式 {start, tags/asset_id} 与新格式 {at, action_id} 都归一为
+    {at: float}，供 pipeline 消费。
+    """
+    normalized = []
+    for ev in events:
+        at = ev.get("at", ev.get("start", 0.0))
+        item = {
+            "at": float(at),
+            "action_id": ev.get("action_id"),
+            "tags": ev.get("tags"),
+            "asset_id": ev.get("asset_id"),
+            "role": ev.get("role"),
+            "duration": ev.get("duration", 0.7),
+            "volume": ev.get("volume"),
+        }
+        normalized.append(item)
+    return normalized
 
 
 def append_audio_assets(
