@@ -86,9 +86,6 @@ def main():
         if not script.strip():
             st.error("请先粘贴文案")
             st.stop()
-        if not uploaded_videos and not uploaded_images:
-            st.error("请至少拖入一个视频或图片素材")
-            st.stop()
 
         project_id = f"web-{uuid.uuid4().hex[:8]}"
         project_dir = ROOT / "storage" / project_id
@@ -109,17 +106,36 @@ def main():
         start = time.time()
         try:
             with st.status("AI 正在理解内容并生成视频……", expanded=True) as status:
-                status.write("正在配音……")
-                result = pipeline.compose_auto(
-                    script=script,
-                    video_files=video_paths,
-                    image_files=image_paths,
-                    project_id=project_id,
-                    voice=voice,
-                    manual_manifest=manual_manifest,
-                    style_intent=(style_intent.strip() or None) if style_intent else None,
-                    bgm_asset_id=(bgm_choice if bgm_choice != "（关闭）" else None),
-                )
+                if video_paths or image_paths:
+                    status.write("正在配音与匹配画面……")
+                    result = pipeline.compose_auto(
+                        script=script,
+                        video_files=video_paths,
+                        image_files=image_paths,
+                        project_id=project_id,
+                        voice=voice,
+                        manual_manifest=manual_manifest,
+                        style_intent=(style_intent.strip() or None) if style_intent else None,
+                        bgm_asset_id=(bgm_choice if bgm_choice != "（关闭）" else None),
+                    )
+                else:
+                    # 纯文案模式：无素材 → 文字卡 + 旁白 + 字幕（兑现「素材可选」）
+                    from video_director import script_only
+                    status.write("正在配音与制作文字卡……")
+                    so = script_only.compose_script_only(
+                        script=script,
+                        project_id=project_id,
+                        voice=voice,
+                        style_intent=(style_intent.strip() or None) if style_intent else None,
+                    )
+                    result = pipeline.PipelineResult(
+                        project_dir=so.project_dir,
+                        final_path=so.final_path,
+                        ir=so.ir,
+                        qc_report=so.qc_report,
+                        narration_duration=so.narration_duration,
+                        warnings=so.warnings,
+                    )
                 status.write(f"✅ 完成，耗时 {time.time() - start:.1f}s")
             st.session_state["vd_result"] = result
         except Exception as exc:

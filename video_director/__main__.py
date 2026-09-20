@@ -60,7 +60,25 @@ def main(argv=None):
     auto.add_argument("--bgm", default=None)
     auto.add_argument("--json", action="store_true")
 
+    txt = sub.add_parser("text", help="纯文案模式：文案 → 文字卡+旁白+字幕 → 成片（无需素材）")
+    txt.add_argument("--script", required=True, help="文案 txt/md 文件")
+    txt.add_argument("--project-id", default="text-run")
+    txt.add_argument("--voice", default="zh-CN-XiaoxiaoNeural")
+    txt.add_argument("--voice-rate", default="+0%")
+    txt.add_argument("--style", default=None, help="风格描述（留空 AUTO）")
+    txt.add_argument("--width", type=int, default=None)
+    txt.add_argument("--height", type=int, default=None)
+    txt.add_argument("--fps", type=int, default=None)
+    txt.add_argument("--json", action="store_true")
+
+    caps = sub.add_parser("capabilities", help="能力清单与 preflight 报告")
+
     a = ap.parse_args(argv)
+
+    if a.cmd == "capabilities":
+        from video_director import capabilities as caps_mod
+        print(caps_mod.capability_report())
+        sys.exit(0)
 
     if a.cmd == "doctor":
         from video_director import doctor
@@ -85,7 +103,24 @@ def main(argv=None):
     videos = _collect_files(a.videos, (".mp4", ".mov", ".mkv", ".webm")) if a.videos else []
     images = _collect_files(a.images, (".jpg", ".jpeg", ".png", ".webp")) if a.images else []
 
-    if a.cmd == "auto":
+    if a.cmd == "text":
+        # 纯文案模式：先做能力级 preflight（script-only 需要 tts+renderer）
+        from video_director import capabilities as caps_mod
+        ok, blocked, _degraded = caps_mod.preflight(["tts", "renderer"])
+        if not ok:
+            print(f"[X] 能力缺失，无法进入纯文案模式: {', '.join(blocked)}", file=sys.stderr)
+            sys.exit(1)
+        from video_director import script_only
+        result = script_only.compose_script_only(
+            script=script,
+            project_id=getattr(a, "project_id", "text-run"),
+            voice=a.voice,
+            style_intent=a.style if getattr(a, "style", None) else None,
+            width=a.width,
+            height=a.height,
+            fps=a.fps,
+        )
+    elif a.cmd == "auto":
         result = pipeline.compose_auto(
             script=script,
             video_files=videos,
