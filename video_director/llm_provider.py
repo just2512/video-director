@@ -1,0 +1,334 @@
+"""LLM Provider 层（V1 §配置契约：常规大模型能力标配）。
+
+设计原则：
+- **诚实降级**：无 VD_LLM_API_KEY 时 get_llm() 返回 None，消费点走规则路径
+- **延迟连接**：OpenAI client 在 generate() 首次调用时构造，import 本模块不触发网络
+- **OpenAI 协议兼容**：base_url/api_key/model 全部环境变量注入，兼容 moonshot/deepseek/
+  硅基流动/dashscope 兼容模式/gemini openai 端点 等任何 OpenAI 协议端点
+- **零破坏**：planner.py/matcher.py 的 llm_call 回调签名不变，本模块只提供 helper
+  供上层调用方注入或直接使用
+
+环境变量：
+    VD_LLM_API_KEY    必填，有则启用真实 provider
+    VD_LLM_BASE_URL   可选，OpenAI 兼容端点（默认 https://api.openai.com/v1）
+    VD_LLM_MODEL      可选，模型名（默认 gpt-4o-mini）
+
+消费点（三个 helper，无 provider 时诚实降级）：
+    enhance_script(script)              文案口语化与节奏优化
+    storyboard_hints(scene_texts)       每句视觉提示
+    # 扩展位：复刻拆解 prompt（后续产品线消费，签名 storyboard_deconstruct）
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from typing import List, Optional, Protocol, runtime_checkable
+
+from loguru import logger
+
+# ---------------------------------------------------------------------------
+# 环境变量键名（集中定义，禁止散落）
+# ---------------------------------------------------------------------------
+ENV_API_KEY = "VD_LLM_API_KEY"
+ENV_BASE_URL = "VD_LLM_BASE_URL"
+ENV_MODEL = "VD_LLM_MODEL"
+
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_MODEL = "gpt-4o-mini"
+
+
+# ---------------------------------------------------------------------------
+# Provider 抽象（Protocol：鸭子类型，便于测试 monkeypatch）
+# ---------------------------------------------------------------------------
+@runtime_checkable
+class LLMProvider(Protocol):
+    """LLM Provider 抽象。实现者必须提供 generate(prompt, system) -> str。"""
+
+    def generate(self, prompt: str, system: Optional[str] = None) -> str:
+        """生成文本。system 为 None 表示不挂系统提示词。"""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# OpenAI 兼容实现
+# ---------------------------------------------------------------------------
+class OpenAICompatibleProvider:
+    """OpenAI 协议兼容端点的统一实现。
+
+    延迟初始化：__init__ 只存配置，openai.OpenAI 客户端在首次 generate() 时构造。
+    这样 import 本模块 / 构造 provider 不会触发任何网络或证书加载，单元测试可在
+    无网络环境下安全导入。
+
+    兼容端点示例：
+        - moonshot:        base_url=https://api.moonshot.cn/v1
+        - deepseek:        base_url=https://api.deepseek.com/v1
+        - 硅基流动:         base_url=https://api.siliconflow.cn/v1
+        - dashscope 兼容:   base_url=https://dashscope.aliyuncs.com/compatible-mode/v1
+        - gemini openai:   base_url=https://generativelanguage.googleapis.com/v1beta/openai
+        - 本地 ollama:      base_url=http://localhost:11434/v1, api_key="ollama"
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
+        if not api_key:
+            raise ValueError("OpenAICompatibleProvider: api_key 不可为空")
+        self._api_key = api_key
+        self._base_url = base_url or os.environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL
+        self._model = model or os.environ.get(ENV_MODEL) or DEFAULT_MODEL
+        # 延迟初始化：client 在首次 generate 时构造
+        self._client = None  # type: ignore[assignment]
+
+    def _ensure_client(self):
+        """首次调用时构造 openai.OpenAI 客户端。"""
+        if self._client is not None:
+            return
+        # 局部 import：保证 import 本模块不强制依赖 openai 库可用
+        try:
+            from openai import OpenAI  # type: ignore[import-untyped]
+        except ImportError as exc:  # pragma: no cover - 环境问题不可达路径
+            raise RuntimeError(
+                "openai 库未安装，无法启用 LLM Provider。"
+                " 请运行: pip install openai"
+            ) from exc
+        self._client = OpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+        )
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    def generate(self, prompt: str, system: Optional[str] = None) -> str:
+        """调用 chat.completions 生成文本。
+
+        失败抛 RuntimeError（调用方降级到规则路径）。
+        """
+        self._ensure_client()
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        try:
+            resp = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+            )
+        except Exception as exc:
+            logger.warning(f"LLM generate 失败 (model={self._model}): {exc}")
+            raise RuntimeError(f"LLM generate 失败: {exc}") from exc
+        # openai 2.x: resp.choices[0].message.content
+        try:
+            return resp.choices[0].message.content or ""
+        except (AttributeError, IndexError) as exc:
+            raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# 工厂：有 key 返真实 provider，无 key 返 None（诚实）
+# ---------------------------------------------------------------------------
+_provider_cache: Optional[Optional[LLMProvider]] = None
+
+
+def get_llm() -> Optional[LLMProvider]:
+    """获取 LLM Provider 单例。
+
+    - 有 VD_LLM_API_KEY → 返回 OpenAICompatibleProvider
+    - 无 VD_LLM_API_KEY → 返回 None（诚实降级，调用方走规则路径）
+
+    结果缓存（进程内单例），避免每次调用重建 client。
+    """
+    global _provider_cache
+    if _provider_cache is not None:
+        return _provider_cache
+    api_key = os.environ.get(ENV_API_KEY, "").strip()
+    if not api_key:
+        logger.info(
+            f"LLM 未启用（{ENV_API_KEY} 未配置），消费点将走规则路径兜底"
+        )
+        _provider_cache = None
+        return None
+    try:
+        provider = OpenAICompatibleProvider(api_key=api_key)
+    except Exception as exc:
+        logger.warning(f"LLM Provider 构造失败，降级 None: {exc}")
+        _provider_cache = None
+        return None
+    _provider_cache = provider
+    return _provider_cache
+
+
+def reset_llm_cache() -> None:
+    """重置 provider 缓存（测试用，生产代码不应调用）。"""
+    global _provider_cache
+    _provider_cache = None
+
+
+# ---------------------------------------------------------------------------
+# 消费点 1：文案优化
+# ---------------------------------------------------------------------------
+ENHANCE_SYSTEM = """你是短视频文案润色师。规则：
+1. 保持原意不变，不改任何事实/数字/专有名词
+2. 优化口语化与节奏，让朗读更流畅
+3. 按句号分句（每句独立完整，不要合并句子）
+4. 不要新增内容，不要删除原文要点
+5. 只输出润色后的文案，不要任何解释或前后缀"""
+
+ENHANCE_USER_TEMPLATE = """原文：
+{script}
+
+请按规则润色。"""
+
+
+def enhance_script(script: str) -> str:
+    """文案优化：保持原意，优化口语化与节奏，按句号分句。
+
+    无 provider 时原样返回 script（诚实降级）。
+    """
+    if not script or not script.strip():
+        return script
+    provider = get_llm()
+    if provider is None:
+        logger.debug("enhance_script: 无 LLM provider，原样返回")
+        return script
+    prompt = ENHANCE_USER_TEMPLATE.format(script=script)
+    try:
+        enhanced = provider.generate(prompt, system=ENHANCE_SYSTEM)
+    except Exception as exc:
+        logger.warning(f"enhance_script LLM 调用失败，原样返回: {exc}")
+        return script
+    enhanced = enhanced.strip()
+    if not enhanced:
+        logger.warning("enhance_script LLM 返回空，原样返回")
+        return script
+    return enhanced
+
+
+# ---------------------------------------------------------------------------
+# 消费点 2：分镜视觉提示
+# ---------------------------------------------------------------------------
+STORYBOARD_SYSTEM = """你是视频分镜师。给定若干文案句子，为每句生成视觉提示。
+
+规则：
+1. visual_hint：一句话描述适合搭配的画面（视觉化、具体，不超过 30 字）
+2. keywords：3-5 个画面关键词，用于素材匹配（名词为主）
+3. 不要改写原句，text 字段必须是原句
+4. 只输出 JSON 数组，不要任何解释或 markdown 代码块
+
+输出格式：
+[
+  {"text": "原句1", "visual_hint": "画面描述", "keywords": ["词1", "词2", "词3"]},
+  ...
+]"""
+
+STORYBOARD_USER_TEMPLATE = """文案句子：
+{lines}
+
+为每句生成视觉提示，只输出 JSON 数组。"""
+
+
+def storyboard_hints(scene_texts: List[str]) -> List[dict]:
+    """为每句生成视觉提示。
+
+    返回 List[{"text": str, "visual_hint": str, "keywords": List[str]}]，
+    顺序与 scene_texts 一致。
+
+    无 provider 时返回每句的空 visual_hint（规则路径兜底）：
+        [{"text": s, "visual_hint": "", "keywords": []}, ...]
+    """
+    if not scene_texts:
+        return []
+    provider = get_llm()
+    if provider is None:
+        logger.debug("storyboard_hints: 无 LLM provider，返回空 visual_hint")
+        return [
+            {"text": t, "visual_hint": "", "keywords": []}
+            for t in scene_texts
+        ]
+    lines = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(scene_texts))
+    prompt = STORYBOARD_USER_TEMPLATE.format(lines=lines)
+    try:
+        raw = provider.generate(prompt, system=STORYBOARD_SYSTEM)
+    except Exception as exc:
+        logger.warning(f"storyboard_hints LLM 调用失败，走空兜底: {exc}")
+        return [
+            {"text": t, "visual_hint": "", "keywords": []}
+            for t in scene_texts
+        ]
+    parsed = _parse_storyboard(raw, scene_texts)
+    if parsed is None:
+        logger.warning("storyboard_hints LLM 输出解析失败，走空兜底")
+        return [
+            {"text": t, "visual_hint": "", "keywords": []}
+            for t in scene_texts
+        ]
+    return parsed
+
+
+def _parse_storyboard(raw: str, scene_texts: List[str]) -> Optional[List[dict]]:
+    """解析 LLM 返回的 JSON 数组，对齐到 scene_texts 顺序与长度。
+
+    宽容策略：
+    - markdown 代码块包裹 → 剥掉
+    - 返回 JSON 对象而非数组 → 取 data 字段
+    - 条数对不上 → 按顺序尽量匹配，缺的补空 hint
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    # 找第一个 [ 到最后一个 ]
+    start, end = text.find("["), text.rfind("]")
+    if start < 0 or end <= start:
+        # 可能是 {"data": [...]} 形式
+        start_obj, end_obj = text.find("{"), text.rfind("}")
+        if start_obj >= 0 and end_obj > start_obj:
+            try:
+                obj = json.loads(text[start_obj : end_obj + 1])
+            except json.JSONDecodeError:
+                return None
+            if isinstance(obj, dict) and isinstance(obj.get("data"), list):
+                items = obj["data"]
+            else:
+                return None
+        else:
+            return None
+    else:
+        try:
+            items = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(items, list):
+        return None
+    result: List[dict] = []
+    for i, original in enumerate(scene_texts):
+        entry = items[i] if i < len(items) and isinstance(items[i], dict) else {}
+        hint = entry.get("visual_hint", "") or ""
+        kws = entry.get("keywords", []) or []
+        if not isinstance(kws, list):
+            kws = []
+        # 强制 text 对齐原文（防止 LLM 改写）
+        result.append({
+            "text": original,
+            "visual_hint": str(hint).strip(),
+            "keywords": [str(k) for k in kws if k],
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 扩展位：复刻拆解 prompt（后续产品线消费，暂不接线）
+# ---------------------------------------------------------------------------
+# storyboard_deconstruct(reference_video_desc: str) -> dict
+#   用于把参考视频拆解为可复用的镜头序列。签名与 prompt 待产品线接入时定义，
+#   此处保留扩展位注释，不提前实现（YAGNI）。

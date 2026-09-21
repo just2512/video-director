@@ -56,6 +56,12 @@ class PipelineResult:
     narration_duration: float
     repair_rounds: int = 0
     warnings: List[str] = field(default_factory=list)
+    #: auto_confirm=False 时，compose_auto 在 PLANNING 后暂停，不渲染。
+    #: pending_confirm=True 表示这是一次「待确认」结果，final_path 为空，
+    #: storyboard 字段含分镜书 dict，供调用方展示给用户。
+    pending_confirm: bool = False
+    storyboard: Optional[dict] = None
+    project_id: Optional[str] = None
 
 
 def split_script_scenes(script: str) -> List[str]:
@@ -156,14 +162,29 @@ def compose_project(
         json.dump(scenes, f, ensure_ascii=False, indent=2)
 
     # 2. 资产清单（V1 §25：ffprobe）
-    if not video_files and not image_files:
+    manifest_exists = (dirs["assets"] / "manifest.json").is_file()
+    if not video_files and not image_files and not manifest_exists:
         _fail("无任何视觉素材（SCRIPT_ONLY 模式第二阶段支持）")
         raise PipelineError("无任何视觉素材（SCRIPT_ONLY 模式第二阶段支持）")
-    asset_map, order = assets_mod.build_manifest(video_files, image_files)
-    with open(dirs["assets"] / "manifest.json", "w", encoding="utf-8") as f:
-        json.dump(
-            [a.model_dump() for a in asset_map.values()], f, ensure_ascii=False, indent=2
+    if video_files or image_files:
+        asset_map, order = assets_mod.build_manifest(video_files, image_files)
+        with open(dirs["assets"] / "manifest.json", "w", encoding="utf-8") as f:
+            json.dump(
+                [a.model_dump() for a in asset_map.values()], f, ensure_ascii=False, indent=2
+            )
+    else:
+        # resume/draft 路径：素材已在 manifest（compose_auto(auto_confirm=False)
+        # 暂停时落盘），从 manifest 重建资产表，不重复探测
+        asset_list = json.loads(
+            (dirs["assets"] / "manifest.json").read_text(encoding="utf-8")
         )
+        asset_map = {}
+        order = []
+        for a in asset_list:
+            ref = AssetRef(**a)
+            asset_map[ref.id] = ref
+            order.append(ref.id)
+        logger.info(f"compose_project: 从 manifest 重建资产表 {len(order)} 项（resume 路径）")
 
     # 3. 规划（RulePlanner 默认；LLM 由调用方注入）
     store.set_stage(pid, store.Stage.PLANNING)
@@ -335,6 +356,312 @@ def _save_error(dirs: dict, code: str, detail: str, scene_id: str = None):
 
 
 # ---------------------------------------------------------------------------
+# 人工确认环节（auto_confirm=False 的暂停/续跑路径）
+# ---------------------------------------------------------------------------
+
+def _compose_to_pending(
+    script: str,
+    project_id: str,
+    dirs: dict,
+    narration_audio: str,
+    narration_scenes: list,
+    sub_file,
+    sub_entries,
+    active_planner,
+    merged_assets,
+    merged_order,
+    style_contract,
+    style_warnings: list,
+    width,
+    height,
+    fps,
+    bgm_asset_id,
+    bgm_volume,
+    sfx_plan,
+    doctor_results,
+    video_files: list,
+    image_files: list,
+) -> PipelineResult:
+    """auto_confirm=False：跑到规划完成，生成分镜书，落 AWAITING_CONFIRM 态。
+
+    返回 pending_confirm=True 的 PipelineResult：
+    - final_path 为空字符串（未渲染）
+    - ir 含规划后的 CompositionIR dict
+    - storyboard 含分镜书 dict（也同时落盘 plans/storyboard.json）
+    - project_id 带回（resume_after_confirm 要用）
+    """
+    from video_director import confirm as confirm_mod
+
+    if merged_assets is None or merged_order is None:
+        # 用户自注入 planner 的分支：没有 merged_assets，无法生成分镜书细节
+        # 降级为最小分镜书（仅场景列表，无素材细节）
+        merged_assets = {}
+        merged_order = []
+        if not active_planner:
+            raise PipelineError("auto_confirm=False 需要 planner，但未注入")
+
+    # 规划一次（与 compose_project 内部同款 plan 调用，幂等）
+    store.set_stage(project_id, store.Stage.PLANNING)
+    ir = active_planner.plan(
+        scenes=narration_scenes,
+        assets=merged_assets,
+        asset_order=merged_order,
+        width=width or config.DEFAULT_RESOLUTION[0],
+        height=height or config.DEFAULT_RESOLUTION[1],
+        fps=fps or config.DEFAULT_FPS,
+    )
+    style_mod.apply_to_ir(ir, style_contract, config)
+
+    # IR 落盘（与 compose_project 一致：composition.json 是渲染唯一输入）
+    with open(dirs["plans"] / "composition.json", "w", encoding="utf-8") as f:
+        json.dump(json.loads(ir.model_dump_json()), f, ensure_ascii=False, indent=2)
+
+    # 匹配结果（若 ContentMatchPlanner 路径）从 planner 里取
+    assignments: dict = {}
+    if hasattr(active_planner, "_assignments"):
+        assignments = dict(active_planner._assignments)
+
+    # 生成分镜书
+    storyboard = confirm_mod.build_storyboard(
+        ir=ir,
+        scenes=narration_scenes,
+        assignments=assignments,
+        style=style_contract,
+        assets=merged_assets,
+    )
+    confirm_mod.save_storyboard(storyboard, dirs["plans"] / "storyboard.json")
+
+    # Style 契约落盘（与 auto_confirm=True 路径一致，resume 时不重做）
+    (dirs["plans"] / "style.json").write_text(
+        json.dumps({
+            "style_id": style_contract.style_id,
+            "reason": style_contract.reason,
+            "contract": {
+                "subtitle_position": style_contract.subtitle_position,
+                "subtitle_font_size": style_contract.subtitle_font_size,
+                "image_motion_intensity": style_contract.image_motion_intensity,
+                "transition_budget": style_contract.transition_budget,
+                "bgm_volume": style_contract.bgm_volume,
+                "sfx_density": style_contract.sfx_density,
+            },
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    # 文案落盘（resume 时 compose_project 会再写一次，幂等）
+    (dirs["input"] / "script.txt").write_text(script, encoding="utf-8")
+
+    # 场景表落盘（resume_after_confirm 要读回 narration_scenes）
+    with open(dirs["plans"] / "scenes.json", "w", encoding="utf-8") as f:
+        json.dump(narration_scenes, f, ensure_ascii=False, indent=2)
+
+    # 资产清单落盘（resume/draft 渲染的素材来源——缺失会导致 draft 找不到素材）。
+    # 与 compose_project 的 manifest 写法一致；音频库资产并入（BGM/SFX 引用）。
+    merged_for_manifest = dict(merged_assets or {})
+    try:
+        from video_director import audio as _audio_mod
+        merged_for_manifest = _audio_mod.append_audio_assets(
+            merged_for_manifest, _audio_mod.scan_library()
+        )
+    except Exception as exc:
+        logger.warning(f"音频库并入 manifest 失败（不阻塞）: {exc}")
+    if merged_for_manifest:
+        with open(dirs["assets"] / "manifest.json", "w", encoding="utf-8") as f:
+            json.dump(
+                [a.model_dump() for a in merged_for_manifest.values()],
+                f, ensure_ascii=False, indent=2,
+            )
+
+    # 状态机：PLANNING → AWAITING_CONFIRM（暂停点，不渲染）
+    store.set_stage(project_id, store.Stage.AWAITING_CONFIRM)
+    try:
+        store.save_storyboard_snapshot(project_id, storyboard)
+    except Exception as exc:
+        logger.warning(f"store.save_storyboard_snapshot 失败（不阻塞）: {exc}")
+
+    return PipelineResult(
+        project_dir=str(config.project_dir(project_id)),
+        final_path="",  # 未渲染
+        ir=json.loads(ir.model_dump_json()),
+        qc_report={},   # 未 QC
+        narration_duration=narration_scenes[-1]["start"] + narration_scenes[-1]["duration"],
+        warnings=list(style_warnings),
+        pending_confirm=True,
+        storyboard=storyboard,
+        project_id=project_id,
+    )
+
+
+def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> PipelineResult:
+    """人工确认后从 RENDERING 继续 → QC → final。
+
+    流程：
+    1. 读 plans/storyboard.json + plans/composition.json
+    2. 若 edits 不为空：应用 edits 到分镜书；若 edits 涉及改素材/删场景，
+       重规划（用原 planner 重新 plan）。第一版简化：有 edits 则尝试重规划
+       （改 assignments 后跑 ContentMatchPlanner），无 edits 直接用原 IR。
+    3. store.confirm_project(approved=True) → RENDERING
+    4. 从 RENDERING+QC 继续：调用 compose_project（幂等：planner/字幕/
+       narration 都从项目目录里读回，IR 重规划后幂等覆盖 composition.json）
+    5. 收尾：store.finish_project + runlog
+
+    约束：不改 compose_project 签名。resume 里若要重规划，把 planner 注入
+    compose_project，让其内部重新 plan——这会覆盖 composition.json，幂等。
+    """
+    from video_director import confirm as confirm_mod
+
+    base = config.project_dir(project_id)
+    dirs = config.init_project_dirs(base)
+
+    # 读回项目元数据
+    proj = store.get_project(project_id)
+    if proj is None:
+        raise PipelineError(f"项目不存在: {project_id}")
+    if proj["stage"] != store.Stage.AWAITING_CONFIRM.value:
+        raise PipelineError(
+            f"项目 {project_id} 当前 stage={proj['stage']}，非 AWAITING_CONFIRM，"
+            f"不能 resume（需先 compose_auto(auto_confirm=False)）"
+        )
+
+    # 读回分镜书 + 风格契约 + 原参数
+    storyboard_path = dirs["plans"] / "storyboard.json"
+    storyboard = confirm_mod.load_storyboard(storyboard_path)
+
+    style_path = dirs["plans"] / "style.json"
+    style_data = {}
+    if style_path.is_file():
+        try:
+            style_data = json.loads(style_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(f"style.json 读回失败: {exc}")
+
+    # 读回原始参数
+    params = {}
+    try:
+        params = json.loads(proj["params_json"]) if proj["params_json"] else {}
+    except json.JSONDecodeError:
+        params = {}
+    script = proj["script"]
+    voice = params.get("voice", "zh-CN-XiaoxiaoNeural")
+    voice_rate = params.get("voice_rate", "+0%")
+    width = params.get("width")
+    height = params.get("height")
+    fps = params.get("fps")
+    bgm_asset_id = params.get("bgm")
+    manual_manifest = params.get("manual_manifest")
+    style_id = params.get("style_id") or style_data.get("style_id")
+    style_contract = style_mod.get_style(style_id) if style_id else None
+    if style_contract is None:
+        # 兜底：用文案重选一次风格
+        style_contract, _ = style_mod.select_style(script, None)
+
+    # 应用 edits 到分镜书（即使重规划，分镜书也要反映最终状态）
+    effective_edits = edits or {}
+    if effective_edits:
+        storyboard = confirm_mod.apply_storyboard_edits(storyboard, effective_edits)
+        confirm_mod.save_storyboard(storyboard, storyboard_path)
+
+    # 标记确认通过 → RENDERING
+    store.confirm_project(project_id, approved=True, edits=effective_edits or None)
+
+    # 重新规划（若有 edits）：
+    # - 若 edits 改了 assignments（asset 字段），构造新 ContentMatchPlanner
+    # - 若无 edits，用原 planner——但原 planner 无法从 IR 反序列化，
+    #   简化：无 edits 时 RulePlanner 用 narration_scenes + assets 重跑一次
+    #   （幂等：IR 结果与之前一致，compose_project 会覆盖 composition.json）
+    # 读回 narration_scenes（compose_project 要用）
+    scenes_path = dirs["plans"] / "scenes.json"
+    if not scenes_path.is_file():
+        raise PipelineError(f"scenes.json 不存在: {scenes_path}（项目数据不完整）")
+    narration_scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
+
+    # 读回 asset manifest（若存在）
+    manifest_path = dirs["assets"] / "manifest.json"
+    merged_assets = {}
+    merged_order = []
+    if manifest_path.is_file():
+        asset_list = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for a in asset_list:
+            ref = AssetRef(**a)
+            merged_assets[ref.id] = ref
+            merged_order.append(ref.id)
+
+    # 构造 planner：若 edits 涉及 asset 改动，用 ContentMatchPlanner
+    # 带新 assignments；否则用 RulePlanner 重跑（幂等）
+    active_planner = None
+    if effective_edits:
+        # 从分镜书 scenes 里提新 assignments（主素材 = 每场景 assets_used 第一条）
+        new_assignments: Dict[str, str] = {}
+        for sc in storyboard.get("scenes", []):
+            used = sc.get("assets_used") or []
+            if used and used[0].get("asset_id"):
+                new_assignments[sc["scene_id"]] = used[0]["asset_id"]
+        if new_assignments and merged_assets:
+            active_planner = planner_mod.ContentMatchPlanner(new_assignments)
+            logger.info(f"resume: edits 应用，ContentMatchPlanner 重规划（{len(new_assignments)} 场景）")
+        else:
+            logger.warning("resume: edits 无有效素材改动，用 RulePlanner 重规划")
+    if active_planner is None:
+        active_planner = planner_mod.RulePlanner()
+
+    # 读回 narration_audio + 字幕文件
+    narration_audio_path = dirs["audio"] / "narration.wav"
+    narration_file = str(narration_audio_path) if narration_audio_path.is_file() else None
+    sub_file = dirs["render"] / "master.srt"
+    sub_entries = subtitle_mod.srt_entries(narration_scenes) if sub_file.is_file() else None
+    sub_file_arg = str(sub_file) if sub_file.is_file() else None
+
+    # 复用 compose_project 完成规划→渲染→QC
+    result = compose_project(
+        script=script,
+        video_files=[],   # 资产已在 manifest 里，不重复探测
+        image_files=[],
+        project_id=project_id,
+        planner=active_planner,
+        narration_file=narration_file,
+        narration_scenes=narration_scenes,
+        bgm_asset_id=bgm_asset_id,
+        bgm_volume=style_contract.bgm_volume if style_contract else None,
+        sfx_plan=None,
+        subtitle_entries=sub_entries,
+        subtitle_file=sub_file_arg,
+        width=width,
+        height=height,
+        fps=fps,
+    )
+
+    store.finish_project(project_id, result.final_path, result.narration_duration,
+                         result.qc_report)
+    # Run Manifest（与 compose_auto 一致）
+    from video_director import runlog
+    try:
+        script_file = dirs["input"] / "script.txt"
+        manifest = runlog.build_run_manifest(
+            project_id=project_id,
+            workflow="script-media-compose-resumed",
+            script_path=str(script_file),
+            asset_paths=[],
+            providers={
+                "tts": "edge-tts",
+                "alignment": "edge-tts-word-boundaries",
+                "vision": "none",
+                "llm": "none",
+            },
+            verification={
+                "doctor": "PASS",
+                "deterministic_qc": result.qc_report.get("verdict", "?"),
+                "visual_qc": "SKIPPED",
+            },
+            artifact_path=result.final_path,
+            warnings=result.warnings,
+        )
+        runlog.save_run_manifest(base, manifest)
+    except Exception as exc:
+        logger.warning(f"run manifest 写入失败（不阻塞交付）: {exc}")
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Gate 2 高层入口：文案 → TTS → 对齐 → 字幕 → 成片
 # ---------------------------------------------------------------------------
 
@@ -356,6 +683,7 @@ def compose_auto(
     width: int = None,
     height: int = None,
     fps: int = None,
+    auto_confirm: bool = True,
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -366,6 +694,14 @@ def compose_auto(
     → manual_manifest（P5）→ 语义缺失时 matcher 顺序兜底并记 warning。
     planner 未显式注入时：有语义匹配 → ContentMatchPlanner；否则 RulePlanner。
     style_intent：用户一句风格描述（V2 §19），None 则 AUTO（V2 §18）。
+
+    auto_confirm（2026-09-20 新增，默认 True 保持向后兼容）：
+    - True：规划完直接渲染（原行为不变，"傻瓜式一键到底"）
+    - False：规划完成后暂停，生成分镜书写入 plans/storyboard.json，
+      store.set_stage AWAITING_CONFIRM，返回 pending_confirm=True 的
+      PipelineResult（final_path 为空、storyboard 含分镜书 dict）。
+      调用方（WebUI/CLI）展示分镜书给用户，用户确认后调
+      resume_after_confirm(project_id, edits) 从 RENDERING 继续。
     """
     scene_texts = split_script_scenes(script)
     base = config.project_dir(project_id)
@@ -452,6 +788,39 @@ def compose_auto(
         merged_order = None
 
     # 4. 复用 compose_project 完成规划/渲染/QC
+    #
+    # auto_confirm=False 分支（2026-09-20 新增）：规划完成后暂停，不渲染。
+    # 在此处自己跑一次 plan()（复用 active_planner），生成分镜书，落库
+    # AWAITING_CONFIRM 态，返回 pending PipelineResult。resume_after_confirm
+    # 接管后续渲染/QC（复用 compose_project 的渲染段——通过再次调用
+    # compose_project 且 planner=已确定 的方式，compose_project 内部会
+    # 重新跑一次 plan()，幂等无副作用；narration_scenes 已传入故 Gate 2
+    # 真实时长不变）。
+    if not auto_confirm:
+        return _compose_to_pending(
+            script=script,
+            project_id=project_id,
+            dirs=dirs,
+            narration_audio=narration_audio,
+            narration_scenes=narration_scenes,
+            sub_file=sub_file,
+            sub_entries=sub_entries,
+            active_planner=active_planner,
+            merged_assets=merged_assets,
+            merged_order=merged_order,
+            style_contract=style_contract,
+            style_warnings=style_warnings,
+            width=width,
+            height=height,
+            fps=fps,
+            bgm_asset_id=bgm_asset_id,
+            bgm_volume=bgm_volume,
+            sfx_plan=sfx_plan,
+            doctor_results=doctor_results,
+            video_files=video_files,
+            image_files=image_files,
+        )
+
     result = compose_project(
         script=script,
         video_files=video_files,

@@ -76,13 +76,21 @@ def init_db() -> None:
 
 
 class Stage(str, Enum):
-    """任务状态机（SVF §17-⑤ 同构：本地任务状态可解释）。"""
+    """任务状态机（SVF §17-⑤ 同构：本地任务状态可解释）。
+
+    AWAITING_CONFIRM（2026-09-20 新增）：PLANNING 之后、RENDERING 之前。
+    compose_auto(auto_confirm=False) 在规划完成后暂停于此态，等待人工
+    确认分镜书；confirm_project(approved=True) → RENDERING 继续，
+    approved=False → CREATED 重新规划。分镜书快照存 plans/storyboard.json
+    （params_json 字段亦存一份引用，跨会话可查可续）。
+    """
 
     CREATED = "CREATED"
     TTS = "TTS"
     ALIGNMENT = "ALIGNMENT"
     MATCHING = "MATCHING"
     PLANNING = "PLANNING"
+    AWAITING_CONFIRM = "AWAITING_CONFIRM"
     RENDERING = "RENDERING"
     QC = "QC"
     DONE = "DONE"
@@ -96,6 +104,7 @@ _STAGE_PROGRESS = {
     Stage.ALIGNMENT: 25,
     Stage.MATCHING: 35,
     Stage.PLANNING: 45,
+    Stage.AWAITING_CONFIRM: 50,
     Stage.RENDERING: 60,
     Stage.QC: 90,
     Stage.DONE: 100,
@@ -142,6 +151,85 @@ def finish_project(project_id: str, final_path: str, narration_duration: float,
             "narration_duration=?, qc_json=?, updated_at=? WHERE project_id=?",
             (final_path, narration_duration, json.dumps(qc_report, ensure_ascii=False),
              time.time(), project_id),
+        )
+
+
+def save_storyboard_snapshot(project_id: str, storyboard: dict) -> None:
+    """把分镜书快照写入 projects.params_json（跨会话可查）。
+
+    分镜书原文同时落盘 plans/storyboard.json（由 confirm.py 负责），
+    此处只在 projects 表里存一份引用 + 用户可见的关键字段，便于
+    list_projects / WebUI 项目列表直接展示分镜概览。
+    """
+    init_db()
+    now = time.time()
+    snapshot = {
+        "storyboard_ref": f"plans/storyboard.json",
+        "style_id": storyboard.get("style_id", ""),
+        "total_duration": storyboard.get("total_duration", 0.0),
+        "scene_count": storyboard.get("scene_count", 0),
+        "awaiting_since": now,
+    }
+    with DB_LOCK, _conn() as conn:
+        row = conn.execute(
+            "SELECT params_json FROM projects WHERE project_id=?", (project_id,)
+        ).fetchone()
+        params = {}
+        if row and row["params_json"]:
+            try:
+                params = json.loads(row["params_json"])
+                if not isinstance(params, dict):
+                    params = {}
+            except json.JSONDecodeError:
+                params = {}
+        params["storyboard_snapshot"] = snapshot
+        conn.execute(
+            "UPDATE projects SET params_json=?, updated_at=? WHERE project_id=?",
+            (json.dumps(params, ensure_ascii=False), now, project_id),
+        )
+    logger.info(
+        f"project {project_id} storyboard snapshot saved "
+        f"(style={snapshot['style_id']}, scenes={snapshot['scene_count']})"
+    )
+
+
+def confirm_project(project_id: str, approved: bool,
+                    edits: Optional[dict] = None) -> None:
+    """人工确认分镜书：批准 → RENDERING 继续；拒绝 → CREATED 回退。
+
+    edits: 用户编辑（改素材/删场景/调顺序），不为空时记入 params_json
+    供 resume_after_confirm 读取重规划。
+    """
+    init_db()
+    now = time.time()
+    if approved:
+        set_stage(project_id, Stage.RENDERING)
+        logger.info(f"project {project_id} 确认通过 → RENDERING")
+    else:
+        # 拒绝：回 CREATED，允许用户改文案/素材后重新规划
+        # edits 记入 params_json 供下次规划参考
+        with DB_LOCK, _conn() as conn:
+            row = conn.execute(
+                "SELECT params_json FROM projects WHERE project_id=?", (project_id,)
+            ).fetchone()
+            params = {}
+            if row and row["params_json"]:
+                try:
+                    params = json.loads(row["params_json"])
+                    if not isinstance(params, dict):
+                        params = {}
+                except json.JSONDecodeError:
+                    params = {}
+            if edits:
+                params["confirm_edits"] = edits
+            conn.execute(
+                "UPDATE projects SET stage='CREATED', progress=0, "
+                "params_json=?, updated_at=? WHERE project_id=?",
+                (json.dumps(params, ensure_ascii=False), now, project_id),
+            )
+        logger.info(
+            f"project {project_id} 确认拒绝 → CREATED"
+            + (f"（记录 edits: {list(edits.keys())}）" if edits else "")
         )
 
 

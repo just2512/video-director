@@ -58,6 +58,10 @@ def main(argv=None):
     auto.add_argument("--height", type=int, default=None)
     auto.add_argument("--fps", type=int, default=None)
     auto.add_argument("--bgm", default=None)
+    auto.add_argument("--confirm", action="store_true",
+                      help="先预览分镜再渲染（规划完成暂停，输出分镜书 + 项目ID）")
+    auto.add_argument("--auto", action="store_true",
+                      help="不确认，一键到底（默认行为，与 --confirm 互斥）")
     auto.add_argument("--json", action="store_true")
 
     txt = sub.add_parser("text", help="纯文案模式：文案 → 文字卡+旁白+字幕 → 成片（无需素材）")
@@ -70,6 +74,17 @@ def main(argv=None):
     txt.add_argument("--height", type=int, default=None)
     txt.add_argument("--fps", type=int, default=None)
     txt.add_argument("--json", action="store_true")
+
+    resume = sub.add_parser(
+        "resume",
+        help="人工确认后从 RENDERING 继续渲染（配合 auto --confirm 使用）",
+    )
+    resume.add_argument("--project-id", required=True,
+                        help="auto --confirm 生成的 project_id")
+    resume.add_argument("--edits", default=None,
+                        help="edits JSON 文件路径（改素材/删场景/调顺序），"
+                             "省略则直接用原分镜书确认渲染")
+    resume.add_argument("--json", action="store_true")
 
     caps = sub.add_parser("capabilities", help="能力清单与 preflight 报告")
 
