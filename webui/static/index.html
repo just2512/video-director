@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Video Director</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei",system-ui,sans-serif; background:#101418; color:#e8e8e8; min-height:100vh; }
+  .wrap { max-width:1080px; margin:0 auto; padding:24px 20px 60px; }
+  h1 { font-size:26px; margin-bottom:4px; color:#fff; }
+  .sub { color:#9aa4ad; margin-bottom:24px; font-size:14px; }
+  .grid { display:grid; grid-template-columns: 2fr 1fr; gap:20px; }
+  @media (max-width:820px){ .grid{ grid-template-columns:1fr; } }
+  .card { background:#1a2026; border:1px solid #2a343d; border-radius:10px; padding:18px; }
+  label { display:block; font-size:13px; color:#b8c2ca; margin:12px 0 6px; }
+  textarea, input[type=text], select { width:100%; background:#0d1116; color:#e8e8e8; border:1px solid #2a343d; border-radius:6px; padding:10px; font-size:14px; }
+  textarea { min-height:260px; resize:vertical; }
+  input[type=file] { color:#9aa4ad; font-size:13px; margin-top:4px; }
+  .hint { font-size:12px; color:#7a858e; margin-top:4px; }
+  button { background:#4a90d9; color:#fff; border:none; border-radius:6px; padding:13px 22px; font-size:15px; cursor:pointer; width:100%; margin-top:18px; }
+  button:hover { background:#5ba0e9; }
+  button:disabled { background:#33414e; cursor:wait; }
+  #result { margin-top:24px; }
+  .ok-box { background:#1d2b22; border:1px solid #2e5e3e; border-radius:8px; padding:16px; }
+  .err-box { background:#2b1d1d; border:1px solid #5e2e2e; border-radius:8px; padding:16px; }
+  video { width:100%; max-width:480px; border-radius:8px; margin-top:12px; background:#000; }
+  a.dl { color:#4a90d9; font-size:14px; display:inline-block; margin-top:10px; }
+  .sb { background:#0d1116; border:1px solid #2a343d; border-radius:6px; padding:12px; font-size:13px; max-height:300px; overflow:auto; white-space:pre-wrap; margin-top:10px; }
+  .qc-line { font-size:13px; margin:2px 0; }
+  .qc-pass { color:#5ec46a; } .qc-fail { color:#e05e5e; }
+  .btn-row { display:flex; gap:10px; margin-top:14px; }
+  .btn-row button { margin-top:0; }
+  .btn-secondary { background:#33414e; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎬 AI Video Director</h1>
+  <div class="sub">一句话文案 + 素材 → AI 自动导演：理解内容、匹配画面、配音、配乐、成片</div>
+
+  <div class="grid">
+    <div class="card">
+      <label>文案</label>
+      <textarea id="script" placeholder="粘贴你的完整文案……"></textarea>
+    </div>
+    <div class="card">
+      <label>视频素材（可多选）</label>
+      <input type="file" id="videos" multiple accept=".mp4,.mov,.mkv,.webm">
+      <div class="hint">文件名带语义（如「战场出征.mp4」）即可自动按内容匹配</div>
+      <label>图片素材（可多选）</label>
+      <input type="file" id="images" multiple accept=".jpg,.jpeg,.png,.webp">
+      <label>配音</label>
+      <select id="voice"></select>
+      <label>风格（可选，留空 AI 自动决定）</label>
+      <input type="text" id="style_intent" placeholder="例：历史悬疑感 / 快节奏冲击 / 克制纪录片">
+      <label>画幅</label>
+      <select id="aspect"></select>
+      <label>背景音乐</label>
+      <select id="bgm"></select>
+      <label>成片前人工确认</label>
+      <select id="confirm_mode">
+        <option value="preview">先预览分镜再渲染（推荐）</option>
+        <option value="direct">直接一键到底</option>
+      </select>
+      <button id="go" onclick="compose()">🎬 自动制作</button>
+    </div>
+  </div>
+
+  <div id="result"></div>
+</div>
+
+<script>
+let BGMLIST = [];
+async function loadOptions(){
+  const voices = await (await fetch('/api/voices')).json();
+  document.getElementById('voice').innerHTML =
+    voices.map(v=>`<option value="${v.id}">${v.label}</option>`).join('');
+  const aspects = await (await fetch('/api/aspects')).json();
+  document.getElementById('aspect').innerHTML =
+    aspects.map(a=>`<option value="${a.value}">${a.label}</option>`).join('');
+  BGMLIST = await (await fetch('/api/bgm')).json();
+  document.getElementById('bgm').innerHTML =
+    `<option value="">（关闭）</option>` + BGMLIST.map(b=>`<option value="${b}">${b}</option>`).join('');
+}
+loadOptions();
+
+function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'); }
+
+async function confirmRender(pid){
+  const statusEl = document.getElementById('confirm-status');
+  statusEl.textContent = '正在正式渲染……';
+  try {
+    const r = await fetch('/api/confirm', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project_id: pid})
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '确认渲染失败');
+    // 复用 renderResult 展示 final（pending_confirm=false 走成片分支）
+    const out = document.getElementById('result');
+    const qcRows = (j.qc?.checks||[]).map(c =>
+      `<div class="qc-line ${c.result==='PASS'?'qc-pass':'qc-fail'}">${c.result} · ${esc(c.check)} — ${esc(c.detail)}</div>`).join('');
+    const videoUrl = '/file?path=' + encodeURIComponent(j.final_path);
+    out.innerHTML = `
+      <div class="ok-box">
+        <b>生成成功</b> · 旁白 ${j.narration_duration.toFixed(1)}s · QC ${j.qc?.verdict}
+        <video controls src="${videoUrl}"></video><br>
+        <a class="dl" href="${videoUrl}" download="final.mp4">⬇ 下载 MP4</a>
+        <div style="margin-top:12px">${qcRows}</div>
+        ${j.warnings?.length ? `<div class="hint">提示：${esc(j.warnings.join('；'))}</div>` : ''}
+      </div>`;
+  } catch (e) {
+    statusEl.textContent = '渲染失败：' + e.message;
+  }
+}
+
+async function compose(){
+  const btn = document.getElementById('go');
+  const out = document.getElementById('result');
+  const fd = new FormData();
+  fd.append('script', document.getElementById('script').value);
+  fd.append('voice', document.getElementById('voice').value);
+  fd.append('style_intent', document.getElementById('style_intent').value);
+  fd.append('aspect', document.getElementById('aspect').value);
+  fd.append('bgm', document.getElementById('bgm').value);
+  fd.append('confirm_mode', document.getElementById('confirm_mode').value);
+  for (const f of document.getElementById('videos').files) fd.append('videos', f, f.name);
+  for (const f of document.getElementById('images').files) fd.append('images', f, f.name);
+
+  btn.disabled = true;
+  out.innerHTML = '<div class="card">正在生成……（配音+匹配+渲染，约 30-120 秒）</div>';
+  const ctrl = new AbortController();
+  const tm = setTimeout(() => ctrl.abort(), 300000);  // 5 分钟超时兜底
+  try {
+    const r = await fetch('/api/compose', { method:'POST', body: fd, signal: ctrl.signal });
+    const j = await r.json();
+    if (!j.ok && j.error) throw new Error(j.error);
+    renderResult(j);
+  } catch (e) {
+    out.innerHTML = `<div class="err-box">生成失败：${esc(e.message)}</div>`;
+  } finally {
+    clearTimeout(tm);
+    btn.disabled = false;
+  }
+}
+
+function renderResult(j){
+  const out = document.getElementById('result');
+  if (j.pending_confirm) {
+    const sb = j.storyboard || {};
+    const sbText = JSON.stringify(sb, null, 2);
+    out.innerHTML = `
+      <div class="ok-box">
+        <b>已暂停在「等待确认」。</b>分镜预览如下（总时长 ${sb.total_duration||'?'}s，${sb.scene_count||'?'} 场景）：
+        <div class="sb">${esc(sbText)}</div>
+        <div class="btn-row">
+          <button onclick="confirmRender('${esc(j.project_id||'')}')">✅ 确认渲染</button>
+          <button class="btn-secondary" onclick="location.reload()">↩ 返回修改</button>
+        </div>
+        <div class="hint" id="confirm-status"></div>
+      </div>`;
+    return;
+  }
+  const qcRows = (j.qc?.checks||[]).map(c =>
+    `<div class="qc-line ${c.result==='PASS'?'qc-pass':'qc-fail'}">${c.result} · ${esc(c.check)} — ${esc(c.detail)}</div>`).join('');
+  const videoUrl = '/file?path=' + encodeURIComponent(j.final_path);
+  out.innerHTML = `
+    <div class="ok-box">
+      <b>生成成功</b> · 耗时 ${j.elapsed_s}s · 旁白 ${j.narration_duration.toFixed(1)}s · QC ${j.qc?.verdict}
+      <video controls src="${videoUrl}"></video><br>
+      <a class="dl" href="${videoUrl}" download="final.mp4">⬇ 下载 MP4</a>
+      <div style="margin-top:12px">${qcRows}</div>
+      ${j.warnings?.length ? `<div class="hint">提示：${esc(j.warnings.join('；'))}</div>` : ''}
+    </div>`;
+}
+</script>
+</body>
+</html>

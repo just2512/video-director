@@ -104,12 +104,16 @@ def _pil_available() -> bool:
 # ---------------------------------------------------------------------------
 
 def analyze_image(img_path: str) -> dict:
-    """分析图片，返回 {width, height, mean_color, brightness, dominant_colors, saliency_region}。
+    """分析图片，返回 §30 完整字段（focal_point/negative_space 已补齐）。
 
-    替代方案说明：
+    替代方案说明（§30 ImageAnalyzer）：
         - 主色提取：PIL 缩到 32x32 算直方图（或 ffmpeg rawvideo 兜底）
         - 显著性区域：亮度对比 + 中心偏置 + 边缘密度启发式估计，
           退化为黄金分割九宫格中心（无视频理解模型，这是零依赖兜底）
+        - focal_point：从 saliency_region 中心派生 (x+w/2, y+h/2)，
+          若调用方已有 VisionProvider 的对象 bbox，可覆盖此字段
+        - negative_space：图片四周相对 saliency 区域的"留白"分布
+          （top/bottom/left/right 比例，用于文字放置决策）
         - 视频理解模型（SAM/U2Net）是未来增强方向，当前为替代方案
 
     Args:
@@ -123,13 +127,62 @@ def analyze_image(img_path: str) -> dict:
             brightness: float（0-255，灰度均值）
             dominant_colors: [[R,G,B], ...] 前 3 主色（颜色量化）
             saliency_region: {x, y, w, h} 显著性区域（像素坐标）
+            focal_point: {x, y} 焦点坐标（saliency_region 中心，像素坐标）
+            negative_space: {top, bottom, left, right} 留白比例（0-1，
+                           saliency_region 边到图边的占比，越大越空）
     """
     if not os.path.isfile(img_path):
         raise ImageEditorError(f"图片不存在: {img_path}")
 
     if _pil_available():
-        return _analyze_with_pil(img_path)
-    return _analyze_with_ffmpeg(img_path)
+        result = _analyze_with_pil(img_path)
+    else:
+        result = _analyze_with_ffmpeg(img_path)
+    # 补 §30 focal_point / negative_space（从 saliency 派生，零额外计算）
+    result["focal_point"] = _derive_focal_point(result["saliency_region"],
+                                                result["width"], result["height"])
+    result["negative_space"] = _derive_negative_space(result["saliency_region"],
+                                                       result["width"], result["height"])
+    return result
+
+
+def _derive_focal_point(saliency: dict, w: int, h: int) -> Dict[str, int]:
+    """从 saliency_region 中心派生 focal_point（§30）。
+
+    saliency_region 形如 {x, y, w, h}，focal_point = (x + w/2, y + h/2)。
+    若 saliency 字段缺失，退化到图中心。
+    """
+    if not isinstance(saliency, dict):
+        return {"x": w // 2, "y": h // 2}
+    sx = int(saliency.get("x", 0))
+    sy = int(saliency.get("y", 0))
+    sw = int(saliency.get("w", 0))
+    sh = int(saliency.get("h", 0))
+    if sw <= 0 or sh <= 0:
+        return {"x": w // 2, "y": h // 2}
+    return {"x": sx + sw // 2, "y": sy + sh // 2}
+
+
+def _derive_negative_space(saliency: dict, w: int, h: int) -> Dict[str, float]:
+    """从 saliency_region 派生 negative_space 四向比例（§30）。
+
+    返回 {top, bottom, left, right}，值 0-1，表示该方向上 saliency 边到图边
+    的像素数占该方向总长的比例。值越大 → 该方向留白越多 → 越适合放文字。
+    """
+    if not isinstance(saliency, dict) or w <= 0 or h <= 0:
+        return {"top": 0.5, "bottom": 0.5, "left": 0.5, "right": 0.5}
+    sx = max(0, int(saliency.get("x", 0)))
+    sy = max(0, int(saliency.get("y", 0)))
+    sw = max(0, int(saliency.get("w", 0)))
+    sh = max(0, int(saliency.get("h", 0)))
+    right_edge = min(w, sx + sw)
+    bottom_edge = min(h, sy + sh)
+    return {
+        "top": round(sy / h, 3) if h > 0 else 0.5,
+        "bottom": round((h - bottom_edge) / h, 3) if h > 0 else 0.5,
+        "left": round(sx / w, 3) if w > 0 else 0.5,
+        "right": round((w - right_edge) / w, 3) if w > 0 else 0.5,
+    }
 
 
 def _analyze_with_pil(img_path: str) -> dict:
@@ -798,6 +851,245 @@ def _match_image_to_scene(
                 return i
     # 轮换：场景 i 对应图 i % N
     return scene_idx % len(image_paths)
+
+
+# ---------------------------------------------------------------------------
+# 单图多镜头：§29 一张图产多镜头（hero/detail/macro 三连拍）
+# ---------------------------------------------------------------------------
+
+
+#: 三连拍默认镜头规格（§29 + §30）：
+#:   hero    全景推近（Ken Burns zoom_in），文字落底，展示整体
+#:   detail  局部 crop 放大（saliency 区域），文字居中，讲细节
+#:   macro   微距 zoom（focus_zoom 呼吸感），文字居中，强化质感
+_DEFAULT_SHOTS_SPEC: List[dict] = [
+    {
+        "name": "hero",
+        "motion": MOTION_KENBURNS_ZOOM_IN,
+        "text_position": TEXT_POSITION_BOTTOM,
+        "duration_hint_s": 4.0,
+        "crop_to_saliency": False,
+        "label": "全景推近",
+    },
+    {
+        "name": "detail",
+        "motion": MOTION_FOCUS_ZOOM,
+        "text_position": TEXT_POSITION_CENTER,
+        "duration_hint_s": 3.0,
+        "crop_to_saliency": True,
+        "label": "局部放大",
+    },
+    {
+        "name": "macro",
+        "motion": MOTION_FOCUS_ZOOM,
+        "text_position": TEXT_POSITION_CENTER,
+        "duration_hint_s": 2.5,
+        "crop_to_saliency": True,
+        "scale_factor": 0.5,  # macro 再裁到 saliency 中心 50% 区域
+        "label": "微距特写",
+    },
+]
+
+
+@dataclass
+class ImageShotResult:
+    """compose_image_shots 单镜头结果。"""
+
+    name: str
+    segment_path: str
+    duration: float
+    motion: str
+    analysis: dict
+
+
+@dataclass
+class ComposeImageShotsResult:
+    """compose_image_shots 整体结果（§29 一图多镜头 concat 成片）。"""
+
+    project_dir: str
+    final_path: str
+    total_duration: float
+    shots: List[ImageShotResult] = field(default_factory=list)
+    analysis: dict = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
+
+
+def compose_image_shots(
+    image_path: str,
+    shots_spec: Optional[List[dict]] = None,
+    project_id: str = "img-shots",
+    texts: Optional[List[str]] = None,
+    width: int = config.DEFAULT_RESOLUTION[0],
+    height: int = config.DEFAULT_RESOLUTION[1],
+    fps: int = config.DEFAULT_FPS,
+) -> ComposeImageShotsResult:
+    """一张图产多镜头（§29 hero/detail/macro 三连拍）→ concat 成片。
+
+    非 slideshow（§28 硬约束）：
+        - 同一张图不是简单排序展示，而是"全景 → 局部 crop → 微距 zoom"
+          的镜头语言递进
+        - detail/macro 镜头先 crop 到 saliency_region，再用 focus_zoom
+          产生呼吸感动效，让"局部放大"有镜头运动
+        - 每镜头 motion 不同（zoom_in / focus_zoom / focus_zoom+crop），
+          视觉节奏有变化
+
+    与 SegmentationProvider 的关系（§31）：
+        - 本函数**不**调用 segmentation——只用 crop+zoom 即可达成
+          "局部放大"效果，符合 §31 "普通局部放大不需 SAM" 的约束
+        - 若调用方需要"主体脱离背景"的 parallax，那是 SegmentationProvider
+          的职责，不是本函数
+
+    Args:
+        image_path: 单张原图路径
+        shots_spec: 镜头规格列表，每项 {name, motion, text_position,
+                     duration_hint_s, crop_to_saliency, scale_factor, label}。
+                     None 用 _DEFAULT_SHOTS_SPEC（hero/detail/macro 三连拍）
+        project_id: 项目 ID
+        texts: 每镜头文案列表，长度应与 shots_spec 一致；
+               None 则用镜头 name 作为占位文案
+        width, height, fps: 输出参数
+
+    Returns:
+        ComposeImageShotsResult
+    """
+    if not os.path.isfile(image_path):
+        raise ImageEditorError(f"图片不存在: {image_path}")
+
+    spec_list = shots_spec if shots_spec is not None else list(_DEFAULT_SHOTS_SPEC)
+    if not spec_list:
+        raise ImageEditorError("shots_spec 为空，至少需要 1 个镜头")
+    if texts is not None and len(texts) != len(spec_list):
+        raise ImageEditorError(
+            f"texts 长度 {len(texts)} != shots_spec 长度 {len(spec_list)}"
+        )
+
+    pid = project_id or "img-shots"
+    base = config.project_dir(pid)
+    dirs = config.init_project_dirs(base)
+    warnings: List[str] = []
+    seg_dir = dirs["render"] / "segments"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        store.init_db()
+    except Exception as exc:
+        logger.warning(f"store.init_db 失败（继续渲染）: {exc}")
+
+    # 1. 分析原图（§30 focal_point/negative_space 已自动补齐）
+    analysis = analyze_image(image_path)
+    logger.info(
+        f"compose_image_shots: {Path(image_path).name} "
+        f"{analysis['width']}x{analysis['height']}, "
+        f"focal={analysis['focal_point']}, "
+        f"negative_space={analysis['negative_space']}"
+    )
+
+    saliency = analysis.get("saliency_region", {})
+    src_w = analysis["width"]
+    src_h = analysis["height"]
+
+    # 2. 为每镜头准备源图（hero 用原图，detail/macro 先 crop 到 saliency）
+    shot_segments: List[ImageShotResult] = []
+    for i, spec in enumerate(spec_list):
+        name = spec.get("name", f"shot_{i}")
+        motion = spec.get("motion", MOTION_KENBURNS_ZOOM_IN)
+        text_position = spec.get("text_position", TEXT_POSITION_BOTTOM)
+        duration = float(spec.get("duration_hint_s", 3.0))
+        text = (texts[i] if texts else name)
+
+        # 决定源图：是否需要先 crop 到 saliency
+        if spec.get("crop_to_saliency", False) and saliency:
+            # crop 到 saliency_region，可选再缩小到 scale_factor 中心区域
+            crop_src = str(seg_dir / f"{i:02d}_{name}_src.png")
+            try:
+                crop_region(image_path, saliency, crop_src)
+            except ImageEditorError as exc:
+                warnings.append(f"shot {name} crop 失败，降级用原图: {exc}")
+                crop_src = image_path
+            # macro: 再从 saliency 中心裁 scale_factor
+            sf = spec.get("scale_factor")
+            if sf and sf < 1.0 and crop_src != image_path:
+                sub_analysis = analyze_image(crop_src)
+                sub_w = sub_analysis["width"]
+                sub_h = sub_analysis["height"]
+                cx = sub_analysis["focal_point"]["x"]
+                cy = sub_analysis["focal_point"]["y"]
+                cw = max(1, int(sub_w * sf))
+                ch = max(1, int(sub_h * sf))
+                rx = max(0, min(cx - cw // 2, sub_w - cw))
+                ry = max(0, min(cy - ch // 2, sub_h - ch))
+                macro_src = str(seg_dir / f"{i:02d}_{name}_macro.png")
+                try:
+                    crop_region(crop_src, {"x": rx, "y": ry, "w": cw, "h": ch}, macro_src)
+                    crop_src = macro_src
+                except ImageEditorError as exc:
+                    warnings.append(f"shot {name} macro crop 失败，用 detail: {exc}")
+        else:
+            crop_src = image_path
+
+        # 3. 渲染单镜头
+        seg_path = str(seg_dir / f"{i:02d}_{name}.mp4")
+        try:
+            render_image_animation(
+                img=crop_src,
+                text=text,
+                duration=duration,
+                out_path=seg_path,
+                w=width, h=height, fps=fps,
+                motion=motion,
+                text_position=text_position,
+            )
+        except ImageEditorError as exc:
+            raise ImageEditorError(f"shot {name} 渲染失败: {exc}") from exc
+
+        shot_segments.append(ImageShotResult(
+            name=name,
+            segment_path=seg_path,
+            duration=duration,
+            motion=motion,
+            analysis=analysis if i == 0 else {},
+        ))
+        logger.info(f"shot {name} rendered: {seg_path} ({duration}s, {motion})")
+
+    # 4. concat 成片
+    seg_paths = [s.segment_path for s in shot_segments]
+    total_duration = sum(s.duration for s in shot_segments)
+    visual_path = str(dirs["render"] / "visual.mp4")
+    try:
+        final_path = renderer.concat_segments(
+            seg_paths, visual_path, width, height, fps
+        )
+    except renderer.RenderError as exc:
+        raise ImageEditorError(f"concat 成片失败: {exc}") from exc
+
+    # probe 验证
+    probe = prober.probe_media(final_path)
+    if probe.duration is None or probe.duration <= 0:
+        raise ImageEditorError(f"concat 产物时长无效: {probe.duration}")
+    if abs(probe.duration - total_duration) > 0.5:
+        warnings.append(
+            f"concat 时长 {probe.duration:.3f}s 与预期 {total_duration:.3f}s "
+            f"偏差 > 0.5s"
+        )
+
+    # 复制到 output
+    final_out = dirs["output"] / "final.mp4"
+    final_out.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(final_path, final_out)
+
+    logger.info(
+        f"compose_image_shots 完成: {len(shot_segments)} shots, "
+        f"{probe.duration:.3f}s, {final_out}"
+    )
+
+    return ComposeImageShotsResult(
+        project_dir=str(base),
+        final_path=str(final_out),
+        total_duration=probe.duration or total_duration,
+        shots=shot_segments,
+        analysis=analysis,
+        warnings=warnings,
+    )
 
 
 # ---------------------------------------------------------------------------

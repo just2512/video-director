@@ -21,7 +21,7 @@ shotcraft 思想吸收（SKILL.md §1-§5）：
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from video_director import config
 
@@ -35,14 +35,23 @@ from video_director import config
 class ShotCard:
     """镜头配方卡（frozen：不可变，符合编码规范）。
 
-    字段语义对齐 shotcraft frontmatter：
-        name         卡名（snake_case，唯一）
-        category     分类（opening/product/feature/transition/closing）
-        one_liner    一句话意图（shotcraft "一句话"）
-        energy       能量等级 low/mid/high（shotcraft "能量"）
-        duration_hint_s  建议时长（秒，shotcraft "时长"近似）
-        motion       渲染动作 key（product_promo.ProductPromoRenderer 消费）
-        requires_text 是否需要文字层（callout 类卡为 True）
+    字段语义对齐 shotcraft frontmatter + v1.2 §8/§36 完整契约：
+        name              卡名（snake_case，唯一）→ §8 "name"
+        category          分类（opening/product/feature/transition/closing）→ §8 "用途"
+        one_liner         一句话意图（shotcraft "一句话"）→ §8 "适合内容"
+        energy            能量等级 low/mid/high（shotcraft "能量"）
+        duration_hint_s   建议时长（秒）→ §8 "默认时长"
+        motion            渲染动作 key（product_promo.ProductPromoRenderer 消费）→ §8 "motion"
+        requires_text     是否需要文字层（callout 类卡为 True）→ §8 "输入要求"的一部分
+        transition_out    该镜头结束时的转场（crossfade/cut/wipe/...）→ §8 "transition"
+                          默认 "crossfade"；closing 类卡通常 "fade_out"
+        audio_cue         音频线索（§8 "audio"）：sfx tag 如 "whoosh"/"impact"/"riser"/None
+                          由 audio 模块 SFX 语义分类消费（camera/impact/light/riser/transition）
+        constraints       使用约束（§8 "限制"）：如 "需要产品图"、"首场禁用"、"时长 ≥3s"
+                          字符串列表，空列表表示无特殊约束
+
+    v1.2 §36 Shot Recipe Library 升级为系统长期记忆：卡的字段固定且自描述，
+    便于 LLM 按字段检索（"找一张能量 high + sfx impact 的开场卡"）。
     """
 
     name: str
@@ -52,6 +61,10 @@ class ShotCard:
     duration_hint_s: float
     motion: str
     requires_text: bool
+    # v1.2 §8 新增字段（默认值保证旧调用方代码不变）
+    transition_out: str = "crossfade"
+    audio_cue: Optional[str] = None
+    constraints: Tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +81,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=4.0,
         motion="spotlight",
         requires_text=False,
+        transition_out="crossfade",
+        audio_cue="light",
+        constraints=("first_scene_only", "needs_product_image"),
     ),
     ShotCard(
         name="hero_zoom_in",
@@ -77,6 +93,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=3.5,
         motion="zoom_in",
         requires_text=True,
+        transition_out="crossfade",
+        audio_cue="riser",
+        constraints=("needs_product_image", "duration>=3s"),
     ),
     # ---- product（产品展示，3 张）----
     ShotCard(
@@ -87,6 +106,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=4.5,
         motion="pan",
         requires_text=False,
+        transition_out="crossfade",
+        audio_cue=None,
+        constraints=("needs_product_image",),
     ),
     ShotCard(
         name="detail_macro",
@@ -96,6 +118,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=3.0,
         motion="crop_focus",
         requires_text=False,
+        transition_out="crossfade",
+        audio_cue="camera",
+        constraints=("needs_saliency_region",),
     ),
     ShotCard(
         name="color_pop",
@@ -105,6 +130,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=3.5,
         motion="color_reveal",
         requires_text=False,
+        transition_out="crossfade",
+        audio_cue="light",
+        constraints=("needs_product_image",),
     ),
     # ---- feature（卖点，2 张）----
     ShotCard(
@@ -115,6 +143,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=5.0,
         motion="list_reveal",
         requires_text=True,
+        transition_out="crossfade",
+        audio_cue="transition",
+        constraints=("needs_text_lines",),
     ),
     ShotCard(
         name="text_callout",
@@ -124,6 +155,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=3.0,
         motion="callout_pulse",
         requires_text=True,
+        transition_out="crossfade",
+        audio_cue="impact",
+        constraints=("needs_text_lines", "duration>=2s"),
     ),
     # ---- transition（转场，2 张）----
     ShotCard(
@@ -134,6 +168,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=2.0,
         motion="zoom_out_fade",
         requires_text=False,
+        transition_out="cut",
+        audio_cue="transition",
+        constraints=("not_first_scene",),
     ),
     ShotCard(
         name="color_wipe",
@@ -143,6 +180,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=2.0,
         motion="wipe",
         requires_text=False,
+        transition_out="cut",
+        audio_cue="whoosh",
+        constraints=("not_first_scene",),
     ),
     # ---- closing（收尾，1 张）----
     ShotCard(
@@ -153,6 +193,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=4.0,
         motion="logo_shrink",
         requires_text=True,
+        transition_out="fade_out",
+        audio_cue="riser",
+        constraints=("needs_brand_text", "hold>=1s"),
     ),
     ShotCard(
         name="cta_call",
@@ -162,6 +205,9 @@ _SHOT_CARDS: Tuple[ShotCard, ...] = (
         duration_hint_s=3.5,
         motion="cta_fullscreen",
         requires_text=True,
+        transition_out="fade_out",
+        audio_cue="impact",
+        constraints=("needs_cta_text", "last_scene_only"),
     ),
 )
 
