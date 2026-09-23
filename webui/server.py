@@ -443,7 +443,9 @@ class Handler(BaseHTTPRequestHandler):
                     }, 400)
                     return
                 full = confirm_mod.merge_edits(base_edits, delta)
-                full = confirm_mod.resolve_asset_references(full, sb)
+                sb_for_resolve = dict(sb) if isinstance(sb, dict) else {}
+                sb_for_resolve["project_id"] = pid
+                full = confirm_mod.resolve_asset_references(full, sb_for_resolve)
                 preview = confirm_mod.apply_storyboard_edits(sb, full)
                 self._send_json({"ok": True, "storyboard": preview, "edits": full})
             except Exception as exc:

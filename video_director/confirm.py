@@ -397,22 +397,47 @@ def merge_edits(base: Optional[dict], delta: Optional[dict]) -> dict:
 
 
 def resolve_asset_references(edits: dict, storyboard: dict) -> dict:
-    """把 edits 里 asset 值从「文件名/序号」解析为 storyboard 的 asset_id。
+    """把 edits 里 asset 值从「文件名/序号」解析为 manifest 真实 asset_id。
 
-    用户自然语言说「换成 3.mp4」或「换成 3」或「换成 v3」，统一解析成 manifest
-    的 asset_id（assets_used 里既存 asset_id 又有 file）。无法解析则原样保留。
+    真相源是项目 assets/manifest.json（build_manifest 生成，id=文件名 stem）。
+    storyboard 的 assets_used 可能含语义增强的别名 id（如 "v2"），不可信。
+    用户自然语言说「换成 3.mp4」或「换成 3」→ 解析成 manifest id。
+    无法解析则原样保留（planner 侧会过滤不存在的 id）。
     """
     by_name: Dict[str, str] = {}
-    for sc in storyboard.get("scenes", []):
-        for a in sc.get("assets_used", []) or []:
-            aid = a.get("asset_id")
-            f = a.get("file", "") or ""
+    from video_director import config as cfg
+    pid = storyboard.get("project_id") if isinstance(storyboard, dict) else None
+    manifest_path = None
+    if pid:
+        manifest_path = cfg.project_dir(pid) / "assets" / "manifest.json"
+    if manifest_path is None or not manifest_path.is_file():
+        # 无 manifest 可用（防御）：退回 storyboard 自身的 asset_id/file 提示
+        for sc in storyboard.get("scenes", []):
+            for a in sc.get("assets_used", []) or []:
+                aid = a.get("asset_id")
+                f = a.get("file", "") or ""
+                if not aid or not f:
+                    continue
+                base = f.replace("\\", "/").split("/")[-1]
+                stem = base.rsplit(".", 1)[0] if "." in base else base
+                for key in (str(aid), base, stem):
+                    if key:
+                        by_name[key] = str(aid)
+    else:
+        import json as _json
+        try:
+            entries = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            entries = []
+        for e in entries:
+            aid = e.get("id")
+            f = e.get("file", "") or ""
             if not aid:
                 continue
-            base = f.split("/")[-1] if "/" in f else f
+            base = f.replace("\\", "/").split("/")[-1]
             stem = base.rsplit(".", 1)[0] if "." in base else base
             for key in (str(aid), base, stem):
-                if key:
+                if key and key not in by_name:
                     by_name[key] = str(aid)
     out = json.loads(json.dumps(edits, ensure_ascii=False))
     for edit in out.values():

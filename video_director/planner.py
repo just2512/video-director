@@ -65,16 +65,20 @@ class ContentMatchPlanner:
         image_motion: bool = True,
     ) -> CompositionIR:
         rule = RulePlanner()
-        # 按匹配结果重排 asset_order：每个场景的主素材 = 匹配的素材
+        # 按匹配结果重排 asset_order：每个场景的主素材 = 匹配的素材。
+        # 防御：assignment 值必须真实存在于 assets（None/幽灵 id 一律回退
+        # 原 asset_order 顺序，不进 matched_order，否则 RulePlanner KeyError）。
         matched_order: List[str] = []
         used = set()
+        fallback_pool = list(asset_order)
         for s in scenes:
             aid = self._assignments.get(s["id"])
-            if aid and aid in assets and aid not in used:
+            if aid and aid in assets:
                 matched_order.append(aid)
                 used.add(aid)
-            else:
-                matched_order.append(aid)  # 允许重复匹配（循环复用档）
+            elif fallback_pool:
+                matched_order.append(fallback_pool.pop(0))
+            # else: 无素材可分（极端情况），交给后续 rest 补位
         # 未被任何场景匹配的素材排在末尾（补时候选池）
         rest = [aid for aid in asset_order if aid not in set(matched_order)]
         return rule.plan(

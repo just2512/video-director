@@ -602,12 +602,16 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> Pipel
     # 带新 assignments；否则用 RulePlanner 重跑（幂等）
     active_planner = None
     if effective_edits:
-        # 从分镜书 scenes 里提新 assignments（主素材 = 每场景 assets_used 第一条）
+        # 从分镜书 scenes 里提新 assignments（主素材 = 每场景 assets_used 第一条）。
+        # 防御：只信 manifest 里真实存在的 asset_id（分镜书展示层可能有
+        # 语义增强的别名 id，不进 planner，否则 KeyError）。
         new_assignments: Dict[str, str] = {}
         for sc in storyboard.get("scenes", []):
             used = sc.get("assets_used") or []
             if used and used[0].get("asset_id"):
-                new_assignments[sc["scene_id"]] = used[0]["asset_id"]
+                aid = str(used[0]["asset_id"])
+                if aid in merged_assets:
+                    new_assignments[sc["scene_id"]] = aid
         if new_assignments and merged_assets:
             active_planner = planner_mod.ContentMatchPlanner(new_assignments)
             logger.info(f"resume: edits 应用，ContentMatchPlanner 重规划（{len(new_assignments)} 场景）")
