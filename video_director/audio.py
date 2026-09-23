@@ -68,6 +68,16 @@ def scan_library() -> Dict[str, AssetRef]:
     return audio_assets
 
 
+def ensure_audio_library() -> None:
+    """若音频库完全为空，生成自产 fallback（1 BGM + 3 SFX），保证界面有音频可选。
+
+    仅当无任何 manifest 时才生成——不覆盖已有的 shotcraft/Mixkit 库（scan_library
+    非空即跳过），避免自产 manifest 覆盖接口导入的条目。
+    """
+    if not scan_library():
+        generate_test_audio_library()
+
+
 def resolve(
     intent: dict,
     library: Dict[str, AssetRef],

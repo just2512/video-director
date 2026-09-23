@@ -153,6 +153,7 @@ def probe_media(media: str) -> ProbeResult:
     """
     from video_director import store
 
+    store.init_db()  # fresh storage 下 probe_cache 表可能未建（幂等）
     cached = store.get_cached_probe(media)
     if cached is not None and cached.get("duration") is not None:
         return ProbeResult(

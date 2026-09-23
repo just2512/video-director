@@ -693,6 +693,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main(port: int = 8501):
     _load_llm_config()
+    try:
+        vd_audio.ensure_audio_library()
+    except Exception as exc:
+        print(f"[web] 音频库自检失败（不阻塞）: {exc}", file=sys.stderr)
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"AI Video Director → http://127.0.0.1:{port}")
     try:
