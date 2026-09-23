@@ -492,6 +492,18 @@ def _compose_to_pending(
     )
 
 
+def _edits_change_narration(edits: Optional[dict]) -> bool:
+    """判断 edits 是否改变旁白（删段/重排/改文案需重合成旁白+字幕）。"""
+    if not edits:
+        return False
+    if edits.get("remove") or edits.get("reorder"):
+        return True
+    return any(
+        isinstance(v, dict) and "text" in v
+        for k, v in edits.items() if k not in ("remove", "reorder")
+    )
+
+
 def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> PipelineResult:
     """人工确认后从 RENDERING 继续 → QC → final。
 
@@ -604,12 +616,33 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> Pipel
     if active_planner is None:
         active_planner = planner_mod.RulePlanner()
 
-    # 读回 narration_audio + 字幕文件
-    narration_audio_path = dirs["audio"] / "narration.wav"
-    narration_file = str(narration_audio_path) if narration_audio_path.is_file() else None
-    sub_file = dirs["render"] / "master.srt"
-    sub_entries = subtitle_mod.srt_entries(narration_scenes) if sub_file.is_file() else None
-    sub_file_arg = str(sub_file) if sub_file.is_file() else None
+    # 读回 narration_audio + 字幕文件；改稿涉及删段/改文案时重合成旁白+字幕
+    narration_audio_path = dirs["audio"] / "narration.mp3"
+    narration_changed = _edits_change_narration(effective_edits)
+    if narration_changed:
+        texts = [str(sc.get("text", "")) for sc in storyboard.get("scenes", [])]
+        narration_audio, word_timeline, narration_scenes = narration_mod.synth_narration(
+            texts, voice, dirs["audio"], rate=voice_rate
+        )
+        narration_file = narration_audio
+        with open(dirs["alignment"] / "words.json", "w", encoding="utf-8") as f:
+            json.dump(word_timeline, f, ensure_ascii=False, indent=2)
+        with open(scenes_path, "w", encoding="utf-8") as f:
+            json.dump(narration_scenes, f, ensure_ascii=False, indent=2)
+        sub_file = dirs["render"] / "master.srt"
+        sub_file.write_text(
+            subtitle_mod.build_srt_from_scenes(narration_scenes), encoding="utf-8"
+        )
+        sub_entries = subtitle_mod.srt_entries(narration_scenes)
+        sub_file_arg = str(sub_file)
+        logger.info(
+            f"resume: 旁白重合成（{len(texts)} 场景，删段/改文案生效）"
+        )
+    else:
+        narration_file = str(narration_audio_path) if narration_audio_path.is_file() else None
+        sub_file = dirs["render"] / "master.srt"
+        sub_entries = subtitle_mod.srt_entries(narration_scenes) if sub_file.is_file() else None
+        sub_file_arg = str(sub_file) if sub_file.is_file() else None
 
     # 复用 compose_project 完成规划→渲染→QC
     result = compose_project(
