@@ -498,12 +498,23 @@ class Handler(BaseHTTPRequestHandler):
             return
         videos = [f for f in files if f["name"] == "videos"]
         images = [f for f in files if f["name"] == "images"]
-        mode = fields.get("mode", "auto")  # auto | product | script_only
-        if mode in ("auto", "product") and not videos and not images:
+        mode = fields.get("mode", "auto")  # auto | product | script_only | image_shots
+        if mode not in ("auto", "product", "script_only", "image_shots"):
+            self._send_json({"error": f"未知模式: {mode}"}, 400)
+            return
+        if mode in ("auto", "product", "image_shots") and not videos and not images:
             if mode == "product":
                 self._send_json({"error": "产品广告片模式请上传产品图片"}, 400)
+            elif mode == "image_shots":
+                self._send_json({"error": "一图多镜头模式请上传一张图片"}, 400)
             else:
                 self._send_json({"error": "请至少上传视频或图片素材（纯文案请切换「纯文案成片」模式）"}, 400)
+            return
+        if mode == "product" and not images:
+            self._send_json({"error": "产品广告片模式请上传产品图片"}, 400)
+            return
+        if mode == "image_shots" and not images:
+            self._send_json({"error": "一图多镜头模式请上传一张图片"}, 400)
             return
 
         w_str, h_str = fields.get("aspect", "1080x1920").split("x")
@@ -561,6 +572,32 @@ class Handler(BaseHTTPRequestHandler):
                     width=width,
                     height=height,
                 )
+            elif mode == "image_shots":
+                # 一图多镜头（§29 hero/detail/macro）：单图 → 三镜头递进动效片
+                # 诚实边界：纯视觉镜头语言产物，不带旁白配音
+                from video_director import image_editor as vd_image_editor
+                ir = vd_image_editor.compose_image_shots(
+                    image_path=image_paths[0],
+                    project_id=project_id,
+                    texts=None,
+                    width=width,
+                    height=height,
+                )
+                # 独立返回结构（前端 renderResult 消费相同字段）
+                self._send_json({
+                    "ok": True,
+                    "elapsed_s": round(time.time() - t0, 1),
+                    "project_id": project_id,
+                    "case_id": "",
+                    "mode": mode,
+                    "pending_confirm": False,
+                    "storyboard": None,
+                    "final_path": ir.final_path,
+                    "narration_duration": ir.total_duration,
+                    "qc": {"verdict": "SKIP", "checks": []},
+                    "warnings": list(ir.warnings) + ["一图多镜头模式为纯视觉产物（无配音）"],
+                })
+                return
             elif video_paths or image_paths:
                 # SFX 选择 → sfx_plan：
                 #   auto → None（走 planner/风格的默认 action 绑定）
