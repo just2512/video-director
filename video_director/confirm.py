@@ -382,15 +382,21 @@ def parse_edit_instruction(instruction: str, storyboard: dict) -> dict:
 
 
 def merge_edits(base: Optional[dict], delta: Optional[dict]) -> dict:
-    """合并两批 edits（多轮改稿累积）。remove/reorder 取并集去重，逐场景字段后者覆盖。"""
+    """合并两批 edits（多轮改稿累积）。
+
+    remove 取并集去重；reorder 是全量顺序语义，后者整体替换；
+    逐场景字段（text/asset）后者覆盖。
+    """
     merged: dict = json.loads(json.dumps(base or {}, ensure_ascii=False))
     for k, v in (delta or {}).items():
-        if k in ("remove", "reorder"):
+        if k == "remove":
             cur = list(merged.get(k) or [])
             for x in (v or []):
                 if x not in cur:
                     cur.append(x)
             merged[k] = cur
+        elif k == "reorder":
+            merged[k] = list(v or [])
         else:
             merged[k] = {**(merged.get(k) or {}), **v}
     return merged

@@ -52,6 +52,8 @@
   .scene-text { font-size:14px; color:#e8e8e8; line-height:1.5; }
   .scene-asset { font-size:11px; color:#7a858e; margin-top:4px; }
   .scene-del { margin-left:auto; background:#5e2e2e; width:auto; padding:4px 10px; font-size:12px; }
+  .scene-move { background:#33414e; width:auto; padding:4px 10px; font-size:12px; }
+  .scene-move:disabled { opacity:0.35; cursor:default; }
   .rev-console { margin-top:14px; padding-top:12px; border-top:1px solid #2a343d; }
   .rev-input { flex:1; }
   .rev-err { color:#e05e5e; font-size:12px; margin-top:6px; }
@@ -403,12 +405,17 @@ let currentProject = { pid: '', sb: null, edits: {} };
 
 function renderStoryboard(sb){
   if (!sb || !sb.scenes || !sb.scenes.length) return '<div class="hint">（无场景）</div>';
-  const cards = sb.scenes.map(sc => {
+  const cards = sb.scenes.map((sc, i) => {
     const aid = (sc.assets_used && sc.assets_used[0] && sc.assets_used[0].asset_id) || '未配素材';
+    const n = sb.scenes.length;
+    const moveBtns = (n > 1) ? `
+        <button class="scene-move" onclick="moveScene(${i}, -1)" ${i===0?'disabled':''}>↑</button>
+        <button class="scene-move" onclick="moveScene(${i}, 1)" ${i===n-1?'disabled':''}>↓</button>` : '';
     return `<div class="scene-card">
       <div class="scene-head">
         <span class="scene-id">${esc(sc.scene_id||'')}</span>
         <span class="scene-dur">${(sc.duration||0).toFixed(1)}s</span>
+        ${moveBtns}
         <button class="scene-del" onclick="removeSceneDirect('${esc(sc.scene_id||'')}')">删除</button>
       </div>
       <div class="scene-text">${esc(sc.text||'')}</div>
@@ -452,6 +459,17 @@ function applyRevision(){
 
 function removeSceneDirect(sid){
   doRevision({direct_edits: {remove: [sid]}});
+}
+
+function moveScene(index, delta){
+  // 前端本地重排（reorder 语义在 edits 里表达，确认渲染时生效）
+  const sc = currentProject.sb;
+  if (!sc || !sc.scenes) return;
+  const j = index + delta;
+  if (j < 0 || j >= sc.scenes.length) return;
+  const ids = sc.scenes.map(s => s.scene_id);
+  [ids[index], ids[j]] = [ids[j], ids[index]];
+  doRevision({direct_edits: {reorder: ids}});
 }
 
 async function confirmRender(){
@@ -509,7 +527,7 @@ function renderResult(j){
   if (j.pending_confirm) {
     currentProject = { pid: j.project_id || '', sb: j.storyboard || {}, edits: {} };
     out.innerHTML = `
-      <div class="ok-box">
+      <div class="ok-box" data-pid="${esc(j.project_id || '')}">
         <b>已暂停在「等待确认」。</b>分镜如下，可逐段改稿：
         <div class="hint" id="sb-meta"></div>
         <div id="storyboard-box"></div>
