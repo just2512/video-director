@@ -263,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
                             for p in (cap.providers or [])
                         ],
                         "supports": list(cap.supports or []),
-                        "note": cap.note or "",
+                        "fallback_tools": list(cap.fallback_tools or []),
                     })
                 self._send_json(data)
             except Exception as exc:

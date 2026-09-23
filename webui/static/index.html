@@ -62,6 +62,13 @@
     <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 我的创作记忆</button>
   </div>
   <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
+  <div id="cap-badge" class="llm-badge" onclick="toggleCapPanel()">⚙ 系统能力：检测中…</div>
+
+  <div id="cap-panel" class="card llm-panel" style="display:none">
+    <b>系统能力状态</b>（可用=主路径或降级兜底可工作；缺失=该功能当前不可用）
+    <div id="cap-table"></div>
+    <div class="hint">Vision（视觉理解）配置 API key 后启用：设置 COMPOSER_VISION_API_KEY 环境变量；未配置时走文件名语义匹配兜底。</div>
+  </div>
 
   <div id="llm-panel" class="card llm-panel" style="display:none">
     <b>AI 大模型设置</b>（OpenAI 协议兼容：OpenAI / DeepSeek / Moonshot / 硅基流动 / Ollama 本地 等）
@@ -174,6 +181,17 @@ async function loadOptions(){
     `<option value="">关闭（不加音效）</option>` +
     sfx.map(s=>`<option value="${s}">只用：${s}</option>`).join('');
   await refreshLLMBadge();
+  // 能力徽章摘要（不展开面板，只数状态）
+  try {
+    const caps = await (await fetch('/api/capabilities')).json();
+    if (Array.isArray(caps)) {
+      const ok = caps.filter(c=>c.status==='PASS'||c.status==='AVAILABLE').length;
+      const warn = caps.filter(c=>c.status==='DEGRADED').length;
+      const miss = caps.filter(c=>c.status==='MISSING').length;
+      const el = document.getElementById('cap-badge');
+      el.textContent = `⚙ 系统能力：${ok} 可用${warn?` · ${warn} 降级`:''}${miss?` · ${miss} 缺失`:''}（点击查看）`;
+    }
+  } catch (e) { /* 能力徽章失败不阻塞主界面 */ }
 }
 
 async function refreshLLMBadge(){
@@ -191,6 +209,33 @@ async function refreshLLMBadge(){
 function toggleLLMPanel(){
   const p = document.getElementById('llm-panel');
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleCapPanel(){
+  const p = document.getElementById('cap-panel');
+  if (p.style.display === 'none') loadCapabilities();
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+
+async function loadCapabilities(){
+  const el = document.getElementById('cap-table');
+  el.innerHTML = '检测中……';
+  try {
+    const caps = await (await fetch('/api/capabilities')).json();
+    if (!Array.isArray(caps)) throw new Error(caps.error || '读取失败');
+    const NAME_CN = {tts:'配音TTS', vision:'视觉理解', alignment:'词级对齐',
+                     renderer:'渲染器', audio:'音频库', matting:'抠像'};
+    const cls = {PASS:'cap-ok', AVAILABLE:'cap-ok', DEGRADED:'cap-warn', MISSING:'cap-off'};
+    const label = {PASS:'✓ 正常', AVAILABLE:'✓ 可用', DEGRADED:'⚠ 降级', MISSING:'✗ 缺失'};
+    const rows = caps.map(c=>`<tr>
+      <td>${NAME_CN[c.name]||c.name}</td>
+      <td class="${cls[c.status]||''}">${label[c.status]||esc(c.status)}</td>
+      <td>${(c.providers||[]).map(p=>esc(p.name)+(p.available?'':'（不可用）')).join('、')||'—'}</td>
+      <td>${(c.fallback_tools||[]).join('、')||'—'}</td></tr>`).join('');
+    el.innerHTML = `<table class="cap-table"><tr><td>能力</td><td>状态</td><td>提供者</td><td>降级链</td></tr>${rows}</table>`;
+  } catch (e) {
+    el.innerHTML = `<div class="err-box">读取失败：${esc(e.message)}</div>`;
+  }
 }
 
 async function saveLLMConfig(){
