@@ -32,23 +32,82 @@
   .btn-row { display:flex; gap:10px; margin-top:14px; }
   .btn-row button { margin-top:0; }
   .btn-secondary { background:#33414e; }
+  .btn-sm { padding:9px 16px; font-size:13px; width:auto; }
+  .llm-badge { display:inline-block; background:#1a2530; border:1px solid #2a3d4d; color:#8ab4d8; border-radius:14px; padding:4px 12px; font-size:12px; margin-bottom:14px; cursor:pointer; }
+  .llm-badge.on { background:#1d2b22; border-color:#2e5e3e; color:#7ec46a; }
+  .llm-panel { margin-bottom:18px; }
+  .enhance-box { background:#0d1116; border:1px solid #2a343d; border-radius:6px; padding:12px; margin-top:10px; }
+  .enhanced-ta { min-height:200px; margin-top:8px; }
+  .feedback-row { display:flex; gap:10px; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid #2a343d; }
+  .fb-btn { width:auto; padding:9px 14px; font-size:14px; }
+  .fb-btn.liked { background:#2e5e3e; }
+  .fb-btn.disliked { background:#5e2e2e; }
+  .fb-note { flex:1; }
+  .fb-note input { font-size:13px; }
+  .cap-table { width:100%; font-size:12px; border-collapse:collapse; margin-top:8px; }
+  .cap-table td { border:1px solid #2a343d; padding:4px 8px; }
+  .cap-ok { color:#5ec46a; } .cap-warn { color:#d8a657; } .cap-off { color:#e05e5e; }
+  .tab-row { display:flex; gap:8px; margin-bottom:14px; }
+  .tab { background:#1a2026; border:1px solid #2a343d; color:#b8c2ca; border-radius:6px; padding:8px 16px; font-size:13px; cursor:pointer; width:auto; margin-top:0; }
+  .tab.tab-active { background:#26405a; color:#fff; border-color:#4a90d9; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>🎬 AI Video Director</h1>
   <div class="sub">一句话文案 + 素材 → AI 自动导演：理解内容、匹配画面、配音、配乐、成片</div>
+  <div class="tab-row">
+    <button class="tab tab-active" id="tab-create" onclick="switchTab('create')">🎬 创作</button>
+    <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考视频分析</button>
+    <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 我的创作记忆</button>
+  </div>
+  <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
 
+  <div id="llm-panel" class="card llm-panel" style="display:none">
+    <b>AI 大模型设置</b>（OpenAI 协议兼容：OpenAI / DeepSeek / Moonshot / 硅基流动 / Ollama 本地 等）
+    <label>API Key</label>
+    <input type="password" id="llm_key" placeholder="sk-…（留空=禁用，走规则兜底）">
+    <label>API 地址（可选）</label>
+    <input type="text" id="llm_base_url" placeholder="例：https://api.deepseek.com/v1">
+    <label>模型名（可选）</label>
+    <input type="text" id="llm_model" placeholder="例：deepseek-chat">
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="saveLLMConfig()">保存配置</button>
+      <button class="btn-secondary" onclick="clearLLMConfig()">清除（回退环境变量）</button>
+    </div>
+    <div class="hint" id="llm-save-status"></div>
+    <div class="hint">保存后立即生效：文案润色、分镜视觉提示、参考视频分析将用大模型增强；未配置时全部走规则路径兜底，功能不缺失。</div>
+  </div>
+
+  <!-- ======== Tab 1: 创作 ======== -->
+  <div id="pane-create">
   <div class="grid">
     <div class="card">
+      <label>创作模式</label>
+      <select id="mode">
+        <option value="auto">文案 + 素材成片（主线）</option>
+        <option value="product">产品广告片（产品图 → 广告）</option>
+        <option value="script_only">纯文案成片（无需素材，文字卡+配音）</option>
+      </select>
       <label>文案</label>
       <textarea id="script" placeholder="粘贴你的完整文案……"></textarea>
+      <div class="btn-row">
+        <button class="btn-secondary btn-sm" id="enhance-btn" onclick="enhanceScript()">✨ AI 润色文案</button>
+      </div>
+      <div id="enhance-result" style="display:none" class="enhance-box">
+        <div class="hint">AI 润色结果（原文保留，采用前可对比）：</div>
+        <textarea id="enhanced-text" class="enhanced-ta"></textarea>
+        <div class="btn-row">
+          <button class="btn-sm" onclick="acceptEnhanced()">✅ 采用</button>
+          <button class="btn-secondary btn-sm" onclick="discardEnhanced()">放弃</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <label>视频素材（可多选）</label>
       <input type="file" id="videos" multiple accept=".mp4,.mov,.mkv,.webm">
       <div class="hint">文件名带语义（如「战场出征.mp4」）即可自动按内容匹配</div>
-      <label>图片素材（可多选）</label>
+      <label>图片素材（可多选；产品模式下=产品图）</label>
       <input type="file" id="images" multiple accept=".jpg,.jpeg,.png,.webp">
       <label>配音</label>
       <select id="voice"></select>
@@ -58,12 +117,39 @@
       <select id="aspect"></select>
       <label>背景音乐</label>
       <select id="bgm"></select>
+      <label>音效氛围（自动音效，关闭=无 SFX）</label>
+      <select id="sfx">
+        <option value="auto">自动（按镜头动作配音效，推荐）</option>
+        <option value="">关闭（不加音效）</option>
+      </select>
       <label>成片前人工确认</label>
       <select id="confirm_mode">
         <option value="preview">先预览分镜再渲染（推荐）</option>
         <option value="direct">直接一键到底</option>
       </select>
       <button id="go" onclick="compose()">🎬 自动制作</button>
+    </div>
+  </div>
+  </div>
+
+  <!-- ======== Tab 2: 参考视频分析 ======== -->
+  <div id="pane-reference" style="display:none">
+    <div class="card">
+      <b>参考视频分析</b>——上传一条优秀视频，系统提取镜头结构 / 节奏 / 运动语言 / 转场语法（风格重构，不复制内容），
+      之后创作时可用报告指导你的成片。
+      <label>参考视频</label>
+      <input type="file" id="reference_video" accept=".mp4,.mov,.mkv,.webm">
+      <div class="btn-row"><button onclick="analyzeReference()">🔍 开始分析</button></div>
+      <div id="reference-result"></div>
+    </div>
+  </div>
+
+  <!-- ======== Tab 3: 创作记忆 ======== -->
+  <div id="pane-memory" style="display:none">
+    <div class="card">
+      <b>🧠 创作记忆</b>——你的每次成片与 👍👎 反馈都会沉淀为个人风格偏好（Style DNA），AI 越用越懂你。
+      <div class="btn-row"><button class="btn-secondary" onclick="loadMemoryView()">刷新</button></div>
+      <div id="memory-view"></div>
     </div>
   </div>
 
@@ -82,7 +168,173 @@ async function loadOptions(){
   BGMLIST = await (await fetch('/api/bgm')).json();
   document.getElementById('bgm').innerHTML =
     `<option value="">（关闭）</option>` + BGMLIST.map(b=>`<option value="${b}">${b}</option>`).join('');
+  const sfx = await (await fetch('/api/sfx')).json();
+  document.getElementById('sfx').innerHTML =
+    `<option value="auto">自动（按镜头动作配音效，推荐）</option>` +
+    `<option value="">关闭（不加音效）</option>` +
+    sfx.map(s=>`<option value="${s}">只用：${s}</option>`).join('');
+  await refreshLLMBadge();
 }
+
+async function refreshLLMBadge(){
+  const cfg = await (await fetch('/api/llm_status')).json();
+  const el = document.getElementById('llm-badge');
+  if (cfg.enabled) {
+    el.textContent = `🤖 AI 大模型已启用（${cfg.model} · ${cfg.source === 'runtime' ? '页面设置' : '环境变量'}）`;
+    el.classList.add('on');
+  } else {
+    el.textContent = '🤖 AI 大模型未启用（点击配置，未配置走规则兜底）';
+    el.classList.remove('on');
+  }
+}
+
+function toggleLLMPanel(){
+  const p = document.getElementById('llm-panel');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveLLMConfig(){
+  const status = document.getElementById('llm-save-status');
+  status.textContent = '保存中……';
+  try {
+    const r = await fetch('/api/llm_config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        api_key: document.getElementById('llm_key').value,
+        base_url: document.getElementById('llm_base_url').value,
+        model: document.getElementById('llm_model').value,
+      })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '保存失败');
+    status.textContent = j.config.enabled ? '✅ 已启用' : '已保存（key 为空=禁用）';
+    await refreshLLMBadge();
+  } catch (e) { status.textContent = '保存失败：' + e.message; }
+}
+
+async function clearLLMConfig(){
+  document.getElementById('llm_key').value = '';
+  await saveLLMConfig();
+}
+
+async function enhanceScript(){
+  const btn = document.getElementById('enhance-btn');
+  const box = document.getElementById('enhance-result');
+  const script = document.getElementById('script').value;
+  if (!script.trim()) { alert('请先粘贴文案'); return; }
+  btn.disabled = true; btn.textContent = '润色中……';
+  try {
+    const r = await fetch('/api/enhance', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({script})
+    });
+    const j = await r.json();
+    if (!j.ok && j.error) throw new Error(j.error);
+    box.style.display = 'block';
+    document.getElementById('enhanced-text').value = j.enhanced || script;
+    if (!j.changed) {
+      box.querySelector('.hint').textContent = j.llm_enabled
+        ? 'AI 认为原文已足够好，未改动（可直接采用或放弃）'
+        : 'AI 大模型未启用：原文原样返回（配置后可润色）';
+    } else {
+      box.querySelector('.hint').textContent = 'AI 润色结果（对比后采用，原文保留）：';
+    }
+  } catch (e) {
+    alert('润色失败：' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ AI 润色文案';
+  }
+}
+
+function acceptEnhanced(){
+  document.getElementById('script').value = document.getElementById('enhanced-text').value;
+  discardEnhanced();
+}
+function discardEnhanced(){
+  document.getElementById('enhance-result').style.display = 'none';
+}
+
+function switchTab(tab){
+  document.getElementById('pane-create').style.display = tab==='create' ? '' : 'none';
+  document.getElementById('pane-reference').style.display = tab==='reference' ? '' : 'none';
+  document.getElementById('pane-memory').style.display = tab==='memory' ? '' : 'none';
+  document.getElementById('tab-create').classList.toggle('tab-active', tab==='create');
+  document.getElementById('tab-reference').classList.toggle('tab-active', tab==='reference');
+  document.getElementById('tab-memory').classList.toggle('tab-active', tab==='memory');
+  if (tab==='memory') loadMemoryView();
+}
+
+async function analyzeReference(){
+  const f = document.getElementById('reference_video').files[0];
+  const out = document.getElementById('reference-result');
+  if (!f) { out.innerHTML = '<div class="err-box">请先选择参考视频</div>'; return; }
+  out.innerHTML = '<div class="card">分析中……（镜头检测 + 抽帧 + 语法提取，约 10-40 秒）</div>';
+  const fd = new FormData();
+  fd.append('reference', f, f.name);
+  try {
+    const r = await fetch('/api/reference', {method:'POST', body: fd});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '分析失败');
+    const rep = j.report || {};
+    const vl = rep.visual_language || {};
+    const sg = (rep.shot_grammar || []).slice(0, 30);
+    const rows = sg.map(s=>`<tr><td>${esc(String(s.role||''))}</td><td>${(s.duration||0).toFixed(1)}s</td><td>${esc(String(s.motion||''))}</td></tr>`).join('');
+    out.innerHTML = `
+      <div class="ok-box">
+        <b>分析完成</b> · ${sg.length} 个镜头 · 节奏 ${esc(String(vl.pace||'—'))} · 镜头密度 ${esc(String(vl.density||'—'))} · 运动语言 ${esc(String(vl.motion||'—'))} · 转场 ${esc(String(vl.transition||'—'))}
+        ${rep.report_path ? `<div class="hint">报告已存：${esc(rep.report_path)}</div>` : ''}
+        <table class="cap-table"><tr><td>角色</td><td>时长</td><td>运动</td></tr>${rows}</table>
+      </div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="err-box">分析失败：${esc(e.message)}</div>`;
+  }
+}
+
+async function loadMemoryView(){
+  const out = document.getElementById('memory-view');
+  out.innerHTML = '加载中……';
+  try {
+    const j = await (await fetch('/api/style_dna')).json();
+    if (j.error) throw new Error(j.error);
+    const dna = j.style_dna;
+    const prefs = j.recent_preferences || [];
+    let dnaHtml = '<div class="hint">暂无风格记忆——完成成片并在结果页点 👍/👎 后开始积累。</div>';
+    if (dna) {
+      const doms = dna.domains || {};
+      const domRows = Object.entries(doms).map(([k,v]) => {
+        const pref = Object.entries(v.prefer||{}).map(([n,c])=>`<span class="cap-ok">✓${esc(n)}×${c}</span>`).join(' ');
+        const av = Object.entries(v.avoid||{}).map(([n,c])=>`<span class="cap-off">✗${esc(n)}×${c}</span>`).join(' ');
+        return `<tr><td>${esc(k)}</td><td>${pref||'—'}</td><td>${av||'—'}</td></tr>`;
+      }).join('');
+      dnaHtml = `<div><b>${esc(dna.name||'个人风格')}</b>（源自 ${j.case_count||0} 次创作 · 👍 ${j.liked_count||0}）</div>
+        <table class="cap-table"><tr><td>偏好域</td><td>喜欢</td><td>避免</td></tr>${domRows}</table>`;
+    }
+    const prefRows = prefs.map(p=>`<tr><td>${p.signal==='prefer'?'👍':(p.signal==='avoid'?'👎':'·')}</td><td>${esc(String(p.field||''))}</td><td>${esc(String(p.normalized||p.value_to||''))}</td></tr>`).join('');
+    out.innerHTML = dnaHtml + (prefRows ? `<div style="margin-top:12px"><b>最近偏好信号</b><table class="cap-table"><tr><td>信号</td><td>维度</td><td>值</td></tr>${prefRows}</table></div>` : '');
+  } catch (e) {
+    out.innerHTML = `<div class="err-box">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+async function sendFeedback(caseId, liked){
+  const noteEl = document.getElementById('fb-note');
+  const note = noteEl ? noteEl.value : '';
+  try {
+    const r = await fetch('/api/feedback', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({case_id: caseId, liked: liked, note: note})
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '反馈失败');
+    const box = document.getElementById('fb-row');
+    box.innerHTML = liked
+      ? '<span class="cap-ok">已记录 👍 —— 你的偏好正在沉淀进个人风格记忆</span>'
+      : '<span class="cap-off">已记录 👎 —— 系统将避免这类风格</span>';
+  } catch (e) {
+    alert('反馈失败：' + e.message);
+  }
+}
+
 loadOptions();
 
 function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'); }
@@ -99,18 +351,7 @@ async function confirmRender(pid){
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || '确认渲染失败');
     // 复用 renderResult 展示 final（pending_confirm=false 走成片分支）
-    const out = document.getElementById('result');
-    const qcRows = (j.qc?.checks||[]).map(c =>
-      `<div class="qc-line ${c.result==='PASS'?'qc-pass':'qc-fail'}">${c.result} · ${esc(c.check)} — ${esc(c.detail)}</div>`).join('');
-    const videoUrl = '/file?path=' + encodeURIComponent(j.final_path);
-    out.innerHTML = `
-      <div class="ok-box">
-        <b>生成成功</b> · 旁白 ${j.narration_duration.toFixed(1)}s · QC ${j.qc?.verdict}
-        <video controls src="${videoUrl}"></video><br>
-        <a class="dl" href="${videoUrl}" download="final.mp4">⬇ 下载 MP4</a>
-        <div style="margin-top:12px">${qcRows}</div>
-        ${j.warnings?.length ? `<div class="hint">提示：${esc(j.warnings.join('；'))}</div>` : ''}
-      </div>`;
+    renderResult({...j, elapsed_s: 0});
   } catch (e) {
     statusEl.textContent = '渲染失败：' + e.message;
   }
@@ -121,10 +362,12 @@ async function compose(){
   const out = document.getElementById('result');
   const fd = new FormData();
   fd.append('script', document.getElementById('script').value);
+  fd.append('mode', document.getElementById('mode').value);
   fd.append('voice', document.getElementById('voice').value);
   fd.append('style_intent', document.getElementById('style_intent').value);
   fd.append('aspect', document.getElementById('aspect').value);
   fd.append('bgm', document.getElementById('bgm').value);
+  fd.append('sfx', document.getElementById('sfx').value);
   fd.append('confirm_mode', document.getElementById('confirm_mode').value);
   for (const f of document.getElementById('videos').files) fd.append('videos', f, f.name);
   for (const f of document.getElementById('images').files) fd.append('images', f, f.name);
@@ -166,6 +409,12 @@ function renderResult(j){
   const qcRows = (j.qc?.checks||[]).map(c =>
     `<div class="qc-line ${c.result==='PASS'?'qc-pass':'qc-fail'}">${c.result} · ${esc(c.check)} — ${esc(c.detail)}</div>`).join('');
   const videoUrl = '/file?path=' + encodeURIComponent(j.final_path);
+  const fbRow = j.case_id ? `
+      <div class="feedback-row" id="fb-row">
+        <button class="btn fb-btn fb-btn-liked" onclick="sendFeedback('${esc(j.case_id)}', true)">👍 喜欢</button>
+        <button class="btn fb-btn fb-btn-disliked" onclick="sendFeedback('${esc(j.case_id)}', false)">👎 不喜欢</button>
+        <span class="fb-note"><input type="text" id="fb-note" placeholder="一句话说明（可选），如：节奏再快一点"></span>
+      </div>` : '';
   out.innerHTML = `
     <div class="ok-box">
       <b>生成成功</b> · 耗时 ${j.elapsed_s}s · 旁白 ${j.narration_duration.toFixed(1)}s · QC ${j.qc?.verdict}
@@ -173,6 +422,7 @@ function renderResult(j){
       <a class="dl" href="${videoUrl}" download="final.mp4">⬇ 下载 MP4</a>
       <div style="margin-top:12px">${qcRows}</div>
       ${j.warnings?.length ? `<div class="hint">提示：${esc(j.warnings.join('；'))}</div>` : ''}
+      ${fbRow}
     </div>`;
 }
 </script>

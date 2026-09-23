@@ -292,7 +292,10 @@ def record_feedback(case_id: str, liked: bool, note: Optional[str] = None) -> No
             (int(liked), note, now, case_id),
         )
 
-        # 如果 case 已有 draft/final，自动抽取 preference delta
+        # 如果 case 已有 final：抽 preference delta。
+        # 首轮反馈（无修订，draft==final）是常态——draft/final 相同的字段
+        # 也产生信号：喜欢 → prefer 当前取值，不喜欢 → avoid 当前取值。
+        # 否则 Style DNA 在无修订流时永远为空（记忆系统失效）。
         row = conn.execute(
             "SELECT draft_artifact_json, final_artifact_json FROM creation_cases "
             "WHERE case_id=?",
@@ -306,14 +309,36 @@ def record_feedback(case_id: str, liked: bool, note: Optional[str] = None) -> No
         except json.JSONDecodeError:
             logger.warning(f"memory: case {case_id} artifact json broken, skip delta")
             return
-        if not draft or not final:
+        if not final:
             return
-        delta = extract_preference_delta(draft, final, positive=liked)
-        _persist_delta(conn, case_id, delta)
+        # 修订 diff（draft≠final 的字段）
+        delta = extract_preference_delta(draft or {}, final, positive=liked)
+        # 首轮信号（draft==final 的字段）：同一字段出现在 diff 里就不重复计
+        diffed_fields = {e["field"] for e in delta.get("prefer", [])} | {
+            e["field"] for e in delta.get("avoid", [])
+        }
+        baseline: Dict[str, List[Dict[str, Any]]] = {"prefer": [], "avoid": []}
+        for key, new in final.items():
+            if new is None or new == "" or key in diffed_fields:
+                continue
+            entry = {
+                "field": key,
+                "from": (draft or {}).get(key),
+                "to": new,
+                "normalized": _normalize(key, new),
+            }
+            baseline["prefer" if liked else "avoid"].append(entry)
+        # 合并：修订 diff 优先，baseline 补充
+        merged = {
+            "prefer": delta.get("prefer", []) + baseline["prefer"],
+            "avoid": delta.get("avoid", []) + baseline["avoid"],
+        }
+        _persist_delta(conn, case_id, merged)
+        prefer_n = len(merged.get("prefer", []))
+        avoid_n = len(merged.get("avoid", []))
     logger.info(
         f"memory: feedback recorded case={case_id} liked={liked} "
-        f"(prefer={len(delta.get('prefer', []))} "
-        f"avoid={len(delta.get('avoid', []))})"
+        f"(prefer={prefer_n} avoid={avoid_n})"
     )
 
 

@@ -137,21 +137,80 @@ class OpenAICompatibleProvider:
 # ---------------------------------------------------------------------------
 # 工厂：有 key 返真实 provider，无 key 返 None（诚实）
 # ---------------------------------------------------------------------------
+# 运行时配置：前端 /api/llm_config 写入，进程内覆盖环境变量；空 key 清除回退 env
+_runtime_config: Optional[dict] = None
 _provider_cache: Optional[Optional[LLMProvider]] = None
+
+
+def set_llm_config(
+    api_key: str,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+) -> None:
+    """运行时设置 LLM 配置（前端调用），覆盖环境变量并重置单例缓存。"""
+    global _runtime_config, _provider_cache
+    if not api_key or not api_key.strip():
+        _runtime_config = None
+    else:
+        _runtime_config = {
+            "api_key": api_key.strip(),
+            "base_url": (base_url or "").strip() or None,
+            "model": (model or "").strip() or None,
+        }
+    _provider_cache = None
+
+
+def get_llm_config() -> dict:
+    """返回当前生效的 LLM 配置（前端状态展示用）。
+
+    {"enabled", "api_key_set", "base_url", "model", "source"}
+    source: runtime（前端设置）| env（环境变量）| none（未启用）
+    """
+    if _runtime_config is not None:
+        return {
+            "enabled": True,
+            "api_key_set": True,
+            "base_url": _runtime_config.get("base_url") or DEFAULT_BASE_URL,
+            "model": _runtime_config.get("model") or DEFAULT_MODEL,
+            "source": "runtime",
+        }
+    env_key = os.environ.get(ENV_API_KEY, "").strip()
+    if env_key:
+        return {
+            "enabled": True,
+            "api_key_set": True,
+            "base_url": os.environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL,
+            "model": os.environ.get(ENV_MODEL) or DEFAULT_MODEL,
+            "source": "env",
+        }
+    return {
+        "enabled": False,
+        "api_key_set": False,
+        "base_url": DEFAULT_BASE_URL,
+        "model": DEFAULT_MODEL,
+        "source": "none",
+    }
 
 
 def get_llm() -> Optional[LLMProvider]:
     """获取 LLM Provider 单例。
 
-    - 有 VD_LLM_API_KEY → 返回 OpenAICompatibleProvider
-    - 无 VD_LLM_API_KEY → 返回 None（诚实降级，调用方走规则路径）
+    - 运行时配置（前端设置）优先，其次环境变量 VD_LLM_API_KEY
+    - 均无 → 返回 None（诚实降级，调用方走规则路径）
 
     结果缓存（进程内单例），避免每次调用重建 client。
     """
     global _provider_cache
     if _provider_cache is not None:
         return _provider_cache
-    api_key = os.environ.get(ENV_API_KEY, "").strip()
+    if _runtime_config is not None:
+        api_key = _runtime_config["api_key"]
+        base_url = _runtime_config.get("base_url")
+        model = _runtime_config.get("model")
+    else:
+        api_key = os.environ.get(ENV_API_KEY, "").strip()
+        base_url = None
+        model = None
     if not api_key:
         logger.info(
             f"LLM 未启用（{ENV_API_KEY} 未配置），消费点将走规则路径兜底"
@@ -159,7 +218,9 @@ def get_llm() -> Optional[LLMProvider]:
         _provider_cache = None
         return None
     try:
-        provider = OpenAICompatibleProvider(api_key=api_key)
+        provider = OpenAICompatibleProvider(
+            api_key=api_key, base_url=base_url, model=model
+        )
     except Exception as exc:
         logger.warning(f"LLM Provider 构造失败，降级 None: {exc}")
         _provider_cache = None
