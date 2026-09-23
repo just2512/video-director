@@ -413,17 +413,59 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
-        # 确认渲染端点（Gate B 通过 → 正式渲染 final）
+        # Revision Console：自然语言改稿 → 累积 edits → 应用到分镜书（预览，不落盘）
+        if parsed.path == "/api/revision":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            instruction = (payload.get("instruction") or "").strip()
+            direct_edits = payload.get("direct_edits")
+            base_edits = payload.get("edits") or {}
+            if not pid or (not instruction and not direct_edits):
+                self._send_json({"error": "缺少 project_id 或 instruction/direct_edits"}, 400)
+                return
+            try:
+                from video_director import confirm as confirm_mod
+                sb_file = vd_config.project_dir(pid) / "plans" / "storyboard.json"
+                sb = confirm_mod.load_storyboard(sb_file)
+                if direct_edits:
+                    delta = direct_edits
+                else:
+                    delta = confirm_mod.parse_edit_instruction(instruction, sb)
+                if not delta:
+                    self._send_json({
+                        "ok": False,
+                        "error": "未能识别的修改，请换一种说法（如：删掉第二段 / 第二段换成 3.mp4 / 第三段改成新文案）",
+                    }, 400)
+                    return
+                full = confirm_mod.merge_edits(base_edits, delta)
+                full = confirm_mod.resolve_asset_references(full, sb)
+                preview = confirm_mod.apply_storyboard_edits(sb, full)
+                self._send_json({"ok": True, "storyboard": preview, "edits": full})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        # 确认渲染端点（Gate B 通过 → 正式渲染 final；edits 为空则渲染原分镜）
         if parsed.path == "/api/confirm":
             length = int(self.headers.get("Content-Length", 0))
-            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
             pid = payload.get("project_id", "")
+            edits = payload.get("edits") or None
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
             from video_director import confirm as confirm_mod
             try:
-                final = confirm_mod.finalize_after_review(pid)
+                final = confirm_mod.finalize_after_review(pid, edits=edits)
                 # 创作记忆接线：确认渲染的 final 记录/补全 CreationCase。
                 # preview 模式 compose 已存 draft（分镜书字段），这里只补 final，
                 # 保证 👍👎 时 extract_preference_delta 有 diff 源。

@@ -24,6 +24,7 @@ edits 契约（够用即止，第一版不支持复杂编辑）：
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -307,6 +308,119 @@ def apply_storyboard_edits(sb: dict, edits: dict) -> dict:
     new_sb["scene_count"] = len(new_scenes)
     new_sb["total_duration"] = round(cursor, 3)
     return new_sb
+
+
+# ---------------------------------------------------------------------------
+# 自然语言改稿解析（方案 §54/§27-29：NL → Revision Patch；复杂意图上层接 LLM）
+# ---------------------------------------------------------------------------
+_CN_NUM = {
+    "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+}
+
+
+def _resolve_scene_index(instruction: str, n_scenes: int) -> Optional[int]:
+    """从「第N段 / 第N个 / 最后一段」解析 0-based 场景序号；失败返回 None。"""
+    if n_scenes <= 0:
+        return None
+    if ("最后" in instruction) or ("末尾" in instruction):
+        return n_scenes - 1
+    m = re.search(r"第\s*(\d+)\s*[段个镜]", instruction)
+    if m:
+        v = int(m.group(1))
+        return v - 1 if 1 <= v <= n_scenes else None
+    m = re.search(r"第\s*([零一两二三四五六七八九十]+)\s*[段个镜]", instruction)
+    if m:
+        cn = m.group(1)
+        if cn == "十":
+            v = 10
+        elif "十" in cn:
+            parts = cn.split("十")
+            tens = 1 if parts[0] == "" else _CN_NUM.get(parts[0], 1)
+            ones = _CN_NUM.get(parts[1], 0)
+            v = tens * 10 + ones
+        else:
+            v = _CN_NUM.get(cn, 0)
+        return v - 1 if 1 <= v <= n_scenes else None
+    return None
+
+
+def parse_edit_instruction(instruction: str, storyboard: dict) -> dict:
+    """自然语言改稿 → 结构化 edits（格式与 apply_storyboard_edits 一致）。
+
+    支持（规则匹配）：
+      - 删掉/删除/去掉/移除 第N段            → {"remove": ["S0N"]}
+      - 第N段 换成/替换成 X（素材）          → {"S0N": {"asset": "X"}}
+      - 第N段 改成/文案改成 X               → {"S0N": {"text": "X"}}
+    无法识别 → 返回 {}（上层提示「未能识别的修改」，请换一种说法）。
+    """
+    scenes = storyboard.get("scenes", []) or []
+    n = len(scenes)
+    if n == 0 or not instruction or not instruction.strip():
+        return {}
+    ids = [str(sc.get("scene_id", "")) for sc in scenes]
+    text = instruction.strip()
+
+    if re.search(r"(删掉|删除|去掉|移除)", text):
+        idx = _resolve_scene_index(text, n)
+        if idx is not None and 0 <= idx < n:
+            return {"remove": [ids[idx]]}
+
+    m = re.search(r"(?:换成|替换成|换为|素材换成|素材改为)\s*([^\s，,。；;]+)", text)
+    if m:
+        idx = _resolve_scene_index(text, n)
+        if idx is not None:
+            return {ids[idx]: {"asset": m.group(1)}}
+
+    m = re.search(r"(?:改成|文案改成|旁白改成|改为)\s*(.+)$", text)
+    if m and m.group(1).strip():
+        idx = _resolve_scene_index(text, n)
+        if idx is not None:
+            return {ids[idx]: {"text": m.group(1).strip()}}
+
+    return {}
+
+
+def merge_edits(base: Optional[dict], delta: Optional[dict]) -> dict:
+    """合并两批 edits（多轮改稿累积）。remove/reorder 取并集去重，逐场景字段后者覆盖。"""
+    merged: dict = json.loads(json.dumps(base or {}, ensure_ascii=False))
+    for k, v in (delta or {}).items():
+        if k in ("remove", "reorder"):
+            cur = list(merged.get(k) or [])
+            for x in (v or []):
+                if x not in cur:
+                    cur.append(x)
+            merged[k] = cur
+        else:
+            merged[k] = {**(merged.get(k) or {}), **v}
+    return merged
+
+
+def resolve_asset_references(edits: dict, storyboard: dict) -> dict:
+    """把 edits 里 asset 值从「文件名/序号」解析为 storyboard 的 asset_id。
+
+    用户自然语言说「换成 3.mp4」或「换成 3」或「换成 v3」，统一解析成 manifest
+    的 asset_id（assets_used 里既存 asset_id 又有 file）。无法解析则原样保留。
+    """
+    by_name: Dict[str, str] = {}
+    for sc in storyboard.get("scenes", []):
+        for a in sc.get("assets_used", []) or []:
+            aid = a.get("asset_id")
+            f = a.get("file", "") or ""
+            if not aid:
+                continue
+            base = f.split("/")[-1] if "/" in f else f
+            stem = base.rsplit(".", 1)[0] if "." in base else base
+            for key in (str(aid), base, stem):
+                if key:
+                    by_name[key] = str(aid)
+    out = json.loads(json.dumps(edits, ensure_ascii=False))
+    for edit in out.values():
+        if isinstance(edit, dict) and edit.get("asset"):
+            tok = str(edit["asset"])
+            if tok in by_name:
+                edit["asset"] = by_name[tok]
+    return out
 
 
 def save_storyboard(sb: dict, path: Path) -> None:
