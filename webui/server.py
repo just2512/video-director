@@ -40,30 +40,26 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 STORAGE = ROOT / "storage"
 LLM_CONFIG_FILE = STORAGE / "composer" / "llm_config.json"
 
-# 配音（中文 + 英文，EdgeTTS 免费零 key）
+# 配音（中文 + 英文，EdgeTTS 免费零 key）。
+# 白名单：经 edge-tts 实时合成验证（2026-09-24）——微软下架/脱节的音色
+# （Xiaohan/Xiaomeng/Xiaorui/Yunfeng/Yunhao/东北话/陕西话/en-GB 族等）已移除，
+# 保证前端每个音色都能真实试听+配音。微软再调整时需重新验证（tools 有验证脚本）。
 VOICES = [
     ("zh-CN-XiaoxiaoNeural", "晓晓（女·温柔）"),
     ("zh-CN-XiaoyiNeural", "晓伊（女·活泼）"),
-    ("zh-CN-XiaohanNeural", "晓涵（女·自然）"),
-    ("zh-CN-XiaomengNeural", "晓梦（女·甜美）"),
-    ("zh-CN-XiaoruiNeural", "晓睿（女·成熟）"),
-    ("zh-CN-YunxiNeural", "云希（男·阳光）"),
     ("zh-CN-YunjianNeural", "云健（男·沉稳）"),
-    ("zh-CN-YunyangNeural", "云扬（男·新闻腔）"),
-    ("zh-CN-YunfengNeural", "云枫（男·浑厚）"),
-    ("zh-CN-YunhaoNeural", "云皓（男·磁性）"),
-    ("zh-CN-liaoning-XiaobeiNeural", "晓北（东北话）"),
-    ("zh-CN-shaanxi-XiaoniNeural", "晓妮（陕西话）"),
+    ("zh-CN-YunxiNeural", "云希（男·阳光）"),
+    ("zh-CN-YunxiaNeural", "云夏（男·清亮）"),
+    ("zh-CN-YunyangNeural", "云扬（男·新闻）"),
     ("zh-TW-HsiaoChenNeural", "曉臻（台湾·女）"),
-    ("en-US-AriaNeural", "Aria (US Female)"),
-    ("en-US-JennyNeural", "Jenny (US Female)"),
-    ("en-US-AnaNeural", "Ana (US Child)"),
-    ("en-US-GuyNeural", "Guy (US Male)"),
-    ("en-US-ChristopherNeural", "Christopher (US Male)"),
-    ("en-US-EricNeural", "Eric (US Male)"),
-    ("en-GB-RyanNeural", "Ryan (UK Male)"),
-    ("en-GB-SoniaNeural", "Sonia (UK Female)"),
-    ("en-US-MichelleNeural", "Michelle (US Female)"),
+    ("zh-TW-YunJheNeural", "雲哲（台湾·男）"),
+    ("zh-TW-HsiaoYuNeural", "曉雨（台湾·女）"),
+    ("en-US-EmmaNeural", "Emma (US Female)"),
+    ("en-US-AndrewNeural", "Andrew (US Male)"),
+    ("en-US-BrianNeural", "Brian (US Male)"),
+    ("en-US-AvaMultilingualNeural", "Ava (Multilingual)"),
+    ("en-US-BrianMultilingualNeural", "Brian (Multilingual)"),
+    ("en-US-AndrewMultilingualNeural", "Andrew (Multilingual)"),
 ]
 
 # 画幅
