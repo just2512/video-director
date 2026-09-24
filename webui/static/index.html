@@ -337,19 +337,18 @@ async function loadCapabilities(){
       'FrameVision':'视觉大模型', 'Manual':'人工标注', 'LocalLibrary':'本地音频库',
       'SelfGenerated':'自产音频合成', 'ChromaKey':'绿幕抠像', 'Rembg':'人像抠像模型'};
     const rows = caps.map(c=>{
-      const provs = (c.providers||[]).map(p=>{
-        const nm = PROV_CN[p.name] || p.name;
-        const tip = p.note ? ` title="${esc(p.note)}"` : '';
-        if (p.available) return `<span class="cap-ok"${tip}>${esc(nm)}</span>`;
-        return `<span class="cap-off" style="opacity:.55"${tip}>${esc(nm)}${p.requires_api_key?'（配密钥启用）':'（未配置）'}</span>`;
-      }).join('、');
+      // 用户口径：只显示真实可用的提供者。未接线的参考实现/未安装可选增强
+      // 对用户是噪音（不可用=不可用，显示出来只会引发"要不要装"的疑问）。
+      const provs = (c.providers||[]).filter(p=>p.available)
+        .map(p=>`<span class="cap-ok"${p.note ? ` title="${esc(p.note)}"` : ''}>${esc(PROV_CN[p.name] || p.name)}</span>`)
+        .join('、');
       return `<tr>
       <td>${NAME_CN[c.name]||c.name}</td>
       <td class="${cls[c.status]||''}">${label[c.status]||esc(c.status)}</td>
       <td>${provs||'—'}</td>
       <td>${(c.fallback_tools||[]).join('、')||'—'}</td></tr>`;}).join('');
     el.innerHTML = `<table class="cap-table"><tr><td>能力</td><td>状态</td><td>提供者（悬停看说明）</td><td>降级链</td></tr>${rows}</table>
-      <div class="hint" style="margin-top:8px">灰色项为可选增强。视频渲染只用随包内置的 FFmpeg（任何电脑可用）；带「本机参考」的项是开发参考实现，不打包进产品；「云端参考」为付费可选服务。</div>`;
+      <div class="hint" style="margin-top:8px">以上均为当前电脑实际可用的能力。视觉理解/大模型在「大模型配置」里配置后自动增强（不配全部可用，走内置兜底）。</div>`;
   } catch (e) {
     el.innerHTML = `<div class="err-box">读取失败：${esc(e.message)}</div>`;
   }
