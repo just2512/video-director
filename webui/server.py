@@ -88,11 +88,17 @@ AUDIO_LABEL_CN = {
     "bgm-tech-house": "科技浩室（电子节奏）", "cat-walk": "猫步（优雅律动）",
     "g-eazy-nba-type": "街头篮球（嘻哈能量）", "house-vibez": "浩室氛围（轻快律动）",
     "tonight-hiphop": "今夜嘻哈（低音节拍）", "ambient-pad-001": "环境音垫（舒缓铺底）",
+    # 风格合成 BGM（generate_style_bgm_library）
+    "bgm-calm-piano-pad": "舒缓钢琴垫（纪录片/情感）",
+    "bgm-upbeat-trend": "轻快流行（短视频/种草）",
+    "bgm-epic-tension": "史诗紧张（历史/悬疑）",
+    "bgm-tech-neutral": "科技中性（产品/解说）",
+    "bgm-warm-story": "温暖叙事（人物/故事）",
 }
 
 
 def _audio_label(asset_id: str, tags: list = None) -> str:
-    """音频中文名：映射表 > tags > id。格式「中文（原名）」。"""
+    """音频中文名：映射表 > tags > id。"""
     if asset_id in AUDIO_LABEL_CN:
         return AUDIO_LABEL_CN[asset_id]
     for t in (tags or []):
@@ -103,6 +109,13 @@ def _audio_label(asset_id: str, tags: list = None) -> str:
     if len(parts) >= 2 and parts[0] == "sfx" and parts[1] in AUDIO_LABEL_CN:
         sub = "-".join(parts[2:]).replace("-", " ")
         return f"{AUDIO_LABEL_CN[parts[1]]}·{sub}"
+    # 用户上传：bgm-upload-<文件名> / sfx-upload-<文件名>
+    if "-upload-" in asset_id:
+        kind = "背景音乐" if asset_id.startswith("bgm") else "音效"
+        return f"我的{kind}·{'-'.join(asset_id.split('-')[2:])}"
+    # bgm-<名>：查无映射时用去前缀名
+    if asset_id.startswith("bgm-"):
+        return asset_id[4:].replace("-", " ")
     return asset_id
 
 
