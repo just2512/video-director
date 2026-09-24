@@ -22,6 +22,7 @@ from video_director import (
     assets as assets_mod,
     audio as audio_mod,
     config,
+    llm_provider,
     matcher as matcher_mod,
     narration as narration_mod,
     planner as planner_mod,
@@ -829,6 +830,17 @@ def compose_auto(
             vision_provider = vision_mod.FrameVisionProvider()
         except Exception:
             vision_provider = None
+
+    # LLM 接线：llm_call 未显式注入时，自动用 model_config 的 llm 角色。
+    # 这是 LLM 发挥「智能导演」作用的关键：素材语义匹配/叙事规划走 LLM。
+    if llm_call is None:
+        try:
+            _llm_provider = llm_provider.get_llm()
+            if _llm_provider is not None:
+                llm_call = lambda prompt: _llm_provider.generate(prompt)
+                logger.info("LLM 已接入：素材匹配/规划将用大模型增强")
+        except Exception:
+            llm_call = None
 
     # 0. 任务状态机登记（跨会话历史 + WebUI 轮询；SVF 经验：配置持久化、崩溃无脏态）
     # + Style Contract 选择（V2 §17/§18：AUTO 或用户一句描述，无评分）

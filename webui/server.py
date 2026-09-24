@@ -646,7 +646,16 @@ class Handler(BaseHTTPRequestHandler):
                 if direct_edits:
                     delta = direct_edits
                 else:
-                    delta = confirm_mod.parse_edit_instruction(instruction, sb)
+                    # LLM 优先（自然语言真实意义：随意说都理解），失败规则兜底
+                    _llm = vd_llm.get_llm()
+                    if _llm is not None:
+                        delta = confirm_mod.parse_edit_instruction_llm(
+                            instruction, sb, lambda p: _llm.generate(p)
+                        )
+                    else:
+                        delta = {}
+                    if not delta:
+                        delta = confirm_mod.parse_edit_instruction(instruction, sb)
                 if not delta:
                     self._send_json({
                         "ok": False,

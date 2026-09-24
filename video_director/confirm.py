@@ -345,8 +345,85 @@ def _resolve_scene_index(instruction: str, n_scenes: int) -> Optional[int]:
     return None
 
 
+def parse_edit_instruction_llm(instruction: str, storyboard: dict, llm_call) -> dict:
+    """LLM 自然语言改稿 → 结构化 edits（失败/无法解析返回 {}，调用方规则兜底）。
+
+    这是「自然语言真实意义」：用户随意说（换素材/删场景/改文案/重排/
+    全素材约束…），LLM 理解意图转成 apply_storyboard_edits 的结构化 edits。
+    """
+    scenes = storyboard.get("scenes", []) or []
+    if not scenes or not instruction or not instruction.strip():
+        return {}
+    scene_desc = "\n".join(
+        f"{sc.get('scene_id')}: \"{sc.get('text','')}\""
+        f"（主素材 {[a.get('asset_id') for a in (sc.get('assets_used') or [])][:2]}）"
+        for sc in scenes
+    )
+    # 可用素材池（跨场景去重 asset_id → file）
+    asset_pool: dict = {}
+    for sc in scenes:
+        for a in (sc.get("assets_used") or []):
+            aid = a.get("asset_id")
+            if aid and aid not in asset_pool:
+                import os
+                asset_pool[aid] = os.path.basename(a.get("file", "") or "") or aid
+    asset_desc = "\n".join(f"{aid}: {fn}" for aid, fn in asset_pool.items())
+    prompt = (
+        "你是视频分镜改稿助手。用户对分镜书提出自然语言修改，请你输出结构化 edits。\n\n"
+        f"分镜书场景：\n{scene_desc}\n\n"
+        f"可用素材：\n{asset_desc}\n\n"
+        f"用户要求：「{instruction}」\n\n"
+        "只输出 JSON（不要 markdown 代码块），格式：\n"
+        "{{\"remove\": [\"场景id\"], \"场景id\": {{\"asset\": \"素材id\"}}, "
+        "\"场景id\": {{\"text\": \"新文案\"}}, \"reorder\": [\"场景id顺序\"]}}\n"
+        "规则：remove 删场景；asset 换素材（从可用素材选）；text 改文案；"
+        "reorder 重排（全量顺序）。用户没要求的字段不要输出。"
+        "若用户要求无法用这些字段表达，输出空对象 {{}}。"
+    )
+    try:
+        raw = llm_call(prompt)
+    except Exception:
+        return {}
+    if not raw:
+        return {}
+    # 剥 markdown 代码块，取第一个 { 到最后一个 }
+    import re as _re
+    text = _re.sub(r"^```[a-zA-Z]*\s*", "", raw.strip())
+    text = _re.sub(r"\s*```$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        parsed = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    # 校验字段合法性（scene_id 必须真实存在；asset 必须来自素材池或保持原样）
+    valid_ids = {str(sc.get("scene_id")) for sc in scenes}
+    edits: dict = {}
+    for k, v in parsed.items():
+        if k == "remove":
+            ids = [str(x) for x in (v or []) if str(x) in valid_ids]
+            if ids:
+                edits["remove"] = ids
+        elif k == "reorder":
+            ids = [str(x) for x in (v or []) if str(x) in valid_ids]
+            if ids:
+                edits["reorder"] = ids
+        elif k in valid_ids and isinstance(v, dict):
+            sub = {}
+            if v.get("asset"):
+                sub["asset"] = str(v["asset"])
+            if v.get("text"):
+                sub["text"] = str(v["text"])
+            if sub:
+                edits[k] = sub
+    return edits
+
+
 def parse_edit_instruction(instruction: str, storyboard: dict) -> dict:
-    """自然语言改稿 → 结构化 edits（格式与 apply_storyboard_edits 一致）。
+    """自然语言改稿 → 结构化 edits（规则兜底，格式与 apply_storyboard_edits 一致）。
 
     支持（规则匹配）：
       - 删掉/删除/去掉/移除 第N段            → {"remove": ["S0N"]}
