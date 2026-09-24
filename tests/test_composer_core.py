@@ -298,7 +298,7 @@ class TestRegistry:
         assert registry.is_known_transition("cut")
         assert not registry.is_known_transition("dissolve_warp_xxx")
         assert registry.is_implemented_transition("cut")
-        assert not registry.is_implemented_transition("crossfade")  # 第一版未实现
+        assert registry.is_implemented_transition("crossfade")  # 已实现 xfade 溶解
         assert not registry.is_major_effect_transition("cut")
         assert registry.is_major_effect_transition("crossfade")
 

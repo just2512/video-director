@@ -344,7 +344,7 @@ class RulePlanner:
         return layers
 
 
-def _fit_video(self, available: float, target: float, image_fallback: bool = False) -> tuple:
+    def _fit_video(self, available: float, target: float, image_fallback: bool = False) -> tuple:
         """返回 (take_source_seconds, speed, output_duration)。
 
         V2 §12 双层策略：
