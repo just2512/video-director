@@ -937,17 +937,20 @@ def compose_auto(
         )
         merged_assets = {**enhanced, **image_assets}
         has_semantics = any(a.description or a.keywords for a in enhanced.values())
-        if has_semantics:
+        # 匹配规划：有语义走 LLM 语义匹配；语义空也走 matcher（LLM 用文件名/
+        # 文案对应，match_assets 内部三层兜底）——只有完全无 LLM 才 RulePlanner。
+        # （诊断 2026-09-24：语义空时直接 RulePlanner 导致 LLM 永不触发。）
+        if has_semantics or llm_call is not None:
             assignments = matcher_mod.match_assets(
                 narration_scenes, merged_assets, llm_call
             )
             with open(dirs["assets"] / "match_assignments.json", "w", encoding="utf-8") as f:
                 json.dump(assignments, f, ensure_ascii=False, indent=2)
             active_planner = planner_mod.ContentMatchPlanner(assignments)
-            logger.info(f"planner: ContentMatchPlanner（语义匹配 {len(assignments)} 场景）")
+            logger.info(f"planner: ContentMatchPlanner（匹配 {len(assignments)} 场景，语义={has_semantics}）")
         else:
             active_planner = planner_mod.RulePlanner()
-            logger.warning("planner: 素材无语义，RulePlanner 顺序分配（降级）")
+            logger.warning("planner: 无 LLM 且素材无语义，RulePlanner 顺序分配（降级）")
         merged_order = video_order + image_order
         # Style Contract 应用（转场预算/图片动效强度；IR style_id 写入在 plan 后）
         style_mod.apply_to_ir(None, style_contract, config)  # config 层预算先行
