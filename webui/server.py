@@ -775,6 +775,13 @@ class Handler(BaseHTTPRequestHandler):
         w_str, h_str = fields.get("aspect", "1080x1920").split("x")
         width, height = int(w_str), int(h_str)
         voice = fields.get("voice", "zh-CN-XiaoxiaoNeural")
+        # 语速：前端倍速（0.9/1.0/1.3…）→ edge-tts rate 相对百分比
+        _vr = fields.get("voice_rate", "1.0")
+        try:
+            _spd = float(_vr)
+            voice_rate = f"{int(round((_spd - 1.0) * 100)):+d}%"
+        except ValueError:
+            voice_rate = "+0%"
         style_intent = fields.get("style_intent", "") or None
         bgm = fields.get("bgm", "") or None
         sfx_choice = fields.get("sfx", "auto")  # auto | "" | 具体 asset_id
@@ -870,6 +877,7 @@ class Handler(BaseHTTPRequestHandler):
                     image_files=image_paths,
                     project_id=project_id,
                     voice=voice,
+                    voice_rate=voice_rate,
                     style_intent=style_intent,
                     bgm_asset_id=bgm,
                     sfx_plan=sfx_plan,

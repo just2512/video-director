@@ -141,6 +141,15 @@
         <select id="voice"></select>
         <button class="btn-secondary btn-sm prev-btn" onclick="previewVoice()">▶ 试听</button>
       </div>
+      <label>语速（可选，默认 1.0 倍）</label>
+      <select id="voice_rate">
+        <option value="0.8">0.8x 较慢</option>
+        <option value="0.9">0.9x 放慢</option>
+        <option value="1.0" selected>1.0x 正常</option>
+        <option value="1.1">1.1x 稍快</option>
+        <option value="1.3">1.3x 加快</option>
+        <option value="1.5">1.5x 很快</option>
+      </select>
       <label>风格（可选，留空 AI 自动决定）</label>
       <input type="text" id="style_intent" placeholder="例：历史悬疑感 / 快节奏冲击 / 克制纪录片">
       <label>片头标题（可选：成片自动加标题卡）</label>
@@ -679,6 +688,7 @@ async function compose(){
   fd.append('creative_brief', document.getElementById('creative_brief').value);
   fd.append('mode', document.getElementById('mode').value);
   fd.append('voice', document.getElementById('voice').value);
+  fd.append('voice_rate', document.getElementById('voice_rate').value);
   fd.append('style_intent', document.getElementById('style_intent').value);
   fd.append('aspect', document.getElementById('aspect').value);
   fd.append('bgm', document.getElementById('bgm').value);

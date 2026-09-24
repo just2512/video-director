@@ -44,6 +44,31 @@ from video_director.models import (
 )
 
 
+def parse_brief_voice_rate(creative_brief: str) -> Optional[str]:
+    """创作要求 → 语速（方案 §30 G0 约束落地）。
+
+    「语速 0.9」/「语速放慢到 0.9」/「倍速 1.2」→ edge-tts rate 相对百分比：
+    0.9 倍 → "-10%"，1.2 倍 → "+20%"。无匹配返回 None。
+    """
+    if not creative_brief or not creative_brief.strip():
+        return None
+    m = re.search(
+        r"(?:语速|倍速|配音速度|速度)\s*(?:放慢到|放慢至|加快到|调[到至]|为|:)?\s*"
+        r"(\d+(?:\.\d+)?)",
+        creative_brief,
+    )
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    if 0.5 <= val <= 3.0:  # 判为倍速
+        pct = int(round((val - 1.0) * 100))
+        return f"{pct:+d}%"
+    return None
+
+
 def _inject_transitions(ir: CompositionIR, budget: int) -> None:
     """方案 §22：按风格 budget 在场景边界均匀插入 crossfade（默认 cut 不变）。
 
@@ -808,6 +833,11 @@ def compose_auto(
     # 0. 任务状态机登记（跨会话历史 + WebUI 轮询；SVF 经验：配置持久化、崩溃无脏态）
     # + Style Contract 选择（V2 §17/§18：AUTO 或用户一句描述，无评分）
     style_contract, style_warnings = style_mod.select_style(script, style_intent)
+    # 创作要求解析（G0 约束落地）：语速要求优先于默认（用户「语速0.9」真实生效）
+    brief_rate = parse_brief_voice_rate(creative_brief)
+    if brief_rate and voice_rate in (None, "+0%"):
+        voice_rate = brief_rate
+        style_warnings.append(f"创作要求已生效：配音语速 {voice_rate}")
     # BGM AI 自动配乐（bgm_asset_id="auto"：风格契约 → 中文标签语义匹配选曲）
     if bgm_asset_id == "auto":
         auto_bgm = audio_mod.resolve_auto_bgm(style_contract.style_id)

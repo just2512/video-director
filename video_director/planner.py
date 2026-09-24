@@ -299,10 +299,11 @@ class RulePlanner:
         pool: Dict[str, float],
         image_motion: bool,
     ) -> List[Layer]:
-        """素材富余时的多镜头均分：场景时长均分给多个素材，每个素材切一段。
+        """素材富余时的多镜头均分：场景时长均分给多个素材。
 
-        保证上传的每个素材都至少出场一次（用户诉求：传 N 个全用）。
-        speed=1 直裁（素材源时长通常 > 场景镜头时长的均分），无需重采样。
+        不裁剪（用户创作要求）——每个素材完整播出，通过变速适配镜头时长：
+        speed = 素材源时长 / 镜头时长（素材短就加速，长就慢放），
+        duration = 镜头时长，source_in=0 播完整段，总时长 = 场景时长对齐。
         """
         layers: List[Layer] = []
         n = len(asset_ids)
@@ -313,25 +314,22 @@ class RulePlanner:
             asset = assets[aid]
             seg = (round(target_duration / n, 3) if i < n - 1
                    else round(target_duration - cursor, 3))
+            if seg <= 0:
+                continue
             if asset.type == "video":
-                avail = (asset.duration or 0.0) - pool.get(aid, 0.0)
-                if avail <= 0.2:
-                    pool[aid] = 0.0  # 耗尽 → 归零复用
-                    avail = asset.duration or 0.0
-                take = min(avail, seg)
-                if take <= 0.2:
-                    continue
+                dur = asset.duration or seg
+                speed = round(dur / seg, 3) if seg > 0 else 1.0
                 layers.append(Layer(
                     type=LayerType.video,
                     asset_id=aid,
                     start=round(cursor, 3),
-                    duration=round(take, 3),
-                    speed=1.0,
-                    source_in=round(pool.get(aid, 0.0), 3),
-                    source_out=round(pool.get(aid, 0.0) + take, 3),
+                    duration=round(seg, 3),
+                    speed=speed,
+                    source_in=0.0,
+                    source_out=round(dur, 3),
                 ))
-                pool[aid] = pool.get(aid, 0.0) + take
-                cursor = round(cursor + take, 3)
+                pool[aid] = pool.get(aid, 0.0) + dur
+                cursor = round(cursor + seg, 3)
             else:
                 if seg < config.IMAGE_MIN_DURATION:
                     continue
