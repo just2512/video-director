@@ -200,21 +200,27 @@
 
 <script>
 let BGMLIST = [];
+function _rebuildSelect(id, opts){
+  // 重建下拉但保持当前选择（重建后原 value 仍存在则不丢用户选择）
+  const sel = document.getElementById(id);
+  const prev = sel ? sel.value : '';
+  sel.innerHTML = opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  if (prev !== undefined && prev !== null) {
+    for (let i=0;i<sel.options.length;i++) {
+      if (sel.options[i].value === prev) { sel.selectedIndex = i; return; }
+    }
+  }
+}
 async function loadOptions(){
   const voices = await (await fetch('/api/voices')).json();
-  document.getElementById('voice').innerHTML =
-    voices.map(v=>`<option value="${v.id}">${v.label}</option>`).join('');
+  _rebuildSelect('voice', voices.map(v=>[v.id, v.label]));
   const aspects = await (await fetch('/api/aspects')).json();
-  document.getElementById('aspect').innerHTML =
-    aspects.map(a=>`<option value="${a.value}">${a.label}</option>`).join('');
+  _rebuildSelect('aspect', aspects.map(a=>[a.value, a.label]));
   BGMLIST = await (await fetch('/api/bgm')).json();
-  document.getElementById('bgm').innerHTML =
-    `<option value="">（关闭）</option>` + BGMLIST.map(b=>`<option value="${b}">${b}</option>`).join('');
+  _rebuildSelect('bgm', [['','（关闭）'], ...BGMLIST.map(b=>[b,b])]);
   const sfx = await (await fetch('/api/sfx')).json();
-  document.getElementById('sfx').innerHTML =
-    `<option value="auto">自动（按镜头动作配音效，推荐）</option>` +
-    `<option value="">关闭（不加音效）</option>` +
-    sfx.map(s=>`<option value="${s}">只用：${s}</option>`).join('');
+  _rebuildSelect('sfx', [['auto','自动（按镜头动作配音效，推荐）'],['','关闭（不加音效）'],
+                         ...sfx.map(s=>[s, '只用：'+s])]);
   await refreshLLMBadge();
   // 能力徽章摘要（不展开面板，只数状态）
   try {
