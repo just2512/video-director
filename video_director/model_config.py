@@ -51,6 +51,12 @@ ROLE_DEFS = {
         "default_base_url": "https://api.openai.com/v1",
         "default_model": "gpt-4o-mini",
     },
+    "hyperframes": {
+        "label": "云端动效渲染（HyperFrames 高级动效）",
+        "hint": "付费云端渲染 API。配置后成片动效走云端高质量渲染；不配置自动用内置 FFmpeg，功能不缺失",
+        "default_base_url": "https://api.hyperframes.dev/v1",
+        "default_model": "hyper-1",
+    },
 }
 
 _lock = threading.Lock()

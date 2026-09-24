@@ -331,17 +331,38 @@ class Handler(BaseHTTPRequestHandler):
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = cache_dir / f"{voice}.mp3"
             try:
-                if not cache_file.is_file():
+                # 缓存命中条件：存在且非空（0 字节 = 上次合成失败的残留，重合成）
+                if not (cache_file.is_file() and cache_file.stat().st_size > 0):
                     import asyncio
                     import edge_tts
                     async def _syn():
                         com = edge_tts.Communicate("这是一段配音试听，检查音色是否合适。", voice)
                         await com.save(str(cache_file))
-                    asyncio.run(_syn())
+                    # edge-tts 偶发截断（限流/网络）：失败清理空文件，最多重试 2 次
+                    last_err = None
+                    for _ in range(3):
+                        try:
+                            asyncio.run(_syn())
+                            if cache_file.stat().st_size > 0:
+                                break
+                            cache_file.unlink(missing_ok=True)
+                        except Exception as e1:
+                            last_err = e1
+                            cache_file.unlink(missing_ok=True)
+                    else:
+                        raise RuntimeError(f"合成多次失败（{last_err}）")
                 data = cache_file.read_bytes()
+                if not data:
+                    raise RuntimeError("合成产物为空")
                 self._send_bytes(data, "audio/mpeg")
             except Exception as exc:
-                self._send_json({"error": f"试听合成失败: {exc}"}, 500)
+                # 失败响应带明确状态码，前端能区分"音色不可用"和"网络失败"
+                try:
+                    cache_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                self._send_json({"error": f"试听合成失败: {exc}"}, 502)
+            return
         elif route == "/api/capabilities":
             try:
                 caps = vd_caps.registry()

@@ -278,12 +278,18 @@ def _build_renderer() -> Capability:
         runtime="service",
         note="开发参考实现（仅本机，不打包进产品）",
     )
+    hyper_configured = False
+    try:
+        from video_director import model_config as _mc
+        hyper_configured = _mc.is_role_enabled("hyperframes")
+    except Exception:
+        hyper_configured = False
     hyper = Provider(
-        name="HyperFrames（云端参考）",
-        available=False,
-        requires_api_key=False,
+        name="HyperFrames（云端动效）",
+        available=hyper_configured,
+        requires_api_key=True,
         runtime="cloud",
-        note="云端动效渲染服务（付费 API，可选；不配置不影响任何功能）",
+        note="云端高级动效渲染（在「大模型配置」填密钥启用，未配置自动走内置 FFmpeg）",
     )
     status = STATUS_AVAILABLE if ffmpeg_ok else STATUS_MISSING
     return Capability(
