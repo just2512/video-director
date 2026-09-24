@@ -77,10 +77,40 @@ ASPECTS = [
 ]
 
 
+# 音频中文标签（shotcraft Mixkit 库 16 类 + BGM 曲目；前端下拉直接显示中文）
+AUDIO_LABEL_CN = {
+    # SFX 16 类
+    "camera": "相机快门", "counter": "钟表滴答", "crowd": "人群欢呼", "data": "数据科技",
+    "film": "胶片放映", "fluid": "水滴气泡", "glass": "玻璃破碎", "impact": "冲击重音",
+    "light": "光效魔法", "mech": "机械金属", "paper": "纸张翻动", "riser": "上升音效",
+    "scifi": "科幻电子", "text": "书写打字", "transition": "转场呼啸", "ui": "界面交互",
+    # BGM 曲目
+    "bgm-tech-house": "科技浩室（电子节奏）", "cat-walk": "猫步（优雅律动）",
+    "g-eazy-nba-type": "街头篮球（嘻哈能量）", "house-vibez": "浩室氛围（轻快律动）",
+    "tonight-hiphop": "今夜嘻哈（低音节拍）", "ambient-pad-001": "环境音垫（舒缓铺底）",
+}
+
+
+def _audio_label(asset_id: str, tags: list = None) -> str:
+    """音频中文名：映射表 > tags > id。格式「中文（原名）」。"""
+    if asset_id in AUDIO_LABEL_CN:
+        return AUDIO_LABEL_CN[asset_id]
+    for t in (tags or []):
+        if t in AUDIO_LABEL_CN:
+            return AUDIO_LABEL_CN[t]
+    # sfx-camera-camera-lens-shutter → 相机快门·镜头快门声
+    parts = asset_id.split("-")
+    if len(parts) >= 2 and parts[0] == "sfx" and parts[1] in AUDIO_LABEL_CN:
+        sub = "-".join(parts[2:]).replace("-", " ")
+        return f"{AUDIO_LABEL_CN[parts[1]]}·{sub}"
+    return asset_id
+
+
 def _scan_bgm() -> list:
     try:
         lib = vd_audio.scan_library()
-        return [a.id for a in lib.values() if a.type == "bgm"]
+        return [{"id": a.id, "label": _audio_label(a.id, a.keywords)}
+                for a in lib.values() if a.type == "bgm"]
     except Exception:
         return []
 
@@ -88,7 +118,8 @@ def _scan_bgm() -> list:
 def _scan_sfx() -> list:
     try:
         lib = vd_audio.scan_library()
-        return sorted(a.id for a in lib.values() if a.type == "sfx")
+        return [{"id": a.id, "label": _audio_label(a.id, a.keywords)}
+                for a in lib.values() if a.type == "sfx"]
     except Exception:
         return []
 
@@ -890,6 +921,8 @@ def main(port: int = 8501):
     _load_llm_config()
     try:
         vd_audio.ensure_audio_library()
+        # 扩库：风格化 BGM（ffmpeg 合成免费，中文标签），幂等
+        vd_audio.generate_style_bgm_library()
     except Exception as exc:
         print(f"[web] 音频库自检失败（不阻塞）: {exc}", file=sys.stderr)
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)

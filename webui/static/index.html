@@ -217,10 +217,11 @@ async function loadOptions(){
   const aspects = await (await fetch('/api/aspects')).json();
   _rebuildSelect('aspect', aspects.map(a=>[a.value, a.label]));
   BGMLIST = await (await fetch('/api/bgm')).json();
-  _rebuildSelect('bgm', [['','（关闭）'], ...BGMLIST.map(b=>[b,b])]);
+  _rebuildSelect('bgm', [['auto','🤖 AI 自动匹配（按视频风格选曲）'],['','（不配乐）'],
+                         ...BGMLIST.map(b=>[b.id, b.label])]);
   const sfx = await (await fetch('/api/sfx')).json();
   _rebuildSelect('sfx', [['auto','自动（按镜头动作配音效，推荐）'],['','关闭（不加音效）'],
-                         ...sfx.map(s=>[s, '只用：'+s])]);
+                         ...sfx.map(s=>[s.id, s.label])]);
   await refreshLLMBadge();
   // 能力徽章摘要（不展开面板，只数状态）
   try {
@@ -331,23 +332,24 @@ async function loadCapabilities(){
     const cls = {PASS:'cap-ok', AVAILABLE:'cap-ok', DEGRADED:'cap-warn', MISSING:'cap-off'};
     const label = {PASS:'✓ 正常', AVAILABLE:'✓ 可用', DEGRADED:'⚠ 降级', MISSING:'✗ 缺失'};
     const PROV_CN = {
-      'FFmpeg':'FFmpeg 视频引擎', 'MPT（参考实现）':'MPT 参考实现', 'HyperFrames（参考实现）':'HyperFrames 参考实现',
+      'FFmpeg':'FFmpeg 视频引擎（随包内置）', 'MPT（本机参考）':'MPT 参考实现（本机）', 'HyperFrames（云端参考）':'HyperFrames 云端参考（付费可选）',
       'Edge':'微软 Edge 语音', 'EdgeWordBoundary':'Edge 词级时间戳', 'FasterWhisper':'本地语音识别',
       'FrameVision':'视觉大模型', 'Manual':'人工标注', 'LocalLibrary':'本地音频库',
       'SelfGenerated':'自产音频合成', 'ChromaKey':'绿幕抠像', 'Rembg':'人像抠像模型'};
     const rows = caps.map(c=>{
       const provs = (c.providers||[]).map(p=>{
         const nm = PROV_CN[p.name] || p.name;
-        if (p.available) return `<span class="cap-ok">${esc(nm)}</span>`;
-        return `<span class="cap-off" style="opacity:.55">${esc(nm)}${p.requires_api_key?'（配密钥启用）':'（未安装）'}</span>`;
+        const tip = p.note ? ` title="${esc(p.note)}"` : '';
+        if (p.available) return `<span class="cap-ok"${tip}>${esc(nm)}</span>`;
+        return `<span class="cap-off" style="opacity:.55"${tip}>${esc(nm)}${p.requires_api_key?'（配密钥启用）':'（未配置）'}</span>`;
       }).join('、');
       return `<tr>
       <td>${NAME_CN[c.name]||c.name}</td>
       <td class="${cls[c.status]||''}">${label[c.status]||esc(c.status)}</td>
       <td>${provs||'—'}</td>
       <td>${(c.fallback_tools||[]).join('、')||'—'}</td></tr>`;}).join('');
-    el.innerHTML = `<table class="cap-table"><tr><td>能力</td><td>状态</td><td>提供者</td><td>降级链</td></tr>${rows}</table>
-      <div class="hint" style="margin-top:8px">灰色项为可选增强（配置后自动启用），不影响成片功能。</div>`;
+    el.innerHTML = `<table class="cap-table"><tr><td>能力</td><td>状态</td><td>提供者（悬停看说明）</td><td>降级链</td></tr>${rows}</table>
+      <div class="hint" style="margin-top:8px">灰色项为可选增强。视频渲染只用随包内置的 FFmpeg（任何电脑可用）；带「本机参考」的项是开发参考实现，不打包进产品；「云端参考」为付费可选服务。</div>`;
   } catch (e) {
     el.innerHTML = `<div class="err-box">读取失败：${esc(e.message)}</div>`;
   }
@@ -547,8 +549,10 @@ function previewVoice(){
   _play('/api/voice_preview?voice=' + encodeURIComponent(v), '配音 ' + v);
 }
 function previewAudio(kind){
-  const v = document.getElementById(kind).value;
-  if (!v) { alert('请先在下拉中选择一个具体曲目'); return; }
+  const sel = document.getElementById(kind);
+  const v = sel.value;
+  if (!v) { alert('当前选项无音频可播（关闭/不配乐状态）'); return; }
+  if (v === 'auto') { alert('AI 自动匹配在成片时按风格选曲，试听请选择具体曲目'); return; }
   _play('/api/audio_preview?asset_id=' + encodeURIComponent(v), v);
 }
 function previewSfx(){

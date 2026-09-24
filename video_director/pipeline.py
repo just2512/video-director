@@ -748,6 +748,15 @@ def compose_auto(
     # 0. 任务状态机登记（跨会话历史 + WebUI 轮询；SVF 经验：配置持久化、崩溃无脏态）
     # + Style Contract 选择（V2 §17/§18：AUTO 或用户一句描述，无评分）
     style_contract, style_warnings = style_mod.select_style(script, style_intent)
+    # BGM AI 自动配乐（bgm_asset_id="auto"：风格契约 → 中文标签语义匹配选曲）
+    if bgm_asset_id == "auto":
+        auto_bgm = audio_mod.resolve_auto_bgm(style_contract.style_id)
+        if auto_bgm:
+            bgm_asset_id = auto_bgm
+            logger.info(f"bgm auto: 风格 {style_contract.style_id} → {auto_bgm}")
+        else:
+            bgm_asset_id = None
+            style_warnings.append("BGM 自动匹配：音频库为空，未配乐")
     try:
         store.create_project(project_id, script, {
             "voice": voice, "voice_rate": voice_rate,

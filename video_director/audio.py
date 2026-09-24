@@ -78,6 +78,127 @@ def ensure_audio_library() -> None:
         generate_test_audio_library()
 
 
+#: 风格 → BGM 语义匹配表（AI 自动配乐：按风格契约选曲，中文标签对齐）
+STYLE_BGM_MATCH = {
+    "documentary-calm": ["舒缓钢琴垫", "环境音垫", "温暖叙事"],
+    "knowledge-explainer": ["科技中性", "温暖叙事", "轻快流行"],
+    "energetic-social": ["轻快流行", "街头篮球", "今夜嘻哈", "浩室氛围"],
+    "cinematic-story": ["史诗紧张", "舒缓钢琴垫", "环境音垫"],
+}
+
+
+def resolve_auto_bgm(style_id: str, library: Dict[str, AssetRef] = None) -> Optional[str]:
+    """AI 自动配乐：风格 → BGM 曲目 asset_id（未命中返回 None 诚实降级）。
+
+    匹配逻辑：风格语义表优先（中文标签/标签重合），回退任何可用 BGM。
+    """
+    lib = library if library is not None else scan_library()
+    bgms = [a for a in lib.values() if a.type == "bgm"]
+    if not bgms:
+        return None
+    want_tags = STYLE_BGM_MATCH.get(style_id, [])
+    for want in want_tags:
+        for a in bgms:
+            if any(want in str(k) for k in (a.keywords or [])):
+                return a.id
+    # 语义未命中：回退第一首（保证有配乐），调用方记 warning
+    return bgms[0].id
+STYLE_BGM_RECIPES = {
+    "calm-piano-pad": ("舒缓钢琴垫（纪录片/情感）", [
+        ("sine=frequency=220:duration=24", 0.20),
+        ("sine=frequency=277:duration=24", 0.14),
+        ("sine=frequency=330:duration=24", 0.10),
+        ("sine=frequency=440:duration=24", 0.06),
+    ]),
+    "upbeat-trend": ("轻快流行（短视频/种草）", [
+        ("sine=frequency=262:duration=20", 0.16),
+        ("sine=frequency=330:duration=20", 0.14),
+        ("sine=frequency=392:duration=20", 0.12),
+        ("sine=frequency=523:duration=20", 0.08),
+    ]),
+    "epic-tension": ("史诗紧张（历史/悬疑）", [
+        ("sine=frequency=110:duration=28", 0.26),
+        ("sine=frequency=131:duration=28", 0.18),
+        ("sine=frequency=165:duration=28", 0.12),
+    ]),
+    "tech-neutral": ("科技中性（产品/解说）", [
+        ("sine=frequency=196:duration=22", 0.18),
+        ("sine=frequency=294:duration=22", 0.12),
+        ("sine=frequency=392:duration=22", 0.10),
+    ]),
+    "warm-story": ("温暖叙事（人物/故事）", [
+        ("sine=frequency=175:duration=26", 0.20),
+        ("sine=frequency=262:duration=26", 0.13),
+        ("sine=frequency=350:duration=26", 0.08),
+    ]),
+}
+
+
+def generate_style_bgm_library() -> int:
+    """按配方合成风格化 BGM（零依赖免费，无版权风险），返回新增数量。
+
+    幂等：已存在同名文件则跳过。生成后写入 manifest（中文标签）。
+    """
+    import subprocess
+
+    root = library_root()
+    bgm_dir = root / "bgm"
+    bgm_dir.mkdir(parents=True, exist_ok=True)
+    ff = prober._resolve_ffmpeg()
+    if ff is None:
+        return 0
+    manifest_path = root / "audio_manifest.json"
+    existing = []
+    if manifest_path.is_file():
+        try:
+            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = []
+    seen = {e.get("asset_id") for e in existing}
+    added = 0
+    for asset_id, (label_cn, layers) in STYLE_BGM_RECIPES.items():
+        if f"bgm-{asset_id}" in seen:
+            continue
+        path = bgm_dir / f"{asset_id}.mp3"
+        if not path.is_file():
+            inputs = []
+            for expr, vol in layers:
+                inputs += ["-f", "lavfi", "-i", f"{expr},volume={vol}"]
+            n = len(layers)
+            mix = "".join(f"[{i}:a]" for i in range(n))
+            dur = max(float(l[0].split("duration=")[1]) for l in layers)
+            fade_out = dur - 3
+            cmd = [ff, "-y", "-loglevel", "error", *inputs,
+                   "-filter_complex",
+                   f"{mix}amix=inputs={n}:duration=longest,"
+                   f"afade=t=in:st=0:d=1.5,afade=t=out:st={fade_out:.1f}:d=3,"
+                   f"aresample=44100,aformat=channel_layouts=mono",
+                   "-c:a", "libmp3lame", "-b:a", "128k", str(path)]
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=120)
+                if r.returncode != 0:
+                    logger.warning(f"风格BGM合成失败 {asset_id}: {r.stderr[-200:]}")
+                    continue
+            except Exception as exc:
+                logger.warning(f"风格BGM合成异常 {asset_id}: {exc}")
+                continue
+        existing.append({
+            "asset_id": f"bgm-{asset_id}",
+            "file": f"bgm/{asset_id}.mp3",
+            "type": "bgm",
+            "tags": [label_cn, asset_id.replace("-", " ")],
+            "license": {"source": "self-generated", "commercial_use": True,
+                        "attribution_required": False},
+        })
+        added += 1
+    if added:
+        manifest_path.write_text(
+            json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info(f"风格BGM合成: 新增 {added} 首")
+    return added
+
+
 def resolve(
     intent: dict,
     library: Dict[str, AssetRef],

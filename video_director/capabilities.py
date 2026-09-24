@@ -250,11 +250,13 @@ def _build_alignment() -> Capability:
 
 
 def _build_renderer() -> Capability:
-    """renderer：视频渲染合成。主路径 FFmpeg（BasicRenderer）。
+    """renderer：视频渲染合成。唯一主路径 FFmpeg（随包分发，任何电脑可用）。
 
-    MPT（MoneyPrinterTurbo）：本机参考实现，检测 D:/autocut 下的安装目录，
-    存在即标 available（作为参考资产与降级链候选，渲染主路径仍 FFmpeg）。
-    HyperFrames：云端参考实现，未安装为诚实状态。
+    分发口径（诚实）：
+    - FFmpeg：随安装包内置（lib 包），用户电脑零依赖，恒可用
+    - MPT/HyperFrames：开发参考实现，仅存在于开发机，不打包进产品；
+      打包分发后这两项不会出现在他人电脑上（也不需要——FFmpeg 覆盖全部
+      渲染能力）。此处检测只为开发者提供参考资产位置。
     """
     ffmpeg_ok = _check_ffmpeg_available()
     ffmpeg = Provider(
@@ -262,30 +264,26 @@ def _build_renderer() -> Capability:
         available=ffmpeg_ok,
         requires_api_key=False,
         runtime="binary",
-        note="BasicRenderer 主路径（cut/slow_zoom_in 已实现）",
+        note="随包内置视频引擎（任何电脑可用，覆盖全部渲染）",
     )
     mpt_present = False
     try:
-        import os
-        mpt_present = any(
-            (Path(p) / "MoneyPrinterTurbo").is_dir()
-            for p in (r"D:\autocut", os.path.expanduser("~"))
-        )
+        mpt_present = (Path(r"D:\autocut") / "MoneyPrinterTurbo").is_dir()
     except Exception:
         mpt_present = False
     mpt = Provider(
-        name="MPT（参考实现）",
+        name="MPT（本机参考）",
         available=mpt_present,
         requires_api_key=False,
         runtime="service",
-        note="MoneyPrinterTurbo 本机参考实现" + ("" if mpt_present else "（未找到）"),
+        note="开发参考实现（仅本机，不打包进产品）",
     )
     hyper = Provider(
-        name="HyperFrames（参考实现）",
+        name="HyperFrames（云端参考）",
         available=False,
         requires_api_key=False,
-        runtime="service",
-        note="云端参考实现，未安装",
+        runtime="cloud",
+        note="云端动效渲染服务（付费 API，可选；不配置不影响任何功能）",
     )
     status = STATUS_AVAILABLE if ffmpeg_ok else STATUS_MISSING
     return Capability(
