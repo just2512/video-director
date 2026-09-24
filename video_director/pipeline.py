@@ -756,8 +756,8 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> Pipel
             providers={
                 "tts": "edge-tts",
                 "alignment": "edge-tts-word-boundaries",
-                "vision": "none",
-                "llm": "none",
+                "vision": "manual-manifest",
+                "llm": "llm-chat（改稿/规划消费 model_config.llm 角色）",
             },
             verification={
                 "doctor": "PASS",
@@ -1042,10 +1042,8 @@ def compose_auto(
             providers={
                 "tts": "edge-tts",
                 "alignment": "edge-tts-word-boundaries",
-                "vision": ("frame-vision" if any(
-                    r.status == "PASS" and "Vision" in r.name for r in doctor_results
-                ) else "manual-manifest" if manual_manifest else "none"),
-                "llm": "none",
+                "vision": ("frame-vision" if (vision_provider is not None and getattr(vision_provider, "available", lambda: False)()) else "manual-manifest" if manual_manifest else "none"),
+                "llm": ("llm-chat" if llm_call is not None else "none"),
             },
             verification={
                 "doctor": "PASS",

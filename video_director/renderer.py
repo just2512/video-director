@@ -222,8 +222,8 @@ def splice_with_transitions(
     processed: List[str] = []
     for i, clip in enumerate(clips):
         p = clip
-        fade_in = 0.25 if (i > 0 and transitions[i - 1] not in ("cut",)) else 0.0
-        fade_out = 0.25 if (i < len(clips) - 1 and transitions[i] not in ("cut",)) else 0.0
+        fade_in = 0.4 if (i > 0 and transitions[i - 1] not in ("cut",)) else 0.0
+        fade_out = 0.4 if (i < len(clips) - 1 and transitions[i] not in ("cut",)) else 0.0
         if fade_in > 0 or fade_out > 0:
             pp = f"{out_path}.f{i}.mp4"
             p = _apply_fade(clip, pp, fade_in, fade_out)
