@@ -18,8 +18,8 @@ TRANSITION_REGISTRY = (
     "glitch",
 )
 
-#: 第一版 BasicRenderer 实际实现
-TRANSITION_IMPLEMENTED = ("cut",)
+#: 第一版 BasicRenderer 实际实现（xfade: cut 直拼 + crossfade 溶解）
+TRANSITION_IMPLEMENTED = ("cut", "crossfade")
 
 # ---------------------------------------------------------------------------
 # 图片 Motion（V2 §14：>2s 图片默认轻微 motion，强度由 Style 控制）

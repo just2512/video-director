@@ -13,6 +13,7 @@ LLM 永远不生成 FFmpeg 命令（V1 §21）：命令全部由本模块确定�
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -182,6 +183,54 @@ def render_layer_segment(
 # 拼接 + 音频
 # ---------------------------------------------------------------------------
 
+def splice_with_transitions(
+    clips: List[str],
+    transitions: List[str],
+    out_path: str,
+    width: int,
+    height: int,
+    fps: int,
+) -> str:
+    """场景级拼接：cut 用 concat，crossfade/fade 用 xfade 链式（方案 §22）。
+
+    clips: [path]（逐场景 clip，含片头标题卡为第一个）
+    transitions: [type] 长度 len(clips)-1，transitions[i] = clip[i]→clip[i+1] 的转场。
+    只做视频轨（音频由 mix_audio 后续挂旁白），xfade 时长默认 0.5s。
+    """
+    if len(clips) == 1 or all(t in ("cut",) for t in transitions):
+        return concat_segments(clips, out_path, width, height, fps)
+    cur = clips[0]
+    for i, tr in enumerate(transitions):
+        nxt = clips[i + 1]
+        d = 0.5  # crossfade 时长（克制：只做溶解，不做花哨转场）
+        merged = f"{out_path}.m{i}.mp4"
+        if tr in ("cut",):
+            concat_segments([cur, nxt], merged, width, height, fps)
+        else:
+            from video_director import prober
+            cur_dur = prober.probe_media(cur).duration or 0.0
+            offset = max(0.0, cur_dur - d)
+            xf = "fade"  # crossfade/blur_crossfade 第一版都映射 fade 溶解
+            cmd = [
+                _ffmpeg(), "-y", "-loglevel", "error",
+                "-i", cur, "-i", nxt,
+                "-filter_complex",
+                f"[0:v][1:v]xfade=transition={xf}:duration={d}:offset={offset:.3f},format=yuv420p",
+                "-c:v", config.DEFAULT_VIDEO_CODEC,
+                "-preset", "veryfast", "-crf", str(config.DEFAULT_CRF),
+                merged,
+            ]
+            _run(cmd)
+            if Path(cur) != Path(clips[0]):
+                Path(cur).unlink(missing_ok=True)
+        cur = merged
+    if Path(cur) != Path(out_path):
+        shutil.move(cur, out_path)
+    for i in range(len(clips) - 1):
+        Path(f"{out_path}.m{i}.mp4").unlink(missing_ok=True)
+    return out_path
+
+
 def concat_segments(segment_paths: List[str], out_path: str, width: int, height: int, fps: int) -> str:
     """concat demuxer + 重编码统一参数（segment 已标准化，此处流复制重封装拼接。
 
@@ -332,15 +381,12 @@ def render_composition(
     seg_dir.mkdir(parents=True, exist_ok=True)
     w, h = ir.project.width, ir.project.height
 
-    # 0. 片头标题卡（§16：MainTitle 入场动效，前置段不压缩正文）
-    segments: List[str] = []
-    if title_card and os.path.isfile(title_card):
-        segments.append(title_card)
-        logger.info(f"segment 0000 [title-card] 前置")
-
-    # 1. 逐层渲染
+    # 1. 逐场景渲染 → 场景 clip（场景内 layers 拼接），保留转场信息
     seq = 0
+    scene_clips: List[str] = []
+    scene_transitions: List[str] = []
     for scene in ir.scenes:
+        scene_segs: List[str] = []
         for layer in scene.layers:
             asset = assets.get(layer.asset_id or "")
             if asset is None:
@@ -348,12 +394,30 @@ def render_composition(
             seq += 1
             seg_path = str(seg_dir / f"{seq:04d}.mp4")
             render_layer_segment(layer, asset, seg_path, w, h, ir.project.fps)
-            segments.append(seg_path)
+            scene_segs.append(seg_path)
             logger.info(f"segment {seq:04d} [{scene.id}/{layer.type.value}] {layer.duration:.2f}s")
+        scene_clip = str(seg_dir / f"scene_{scene.id}.mp4")
+        concat_segments(scene_segs, scene_clip, w, h, ir.project.fps)
+        scene_clips.append(scene_clip)
+        # 场景转出到下一场景的转场类型（最后一个场景的 transition_out 忽略）
+        tr = getattr(scene.transition_out, "type", "cut") if len(scene_clips) < len(ir.scenes) else "cut"
+        scene_transitions.append(tr)
 
-    # 2. 拼接
+    # 0. 片头标题卡（§16：MainTitle 入场动效，前置段不压缩正文）
+    if title_card and os.path.isfile(title_card):
+        scene_clips.insert(0, title_card)
+        scene_transitions.insert(0, "cut")
+        logger.info("segment 0000 [title-card] 前置")
+
+    # 2. 场景间转场拼接（cut=concat，crossfade/fade=xfade）
     visual_path = str(work_dir / "visual.mp4")
-    concat_segments(segments, visual_path, w, h, ir.project.fps)
+    if len(scene_clips) == 1:
+        shutil.move(scene_clips[0], visual_path)
+    else:
+        splice_with_transitions(
+            scene_clips, scene_transitions[: len(scene_clips) - 1],
+            visual_path, w, h, ir.project.fps,
+        )
 
     # 3. 音频
     master_path = str(work_dir / "master.mp4")
@@ -381,7 +445,7 @@ def render_composition(
         visual_path=visual_path,
         master_path=master_path,
         final_path=final_path,
-        segments=segments,
+        segments=scene_clips,
     )
 
 

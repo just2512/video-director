@@ -40,7 +40,26 @@ from video_director.models import (
     AudioTrackType,
     CompositionIR,
     MissingAssetError,
+    TransitionOut,
 )
+
+
+def _inject_transitions(ir: CompositionIR, budget: int) -> None:
+    """方案 §22：按风格 budget 在场景边界均匀插入 crossfade（默认 cut 不变）。
+
+    边界数 = len(scenes)-1（最后场景不转出）；均匀取 min(budget, 边界数) 个
+    边界（略偏中后段，节奏感），设 transition_out=crossfade(0.5s)。
+    """
+    n = len(ir.scenes)
+    if n <= 1 or budget <= 0:
+        return
+    boundaries = n - 1
+    count = min(budget, boundaries)
+    step = boundaries / count
+    picks = {min(boundaries - 1, int(step * (i + 0.5))) for i in range(count)}
+    for i in sorted(picks):
+        ir.scenes[i].transition_out = TransitionOut(type="crossfade", duration=0.5)
+    logger.info(f"转场注入：{len(picks)} 处 crossfade 溶解")
 
 
 class PipelineError(Exception):
@@ -134,6 +153,7 @@ def compose_project(
     title: Optional[str] = None,
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
+    transition_budget: int = 0,
     width: int = None,
     height: int = None,
     fps: int = None,
@@ -205,6 +225,9 @@ def compose_project(
         _save_error(dirs, "MISSING_ASSET", str(exc), scene_id=exc.scene_id)
         _fail(f"MISSING_ASSET: {exc}")
         raise
+    # 转场自动插入（方案 §22：默认 cut，效果转场按风格 budget 克制使用）
+    if transition_budget > 0:
+        _inject_transitions(ir, transition_budget)
 
     # 4. 音频计划（BGM/SFX 一等公民，V2 §30）
     narration_duration = scenes[-1]["start"] + scenes[-1]["duration"]
@@ -650,9 +673,15 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> Pipel
             json.dump(word_timeline, f, ensure_ascii=False, indent=2)
         with open(scenes_path, "w", encoding="utf-8") as f:
             json.dump(narration_scenes, f, ensure_ascii=False, indent=2)
-        sub_file = dirs["render"] / "master.srt"
+        sub_file = dirs["render"] / "master.ass"
+        rw = width or config.DEFAULT_RESOLUTION[0]
+        rh = height or config.DEFAULT_RESOLUTION[1]
+        rfont = int(round((style_contract.subtitle_font_size if style_contract else 52)
+                          * (rw / 1080)))
         sub_file.write_text(
-            subtitle_mod.build_srt_from_scenes(narration_scenes), encoding="utf-8"
+            subtitle_mod.build_ass_plain(narration_scenes, width=rw, height=rh,
+                                         font_size=rfont),
+            encoding="utf-8"
         )
         sub_entries = subtitle_mod.srt_entries(narration_scenes)
         sub_file_arg = str(sub_file)
@@ -661,7 +690,7 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> Pipel
         )
     else:
         narration_file = str(narration_audio_path) if narration_audio_path.is_file() else None
-        sub_file = dirs["render"] / "master.srt"
+        sub_file = dirs["render"] / "master.ass"
         sub_entries = subtitle_mod.srt_entries(narration_scenes) if sub_file.is_file() else None
         sub_file_arg = str(sub_file) if sub_file.is_file() else None
 
@@ -765,6 +794,15 @@ def compose_auto(
     base = config.project_dir(project_id)
     dirs = config.init_project_dirs(base)
 
+    # 视觉理解接线：vision_provider 未显式注入时，自动用 model_config 的
+    # vision 角色（FrameVisionProvider 读 key；无 key 则 available()=False
+    # → analyze_assets 走 ManualProvider/顺序兜底，诚实降级不报错）。
+    if vision_provider is None:
+        try:
+            vision_provider = vision_mod.FrameVisionProvider()
+        except Exception:
+            vision_provider = None
+
     # 0. 任务状态机登记（跨会话历史 + WebUI 轮询；SVF 经验：配置持久化、崩溃无脏态）
     # + Style Contract 选择（V2 §17/§18：AUTO 或用户一句描述，无评分）
     style_contract, style_warnings = style_mod.select_style(script, style_intent)
@@ -809,20 +847,24 @@ def compose_auto(
         json.dump(word_timeline, f, ensure_ascii=False, indent=2)
     store.set_stage(project_id, store.Stage.ALIGNMENT)
 
-    # 2. 字幕（与主时间轴同基准；karaoke 模式用词级时间戳生成 ASS 逐词高亮）
+    # 2. 字幕（统一 ASS 渲染，生产级：句级显示 + 白字黑描边 + 底部安全区）
+    #    字号按画幅宽度缩放（StyleContract 字号以 1080 宽为基准）
+    w_sub = width or config.DEFAULT_RESOLUTION[0]
+    h_sub = height or config.DEFAULT_RESOLUTION[1]
+    font_size = int(round((style_contract.subtitle_font_size or 52) * (w_sub / 1080)))
+    sub_file = dirs["render"] / "master.ass"
     if subtitle_mode == "karaoke":
-        sub_file = dirs["render"] / "master.ass"
         sub_file.write_text(
             subtitle_mod.build_ass_karaoke(
-                narration_scenes, word_timeline,
-                width=width or config.DEFAULT_RESOLUTION[0],
-                height=height or config.DEFAULT_RESOLUTION[1],
+                narration_scenes, word_timeline, width=w_sub, height=h_sub,
+                font_size=font_size,
             ), encoding="utf-8"
         )
     else:
-        sub_file = dirs["render"] / "master.srt"
         sub_file.write_text(
-            subtitle_mod.build_srt_from_scenes(narration_scenes), encoding="utf-8"
+            subtitle_mod.build_ass_plain(
+                narration_scenes, width=w_sub, height=h_sub, font_size=font_size,
+            ), encoding="utf-8"
         )
     sub_entries = subtitle_mod.srt_entries(narration_scenes)
 
@@ -915,6 +957,7 @@ def compose_auto(
         title=title,
         lower_third_name=lower_third_name,
         lower_third_role=lower_third_role,
+        transition_budget=style_contract.transition_budget,
         width=width,
         height=height,
         fps=fps,

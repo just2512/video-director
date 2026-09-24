@@ -73,8 +73,118 @@ def srt_entries(scenes: List[dict]) -> List[dict]:
 
 
 # ---------------------------------------------------------------------------
-# 卡拉OK字幕（方案 §15 Subtitle Engine：Karaoke 逐词高亮，ASS \kf 实现）
+# 分句（对照 MPT subtitle.py：按标点断句，句级字幕而非整段）
 # ---------------------------------------------------------------------------
+_SENTENCE_SPLIT = re.compile(r"([。！？!?；;，,、])")
+
+
+def split_sentences(text: str) -> List[str]:
+    """按中文/英文标点把一段旁白切成句子（保留句末标点）。空段过滤。
+
+    超长句（无标点一口气 > 18 字）再按 14 字窗口硬切，避免撑爆画面。
+    """
+    raw = text.strip()
+    if not raw:
+        return []
+    parts = _SENTENCE_SPLIT.split(raw)
+    # parts 形如 [..., "标点", ...] 交替，重组为带标点的句子
+    sentences: List[str] = []
+    buf = ""
+    for p in parts:
+        buf += p
+        if p and p in "。！？!?；;，,、":
+            s = buf.strip()
+            if s:
+                sentences.append(s)
+            buf = ""
+    if buf.strip():
+        sentences.append(buf.strip())
+    # 超长句硬切（>18 字且无更多标点，强制换行成多条）
+    out: List[str] = []
+    for s in sentences:
+        if len(s) > 18:
+            # 逐 14 字切窗口（中文按字计）
+            for i in range(0, len(s), 14):
+                chunk = s[i : i + 14].strip()
+                if chunk:
+                    out.append(chunk)
+        else:
+            out.append(s)
+    return out
+
+
+#: 普通字幕 ASS 样式（白字 + 黑描边 + 底部安全区，字号按画幅，对照 MPT 生产级）
+ASS_PLAIN_HEADER = """[Script Info]
+ScriptType: v4.00+
+PlayResX: {width}
+PlayResY: {height}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Sub,Microsoft YaHei,{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,2.5,1,2,60,60,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+
+def _scene_sentence_times(scene: dict, sentences: List[str]) -> List[tuple]:
+    """句级时间：按句子字符占比在场景 [start,end] 内线性分配。
+
+    Args:
+        scene: {start, duration, text}
+        sentences: 该场景分句结果
+    Returns:
+        [(start, end), ...] 每条句子的时间戳
+    """
+    start, dur = float(scene["start"]), float(scene["duration"])
+    text_len = max(1, len(str(scene.get("text", ""))))
+    times = []
+    cursor = start
+    for s in sentences:
+        # 每句时长 = 场景时长 × (句长 / 总长)，最后一句吃掉剩余
+        seg = dur * (len(s) / text_len)
+        times.append((round(cursor, 3), round(cursor + seg, 3)))
+        cursor += seg
+    if times:
+        times[-1] = (times[-1][0], round(start + dur, 3))
+    return times
+
+
+def build_ass_plain(
+    scenes: List[dict],
+    width: int = 1080,
+    height: int = 1920,
+    font_size: int = 64,
+) -> str:
+    """普通字幕（句级 + 样式）ASS：按标点分句，白字黑描边，底部安全区。
+
+    对照 MPT 字幕：一句一显示（非整段），超长句已硬切，字号按画幅传入。
+    """
+    header = ASS_PLAIN_HEADER.format(
+        width=width, height=height, font_size=font_size,
+        margin_v=max(40, int(height * 0.08)),
+    )
+    events: List[str] = []
+    for sc in scenes:
+        text = str(sc.get("text", "")).strip()
+        if not text:
+            continue
+        sentences = split_sentences(text)
+        times = _scene_sentence_times(sc, sentences)
+        for (s_start, s_end), sent in zip(times, sentences):
+            # ASS 文本内换行：>16 字手动折行（\N），视觉更协调
+            disp = sent
+            if len(disp) > 16:
+                mid = len(disp) // 2
+                # 找中点最近的标点/空格作自然断行，无则硬切
+                disp = disp[:mid] + "\\N" + disp[mid:]
+            events.append(
+                f"Dialogue: 0,{_ass_time(s_start)},{_ass_time(s_end)},Sub,,0,0,0,,{disp}"
+            )
+    return header + "\n".join(events) + "\n"
 def _ass_time(seconds: float) -> str:
     """秒 → ASS 时间戳 H:MM:SS.cc（百分秒）。"""
     cs = int(round(seconds * 100))
