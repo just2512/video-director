@@ -241,8 +241,11 @@ def build_ass_karaoke(
         words = [w for w in word_timeline
                  if start <= float(w.get("start", -1)) < end]
         if words:
-            # \kf 串：每词 {\kf<dur>}词 （dur 单位百分秒）
+            # \kf 串：每词 {\kf<dur>}词 （dur 单位百分秒）；长句 >16 字在中点断行
             segs = []
+            char_cnt = 0
+            _mid = len(text) // 2
+            _wrapped = False
             for j, w in enumerate(words):
                 w_start = float(w["start"])
                 w_end = float(w["end"])
@@ -255,6 +258,10 @@ def build_ass_karaoke(
                     w_end = max(w_end, w_start + 0.05)
                 dur_cs = max(1, int(round((w_end - w_start) * 100)))
                 segs.append(r"{\kf%d}%s" % (dur_cs, w.get("text", "")))
+                char_cnt += len(w.get("text", ""))
+                if not _wrapped and char_cnt >= _mid and len(text) > 16:
+                    segs.append(r"\N")
+                    _wrapped = True
             karaoke_text = "".join(segs)
         else:
             # 无词级时间（兜底）：整句均分 \kf
