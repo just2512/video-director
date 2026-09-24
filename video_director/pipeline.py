@@ -708,6 +708,7 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> Pipel
         sfx_plan=None,
         subtitle_entries=sub_entries,
         subtitle_file=sub_file_arg,
+        transition_budget=style_contract.transition_budget if style_contract else 0,
         width=width,
         height=height,
         fps=fps,
