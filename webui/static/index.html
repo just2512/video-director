@@ -178,9 +178,11 @@
       <div class="hint" id="sfx-upload-status"></div>
       <label>字幕样式</label>
       <select id="subtitle_mode">
-        <option value="plain">普通字幕（整句显示）</option>
+        <option value="plain">普通字幕（逐句显示）</option>
         <option value="karaoke">卡拉OK（逐词高亮跟读）</option>
       </select>
+      <label>水印（可选，右下角；留空=不加水印）</label>
+      <input type="text" id="watermark" value="AI Video Director" placeholder="水印文字（留空=不加水印）">
       <label>成片前人工确认</label>
       <select id="confirm_mode">
         <option value="preview">先预览分镜再渲染（推荐）</option>
@@ -694,6 +696,7 @@ async function compose(){
   fd.append('bgm', document.getElementById('bgm').value);
   fd.append('sfx', document.getElementById('sfx').value);
   fd.append('subtitle_mode', document.getElementById('subtitle_mode').value);
+  fd.append('watermark', document.getElementById('watermark').value);
   fd.append('title', document.getElementById('title').value);
   fd.append('lower_third_name', document.getElementById('lower_third_name').value);
   fd.append('lower_third_role', document.getElementById('lower_third_role').value);

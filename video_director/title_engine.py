@@ -200,3 +200,42 @@ def render_lower_third_overlay(
         raise RuntimeError(f"人物条渲染失败: {r.stderr[-300:]}")
     logger.info(f"lower third: 「{name}」叠加 → {out.name}")
     return str(out)
+
+
+def render_watermark_overlay(
+    video_in: str,
+    text: str,
+    out_path: str,
+) -> str:
+    """右下角水印（全程显示，半透明白字，小字号）。"""
+    if not text or not text.strip():
+        return video_in
+    font = find_cjk_font()
+    if font is None:
+        return video_in
+    from video_director import prober
+    probe = prober.probe_media(video_in)
+    w = probe.width or config.DEFAULT_RESOLUTION[0]
+    h = probe.height or config.DEFAULT_RESOLUTION[1]
+    size = max(16, int(w * 0.026))
+    esc_font = _esc_font_path(font)
+    draw = (
+        f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(text.strip())}'"
+        f":fontsize={size}:fontcolor=white@0.55"
+        f":x=w-text_w-{int(w * 0.03)}:y=h-text_h-{int(h * 0.02)}"
+    )
+    ff = prober._resolve_ffmpeg()
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ff, "-y", "-loglevel", "error", "-i", video_in,
+        "-vf", draw, "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-preset", "veryfast", "-crf", str(config.DEFAULT_CRF),
+        "-c:a", "copy", str(out),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError(f"水印渲染失败: {r.stderr[-300:]}")
+    logger.info(f"watermark: 「{text.strip()[:16]}」→ 右下角")
+    return str(out)

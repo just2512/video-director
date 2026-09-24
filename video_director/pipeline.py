@@ -179,6 +179,7 @@ def compose_project(
     title: Optional[str] = None,
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
+    watermark: Optional[str] = None,
     transition_budget: int = 0,
     width: int = None,
     height: int = None,
@@ -335,6 +336,7 @@ def compose_project(
                 title_card=title_card,
                 lower_third_name=lower_third_name,
                 lower_third_role=lower_third_role,
+                watermark=watermark,
             )
             store.set_stage(pid, store.Stage.QC)
             report = qc_mod.run_qc(
@@ -799,6 +801,7 @@ def compose_auto(
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
     creative_brief: Optional[str] = None,
+    watermark: Optional[str] = None,
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -1002,6 +1005,7 @@ def compose_auto(
         title=title,
         lower_third_name=lower_third_name,
         lower_third_role=lower_third_role,
+        watermark=watermark,
         transition_budget=style_contract.transition_budget,
         width=width,
         height=height,

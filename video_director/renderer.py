@@ -372,6 +372,7 @@ def render_composition(
     title_card: Optional[str] = None,
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
+    watermark: Optional[str] = None,
 ) -> RenderResult:
     """渲染完整 Composition IR。字幕最后烧录（V1 §20/§22 video-use Rule 1）。
 
@@ -442,6 +443,14 @@ def render_composition(
         final_path = title_engine.render_lower_third_overlay(
             final_path, lower_third_name.strip(), lt_out,
             role=lower_third_role,
+        )
+
+    # 6. 水印（右下角，最后叠加，全程显示）
+    if watermark and watermark.strip():
+        from video_director import title_engine
+        wm_out = str(work_dir / "final_watermark.mp4")
+        final_path = title_engine.render_watermark_overlay(
+            final_path, watermark.strip(), wm_out,
         )
 
     return RenderResult(

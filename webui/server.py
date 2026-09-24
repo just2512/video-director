@@ -898,6 +898,7 @@ class Handler(BaseHTTPRequestHandler):
                     lower_third_name=fields.get("lower_third_name", "") or None,
                     lower_third_role=fields.get("lower_third_role", "") or None,
                     creative_brief=fields.get("creative_brief", "") or None,
+                    watermark=fields.get("watermark", "AI Video Director") or None,
                 )
             else:
                 self._send_json({"error": "无素材"}, 400)
