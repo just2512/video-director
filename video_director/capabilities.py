@@ -35,6 +35,7 @@ from __future__ import annotations
 import os
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 from loguru import logger
@@ -251,8 +252,9 @@ def _build_alignment() -> Capability:
 def _build_renderer() -> Capability:
     """renderer：视频渲染合成。主路径 FFmpeg（BasicRenderer）。
 
-    MPT/HyperFrames 是参考实现，当前未接入（available=False，诚实声明）。
-    只要 FFmpeg 可解析，renderer 视为 AVAILABLE（核心渲染可执行）。
+    MPT（MoneyPrinterTurbo）：本机参考实现，检测 D:/autocut 下的安装目录，
+    存在即标 available（作为参考资产与降级链候选，渲染主路径仍 FFmpeg）。
+    HyperFrames：云端参考实现，未安装为诚实状态。
     """
     ffmpeg_ok = _check_ffmpeg_available()
     ffmpeg = Provider(
@@ -262,19 +264,28 @@ def _build_renderer() -> Capability:
         runtime="binary",
         note="BasicRenderer 主路径（cut/slow_zoom_in 已实现）",
     )
+    mpt_present = False
+    try:
+        import os
+        mpt_present = any(
+            (Path(p) / "MoneyPrinterTurbo").is_dir()
+            for p in (r"D:\autocut", os.path.expanduser("~"))
+        )
+    except Exception:
+        mpt_present = False
     mpt = Provider(
-        name="MPT",
-        available=False,
+        name="MPT（参考实现）",
+        available=mpt_present,
         requires_api_key=False,
         runtime="service",
-        note="MoneyPrinterTurbo 参考实现，未接入",
+        note="MoneyPrinterTurbo 本机参考实现" + ("" if mpt_present else "（未找到）"),
     )
     hyper = Provider(
-        name="HyperFrames",
+        name="HyperFrames（参考实现）",
         available=False,
         requires_api_key=False,
         runtime="service",
-        note="HyperFrames 参考实现，未接入",
+        note="云端参考实现，未安装",
     )
     status = STATUS_AVAILABLE if ffmpeg_ok else STATUS_MISSING
     return Capability(

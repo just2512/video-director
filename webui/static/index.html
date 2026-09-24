@@ -142,12 +142,14 @@
       <input type="text" id="style_intent" placeholder="例：历史悬疑感 / 快节奏冲击 / 克制纪录片">
       <label>画幅</label>
       <select id="aspect"></select>
-      <label>背景音乐</label>
+      <label>背景音乐（可选库音乐或上传本地文件）</label>
       <div class="preview-row">
         <select id="bgm"></select>
         <button class="btn-secondary btn-sm prev-btn" onclick="previewAudio('bgm')">▶ 试听</button>
       </div>
-      <label>音效氛围（自动音效，关闭=无 SFX）</label>
+      <input type="file" id="bgm_upload" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma" onchange="uploadAudio('bgm', this)">
+      <div class="hint" id="bgm-upload-status"></div>
+      <label>音效氛围（自动音效，关闭=无 SFX；可上传本地音效）</label>
       <div class="preview-row">
         <select id="sfx">
           <option value="auto">自动（按镜头动作配音效，推荐）</option>
@@ -155,6 +157,8 @@
         </select>
         <button class="btn-secondary btn-sm prev-btn" onclick="previewSfx()">▶ 试听</button>
       </div>
+      <input type="file" id="sfx_upload" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma" onchange="uploadAudio('sfx', this)">
+      <div class="hint" id="sfx-upload-status"></div>
       <label>字幕样式</label>
       <select id="subtitle_mode">
         <option value="plain">普通字幕（整句显示）</option>
@@ -320,10 +324,16 @@ async function loadCapabilities(){
                      renderer:'渲染器', audio:'音频库', matting:'抠像'};
     const cls = {PASS:'cap-ok', AVAILABLE:'cap-ok', DEGRADED:'cap-warn', MISSING:'cap-off'};
     const label = {PASS:'✓ 正常', AVAILABLE:'✓ 可用', DEGRADED:'⚠ 降级', MISSING:'✗ 缺失'};
+    const PROV_CN = {
+      'FFmpeg':'FFmpeg 视频引擎', 'MPT（参考实现）':'MPT 参考实现', 'HyperFrames（参考实现）':'HyperFrames 参考实现',
+      'Edge':'微软 Edge 语音', 'EdgeWordBoundary':'Edge 词级时间戳', 'FasterWhisper':'本地语音识别',
+      'FrameVision':'视觉大模型', 'Manual':'人工标注', 'LocalLibrary':'本地音频库',
+      'SelfGenerated':'自产音频合成', 'ChromaKey':'绿幕抠像', 'Rembg':'人像抠像模型'};
     const rows = caps.map(c=>{
       const provs = (c.providers||[]).map(p=>{
-        if (p.available) return `<span class="cap-ok">${esc(p.name)}</span>`;
-        return `<span class="cap-off" style="opacity:.55">${esc(p.name)}${p.requires_api_key?'（配 key 启用）':'（未安装）'}</span>`;
+        const nm = PROV_CN[p.name] || p.name;
+        if (p.available) return `<span class="cap-ok">${esc(nm)}</span>`;
+        return `<span class="cap-off" style="opacity:.55">${esc(nm)}${p.requires_api_key?'（配密钥启用）':'（未安装）'}</span>`;
       }).join('、');
       return `<tr>
       <td>${NAME_CN[c.name]||c.name}</td>
@@ -476,6 +486,34 @@ async function sendFeedback(caseId, liked){
       : '<span class="cap-off">已记录 👎 —— 系统将避免这类风格</span>';
   } catch (e) {
     alert('反馈失败：' + e.message);
+  }
+}
+
+async function uploadAudio(kind, input){
+  const status = document.getElementById(kind + '-upload-status');
+  const f = input.files && input.files[0];
+  if (!f) return;
+  status.textContent = '上传中……';
+  try {
+    const fd = new FormData();
+    fd.append('kind', kind);
+    fd.append('audio_file', f, f.name);
+    const r = await fetch('/api/audio_upload', { method:'POST', body: fd });
+    const j = await r.json();
+    if (!j.ok && j.error) throw new Error(j.error);
+    status.textContent = `✅ 已上传「${j.filename}」（${(j.duration||0).toFixed(1)} 秒），已加入${kind==='bgm'?'背景音乐':'音效'}列表`;
+    await loadOptions();  // 重扫库刷新下拉
+    // 选中刚上传的
+    const sel = document.getElementById(kind);
+    if (sel) {
+      for (let i=0;i<sel.options.length;i++) {
+        if (sel.options[i].value === j.asset_id) { sel.selectedIndex = i; break; }
+      }
+    }
+  } catch (e) {
+    status.textContent = '上传失败：' + e.message;
+  } finally {
+    input.value = '';
   }
 }
 
@@ -676,8 +714,9 @@ function renderResult(j){
     refreshStoryboardUI();
     return;
   }
+  const QC_CN = {PASS:'通过', FAIL:'未通过', SKIP:'跳过'};
   const qcRows = (j.qc?.checks||[]).map(c =>
-    `<div class="qc-line ${c.result==='PASS'?'qc-pass':'qc-fail'}">${c.result} · ${esc(c.check)} — ${esc(c.detail)}</div>`).join('');
+    `<div class="qc-line ${c.result==='PASS'?'qc-pass':'qc-fail'}">${QC_CN[c.result]||esc(c.result)} · ${esc(c.check)} — ${esc(c.detail)}</div>`).join('');
   const videoUrl = '/file?path=' + encodeURIComponent(j.final_path);
   const fbRow = j.case_id ? `
       <div class="feedback-row" id="fb-row">
@@ -687,7 +726,7 @@ function renderResult(j){
       </div>` : '';
   out.innerHTML = `
     <div class="ok-box">
-      <b>生成成功</b> · 耗时 ${j.elapsed_s}s · 旁白 ${j.narration_duration.toFixed(1)}s · QC ${j.qc?.verdict}
+      <b>生成成功</b> · 耗时 ${j.elapsed_s}s · 旁白 ${j.narration_duration.toFixed(1)}s · 质检结果：${j.qc?.verdict === 'PASS' ? '✓ 通过' : (j.qc?.verdict === 'SKIP' ? '（本模式不质检）' : esc(String(j.qc?.verdict || '—')))}
       <video controls src="${videoUrl}"></video><br>
       <a class="dl" href="${videoUrl}" download="final.mp4">⬇ 下载 MP4</a>
       <div style="margin-top:12px">${qcRows}</div>

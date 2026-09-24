@@ -357,6 +357,78 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
+        # 音频本地上传（参考 MPT BgmUpload 设计）：白名单扩展名 + 30MB 上限 +
+        # ffprobe 音频流校验 + 安全文件名 → audio_library/uploads/ → 出现在下拉
+        if parsed.path == "/api/audio_upload":
+            mp = _parse_multipart(self)
+            fields, files = mp["fields"], mp["files"]
+            kind = fields.get("kind", "bgm")  # bgm | sfx
+            up = [f for f in files if f["name"] == "audio_file"]
+            if not up:
+                self._send_json({"error": "请选择音频文件"}, 400)
+                return
+            f = up[0]
+            fname = Path(f["filename"]).name
+            ext = Path(fname).suffix.lower()
+            ALLOWED = (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".wma")
+            MAX_BYTES = 30 * 1024 * 1024
+            if ext not in ALLOWED:
+                self._send_json(
+                    {"error": f"不支持的格式 {ext}，允许：{'/'.join(ALLOWED)}"}, 400)
+                return
+            if len(f["data"]) > MAX_BYTES:
+                self._send_json({"error": "文件超过 30MB 上限"}, 400)
+                return
+            try:
+                lib_root = vd_audio.library_root()
+                up_dir = lib_root / "uploads"
+                up_dir.mkdir(parents=True, exist_ok=True)
+                # 安全文件名：去 Windows 非法字符，重名自动加序号
+                stem = "".join(c for c in Path(fname).stem if c not in '<>:"|?*\\/')
+                safe = f"{kind}-{stem}{ext}"
+                dst = up_dir / safe
+                n = 1
+                while dst.exists() and dst.read_bytes() != f["data"]:
+                    dst = up_dir / f"{kind}-{stem}-{n}{ext}"
+                    n += 1
+                dst.write_bytes(f["data"])
+                # ffprobe 校验真实音频流（MPT validate_audio 同思路）
+                from video_director import prober
+                probe = prober.probe_media(str(dst))
+                if not probe.has_audio_stream:
+                    dst.unlink(missing_ok=True)
+                    self._send_json({"error": "文件不含音频流"}, 400)
+                    return
+                # 注册进 manifest（音频库扫描即出）
+                manifest_path = lib_root / "audio_manifest.json"
+                existing = []
+                if manifest_path.is_file():
+                    try:
+                        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    except json.JSONDecodeError:
+                        existing = []
+                asset_id = f"{kind}-upload-{stem}"
+                entry = {
+                    "asset_id": asset_id,
+                    "file": f"uploads/{dst.name}",
+                    "type": kind,
+                    "tags": [kind, "用户上传", stem],
+                    "license": {"source": "user-uploaded", "commercial_use": True,
+                                "attribution_required": False},
+                }
+                existing = [e for e in existing if e.get("asset_id") != asset_id]
+                existing.append(entry)
+                manifest_path.write_text(
+                    json.dumps(existing, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                self._send_json({
+                    "ok": True, "asset_id": asset_id, "filename": dst.name,
+                    "duration": probe.duration,
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"上传失败: {exc}"}, 500)
+            return
+
         # 多模型配置中心（四角色独立配置，整体保存）
         if parsed.path == "/api/model_config":
             length = int(self.headers.get("Content-Length", 0))
