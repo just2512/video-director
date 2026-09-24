@@ -1,0 +1,130 @@
+"""标题引擎（方案 §16 Title Engine：MainTitle/Subtitle 入场动效片头卡）。
+
+第一版能力：
+- compose_auto(title=...) 在成片头部插入标题卡（主标题+可选副标题）
+- 动效：黑底 → 标题淡入 → 副标题随后淡入（ffmpeg drawtext alpha 表达式）
+- 与主时间轴关系：标题卡为**前置段**（不压缩正文旁白），时长 title_duration
+- 诚实边界：只做片头标题层（TitleLayer entrance=fade-in/hold）；
+  段中 SectionTitle/Quote/CTA 属 §16 后续扩展（数据结构就绪）
+
+CJK 字体：find_cjk_font() 沿用产品级方案（script_only 同源）。
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+from loguru import logger
+
+from video_director import config, prober
+
+#: 默认标题卡时长（秒）：标题淡入 0.6s + 停留 1.4s
+TITLE_CARD_DEFAULT_DURATION = 2.0
+
+_FONT_CACHE: Optional[str] = None
+
+
+def find_cjk_font() -> Optional[str]:
+    """找可用中文字体（黑体优先），找不到返回 None（drawtext 缺字体时降级）。"""
+    global _FONT_CACHE
+    if _FONT_CACHE is not None:
+        return _FONT_CACHE or None
+    candidates = [
+        r"C:\Windows\Fonts\msyh.ttc",     # 微软雅黑
+        r"C:\Windows\Fonts\msyhbd.ttc",   # 雅黑粗体
+        r"C:\Windows\Fonts\simhei.ttf",   # 黑体
+        r"C:\Windows\Fonts\simsun.ttc",   # 宋体
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+    ]
+    for f in candidates:
+        if Path(f).is_file():
+            _FONT_CACHE = f
+            return f
+    _FONT_CACHE = ""
+    return None
+
+
+def _esc_font_path(font: str) -> str:
+    """drawtext fontfile 路径转义：Windows C:\\ → C\\:/（filter 解析器要求）。"""
+    return font.replace("\\", "/").replace(":", "\\:")
+
+
+def _esc_drawtext(text: str) -> str:
+    """drawtext 文本转义（: ' \\ % 关键字符）。"""
+    out = (text.replace("\\", "\\\\").replace(":", "\\:")
+           .replace("'", "\\'").replace("%", "\\%"))
+    return out
+
+
+def render_title_card(
+    title: str,
+    out_path: str,
+    subtitle: Optional[str] = None,
+    duration: float = TITLE_CARD_DEFAULT_DURATION,
+    width: int = None,
+    height: int = None,
+    fps: int = None,
+    style_hint: str = "",
+) -> str:
+    """渲染标题卡段（黑底白字，主标题淡入 → 副标题随后）。
+
+    Args:
+        title: 主标题（必填）
+        subtitle: 副标题（可选，第二行、较小字号）
+        duration: 卡片总时长
+        style_hint: 风格提示（cinematic-story=冷色调；预留扩展）
+    """
+    w = width or config.DEFAULT_RESOLUTION[0]
+    h = height or config.DEFAULT_RESOLUTION[1]
+    f = fps or config.DEFAULT_FPS
+    if not title or not title.strip():
+        raise ValueError("标题不能为空")
+    font = find_cjk_font()
+    if font is None:
+        raise RuntimeError("未找到中文字体（Windows Fonts / 系统字体目录）")
+
+    main_size = max(48, int(w * 0.07))
+    sub_size = max(28, int(w * 0.036))
+
+    # alpha 动效：主标题 0.2s 后 0.6s 淡入；副标题 0.8s 后 0.6s 淡入
+    fade_main = f"if(lt(t,0.2),0,if(lt(t,0.8),(t-0.2)/0.6,1))"
+    esc_font = _esc_font_path(font)
+    fades = [
+        f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(title)}'"
+        f":fontsize={main_size}:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
+        f":alpha='{fade_main}'",
+    ]
+    if subtitle and subtitle.strip():
+        fade_sub = f"if(lt(t,0.8),0,if(lt(t,1.4),(t-0.8)/0.6,1))"
+        fades.append(
+            f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(subtitle)}'"
+            f":fontsize={sub_size}:fontcolor=0xD0D0D0:x=(w-text_w)/2"
+            f":y=(h-text_h)/2+{int(main_size*1.6)}:alpha='{fade_sub}'"
+        )
+
+    # 结尾 0.3s 微淡出（与正文首个镜头衔接更自然）
+    end_fade = max(0.0, duration - 0.3)
+    vf = ",".join(fades) + f",fade=t=out:st={end_fade:.2f}:d=0.3"
+
+    ff = prober._resolve_ffmpeg()
+    if ff is None:
+        raise RuntimeError("ffmpeg 不可用")
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ff, "-y", "-loglevel", "error",
+        "-f", "lavfi", "-i", f"color=black:s={w}x{h}:d={duration}:r={f}",
+        "-vf", vf,
+        "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-pix_fmt", "yuv420p",
+        str(out),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(f"标题卡渲染失败: {r.stderr[-300:]}")
+    logger.info(f"title card: 「{title[:16]}」{duration:.1f}s → {out.name}")
+    return str(out)

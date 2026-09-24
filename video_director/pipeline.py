@@ -131,6 +131,7 @@ def compose_project(
     sfx_plan: Optional[List[dict]] = None,
     subtitle_entries: Optional[List[dict]] = None,
     subtitle_file: Optional[str] = None,
+    title: Optional[str] = None,
     width: int = None,
     height: int = None,
     fps: int = None,
@@ -267,8 +268,20 @@ def compose_project(
     while True:
         try:
             store.set_stage(pid, store.Stage.RENDERING)
+            # §16 标题卡：title 非空时先渲染片头卡
+            title_card = None
+            if title and title.strip():
+                from video_director import title_engine
+                title_card = title_engine.render_title_card(
+                    title.strip(),
+                    str(dirs["render"] / "title_card.mp4"),
+                    width=width or config.DEFAULT_RESOLUTION[0],
+                    height=height or config.DEFAULT_RESOLUTION[1],
+                    fps=fps or config.DEFAULT_FPS,
+                )
             render_out = renderer.render_composition(
-                ir, render_assets, work, narration_file, subtitle_file
+                ir, render_assets, work, narration_file, subtitle_file,
+                title_card=title_card,
             )
             store.set_stage(pid, store.Stage.QC)
             report = qc_mod.run_qc(
@@ -722,6 +735,7 @@ def compose_auto(
     fps: int = None,
     auto_confirm: bool = True,
     subtitle_mode: str = "plain",
+    title: Optional[str] = None,
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -892,6 +906,7 @@ def compose_auto(
         sfx_plan=sfx_plan,
         subtitle_entries=sub_entries,
         subtitle_file=str(sub_file),
+        title=title,
         width=width,
         height=height,
         fps=fps,

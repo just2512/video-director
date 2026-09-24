@@ -860,6 +860,7 @@ class Handler(BaseHTTPRequestHandler):
                     height=height,
                     auto_confirm=(confirm == "direct"),
                     subtitle_mode=fields.get("subtitle_mode", "plain"),
+                    title=fields.get("title", "") or None,
                 )
             else:
                 self._send_json({"error": "无素材"}, 400)

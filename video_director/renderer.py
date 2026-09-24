@@ -317,14 +317,24 @@ def render_composition(
     work_dir: Path,
     narration_file: Optional[str] = None,
     subtitle_file: Optional[str] = None,
+    title_card: Optional[str] = None,
 ) -> RenderResult:
-    """渲染完整 Composition IR。字幕最后烧录（V1 §20/§22 video-use Rule 1）。"""
+    """渲染完整 Composition IR。字幕最后烧录（V1 §20/§22 video-use Rule 1）。
+
+    title_card：标题卡 mp4 路径（§16 Title Engine）。非空时插到片头
+    （segments 首位，正文旁白时间轴不受影响）。
+    """
     seg_dir = work_dir / "segments"
     seg_dir.mkdir(parents=True, exist_ok=True)
     w, h = ir.project.width, ir.project.height
 
-    # 1. 逐层渲染
+    # 0. 片头标题卡（§16：MainTitle 入场动效，前置段不压缩正文）
     segments: List[str] = []
+    if title_card and os.path.isfile(title_card):
+        segments.append(title_card)
+        logger.info(f"segment 0000 [title-card] 前置")
+
+    # 1. 逐层渲染
     seq = 0
     for scene in ir.scenes:
         for layer in scene.layers:

@@ -140,6 +140,8 @@
       </div>
       <label>风格（可选，留空 AI 自动决定）</label>
       <input type="text" id="style_intent" placeholder="例：历史悬疑感 / 快节奏冲击 / 克制纪录片">
+      <label>片头标题（可选：成片自动加标题卡）</label>
+      <input type="text" id="title" placeholder="例：凌晨四点的城市（留空=不加片头）">
       <label>画幅</label>
       <select id="aspect"></select>
       <label>背景音乐（可选库音乐或上传本地文件）</label>
@@ -675,6 +677,7 @@ async function compose(){
   fd.append('bgm', document.getElementById('bgm').value);
   fd.append('sfx', document.getElementById('sfx').value);
   fd.append('subtitle_mode', document.getElementById('subtitle_mode').value);
+  fd.append('title', document.getElementById('title').value);
   fd.append('confirm_mode', document.getElementById('confirm_mode').value);
   for (const f of document.getElementById('videos').files) fd.append('videos', f, f.name);
   for (const f of document.getElementById('images').files) fd.append('images', f, f.name);
