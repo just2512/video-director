@@ -183,6 +183,26 @@ def render_layer_segment(
 # 拼接 + 音频
 # ---------------------------------------------------------------------------
 
+def _apply_fade(clip: str, out_path: str, fade_in: float, fade_out: float) -> str:
+    """对单 clip 做淡入/淡出（重编码），不改时长。"""
+    vf_parts = []
+    if fade_in > 0:
+        vf_parts.append(f"fade=t=in:st=0:d={fade_in}")
+    if fade_out > 0:
+        from video_director import prober
+        dur = prober.probe_media(clip).duration or 0.0
+        vf_parts.append(f"fade=t=out:st={max(0.0, dur - fade_out):.3f}:d={fade_out}")
+    cmd = [
+        _ffmpeg(), "-y", "-loglevel", "error", "-i", clip,
+        "-vf", ",".join(vf_parts),
+        "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-preset", "veryfast", "-crf", str(config.DEFAULT_CRF),
+        "-an", out_path,
+    ]
+    _run(cmd)
+    return out_path
+
+
 def splice_with_transitions(
     clips: List[str],
     transitions: List[str],
@@ -191,43 +211,26 @@ def splice_with_transitions(
     height: int,
     fps: int,
 ) -> str:
-    """场景级拼接：cut 用 concat，crossfade/fade 用 xfade 链式（方案 §22）。
+    """场景级拼接：cut 用 concat；crossfade 用「淡出+淡入」连续过渡（方案 §60）。
 
-    clips: [path]（逐场景 clip，含片头标题卡为第一个）
-    transitions: [type] 长度 len(clips)-1，transitions[i] = clip[i]→clip[i+1] 的转场。
-    只做视频轨（音频由 mix_audio 后续挂旁白），xfade 时长默认 0.5s。
+    关键约束（V1 §20/§22）：转场不得移动旁白时间轴——xfade 重叠会缩短总时长
+    导致 QC duration_vs_narration 失败。改用每 clip 独立淡入/淡出（不重叠），
+    总时长严格 = 各场景之和 = 旁白时长。
     """
     if len(clips) == 1 or all(t in ("cut",) for t in transitions):
         return concat_segments(clips, out_path, width, height, fps)
-    cur = clips[0]
-    for i, tr in enumerate(transitions):
-        nxt = clips[i + 1]
-        d = 0.5  # crossfade 时长（克制：只做溶解，不做花哨转场）
-        merged = f"{out_path}.m{i}.mp4"
-        if tr in ("cut",):
-            concat_segments([cur, nxt], merged, width, height, fps)
-        else:
-            from video_director import prober
-            cur_dur = prober.probe_media(cur).duration or 0.0
-            offset = max(0.0, cur_dur - d)
-            xf = "fade"  # crossfade/blur_crossfade 第一版都映射 fade 溶解
-            cmd = [
-                _ffmpeg(), "-y", "-loglevel", "error",
-                "-i", cur, "-i", nxt,
-                "-filter_complex",
-                f"[0:v][1:v]xfade=transition={xf}:duration={d}:offset={offset:.3f},format=yuv420p",
-                "-c:v", config.DEFAULT_VIDEO_CODEC,
-                "-preset", "veryfast", "-crf", str(config.DEFAULT_CRF),
-                merged,
-            ]
-            _run(cmd)
-            if Path(cur) != Path(clips[0]):
-                Path(cur).unlink(missing_ok=True)
-        cur = merged
-    if Path(cur) != Path(out_path):
-        shutil.move(cur, out_path)
-    for i in range(len(clips) - 1):
-        Path(f"{out_path}.m{i}.mp4").unlink(missing_ok=True)
+    processed: List[str] = []
+    for i, clip in enumerate(clips):
+        p = clip
+        fade_in = 0.25 if (i > 0 and transitions[i - 1] not in ("cut",)) else 0.0
+        fade_out = 0.25 if (i < len(clips) - 1 and transitions[i] not in ("cut",)) else 0.0
+        if fade_in > 0 or fade_out > 0:
+            pp = f"{out_path}.f{i}.mp4"
+            p = _apply_fade(clip, pp, fade_in, fade_out)
+        processed.append(p)
+    concat_segments(processed, out_path, width, height, fps)
+    for i in range(len(clips)):
+        Path(f"{out_path}.f{i}.mp4").unlink(missing_ok=True)
     return out_path
 
 
