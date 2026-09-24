@@ -11,7 +11,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 SPEED_PREFERRED_MIN = 0.90
 SPEED_PREFERRED_MAX = 1.50
-SPEED_ABSOLUTE_MIN = 0.80
+SPEED_ABSOLUTE_MIN = 0.50   # 慢放下限（短视频素材进长镜头需慢放，0.5x 是标准慢动作）
 SPEED_ABSOLUTE_MAX = 1.70
 # 多镜头快切上限（素材全利用「不裁剪可加快」场景允许比普通路径更高的加速）
 SPEED_FAST_FORWARD_MAX = 6.0
