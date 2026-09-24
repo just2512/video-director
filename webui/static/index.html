@@ -36,6 +36,9 @@
   .llm-badge { display:inline-block; background:#1a2530; border:1px solid #2a3d4d; color:#8ab4d8; border-radius:14px; padding:4px 12px; font-size:12px; margin-bottom:14px; cursor:pointer; }
   .llm-badge.on { background:#1d2b22; border-color:#2e5e3e; color:#7ec46a; }
   .llm-panel { margin-bottom:18px; }
+  .role-block { background:#0d1116; border:1px solid #2a343d; border-radius:8px; padding:12px; margin-top:10px; }
+  .role-head { display:flex; justify-content:space-between; align-items:center; font-size:14px; }
+  .role-head span { font-size:12px; }
   .enhance-box { background:#0d1116; border:1px solid #2a343d; border-radius:6px; padding:12px; margin-top:10px; }
   .enhanced-ta { min-height:200px; margin-top:8px; }
   .feedback-row { display:flex; gap:10px; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid #2a343d; }
@@ -59,6 +62,10 @@
   .rev-err { color:#e05e5e; font-size:12px; margin-top:6px; }
   .rev-hint { color:#7a858e; font-size:12px; margin-top:6px; }
   .rev-done { color:#5ec46a; font-size:12px; margin-top:6px; }
+  .preview-row { display:flex; gap:8px; align-items:center; }
+  .preview-row select { flex:1; }
+  .prev-btn { white-space:nowrap; }
+  #preview-audio { width:100%; margin-top:6px; height:32px; }
   .cap-table { width:100%; font-size:12px; border-collapse:collapse; margin-top:8px; }
   .cap-table td { border:1px solid #2a343d; padding:4px 8px; }
   .cap-ok { color:#5ec46a; } .cap-warn { color:#d8a657; } .cap-off { color:#e05e5e; }
@@ -86,19 +93,13 @@
   </div>
 
   <div id="llm-panel" class="card llm-panel" style="display:none">
-    <b>AI 大模型设置</b>（OpenAI 协议兼容：OpenAI / DeepSeek / Moonshot / 硅基流动 / Ollama 本地 等）
-    <label>API Key</label>
-    <input type="password" id="llm_key" placeholder="sk-…（留空=禁用，走规则兜底）">
-    <label>API 地址（可选）</label>
-    <input type="text" id="llm_base_url" placeholder="例：https://api.deepseek.com/v1">
-    <label>模型名（可选）</label>
-    <input type="text" id="llm_model" placeholder="例：deepseek-chat">
+    <b>🤖 大模型配置中心</b>——按创作角色分组，各自独立配置（OpenAI 协议兼容端点均可）
+    <div id="model-roles"></div>
     <div class="btn-row">
-      <button class="btn-secondary" onclick="saveLLMConfig()">保存配置</button>
-      <button class="btn-secondary" onclick="clearLLMConfig()">清除（回退环境变量）</button>
+      <button class="btn-secondary" onclick="saveModelConfig()">💾 保存全部配置</button>
     </div>
     <div class="hint" id="llm-save-status"></div>
-    <div class="hint">保存后立即生效：文案润色、分镜视觉提示、参考视频分析将用大模型增强；未配置时全部走规则路径兜底，功能不缺失。</div>
+    <div class="hint">未配置的角色自动走规则/内置路径兜底，功能不缺失；已保存配置立即生效。文本模型驱动导演/文案润色/改稿解析，视觉模型驱动素材画面理解，生图/生视频模型为生成类创作模式预留。</div>
   </div>
 
   <!-- ======== Tab 1: 创作 ======== -->
@@ -133,17 +134,31 @@
       <label>图片素材（可多选；产品模式下=产品图）</label>
       <input type="file" id="images" multiple accept=".jpg,.jpeg,.png,.webp">
       <label>配音</label>
-      <select id="voice"></select>
+      <div class="preview-row">
+        <select id="voice"></select>
+        <button class="btn-secondary btn-sm prev-btn" onclick="previewVoice()">▶ 试听</button>
+      </div>
       <label>风格（可选，留空 AI 自动决定）</label>
       <input type="text" id="style_intent" placeholder="例：历史悬疑感 / 快节奏冲击 / 克制纪录片">
       <label>画幅</label>
       <select id="aspect"></select>
       <label>背景音乐</label>
-      <select id="bgm"></select>
+      <div class="preview-row">
+        <select id="bgm"></select>
+        <button class="btn-secondary btn-sm prev-btn" onclick="previewAudio('bgm')">▶ 试听</button>
+      </div>
       <label>音效氛围（自动音效，关闭=无 SFX）</label>
-      <select id="sfx">
-        <option value="auto">自动（按镜头动作配音效，推荐）</option>
-        <option value="">关闭（不加音效）</option>
+      <div class="preview-row">
+        <select id="sfx">
+          <option value="auto">自动（按镜头动作配音效，推荐）</option>
+          <option value="">关闭（不加音效）</option>
+        </select>
+        <button class="btn-secondary btn-sm prev-btn" onclick="previewSfx()">▶ 试听</button>
+      </div>
+      <label>字幕样式</label>
+      <select id="subtitle_mode">
+        <option value="plain">普通字幕（整句显示）</option>
+        <option value="karaoke">卡拉OK（逐词高亮跟读）</option>
       </select>
       <label>成片前人工确认</label>
       <select id="confirm_mode">
@@ -210,20 +225,82 @@ async function loadOptions(){
   } catch (e) { /* 能力徽章失败不阻塞主界面 */ }
 }
 
+let MODEL_ROLES = [];
 async function refreshLLMBadge(){
+  // 徽章：文本模型状态（主角色），面板打开时展示四角色
   const cfg = await (await fetch('/api/llm_status')).json();
   const el = document.getElementById('llm-badge');
   if (cfg.enabled) {
-    el.textContent = `🤖 AI 大模型已启用（${cfg.model} · ${cfg.source === 'runtime' ? '页面设置' : '环境变量'}）`;
+    el.textContent = `🤖 大模型已启用（${cfg.model} · ${cfg.source === 'runtime' ? '页面设置' : '环境变量'}）`;
     el.classList.add('on');
   } else {
-    el.textContent = '🤖 AI 大模型未启用（点击配置，未配置走规则兜底）';
+    el.textContent = '🤖 大模型配置（点击配置各角色，未配置走规则兜底）';
     el.classList.remove('on');
   }
+  try {
+    MODEL_ROLES = await (await fetch('/api/model_config')).json();
+    if (Array.isArray(MODEL_ROLES) && document.getElementById('llm-panel').style.display !== 'none') {
+      renderModelRoles();
+    }
+  } catch (e) { /* 面板未开时静默 */ }
 }
+
+function renderModelRoles(){
+  const box = document.getElementById('model-roles');
+  if (!Array.isArray(MODEL_ROLES)) return;
+  box.innerHTML = MODEL_ROLES.map(r => `
+    <div class="role-block">
+      <div class="role-head">
+        <b>${esc(r.label)}</b>
+        <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '✓ 已配置' : '未配置（走兜底）'}</span>
+      </div>
+      <div class="hint">${esc(r.hint)}</div>
+      <label>API Key</label>
+      <input type="password" id="mc-${r.role}-key" placeholder="sk-…（留空=该角色走规则/内置兜底）" value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">
+      <label>API 地址</label>
+      <input type="text" id="mc-${r.role}-url" value="${esc(r.base_url || '')}" placeholder="${esc(r.default_base_url)}">
+      <label>模型名</label>
+      <input type="text" id="mc-${r.role}-model" value="${esc(r.model || '')}" placeholder="${esc(r.default_model)}">
+    </div>`).join('');
+}
+
+async function saveModelConfig(){
+  const status = document.getElementById('llm-save-status');
+  status.textContent = '保存中……';
+  const configs = {};
+  for (const r of MODEL_ROLES) {
+    const keyEl = document.getElementById(`mc-${r.role}-key`);
+    const urlEl = document.getElementById(`mc-${r.role}-url`);
+    const modelEl = document.getElementById(`mc-${r.role}-model`);
+    if (!keyEl) continue;
+    const keyVal = keyEl.value;
+    // 「（已保存）」占位 = 保持原有 key 不变；空值 = 清除该角色
+    configs[r.role] = {
+      api_key: keyVal === '（已保存）' ? '__KEEP__' : keyVal,
+      base_url: urlEl ? urlEl.value : '',
+      model: modelEl ? modelEl.value : '',
+    };
+  }
+  try {
+    const r2 = await fetch('/api/model_config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({configs})
+    });
+    const j = await r2.json();
+    if (!j.ok) throw new Error(j.error || '保存失败');
+    MODEL_ROLES = j.roles || MODEL_ROLES;
+    renderModelRoles();
+    status.textContent = '✅ 已保存并立即生效';
+    await refreshLLMBadge();
+  } catch (e) { status.textContent = '保存失败：' + e.message; }
+}
+
+async function saveLLMConfig(){ await saveModelConfig(); }
+async function clearLLMConfig(){ await saveModelConfig(); }
 
 function toggleLLMPanel(){
   const p = document.getElementById('llm-panel');
+  if (p.style.display === 'none') renderModelRoles();
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
 }
 
@@ -243,12 +320,18 @@ async function loadCapabilities(){
                      renderer:'渲染器', audio:'音频库', matting:'抠像'};
     const cls = {PASS:'cap-ok', AVAILABLE:'cap-ok', DEGRADED:'cap-warn', MISSING:'cap-off'};
     const label = {PASS:'✓ 正常', AVAILABLE:'✓ 可用', DEGRADED:'⚠ 降级', MISSING:'✗ 缺失'};
-    const rows = caps.map(c=>`<tr>
+    const rows = caps.map(c=>{
+      const provs = (c.providers||[]).map(p=>{
+        if (p.available) return `<span class="cap-ok">${esc(p.name)}</span>`;
+        return `<span class="cap-off" style="opacity:.55">${esc(p.name)}${p.requires_api_key?'（配 key 启用）':'（未安装）'}</span>`;
+      }).join('、');
+      return `<tr>
       <td>${NAME_CN[c.name]||c.name}</td>
       <td class="${cls[c.status]||''}">${label[c.status]||esc(c.status)}</td>
-      <td>${(c.providers||[]).map(p=>esc(p.name)+(p.available?'':'（不可用）')).join('、')||'—'}</td>
-      <td>${(c.fallback_tools||[]).join('、')||'—'}</td></tr>`).join('');
-    el.innerHTML = `<table class="cap-table"><tr><td>能力</td><td>状态</td><td>提供者</td><td>降级链</td></tr>${rows}</table>`;
+      <td>${provs||'—'}</td>
+      <td>${(c.fallback_tools||[]).join('、')||'—'}</td></tr>`;}).join('');
+    el.innerHTML = `<table class="cap-table"><tr><td>能力</td><td>状态</td><td>提供者</td><td>降级链</td></tr>${rows}</table>
+      <div class="hint" style="margin-top:8px">灰色项为可选增强（配置后自动启用），不影响成片功能。</div>`;
   } catch (e) {
     el.innerHTML = `<div class="err-box">读取失败：${esc(e.message)}</div>`;
   }
@@ -396,6 +479,49 @@ async function sendFeedback(caseId, liked){
   }
 }
 
+// ---- 试听（一次只播一个，共享 audio 元素）----
+let _previewEl = null;
+function _ensurePreviewAudio(){
+  if (!_previewEl) {
+    _previewEl = document.createElement('audio');
+    _previewEl.id = 'preview-audio';
+    _previewEl.controls = true;
+    document.getElementById('pane-create').appendChild(_previewEl);
+  }
+  return _previewEl;
+}
+function _play(url, label){
+  const a = _ensurePreviewAudio();
+  a.pause();
+  a.src = url;
+  a.play().catch(()=>{});
+  a.setAttribute('data-label', label || '');
+}
+function previewVoice(){
+  const v = document.getElementById('voice').value;
+  if (!v) return;
+  _play('/api/voice_preview?voice=' + encodeURIComponent(v), '配音 ' + v);
+}
+function previewAudio(kind){
+  const v = document.getElementById(kind).value;
+  if (!v) { alert('请先在下拉中选择一个具体曲目'); return; }
+  _play('/api/audio_preview?asset_id=' + encodeURIComponent(v), v);
+}
+function previewSfx(){
+  const sel = document.getElementById('sfx');
+  const v = sel.value;
+  if (!v || v === 'auto') {
+    // 自动模式试听随机一条 SFX 供参考
+    const opts = sel.options;
+    const ids = [];
+    for (let i = 0; i < opts.length; i++) { const ov = opts[i].value; if (ov && ov !== 'auto') ids.push(ov); }
+    if (!ids.length) { alert('音效库为空'); return; }
+    _play('/api/audio_preview?asset_id=' + encodeURIComponent(ids[0]), ids[0]);
+    return;
+  }
+  previewAudio('sfx');
+}
+
 loadOptions();
 
 function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'); }
@@ -501,6 +627,7 @@ async function compose(){
   fd.append('aspect', document.getElementById('aspect').value);
   fd.append('bgm', document.getElementById('bgm').value);
   fd.append('sfx', document.getElementById('sfx').value);
+  fd.append('subtitle_mode', document.getElementById('subtitle_mode').value);
   fd.append('confirm_mode', document.getElementById('confirm_mode').value);
   for (const f of document.getElementById('videos').files) fd.append('videos', f, f.name);
   for (const f of document.getElementById('images').files) fd.append('images', f, f.name);

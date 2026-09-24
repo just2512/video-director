@@ -98,20 +98,38 @@ ANALYZE_PROMPT = """你是视频素材标注员。以下是一个视频素材的
 class FrameVisionProvider(VisionProvider):
     """抽帧 + OpenAI 兼容视觉 LLM（§20 第一选择：不新增本地依赖，模型解耦）。
 
-    配置（环境变量或 config 注入）：
-        COMPOSER_VISION_API_KEY   必填
-        COMPOSER_VISION_BASE_URL  默认 https://api.openai.com/v1（兼容 Claude/Qwen 中转）
-        COMPOSER_VISION_MODEL     默认 gpt-4o（任何多模态模型 id）
+    配置（多模型配置中心 model_config 角色 "vision"，环境变量兜底）：
+        前端「大模型设置」视觉角色   优先
+        COMPOSER_VISION_API_KEY      环境变量回退
+        COMPOSER_VISION_BASE_URL     默认 https://api.openai.com/v1（兼容 Claude/Qwen 中转）
+        COMPOSER_VISION_MODEL        默认 gpt-4o（任何多模态模型 id）
     """
 
     def __init__(self, api_key: str = None, base_url: str = None, model: str = None):
         import os
 
-        self._api_key = api_key or os.environ.get("COMPOSER_VISION_API_KEY", "")
+        # 多模型配置中心（前端可配）优先，环境变量兜底
+        mc_cfg = {"api_key": "", "base_url": "", "model": ""}
+        try:
+            from video_director import model_config
+            mc = model_config.get_role_config("vision")
+            mc_cfg = {"api_key": mc.get("api_key", "") or "",
+                      "base_url": mc.get("base_url", "") or "",
+                      "model": mc.get("model", "") or ""}
+        except Exception:
+            pass
+        self._api_key = (
+            api_key or mc_cfg["api_key"]
+            or os.environ.get("COMPOSER_VISION_API_KEY", "")
+        )
         self._base_url = (
-            base_url or os.environ.get("COMPOSER_VISION_BASE_URL", "https://api.openai.com/v1")
+            base_url or mc_cfg["base_url"]
+            or os.environ.get("COMPOSER_VISION_BASE_URL", "https://api.openai.com/v1")
         ).rstrip("/")
-        self._model = model or os.environ.get("COMPOSER_VISION_MODEL", "gpt-4o")
+        self._model = (
+            model or mc_cfg["model"]
+            or os.environ.get("COMPOSER_VISION_MODEL", "gpt-4o")
+        )
 
     def available(self) -> bool:
         return bool(self._api_key)

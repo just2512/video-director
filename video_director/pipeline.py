@@ -721,6 +721,7 @@ def compose_auto(
     height: int = None,
     fps: int = None,
     auto_confirm: bool = True,
+    subtitle_mode: str = "plain",
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -753,6 +754,7 @@ def compose_auto(
             "width": width, "height": height, "fps": fps,
             "bgm": bgm_asset_id, "manual_manifest": manual_manifest,
             "style_id": style_contract.style_id,
+            "subtitle_mode": subtitle_mode,
         })
     except Exception as exc:
         logger.warning(f"store.create_project 失败（不阻塞主流程）: {exc}")
@@ -778,11 +780,21 @@ def compose_auto(
         json.dump(word_timeline, f, ensure_ascii=False, indent=2)
     store.set_stage(project_id, store.Stage.ALIGNMENT)
 
-    # 2. 字幕（与主时间轴同基准）
-    sub_file = dirs["render"] / "master.srt"
-    sub_file.write_text(
-        subtitle_mod.build_srt_from_scenes(narration_scenes), encoding="utf-8"
-    )
+    # 2. 字幕（与主时间轴同基准；karaoke 模式用词级时间戳生成 ASS 逐词高亮）
+    if subtitle_mode == "karaoke":
+        sub_file = dirs["render"] / "master.ass"
+        sub_file.write_text(
+            subtitle_mod.build_ass_karaoke(
+                narration_scenes, word_timeline,
+                width=width or config.DEFAULT_RESOLUTION[0],
+                height=height or config.DEFAULT_RESOLUTION[1],
+            ), encoding="utf-8"
+        )
+    else:
+        sub_file = dirs["render"] / "master.srt"
+        sub_file.write_text(
+            subtitle_mod.build_srt_from_scenes(narration_scenes), encoding="utf-8"
+        )
     sub_entries = subtitle_mod.srt_entries(narration_scenes)
 
     # 3. 素材语义理解（六级优先链）+ 内容匹配

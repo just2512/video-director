@@ -321,17 +321,47 @@ def _build_audio() -> Capability:
 
 
 def _build_matting() -> Capability:
-    """matting：抠图/人像分割（talking-head 前置能力）。
+    """matting：抠图（talking-head 前置能力）。
 
-    诚实声明：当前系统无抠图能力。talking-head 类任务将被 preflight 阻塞。
-    后续接入 rembg/U2Net/Modnet 时在此添加 provider，status 自动升级。
+    ChromaKey：ffmpeg colorkey 绿/蓝幕抠像，零模型依赖，恒可用（限绿幕素材）。
+    Rembg/Modnet：人像级模型抠像，未安装（装包后此 provider 自动出现）。
     """
+    chroma_available = False
+    try:
+        from video_director import matting as matting_mod
+        chroma_available = matting_mod.get_matting_provider() is not None
+    except Exception:
+        chroma_available = False
+    rembg_available = False
+    try:
+        import importlib.util as _u
+        rembg_available = _u.find_spec("rembg") is not None
+    except Exception:
+        rembg_available = False
+
+    providers = [
+        Provider(
+            name="ChromaKey",
+            available=chroma_available,
+            requires_api_key=False,
+            runtime="ffmpeg-colorkey",
+            note="绿/蓝幕抠像（零依赖）",
+        ),
+    ]
+    if rembg_available:
+        providers.append(Provider(
+            name="Rembg",
+            available=True,
+            requires_api_key=False,
+            runtime="rembg-model",
+            note="人像级抠像（已安装）",
+        ))
     return Capability(
         name="matting",
-        providers=(),  # 空 providers = MISSING
-        status=STATUS_MISSING,
-        supports=(),  # 无支持特性
-        fallback_tools=(),
+        providers=tuple(providers),
+        status=STATUS_AVAILABLE if chroma_available else STATUS_MISSING,
+        supports=("green_screen", "blue_screen") + (("portrait",) if rembg_available else ()),
+        fallback_tools=("ChromaKey",),
         agent_skills=("portrait_segmentation", "talking_head"),
     )
 

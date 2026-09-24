@@ -33,6 +33,7 @@ from video_director import audio as vd_audio  # noqa: E402
 from video_director import capabilities as vd_caps  # noqa: E402
 from video_director import config as vd_config  # noqa: E402
 from video_director import llm_provider as vd_llm  # noqa: E402
+from video_director import model_config as vd_model_config  # noqa: E402
 from video_director import pipeline  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -93,18 +94,24 @@ def _scan_sfx() -> list:
 
 
 def _load_llm_config() -> None:
-    """启动时恢复持久化的 LLM 配置（若存在）。"""
+    """启动时恢复模型配置：model_config.json（新中心）+ 旧 llm_config.json 迁移。"""
     try:
+        # 旧 llm_config.json 存在且新中心未配置 llm 角色 → 迁移
         if LLM_CONFIG_FILE.is_file():
-            cfg = json.loads(LLM_CONFIG_FILE.read_text(encoding="utf-8"))
-            if cfg.get("api_key"):
-                vd_llm.set_llm_config(
-                    cfg.get("api_key", ""),
-                    cfg.get("base_url"),
-                    cfg.get("model"),
-                )
+            try:
+                old = json.loads(LLM_CONFIG_FILE.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                old = {}
+            if old.get("api_key") and not vd_model_config.get_role_config("llm").get("api_key"):
+                vd_model_config.save_all({"llm": {
+                    "api_key": old.get("api_key", ""),
+                    "base_url": old.get("base_url", ""),
+                    "model": old.get("model", ""),
+                }})
+                print("[web] 旧 llm_config.json 已迁移到 model_config.json", file=sys.stderr)
+        vd_model_config.sync_llm_provider()
     except Exception as exc:
-        print(f"[web] 加载 LLM 配置失败: {exc}", file=sys.stderr)
+        print(f"[web] 加载模型配置失败: {exc}", file=sys.stderr)
 
 
 def _save_llm_config(api_key: str, base_url: str, model: str) -> None:
@@ -249,6 +256,48 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(_scan_sfx())
         elif route == "/api/llm_status":
             self._send_json(vd_llm.get_llm_config())
+        elif route == "/api/model_config":
+            # 多模型配置中心状态（四角色：llm/image/video/vision）
+            try:
+                self._send_json(vd_model_config.status_for_frontend())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/audio_preview":
+            # 音频库试听：?asset_id=bgb-xxx → 音频文件流（限音频库内，防穿越）
+            qs = parse_qs(parsed.query)
+            asset_id = qs.get("asset_id", [""])[0]
+            try:
+                lib = vd_audio.scan_library()
+                a = lib.get(asset_id)
+                if a is None:
+                    self._send_json({"error": f"音频库无 {asset_id}"}, 404)
+                    return
+                data = Path(a.file).read_bytes()
+                self._send_bytes(data, "audio/mpeg")
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/voice_preview":
+            # 配音试听：?voice=zh-CN-XiaoxiaoNeural → edge-tts 合成固定短句（缓存）
+            qs = parse_qs(parsed.query)
+            voice = qs.get("voice", [""])[0]
+            if not voice:
+                self._send_json({"error": "缺少 voice"}, 400)
+                return
+            cache_dir = STORAGE / "composer" / "voice_previews"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / f"{voice}.mp3"
+            try:
+                if not cache_file.is_file():
+                    import asyncio
+                    import edge_tts
+                    async def _syn():
+                        com = edge_tts.Communicate("这是一段配音试听，检查音色是否合适。", voice)
+                        await com.save(str(cache_file))
+                    asyncio.run(_syn())
+                data = cache_file.read_bytes()
+                self._send_bytes(data, "audio/mpeg")
+            except Exception as exc:
+                self._send_json({"error": f"试听合成失败: {exc}"}, 500)
         elif route == "/api/capabilities":
             try:
                 caps = vd_caps.registry()
@@ -308,7 +357,36 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
-        # LLM 配置（前端运行时设置，进程内生效 + 持久化）
+        # 多模型配置中心（四角色独立配置，整体保存）
+        if parsed.path == "/api/model_config":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            configs = payload.get("configs") or {}
+            if not isinstance(configs, dict):
+                self._send_json({"error": "configs 必须是对象"}, 400)
+                return
+            try:
+                # __KEEP__ 占位 = 前端未改动该角色的 key，保留已存值
+                existing = vd_model_config.load_all()
+                for role, c in configs.items():
+                    if isinstance(c, dict) and c.get("api_key") == "__KEEP__":
+                        old = existing.get(role) or {}
+                        c["api_key"] = old.get("api_key", "")
+                vd_model_config.save_all(configs)
+                vd_model_config.sync_llm_provider()  # llm 角色立即生效
+                self._send_json({
+                    "ok": True,
+                    "roles": vd_model_config.status_for_frontend(),
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        # LLM 配置（旧端点，保留兼容；内部转存到 model_config 的 llm 角色）
         if parsed.path == "/api/llm_config":
             length = int(self.headers.get("Content-Length", 0))
             try:
@@ -665,6 +743,7 @@ class Handler(BaseHTTPRequestHandler):
                     width=width,
                     height=height,
                     auto_confirm=(confirm == "direct"),
+                    subtitle_mode=fields.get("subtitle_mode", "plain"),
                 )
             else:
                 self._send_json({"error": "无素材"}, 400)
