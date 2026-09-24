@@ -111,10 +111,10 @@ def validate_composition(
                 add(scene.id, "ASSET_TYPE_MISMATCH",
                     f"素材 {asset.id} 是 {asset.type}，层声明 {layer.type.value}")
             if layer.type == LayerType.video:
-                if not (config.SPEED_ABSOLUTE_MIN <= layer.speed <= config.SPEED_ABSOLUTE_MAX):
+                if not (config.SPEED_ABSOLUTE_MIN <= layer.speed <= config.SPEED_FAST_FORWARD_MAX):
                     add(scene.id, "SPEED_OUT_OF_RANGE",
                         f"{layer.asset_id}: speed {layer.speed} 超出绝对边界 "
-                        f"[{config.SPEED_ABSOLUTE_MIN}, {config.SPEED_ABSOLUTE_MAX}]")
+                        f"[{config.SPEED_ABSOLUTE_MIN}, {config.SPEED_FAST_FORWARD_MAX}]")
                 if asset.duration is not None:
                     if layer.source_out > asset.duration + 0.05:
                         add(scene.id, "SOURCE_OUT_OF_RANGE",

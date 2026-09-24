@@ -319,6 +319,11 @@ class RulePlanner:
             if asset.type == "video":
                 dur = asset.duration or seg
                 speed = round(dur / seg, 3) if seg > 0 else 1.0
+                source_out = round(dur, 3)
+                if speed > config.SPEED_FAST_FORWARD_MAX:
+                    # 6x 仍不够放完整素材 → 裁剪到 6x 内（画面可用性极限）
+                    speed = config.SPEED_FAST_FORWARD_MAX
+                    source_out = round(seg * speed, 3)
                 layers.append(Layer(
                     type=LayerType.video,
                     asset_id=aid,
@@ -326,9 +331,9 @@ class RulePlanner:
                     duration=round(seg, 3),
                     speed=speed,
                     source_in=0.0,
-                    source_out=round(dur, 3),
+                    source_out=source_out,
                 ))
-                pool[aid] = pool.get(aid, 0.0) + dur
+                pool[aid] = pool.get(aid, 0.0) + source_out
                 cursor = round(cursor + seg, 3)
             else:
                 if seg < config.IMAGE_MIN_DURATION:
