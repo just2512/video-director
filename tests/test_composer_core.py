@@ -236,7 +236,7 @@ class TestValidator:
         for scene in ir.scenes:
             for layer in scene.layers:
                 if layer.type == LayerType.video:
-                    object.__setattr__(layer, "speed", 2.5)
+                    object.__setattr__(layer, "speed", 7.0)  # 超快车上限 6.0
         res = validator_mod.validate_composition(ir, assets, 5.0)
         assert any(i.code == "SPEED_OUT_OF_RANGE" for i in res.issues)
 
