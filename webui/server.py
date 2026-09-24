@@ -878,6 +878,8 @@ class Handler(BaseHTTPRequestHandler):
                     auto_confirm=(confirm == "direct"),
                     subtitle_mode=fields.get("subtitle_mode", "plain"),
                     title=fields.get("title", "") or None,
+                    lower_third_name=fields.get("lower_third_name", "") or None,
+                    lower_third_role=fields.get("lower_third_role", "") or None,
                 )
             else:
                 self._send_json({"error": "无素材"}, 400)

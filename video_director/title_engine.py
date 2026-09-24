@@ -128,3 +128,75 @@ def render_title_card(
         raise RuntimeError(f"标题卡渲染失败: {r.stderr[-300:]}")
     logger.info(f"title card: 「{title[:16]}」{duration:.1f}s → {out.name}")
     return str(out)
+
+
+def render_lower_third_overlay(
+    video_in: str,
+    name: str,
+    out_path: str,
+    role: Optional[str] = None,
+    show_duration: float = 4.0,
+    fade_in: float = 0.4,
+) -> str:
+    """人物条（§17 Lower Third）叠加到视频左下角：名字 + 可选中粽子衔。
+
+    诚实边界：第一版只做「口播标注」——左下角身份条，读出场处 0.4s 渐入，
+    显示 show_duration 后 0.4s 渐出。personId/avatar/跟踪位置为后续扩展。
+
+    Args:
+        video_in: 输入视频
+        name: 人物名（必填）
+        role: 头衔/机构（可选，副行小字）
+        show_duration: 显示时长（叠加入场后持续显示秒数）
+        fade_in: 入场淡入秒数
+    """
+    if not name or not name.strip():
+        raise ValueError("人物条名称不能为空")
+    font = find_cjk_font()
+    if font is None:
+        raise RuntimeError("未找到中文字体")
+
+    from video_director import prober
+    probe = prober.probe_media(video_in)
+    w, h = probe.width or config.DEFAULT_RESOLUTION[0], probe.height or config.DEFAULT_RESOLUTION[1]
+    end = fade_in + show_duration
+
+    esc_font = _esc_font_path(font)
+    name_size = max(30, int(w * 0.045))
+    role_size = max(22, int(w * 0.032))
+
+    # 名字（左下）：fade_in 内淡入，end 起淡出
+    alpha_expr = (
+        f"if(lt(t,{fade_in}),t/{fade_in},"
+        f"if(lt(t,{end}),1,if(lt(t,{end}+{fade_in}),1-(t-{end})/{fade_in},0)))"
+    )
+    draw = (
+        f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(name)}'"
+        f":fontsize={name_size}:fontcolor=white:x=60:y=h-{name_size*2}-60"
+        f":box=1:boxcolor=0x80000000:boxborderw=12"
+        f":alpha='{alpha_expr}'"
+    )
+    filters = [draw]
+    if role and role.strip():
+        filters.append(
+            f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(role)}'"
+            f":fontsize={role_size}:fontcolor=0xD0D0D0:x=60:y=h-{int(name_size*1.5)}-60"
+            f":box=1:boxcolor=0x80000000:boxborderw=12"
+            f":alpha='{alpha_expr}'"
+        )
+    vf = ",".join(filters)
+
+    ff = prober._resolve_ffmpeg()
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ff, "-y", "-loglevel", "error", "-i", video_in,
+        "-vf", vf, "-c:v", config.DEFAULT_VIDEO_CODEC, "-c:a", "copy",
+        str(out),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError(f"人物条渲染失败: {r.stderr[-300:]}")
+    logger.info(f"lower third: 「{name}」叠加 → {out.name}")
+    return str(out)

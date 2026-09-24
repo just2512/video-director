@@ -318,11 +318,15 @@ def render_composition(
     narration_file: Optional[str] = None,
     subtitle_file: Optional[str] = None,
     title_card: Optional[str] = None,
+    lower_third_name: Optional[str] = None,
+    lower_third_role: Optional[str] = None,
 ) -> RenderResult:
     """渲染完整 Composition IR。字幕最后烧录（V1 §20/§22 video-use Rule 1）。
 
     title_card：标题卡 mp4 路径（§16 Title Engine）。非空时插到片头
     （segments 首位，正文旁白时间轴不受影响）。
+    lower_third_name：人物条名称（§17 Lower Third），非空时片头后叠加
+    左下角身份条（名前+可选头衔，4s 渐入渐出，不改时长）。
     """
     seg_dir = work_dir / "segments"
     seg_dir.mkdir(parents=True, exist_ok=True)
@@ -363,6 +367,15 @@ def render_composition(
         subtitle_burn_in(master_path, subtitle_file, final_path)
     else:
         final_path = master_path
+
+    # 5. 人物条叠加（§17 Lower Third：字幕之后、最终前；不改时长）
+    if lower_third_name and lower_third_name.strip():
+        from video_director import title_engine
+        lt_out = str(work_dir / "final_lt.mp4")
+        final_path = title_engine.render_lower_third_overlay(
+            final_path, lower_third_name.strip(), lt_out,
+            role=lower_third_role,
+        )
 
     return RenderResult(
         visual_path=visual_path,

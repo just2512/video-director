@@ -132,6 +132,8 @@ def compose_project(
     subtitle_entries: Optional[List[dict]] = None,
     subtitle_file: Optional[str] = None,
     title: Optional[str] = None,
+    lower_third_name: Optional[str] = None,
+    lower_third_role: Optional[str] = None,
     width: int = None,
     height: int = None,
     fps: int = None,
@@ -282,6 +284,8 @@ def compose_project(
             render_out = renderer.render_composition(
                 ir, render_assets, work, narration_file, subtitle_file,
                 title_card=title_card,
+                lower_third_name=lower_third_name,
+                lower_third_role=lower_third_role,
             )
             store.set_stage(pid, store.Stage.QC)
             report = qc_mod.run_qc(
@@ -736,6 +740,8 @@ def compose_auto(
     auto_confirm: bool = True,
     subtitle_mode: str = "plain",
     title: Optional[str] = None,
+    lower_third_name: Optional[str] = None,
+    lower_third_role: Optional[str] = None,
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -907,6 +913,8 @@ def compose_auto(
         subtitle_entries=sub_entries,
         subtitle_file=str(sub_file),
         title=title,
+        lower_third_name=lower_third_name,
+        lower_third_role=lower_third_role,
         width=width,
         height=height,
         fps=fps,
