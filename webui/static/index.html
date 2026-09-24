@@ -30,7 +30,8 @@
   .qc-line { font-size:13px; margin:2px 0; }
   .qc-pass { color:#5ec46a; } .qc-fail { color:#e05e5e; }
   .btn-row { display:flex; gap:10px; margin-top:14px; }
-  .btn-row button { margin-top:0; }
+  .btn-row button { margin-top:0; width:auto; flex-shrink:0; }
+  .btn-row input, .btn-row textarea { flex:1; min-width:0; }
   .btn-secondary { background:#33414e; }
   .btn-sm { padding:9px 16px; font-size:13px; width:auto; }
   .llm-badge { display:inline-block; background:#1a2530; border:1px solid #2a3d4d; color:#8ab4d8; border-radius:14px; padding:4px 12px; font-size:12px; margin-bottom:14px; cursor:pointer; }
@@ -113,6 +114,8 @@
         <option value="script_only">纯文案成片（无需素材，文字卡+配音）</option>
         <option value="image_shots">一图多镜头（单图 → 三镜头动效预览，无配音）</option>
       </select>
+      <label>创作要求（可选：本次视频的整体意图，将进入创作简报供你确认）</label>
+      <textarea id="creative_brief" placeholder="例：30秒产品介绍，面向25-40岁白领，节奏轻快，突出卖点…（留空=AI 从文案自动理解）" style="min-height:64px"></textarea>
       <label>文案</label>
       <textarea id="script" placeholder="粘贴你的完整文案……"></textarea>
       <div class="btn-row">
@@ -673,6 +676,7 @@ async function compose(){
   const out = document.getElementById('result');
   const fd = new FormData();
   fd.append('script', document.getElementById('script').value);
+  fd.append('creative_brief', document.getElementById('creative_brief').value);
   fd.append('mode', document.getElementById('mode').value);
   fd.append('voice', document.getElementById('voice').value);
   fd.append('style_intent', document.getElementById('style_intent').value);
@@ -708,9 +712,13 @@ function renderResult(j){
   const out = document.getElementById('result');
   if (j.pending_confirm) {
     currentProject = { pid: j.project_id || '', sb: j.storyboard || {}, edits: {} };
+    const briefNow = (document.getElementById('creative_brief').value || '').trim();
+    const briefLine = briefNow
+      ? `<div class="hint">📋 创作要求：${esc(briefNow)}</div>` : '';
     out.innerHTML = `
       <div class="ok-box" data-pid="${esc(j.project_id || '')}">
         <b>已暂停在「等待确认」。</b>分镜如下，可逐段改稿：
+        ${briefLine}
         <div class="hint" id="sb-meta"></div>
         <div id="storyboard-box"></div>
         <div class="rev-console">

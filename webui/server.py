@@ -880,6 +880,7 @@ class Handler(BaseHTTPRequestHandler):
                     title=fields.get("title", "") or None,
                     lower_third_name=fields.get("lower_third_name", "") or None,
                     lower_third_role=fields.get("lower_third_role", "") or None,
+                    creative_brief=fields.get("creative_brief", "") or None,
                 )
             else:
                 self._send_json({"error": "无素材"}, 400)

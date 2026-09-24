@@ -771,6 +771,7 @@ def compose_auto(
     title: Optional[str] = None,
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
+    creative_brief: Optional[str] = None,
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -822,6 +823,7 @@ def compose_auto(
             "bgm": bgm_asset_id, "manual_manifest": manual_manifest,
             "style_id": style_contract.style_id,
             "subtitle_mode": subtitle_mode,
+            "creative_brief": creative_brief,
         })
     except Exception as exc:
         logger.warning(f"store.create_project 失败（不阻塞主流程）: {exc}")

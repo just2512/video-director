@@ -106,23 +106,55 @@ class RulePlanner:
         pool = {aid: 0.0 for aid in asset_order}  # 视频已消费源时长
         scene_irs: List[SceneIR] = []
 
+        # 素材全利用（用户诉求：上传 N 个素材全部进时间线）：
+        # 视频素材数 > 场景数时，场景内用多镜头均分，让每个素材至少出场一次。
+        video_ids = [aid for aid in asset_order if aid in assets and assets[aid].type == "video"]
+        _use_cover_all = len(video_ids) > len(scenes) and len(scenes) > 0
+        _used_videos: set = set()
+        _next_video = 0
+
         for si, scene in enumerate(scenes):
             target = round(float(scene["duration"]), 3)
-            # 前瞻：本场景候选池中是否存在可用图片（决定慢放侧策略）
-            candidates_preview = self._candidates(scene_index=si, asset_order=asset_order)
-            has_image = any(
-                assets[c].type == "image" for c in candidates_preview if c in assets
-            )
-            layers = self._plan_scene(
-                scene_id=scene["id"],
-                target_duration=target,
-                assets=assets,
-                pool=pool,
-                asset_order=asset_order,
-                scene_index=si,
-                image_motion=image_motion,
-                has_image_fallback=has_image,
-            )
+            if _use_cover_all:
+                # 每场景镜头数：均匀分配多出的素材（前几个场景各多 1 个）
+                per = len(video_ids) // len(scenes)
+                extra = len(video_ids) % len(scenes)
+                cnt = per + (1 if si < extra else 0)
+                my_videos: List[str] = []
+                for _ in range(cnt):
+                    # 优先取未使用素材（轮转），用尽后重复使用
+                    chosen = None
+                    for _ in range(len(video_ids)):
+                        cand = video_ids[_next_video % len(video_ids)]
+                        _next_video += 1
+                        if cand not in _used_videos:
+                            chosen = cand
+                            break
+                    if chosen is None:
+                        chosen = video_ids[si % len(video_ids)]
+                    my_videos.append(chosen)
+                    _used_videos.add(chosen)
+                layers = self._plan_multi_assets(
+                    scene_id=scene["id"], target_duration=target,
+                    asset_ids=my_videos, assets=assets, pool=pool,
+                    image_motion=image_motion,
+                )
+            else:
+                # 前瞻：本场景候选池中是否存在可用图片（决定慢放侧策略）
+                candidates_preview = self._candidates(scene_index=si, asset_order=asset_order)
+                has_image = any(
+                    assets[c].type == "image" for c in candidates_preview if c in assets
+                )
+                layers = self._plan_scene(
+                    scene_id=scene["id"],
+                    target_duration=target,
+                    assets=assets,
+                    pool=pool,
+                    asset_order=asset_order,
+                    scene_index=si,
+                    image_motion=image_motion,
+                    has_image_fallback=has_image,
+                )
             scene_irs.append(SceneIR(
                 id=scene["id"],
                 start=float(scene["start"]),
@@ -258,7 +290,61 @@ class RulePlanner:
         return layers
 
     # ------------------------------------------------------------------
-    def _fit_video(self, available: float, target: float, image_fallback: bool = False) -> tuple:
+    def _plan_multi_assets(
+        self,
+        scene_id: str,
+        target_duration: float,
+        asset_ids: List[str],
+        assets: Dict[str, AssetRef],
+        pool: Dict[str, float],
+        image_motion: bool,
+    ) -> List[Layer]:
+        """素材富余时的多镜头均分：场景时长均分给多个素材，每个素材切一段。
+
+        保证上传的每个素材都至少出场一次（用户诉求：传 N 个全用）。
+        speed=1 直裁（素材源时长通常 > 场景镜头时长的均分），无需重采样。
+        """
+        layers: List[Layer] = []
+        n = len(asset_ids)
+        if n == 0:
+            return layers
+        cursor = 0.0
+        for i, aid in enumerate(asset_ids):
+            asset = assets[aid]
+            seg = (round(target_duration / n, 3) if i < n - 1
+                   else round(target_duration - cursor, 3))
+            if asset.type == "video":
+                avail = (asset.duration or 0.0) - pool.get(aid, 0.0)
+                if avail <= 0.2:
+                    pool[aid] = 0.0  # 耗尽 → 归零复用
+                    avail = asset.duration or 0.0
+                take = min(avail, seg)
+                if take <= 0.2:
+                    continue
+                layers.append(Layer(
+                    type=LayerType.video,
+                    asset_id=aid,
+                    start=round(cursor, 3),
+                    duration=round(take, 3),
+                    speed=1.0,
+                    source_in=round(pool.get(aid, 0.0), 3),
+                    source_out=round(pool.get(aid, 0.0) + take, 3),
+                ))
+                pool[aid] = pool.get(aid, 0.0) + take
+                cursor = round(cursor + take, 3)
+            else:
+                if seg < config.IMAGE_MIN_DURATION:
+                    continue
+                motion = "slow_zoom_in" if (image_motion and seg >= config.IMAGE_MOTION_MIN_DURATION) else None
+                layers.append(Layer(
+                    type=LayerType.image, asset_id=aid,
+                    start=round(cursor, 3), duration=round(seg, 3), motion=motion,
+                ))
+                cursor = round(cursor + seg, 3)
+        return layers
+
+
+def _fit_video(self, available: float, target: float, image_fallback: bool = False) -> tuple:
         """返回 (take_source_seconds, speed, output_duration)。
 
         V2 §12 双层策略：
