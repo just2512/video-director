@@ -267,7 +267,8 @@ def analyze_assets(
                 logger.info(f"asset {aid}: {type(provider).__name__} → {sem['description'][:40]}")
                 analyzed = True
                 break
-            except VisionError as exc:
+            except Exception as exc:
+                # 任意失败（429 余额不足/限流/网络/解析）都降级，不炸主流程
                 logger.warning(f"asset {aid}: {type(provider).__name__} 失败: {exc}")
         if not analyzed:
             logger.warning(f"asset {aid}: 全部 VisionProvider 不可用，语义缺失（顺序兜底）")

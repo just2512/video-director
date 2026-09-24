@@ -204,7 +204,8 @@ def match_assets(
             assignments = llm_match(scenes, assets, llm_call)
             used = set(assignments.values())
             logger.info(f"asset match: LLM 主路完成 {len(assignments)}/{len(scenes)} 场景")
-        except (MatcherError, json.JSONDecodeError) as exc:
+        except Exception as exc:
+            # 任意 LLM 失败（429 余额不足/限流/超时）都降级，不炸主流程
             logger.warning(f"LLM 匹配失败，降级确定性: {exc}")
             assignments = {}
 
