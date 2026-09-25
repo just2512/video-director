@@ -598,7 +598,9 @@ let currentProject = { pid: '', sb: null, edits: {} };
 function renderStoryboard(sb){
   if (!sb || !sb.scenes || !sb.scenes.length) return '<div class="hint">（无场景）</div>';
   const cards = sb.scenes.map((sc, i) => {
-    const aid = (sc.assets_used && sc.assets_used[0] && sc.assets_used[0].asset_id) || '未配素材';
+    // 展示该场景全部素材（多镜头全列出——用户能看到 8 个素材都进片）
+    const aids = (sc.assets_used || []).map(a => a.asset_id).filter(Boolean);
+    const aidText = aids.length ? aids.join('、') : '未配素材';
     const n = sb.scenes.length;
     const moveBtns = (n > 1) ? `
         <button class="scene-move" onclick="moveScene(${i}, -1)" ${i===0?'disabled':''}>↑</button>
@@ -611,7 +613,7 @@ function renderStoryboard(sb){
         <button class="scene-del" onclick="removeSceneDirect('${esc(sc.scene_id||'')}')">删除</button>
       </div>
       <div class="scene-text">${esc(sc.text||'')}</div>
-      <div class="scene-asset">素材：${esc(String(aid))}</div>
+      <div class="scene-asset">素材（${aids.length}个）：${esc(aidText)}</div>
     </div>`;
   }).join('');
   return `<div class="scene-list">${cards}</div>`;
@@ -662,6 +664,29 @@ function moveScene(index, delta){
   const ids = sc.scenes.map(s => s.scene_id);
   [ids[index], ids[j]] = [ids[j], ids[index]];
   doRevision({direct_edits: {reorder: ids}});
+}
+
+async function renderDraftPreview(){
+  const box = document.getElementById('draft-box');
+  const vid = document.getElementById('draft-video');
+  box.style.display = 'block';
+  vid.removeAttribute('src');
+  vid.insertAdjacentHTML('beforebegin', '');
+  const statusEl = box.querySelector('.hint');
+  statusEl.textContent = '草稿渲染中……（低分辨率快速，约 10-30 秒）';
+  try {
+    const r = await fetch('/api/draft', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project_id: currentProject.pid})
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '草稿渲染失败');
+    vid.src = '/file?path=' + encodeURIComponent(j.draft_path);
+    vid.play().catch(()=>{});
+    statusEl.textContent = '动态草稿（低分辨率快速预览，不烧字幕）：';
+  } catch (e) {
+    statusEl.textContent = '草稿渲染失败：' + e.message;
+  }
 }
 
 async function confirmRender(){
@@ -741,11 +766,16 @@ function renderResult(j){
             <button class="btn-secondary" onclick="applyRevision()">应用修改</button>
           </div>
           <div id="rev-status"></div>
-          <div class="rev-hint">换素材（换镜头）正式渲染时生效；删段/改文案当前仅更新此分镜预览。</div>
+          <div class="rev-hint">换素材（换镜头）正式渲染时生效；删段/改文案正式渲染时重合成旁白生效。</div>
         </div>
         <div class="btn-row">
+          <button class="btn-secondary" onclick="renderDraftPreview()">🎬 先看草稿视频（快速低清）</button>
           <button onclick="confirmRender()">✅ 确认渲染</button>
           <button class="btn-secondary" onclick="location.reload()">↩ 返回修改</button>
+        </div>
+        <div id="draft-box" style="display:none" class="enhance-box">
+          <div class="hint">动态草稿（低分辨率快速预览，不烧字幕；正式渲染看下方确认）：</div>
+          <video controls id="draft-video" style="width:100%;max-width:420px;margin-top:8px;border-radius:8px;background:#000"></video>
         </div>
         <div class="hint" id="confirm-status"></div>
       </div>`;

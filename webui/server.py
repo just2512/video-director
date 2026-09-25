@@ -624,6 +624,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        # Gate B 动态草稿（方案 §32/§83：确认渲染前先看低分辨率快速草稿）
+        if parsed.path == "/api/draft":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import confirm as confirm_mod
+                draft_path = confirm_mod.render_draft(pid)
+                self._send_json({"ok": True, "draft_path": draft_path})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         # Revision Console：自然语言改稿 → 累积 edits → 应用到分镜书（预览，不落盘）
         if parsed.path == "/api/revision":
             length = int(self.headers.get("Content-Length", 0))
