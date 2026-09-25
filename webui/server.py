@@ -395,6 +395,110 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/projects":
+            # Project Runtime：项目索引（Portable Project 列表 + 状态 + 可续渲）
+            try:
+                root = STORAGE / "composer"
+                projects = []
+                if root.is_dir():
+                    for d in sorted(root.iterdir(),
+                                    key=lambda p: p.stat().st_mtime, reverse=True):
+                        if not d.name.startswith("web-"):
+                            continue
+                        run_json = d / "plans" / "run.json"
+                        final = d / "output" / "final.mp4"
+                        sb = d / "plans" / "storyboard.json"
+                        meta = {"project_id": d.name,
+                                "mtime": int(d.stat().st_mtime),
+                                "has_final": final.is_file(),
+                                "pending_confirm": (sb.is_file()
+                                                     and not final.is_file())}
+                        if run_json.is_file():
+                            try:
+                                rj = json.loads(run_json.read_text(encoding="utf-8"))
+                                meta["providers"] = rj.get("providers", {})
+                                meta["qc"] = (rj.get("verification", {})
+                                              .get("deterministic_qc"))
+                            except (OSError, json.JSONDecodeError):
+                                pass
+                        projects.append(meta)
+                    projects = projects[:30]  # 首页最近 30
+                self._send_json(projects)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/project_detail":
+            # 项目详情（重开续用：产物清单 + 分镜 + IR 概览）
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                pdir = STORAGE / "composer" / pid
+                if not pdir.is_dir():
+                    self._send_json({"error": "项目不存在"}, 404)
+                    return
+                detail = {"project_id": pid}
+                sb_file = pdir / "plans" / "storyboard.json"
+                if sb_file.is_file():
+                    sb = json.loads(sb_file.read_text(encoding="utf-8"))
+                    detail["storyboard"] = {
+                        "scene_count": sb.get("scene_count"),
+                        "total_duration": sb.get("total_duration"),
+                        "scenes": [
+                            {"scene_id": s.get("scene_id"), "text": s.get("text"),
+                             "duration": s.get("duration"),
+                             "assets": [a.get("asset_id")
+                                        for a in (s.get("assets_used") or [])]}
+                            for s in sb.get("scenes", [])
+                        ],
+                    }
+                comp = pdir / "plans" / "composition.json"
+                if comp.is_file():
+                    c = json.loads(comp.read_text(encoding="utf-8"))
+                    detail["transitions"] = [
+                        s.get("transition_out", {}).get("type")
+                        for s in c.get("scenes", [])
+                    ]
+                detail["final_exists"] = (pdir / "output" / "final.mp4").is_file()
+                detail["draft_exists"] = any(
+                    (pdir / "render").glob("draft*.mp4"))
+                script_file = pdir / "input" / "script.txt"
+                if script_file.is_file():
+                    detail["script"] = script_file.read_text(encoding="utf-8")[:2000]
+                self._send_json(detail)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/assets_library":
+            # Asset Library：全项目素材索引 + 使用历史（Asset Graph UI）
+            try:
+                root = STORAGE / "composer"
+                lib = {}
+                if root.is_dir():
+                    for d in root.iterdir():
+                        man = d / "assets" / "manifest.json"
+                        if not man.is_file():
+                            continue
+                        try:
+                            entries = json.loads(man.read_text(encoding="utf-8"))
+                        except (OSError, json.JSONDecodeError):
+                            continue
+                        for a in entries:
+                            if a.get("type") not in ("video", "image"):
+                                continue  # 音频库另走 /api/bgm /api/sfx
+                            aid = a.get("id")
+                            ent = lib.setdefault(aid, {
+                                "asset_id": aid, "type": a.get("type"),
+                                "file": a.get("file"), "duration": a.get("duration"),
+                                "description": a.get("description"),
+                                "used_in": [],
+                            })
+                            if a.get("description"):
+                                ent["description"] = a["description"]
+                            ent["used_in"].append(d.name)
+                self._send_json(list(lib.values()))
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
         elif route == "/file":
             qs = parse_qs(parsed.query)
             fpath = qs.get("path", [""])[0]

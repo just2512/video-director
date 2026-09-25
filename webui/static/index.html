@@ -73,6 +73,9 @@
   .tab-row { display:flex; gap:8px; margin-bottom:14px; }
   .tab { background:#1a2026; border:1px solid #2a343d; color:#b8c2ca; border-radius:6px; padding:8px 16px; font-size:13px; cursor:pointer; width:auto; margin-top:0; }
   .tab.tab-active { background:#26405a; color:#fff; border-color:#4a90d9; }
+  .proj-row { display:flex; align-items:center; gap:12px; padding:8px 10px; border:1px solid #2a343d; border-radius:8px; margin-top:8px; cursor:pointer; background:#0d1116; }
+  .proj-row:hover { border-color:#4a90d9; }
+  .proj-row .hint { flex:1; }
 </style>
 </head>
 <body>
@@ -80,9 +83,32 @@
   <h1>🎬 AI Video Director</h1>
   <div class="sub">一句话文案 + 素材 → AI 自动导演：理解内容、匹配画面、配音、配乐、成片</div>
   <div class="tab-row">
-    <button class="tab tab-active" id="tab-create" onclick="switchTab('create')">🎬 创作</button>
+    <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">🏠 首页</button>
+    <button class="tab" id="tab-create" onclick="switchTab('create')">🎬 创作</button>
+    <button class="tab" id="tab-projects" onclick="switchTab('projects')">📁 项目</button>
+    <button class="tab" id="tab-assets" onclick="switchTab('assets')">🖼 素材库</button>
     <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考视频分析</button>
-    <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 我的创作记忆</button>
+    <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 创作记忆</button>
+  </div>
+
+  <!-- ======== Tab 0: 首页（我现在该做什么）======== -->
+  <div id="pane-home">
+    <div class="card">
+      <b>开始新创作</b>
+      <div class="btn-row">
+        <button onclick="switchTab('create')">🎬 新建创作</button>
+        <button class="btn-secondary" onclick="switchTab('reference')">🔍 分析参考视频</button>
+        <button class="btn-secondary" onclick="switchTab('assets')">🖼 浏览素材库</button>
+      </div>
+    </div>
+    <div class="card">
+      <b>最近项目</b>
+      <div id="home-projects">加载中……</div>
+    </div>
+    <div class="card">
+      <b>待确认（分镜已就绪，等你审）</b>
+      <div id="home-pending">—</div>
+    </div>
   </div>
   <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
   <div id="cap-badge" class="llm-badge" onclick="toggleCapPanel()">⚙ 系统能力：检测中…</div>
@@ -193,7 +219,24 @@
   </div>
   </div>
 
-  <!-- ======== Tab 2: 参考视频分析 ======== -->
+  <!-- ======== Tab 2: 项目（Portable Project 列表 + 重开续用）======== -->
+  <div id="pane-projects" style="display:none">
+    <div class="card">
+      <b>我的项目</b>——点击任意项目可查看分镜/产物，未完成的可继续渲染
+      <div id="projects-list">加载中……</div>
+    </div>
+    <div id="project-detail-box"></div>
+  </div>
+
+  <!-- ======== Tab 3: 素材库（Asset Graph：元数据 + 使用历史）======== -->
+  <div id="pane-assets" style="display:none">
+    <div class="card">
+      <b>素材库</b>——所有项目用过的视频/图片素材（含 AI 画面理解描述），可查「这个素材在哪些视频里用过」
+      <div id="assets-list">加载中……</div>
+    </div>
+  </div>
+
+  <!-- ======== Tab 4: 参考视频分析 ======== -->
   <div id="pane-reference" style="display:none">
     <div class="card">
       <b>参考视频分析</b>——上传一条优秀视频，系统提取镜头结构 / 节奏 / 运动语言 / 转场语法（风格重构，不复制内容），
@@ -435,13 +478,130 @@ function discardEnhanced(){
 }
 
 function switchTab(tab){
-  document.getElementById('pane-create').style.display = tab==='create' ? '' : 'none';
-  document.getElementById('pane-reference').style.display = tab==='reference' ? '' : 'none';
-  document.getElementById('pane-memory').style.display = tab==='memory' ? '' : 'none';
-  document.getElementById('tab-create').classList.toggle('tab-active', tab==='create');
-  document.getElementById('tab-reference').classList.toggle('tab-active', tab==='reference');
-  document.getElementById('tab-memory').classList.toggle('tab-active', tab==='memory');
-  if (tab==='memory') loadMemoryView();
+  for (const p of ['home','create','projects','assets','reference','memory']) {
+    const el = document.getElementById('pane-' + p);
+    if (el) el.style.display = (tab === p) ? '' : 'none';
+    const tb = document.getElementById('tab-' + p);
+    if (tb) tb.classList.toggle('tab-active', tab === p);
+  }
+  if (tab === 'home') loadHome();
+  if (tab === 'projects') loadProjects();
+  if (tab === 'assets') loadAssetsLibrary();
+  if (tab === 'memory') loadMemoryView();
+}
+
+// ---- 首页：我现在该做什么 ----
+async function loadHome(){
+  try {
+    const projects = await (await fetch('/api/projects')).json();
+    if (!Array.isArray(projects)) throw new Error(projects.error || '读取失败');
+    const recent = projects.slice(0, 6).map(p => {
+      const state = p.pending_confirm ? '⚠ 待确认' : (p.has_final ? '✅ 已完成' : '· 进行中');
+      const qc = p.qc === 'PASS' ? ' · QC 通过' : '';
+      return `<div class="proj-row" onclick="openProject('${esc(p.project_id)}')">
+        <b>${esc(p.project_id)}</b>
+        <span class="hint">${new Date(p.mtime*1000).toLocaleString()}</span>
+        <span class="${p.pending_confirm ? 'cap-warn' : 'cap-ok'}">${state}${qc}</span>
+      </div>`;
+    }).join('');
+    document.getElementById('home-projects').innerHTML =
+      recent || '<div class="hint">还没有项目，点击上方「新建创作」开始。</div>';
+    const pending = projects.filter(p => p.pending_confirm);
+    document.getElementById('home-pending').innerHTML = pending.length
+      ? pending.map(p => `<div class="proj-row" onclick="openProject('${esc(p.project_id)}')">
+          <b>${esc(p.project_id)}</b><span class="cap-warn">分镜已就绪，待你确认渲染</span></div>`).join('')
+      : '<div class="hint">暂无待确认项目。</div>';
+  } catch (e) {
+    document.getElementById('home-projects').innerHTML =
+      `<div class="err-box">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+// ---- 项目页 ----
+async function loadProjects(){
+  try {
+    const projects = await (await fetch('/api/projects')).json();
+    if (!Array.isArray(projects)) throw new Error(projects.error || '读取失败');
+    document.getElementById('projects-list').innerHTML = projects.map(p => {
+      const state = p.pending_confirm ? '⚠ 待确认' : (p.has_final ? '✅ 已完成' : '· 进行中');
+      return `<div class="proj-row" onclick="openProject('${esc(p.project_id)}')">
+        <b>${esc(p.project_id)}</b>
+        <span class="hint">${new Date(p.mtime*1000).toLocaleString()}</span>
+        <span class="${p.pending_confirm ? 'cap-warn' : 'cap-ok'}">${state}</span>
+      </div>`;
+    }).join('') || '<div class="hint">还没有项目。</div>';
+  } catch (e) {
+    document.getElementById('projects-list').innerHTML =
+      `<div class="err-box">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+async function openProject(pid){
+  switchTab('projects');
+  const box = document.getElementById('project-detail-box');
+  box.innerHTML = '加载项目详情……';
+  try {
+    const j = await (await fetch('/api/project_detail?project_id=' + encodeURIComponent(pid))).json();
+    if (j.error) throw new Error(j.error);
+    const sb = j.storyboard || {};
+    const sceneRows = (sb.scenes || []).map(s =>
+      `<div class="scene-card">
+        <div class="scene-head"><span class="scene-id">${esc(s.scene_id||'')}</span>
+          <span class="scene-dur">${(s.duration||0).toFixed(1)}s</span></div>
+        <div class="scene-text">${esc(s.text||'')}</div>
+        <div class="scene-asset">素材（${(s.assets||[]).length}个）：${esc((s.assets||[]).join('、')||'—')}</div>
+      </div>`).join('');
+    const trs = (j.transitions || []).filter(t => t && t !== 'cut').length;
+    box.innerHTML = `
+      <div class="ok-box">
+        <b>${esc(pid)}</b> · ${sb.scene_count||'?'} 场景 · ${sb.total_duration||'?'}s · 效果转场 ${trs} 处
+        ${j.final_exists ? '<span class="cap-ok">✅ 已有成品</span>' : '<span class="cap-warn">未渲染完成</span>'}
+        ${j.draft_exists ? ' · <span class="cap-ok">有草稿</span>' : ''}
+        <div class="scene-list" style="max-height:280px">${sceneRows || '<div class="hint">无分镜数据</div>'}</div>
+        ${j.final_exists ? `
+          <div class="btn-row">
+            <button onclick="playProjectFinal('${esc(pid)}')">▶ 播放成品</button>
+          </div>
+          <video controls id="proj-video" style="width:100%;max-width:420px;display:none;margin-top:10px;border-radius:8px;background:#000"></video>` : ''}
+        <div class="hint">完整文案：${esc((j.script||'').slice(0,200))}${(j.script||'').length>200?'…':''}</div>
+      </div>`;
+    if (j.final_exists) {
+      const btn = box.querySelector('button');
+      btn.onclick = async () => {
+        // final 路径通过固定约定拼（output/final.mp4 在 storage 内可播放）
+        const v = document.getElementById('proj-video');
+        v.style.display = 'block';
+        v.src = '/file?path=' + encodeURIComponent(
+          'D:\\autocut\\video-director\\storage\\composer\\' + pid + '\\output\\final.mp4');
+        v.play().catch(()=>{});
+      };
+    }
+  } catch (e) {
+    box.innerHTML = `<div class="err-box">项目详情加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+// ---- 素材库（Asset Graph）----
+async function loadAssetsLibrary(){
+  try {
+    const assets = await (await fetch('/api/assets_library')).json();
+    if (!Array.isArray(assets)) throw new Error(assets.error || '读取失败');
+    const rows = assets.slice(0, 100).map(a => `
+      <div class="scene-card">
+        <div class="scene-head">
+          <span class="scene-id">${esc(a.asset_id)}</span>
+          <span class="scene-dur">${esc(a.type)}</span>
+          ${a.duration ? `<span class="scene-dur">${a.duration.toFixed(1)}s</span>` : ''}
+        </div>
+        ${a.description ? `<div class="scene-text" style="font-size:13px">${esc(a.description)}</div>` : ''}
+        <div class="scene-asset">用于 ${a.used_in.length} 个项目：${esc(a.used_in.slice(0,3).join('、'))}${a.used_in.length>3?'…':''}</div>
+      </div>`).join('');
+    document.getElementById('assets-list').innerHTML =
+      rows || '<div class="hint">还没有素材使用记录，先去创作一次。</div>';
+  } catch (e) {
+    document.getElementById('assets-list').innerHTML =
+      `<div class="err-box">加载失败：${esc(e.message)}</div>`;
+  }
 }
 
 async function analyzeReference(){
@@ -589,6 +749,7 @@ function previewSfx(){
 }
 
 loadOptions();
+loadHome();  // 首页默认 tab
 
 function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'); }
 
