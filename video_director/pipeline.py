@@ -81,15 +81,17 @@ def _recompose_with_size(project_id: str, width: int, height: int):
     base = config.project_dir(project_id)
     dirs = config.init_project_dirs(base)
 
-    sb_path = dirs["plans"] / "storyboard.json"
-    if not sb_path.is_file():
-        raise PipelineError(f"项目包缺 storyboard.json: {project_id}")
-    storyboard = _json.loads(sb_path.read_text(encoding="utf-8"))
-
+    # 场景清单（唯一必需输入）：storyboard.json 或 scenes.json 任一存在即可
+    # （direct 项目不产分镜书，但 scenes.json 是 narration_scenes 权威落盘）
     scenes_path = dirs["plans"] / "scenes.json"
     if not scenes_path.is_file():
-        raise PipelineError(f"项目包缺 scenes.json: {project_id}")
+        raise PipelineError(f"项目包缺 scenes.json（无旁白场景可重渲）: {project_id}")
     narration_scenes = _json.loads(scenes_path.read_text(encoding="utf-8"))
+
+    storyboard = {}
+    sb_path = dirs["plans"] / "storyboard.json"
+    if sb_path.is_file():
+        storyboard = _json.loads(sb_path.read_text(encoding="utf-8"))
 
     narration_path = dirs["audio"] / "narration.mp3"
     narration_file = str(narration_path) if narration_path.is_file() else None
