@@ -76,6 +76,14 @@ class TemplateDefinition:
     def name(self) -> str:
         return self.item.name
 
+    @property
+    def commercial_status(self) -> str:
+        return self.item.commercial_status
+
+    @property
+    def provenance_ref(self) -> Optional[str]:
+        return self.item.provenance_ref
+
 
 #: 模板槽位类型白名单
 TEMPLATE_SLOT_TYPES = ("text", "image", "video", "product", "person",

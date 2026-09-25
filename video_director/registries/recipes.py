@@ -85,6 +85,10 @@ class ShotRecipe:
     def commercial_status(self) -> str:
         return self.item.commercial_status
 
+    @property
+    def provenance_ref(self) -> Optional[str]:
+        return self.item.provenance_ref
+
 
 #: 层类型枚举（全局契约 §8；与 models.RENDERABLE 对齐并扩展）
 LAYER_TYPES = (
@@ -236,6 +240,10 @@ class MotionRecipe:
     @property
     def commercial_status(self) -> str:
         return self.item.commercial_status
+
+    @property
+    def provenance_ref(self) -> Optional[str]:
+        return self.item.provenance_ref
 
 
 #: Motion channel 属性白名单（全局契约 §9：property/keyframe/easing，禁 shell）
