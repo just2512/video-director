@@ -1,0 +1,405 @@
+[
+ {
+  "id": "tpl.ink-press-editorial",
+  "version": "1.0.0",
+  "kind": "template",
+  "name": "纸墨专栏（Ink Press 吸收）",
+  "description": "纸面质感+墨迹晕开转场的专栏叙事模板（Ink Press 场景语法，从零重写）",
+  "tags": [
+   "editorial"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "editorial",
+  "supported_ratios": [
+   "16:9",
+   "9:16",
+   "3:4"
+  ],
+  "duration": {
+   "min": 12,
+   "recommended": 36,
+   "max": 90
+  },
+  "style_contract": {
+   "style_id": "editorial"
+  },
+  "slots": [
+   {
+    "id": "title",
+    "label": "主标题",
+    "type": "text",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "subtitle",
+    "label": "副标题",
+    "type": "text",
+    "required": false,
+    "editable": true
+   },
+   {
+    "id": "hero_image",
+    "label": "主图",
+    "type": "image",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "body_text",
+    "label": "正文文案",
+    "type": "text",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "chapter_title",
+    "label": "章节标题",
+    "type": "text",
+    "required": false,
+    "editable": true
+   }
+  ],
+  "scenes": [
+   {
+    "id": "scene-hook",
+    "duration": 4,
+    "semantic_role": "hook",
+    "shot_recipe_id": "shot.title-card-minimal",
+    "layers": [
+     {
+      "id": "title",
+      "type": "text",
+      "slot_id": "title",
+      "motion_recipe_id": "motion.rise-fade"
+     }
+    ]
+   },
+   {
+    "id": "scene-hero",
+    "duration": 8,
+    "semantic_role": "intro",
+    "shot_recipe_id": "shot.editorial-photo-story",
+    "layers": [
+     {
+      "id": "hero",
+      "type": "image",
+      "slot_id": "hero_image",
+      "motion_recipe_id": "motion.ken-burns-soft"
+     },
+     {
+      "id": "chapter",
+      "type": "text",
+      "slot_id": "chapter_title",
+      "motion_recipe_id": "motion.word-relay"
+     }
+    ]
+   },
+   {
+    "id": "scene-body",
+    "duration": 12,
+    "semantic_role": "body",
+    "shot_recipe_id": "shot.editorial-photo-story",
+    "layers": [
+     {
+      "id": "photo",
+      "type": "image",
+      "slot_id": "hero_image",
+      "motion_recipe_id": "motion.ink-bleed"
+     },
+     {
+      "id": "caption",
+      "type": "text",
+      "slot_id": "subtitle",
+      "motion_recipe_id": "motion.fade-slide"
+     }
+    ]
+   },
+   {
+    "id": "scene-outro",
+    "duration": 4,
+    "semantic_role": "outro",
+    "shot_recipe_id": "shot.title-card-minimal",
+    "layers": [
+     {
+      "id": "outro_title",
+      "type": "text",
+      "slot_id": "title",
+      "motion_recipe_id": "motion.scale-down-exit"
+     }
+    ]
+   }
+  ],
+  "required_capabilities": [
+   "image_render",
+   "text_render"
+  ],
+  "recipe_bindings": [
+   {
+    "scene_id": "scene-hook",
+    "recipe_id": "shot.title-card-minimal"
+   },
+   {
+    "scene_id": "scene-hero",
+    "recipe_id": "shot.editorial-photo-story"
+   },
+   {
+    "scene_id": "scene-body",
+    "recipe_id": "shot.editorial-photo-story"
+   },
+   {
+    "scene_id": "scene-outro",
+    "recipe_id": "shot.title-card-minimal"
+   }
+  ],
+  "preview_artifact": null,
+  "runtime": {
+   "renderer": "ffmpeg",
+   "deterministic": true
+  }
+ },
+ {
+  "id": "tpl.product-hero-16",
+  "version": "1.0.0",
+  "kind": "template",
+  "name": "产品英雄",
+  "description": "产品图开场→卖点逐条→CTA 收尾的产品宣传模板",
+  "tags": [
+   "product"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "product",
+  "supported_ratios": [
+   "9:16",
+   "16:9",
+   "1:1"
+  ],
+  "duration": {
+   "min": 10,
+   "recommended": 25,
+   "max": 45
+  },
+  "style_contract": {
+   "style_id": "product"
+  },
+  "slots": [
+   {
+    "id": "product_image",
+    "label": "产品图",
+    "type": "image",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "brand_name",
+    "label": "品牌名",
+    "type": "text",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "selling_points",
+    "label": "卖点文案",
+    "type": "text",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "cta_text",
+    "label": "行动号召",
+    "type": "text",
+    "required": true,
+    "editable": true
+   }
+  ],
+  "scenes": [
+   {
+    "id": "scene-hook",
+    "duration": 3,
+    "semantic_role": "hook",
+    "shot_recipe_id": "shot.spotlight-opening",
+    "layers": [
+     {
+      "id": "hero",
+      "type": "image",
+      "slot_id": "product_image",
+      "motion_recipe_id": "motion.spotlight-focus"
+     }
+    ]
+   },
+   {
+    "id": "scene-features",
+    "duration": 8,
+    "semantic_role": "feature",
+    "shot_recipe_id": "shot.product-hero-assemble",
+    "layers": [
+     {
+      "id": "hero2",
+      "type": "image",
+      "slot_id": "product_image",
+      "motion_recipe_id": "motion.scale-punch"
+     },
+     {
+      "id": "points",
+      "type": "text",
+      "slot_id": "selling_points",
+      "motion_recipe_id": "motion.word-relay"
+     }
+    ]
+   },
+   {
+    "id": "scene-cta",
+    "duration": 3,
+    "semantic_role": "outro",
+    "shot_recipe_id": "shot.cta-closing",
+    "layers": [
+     {
+      "id": "cta",
+      "type": "text",
+      "slot_id": "cta_text",
+      "motion_recipe_id": "motion.scale-punch"
+     }
+    ]
+   }
+  ],
+  "required_capabilities": [
+   "image_render",
+   "text_render"
+  ],
+  "recipe_bindings": [
+   {
+    "scene_id": "scene-hook",
+    "recipe_id": "shot.spotlight-opening"
+   },
+   {
+    "scene_id": "scene-features",
+    "recipe_id": "shot.product-hero-assemble"
+   },
+   {
+    "scene_id": "scene-cta",
+    "recipe_id": "shot.cta-closing"
+   }
+  ],
+  "preview_artifact": null,
+  "runtime": {
+   "renderer": "ffmpeg",
+   "deterministic": true
+  }
+ },
+ {
+  "id": "tpl.minimal-editorial",
+  "version": "1.0.0",
+  "kind": "template",
+  "name": "极简专栏",
+  "description": "少即是多的双场景极简模板",
+  "tags": [
+   "editorial"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "editorial",
+  "supported_ratios": [
+   "9:16",
+   "16:9",
+   "3:4",
+   "1:1"
+  ],
+  "duration": {
+   "min": 8,
+   "recommended": 20,
+   "max": 60
+  },
+  "style_contract": {
+   "style_id": "minimal"
+  },
+  "slots": [
+   {
+    "id": "title",
+    "label": "标题",
+    "type": "text",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "body_text",
+    "label": "正文",
+    "type": "text",
+    "required": true,
+    "editable": true
+   },
+   {
+    "id": "hero_image",
+    "label": "配图",
+    "type": "image",
+    "required": false,
+    "editable": true
+   }
+  ],
+  "scenes": [
+   {
+    "id": "scene-title",
+    "duration": 4,
+    "semantic_role": "hook",
+    "shot_recipe_id": "shot.title-card-minimal",
+    "layers": [
+     {
+      "id": "t",
+      "type": "text",
+      "slot_id": "title",
+      "motion_recipe_id": "motion.rise-fade"
+     }
+    ]
+   },
+   {
+    "id": "scene-body",
+    "duration": 10,
+    "semantic_role": "body",
+    "shot_recipe_id": "shot.card-stack-reveal",
+    "layers": [
+     {
+      "id": "img",
+      "type": "image",
+      "slot_id": "hero_image",
+      "motion_recipe_id": "motion.card-assemble"
+     },
+     {
+      "id": "body",
+      "type": "text",
+      "slot_id": "body_text",
+      "motion_recipe_id": "motion.fade-slide"
+     }
+    ]
+   }
+  ],
+  "required_capabilities": [
+   "image_render",
+   "text_render"
+  ],
+  "recipe_bindings": [
+   {
+    "scene_id": "scene-title",
+    "recipe_id": "shot.title-card-minimal"
+   },
+   {
+    "scene_id": "scene-body",
+    "recipe_id": "shot.card-stack-reveal"
+   }
+  ],
+  "preview_artifact": null,
+  "runtime": {
+   "renderer": "ffmpeg",
+   "deterministic": true
+  }
+ }
+]

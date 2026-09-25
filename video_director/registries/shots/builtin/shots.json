@@ -1,0 +1,748 @@
+[
+ {
+  "id": "shot.product-hero-assemble",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "产品 Hero 逐层组合",
+  "description": "产品主图放大落定+卖点文字逐层进入（方案 §5 示例）",
+  "tags": [
+   "product",
+   "product_introduction"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "product",
+  "semantic_intents": [
+   "product_introduction",
+   "feature_reveal"
+  ],
+  "compatible_content_types": [
+   "product_video",
+   "advertisement",
+   "tutorial"
+  ],
+  "duration": {
+   "min": 2.5,
+   "recommended": 4,
+   "max": 6
+  },
+  "energy": "medium",
+  "slots": [
+   {
+    "id": "hero_product",
+    "type": "product",
+    "required": true,
+    "cardinality": "one",
+    "semantic_role": "hero"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "bg",
+    "layer_type": "background",
+    "z_index": 0,
+    "visible": true
+   },
+   {
+    "id": "hero",
+    "layer_type": "image",
+    "source_slot": "hero_product",
+    "motion": "motion.scale-punch",
+    "z_index": 1,
+    "visible": true
+   },
+   {
+    "id": "caption",
+    "layer_type": "text",
+    "motion": "motion.word-relay",
+    "z_index": 2,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "enter",
+    "preferred_styles": [
+     "editorial",
+     "minimal"
+    ]
+   },
+   {
+    "semantic_intent": "emphasize",
+    "preferred_styles": [
+     "editorial"
+    ]
+   }
+  ],
+  "audio_cues": [
+   {
+    "at": 0,
+    "tag": "light"
+   }
+  ],
+  "constraints": []
+ },
+ {
+  "id": "shot.spotlight-opening",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "暗场聚光灯开场",
+  "description": "暗背景+聚光收拢锁定主体，开场只讲一件事",
+  "tags": [
+   "hero",
+   "opening"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "hero",
+  "semantic_intents": [
+   "opening",
+   "product_introduction"
+  ],
+  "compatible_content_types": [
+   "product_video",
+   "advertisement",
+   "editorial"
+  ],
+  "duration": {
+   "min": 3,
+   "recommended": 4,
+   "max": 6
+  },
+  "energy": "medium",
+  "slots": [
+   {
+    "id": "hero_product",
+    "type": "product",
+    "required": true,
+    "cardinality": "one",
+    "semantic_role": "hero"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "bg",
+    "layer_type": "background",
+    "z_index": 0,
+    "visible": true
+   },
+   {
+    "id": "hero",
+    "layer_type": "image",
+    "source_slot": "hero_product",
+    "motion": "motion.spotlight-focus",
+    "z_index": 1,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "reveal",
+    "preferred_styles": [
+     "cinematic",
+     "editorial"
+    ]
+   }
+  ],
+  "audio_cues": [
+   {
+    "at": 0,
+    "tag": "light"
+   }
+  ],
+  "constraints": [
+   "first_scene_only",
+   "needs_product_image"
+  ]
+ },
+ {
+  "id": "shot.screen-demo-flow",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "屏幕演示流程",
+  "description": "录屏片段+步骤标注文字",
+  "tags": [
+   "screen",
+   "feature_reveal"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "screen",
+  "semantic_intents": [
+   "feature_reveal",
+   "tutorial_step"
+  ],
+  "compatible_content_types": [
+   "screen_recording",
+   "tutorial"
+  ],
+  "duration": {
+   "min": 4,
+   "recommended": 6,
+   "max": 10
+  },
+  "energy": "low",
+  "slots": [
+   {
+    "id": "screen",
+    "type": "screen",
+    "required": true,
+    "cardinality": "one",
+    "semantic_role": "hero"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "screen",
+    "layer_type": "video",
+    "source_slot": "screen",
+    "z_index": 1,
+    "visible": true
+   },
+   {
+    "id": "step_label",
+    "layer_type": "text",
+    "motion": "motion.fade-slide",
+    "z_index": 2,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "enter",
+    "preferred_styles": [
+     "minimal",
+     "editorial"
+    ]
+   },
+   {
+    "semantic_intent": "emphasize",
+    "preferred_styles": [
+     "minimal"
+    ]
+   }
+  ],
+  "audio_cues": [],
+  "constraints": [
+   "needs_screen_recording"
+  ]
+ },
+ {
+  "id": "shot.editorial-photo-story",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "图文专栏叙事",
+  "description": "照片 ken burns+章节标题（Ink Press 场景语法吸收）",
+  "tags": [
+   "editorial",
+   "narrative"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "editorial",
+  "semantic_intents": [
+   "narrative",
+   "atmosphere"
+  ],
+  "compatible_content_types": [
+   "article",
+   "photo_story",
+   "editorial"
+  ],
+  "duration": {
+   "min": 3,
+   "recommended": 5,
+   "max": 8
+  },
+  "energy": "low",
+  "slots": [
+   {
+    "id": "photo",
+    "type": "image",
+    "required": true,
+    "cardinality": "many",
+    "semantic_role": "hero"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "photo",
+    "layer_type": "image",
+    "source_slot": "photo",
+    "motion": "motion.ken-burns-soft",
+    "z_index": 1,
+    "visible": true
+   },
+   {
+    "id": "chapter_title",
+    "layer_type": "text",
+    "motion": "motion.word-relay",
+    "z_index": 2,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "reveal",
+    "preferred_styles": [
+     "editorial",
+     "cinematic"
+    ]
+   },
+   {
+    "semantic_intent": "camera",
+    "preferred_styles": [
+     "editorial"
+    ]
+   }
+  ],
+  "audio_cues": [
+   {
+    "at": 0,
+    "tag": "riser"
+   }
+  ],
+  "constraints": []
+ },
+ {
+  "id": "shot.data-number-burst",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "数字爆发强调",
+  "description": "关键数字放大弹出（数据编辑部场景语法）",
+  "tags": [
+   "data",
+   "emphasize"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "data",
+  "semantic_intents": [
+   "emphasize",
+   "data_highlight"
+  ],
+  "compatible_content_types": [
+   "data_story",
+   "editorial",
+   "tutorial"
+  ],
+  "duration": {
+   "min": 2,
+   "recommended": 3,
+   "max": 5
+  },
+  "energy": "high",
+  "slots": [
+   {
+    "id": "number_text",
+    "type": "text",
+    "required": true,
+    "cardinality": "one",
+    "semantic_role": "hero"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "number",
+    "layer_type": "text",
+    "source_slot": "number_text",
+    "motion": "motion.scale-punch",
+    "z_index": 2,
+    "visible": true
+   },
+   {
+    "id": "accent_shape",
+    "layer_type": "shape",
+    "z_index": 1,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "emphasize",
+    "preferred_styles": [
+     "editorial",
+     "brutalist"
+    ]
+   }
+  ],
+  "audio_cues": [
+   {
+    "at": 0,
+    "tag": "impact"
+   }
+  ],
+  "constraints": [
+   "needs_text_lines"
+  ]
+ },
+ {
+  "id": "shot.person-interview-tight",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "人物近景访谈",
+  "description": "人物近景+下方字幕条",
+  "tags": [
+   "documentary",
+   "statement"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "documentary",
+  "semantic_intents": [
+   "statement",
+   "trust"
+  ],
+  "compatible_content_types": [
+   "interview",
+   "documentary",
+   "talking_head"
+  ],
+  "duration": {
+   "min": 4,
+   "recommended": 8,
+   "max": 15
+  },
+  "energy": "low",
+  "slots": [
+   {
+    "id": "person",
+    "type": "person",
+    "required": true,
+    "cardinality": "one",
+    "semantic_role": "hero"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "person",
+    "layer_type": "video",
+    "source_slot": "person",
+    "z_index": 1,
+    "visible": true
+   },
+   {
+    "id": "lower_third",
+    "layer_type": "text",
+    "z_index": 2,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "enter",
+    "preferred_styles": [
+     "documentary",
+     "minimal"
+    ]
+   }
+  ],
+  "audio_cues": [],
+  "constraints": [
+   "needs_person_video"
+  ]
+ },
+ {
+  "id": "shot.card-stack-reveal",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "卡片堆叠揭示",
+  "description": "多卡片 stagger 依次装配成堆（ui-entrance 家族吸收）",
+  "tags": [
+   "editorial",
+   "feature_reveal"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "editorial",
+  "semantic_intents": [
+   "feature_reveal",
+   "product_introduction"
+  ],
+  "compatible_content_types": [
+   "product_video",
+   "data_story",
+   "editorial"
+  ],
+  "duration": {
+   "min": 3,
+   "recommended": 5,
+   "max": 8
+  },
+  "energy": "medium",
+  "slots": [
+   {
+    "id": "cards",
+    "type": "image",
+    "required": true,
+    "cardinality": "many",
+    "semantic_role": "hero"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "cards",
+    "layer_type": "image",
+    "source_slot": "cards",
+    "motion": "motion.card-assemble",
+    "z_index": 1,
+    "visible": true
+   },
+   {
+    "id": "title",
+    "layer_type": "text",
+    "motion": "motion.word-relay",
+    "z_index": 2,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "enter",
+    "preferred_styles": [
+     "editorial"
+    ]
+   },
+   {
+    "semantic_intent": "reveal",
+    "preferred_styles": [
+     "editorial",
+     "minimal"
+    ]
+   }
+  ],
+  "audio_cues": [],
+  "constraints": []
+ },
+ {
+  "id": "shot.title-card-minimal",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "极简标题卡（图底升浮）",
+  "description": "图底缓慢升浮淡入的标题场景（text 渲染能力就绪后可加标题层）",
+  "tags": [
+   "text",
+   "opening"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "text",
+  "semantic_intents": [
+   "opening",
+   "narrative"
+  ],
+  "compatible_content_types": [
+   "article",
+   "editorial",
+   "photo_story"
+  ],
+  "duration": {
+   "min": 2,
+   "recommended": 3,
+   "max": 5
+  },
+  "energy": "low",
+  "slots": [
+   {
+    "id": "title_text",
+    "type": "text",
+    "required": false,
+    "cardinality": "one",
+    "semantic_role": "hero"
+   },
+   {
+    "id": "bg_image",
+    "type": "image",
+    "required": true,
+    "cardinality": "one",
+    "semantic_role": "background"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "title",
+    "layer_type": "image",
+    "source_slot": "bg_image",
+    "motion": "motion.rise-fade",
+    "z_index": 1,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "enter",
+    "preferred_styles": [
+     "minimal",
+     "editorial"
+    ]
+   }
+  ],
+  "audio_cues": [],
+  "constraints": []
+ },
+ {
+  "id": "shot.soft-transition-breathe",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "呼吸转场",
+  "description": "出画淡出+入画淡入的柔和衔接",
+  "tags": [
+   "transition",
+   "transition"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "transition",
+  "semantic_intents": [
+   "transition"
+  ],
+  "compatible_content_types": [
+   "mixed",
+   "editorial",
+   "photo_story"
+  ],
+  "duration": {
+   "min": 0.6,
+   "recommended": 1.0,
+   "max": 2.0
+  },
+  "energy": "low",
+  "slots": [],
+  "layer_plan": [
+   {
+    "id": "outgoing",
+    "layer_type": "video",
+    "motion": "motion.fade-out",
+    "z_index": 1,
+    "visible": true
+   },
+   {
+    "id": "incoming",
+    "layer_type": "video",
+    "motion": "motion.fade-in",
+    "z_index": 0,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "exit",
+    "preferred_styles": [
+     "minimal",
+     "editorial"
+    ]
+   }
+  ],
+  "audio_cues": [],
+  "constraints": []
+ },
+ {
+  "id": "shot.cta-closing",
+  "version": "1.0.0",
+  "kind": "shot_recipe",
+  "name": "行动号召收尾（图底落定）",
+  "description": "产品图 scale-punch 落定收尾（text 渲染能力就绪后叠加 CTA 文案层）",
+  "tags": [
+   "product",
+   "call_to_action"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-own",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "category": "product",
+  "semantic_intents": [
+   "call_to_action",
+   "closing"
+  ],
+  "compatible_content_types": [
+   "product_video",
+   "advertisement"
+  ],
+  "duration": {
+   "min": 2.5,
+   "recommended": 4,
+   "max": 6
+  },
+  "energy": "high",
+  "slots": [
+   {
+    "id": "cta_text",
+    "type": "text",
+    "required": false,
+    "cardinality": "one",
+    "semantic_role": "hero"
+   },
+   {
+    "id": "cta_bg",
+    "type": "image",
+    "required": true,
+    "cardinality": "one",
+    "semantic_role": "background"
+   }
+  ],
+  "layer_plan": [
+   {
+    "id": "bg",
+    "layer_type": "background",
+    "z_index": 0,
+    "visible": true
+   },
+   {
+    "id": "cta",
+    "layer_type": "image",
+    "source_slot": "cta_bg",
+    "motion": "motion.scale-punch",
+    "z_index": 1,
+    "visible": true
+   }
+  ],
+  "motion_bindings": [
+   {
+    "semantic_intent": "emphasize",
+    "preferred_styles": [
+     "product",
+     "brutalist"
+    ]
+   }
+  ],
+  "audio_cues": [
+   {
+    "at": 0,
+    "tag": "impact"
+   }
+  ],
+  "constraints": [
+   "last_scene_only",
+   "needs_cta_text"
+  ]
+ }
+]

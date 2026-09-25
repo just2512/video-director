@@ -102,6 +102,12 @@ def render_layer_segment(
     """渲染单个 layer 为标准化 segment（无音轨）。
 
     -r 放输出侧：变速/trim 后重采样到目标 fps，保证 segment 时长精确。
+
+    Motion Recipe 渲染（Shotcraft CMP-002/REN-001）：Layer.motion_recipe_id
+    非空时按 registries.motion_compiler 编译产物构造滤镜——
+    - scale 通道 → zoompan 动态缩放（on 方言）
+    - opacity 通道 → geq alpha 动画（T 方言）
+    动画不改变 segment 时长（Narration Timeline 铁律）。
     """
     ff = _ffmpeg()
     dst = (width, height)
@@ -114,6 +120,16 @@ def render_layer_segment(
         "-pix_fmt", config.DEFAULT_PIXEL_FORMAT,
     ]
 
+    # Motion Recipe 编译（无 recipe → None 走原逻辑）
+    motion_comp = None
+    if getattr(layer, "motion_recipe_id", None):
+        from video_director.registries import motion_compiler
+        try:
+            motion_comp = motion_compiler.compile_layer_motion(layer, width, height, fps=fps)
+        except motion_compiler.MotionCompileError as exc:
+            # 编译失败显式抛（validator/resolver 应已拦截，这里双保险）
+            raise RenderError(f"motion 编译失败 [{exc.code}]: {exc}") from exc
+
     if layer.type == LayerType.video:
         trim_len = layer.source_out - layer.source_in
         # -ss/-t 在 -i 前：输入侧只读 [source_in, source_in+trim_len] 的源
@@ -122,6 +138,14 @@ def render_layer_segment(
             factor = 1.0 / layer.speed
             vf_parts.append(f"setpts={factor:.6f}*PTS")
         vf_parts.append(_cover_filter(asset.width or dst[0], asset.height or dst[1], *dst))
+        if motion_comp:
+            # video 层仅支持 opacity（geq alpha 折叠进 YUV 会丢动画，需黑底合成）
+            if motion_comp["opacity_expr"] != "1.0":
+                _render_video_layer_alpha_composite(
+                    layer, asset, out_path, width, height, fps, motion_comp
+                )
+                return _verify_segment_duration(out_path, layer.duration)
+            vf_parts.extend(_motion_vf_filters(motion_comp, layer.duration, *dst))
         cmd = [
             ff, "-y", "-loglevel", "error",
             "-ss", f"{layer.source_in:.3f}",
@@ -138,7 +162,37 @@ def render_layer_segment(
     elif layer.type == LayerType.image:
         dur = layer.duration
         frames = int(round(dur * fps))
-        if layer.motion == "slow_zoom_in" and dur >= config.IMAGE_MOTION_MIN_DURATION:
+        # Motion Recipe 优先（Gallery 应用的动效），旧 motion 枚举兜底
+        if motion_comp and motion_comp["scale_expr"] != "1.0":
+            # zoompan 动态缩放：z=编译表达式（on 方言），x/y 居中
+            vf = (
+                f"scale={width * 2}:{height * 2},"
+                f"zoompan=z='({motion_comp['scale_expr']})'"
+                f":x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2'"
+                f":d={frames}:s={width}x{height}:fps={fps}"
+            )
+            if motion_comp["opacity_expr"] != "1.0":
+                # alpha 动画须黑底合成（YUV 折叠会丢动画）→ 走 filter_complex
+                _render_image_layer_alpha_composite(
+                    asset, out_path, width, height, fps, frames, motion_comp
+                )
+                return _verify_segment_duration(out_path, layer.duration)
+            cmd = [
+                ff, "-y", "-loglevel", "error",
+                "-loop", "1", "-i", asset.file,
+                "-frames:v", str(frames),
+                "-vf", vf,
+                *out_common,
+                out_path,
+            ]
+        elif motion_comp and motion_comp["opacity_expr"] != "1.0":
+            # 仅 opacity 动画（无 scale）：黑底合成
+            _render_image_layer_alpha_composite(
+                asset, out_path, width, height, fps, frames, motion_comp,
+                zoom_expr=None,
+            )
+            return _verify_segment_duration(out_path, layer.duration)
+        elif layer.motion == "slow_zoom_in" and dur >= config.IMAGE_MOTION_MIN_DURATION:
             # zoompan 缓慢推近：1.0 → 1.12 倍线性，d=帧数
             zmax = 1.12
             vf = (
@@ -169,13 +223,113 @@ def render_layer_segment(
     else:
         raise RenderError(f"layer 类型 {layer.type} 不支持渲染（第一阶段）")
 
-    # 校验产物
+    return _verify_segment_duration(out_path, layer.duration)
+
+
+def _verify_segment_duration(out_path: str, expect: float) -> str:
+    """segment 时长校验（原 render_layer_segment 尾部逻辑抽出复用）。"""
     probe = prober.probe_media(out_path)
-    expect = layer.duration
     if probe.duration is None or abs(probe.duration - expect) > 0.15:
         raise RenderError(
             f"segment 时长 {probe.duration} 与预期 {expect} 偏差超 0.15s: {out_path}"
         )
+    return out_path
+
+
+def _render_image_layer_alpha_composite(
+    asset: AssetRef,
+    out_path: str,
+    width: int,
+    height: int,
+    fps: int,
+    frames: int,
+    motion_comp: dict,
+    zoom_expr: Optional[str] = None,
+) -> str:
+    """image 层 opacity 动画 → 黑底 filter_complex 合成（alpha 可见）。
+
+    geq 产 alpha 动画后直接 format=yuv420p 会把 alpha 静默折叠（YAVG 不变，
+    动画丢失）——必须 overlay 到黑色画布上让 alpha 混合为亮度变化。
+    zoom_expr 非空时 fg 先做 zoompan 缩放再 geq。
+    """
+    ff = _ffmpeg()
+    fg_chain = f"scale={width * 2}:{height * 2}"
+    if zoom_expr:
+        fg_chain += (
+            f",zoompan=z='({zoom_expr})'"
+            f":x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2'"
+            f":d={frames}:s={width}x{height}:fps={fps}"
+        )
+    else:
+        fg_chain += f",scale={width}:{height}"
+    fg_chain += (
+        f",format=yuva420p,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)'"
+        f":a='255*({motion_comp['opacity_expr']})'"
+    )
+    graph = (
+        f"[0:v]{fg_chain}[fg];"
+        f"color=c=black:s={width}x{height}:r={fps}[bg];"
+        f"[bg][fg]overlay=shortest=1,format={config.DEFAULT_PIXEL_FORMAT}[v]"
+    )
+    cmd = [
+        ff, "-y", "-loglevel", "error",
+        "-loop", "1", "-i", asset.file,
+        "-filter_complex", graph,
+        "-map", "[v]",
+        "-frames:v", str(frames),
+        "-an",
+        "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-preset", "veryfast",
+        "-crf", str(config.DEFAULT_CRF),
+        "-pix_fmt", config.DEFAULT_PIXEL_FORMAT,
+        out_path,
+    ]
+    _run(cmd)
+    return out_path
+
+
+def _render_video_layer_alpha_composite(
+    layer: Layer,
+    asset: AssetRef,
+    out_path: str,
+    width: int,
+    height: int,
+    fps: int,
+    motion_comp: dict,
+) -> str:
+    """video 层 opacity 动画 → 黑底 filter_complex 合成（trim/变速后 alpha）。"""
+    ff = _ffmpeg()
+    trim_len = layer.source_out - layer.source_in
+    fg_chain = []
+    if abs(layer.speed - 1.0) > 0.001:
+        fg_chain.append(f"setpts={1.0 / layer.speed:.6f}*PTS")
+    fg_chain.append(_cover_filter(asset.width or width, asset.height or height, width, height))
+    fg_chain.append(
+        f"format=yuva420p,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)'"
+        f":a='255*({motion_comp['opacity_expr']})'"
+    )
+    graph = (
+        f"[0:v]{','.join(fg_chain)}[fg];"
+        f"color=c=black:s={width}x{height}:r={fps}[bg];"
+        f"[bg][fg]overlay=shortest=1,format={config.DEFAULT_PIXEL_FORMAT}[v]"
+    )
+    cmd = [
+        ff, "-y", "-loglevel", "error",
+        "-ss", f"{layer.source_in:.3f}",
+        "-t", f"{trim_len:.3f}",
+        "-i", asset.file,
+        "-filter_complex", graph,
+        "-map", "[v]",
+        "-t", f"{layer.duration:.3f}",
+        "-an",
+        "-r", str(fps),
+        "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-preset", "veryfast",
+        "-crf", str(config.DEFAULT_CRF),
+        "-pix_fmt", config.DEFAULT_PIXEL_FORMAT,
+        out_path,
+    ]
+    _run(cmd)
     return out_path
 
 

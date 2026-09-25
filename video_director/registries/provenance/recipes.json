@@ -1,0 +1,92 @@
+[
+ {
+  "id": "prov-shot.product-hero-assemble",
+  "origin": "video-shotcraft",
+  "source_name": "Video Shotcraft",
+  "license": "Apache-2.0",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.spotlight-opening",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.screen-demo-flow",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.editorial-photo-story",
+  "origin": "video-shotcraft",
+  "source_name": "Video Shotcraft",
+  "license": "Apache-2.0",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.data-number-burst",
+  "origin": "video-shotcraft",
+  "source_name": "Video Shotcraft",
+  "license": "Apache-2.0",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.person-interview-tight",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.card-stack-reveal",
+  "origin": "video-shotcraft",
+  "source_name": "Video Shotcraft",
+  "license": "Apache-2.0",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.title-card-minimal",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.soft-transition-breathe",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ },
+ {
+  "id": "prov-shot.cta-closing",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "shot recipe 思想吸收，未复制实现"
+ }
+]

@@ -1,0 +1,29 @@
+[
+ {
+  "id": "prov-tpl.ink-press-editorial",
+  "origin": "video-shotcraft",
+  "source_name": "Video Shotcraft",
+  "license": "Apache-2.0",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "template 场景语法吸收（Ink Press），槽位与场景结构自写"
+ },
+ {
+  "id": "prov-tpl.product-hero-16",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "template 场景语法吸收（Ink Press），槽位与场景结构自写"
+ },
+ {
+  "id": "prov-tpl.minimal-editorial",
+  "origin": "own",
+  "source_name": "本系统自建",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "verified_at": "2026-09-25",
+  "notes": "template 场景语法吸收（Ink Press），槽位与场景结构自写"
+ }
+]

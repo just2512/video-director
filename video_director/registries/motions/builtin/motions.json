@@ -1,0 +1,1227 @@
+[
+ {
+  "id": "motion.fade-in",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "淡入",
+  "description": "从全透明到全显，最通用的入场",
+  "tags": [
+   "entrance",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "entrance",
+  "semantic_intents": [
+   "enter"
+  ],
+  "compatible_layers": [
+   "video",
+   "image",
+   "text",
+   "title",
+   "background"
+  ],
+  "duration": {
+   "min": 0.3,
+   "recommended": 0.5,
+   "max": 1.5
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.0
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "sine",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.fade-slide",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "淡入上滑",
+  "description": "透明度上升同时从下方 42px 滑入",
+  "tags": [
+   "entrance",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "entrance",
+  "semantic_intents": [
+   "enter"
+  ],
+  "compatible_layers": [
+   "text",
+   "title",
+   "image",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.35,
+   "recommended": 0.5,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.0
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   },
+   {
+    "property": "y",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 42
+     },
+     {
+      "at": 1,
+      "value": 0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "offsetPx",
+    "default": 42,
+    "min": 0,
+    "max": 200
+   }
+  ],
+  "constraints": []
+ },
+ {
+  "id": "motion.scale-punch",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "缩放冲击",
+  "description": "0.82→1.0 带轻微回弹的放大落定（方案 §26 Inspector 示例同款）",
+  "tags": [
+   "entrance",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "entrance",
+  "semantic_intents": [
+   "enter",
+   "emphasize"
+  ],
+  "compatible_layers": [
+   "text",
+   "title",
+   "image",
+   "logo",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.3,
+   "recommended": 0.45,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.0
+     },
+     {
+      "at": 1,
+      "value": 1.0
+     }
+    ],
+    "interpolation": "linear"
+   },
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.82
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "back",
+       "mode": "out",
+       "parameters": {
+        "overshoot": 0.04
+       }
+      }
+     }
+    ],
+    "interpolation": "cubicBezier"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "fromScale",
+    "default": 0.82,
+    "min": 0.1,
+    "max": 1.0
+   },
+   {
+    "name": "overshoot",
+    "default": 0.04,
+    "min": 0.0,
+    "max": 0.3
+   }
+  ],
+  "constraints": []
+ },
+ {
+  "id": "motion.word-relay",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "逐词接力",
+  "description": "词语按 36ms 级联依次浮现（方案 §5 motion.word-relay 同名吸收）",
+  "tags": [
+   "kinetic_text",
+   "reveal"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "kinetic_text",
+  "semantic_intents": [
+   "reveal",
+   "enter"
+  ],
+  "compatible_layers": [
+   "text",
+   "title"
+  ],
+  "duration": {
+   "min": 0.4,
+   "recommended": 0.6,
+   "max": 1.2
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.0
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "staggerMs",
+    "default": 36,
+    "min": 10,
+    "max": 200
+   },
+   {
+    "name": "offsetPx",
+    "default": 42,
+    "min": 0,
+    "max": 200
+   }
+  ],
+  "constraints": []
+ },
+ {
+  "id": "motion.slide-left",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "左滑入场",
+  "description": "从左侧滑入",
+  "tags": [
+   "entrance",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "entrance",
+  "semantic_intents": [
+   "enter"
+  ],
+  "compatible_layers": [
+   "image",
+   "video",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.35,
+   "recommended": 0.5,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "x",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": -120
+     },
+     {
+      "at": 1,
+      "value": 0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.slide-right",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "右滑入场",
+  "description": "从右侧滑入",
+  "tags": [
+   "entrance",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "entrance",
+  "semantic_intents": [
+   "enter"
+  ],
+  "compatible_layers": [
+   "image",
+   "video",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.35,
+   "recommended": 0.5,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "x",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 120
+     },
+     {
+      "at": 1,
+      "value": 0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.zoom-in-soft",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "缓推",
+  "description": "镜头缓慢推进 12%（Ken Burns 家族）",
+  "tags": [
+   "camera",
+   "camera"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "camera",
+  "semantic_intents": [
+   "camera",
+   "reveal"
+  ],
+  "compatible_layers": [
+   "image",
+   "video",
+   "background"
+  ],
+  "duration": {
+   "min": 1.0,
+   "recommended": 2.5,
+   "max": 6.0
+  },
+  "channels": [
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.0
+     },
+     {
+      "at": 1,
+      "value": 1.12,
+      "easing": {
+       "type": "sine",
+       "mode": "inOut"
+      }
+     }
+    ],
+    "interpolation": "easeInOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.ken-burns-soft",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "肯伯恩斯缓动",
+  "description": "缩放+平移组合的呼吸感运动",
+  "tags": [
+   "camera",
+   "camera"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "camera",
+  "semantic_intents": [
+   "camera",
+   "reveal"
+  ],
+  "compatible_layers": [
+   "image",
+   "video"
+  ],
+  "duration": {
+   "min": 2.0,
+   "recommended": 4.0,
+   "max": 8.0
+  },
+  "channels": [
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.0
+     },
+     {
+      "at": 1,
+      "value": 1.08,
+      "easing": {
+       "type": "sine",
+       "mode": "inOut"
+      }
+     }
+    ],
+    "interpolation": "easeInOut"
+   },
+   {
+    "property": "x",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0
+     },
+     {
+      "at": 1,
+      "value": -24,
+      "easing": {
+       "type": "sine",
+       "mode": "inOut"
+      }
+     }
+    ],
+    "interpolation": "easeInOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.spotlight-focus",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "聚光灯收拢",
+  "description": "从过曝缩放收拢到主体（开场聚光）",
+  "tags": [
+   "reveal",
+   "reveal"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "reveal",
+  "semantic_intents": [
+   "reveal"
+  ],
+  "compatible_layers": [
+   "image",
+   "video",
+   "background"
+  ],
+  "duration": {
+   "min": 0.6,
+   "recommended": 1.0,
+   "max": 2.0
+  },
+  "channels": [
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.18
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "expo",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.fade-out",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "淡出",
+  "description": "从全显到全透明离场",
+  "tags": [
+   "exit",
+   "exit"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "exit",
+  "semantic_intents": [
+   "exit"
+  ],
+  "compatible_layers": [
+   "video",
+   "image",
+   "text",
+   "title",
+   "background"
+  ],
+  "duration": {
+   "min": 0.3,
+   "recommended": 0.5,
+   "max": 1.5
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.0
+     },
+     {
+      "at": 1,
+      "value": 0.0,
+      "easing": {
+       "type": "sine",
+       "mode": "in"
+      }
+     }
+    ],
+    "interpolation": "easeIn"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.scale-down-exit",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "缩小退场",
+  "description": "边缩小边淡出",
+  "tags": [
+   "exit",
+   "exit"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "exit",
+  "semantic_intents": [
+   "exit"
+  ],
+  "compatible_layers": [
+   "image",
+   "graphic",
+   "logo"
+  ],
+  "duration": {
+   "min": 0.3,
+   "recommended": 0.45,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.0
+     },
+     {
+      "at": 1,
+      "value": 0.0
+     }
+    ],
+    "interpolation": "linear"
+   },
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.0
+     },
+     {
+      "at": 1,
+      "value": 0.85,
+      "easing": {
+       "type": "cubic",
+       "mode": "in"
+      }
+     }
+    ],
+    "interpolation": "easeIn"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.slide-down-exit",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "下滑退场",
+  "description": "向下移出画面",
+  "tags": [
+   "exit",
+   "exit"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "exit",
+  "semantic_intents": [
+   "exit"
+  ],
+  "compatible_layers": [
+   "text",
+   "title",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.3,
+   "recommended": 0.45,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.0
+     },
+     {
+      "at": 1,
+      "value": 0.0
+     }
+    ],
+    "interpolation": "linear"
+   },
+   {
+    "property": "y",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0
+     },
+     {
+      "at": 1,
+      "value": 60,
+      "easing": {
+       "type": "cubic",
+       "mode": "in"
+      }
+     }
+    ],
+    "interpolation": "easeIn"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.pulse-emphasis",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "脉冲强调",
+  "description": "1.0→1.06→1.0 一次呼吸脉冲",
+  "tags": [
+   "highlight",
+   "emphasize"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "highlight",
+  "semantic_intents": [
+   "emphasize"
+  ],
+  "compatible_layers": [
+   "text",
+   "title",
+   "graphic",
+   "logo"
+  ],
+  "duration": {
+   "min": 0.3,
+   "recommended": 0.5,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 1.0
+     },
+     {
+      "at": 0.5,
+      "value": 1.06,
+      "easing": {
+       "type": "sine",
+       "mode": "out"
+      }
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "sine",
+       "mode": "in"
+      }
+     }
+    ],
+    "interpolation": "easeInOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.shake-emphasis",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "轻摇强调",
+  "description": "±6px 快速往复一次（能量 high）",
+  "tags": [
+   "highlight",
+   "emphasize"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "highlight",
+  "semantic_intents": [
+   "emphasize"
+  ],
+  "compatible_layers": [
+   "text",
+   "title",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.25,
+   "recommended": 0.4,
+   "max": 0.8
+  },
+  "channels": [
+   {
+    "property": "x",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0
+     },
+     {
+      "at": 0.25,
+      "value": -6,
+      "easing": {
+       "type": "sine",
+       "mode": "out"
+      }
+     },
+     {
+      "at": 0.5,
+      "value": 6,
+      "easing": {
+       "type": "sine",
+       "mode": "inOut"
+      }
+     },
+     {
+      "at": 0.75,
+      "value": -3,
+      "easing": {
+       "type": "sine",
+       "mode": "inOut"
+      }
+     },
+     {
+      "at": 1,
+      "value": 0
+     }
+    ],
+    "interpolation": "easeInOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.blur-slide",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "模糊滑入",
+  "description": "从模糊侧滑到清晰落位（UI 入场家族）",
+  "tags": [
+   "transform",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "transform",
+  "semantic_intents": [
+   "enter",
+   "transform"
+  ],
+  "compatible_layers": [
+   "image",
+   "video",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.4,
+   "recommended": 0.6,
+   "max": 1.2
+  },
+  "channels": [
+   {
+    "property": "x",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 80
+     },
+     {
+      "at": 1,
+      "value": 0,
+      "easing": {
+       "type": "expo",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.rise-fade",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "升起淡入",
+  "description": "editorial 风格的升浮（card 装配家族）",
+  "tags": [
+   "entrance",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "entrance",
+  "semantic_intents": [
+   "enter"
+  ],
+  "compatible_layers": [
+   "text",
+   "title",
+   "image",
+   "card"
+  ],
+  "duration": {
+   "min": 0.4,
+   "recommended": 0.55,
+   "max": 1.0
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.0
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "quint",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   },
+   {
+    "property": "y",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 28
+     },
+     {
+      "at": 1,
+      "value": 0,
+      "easing": {
+       "type": "quint",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": []
+ },
+ {
+  "id": "motion.card-assemble",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "卡片逐层装配",
+  "description": "多卡片按 stagger 依次落位（product-card-progressive-assemble 家族）",
+  "tags": [
+   "compound",
+   "enter"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "compound",
+  "semantic_intents": [
+   "enter",
+   "reveal"
+  ],
+  "compatible_layers": [
+   "image",
+   "graphic",
+   "card"
+  ],
+  "duration": {
+   "min": 0.5,
+   "recommended": 0.8,
+   "max": 1.5
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.0
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   },
+   {
+    "property": "y",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 24
+     },
+     {
+      "at": 1,
+      "value": 0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   },
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.94
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "cubic",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "staggerMs",
+    "default": 120,
+    "min": 40,
+    "max": 400
+   }
+  ],
+  "constraints": []
+ },
+ {
+  "id": "motion.wipe-reveal",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "擦拭揭示",
+  "description": "从边缘到全幅展开（ink press 家族吸收）",
+  "tags": [
+   "reveal",
+   "reveal"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "reveal",
+  "semantic_intents": [
+   "reveal"
+  ],
+  "compatible_layers": [
+   "image",
+   "background",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.4,
+   "recommended": 0.6,
+   "max": 1.2
+  },
+  "channels": [
+   {
+    "property": "crop",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": "0%"
+     },
+     {
+      "at": 1,
+      "value": "100%",
+      "easing": {
+       "type": "quart",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": [
+   "renderer_preview_only"
+  ]
+ },
+ {
+  "id": "motion.ink-bleed",
+  "version": "1.0.0",
+  "kind": "motion_recipe",
+  "name": "墨迹晕开",
+  "description": "Ink Press 墨水扩散语义（转场卡吸收）",
+  "tags": [
+   "reveal",
+   "reveal"
+  ],
+  "commercial_status": "CLEAR",
+  "provenance_ref": "src-shotcraft",
+  "enabled": true,
+  "created_at": "2026-09-25",
+  "updated_at": "2026-09-25",
+  "motion_type": "reveal",
+  "semantic_intents": [
+   "reveal"
+  ],
+  "compatible_layers": [
+   "background",
+   "graphic"
+  ],
+  "duration": {
+   "min": 0.5,
+   "recommended": 0.9,
+   "max": 2.0
+  },
+  "channels": [
+   {
+    "property": "opacity",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.0
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "expo",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   },
+   {
+    "property": "scale",
+    "keyframes": [
+     {
+      "at": 0,
+      "value": 0.6
+     },
+     {
+      "at": 1,
+      "value": 1.0,
+      "easing": {
+       "type": "expo",
+       "mode": "out"
+      }
+     }
+    ],
+    "interpolation": "easeOut"
+   }
+  ],
+  "parameters": [],
+  "constraints": [
+   "renderer_preview_only"
+  ]
+ }
+]

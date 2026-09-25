@@ -126,6 +126,13 @@ class Layer(BaseModel):
     # text 层预留字段（第一阶段不渲染）
     text: Optional[str] = None
     animation: Optional[str] = None
+    # ---- Shotcraft Motion lineage（CMP-002，Optional 向后兼容）----
+    # motion_recipe_id：Motion Gallery 应用动效后写入（如 motion.scale-punch）
+    # motion_version：版本钉死（registry 升 1.1.0 旧项目仍用 1.0.0）
+    # motion_instance：MotionInstance 实例参数 {start_offset, duration, parameters}
+    motion_recipe_id: Optional[str] = None
+    motion_version: Optional[str] = None
+    motion_instance: Optional[dict] = None
 
     @model_validator(mode="after")
     def _check_layer(self):
@@ -160,7 +167,11 @@ class TransitionOut(BaseModel):
 
 
 class SceneIR(BaseModel):
-    """IR 场景：旁白区间 + 视觉 layers + 语义锚点。"""
+    """IR 场景：旁白区间 + 视觉 layers + 语义锚点。
+
+    Shot lineage（CMP-001）：origin_recipe_id/version 记录该场景由哪张
+    镜头配方实例化（Shot Picker 换镜头时更新），Registry lineage 可追溯。
+    """
 
     id: str
     start: float
@@ -169,6 +180,8 @@ class SceneIR(BaseModel):
     layers: List[Layer]
     selections: List[Selection] = Field(default_factory=list)
     transition_out: TransitionOut = Field(default_factory=TransitionOut)
+    origin_recipe_id: Optional[str] = None
+    origin_recipe_version: Optional[str] = None
 
     @model_validator(mode="after")
     def _check_scene(self):
@@ -227,13 +240,19 @@ class AudioTrack(BaseModel):
 
 
 class CompositionIR(BaseModel):
-    """最终 Composition IR：AI 规划唯一产物，渲染唯一输入。"""
+    """最终 Composition IR：AI 规划唯一产物，渲染唯一输入。
+
+    Template lineage（CMP-003）：origin_template_id/version 记录该 Composition
+    由哪个模板实例化（模板试用/编辑器打开可追溯）；改 IR 不反写 TemplateDefinition。
+    """
 
     version: int = 1
     project: ProjectSpec
     style_id: Optional[str] = None
     scenes: List[SceneIR]
     audio: List[AudioTrack] = Field(default_factory=list)
+    origin_template_id: Optional[str] = None
+    origin_template_version: Optional[str] = None
 
     @model_validator(mode="after")
     def _check_continuity(self):

@@ -1,0 +1,20 @@
+[
+ {
+  "id": "bgm-builtin",
+  "origin": "own",
+  "source_name": "内置中文 BGM（本系统自录/合成）",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "notes": "audio.py 内置曲目，自有创作",
+  "verified_at": "2026-09-25"
+ },
+ {
+  "id": "sfx-builtin",
+  "origin": "own",
+  "source_name": "内置 SFX（本系统自录/合成）",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "notes": "audio.py SFX 语义分类资产",
+  "verified_at": "2026-09-25"
+ }
+]

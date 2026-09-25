@@ -1,0 +1,71 @@
+[
+ {
+  "id": "src-own",
+  "origin": "own",
+  "source_name": "AI Video Creative OS（本系统自建）",
+  "license": "本系统私有",
+  "commercial_status": "CLEAR",
+  "notes": "本仓库原创定义，无第三方依赖",
+  "verified_at": "2026-09-25"
+ },
+ {
+  "id": "src-shotcraft",
+  "origin": "video-shotcraft",
+  "source_name": "Video Shotcraft",
+  "source_url": "https://github.com/Vincentwei1021/video-shotcraft",
+  "license": "Apache-2.0",
+  "commercial_status": "CLEAR",
+  "copyright_notice": "Copyright Video Shotcraft contributors. 思想/参数吸收，未复制代码与素材；再分发遵守 Apache-2.0 义务。",
+  "attribution_required": true,
+  "modification_required": false,
+  "modifications": [
+   "抽象为 Renderer 无关的 Shot/Motion/Template 知识定义",
+   "时长/缓动参数从演示研究改写为自有取值"
+  ],
+  "notes": "安全引用方案§一/§末：Apache-2.0 代码可吸收思路；本 checkout 为无 .git 元数据的目录拷贝，版本锚点 commit=UNKNOWN（方案§末：以实际 checkout 为准，不拿网上数量当版本）；第三方素材/音频授权不随之获得，边界互不传染",
+  "verified_at": "2026-09-25"
+ },
+ {
+  "id": "src-user-upload",
+  "origin": "user",
+  "source_name": "用户上传素材",
+  "commercial_status": "CLEAR",
+  "notes": "用户自有素材，用户对授权负责；系统记录来源=user"
+ },
+ {
+  "id": "src-generated",
+  "origin": "generated",
+  "source_name": "AI 生成内容（图像/视频/音频）",
+  "license": "生成服务条款（用户账号）",
+  "commercial_status": "CLEAR",
+  "notes": "由用户配置的 provider 生成，lineage 记录生成参数"
+ },
+ {
+  "id": "src-tts-builtin",
+  "origin": "own",
+  "source_name": "edge-tts 神经配音（微软公共端点）",
+  "license": "Microsoft Edge TTS 服务条款（非商用演示端点）",
+  "commercial_status": "REVIEW",
+  "notes": "公共 TTS 端点的商业使用条款需人工核查；正式商用发布前须替换为已授权 TTS 服务",
+  "verified_at": "2026-09-25"
+ },
+ {
+  "id": "src-mixkit",
+  "origin": "third-party",
+  "source_name": "Mixkit",
+  "source_url": "https://mixkit.co/free-stock-music/",
+  "license": "Mixkit Free License",
+  "commercial_status": "REVIEW",
+  "notes": "Mixkit 免费许可允许商用但禁止独立分发；正式发布前按曲目逐个人工核验（REVIEW，不自动 CLEAR）"
+ },
+ {
+  "id": "src-shotcraft-assets",
+  "origin": "third-party",
+  "source_name": "Video Shotcraft 仓库内第三方素材（assets/audio 5 BGM + 149 SFX、assets/brand 品牌资产、template/public 截图与音频、gallery 媒体、demos/_textures）",
+  "source_url": "https://github.com/Vincentwei1021/video-shotcraft",
+  "license": null,
+  "commercial_status": "BLOCKED",
+  "notes": "Mixkit 类第三方音频其中 6 个基础 SFX 上游自认无法反查来源；品牌 SVG/整页截图为参考项目自有资产。全部禁止进入本系统商业发布链",
+  "verified_at": "2026-09-25"
+ }
+]
