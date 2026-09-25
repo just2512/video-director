@@ -480,13 +480,17 @@ class Handler(BaseHTTPRequestHandler):
                         if not (d.name.startswith("web-") or d.name.startswith("tpl-")):
                             continue
                         run_json = d / "plans" / "run.json"
-                        final = d / "output" / "final.mp4"
+                        final = d / "plans" / "storyboard.json"
+                        final_out = d / "output" / "final.mp4"
                         sb = d / "plans" / "storyboard.json"
+                        draft = d / "output" / "draft.mp4"
                         meta = {"project_id": d.name,
                                 "mtime": int(d.stat().st_mtime),
-                                "has_final": final.is_file(),
+                                "has_final": final_out.is_file(),
+                                "final_path": str(final_out) if final_out.is_file() else "",
+                                "draft_exists": draft.is_file(),
                                 "pending_confirm": (sb.is_file()
-                                                     and not final.is_file())}
+                                                     and not final_out.is_file())}
                         if run_json.is_file():
                             try:
                                 rj = json.loads(run_json.read_text(encoding="utf-8"))
@@ -565,11 +569,16 @@ class Handler(BaseHTTPRequestHandler):
                                 "asset_id": aid, "type": a.get("type"),
                                 "file": a.get("file"), "duration": a.get("duration"),
                                 "description": a.get("description"),
+                                "source": a.get("source", "user"),
                                 "used_in": [],
                             })
                             if a.get("description"):
                                 ent["description"] = a["description"]
-                            ent["used_in"].append(d.name)
+                            # source 取最新（越新的项目 source 越可信；缺省 user）
+                            if a.get("source"):
+                                ent["source"] = a["source"]
+                            if d.name not in ent["used_in"]:
+                                ent["used_in"].append(d.name)
                 self._send_json(list(lib.values()))
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)

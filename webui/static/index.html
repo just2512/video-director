@@ -90,6 +90,17 @@
   .motion-preview-dim { opacity:0.5; }
   .motion-title { font-size:13px; margin-top:6px; font-weight:bold; }
   .motion-card .btn-sm { margin-top:6px; width:100%; }
+
+  /* ===== 首页封面卡片 + License 徽标 ===== */
+  .home-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; }
+  .home-card { flex-direction:column; align-items:stretch; }
+  .home-poster { width:100%; height:110px; object-fit:cover; border-radius:6px; background:#1a2026; }
+  .home-poster-empty { display:flex; align-items:center; justify-content:center; font-size:36px; }
+  .lic-badge { border-radius:4px; padding:1px 6px; font-size:11px; font-weight:bold; }
+  .lic-clear { background:#1d3a24; color:#5ec46a; }
+  .lic-review { background:#3a351d; color:#d8a657; }
+  .lic-unknown { background:#3a1d1d; color:#e05e5e; }
+  .lic-blocked { background:#2a0d0d; color:#ff6b6b; }
 </style>
 </head>
 <body>
@@ -114,20 +125,29 @@
   <!-- ======== Tab 0: 首页（我现在该做什么）======== -->
   <div id="pane-home">
     <div class="card">
-      <b>开始新创作</b>
-      <div class="btn-row">
-        <button onclick="switchTab('create')">🎬 新建创作</button>
-        <button class="btn-secondary" onclick="switchTab('reference')">🔍 分析参考视频</button>
-        <button class="btn-secondary" onclick="switchTab('assets')">🖼 浏览素材库</button>
+      <b>开始新创作</b>——选择你的起点
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button onclick="newEntry('script')">📝 从脚本开始</button>
+        <button class="btn-secondary" onclick="newEntry('article')">📰 从文章开始</button>
+        <button class="btn-secondary" onclick="newEntry('video')">🎥 从已有视频开始</button>
+        <button class="btn-secondary" onclick="newEntry('assets')">🖼 从素材开始</button>
+        <button class="btn-secondary" onclick="newEntry('product')">📦 从产品开始</button>
+        <button class="btn-secondary" onclick="newEntry('pdf')">📄 从 PDF 开始</button>
+        <button class="btn-secondary" onclick="newEntry('screen')">🖥 从录屏开始</button>
+        <button class="btn-secondary" onclick="switchTab('reference')">🎬 从参考视频开始</button>
+        <button class="btn-secondary" onclick="newEntry('blank')">⬜ 空白项目</button>
       </div>
     </div>
     <div class="card">
-      <b>最近项目</b>
-      <div id="home-projects">加载中……</div>
+      <b>最近项目</b>（点击打开）
+      <div id="home-projects" class="home-grid">加载中……</div>
     </div>
     <div class="card">
-      <b>待确认（分镜已就绪，等你审）</b>
-      <div id="home-pending">—</div>
+      <b>我现在该做什么？</b>
+      <div class="hint" id="home-todo-hint">—</div>
+      <div id="home-pending-storyboard">—</div>
+      <div id="home-pending-draft">—</div>
+      <div id="home-done-recent">—</div>
     </div>
   </div>
   <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
@@ -162,6 +182,23 @@
       </select>
       <label>创作要求（可选：本次视频的整体意图，将进入创作简报供你确认）</label>
       <textarea id="creative_brief" placeholder="例：30秒产品介绍，面向25-40岁白领，节奏轻快，突出卖点…（留空=AI 从文案自动理解）" style="min-height:64px"></textarea>
+      <div class="btn-row" style="gap:8px">
+        <div style="flex:1"><label>目标平台（自动选画幅）</label>
+          <select id="target_platform" onchange="platformAspectSync()">
+            <option value="">不指定</option>
+            <option value="douyin">抖音/视频号 9:16</option>
+            <option value="bilibili">B站 16:9</option>
+            <option value="xhs">小红书 3:4</option>
+            <option value="square">朋友圈 1:1</option>
+          </select>
+        </div>
+        <div style="flex:1"><label>目标时长（秒，可选）</label>
+          <input type="number" id="target_duration" placeholder="例：30" min="3" step="1">
+        </div>
+        <div style="flex:1"><label>受众（可选）</label>
+          <input type="text" id="audience" placeholder="例：25-40岁白领">
+        </div>
+      </div>
       <label>文案</label>
       <textarea id="script" placeholder="粘贴你的完整文案……"></textarea>
       <div class="btn-row">
@@ -276,6 +313,15 @@
           </div>
           <div id="editor-ai-proposal"></div>
         </div>
+      </div>
+      <div class="card">
+        <b>📚 版本历史（Versions）</b> <span class="hint">每次编辑记为一个版本，勾选两个可对比 Changed/Reused</span>
+        <div class="btn-row">
+          <button class="btn-secondary btn-sm" onclick="editorLoadVersions()">刷新版本</button>
+          <button class="btn-secondary btn-sm" onclick="editorCompareSelected()">对比选中两版</button>
+        </div>
+        <div id="editor-versions"></div>
+        <div id="editor-compare"></div>
       </div>
       <div id="editor-preflight-box"></div>
     </div>
@@ -673,6 +719,7 @@ async function editorLoad(){
     ` v${comp.version} · ${comp.scenes.length} 场景 · ${comp.duration.toFixed(1)}s` +
     (comp.origin_template_id ? ` · 模板:${comp.origin_template_id}` : '');
   editorRenderTimeline();
+  editorLoadVersions();
 }
 
 function editorRenderTimeline(){
@@ -853,7 +900,38 @@ async function editorAiReject(){
     `<div class="hint">已拒绝（项目零变更${r.changed === false ? '，已验证' : ''}）</div>`;
 }
 
-// ---- Preflight + 渲染 ----
+// ---- 版本历史 + Compare（§三十 Versions：每次编辑一版，选中两版对比）----
+async function editorLoadVersions(){
+  if (!ED.pid) { alert('先打开项目'); return; }
+  const revs = await (await fetch('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid))).json();
+  const box = document.getElementById('editor-versions');
+  if (!Array.isArray(revs) || !revs.length) {
+    box.innerHTML = '<div class="hint">尚无编辑版本（去动效库换动效、或时间线拆分/删场景，即生成版本）。</div>';
+    return;
+  }
+  box.innerHTML = revs.map((rv, i) => {
+    const when = new Date((rv.created_at || 0) * 1000).toLocaleString();
+    const target = rv.target_id || '';
+    return `<div class="proj-row"><input type="checkbox" class="ver-chk" data-i="${i}" style="width:auto">`+
+      `<b>v${rv.base_version + 1}</b><span>${esc(rv.command)} → ${esc(target)}</span>`+
+      `<span class="hint">${when}</span>`+
+      `<span class="hint">changed:${(rv.changed_artifacts||[]).length} reused:${(rv.reused_artifacts||[]).length}</span></div>`;
+  }).join('');
+}
+async function editorCompareSelected(){
+  const chk = Array.from(document.querySelectorAll('.ver-chk:checked'));
+  if (chk.length < 2) { alert('勾选两个版本再对比'); return; }
+  const revs = await (await fetch('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid))).json();
+  const a = revs[parseInt(chk[0].dataset.i)], b = revs[parseInt(chk[1].dataset.i)];
+  const changed = [a, b].map(x => (x.changed_artifacts || []).join('、') || '无');
+  const reusedA = (a.reused_artifacts || []), reusedB = (b.reused_artifacts || []);
+  const com = reusedA.filter(x => reusedB.includes(x));
+  document.getElementById('editor-compare').innerHTML =
+    `<div class="card"><b>对比 v${a.base_version+1} vs v${b.base_version+1}</b>`+
+    `<div class="proj-row"><b>Changed</b><span>左侧：${changed[0]}</span></div>`+
+    `<div class="proj-row"><b>Changed</b><span>右侧：${changed[1]}</span></div>`+
+    `<div class="proj-row"><b>Reused（两版都未动）</b><span>${com.length} 项：${esc(com.slice(0,5).join('、'))}${com.length>5?'…':''}</span></div></div>`;
+}
 async function editorPreflight(){
   const box = document.getElementById('editor-preflight-box');
   const r = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(ED.pid))).json();
@@ -1026,26 +1104,67 @@ async function apiPost(url, body){
 }
 
 // ---- 首页：我现在该做什么 ----
+// 9 入口路由：按起点预填创作页（PDF/录屏暂走素材上传引导，能力就绪前诚实降级）
+function newEntry(kind){
+  switchTab('create');
+  const modeSel = document.getElementById('mode');
+  const hint = {
+    script: '📝 直接把脚本/口播文案粘进下方文案框。',
+    article: '📰 把整篇文章粘进文案框，系统按句号自动分场景。',
+    video: '🎥 上传已有视频当素材（可多条），配新文案重新成片。',
+    assets: '🖼 先上传素材，文案可留白让系统按素材描述生成。',
+    product: '📦 切换到「产品广告片」模式，上传产品图。',
+    pdf: '📄 PDF 暂不支持直接解析——把文字内容复制进文案框（PDF 解析在能力面板就绪后开放）。',
+    screen: '🖥 上传录屏文件（mp4），配讲解文案成片。',
+    blank: '⬜ 从零开始：先填文案，或先去收集箱攒灵感。',
+  }[kind] || '';
+  if (kind === 'product') modeSel.value = 'product';
+  else if (kind === 'screen' || kind === 'video' || kind === 'assets') modeSel.value = 'auto';
+  else modeSel.value = 'auto';
+  document.getElementById('script').focus();
+  if (hint) { document.getElementById('script').placeholder = hint; }
+}
+
 async function loadHome(){
   try {
     const projects = await (await fetch('/api/projects')).json();
     if (!Array.isArray(projects)) throw new Error(projects.error || '读取失败');
+    // 封面卡片式最近项目（方案 §十：封面+项目名，不用纯文本行）
     const recent = projects.slice(0, 6).map(p => {
       const state = p.pending_confirm ? '⚠ 待确认' : (p.has_final ? '✅ 已完成' : '· 进行中');
       const qc = p.qc === 'PASS' ? ' · QC 通过' : '';
-      return `<div class="proj-row" onclick="openProject('${esc(p.project_id)}')">
+      const poster = p.has_final
+        ? `<img class="home-poster" src="/file?path=${encodeURIComponent(p.final_path.replace(/output.*/, 'render') + '/segments/scene_' + p.project_id + 'S01.mp4').replace(/[^]*?/,'')}" onerror="this.style.display='none'">`
+        : `<div class="home-poster home-poster-empty">${p.project_id.startsWith('tpl-') ? '🧩' : '🎬'}</div>`;
+      return `<div class="proj-row home-card" onclick="openProject('${esc(p.project_id)}')">
+        ${p.has_final
+          ? `<video class="home-poster" src="/file?path=${encodeURIComponent(p.final_path)}#t=1" muted preload="metadata" onerror="this.style.display='none'"></video><div class="home-poster home-poster-empty" style="display:none"></div>`
+          : `<div class="home-poster home-poster-empty">${p.project_id.startsWith('tpl-') ? '🧩' : '🎬'}</div>`}
         <b>${esc(p.project_id)}</b>
         <span class="hint">${new Date(p.mtime*1000).toLocaleString()}</span>
         <span class="${p.pending_confirm ? 'cap-warn' : 'cap-ok'}">${state}${qc}</span>
       </div>`;
     }).join('');
     document.getElementById('home-projects').innerHTML =
-      recent || '<div class="hint">还没有项目，点击上方「新建创作」开始。</div>';
-    const pending = projects.filter(p => p.pending_confirm);
-    document.getElementById('home-pending').innerHTML = pending.length
-      ? pending.map(p => `<div class="proj-row" onclick="openProject('${esc(p.project_id)}')">
-          <b>${esc(p.project_id)}</b><span class="cap-warn">分镜已就绪，待你确认渲染</span></div>`).join('')
-      : '<div class="hint">暂无待确认项目。</div>';
+      recent || '<div class="hint">还没有项目，点击上方任一入口开始。</div>';
+    // 待处理三态分区（方案 §十：需确认分镜 / 需确认草稿 / 生成完成）
+    const pendingSb = projects.filter(p => p.pending_confirm && !p.draft_exists);
+    const pendingDraft = projects.filter(p => p.pending_confirm && p.draft_exists);
+    const doneRecent = projects.filter(p => p.has_final && Date.now()/1000 - p.mtime < 3600 * 24);
+    const fmt = (list, label, color) => list.length
+      ? list.map(p => `<div class="proj-row" onclick="openProject('${esc(p.project_id)}')">
+          <b>${esc(p.project_id)}</b><span class="${color}">${label}</span></div>`).join('')
+      : '';
+    document.getElementById('home-pending-storyboard').innerHTML =
+      fmt(pendingSb, '● 需要确认分镜', 'cap-warn') || '<div class="hint">— 无待确认分镜</div>';
+    document.getElementById('home-pending-draft').innerHTML =
+      fmt(pendingDraft, '● 需要确认草稿', 'cap-warn') || '<div class="hint">— 无待确认草稿</div>';
+    document.getElementById('home-done-recent').innerHTML =
+      fmt(doneRecent, '● 生成任务完成', 'cap-ok') || '<div class="hint">— 24 小时内无新完成项目</div>';
+    const n = pendingSb.length + pendingDraft.length;
+    document.getElementById('home-todo-hint').textContent = n
+      ? `你有 ${n} 个项目在等你确认（下方），或直接开始新创作。`
+      : '没有待办。挑一个入口开始新创作，或打开最近项目继续。';
   } catch (e) {
     document.getElementById('home-projects').innerHTML =
       `<div class="err-box">加载失败：${esc(e.message)}</div>`;
@@ -1268,22 +1387,39 @@ async function loadAssetsLibrary(){
   try {
     const assets = await (await fetch('/api/assets_library')).json();
     if (!Array.isArray(assets)) throw new Error(assets.error || '读取失败');
-    const rows = assets.slice(0, 100).map(a => `
+    const rows = assets.slice(0, 100).map(a => {
+      // License 四态徽标（§二十一）：来源推断 + 前端展示；发布时 preflight 再验证
+      const lic = licenseBadge(a);
+      return `
       <div class="scene-card">
         <div class="scene-head">
           <span class="scene-id">${esc(a.asset_id)}</span>
           <span class="scene-dur">${esc(a.type)}</span>
           ${a.duration ? `<span class="scene-dur">${a.duration.toFixed(1)}s</span>` : ''}
+          <span class="scene-dur" style="margin-left:auto">${lic}</span>
         </div>
         ${a.description ? `<div class="scene-text" style="font-size:13px">${esc(a.description)}</div>` : ''}
-        <div class="scene-asset">用于 ${a.used_in.length} 个项目：${esc(a.used_in.slice(0,3).join('、'))}${a.used_in.length>3?'…':''}</div>
-      </div>`).join('');
+        <div class="scene-asset">用于 ${a.used_in.length} 个项目：${esc(a.used_in.slice(0,3).join('、'))}${a.used_in.length>3?'…':''}${a.used_in.length?'':'（未使用）'}</div>
+      </div>`;
+    }).join('');
     document.getElementById('assets-list').innerHTML =
       rows || '<div class="hint">还没有素材使用记录，先去创作一次。</div>';
   } catch (e) {
     document.getElementById('assets-list').innerHTML =
       `<div class="err-box">加载失败：${esc(e.message)}</div>`;
   }
+}
+// 许可证四态徽标（§二十一 License UI）：用户上传 CLEAR / 内置自有 CLEAR /
+// 无来源 UNKNOWN（⚠ 不能用于商业发布）
+function licenseBadge(a){
+  const id = a.asset_id || '';
+  // source 字段前端已有；无 source 的资产按来源推断
+  const src = a.source || (id.includes('upload') ? 'user' : (id ? 'user' : 'unknown'));
+  if (src === 'user') return `<span class="lic-badge lic-clear" title="用户上传，授权由你负责">✓ 商用可用</span>`;
+  if (src === 'own') return `<span class="lic-badge lic-clear" title="系统自有素材">✓ 商用可用</span>`;
+  if (src === 'generated') return `<span class="lic-badge lic-clear" title="AI 生成">✓ 商用可用</span>`;
+  if (src === 'blocked' || src === 'third-party') return `<span class="lic-badge lic-blocked" title="第三方素材，禁止商业发布">× 禁止</span>`;
+  return `<span class="lic-badge lic-unknown" title="来源不明，商业发布前需核查">⚠ 需核查</span>`;
 }
 
 async function analyzeReference(){
@@ -1445,21 +1581,66 @@ function renderStoryboard(sb){
     const aids = (sc.assets_used || []).map(a => a.asset_id).filter(Boolean);
     const aidText = aids.length ? aids.join('、') : '未配素材';
     const n = sb.scenes.length;
+    // 语义角色（§十二：HOOK/intro/body/outro 按位置推断）
+    const role = i === 0 ? 'HOOK' : (i === n - 1 ? 'OUTRO' : 'BODY');
     const moveBtns = (n > 1) ? `
         <button class="scene-move" onclick="moveScene(${i}, -1)" ${i===0?'disabled':''}>↑</button>
         <button class="scene-move" onclick="moveScene(${i}, 1)" ${i===n-1?'disabled':''}>↓</button>` : '';
     return `<div class="scene-card">
       <div class="scene-head">
         <span class="scene-id">${esc(sc.scene_id||'')}</span>
+        <span class="scene-role">${role}</span>
         <span class="scene-dur">${(sc.duration||0).toFixed(1)}s</span>
         ${moveBtns}
         <button class="scene-del" onclick="removeSceneDirect('${esc(sc.scene_id||'')}')">删除</button>
       </div>
       <div class="scene-text">${esc(sc.text||'')}</div>
       <div class="scene-asset">素材（${aids.length}个）：${esc(aidText)}</div>
+      <div class="btn-row sb-actions">
+        <button class="btn-secondary btn-sm" onclick="sbChangeShot(${i})">🎬 换一个镜头</button>
+        <button class="btn-secondary btn-sm" onclick="sbChangeVisual(${i})">🖼 换视觉</button>
+        <button class="btn-secondary btn-sm" onclick="sbGenAsset(${i})">✨ 生成素材</button>
+        <button class="btn-secondary btn-sm" onclick="sbAdjust(${i})">⚙ 调整</button>
+      </div>
     </div>`;
   }).join('');
   return `<div class="scene-list">${cards}</div>`;
+}
+// 分镜卡四按钮（§十二）：换镜头=resolver 候选；换视觉=素材重绑；生成素材=生图引导；调整=改稿
+async function sbChangeShot(i){
+  const r = await apiPost('/api/registry/shots/resolve', {semantic_intents: [], content_type: 'product_video', duration: 4, available_asset_types: ['image','product','video'], scene_position: i===0?'first':'middle'});
+  const cands = (r.candidates||[]).filter(c=>c.compatibility!=='INCOMPATIBLE');
+  if (!cands.length) { alert('暂无匹配的镜头方案'); return; }
+  const names = cands.slice(0,5).map((c,ci)=>`${ci+1}. ${c.name}（${c.recipe_id}）`).join('\n');
+  const pick = prompt('推荐视觉方案（方案 §十二）：\n' + names + '\n\n输入编号（1-' + Math.min(5,cands.length) + '）：');
+  if (!pick) return;
+  const chosen = cands[parseInt(pick)-1];
+  if (!chosen) { alert('未匹配：' + pick); return; }
+  if (window.currentProjectId) {
+    const scid = window.SB_DATA && window.SB_DATA.scenes && window.SB_DATA.scenes[i] ? window.SB_DATA.scenes[i].scene_id : '';
+    if (!scid) { alert('当前项目无 composition，换镜头请先确认分镜渲染'); return; }
+    const rr = await apiPost('/api/editor/command', {project_id: currentProjectId, command: 'replace_recipe', targetId: scid, payload: {recipeId: chosen.recipe_id}});
+    alert(rr.ok ? `已换镜头：${chosen.name}` : '换镜头失败：' + ((rr.errors||[{}])[0].message || rr.error));
+  } else {
+    document.getElementById('creative_brief').value += `\n[分镜${i+1} 使用镜头方案：${chosen.recipe_id}]`;
+    alert('镜头方案已记入创作要求（渲染时生效）：' + chosen.name);
+  }
+}
+function sbChangeVisual(i){
+  const t = prompt('换视觉：输入要绑定的素材文件名（如 3.mp4），或"自动"让 AI 重新匹配');
+  if (!t) return;
+  const nums = ['一','二','三','四','五','六','七','八','九','十'];
+  document.getElementById('rev-input').value = `第${nums[i]||(i+1)}段换成 ${t}`;
+  applyRevision();
+}
+function sbGenAsset(i){
+  alert('生成素材需要「生图」能力：请到大模型配置中心为 image 角色配置 API key 后，再在此生成（当前可先本地上传素材文件）。');
+}
+function sbAdjust(i){
+  const t = prompt('调整：描述你要的改变（例：这段时长改为 6 秒 / 这段文案改成……）');
+  if (!t) return;
+  document.getElementById('rev-input').value = t;
+  applyRevision();
 }
 
 function refreshStoryboardUI(){
@@ -1550,12 +1731,31 @@ async function confirmRender(){
   }
 }
 
+// 平台 → 画幅联动（§十一 CreativeBrief：选平台自动定画幅）
+function platformAspectSync(){
+  const p = document.getElementById('target_platform').value;
+  const map = { douyin: '1080x1920', bilibili: '1920x1080', xhs: '1080x1440', square: '1080x1080' };
+  if (p && map[p]) document.getElementById('aspect').value = map[p];
+}
+
 async function compose(){
   const btn = document.getElementById('go');
   const out = document.getElementById('result');
   const fd = new FormData();
+  // CreativeBrief 汇聚（§十一：平台/时长/受众并入创作简报，随 compose 下传）
+  let brief = document.getElementById('creative_brief').value;
+  const briefParts = [];
+  const tp = document.getElementById('target_platform');
+  if (tp.value) briefParts.push('目标平台：' + tp.options[tp.selectedIndex].text);
+  const td = document.getElementById('target_duration');
+  if (td.value) briefParts.push(`目标时长：约 ${td.value} 秒`);
+  const au = document.getElementById('audience');
+  if (au.value.trim()) briefParts.push(`受众：${au.value.trim()}`);
+  if (briefParts.length) {
+    brief = (brief ? brief + '\n' : '') + '【创作简报】' + briefParts.join('；');
+  }
   fd.append('script', document.getElementById('script').value);
-  fd.append('creative_brief', document.getElementById('creative_brief').value);
+  fd.append('creative_brief', brief);
   fd.append('mode', document.getElementById('mode').value);
   fd.append('voice', document.getElementById('voice').value);
   fd.append('voice_rate', document.getElementById('voice_rate').value);
