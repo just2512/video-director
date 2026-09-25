@@ -87,7 +87,10 @@
     <button class="tab" id="tab-create" onclick="switchTab('create')">🎬 创作</button>
     <button class="tab" id="tab-projects" onclick="switchTab('projects')">📁 项目</button>
     <button class="tab" id="tab-assets" onclick="switchTab('assets')">🖼 素材库</button>
-    <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考视频分析</button>
+    <button class="tab" id="tab-series" onclick="switchTab('series')">📚 系列</button>
+    <button class="tab" id="tab-capture" onclick="switchTab('capture')">📥 收集箱</button>
+    <button class="tab" id="tab-queue" onclick="switchTab('queue')">⚙ 队列</button>
+    <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考分析</button>
     <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 创作记忆</button>
   </div>
 
@@ -236,7 +239,61 @@
     </div>
   </div>
 
-  <!-- ======== Tab 4: 参考视频分析 ======== -->
+  <!-- ======== Tab 4: 系列（模板 + 多集批量）======== -->
+  <div id="pane-series" style="display:none">
+    <div class="card">
+      <b>系列模板</b>——同一系列多集共用配音/画幅/字幕/风格/水印，一次配置批量成片
+      <div id="series-list">加载中……</div>
+      <div class="rev-console">
+        <b>新建系列</b>
+        <label>系列名</label>
+        <input type="text" id="series-name" placeholder="例：历史悬疑系列">
+        <label>每集文案分隔：每集之间用一行 <code>------------</code> 分隔</label>
+        <textarea id="series-scripts" placeholder="第一集文案……&#10;------------&#10;第二集文案……&#10;------------&#10;第三集文案……" style="min-height:140px"></textarea>
+        <label>共享素材（可选，系列内每集复用）</label>
+        <input type="file" id="series-videos" multiple accept=".mp4,.mov,.mkv,.webm">
+        <label>画幅</label>
+        <select id="series-aspect"></select>
+        <label>配音</label>
+        <select id="series-voice"></select>
+        <label>字幕样式</label>
+        <select id="series-subtitle">
+          <option value="plain">普通字幕</option>
+          <option value="karaoke">卡拉OK</option>
+        </select>
+        <label>水印（留空不加）</label>
+        <input type="text" id="series-watermark" value="AI Video Director">
+        <div class="btn-row">
+          <button onclick="createSeriesAndBatch()">🚀 创建系列并批量生成</button>
+        </div>
+        <div class="hint" id="series-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== Tab 5: 收集箱（Capture Inbox）======== -->
+  <div id="pane-capture" style="display:none">
+    <div class="card">
+      <b>收集箱</b>——看到好的链接/想法先存这里，回头转创作（不必当场处理）
+      <div class="btn-row">
+        <input type="text" id="inbox-content" class="rev-input" placeholder="粘贴链接 / 记一个想法 / 一句选题……">
+        <button class="btn-secondary" onclick="inboxAdd('idea')">📥 存入</button>
+      </div>
+      <div class="hint" id="inbox-status"></div>
+      <div id="inbox-list">加载中……</div>
+    </div>
+  </div>
+
+  <!-- ======== Tab 6: 队列（Automation）======== -->
+  <div id="pane-queue" style="display:none">
+    <div class="card">
+      <b>生产队列</b>——批量任务自动执行（系列/多平台变体），失败可查原因
+      <div class="btn-row"><button class="btn-secondary" onclick="loadQueue()">刷新</button></div>
+      <div id="queue-list">加载中……</div>
+    </div>
+  </div>
+
+  <!-- ======== Tab 7: 参考视频分析 ======== -->
   <div id="pane-reference" style="display:none">
     <div class="card">
       <b>参考视频分析</b>——上传一条优秀视频，系统提取镜头结构 / 节奏 / 运动语言 / 转场语法（风格重构，不复制内容），
@@ -478,7 +535,7 @@ function discardEnhanced(){
 }
 
 function switchTab(tab){
-  for (const p of ['home','create','projects','assets','reference','memory']) {
+  for (const p of ['home','create','projects','assets','series','capture','queue','reference','memory']) {
     const el = document.getElementById('pane-' + p);
     if (el) el.style.display = (tab === p) ? '' : 'none';
     const tb = document.getElementById('tab-' + p);
@@ -487,6 +544,9 @@ function switchTab(tab){
   if (tab === 'home') loadHome();
   if (tab === 'projects') loadProjects();
   if (tab === 'assets') loadAssetsLibrary();
+  if (tab === 'series') loadSeries();
+  if (tab === 'capture') loadInbox();
+  if (tab === 'queue') loadQueue();
   if (tab === 'memory') loadMemoryView();
 }
 
@@ -561,6 +621,7 @@ async function openProject(pid){
         ${j.final_exists ? `
           <div class="btn-row">
             <button onclick="playProjectFinal('${esc(pid)}')">▶ 播放成品</button>
+            <button class="btn-secondary" onclick="publishVariants('${esc(pid)}')">📤 发布多平台（9:16/16:9/3:4/1:1）</button>
           </div>
           <video controls id="proj-video" style="width:100%;max-width:420px;display:none;margin-top:10px;border-radius:8px;background:#000"></video>` : ''}
         <div class="hint">完整文案：${esc((j.script||'').slice(0,200))}${(j.script||'').length>200?'…':''}</div>
@@ -582,6 +643,152 @@ async function openProject(pid){
 }
 
 // ---- 素材库（Asset Graph）----
+// ---- 系列（§5 模板 + §42 批量）----
+async function loadSeries(){
+  try {
+    const list = await (await fetch('/api/series')).json();
+    if (!Array.isArray(list)) throw new Error(list.error || '读取失败');
+    document.getElementById('series-list').innerHTML = list.map(s => `
+      <div class="proj-row">
+        <b>${esc(s.name)}</b>
+        <span class="hint">${esc(s.series_id)} · 配音 ${esc(s.spec.voice||'默认')} · ${esc(s.spec.subtitle_mode||'plain')}</span>
+      </div>`).join('') || '<div class="hint">还没有系列。</div>';
+  } catch (e) {
+    document.getElementById('series-list').innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
+  }
+  // 系列表单下拉复用创作页已加载的 voices/aspects（单一数据源，避免重复拉取）
+  const voices = document.getElementById('voice');
+  const sv = document.getElementById('series-voice');
+  if (voices && sv && !sv.options.length) sv.innerHTML = voices.innerHTML;
+  const aspects = document.getElementById('aspect');
+  const sa = document.getElementById('series-aspect');
+  if (aspects && sa && !sa.options.length) sa.innerHTML = aspects.innerHTML;
+}
+
+async function createSeriesAndBatch(){
+  const status = document.getElementById('series-status');
+  const name = document.getElementById('series-name').value.trim();
+  const scripts = document.getElementById('series-scripts').value.trim();
+  if (!name || !scripts) { status.textContent = '请填系列名和多集文案'; return; }
+  status.textContent = '创建系列并入队……';
+  try {
+    const spec = {
+      voice: document.getElementById('series-voice').value || 'zh-CN-XiaoxiaoNeural',
+      subtitle_mode: document.getElementById('series-subtitle').value || 'plain',
+      watermark: document.getElementById('series-watermark').value || null,
+    };
+    const asp = document.getElementById('series-aspect').value;
+    if (asp && asp.includes('x')) {
+      const [w, h] = asp.split('x');
+      spec.width = parseInt(w); spec.height = parseInt(h);
+    }
+    const r1 = await fetch('/api/series_create', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, spec})
+    });
+    const j1 = await r1.json();
+    if (!j1.ok) throw new Error(j1.error);
+    // 批量（multipart：scripts + 可选共享素材）
+    const fd = new FormData();
+    fd.append('series_id', j1.series_id);
+    fd.append('scripts', scripts);
+    for (const f of document.getElementById('series-videos').files) fd.append('videos', f, f.name);
+    const r2 = await fetch('/api/series_batch', {method:'POST', body: fd});
+    const j2 = await r2.json();
+    if (!j2.ok) throw new Error(j2.error);
+    status.textContent = `✅ 已入队 ${j2.episodes} 集，去「队列」页看进度`;
+    switchTab('queue');
+  } catch (e) {
+    status.textContent = '失败：' + e.message;
+  }
+}
+
+// ---- 收集箱（§30）----
+async function inboxAdd(kind){
+  const content = document.getElementById('inbox-content').value.trim();
+  const status = document.getElementById('inbox-status');
+  if (!content) { status.textContent = '请输入内容'; return; }
+  try {
+    const r = await fetch('/api/inbox_add', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({kind, content})
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    document.getElementById('inbox-content').value = '';
+    status.textContent = '✅ 已存入收集箱';
+    loadInbox();
+  } catch (e) { status.textContent = '失败：' + e.message; }
+}
+
+async function loadInbox(){
+  try {
+    const list = await (await fetch('/api/inbox')).json();
+    if (!Array.isArray(list)) throw new Error(list.error || '读取失败');
+    document.getElementById('inbox-list').innerHTML = list.map(it => `
+      <div class="proj-row">
+        <span style="flex:1">${esc(it.content.slice(0,120))}</span>
+        <span class="hint">${new Date(it.created_at*1000).toLocaleDateString()}</span>
+        <button class="btn-secondary btn-sm" onclick="inboxToCreate('${esc(it.item_id)}')">🎬 转创作</button>
+        <button class="btn-secondary btn-sm" onclick="inboxAction('${esc(it.item_id)}','delete')">🗑</button>
+      </div>`).join('') || '<div class="hint">收集箱为空。</div>';
+  } catch (e) {
+    document.getElementById('inbox-list').innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
+  }
+}
+
+function inboxToCreate(itemId){
+  const row = [...document.querySelectorAll('#inbox-list .proj-row')]
+    .find(r => r.innerHTML.includes(itemId));
+  const content = row ? row.querySelector('span').textContent : '';
+  switchTab('create');
+  const ta = document.getElementById('script');
+  if (ta && content) { ta.value = content; }
+  fetch('/api/inbox_action', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({item_id: itemId, action: 'converted'})}).catch(()=>{});
+}
+
+async function inboxAction(itemId, act){
+  try {
+    await fetch('/api/inbox_action', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({item_id: itemId, action: act})});
+    loadInbox();
+  } catch (e) { alert('操作失败：' + e.message); }
+}
+
+// ---- 队列（§42）----
+async function loadQueue(){
+  try {
+    const jobs = await (await fetch('/api/jobs')).json();
+    if (!Array.isArray(jobs)) throw new Error(jobs.error || '读取失败');
+    const st = {waiting:'· 排队中', running:'⚙ 生成中', done:'✅ 完成', failed:'✗ 失败'};
+    document.getElementById('queue-list').innerHTML = jobs.map(j => `
+      <div class="proj-row">
+        <b>${esc(j.job_id)}</b>
+        <span class="hint">${j.kind === 'series_episode' ? '系列单集 #'+j.spec.episode : '平台变体 '+esc(j.spec.platform||'')}</span>
+        <span class="${j.status==='done'?'cap-ok':(j.status==='failed'?'cap-off':(j.status==='running'?'cap-warn':'hint'))}">${st[j.status]||j.status}</span>
+        ${j.result && j.result.qc ? `<span class="hint">QC ${esc(j.result.qc)}</span>` : ''}
+        ${j.error ? `<span class="hint" style="color:#e05e5e">${esc(j.error.slice(0,80))}</span>` : ''}
+      </div>`).join('') || '<div class="hint">队列为空。</div>';
+  } catch (e) {
+    document.getElementById('queue-list').innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
+  }
+}
+
+// ---- 多平台发布（§41：项目详情 → 批量变体）----
+async function publishVariants(pid){
+  try {
+    const r = await fetch('/api/variants_batch', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project_id: pid, platforms: ['douyin','bilibili','xhs','square']})
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    alert(`已入队 ${j.job_ids.length} 个平台变体，去「队列」页看进度`);
+    switchTab('queue');
+  } catch (e) { alert('发布失败：' + e.message); }
+}
+
 async function loadAssetsLibrary(){
   try {
     const assets = await (await fetch('/api/assets_library')).json();

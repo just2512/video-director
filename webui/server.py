@@ -499,6 +499,34 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(list(lib.values()))
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/inbox":
+            # Capture Inbox（§30 收集箱）
+            try:
+                from video_director import studio as vd_studio
+                self._send_json(vd_studio.inbox_list())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/series":
+            # 系列模板列表（§5）
+            try:
+                from video_director import studio as vd_studio
+                self._send_json(vd_studio.series_list())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/jobs":
+            # Automation 队列（§42：状态可查）
+            try:
+                from video_director import studio as vd_studio
+                self._send_json(vd_studio.job_list())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/platforms":
+            # 多平台矩阵（§41）
+            from video_director.studio import PLATFORMS
+            self._send_json([
+                {"id": k, "size": v[0], "label": v[1]}
+                for k, v in PLATFORMS.items()
+            ])
         elif route == "/file":
             qs = parse_qs(parsed.query)
             fpath = qs.get("path", [""])[0]
@@ -524,6 +552,134 @@ class Handler(BaseHTTPRequestHandler):
 
         # 音频本地上传（参考 MPT BgmUpload 设计）：白名单扩展名 + 30MB 上限 +
         # ffprobe 音频流校验 + 安全文件名 → audio_library/uploads/ → 出现在下拉
+        if parsed.path == "/api/inbox_add":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            content = (payload.get("content") or "").strip()
+            if not content:
+                self._send_json({"error": "内容不能为空"}, 400)
+                return
+            try:
+                from video_director import studio as vd_studio
+                item_id = vd_studio.inbox_add(
+                    payload.get("kind", "idea"), content,
+                    (payload.get("note") or "").strip())
+                self._send_json({"ok": True, "item_id": item_id})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/inbox_action":
+            # 收集箱条目操作：converted（转创作）/ dismissed（丢弃）/ delete
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            try:
+                from video_director import studio as vd_studio
+                item_id = payload.get("item_id", "")
+                act = payload.get("action", "")
+                if not item_id or not act:
+                    self._send_json({"error": "缺少 item_id/action"}, 400)
+                    return
+                if act == "delete":
+                    vd_studio.inbox_delete(item_id)
+                else:
+                    vd_studio.inbox_set_status(item_id, act)
+                self._send_json({"ok": True})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/series_create":
+            # 系列模板（§5：默认配音/画幅/字幕/BGM/风格/水印）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            name = (payload.get("name") or "").strip()
+            if not name:
+                self._send_json({"error": "系列名不能为空"}, 400)
+                return
+            try:
+                from video_director import studio as vd_studio
+                sid = vd_studio.series_create(name, payload.get("spec") or {})
+                self._send_json({"ok": True, "series_id": sid})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/series_batch":
+            # 系列批量生产（§42：多集文案逐集入队）
+            mp = _parse_multipart(self)
+            fields, files = mp["fields"], mp["files"]
+            series_id = fields.get("series_id", "")
+            if not series_id:
+                self._send_json({"error": "缺少 series_id"}, 400)
+                return
+            scripts_raw = fields.get("scripts", "")
+            # 多集文案：以「---」或空行分隔
+            episodes = []
+            for i, chunk in enumerate(scripts_raw.split("------------")):
+                txt = chunk.strip()
+                if txt:
+                    episodes.append({"episode": i + 1, "script": txt})
+            if not episodes:
+                self._send_json({"error": "请按「------------」分隔粘贴多集文案"}, 400)
+                return
+            try:
+                from video_director import studio as vd_studio
+                series = {s["series_id"]: s for s in vd_studio.series_list()}
+                spec = series.get(series_id, {}).get("spec", {})
+                vids = [f["filename"] for f in files if f["name"] == "videos"]
+                # 素材落盘（系列共享素材目录）
+                video_paths = []
+                if vids:
+                    shared_dir = STORAGE / "composer" / f"series-{series_id[:12]}" / "input" / "videos"
+                    shared_dir.mkdir(parents=True, exist_ok=True)
+                    for f in files:
+                        if f["name"] != "videos":
+                            continue
+                        dst = shared_dir / Path(f["filename"]).name
+                        dst.write_bytes(f["data"])
+                        video_paths.append(str(dst))
+                job_ids = vd_studio.enqueue_series_batch(
+                    series_id, spec, episodes, video_paths)
+                self._send_json({"ok": True, "job_ids": job_ids,
+                                 "episodes": len(episodes)})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/variants_batch":
+            # 多平台变体批量（§41：项目 → 各平台画幅变体入队）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            pid = payload.get("project_id", "")
+            platforms = payload.get("platforms") or []
+            if not pid or not platforms:
+                self._send_json({"error": "缺少 project_id 或 platforms"}, 400)
+                return
+            try:
+                from video_director import studio as vd_studio
+                job_ids = vd_studio.enqueue_platform_variants(pid, platforms)
+                self._send_json({"ok": True, "job_ids": job_ids})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         if parsed.path == "/api/audio_upload":
             mp = _parse_multipart(self)
             fields, files = mp["fields"], mp["files"]
