@@ -76,6 +76,20 @@
   .proj-row { display:flex; align-items:center; gap:12px; padding:8px 10px; border:1px solid #2a343d; border-radius:8px; margin-top:8px; cursor:pointer; background:#0d1116; }
   .proj-row:hover { border-color:#4a90d9; }
   .proj-row .hint { flex:1; }
+
+  /* ===== Shotcraft 集成：编辑器时间线 / 动效库卡片 ===== */
+  .ed-scene { display:inline-block; vertical-align:top; border:2px solid #2a343d; border-radius:8px; margin:4px 2px; padding:4px; background:#0d1116; min-height:64px; cursor:pointer; }
+  .ed-scene.ed-sel { border-color:#4a90d9; box-shadow:0 0 0 2px rgba(74,144,217,0.3); }
+  .ed-scene-label { font-size:12px; color:#b8c2ca; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ed-layer { display:block; background:#1a2026; border:1px solid #2a343d; border-radius:4px; font-size:11px; color:#8a959e; padding:2px 4px; margin-top:3px; cursor:pointer; overflow:hidden; white-space:nowrap; }
+  .ed-layer.ed-sel { border-color:#4a90d9; color:#fff; background:#26405a; }
+  .ed-layer:hover { border-color:#4a90d9; }
+  .ed-motion-tag { background:#33518c; color:#fff; border-radius:3px; padding:0 3px; margin-left:3px; font-size:10px; }
+  .motion-card { display:inline-block; vertical-align:top; width:150px; border:1px solid #2a343d; border-radius:8px; padding:8px; margin:6px; background:#0d1116; }
+  .motion-preview { height:64px; background:#26405a; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; }
+  .motion-preview-dim { opacity:0.5; }
+  .motion-title { font-size:13px; margin-top:6px; font-weight:bold; }
+  .motion-card .btn-sm { margin-top:6px; width:100%; }
 </style>
 </head>
 <body>
@@ -86,6 +100,9 @@
     <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">🏠 首页</button>
     <button class="tab" id="tab-create" onclick="switchTab('create')">🎬 创作</button>
     <button class="tab" id="tab-projects" onclick="switchTab('projects')">📁 项目</button>
+    <button class="tab" id="tab-editor" onclick="switchTab('editor')">🎛 编辑器</button>
+    <button class="tab" id="tab-templates" onclick="switchTab('templates')">🧩 模板库</button>
+    <button class="tab" id="tab-motions" onclick="switchTab('motions')">✨ 动效库</button>
     <button class="tab" id="tab-assets" onclick="switchTab('assets')">🖼 素材库</button>
     <button class="tab" id="tab-series" onclick="switchTab('series')">📚 系列</button>
     <button class="tab" id="tab-capture" onclick="switchTab('capture')">📥 收集箱</button>
@@ -220,6 +237,80 @@
       <button id="go" onclick="compose()">🎬 自动制作</button>
     </div>
   </div>
+  </div>
+
+  <!-- ======== Tab: 编辑器（Timeline + Inspector + AI 提案）======== -->
+  <div id="pane-editor" style="display:none">
+    <div class="card">
+      <b>🎛 创作编辑器</b>——打开项目后可在时间线上选择场景/图层、换动效、调参数、拆分移动，AI 提案先预览再应用。
+      <div class="btn-row">
+        <label>打开项目：</label>
+        <select id="editor-project"></select>
+        <button class="btn-secondary" onclick="editorLoad()">打开</button>
+        <span class="hint" id="editor-meta"></span>
+      </div>
+    </div>
+    <div id="editor-body" style="display:none">
+      <div class="card">
+        <b>时间线</b> <span class="hint">点击场景块选择；点图层块用右侧 Inspector 编辑</span>
+        <div id="editor-timeline"></div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn-secondary btn-sm" onclick="editorCmd('split')">✂ 拆分选中场景</button>
+          <button class="btn-secondary btn-sm" onclick="editorCmd('duplicate')">⧉ 复制场景</button>
+          <button class="btn-secondary btn-sm" onclick="editorMovePrompt()">↔ 移动场景</button>
+          <button class="btn-secondary btn-sm" onclick="editorCmd('delete')">🗑 删除</button>
+          <button class="btn-secondary btn-sm" onclick="editorPreflight()">🛡 商用预检</button>
+          <button class="btn-secondary btn-sm" onclick="editorRenderFinal()">🎬 渲染成片</button>
+        </div>
+      </div>
+      <div class="card" id="editor-inspector-card" style="display:none">
+        <b>Inspector</b>——选中图层后可换动效/调参数（先预览后应用）
+        <div id="editor-inspector"></div>
+      </div>
+      <div class="card">
+        <b>🤖 AI 改稿</b>——用一句话描述修改，AI 出提案（先预览，应用才生效）
+        <div class="rev-console">
+          <input type="text" id="editor-ai-input" class="rev-input" placeholder="例：第一段动画换成有冲击力的 / 第二段时长改为 6 秒">
+          <div class="btn-row">
+            <button class="btn-secondary" onclick="editorAiPropose()">🤖 生成提案</button>
+          </div>
+          <div id="editor-ai-proposal"></div>
+        </div>
+      </div>
+      <div id="editor-preflight-box"></div>
+    </div>
+  </div>
+
+  <!-- ======== Tab: 模板库（Template Gallery）======== -->
+  <div id="pane-templates" style="display:none">
+    <div class="card">
+      <b>🧩 模板库</b>——选择模板并填入你的内容，生成可编辑项目（模板不是 MP4，槽位内容随你改）
+      <div id="templates-list">加载中……</div>
+    </div>
+    <div id="template-form-box"></div>
+  </div>
+
+  <!-- ======== Tab: 动效库（Motion Gallery）======== -->
+  <div id="pane-motions" style="display:none">
+    <div class="card">
+      <b>✨ 动效库</b>——19 种动效实时循环预览；「应用到项目」写入选中图层（支持筛选/搜索）
+      <div class="btn-row">
+        <input type="text" id="motion-search" class="rev-input" placeholder="搜索动效名…" oninput="renderMotionGallery()">
+        <select id="motion-filter" onchange="renderMotionGallery()">
+          <option value="">全部类型</option>
+          <option value="entrance">入场</option>
+          <option value="exit">出场</option>
+          <option value="camera">镜头</option>
+          <option value="kinetic_text">文字</option>
+          <option value="highlight">强调</option>
+          <option value="reveal">揭示</option>
+          <option value="transform">变形</option>
+          <option value="compound">组合</option>
+        </select>
+      </div>
+      <div id="motions-list">加载中……</div>
+      <div class="hint">应用动效需要先在「编辑器」打开项目并选中一个图层。</div>
+    </div>
   </div>
 
   <!-- ======== Tab 2: 项目（Portable Project 列表 + 重开续用）======== -->
@@ -535,7 +626,7 @@ function discardEnhanced(){
 }
 
 function switchTab(tab){
-  for (const p of ['home','create','projects','assets','series','capture','queue','reference','memory']) {
+  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','queue','reference','memory']) {
     const el = document.getElementById('pane-' + p);
     if (el) el.style.display = (tab === p) ? '' : 'none';
     const tb = document.getElementById('tab-' + p);
@@ -543,11 +634,395 @@ function switchTab(tab){
   }
   if (tab === 'home') loadHome();
   if (tab === 'projects') loadProjects();
+  if (tab === 'editor') editorInit();
+  if (tab === 'templates') loadTemplates();
+  if (tab === 'motions') loadMotions();
   if (tab === 'assets') loadAssetsLibrary();
   if (tab === 'series') loadSeries();
   if (tab === 'capture') loadInbox();
   if (tab === 'queue') loadQueue();
   if (tab === 'memory') loadMemoryView();
+}
+
+// ===========================================================================
+// 编辑器（Editor：Timeline + Inspector + AI 提案）——Shotcraft EDT 集成
+// ===========================================================================
+let ED = {pid:null, comp:null, sel:null, version:1};  // sel = {type:'scene'|'layer', id}
+
+async function editorInit(){
+  // 项目下拉：全部有 composition.json 的项目（compose 过或模板实例）
+  const projs = await (await fetch('/api/projects')).json();
+  const editable = [];
+  for (const p of projs) {
+    try {
+      const c = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(p.project_id))).json();
+      if (c && c.scenes) editable.push([p.project_id, p.project_id]);
+    } catch(e) {}
+  }
+  _rebuildSelect('editor-project', editable.length ? editable : [['','（先去创作页或模板库生成一个项目）']]);
+}
+
+async function editorLoad(){
+  const pid = document.getElementById('editor-project').value;
+  if (!pid) { alert('请先选择项目'); return; }
+  const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(pid))).json();
+  if (!comp.scenes) { alert('项目无可编辑时间线：' + (comp.error || '未知')); return; }
+  ED.pid = pid; ED.comp = comp; ED.version = comp.version; ED.sel = null;
+  document.getElementById('editor-body').style.display = '';
+  document.getElementById('editor-meta').textContent =
+    ` v${comp.version} · ${comp.scenes.length} 场景 · ${comp.duration.toFixed(1)}s` +
+    (comp.origin_template_id ? ` · 模板:${comp.origin_template_id}` : '');
+  editorRenderTimeline();
+}
+
+function editorRenderTimeline(){
+  const box = document.getElementById('editor-timeline');
+  const c = ED.comp;
+  const total = c.duration || 1;
+  let html = '';
+  c.scenes.forEach((sc, si) => {
+    const wPct = (sc.duration / total * 100).toFixed(2);
+    const selCls = (ED.sel && ED.sel.type==='scene' && ED.sel.id===sc.id) ? ' ed-sel' : '';
+    html += `<div class="ed-scene${selCls}" data-scene="${sc.id}" style="width:${wPct}%" onclick="editorSelectScene('${sc.id}')">`+
+      `<div class="ed-scene-label">${si+1}. ${esc(sc.text.slice(0,12))} · ${sc.duration.toFixed(1)}s</div>`;
+    sc.layers.forEach((lay, li) => {
+      const lwPct = (lay.duration / sc.duration * 100).toFixed(2);
+      const lsel = (ED.sel && ED.sel.type==='layer' && ED.sel.id===`${sc.id}#${lay.index}`) ? ' ed-sel' : '';
+      const mtag = lay.motion_recipe_id ? `<span class="ed-motion-tag">${esc(lay.motion_recipe_id.replace('motion.',''))}</span>` : '';
+      html += `<div class="ed-layer${lsel}" onclick="event.stopPropagation();editorSelectLayer('${sc.id}',${lay.index})" style="width:${lwPct}%">`+
+        `${lay.type}${mtag}</div>`;
+    });
+    html += '</div>';
+  });
+  box.innerHTML = html;
+}
+
+function editorSelectScene(id){
+  ED.sel = {type:'scene', id};
+  editorRenderTimeline();
+  const sc = ED.comp.scenes.find(s=>s.id===id);
+  const card = document.getElementById('editor-inspector-card');
+  card.style.display='';
+  document.getElementById('editor-inspector').innerHTML =
+    `<b>场景 ${esc(id)}</b><div class="hint">文案：${esc(sc.text)}<br>时长：${sc.duration.toFixed(1)}s · ${sc.layers.length} 层` +
+    (sc.origin_recipe_id ? `<br>镜头配方：${esc(sc.origin_recipe_id)}` : '') + `</div>` +
+    `<label>改时长（秒）</label><div class="btn-row"><input type="number" id="ed-dur" value="${sc.duration.toFixed(1)}" step="0.5" style="width:80px">`+
+    `<button class="btn-secondary btn-sm" onclick="editorApplyDuration('${id}')">应用</button></div>`;
+}
+function editorSelectLayer(sceneId, idx){
+  ED.sel = {type:'layer', id:`${sceneId}#${idx}`};
+  editorRenderTimeline();
+  const sc = ED.comp.scenes.find(s=>s.id===sceneId);
+  const lay = sc.layers[idx];
+  const card = document.getElementById('editor-inspector-card');
+  card.style.display='';
+  document.getElementById('editor-inspector').innerHTML =
+    `<b>图层 ${sceneId}#${idx}</b>（${lay.type}）`+
+    `<div class="hint">时长：${lay.duration.toFixed(1)}s · 动效：${lay.motion_recipe_id ? esc(lay.motion_recipe_id) : '无'}`+
+    (lay.motion_version ? ` @${esc(lay.motion_version)}` : '') + `</div>`+
+    `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorOpenMotionPicker('${sceneId}',${idx})">✨ 换动效</button>`+
+    `<button class="btn-secondary btn-sm" onclick="editorOpenShotPicker('${sceneId}')">🎬 换镜头</button></div>`+
+    `<div id="editor-picker-box"></div>`;
+}
+
+async function editorCmd(cmd, extra){
+  if (!ED.pid) { alert('先打开项目'); return; }
+  let target = ED.sel ? ED.sel.id : '';
+  if (!target && cmd !== 'noop') { alert('先在时间线选中场景或图层'); return; }
+  // split 只作用于场景：图层选中时归约到其所属场景
+  if (cmd === 'split' && target.includes('#')) target = target.split('#')[0];
+  const payload = extra || {};
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: cmd, targetId: target, payload, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    // 重载时间线（composition 由服务端返回）
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorRenderTimeline();
+    editorToast(`${cmd} 完成（revision ${r.revision_id}；失效：${(r.stale_artifacts||[]).join('，') || '无'}；复用：${(r.reused_artifacts||[]).length} 项）`);
+  } else {
+    const err = (r.errors && r.errors[0]) || {};
+    editorToast(`❌ ${err.code || '错误'}：${err.message || r.error || ''}`, true);
+  }
+}
+function editorApplyDuration(sceneId){
+  const v = parseFloat(document.getElementById('ed-dur').value);
+  if (!(v > 0.3)) { alert('时长需 ≥0.3s'); return; }
+  editorCmd('set_duration', {duration: v});
+}
+function editorMovePrompt(){
+  const to = prompt('移动到第几个位置？（从 1 开始）');
+  if (!to) return;
+  editorCmd('move', {toIndex: parseInt(to) - 1});
+}
+
+// ---- Motion Picker（动效库数据源 + resolver 三态）----
+async function editorOpenMotionPicker(sceneId, idx){
+  const box = document.getElementById('editor-picker-box');
+  box.innerHTML = '加载动效候选……';
+  const r = await apiPost('/api/registry/motions/resolve', {layer_type: 'image', semantic_intent: 'enter', duration: 0.5});
+  const cands = (r.candidates || []).filter(c=>c.compatibility !== 'INCOMPATIBLE');
+  box.innerHTML = '<label>选择动效（SUPPORTED 优先，MISSING_REQUIREMENT 也可应用）</label>' +
+    cands.map(c=>`<div class="proj-row"><span>${esc(c.name)} <code>${esc(c.recipe_id)}</code>`+
+      `<span class="hint">${c.compatibility === 'SUPPORTED' ? '✅ 可用' : '⚠ ' + esc((c.missing_requirements||[]).join('；'))}</span></span>`+
+      `<button class="btn-secondary btn-sm" onclick="editorApplyMotion('${sceneId}',${idx},'${c.recipe_id}')">应用</button></div>`).join('');
+}
+async function editorApplyMotion(sceneId, idx, motionId){
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
+    targetId: `${sceneId}#${idx}`, payload: {motionRecipeId: motionId}, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorRenderTimeline(); editorSelectLayer(sceneId, idx);
+    editorToast(`✅ 动效已应用：${motionId}（revision ${r.revision_id}）`);
+  } else {
+    const err = (r.errors && r.errors[0]) || {};
+    editorToast(`❌ ${err.message || r.error}`, true);
+  }
+}
+
+// ---- Shot Picker（换镜头）----
+async function editorOpenShotPicker(sceneId){
+  const box = document.getElementById('editor-picker-box');
+  box.innerHTML = '加载镜头候选……';
+  const sc = ED.comp.scenes.find(s=>s.id===sceneId);
+  const r = await apiPost('/api/registry/shots/resolve', {
+    semantic_intents: [], content_type: 'product_video', duration: sc.duration,
+    available_asset_types: ['image','product','video'],
+    scene_position: sceneId.startsWith('scene-hook') || ED.comp.scenes[0].id===sceneId ? 'first' : 'middle',
+  });
+  const cands = (r.candidates || []).filter(c=>c.compatibility !== 'INCOMPATIBLE');
+  box.innerHTML = '<label>选择镜头配方（换镜头不换素材）</label>' +
+    cands.map(c=>`<div class="proj-row"><span>${esc(c.name)} <code>${esc(c.recipe_id)}</code>`+
+      `<span class="hint">${esc((c.reasons||[]).join('；'))}</span></span>`+
+      `<button class="btn-secondary btn-sm" onclick="editorApplyShot('${sceneId}','${c.recipe_id}')">使用</button></div>`).join('');
+}
+async function editorApplyShot(sceneId, recipeId){
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_recipe',
+    targetId: sceneId, payload: {recipeId}, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorRenderTimeline();
+    editorToast(`✅ 镜头已更换：${recipeId}`);
+  } else {
+    const err = (r.errors && r.errors[0]) || {};
+    editorToast(`❌ ${err.message || r.error}`, true);
+  }
+}
+
+// ---- AI 提案（propose → preview → apply/reject）----
+async function editorAiPropose(){
+  const inst = document.getElementById('editor-ai-input').value.trim();
+  if (!inst) { alert('请输入修改描述'); return; }
+  const box = document.getElementById('editor-ai-proposal');
+  box.innerHTML = 'AI 解析中……';
+  const r = await apiPost('/api/proposal/propose', {project_id: ED.pid, instruction: inst});
+  if (!r.ok) { box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '解析失败')}</div>`; return; }
+  ED.pendingProposal = r.proposal_id;
+  box.innerHTML = `<b>提案 ${r.proposal_id}</b>（来源:${r.source}）<div class="hint">${esc(r.explanation||'')}</div>` +
+    r.patches.map(p=>`<div class="proj-row"><span>${esc(p.command)} → ${esc(p.targetId||'')}`+
+      `<span class="hint">${esc(p.reason||'')}</span></span></div>`).join('') +
+    `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorAiPreview()">👁 预览效果</button>`+
+    `<button class="btn-sm" onclick="editorAiApply()">✅ 应用</button>`+
+    `<button class="btn-secondary btn-sm" onclick="editorAiReject()">✗ 拒绝</button></div>`;
+}
+async function editorAiPreview(){
+  const r = await apiPost('/api/proposal/preview', {project_id: ED.pid, proposal_id: ED.pendingProposal});
+  const box = document.getElementById('editor-ai-proposal');
+  if (!r.ok) { box.innerHTML += `<div class="err-box">预览失败：${esc(r.error)}</div>`; return; }
+  box.innerHTML += `<div class="hint">预览：${r.results.map(x=>`${x.status==='PREVIEW_OK'?'✅':'❌'} ${esc(x.patch.command)}(${esc(x.patch.targetId)})`).join('；')}</div>`;
+}
+async function editorAiApply(){
+  const r = await apiPost('/api/proposal/apply', {project_id: ED.pid, proposal_id: ED.pendingProposal});
+  const box = document.getElementById('editor-ai-proposal');
+  if (r.ok && r.status === 'APPLIED') {
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorRenderTimeline();
+    box.innerHTML += `<div class="hint">✅ 已应用 ${r.applied.length} 项修改（revision 已记录）</div>`;
+  } else {
+    box.innerHTML += `<div class="err-box">部分失败：${JSON.stringify(r.errors||[]).slice(0,200)}</div>`;
+  }
+}
+async function editorAiReject(){
+  const r = await apiPost('/api/proposal/reject', {project_id: ED.pid, proposal_id: ED.pendingProposal});
+  document.getElementById('editor-ai-proposal').innerHTML +=
+    `<div class="hint">已拒绝（项目零变更${r.changed === false ? '，已验证' : ''}）</div>`;
+}
+
+// ---- Preflight + 渲染 ----
+async function editorPreflight(){
+  const box = document.getElementById('editor-preflight-box');
+  const r = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(ED.pid))).json();
+  if (r.status === 'PASS') {
+    box.innerHTML = `<div class="card ok-box">🛡 商用预检通过（${r.issues.length} 项提示，无阻断）`+
+      (r.issues.length ? `<div>${r.issues.map(i=>`<div class="hint">⚠ ${esc(i.code)}: ${esc(i.message)}</div>`).join('')}</div>` : '') + `</div>`;
+  } else {
+    box.innerHTML = `<div class="card err-box">⛔ 商用预检未通过（${r.issues.filter(i=>!i.recoverable).length} 项阻断）：`+
+      r.issues.map(i=>`<div class="hint">${i.recoverable?'⚠':'⛔'} [${esc(i.code)}] ${esc(i.message)}（素材：${esc(i.targetId)}）</div>`).join('')+
+      `</div>`;
+  }
+  return r;
+}
+async function editorRenderFinal(){
+  const pf = await editorPreflight();
+  if (pf.status !== 'PASS') { alert('商用预检未通过，渲染中止（先处理阻断项）'); return; }
+  editorToast('预检通过，渲染已提交到队列……');
+  // 渲染走既有管线：confirm 接口渲染 AWAITING_CONFIRM 项目
+  const r = await apiPost('/api/confirm', {project_id: ED.pid});
+  if (r.ok) {
+    document.getElementById('editor-preflight-box').innerHTML =
+      `<div class="card ok-box">🎬 成片完成：<a class="dl" href="/file?path=${encodeURIComponent(r.final_path)}" download="final.mp4">下载 final.mp4</a> QC: ${esc((r.qc||{}).verdict||'')}</div>`;
+  } else {
+    document.getElementById('editor-preflight-box').innerHTML =
+      `<div class="err-box">渲染失败：${esc(r.error||'')}</div>`;
+  }
+}
+
+function editorToast(msg, isErr){
+  const meta = document.getElementById('editor-meta');
+  meta.textContent = msg;
+  meta.style.color = isErr ? '#c0392b' : '#27ae60';
+  setTimeout(()=>{ meta.style.color=''; }, 6000);
+}
+
+// ===========================================================================
+// 模板库（Template Gallery）
+// ===========================================================================
+let TPLS = [];
+async function loadTemplates(){
+  TPLS = await (await fetch('/api/registry/templates')).json();
+  renderTemplateGallery();
+}
+function renderTemplateGallery(){
+  document.getElementById('templates-list').innerHTML = TPLS.map(t=>
+    `<div class="proj-row"><span><b>${esc(t.name)}</b> <code>${esc(t.id)}</code><br>`+
+    `<span class="hint">画幅 ${t.supported_ratios.join('/')} · 建议 ${t.duration_recommended}s · ${t.scene_count} 场景 · 授权 ${esc(t.commercial_status)}</span></span>`+
+    `<button class="btn-sm" onclick="openTemplateForm('${t.id}')">试用</button></div>`).join('');
+}
+function openTemplateForm(tid){
+  const t = TPLS.find(x=>x.id===tid);
+  const box = document.getElementById('template-form-box');
+  const ratioOpts = t.supported_ratios.map(r=>`<option value="${r}">${r}</option>`).join('');
+  const slotInputs = t.slots.map(s=>
+    `<label>${esc(s.label)}${s.required?'（必填）':''} [${s.type}]</label>`+
+    (s.type === 'image' || s.type === 'video' || s.type === 'product' || s.type === 'person'
+      ? `<input type="file" id="tpl-slot-${s.id}" accept=".mp4,.jpg,.jpeg,.png,.webp,.mov">`
+      : `<input type="text" id="tpl-slot-${s.id}" placeholder="填入${esc(s.label)}">`)
+  ).join('');
+  box.innerHTML = `<div class="card"><b>试用模板：${esc(t.name)}</b>`+
+    `<label>画幅</label><select id="tpl-ratio">${ratioOpts}</select>`+
+    slotInputs +
+    `<div class="btn-row"><button onclick="instantiateTemplate('${t.id}')">🧩 生成可编辑项目</button></div>`+
+    `<div class="hint" id="tpl-status"></div></div>`;
+  box.scrollIntoView({behavior:'smooth'});
+}
+async function instantiateTemplate(tid){
+  const t = TPLS.find(x=>x.id===tid);
+  const slotValues = {};
+  for (const s of t.slots) {
+    const el = document.getElementById('tpl-slot-' + s.id);
+    if (!el) continue;
+    if (el.type === 'file') continue;  // 文件槽只走 FormData 文件域，不进 JSON
+    if (el.value.trim()) { slotValues[s.id] = el.value.trim(); }
+  }
+  const fd = new FormData();
+  fd.append('template_id', tid);
+  fd.append('ratio', document.getElementById('tpl-ratio').value);
+  fd.append('slot_values_json', JSON.stringify(slotValues));
+  for (const s of t.slots) {
+    const el = document.getElementById('tpl-slot-' + s.id);
+    if (el && el.type === 'file' && el.files.length) fd.append(s.id + '_file', el.files[0], el.files[0].name);
+  }
+  document.getElementById('tpl-status').textContent = '生成中……';
+  const resp = await fetch('/api/templates/instantiate', {method:'POST', body: fd});
+  const r = await resp.json();
+  if (r.ok) {
+    document.getElementById('tpl-status').textContent =
+      `✅ 项目已建立：${r.project_id}（${r.scene_count} 场景 / ${r.duration}s）→ 正在打开编辑器…`;
+    setTimeout(async ()=>{
+      switchTab('editor');
+      await editorInit();  // 重新拉项目下拉（新项目刚建，旧列表没有）
+      document.getElementById('editor-project').value = r.project_id;
+      editorLoad();
+    }, 800);
+  } else {
+    document.getElementById('tpl-status').textContent = '❌ ' + (r.error || '生成失败');
+  }
+}
+
+// ===========================================================================
+// 动效库（Motion Gallery：搜索/筛选/CSS 循环预览/应用到项目）
+// ===========================================================================
+let MOTIONS = [];
+async function loadMotions(){
+  MOTIONS = await (await fetch('/api/registry/motions')).json();
+  renderMotionGallery();
+}
+function renderMotionGallery(){
+  const q = (document.getElementById('motion-search').value || '').toLowerCase();
+  const f = document.getElementById('motion-filter').value;
+  const list = MOTIONS.filter(m =>
+    (!f || m.motion_type === f) &&
+    (!q || (m.name + m.id).toLowerCase().includes(q))
+  );
+  document.getElementById('motions-list').innerHTML = list.map(m=>{
+    const kf = motionCssPreview(m);
+    return `<div class="motion-card" data-mid="${esc(m.id)}">`+
+      `<div class="motion-preview ${m.preview_only ? 'motion-preview-dim' : ''}" style="${kf}">预览</div>`+
+      `<div class="motion-title">${esc(m.name)}</div>`+
+      `<div class="hint">${esc(m.id)} · ${m.motion_type} · ${m.duration_recommended}s${m.preview_only ? ' · 仅预览' : ''}</div>`+
+      `<button class="btn-secondary btn-sm" onclick="motionApplyToProject('${esc(m.id)}')">应用到项目</button>`+
+      `</div>`;
+  }).join('') || '<div class="hint">无匹配动效</div>';
+}
+function motionCssPreview(m){
+  // channels → CSS keyframes 循环（opacity/scale/x/y → transform+opacity）
+  const parts = [];
+  let from = {}, to = {};
+  for (const ch of m.channels) {
+    const v0 = ch.keyframes[0].value, v1 = ch.keyframes[ch.keyframes.length-1].value;
+    if (ch.property === 'opacity') { from.opacity = v0; to.opacity = v1; }
+    if (ch.property === 'scale') { from.scale = v0; to.scale = v1; }
+    if (ch.property === 'x') { from.tx = v0; to.tx = v1; }
+    if (ch.property === 'y') { from.ty = v0; to.ty = v1; }
+  }
+  const tf = (o) => `scale(${o.scale !== undefined ? o.scale : 1}) translate(${o.tx||0}px, ${o.ty||0}px)`;
+  const dur = Math.max(0.4, Math.min(2.5, m.duration_recommended));
+  const kfName = 'mp_' + m.id.replace(/[^a-z0-9_]/gi, '');
+  // 注入 keyframes（幂等：同 id 覆盖）
+  let styleEl = document.getElementById('kf_' + kfName);
+  if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'kf_' + kfName; document.head.appendChild(styleEl); }
+  styleEl.textContent = `@keyframes ${kfName}{0%{opacity:${from.opacity!==undefined?from.opacity:1};transform:${tf(from)}}100%{opacity:${to.opacity!==undefined?to.opacity:1};transform:${tf(to)}}}`;
+  return `animation:${kfName} ${dur}s ease-in-out infinite alternate`;
+}
+async function motionApplyToProject(mid){
+  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') {
+    alert('先在「编辑器」打开项目并选中一个图层，再回来应用动效'); switchTab('editor'); return;
+  }
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
+    targetId: ED.sel.id, payload: {motionRecipeId: mid}, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorToast(`✅ ${mid} 已应用到 ${ED.sel.id}`);
+    switchTab('editor'); editorRenderTimeline();
+  } else {
+    const err = (r.errors && r.errors[0]) || {};
+    alert('❌ ' + (err.message || r.error));
+  }
+}
+
+// ---- 通用 POST 助手（Editor/Proposal/Resolve 全走这里）----
+async function apiPost(url, body){
+  try {
+    const resp = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    return await resp.json();
+  } catch(e) { return {ok:false, error: String(e)}; }
 }
 
 // ---- 首页：我现在该做什么 ----

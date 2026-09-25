@@ -115,31 +115,48 @@ def _llm_parse(instruction: str, composition_summary: dict) -> Optional[List[dic
 
 
 def _rule_parse_fallback(instruction: str, composition_summary: dict) -> Optional[List[dict]]:
-    """规则兜底：第N段/场景 + 常见动效关键词（无 LLM 时的诚实降级）。"""
+    """规则兜底：第N段/场景 + 动效关键词表（无 LLM 时的诚实降级）。"""
     import re
     patches = []
     scenes = composition_summary.get("scenes", [])
-    # "第N段动画慢一点/换动画" → replace_motion
     m = re.search(r"第([一二三四五六七八九十\d]+)段", instruction)
     idx = None
     if m:
         tok = m.group(1)
         cn = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
         idx = cn.get(tok) or (int(tok) if tok.isdigit() else None)
-    if idx and 0 < idx <= len(scenes):
-        sid = scenes[idx - 1]["id"]
-        if any(k in instruction for k in ("慢", "柔", "缓")):
-            patches.append({"command": "replace_motion", "targetId": f"{sid}#0",
-                            "payload": {"motionRecipeId": "motion.fade-slide"},
-                            "reason": "规则解析：慢一点的入场"})
-        elif any(k in instruction for k in ("冲击", "砸", "重")):
-            patches.append({"command": "replace_motion", "targetId": f"{sid}#0",
-                            "payload": {"motionRecipeId": "motion.scale-punch"},
-                            "reason": "规则解析：冲击感"})
-        elif "标题" in instruction or "文字" in instruction:
-            patches.append({"command": "replace_motion", "targetId": f"{sid}#0",
-                            "payload": {"motionRecipeId": "motion.word-relay"},
-                            "reason": "规则解析：标题动效"})
+    if not (idx and 0 < idx <= len(scenes)):
+        return None
+    sid = scenes[idx - 1]["id"]
+    # 动效关键词 → motion recipe 映射（按优先级排列）
+    motion_keywords = [
+        (("淡入", "柔和", "慢", "缓"), "motion.fade-in"),
+        (("淡出", "退场",), "motion.fade-out"),
+        (("冲击", "砸", "重", "有力"), "motion.scale-punch"),
+        (("淡入上滑", "上滑", "滑入"), "motion.fade-slide"),
+        (("标题", "文字", "逐词", "接力"), "motion.word-relay"),
+        (("升起", "升浮", "呼吸"), "motion.rise-fade"),
+        (("聚光", "聚拢"), "motion.spotlight-focus"),
+        (("肯伯恩斯", "缓推", "镜头移动"), "motion.ken-burns-soft"),
+        (("强调", "脉冲"), "motion.pulse-emphasis"),
+        (("卡片", "装配", "组装"), "motion.card-assemble"),
+    ]
+    matched_motion = None
+    for keywords, mid in motion_keywords:
+        if any(k in instruction for k in keywords):
+            matched_motion = mid
+            break
+    if matched_motion:
+        patches.append({"command": "replace_motion", "targetId": f"{sid}#0",
+                        "payload": {"motionRecipeId": matched_motion},
+                        "reason": f"规则解析：第{idx}段应用 {matched_motion}"})
+        return patches
+    # 时长类
+    md = re.search(r"(\d+(?:\.\d+)?)\s*秒", instruction)
+    if md:
+        patches.append({"command": "set_duration", "targetId": sid,
+                        "payload": {"duration": float(md.group(1))},
+                        "reason": f"规则解析：第{idx}段时长改为 {md.group(1)}s"})
     return patches or None
 
 

@@ -35,6 +35,8 @@ from video_director import config as vd_config  # noqa: E402
 from video_director import llm_provider as vd_llm  # noqa: E402
 from video_director import model_config as vd_model_config  # noqa: E402
 from video_director import pipeline  # noqa: E402
+from video_director import prober as vd_prober  # noqa: E402
+from video_director import store as vd_store  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STORAGE = ROOT / "storage"
@@ -278,6 +280,78 @@ class Handler(BaseHTTPRequestHandler):
         self._send_bytes(data, ctype or "text/html; charset=utf-8", status)
 
     # ------------------------------------------------------------------
+    def _registry_shots(self, parsed):
+        """GET /api/registry/shots：镜头配方卡清单（Shot Picker 数据源）。"""
+        try:
+            from video_director.registries.recipes import ShotRegistry
+            qs = parse_qs(parsed.query)
+            out = []
+            for s in ShotRegistry().all():
+                out.append({
+                    "id": s.id, "version": s.version, "name": s.name,
+                    "category": s.category, "energy": s.energy,
+                    "one_liner": s.item.description or "",
+                    "duration_recommended": s.duration_recommended,
+                    "duration_range": [s.duration_min, s.duration_max],
+                    "required_slot_types": [sl.type for sl in s.slots if sl.required],
+                    "commercial_status": s.commercial_status,
+                })
+            self._send_json(out)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _registry_motions(self, parsed):
+        """GET /api/registry/motions：动效清单（Motion Gallery 数据源）。
+
+        附 channels 摘要（前端 CSS 循环预览的 keyframes 来源）。
+        """
+        try:
+            from video_director.registries.recipes import MotionRegistry
+            out = []
+            for m in MotionRegistry().all():
+                out.append({
+                    "id": m.id, "version": m.version, "name": m.name,
+                    "motion_type": m.motion_type,
+                    "semantic_intents": list(m.semantic_intents),
+                    "compatible_layers": list(m.compatible_layers),
+                    "duration_recommended": m.duration_recommended,
+                    "duration_range": [m.duration_min, m.duration_max],
+                    "channels": [
+                        {"property": c.property,
+                         "keyframes": [{"at": k.at, "value": k.value} for k in c.keyframes]}
+                        for c in m.channels
+                    ],
+                    "parameters": list(m.parameters),
+                    "preview_only": "renderer_preview_only" in m.constraints,
+                    "commercial_status": m.commercial_status,
+                })
+            self._send_json(out)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _registry_templates(self, parsed):
+        """GET /api/registry/templates：模板清单（Template Gallery 数据源）。"""
+        try:
+            from video_director.registries.templates import TemplateRegistry
+            out = []
+            for t in TemplateRegistry().all():
+                out.append({
+                    "id": t.id, "version": t.version, "name": t.name,
+                    "category": t.category,
+                    "supported_ratios": list(t.supported_ratios),
+                    "duration_recommended": t.duration_recommended,
+                    "slots": [
+                        {"id": sl.id, "label": sl.label, "type": sl.type,
+                         "required": sl.required}
+                        for sl in t.slots
+                    ],
+                    "scene_count": len(t.scenes),
+                    "commercial_status": t.commercial_status,
+                })
+            self._send_json(out)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         route = parsed.path
@@ -403,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
                 if root.is_dir():
                     for d in sorted(root.iterdir(),
                                     key=lambda p: p.stat().st_mtime, reverse=True):
-                        if not d.name.startswith("web-"):
+                        if not (d.name.startswith("web-") or d.name.startswith("tpl-")):
                             continue
                         run_json = d / "plans" / "run.json"
                         final = d / "output" / "final.mp4"
@@ -527,6 +601,72 @@ class Handler(BaseHTTPRequestHandler):
                 {"id": k, "size": v[0], "label": v[1]}
                 for k, v in PLATFORMS.items()
             ])
+        elif route == "/api/registry/shots":
+            self._registry_shots(parsed)
+        elif route == "/api/registry/motions":
+            self._registry_motions(parsed)
+        elif route == "/api/registry/templates":
+            self._registry_templates(parsed)
+        elif route == "/api/editor/composition":
+            # ?project_id= → 场景/层时间线数据（Editor 页事实源）
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import editor as vd_editor
+                ir = vd_editor.load_composition(pid)
+                revs = vd_editor.load_revisions(pid)
+                self._send_json({
+                    "project_id": pid,
+                    "version": len(revs) + 1,
+                    "width": ir.project.width, "height": ir.project.height,
+                    "duration": ir.project.duration,
+                    "origin_template_id": ir.origin_template_id,
+                    "origin_template_version": ir.origin_template_version,
+                    "scenes": [
+                        {
+                            "id": sc.id, "start": sc.start, "duration": sc.duration,
+                            "text": sc.text,
+                            "origin_recipe_id": sc.origin_recipe_id,
+                            "layers": [
+                                {
+                                    "index": i, "type": lay.type.value,
+                                    "asset_id": lay.asset_id, "start": lay.start,
+                                    "duration": lay.duration,
+                                    "motion_recipe_id": lay.motion_recipe_id,
+                                    "motion_version": lay.motion_version,
+                                } for i, lay in enumerate(sc.layers)
+                            ],
+                        } for sc in ir.scenes
+                    ],
+                    "revisions_count": len(revs),
+                })
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 404)
+        elif route == "/api/editor/revisions":
+            # ?project_id= → revision 历史（Versions 页消费）
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            try:
+                from video_director import editor as vd_editor
+                self._send_json(vd_editor.load_revisions(pid))
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 404)
+        elif route == "/api/preflight":
+            # ?project_id= → 商用预检报告（发布前闸门）
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import preflight as vd_preflight
+                report = vd_preflight.run_preflight(pid, for_publish=True)
+                self._send_json(report.to_dict())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
         elif route == "/file":
             qs = parse_qs(parsed.query)
             fpath = qs.get("path", [""])[0]
@@ -1025,6 +1165,188 @@ class Handler(BaseHTTPRequestHandler):
                     "qc": final.qc_report,
                     "warnings": final.warnings,
                 })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        # ===================== Shotcraft 集成端点（Registry/Editor/Proposal）=====================
+
+        if parsed.path in ("/api/registry/shots/resolve", "/api/registry/motions/resolve",
+                           "/api/registry/templates/resolve"):
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            try:
+                from video_director.registries import resolver as vd_resolver
+                if parsed.path.endswith("shots/resolve"):
+                    cands = vd_resolver.resolve_shots(vd_resolver.ShotResolveRequest(
+                        semantic_intents=tuple(payload.get("semantic_intents") or ()),
+                        content_type=payload.get("content_type") or "",
+                        style_id=payload.get("style_id"),
+                        duration=float(payload.get("duration") or 4.0),
+                        available_asset_types=tuple(payload.get("available_asset_types") or ()),
+                        scene_position=payload.get("scene_position"),
+                    ))
+                elif parsed.path.endswith("motions/resolve"):
+                    cands = vd_resolver.resolve_motions(vd_resolver.MotionResolveRequest(
+                        layer_type=payload.get("layer_type") or "image",
+                        semantic_intent=payload.get("semantic_intent") or "enter",
+                        style_id=payload.get("style_id"),
+                        duration=float(payload.get("duration") or 0.5),
+                    ))
+                else:
+                    cands = vd_resolver.resolve_templates(vd_resolver.TemplateResolveRequest(
+                        content_type=payload.get("content_type") or "",
+                        ratio=payload.get("ratio") or "9:16",
+                        duration=float(payload.get("duration") or 20),
+                        style_id=payload.get("style_id"),
+                    ))
+                self._send_json({"ok": True, "candidates": [
+                    {"recipe_id": c.recipe_id, "version": c.version, "name": c.name,
+                     "compatibility": c.compatibility, "reasons": list(c.reasons),
+                     "missing_requirements": list(c.missing_requirements)}
+                    for c in cands
+                ]})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/templates/instantiate":
+            # 模板试用：Template → Composition → 建项目（可编辑实例，非 MP4）
+            # multipart：template_id/ratio/slot_values_json 文本域 + <slot>_file 文件域
+            mp = _parse_multipart(self)
+            fields, files = mp["fields"], mp["files"]
+            template_id = fields.get("template_id", "")
+            ratio = fields.get("ratio", "9:16")
+            try:
+                slot_values = json.loads(fields.get("slot_values_json", "{}"))
+            except json.JSONDecodeError:
+                slot_values = {}
+            if not template_id:
+                self._send_json({"error": "缺少 template_id"}, 400)
+                return
+            try:
+                import uuid as _uuid
+                from video_director.registries import compiler as vd_compiler
+                pid = "tpl-" + _uuid.uuid4().hex[:8]
+                base = vd_config.project_dir(pid)
+                dirs = vd_config.init_project_dirs(base)
+                assets = {}
+                # 文件槽：落盘到项目 input/videos 并探测（asset_id 按槽位语义回填）
+                for f in files:
+                    if not f["name"].endswith("_file"):
+                        continue
+                    slot_key = f["name"][:-5]
+                    raw = f["filename"] or "slot.mp4"
+                    safe = re.sub(r"[^\w\-.]+", "_", raw) or "slot.mp4"
+                    dest = dirs["input"] / "videos" / safe
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(f["data"])
+                    probe = vd_prober.probe_media(str(dest))
+                    is_image = (probe.has_video_stream is False and probe.has_audio_stream is False) \
+                               or safe.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+                    aid = f"asset-{len(assets) + 1:02d}"
+                    from video_director.models import AssetRef
+                    aref = AssetRef(id=aid, type="image" if is_image else "video",
+                                    file=str(dest), duration=probe.duration,
+                                    width=probe.width, height=probe.height,
+                                    fps=probe.fps, source="user")
+                    assets[aid] = aref
+                    slot_values[slot_key] = aid  # 槽位 → 素材绑定
+                if not assets:
+                    self._send_json({"error": "模板试用请至少上传一张素材（素材槽位旁选择文件）"}, 400)
+                    return
+                ir = vd_compiler.instantiate_template(
+                    template_id, fields.get("template_version") or None, ratio,
+                    slot_values, assets, pid,
+                )
+                # 落盘 composition.json + manifest（Editor 打开的事实源）
+                comp_path = dirs["plans"] / "composition.json"
+                comp_path.write_text(json.dumps(json.loads(ir.model_dump_json()),
+                                                 ensure_ascii=False, indent=2), encoding="utf-8")
+                (dirs["assets"] / "manifest.json").write_text(
+                    json.dumps([a.model_dump() for a in assets.values()],
+                               ensure_ascii=False, indent=2), encoding="utf-8")
+                (dirs["input"] / "script.txt").write_text(
+                    "模板实例：" + template_id, encoding="utf-8")
+                vd_store.create_project(pid, f"[模板] {template_id}",
+                                        {"mode": "template", "ratio": ratio,
+                                         "template_id": template_id})
+                vd_store.set_stage(pid, vd_store.Stage.AWAITING_CONFIRM)
+                self._send_json({"ok": True, "project_id": pid,
+                                 "origin_template_id": ir.origin_template_id,
+                                 "origin_template_version": ir.origin_template_version,
+                                 "scene_count": len(ir.scenes),
+                                 "duration": ir.project.duration})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/editor/command":
+            # Editor Command（UI → 命令 → 校验 → Revision；前端不得直改 IR）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = payload.get("project_id", "")
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import editor as vd_editor
+                result = vd_editor.execute_command(pid, {
+                    "command": payload.get("command"),
+                    "targetId": payload.get("targetId"),
+                    "payload": payload.get("payload") or {},
+                    "expectedVersion": payload.get("expectedVersion"),
+                    "author": payload.get("author", "user"),
+                })
+                self._send_json({
+                    "ok": result.status == "APPLIED",
+                    "status": result.status,
+                    "revision_id": result.revision_id,
+                    "composition_version": result.composition_version,
+                    "changed_artifacts": result.changed_artifacts,
+                    "reused_artifacts": result.reused_artifacts,
+                    "stale_artifacts": result.stale_artifacts,
+                    "errors": result.errors,
+                    "composition": result.composition,
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path in ("/api/proposal/propose", "/api/proposal/preview",
+                           "/api/proposal/apply", "/api/proposal/reject"):
+            # AI 提案式修订四态流（Proposal ≠ Apply）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = payload.get("project_id", "")
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import proposal as vd_proposal
+                if parsed.path.endswith("propose"):
+                    out = vd_proposal.propose(pid, payload.get("instruction", ""))
+                elif parsed.path.endswith("preview"):
+                    out = vd_proposal.preview(pid, payload.get("proposal_id", ""))
+                elif parsed.path.endswith("apply"):
+                    out = vd_proposal.apply(pid, payload.get("proposal_id", ""))
+                else:
+                    out = vd_proposal.reject(pid, payload.get("proposal_id", ""))
+                self._send_json({"ok": True, **out})
+            except vd_proposal.ProposalError as exc:
+                self._send_json({"ok": False, "error": str(exc), "code": exc.code}, 400)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
