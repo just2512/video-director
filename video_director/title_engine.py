@@ -221,7 +221,7 @@ def render_watermark_overlay(
     esc_font = _esc_font_path(font)
     draw = (
         f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(text.strip())}'"
-        f":fontsize={size}:fontcolor=white@0.55"
+        f":fontsize={size}:fontcolor=white@0.75"
         f":x=w-text_w-{int(w * 0.03)}:y=h-text_h-{int(h * 0.02)}"
     )
     ff = prober._resolve_ffmpeg()
