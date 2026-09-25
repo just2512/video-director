@@ -195,8 +195,9 @@ def get_llm_config() -> dict:
 def get_llm() -> Optional[LLMProvider]:
     """获取 LLM Provider 单例。
 
-    - 运行时配置（前端设置）优先，其次环境变量 VD_LLM_API_KEY
-    - 均无 → 返回 None（诚实降级，调用方走规则路径）
+    配置优先级：model_config.json 的 llm 角色（前端五角色配置中心）>
+    运行时 set_llm_config > 环境变量 VD_LLM_API_KEY。
+    均无 → 返回 None（诚实降级，调用方走规则路径）。
 
     结果缓存（进程内单例），避免每次调用重建 client。
     """
@@ -208,9 +209,22 @@ def get_llm() -> Optional[LLMProvider]:
         base_url = _runtime_config.get("base_url")
         model = _runtime_config.get("model")
     else:
-        api_key = os.environ.get(ENV_API_KEY, "").strip()
-        base_url = None
-        model = None
+        # 前端「大模型配置」中心（model_config.json 的 llm 角色）——用户
+        # 在页面保存的 key 优先于环境变量（否则配置了 key 仍走 env 空→None）
+        try:
+            from video_director import model_config
+            mc = model_config.get_role_config("llm")
+            if mc.get("api_key"):
+                api_key = mc["api_key"]
+                base_url = mc.get("base_url") or None
+                model = mc.get("model") or None
+                logger.info(f"LLM 已启用（大模型配置中心 llm 角色，model={model}）")
+            else:
+                raise KeyError
+        except Exception:
+            api_key = os.environ.get(ENV_API_KEY, "").strip()
+            base_url = None
+            model = None
     if not api_key:
         logger.info(
             f"LLM 未启用（{ENV_API_KEY} 未配置），消费点将走规则路径兜底"
