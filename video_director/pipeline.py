@@ -70,6 +70,105 @@ def parse_brief_voice_rate(creative_brief: str) -> Optional[str]:
     return None
 
 
+def _recompose_with_size(project_id: str, width: int, height: int):
+    """便携项目包重渲（§31 Portable Project / §41 Variant）。
+
+    DONE/任意态项目：读回项目包内 storyboard + narration_scenes + manifest，
+    以指定画幅重跑 compose_project（幂等，不改旁白时间轴）。
+    Variant 引擎的多平台变体由此产出。
+    """
+    import json as _json
+    base = config.project_dir(project_id)
+    dirs = config.init_project_dirs(base)
+
+    sb_path = dirs["plans"] / "storyboard.json"
+    if not sb_path.is_file():
+        raise PipelineError(f"项目包缺 storyboard.json: {project_id}")
+    storyboard = _json.loads(sb_path.read_text(encoding="utf-8"))
+
+    scenes_path = dirs["plans"] / "scenes.json"
+    if not scenes_path.is_file():
+        raise PipelineError(f"项目包缺 scenes.json: {project_id}")
+    narration_scenes = _json.loads(scenes_path.read_text(encoding="utf-8"))
+
+    narration_path = dirs["audio"] / "narration.mp3"
+    narration_file = str(narration_path) if narration_path.is_file() else None
+    sub_path = dirs["render"] / "master.ass"
+    sub_entries = None
+    sub_file_arg = None
+    if sub_path.is_file():
+        sub_file_arg = str(sub_path)
+        sub_entries = subtitle_mod.srt_entries(narration_scenes)
+
+    # 风格
+    style_data = {}
+    style_path = dirs["plans"] / "style.json"
+    if style_path.is_file():
+        try:
+            style_data = _json.loads(style_path.read_text(encoding="utf-8"))
+        except (OSError, _json.JSONDecodeError):
+            pass
+    params = {}
+    proj = store.get_project(project_id)
+    if proj and proj.get("params_json"):
+        try:
+            params = _json.loads(proj["params_json"])
+        except _json.JSONDecodeError:
+            params = {}
+    bgm_asset_id = params.get("bgm")
+    # 画幅改变时字幕重生成（字号/PlayRes 跟随新画幅）
+    rw, rh = width or config.DEFAULT_RESOLUTION[0], height or config.DEFAULT_RESOLUTION[1]
+    rfont = int(round((style_data.get("contract", {}).get("subtitle_font_size")
+                       or params.get("subtitle_font_size") or 52) * (rw / 1080)))
+    sub_mode = params.get("subtitle_mode", "plain")
+    if sub_mode == "karaoke":
+        words = []
+        words_path = dirs["alignment"] / "words.json"
+        if words_path.is_file():
+            words = _json.loads(words_path.read_text(encoding="utf-8"))
+        sub_path.write_text(
+            subtitle_mod.build_ass_karaoke(narration_scenes, words,
+                                           width=rw, height=rh, font_size=rfont),
+            encoding="utf-8")
+    else:
+        sub_path.write_text(
+            subtitle_mod.build_ass_plain(narration_scenes, width=rw, height=rh,
+                                         font_size=rfont),
+            encoding="utf-8")
+    sub_file_arg = str(sub_path)
+
+    try:
+        store.set_stage(project_id, store.Stage.RENDERING)
+    except Exception:
+        pass
+
+    result = compose_project(
+        script=(proj or {}).get("script", "") or storyboard.get("scenes", [{}])[0].get("text", ""),
+        video_files=[],
+        image_files=[],
+        project_id=project_id,
+        planner=planner_mod.RulePlanner(),
+        narration_file=narration_file,
+        narration_scenes=narration_scenes,
+        bgm_asset_id=bgm_asset_id,
+        subtitle_entries=sub_entries,
+        subtitle_file=sub_file_arg,
+        title=params.get("title"),
+        lower_third_name=params.get("lower_third_name"),
+        lower_third_role=params.get("lower_third_role"),
+        watermark=params.get("watermark"),
+        transition_budget=style_data.get("contract", {}).get("transition_budget", 1),
+        width=width,
+        height=height,
+        repair_enabled=False,
+    )
+    try:
+        store.set_stage(project_id, store.Stage.DONE)
+    except Exception:
+        pass
+    return result
+
+
 def _inject_transitions(ir: CompositionIR, budget: int) -> None:
     """方案 §22：按风格 budget 在场景边界均匀插入 crossfade（默认 cut 不变）。
 

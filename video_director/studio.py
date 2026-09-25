@@ -216,14 +216,27 @@ PLATFORMS = {
 
 
 def _run_variant(spec: dict) -> dict:
-    """Variant 渲染：已有项目 IR → 指定画幅重渲（复用 compose_project 幂等）。"""
+    """Variant 渲染：已完成项目 → 指定画幅重渲。
+
+    两种路径：
+    - AWAITING_CONFIRM 态项目：resume_after_confirm 续渲
+    - 已完成（DONE）项目：读回 storyboard + narration，重跑 compose_project
+      （幂等，storyboard/scenes/narration 全在项目包内，只换宽高）
+    """
     from video_director import confirm as confirm_mod
-    from video_director import pipeline
+    from video_director import pipeline, store
     pid = spec["project_id"]
     w, h = spec["width"], spec["height"]
     platform = spec.get("platform", "custom")
-    # 复用 resume 的重规划渲染：storyboard/composition 已在项目包内
-    result = pipeline.resume_after_confirm(pid, edits=None)
+
+    proj = store.get_project(pid)
+    stage = (proj or {}).get("stage")
+    if stage == store.Stage.AWAITING_CONFIRM.value:
+        result = pipeline.resume_after_confirm(pid, edits=None)
+    else:
+        # DONE/任意态：便携项目包重渲（Portable Project 的意义）
+        result = pipeline._recompose_with_size(pid, width=w, height=h)
+
     final = Path(result.final_path)
     variant_dir = final.parent.parent / "variants"
     variant_dir.mkdir(parents=True, exist_ok=True)
