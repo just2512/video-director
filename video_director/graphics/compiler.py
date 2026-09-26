@@ -60,7 +60,24 @@ window.__gf = (function(){
     if (d.type === 'gf-seek') { seek(d.frame | 0); }
     else if (d.type === 'gf-play') { play(); }
     else if (d.type === 'gf-pause') { pause(); }
+    else if (d.type === 'gf-enable-select') { enableSelect(); }
   });
+  /* §39 Direct Manipulation：点击元素 → 选中态（outline bounds 高亮）。
+     手势不直接改 HTML——选中只发信号回父页面，修改走 plan→command→重编译。 */
+  function enableSelect(){
+    if (window.__gfSelectOn) return;
+    window.__gfSelectOn = true;
+    document.addEventListener('click', function(e){
+      var els = document.querySelectorAll('.gf-sel');
+      for (var i=0;i<els.length;i++) els[i].classList.remove('gf-sel');
+      var t = e.target.closest('.gfx-type, .gfx-cell, .gfx-num');
+      if (!t) return;
+      t.classList.add('gf-sel');
+      /* opaque origin 无法直接调父页面：postMessage 上报选中（父页面可更新 Inspector） */
+      try { parent.postMessage({type:'gf-selected', tag:(t.tagName||''), cls:(t.className||''),
+        text:(t.textContent||'').slice(0,40)}, '*'); } catch(e2){}
+    });
+  }
   seek(0);
   return { fps: fps, totalFrames: total, scenes: scenes, seek: seek, play: play, pause: pause };
 })();
@@ -88,9 +105,9 @@ def compile_to_html(program: GraphicProgram) -> str:
     total = scenes_sorted[-1].start + scenes_sorted[-1].duration
     rfp = program.rational_fps
 
-    # 逐 scene 编译 block 片段
+    # 逐 scene 编译 block 片段（§8：clip 元素自带 data-start/duration/track-index 契约）
     bodies: List[str] = []
-    for sc in scenes_sorted:
+    for track_idx, sc in enumerate(scenes_sorted):
         try:
             block = blocks_mod.get_block(sc.block_id)
         except KeyError as exc:
@@ -101,7 +118,10 @@ def compile_to_html(program: GraphicProgram) -> str:
                 "BLOCK_DURATION_OUT_OF_RANGE",
                 f"scene {sc.id}: block {sc.block_id} 时长 {dur}s 越界",
             )
-        bodies.append(blocks_mod.render_block(block, sc.slot_values, dur, program.style_id))
+        bodies.append(blocks_mod.render_block(
+            block, sc.slot_values, dur, program.style_id,
+            start=sc.start, track_index=track_idx,
+        ))
 
     # motion 样式：每种 motion 一套 keyframes（去重）
     motion_ids = sorted({sc.motion_id for sc in scenes_sorted})
@@ -124,11 +144,16 @@ def compile_to_html(program: GraphicProgram) -> str:
         .replace("__GF_SCENES__", json.dumps(scenes_json, ensure_ascii=False))
     )
 
+    # §52 Font 冻结：本地 CJK 字体 → @font-face（渲染/预览同注入 → 字体 parity）
+    from video_director.graphics import font_resolver
+    font_css = font_resolver.font_face_css()
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <style>
+{font_css}
 {blocks_mod.graphics_base_css(program.style_id)}
 {motion_css}
 </style>

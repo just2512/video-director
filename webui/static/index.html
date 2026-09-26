@@ -103,13 +103,14 @@
   .lic-blocked { background:#2a0d0d; color:#ff6b6b; }
   .scene-role { background:#33518c; color:#fff; border-radius:3px; padding:0 5px; font-size:11px; }
   .sb-actions button { margin-top:0; }
+  .gfx-type-btn.on { background:#26405a; border-color:#4a90d9; color:#fff; }
   #gfx-preview-frame { max-width:100%; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🎬 AI Video Director</h1>
-  <div class="sub">一句话文案 + 素材 → AI 自动导演：理解内容、匹配画面、配音、配乐、成片</div>
+  <h1>🎬 AI Video Creative OS</h1>
+  <div class="sub">理解创意 → 编排内容 → 程序化图形 + 媒体素材 → 可编辑时间线 → 人工确认 → AI 局部修改 → 确定性渲染 → 版本化复用</div>
   <div class="tab-row">
     <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">🏠 首页</button>
     <button class="tab" id="tab-create" onclick="switchTab('create')">🎬 创作</button>
@@ -123,11 +124,79 @@
     <button class="tab" id="tab-queue" onclick="switchTab('queue')">⚙ 队列</button>
     <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考分析</button>
     <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 创作记忆</button>
-    <button class="tab" id="tab-graphics" onclick="switchTab('graphics')">🔠 图形创作</button>
   </div>
 
   <!-- ======== Tab 0: 首页（我现在该做什么）======== -->
   <div id="pane-home">
+
+    <!-- §33 Frontend：新的 Create 入口（从文字开始 → 程序化视觉） -->
+    <div class="card">
+      <b>Create · 从文字开始</b>——输入文案或创意，自动生成知识/产品动效视频（程序化视觉，无需素材、无需配音）
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-top:10px">
+        <div style="flex:2">
+          <textarea id="gfx-script" style="min-height:96px" placeholder="例：介绍一下我的产品……"></textarea>
+        </div>
+        <div style="flex:1">
+          <label>内容类型</label>
+          <div class="btn-row" style="flex-wrap:wrap;gap:6px" id="gfx-types">
+            <button class="btn-secondary btn-sm gfx-type-btn on" onclick="gfxSetType('knowledge',this)">知识分享</button>
+            <button class="btn-secondary btn-sm gfx-type-btn" onclick="gfxSetType('product_video',this)">产品介绍</button>
+            <button class="btn-secondary btn-sm gfx-type-btn" onclick="gfxSetType('tutorial',this)">教程</button>
+            <button class="btn-secondary btn-sm gfx-type-btn" onclick="gfxSetType('freeform',this)">自由创作</button>
+          </div>
+          <label>画幅</label>
+          <select id="gfx-aspect">
+            <option value="1080x1920">9:16</option>
+            <option value="1920x1080">16:9</option>
+            <option value="1080x1080">1:1</option>
+          </select>
+          <label>风格</label>
+          <select id="gfx-style">
+            <option value="editorial">Editorial</option>
+            <option value="minimal">Minimal</option>
+            <option value="warm">Warm</option>
+          </select>
+          <label>时长</label>
+          <select id="gfx-duration">
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+            <option value="60">60s</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button onclick="gfxMakePlan()" id="gfx-plan-btn">📋 生成创作方案</button>
+        <button class="btn-secondary" onclick="gfxPreview()">👁 预览动效</button>
+        <button class="btn-secondary" onclick="gfxRender()" id="gfx-render-btn">🎬 渲染成片</button>
+      </div>
+      <div class="hint" id="gfx-status"></div>
+    </div>
+    <div id="gfx-plan-box"></div>
+    <div id="gfx-preview-box"></div>
+    <div id="gfx-result"></div>
+
+    <!-- §42 Block 开发体验：New Block → BlockDefinition → Creative Catalog -->
+    <div class="card">
+      <b>🧱 新建视觉块（开发者模式）</b> <span class="hint">——定义语义/意图/基件，保存进 Creative Catalog（刷新后仍在）</span>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <input type="text" id="nb-id" class="rev-input" style="flex:1" placeholder="块 id（如 kb.mycard）">
+        <input type="text" id="nb-name" class="rev-input" style="flex:1" placeholder="块名（如 我的卡片）">
+      </div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <select id="nb-base" style="flex:1">
+          <option value="kb.title">基件：标题排版</option>
+          <option value="kb.statistic">基件：数字冲击</option>
+          <option value="kb.comparison">基件：双栏对比</option>
+          <option value="kb.process">基件：流程</option>
+          <option value="kb.quote">基件：引用</option>
+          <option value="pd.hero">基件：产品 Hero</option>
+        </select>
+        <input type="text" id="nb-intents" class="rev-input" style="flex:1" placeholder="语义意图（逗号分隔，如 mycard,custom）">
+        <button class="btn-secondary" onclick="gfxNewBlock()">💾 保存进 Catalog</button>
+      </div>
+      <div class="hint" id="nb-status"></div>
+    </div>
+
     <div class="card">
       <b>开始新创作</b>——选择你的起点
       <div class="btn-row" style="flex-wrap:wrap">
@@ -153,6 +222,11 @@
       <div id="home-pending-draft">—</div>
       <div id="home-done-recent">—</div>
     </div>
+    <div class="card">
+      <b>Capability Map</b>——系统的能力地图（§61；点能力徽章查看运行态）
+      <div class="hint" id="system-identity-tag">加载中……</div>
+      <div id="capability-map"></div>
+    </div>
   </div>
   <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
   <div id="cap-badge" class="llm-badge" onclick="toggleCapPanel()">⚙ 系统能力：检测中…</div>
@@ -174,7 +248,7 @@
   </div>
 
   <!-- ======== Tab 1: 创作 ======== -->
-  <div id="pane-create">
+  <div id="pane-create" style="display:none">
   <div class="grid">
     <div class="card">
       <label>创作模式</label>
@@ -293,6 +367,21 @@
     </div>
     <div id="editor-body" style="display:none">
       <div class="card">
+        <b>📚 Creative Library</b>——选中场景后按分类浏览可用素材（§36 Editor 左侧库）
+        <div class="btn-row" style="flex-wrap:wrap">
+          <select id="ed-lib-kind" style="flex:1" onchange="edLibLoad()">
+            <option value="blocks">Blocks（视觉块）</option>
+            <option value="motions">Motion（动效）</option>
+            <option value="templates">Templates（模板）</option>
+            <option value="assets">Assets（素材）</option>
+            <option value="scenes">Scenes（本项目场景）</option>
+          </select>
+          <input type="text" id="ed-lib-search" class="rev-input" style="flex:1" placeholder="搜索…" oninput="edLibLoad()">
+        </div>
+        <div id="ed-lib-list" style="max-height:220px;overflow:auto;margin-top:8px"></div>
+        <div class="hint">Blocks/Motion 点击即应用到当前选中场景/图层（先在下方时间线选中）。</div>
+      </div>
+      <div class="card">
         <b>时间线</b> <span class="hint">点击场景块选择；点图层块用右侧 Inspector 编辑</span>
         <div id="editor-timeline"></div>
         <div class="btn-row" style="margin-top:8px">
@@ -361,6 +450,11 @@
       <div id="motions-list">加载中……</div>
       <div class="hint">应用动效需要先在「编辑器」打开项目并选中一个图层。</div>
     </div>
+    <!-- §37 Motion 三区视图：Entrance / Emphasis / Exit（按用途分组的推荐区） -->
+    <div class="card">
+      <b>Motion 三区</b> <span class="hint">（§37：Entrance 入场 / Emphasis 强调 / Exit 出场；点卡片直接应用）</span>
+      <div id="motion-zones"></div>
+    </div>
   </div>
 
   <!-- ======== Tab 2: 项目（Portable Project 列表 + 重开续用）======== -->
@@ -372,11 +466,19 @@
     <div id="project-detail-box"></div>
   </div>
 
-  <!-- ======== Tab 3: 素材库（Asset Graph：元数据 + 使用历史）======== -->
+  <!-- ======== Tab 3: 素材库（§43 Media Library 与 Graphic Library 分离）======== -->
   <div id="pane-assets" style="display:none">
     <div class="card">
-      <b>素材库</b>——所有项目用过的视频/图片素材（含 AI 画面理解描述），可查「这个素材在哪些视频里用过」
+      <b>Media Library</b>——项目用过的视频/图片/音频素材 + 冻结资产台账（source/license/复用次数）
       <div id="assets-list">加载中……</div>
+      <div id="media-frozen-list" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <b>Graphic Library</b>——可执行视觉能力（不是素材）：Blocks / Motions / Templates / Styles
+      <div class="hint">Blocks：36+ 视觉块（知识 20 / 产品 16 / 自定义）——去首页 Create 区块或编辑器 Creative Library 使用</div>
+      <div class="hint">Motions：确定性动效 5 族 + Shotcraft 19 动效——去「动效库」页预览/应用</div>
+      <div class="hint">Templates：3 模板——去「模板库」页试用</div>
+      <div id="graphic-lib-counts" class="btn-row" style="flex-wrap:wrap;margin-top:8px"></div>
     </div>
   </div>
 
@@ -455,47 +557,7 @@
     </div>
   </div>
 
-  <!-- ======== Tab: 图形创作（HyperFrames Graphics Runtime：纯文案→动效视频）======== -->
-  <div id="pane-graphics" style="display:none">
-    <div class="card">
-      <b>🔠 图形创作</b>——纯文案 → 知识/产品动效视频（程序化视觉：HTML/CSS 确定性渲染，无需素材、无需配音）
-      <div class="btn-row">
-        <div style="flex:2"><label>文案（每句一个场景，自动识别钩子/数字/对比/结论）</label>
-          <textarea id="gfx-script" style="min-height:120px" placeholder="例：很多人以为AI只能聊天。其实AI真正改变的是工作流程。效率提升了80%。关键是把AI嵌入流程。所以别只会聊天。"></textarea>
-        </div>
-        <div style="flex:1">
-          <label>内容类型</label>
-          <select id="gfx-content-type">
-            <option value="knowledge">知识分享</option>
-            <option value="product_video">产品介绍</option>
-          </select>
-          <label>画幅</label>
-          <select id="gfx-aspect">
-            <option value="1080x1920">9:16 竖屏</option>
-            <option value="1920x1080">16:9 横屏</option>
-            <option value="1080x1080">1:1 方形</option>
-          </select>
-          <label>渲染质量</label>
-          <select id="gfx-quality">
-            <option value="draft">草稿（半分辨率，快）</option>
-            <option value="final">正式（完整分辨率）</option>
-          </select>
-        </div>
-      </div>
-      <div class="btn-row">
-        <button onclick="gfxMakePlan()">📋 生成创作方案</button>
-        <button class="btn-secondary" onclick="gfxPreview()">👁 预览动效</button>
-        <button class="btn-secondary" onclick="gfxRender()" id="gfx-render-btn">🎬 渲染成片</button>
-      </div>
-      <div class="hint" id="gfx-status"></div>
-    </div>
-    <div id="gfx-plan-box"></div>
-    <div id="gfx-preview-box"></div>
-    <div id="gfx-result"></div>
-  </div>
-
   <div id="result"></div>
-</div>
 
 <script>
 let BGMLIST = [];
@@ -688,7 +750,7 @@ function discardEnhanced(){
 }
 
 function switchTab(tab){
-  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','queue','reference','memory','graphics']) {
+  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','queue','reference','memory']) {
     const el = document.getElementById('pane-' + p);
     if (el) el.style.display = (tab === p) ? '' : 'none';
     const tb = document.getElementById('tab-' + p);
@@ -704,7 +766,6 @@ function switchTab(tab){
   if (tab === 'capture') loadInbox();
   if (tab === 'queue') loadQueue();
   if (tab === 'memory') loadMemoryView();
-  if (tab === 'graphics') gfxInit();
 }
 
 // ===========================================================================
@@ -780,13 +841,25 @@ function editorSelectLayer(sceneId, idx){
   const lay = sc.layers[idx];
   const card = document.getElementById('editor-inspector-card');
   card.style.display='';
+  // §38 Graphic Inspector 四区：Content / Layout / Style / Motion
   document.getElementById('editor-inspector').innerHTML =
     `<b>图层 ${sceneId}#${idx}</b>（${lay.type}）`+
-    `<div class="hint">时长：${lay.duration.toFixed(1)}s · 动效：${lay.motion_recipe_id ? esc(lay.motion_recipe_id) : '无'}`+
+    `<div class="hint">时长：${lay.duration.toFixed(1)}s · 素材：${esc(lay.asset_id || '—')}</div>`+
+    `<div class="role-block"><b>Content</b><div class="hint">素材：${esc(lay.asset_id || '无')}（换素材走 Creative Library → Assets）</div></div>`+
+    `<div class="role-block"><b>Layout</b><div class="hint">层时长 ${lay.duration.toFixed(1)}s · 场景内起点 ${lay.start.toFixed(1)}s</div></div>`+
+    `<div class="role-block"><b>Style</b><div class="hint">透明度/风格参数经动效参数调节（set_motion_parameter）</div></div>`+
+    `<div class="role-block"><b>Motion</b><div class="hint">当前：${lay.motion_recipe_id ? esc(lay.motion_recipe_id) : '无'}`+
     (lay.motion_version ? ` @${esc(lay.motion_version)}` : '') + `</div>`+
+    `<label>动效时长（秒）</label><div class="btn-row"><input type="number" id="ed-mot-dur" value="0.5" step="0.1" min="0.1" style="width:80px">`+
+    `<button class="btn-secondary btn-sm" onclick="editorSetMotionParam('${sceneId}',${idx})">应用参数</button></div></div>`+
     `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorOpenMotionPicker('${sceneId}',${idx})">✨ 换动效</button>`+
     `<button class="btn-secondary btn-sm" onclick="editorOpenShotPicker('${sceneId}')">🎬 换镜头</button></div>`+
     `<div id="editor-picker-box"></div>`;
+}
+async function editorSetMotionParam(sceneId, idx){
+  const v = parseFloat(document.getElementById('ed-mot-dur').value);
+  if (!(v > 0.1)) { alert('动效时长需 > 0.1s'); return; }
+  await editorCmd('set_motion_parameter', {duration: v});
 }
 
 async function editorCmd(cmd, extra){
@@ -985,6 +1058,83 @@ function editorToast(msg, isErr){
 }
 
 // ===========================================================================
+// §36 Creative Library（Editor 左侧库）：Blocks/Motion/Templates/Assets/Scenes
+// 选中场景后：Blocks 显示候选（点击应用到选中层）；Motion 显示动效（点击应用）。
+// ===========================================================================
+let ED_LIB = {blocks: [], motions: [], loaded: false};
+async function edLibLoad(){
+  const kind = document.getElementById('ed-lib-kind').value;
+  const q = (document.getElementById('ed-lib-search').value || '').toLowerCase();
+  const box = document.getElementById('ed-lib-list');
+  box.innerHTML = '加载中……';
+  try {
+    if (kind === 'blocks') {
+      if (!ED_LIB.blocks.length) ED_LIB.blocks = await (await fetch('/api/catalog/blocks')).json();
+      const list = ED_LIB.blocks.filter(b => !q || (b.id + b.name).toLowerCase().includes(q));
+      box.innerHTML = list.map(b => `<div class="proj-row"><span><b>${esc(b.name)}</b> <code>${esc(b.id)}</code>`+
+        `<span class="hint">${esc(b.category)} · ${b.slots.join('/')}</span></span>`+
+        `<button class="btn-secondary btn-sm" onclick="edLibApplyBlock('${esc(b.id)}')">应用</button></div>`).join('')
+        || '<div class="hint">无匹配</div>';
+    } else if (kind === 'motions') {
+      if (!ED_LIB.motions.length) ED_LIB.motions = await (await fetch('/api/registry/motions')).json();
+      const list = ED_LIB.motions.filter(m => !q || (m.id + m.name).toLowerCase().includes(q));
+      box.innerHTML = list.map(m => `<div class="proj-row"><span><b>${esc(m.name)}</b> <code>${esc(m.id)}</code>`+
+        `<span class="hint">${esc(m.motion_type)}</span></span>`+
+        `<button class="btn-secondary btn-sm" onclick="edLibApplyMotion('${esc(m.id)}')">应用</button></div>`).join('')
+        || '<div class="hint">无匹配</div>';
+    } else if (kind === 'templates') {
+      const tpls = await (await fetch('/api/registry/templates')).json();
+      const list = tpls.filter(t => !q || (t.id + t.name).toLowerCase().includes(q));
+      box.innerHTML = list.map(t => `<div class="proj-row"><span><b>${esc(t.name)}</b> <code>${esc(t.id)}</code>`+
+        `<span class="hint">去「模板库」页试用</span></span></div>`).join('') || '<div class="hint">无匹配</div>';
+    } else if (kind === 'assets') {
+      const assets = await (await fetch('/api/assets_library')).json();
+      const list = assets.filter(a => !q || (a.asset_id + (a.description||'')).toLowerCase().includes(q));
+      box.innerHTML = list.slice(0, 50).map(a => `<div class="proj-row"><span><b>${esc(a.asset_id)}</b>`+
+        `<span class="hint">${esc(a.type)} · 用于 ${a.used_in.length} 项目</span></span>`+
+        `<button class="btn-secondary btn-sm" onclick="edLibApplyAsset('${esc(a.asset_id)}')">换到此层</button></div>`).join('')
+        || '<div class="hint">无素材</div>';
+    } else if (kind === 'scenes') {
+      if (!ED.comp || !ED.comp.scenes) { box.innerHTML = '<div class="hint">先打开项目</div>'; return; }
+      const list = ED.comp.scenes.filter(s => !q || (s.id + s.text).toLowerCase().includes(q));
+      box.innerHTML = list.map(s => `<div class="proj-row" onclick="editorSelectScene('${esc(s.id)}')"><span><b>${esc(s.id)}</b>`+
+        `<span class="hint">${s.duration.toFixed(1)}s · ${esc((s.text||'').slice(0,20))}</span></span></div>`).join('');
+    }
+  } catch (e) {
+    box.innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
+  }
+}
+async function edLibApplyBlock(blockId){
+  // §36：Block 应用到选中场景 = 换该场景的视觉块（走 editor command 链，若项目是 gfx/媒体混排则诚实提示）
+  if (!ED.pid || !ED.sel) { alert('先在时间线选中场景或图层'); return; }
+  alert('Block「'+blockId+'」：图形块应用于图形场景（首页 Create 入口的方案里换视觉块）；媒体时间线场景请用「换镜头」。');
+}
+async function edLibApplyMotion(motionId){
+  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { alert('先在时间线选中一个图层'); return; }
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
+    targetId: ED.sel.id, payload: {motionRecipeId: motionId}, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorRenderTimeline();
+    editorToast(`✅ ${motionId} 已应用（Creative Library）`);
+  } else { editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error), true); }
+}
+async function edLibApplyAsset(assetId){
+  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { alert('先在时间线选中一个图层'); return; }
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_source',
+    targetId: ED.sel.id, payload: {assetId}, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorRenderTimeline();
+    editorToast(`✅ 素材已换为 ${assetId}`);
+  } else { editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error), true); }
+}
+
+// ===========================================================================
 // 模板库（Template Gallery）
 // ===========================================================================
 let TPLS = [];
@@ -1056,6 +1206,30 @@ let MOTIONS = [];
 async function loadMotions(){
   MOTIONS = await (await fetch('/api/registry/motions')).json();
   renderMotionGallery();
+  renderMotionZones();
+}
+// §37 Motion 三区：Entrance（入场：fade/slide/reveal/scale）/ Emphasis（强调：
+// pulse/highlight/underline 类）/ Exit（出场：fade/slide）按用途分组展示。
+const MOTION_ZONES = {
+  Entrance: ['motion.fade-in', 'motion.fade-slide', 'motion.rise-fade', 'motion.zoom-in-soft', 'motion.slide-left', 'motion.slide-right', 'motion.wipe-reveal', 'motion.ink-bleed', 'motion.card-assemble'],
+  Emphasis: ['motion.scale-punch', 'motion.pulse-emphasis', 'motion.shake-emphasis', 'motion.spotlight-focus', 'motion.word-relay', 'motion.ken-burns-soft'],
+  Exit: ['motion.fade-out', 'motion.scale-down-exit', 'motion.slide-down-exit', 'motion.blur-slide'],
+};
+function renderMotionZones(){
+  const box = document.getElementById('motion-zones');
+  if (!box) return;
+  const zoneHtml = (label, ids) => `<div style="margin:1.2vh 0"><b style="color:#8ab4d8">${label}</b><div>`+
+    ids.map(id => {
+      const m = MOTIONS.find(x => x.id === id);
+      if (!m) return '';
+      const kf = motionCssPreview(m);
+      return `<div class="motion-card" style="width:120px">`+
+        `<div class="motion-preview ${m.preview_only ? 'motion-preview-dim' : ''}" style="${kf}">${esc(m.name)}</div>`+
+        `<button class="btn-secondary btn-sm" style="margin-top:6px;width:100%" onclick="motionApplyToProject('${esc(m.id)}')">应用</button></div>`;
+    }).join('') + '</div></div>';
+  box.innerHTML = zoneHtml('Entrance（入场）', MOTION_ZONES.Entrance) +
+                   zoneHtml('Emphasis（强调）', MOTION_ZONES.Emphasis) +
+                   zoneHtml('Exit（出场）', MOTION_ZONES.Exit);
 }
 function renderMotionGallery(){
   const q = (document.getElementById('motion-search').value || '').toLowerCase();
@@ -1121,17 +1295,27 @@ async function apiPost(url, body){
 }
 
 // ===========================================================================
-// 图形创作（HyperFrames Graphics Runtime：纯文案 → GraphicPlan → 预览 → MP4）
-// 方案 §34 Creative Plan Review：先出方案，逐场景可换 block，再渲染。
+// 首页 Create 入口（HyperFrames §33：从文字开始 → GraphicPlan → 预览 → MP4）
+// §34 Creative Plan Review：先出方案，逐场景可换视觉/动画/素材/布局/生成素材。
+// §35 Storyboard 卡片六字段：Narration / Visual / Block / Motion / Source / Duration。
+// 全部发生在首页 pane-home 内（非独立页）。
 // ===========================================================================
-let GFX = {plan:null, blocks:[], previewHtml:null, previewTimer:null};
+let GFX = {plan:null, blocks:[], previewHtml:null, content_type:'knowledge'};
 
-async function gfxInit(){
+async function gfxEnsureBlocks(){
   if (!GFX.blocks.length) {
     try {
-      GFX.blocks = await (await fetch('/api/graphics/blocks')).json();
+      // §64 正名端点 /api/catalog/blocks（含 motion 字段；旧 /api/graphics/blocks 仅兼容）
+      GFX.blocks = await (await fetch('/api/catalog/blocks')).json();
     } catch(e) { GFX.blocks = []; }
   }
+}
+async function gfxInit(){ await gfxEnsureBlocks(); }
+
+function gfxSetType(t, btn){
+  GFX.content_type = t;
+  document.querySelectorAll('.gfx-type-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
 }
 
 async function gfxMakePlan(){
@@ -1139,43 +1323,182 @@ async function gfxMakePlan(){
   const status = document.getElementById('gfx-status');
   if (!script) { status.textContent = '请先输入文案'; return; }
   status.textContent = '生成方案中……';
+  await gfxEnsureBlocks();
   const [w, h] = document.getElementById('gfx-aspect').value.split('x');
   const r = await apiPost('/api/graphics/plan', {
     script,
-    content_type: document.getElementById('gfx-content-type').value,
+    content_type: GFX.content_type,
+    style_id: document.getElementById('gfx-style').value,
+    target_duration: parseFloat(document.getElementById('gfx-duration').value),
     width: parseInt(w), height: parseInt(h),
   });
   if (!r.ok) { status.textContent = '❌ ' + (r.error || '生成失败'); return; }
   GFX.plan = r.plan;
   GFX.previewHtml = null;
-  status.textContent = `✅ 方案已生成：${GFX.plan.scene_count} 个场景 · ${GFX.plan.total_duration}s（下方逐场景可换视觉块，然后预览/渲染）`;
+  status.textContent = `✅ 方案已生成：${GFX.plan.scene_count} 个场景 · ${GFX.plan.total_duration}s（下方逐场景审阅，换视觉块后预览/渲染）`;
   gfxRenderPlan();
 }
 
+// §34 Creative Plan Review / §35 Storyboard 卡片：
+// Narration / Visual Intent / Visual Form / Block / Motion / Source / Duration
+// 五操作：换视觉 / 换动画 / 换素材 / 换布局 / 生成素材（§34 逐 Scene 允许）。
 function gfxRenderPlan(){
   const box = document.getElementById('gfx-plan-box');
   if (!GFX.plan) { box.innerHTML = ''; return; }
+  // 视觉块下拉：catalog 域内全量（换视觉=换 Block）
   const opts = (sel) => GFX.blocks
     .filter(b => b.category === GFX.plan.category)
     .map(b => `<option value="${b.id}"${b.id===sel?' selected':''}>${esc(b.name)}（${esc(b.id)}）</option>`).join('');
-  const cards = GFX.plan.scenes.map((s, i) => `
-    <div class="scene-card">
+  // 布局变体（§34 换布局）：同块的排版取向
+  const layoutOpts = (sel) => ['center','left','split'].map(l =>
+    `<option value="${l}"${(sel||'center')===l?' selected':''}>${{center:'居中',left:'左对齐',split:'分栏'}[l]}</option>`).join('');
+  const cards = GFX.plan.scenes.map((s, i) => {
+    const blk = GFX.blocks.find(b=>b.id===s.block_id) || {motion:'graphics.fade-up'};
+    const motionSel = '<select style="flex:1.4" onchange="GFX.plan.scenes['+i+'].motion_id=this.value;GFX.previewHtml=null">'+
+      ['fade-up','scale-punch','slide-left','word-relay','rise-soft']
+        .map(m=>'<option value="graphics.'+m+'"'+((s.motion_id||blk.motion)==='graphics.'+m?' selected':'')+'>'+m+'</option>').join('')+'</select>';
+    // §35 Visual Intent / Visual Form：由场景角色与所选块推导（可编辑）
+    const intentMap = {problem_title:'吸引注意', wrong_belief:'纠正常见误解', cause:'解释机制',
+      contrast:'制造对比', process:'展示步骤', concept:'建立概念', statistic:'数字冲击',
+      definition:'给出定义', timeline:'历史脉络', formula:'公式推理', code:'技术演示',
+      conclusion:'收束总结', problem:'指出痛点', product_hero:'建立第一印象',
+      input:'说明输入', processing:'说明处理', output:'展示产出', benefit:'量化收益',
+      feature:'突出卖点', proof:'建立信任', pricing:'价格对比', cta:'引导行动'};
+    const formMap = {title:'Typography', concept_card:'Concept Card', comparison:'Duopanel',
+      cause_effect:'Flow', process:'Flow', timeline:'Timeline', hierarchy:'Ordered List',
+      matrix:'Grid', quote:'Quote', statistic:'Number', ranking:'Rank Rows',
+      checklist:'List', before_after:'Duopanel', flowchart:'Flow',
+      relationship_map:'Grid', formula:'Number', code:'Code', screenshot:'Frame',
+      conclusion:'Typography', hero:'Typography', logo_reveal:'Number', problem:'Typography',
+      feature:'Feature Card', feature_stack:'List', feature_comparison:'Duopanel',
+      workflow:'Flow', screenshot_tour:'List', ui_demo:'Code', metric:'KPI Row',
+      testimonial:'Quote', proof:'KPI Row', integration:'Flow', pricing:'Duopanel', cta:'Typography'};
+    const blkKey = s.block_id.split('.')[1];
+    const intent = s.visual_intent || intentMap[s.role] || '表达内容';
+    const form = s.visual_form || formMap[blkKey] || 'Typography';
+    const motionForScene = (s.motion_id || blk.motion).replace('graphics.','');
+    return `<div class="scene-card">
       <div class="scene-head">
         <span class="scene-id">${esc(s.id)}</span>
         <span class="scene-role">${esc(s.role)}</span>
         <span class="scene-dur">${s.duration.toFixed(1)}s</span>
         <button class="scene-move" onclick="gfxRemoveScene(${i})">✕</button>
       </div>
-      <div class="scene-text">${esc(s.text)}</div>
-      <div class="btn-row">
-        <span class="hint" style="flex:1">视觉块：</span>
-        <select style="flex:2" onchange="GFX.plan.scenes[${i}].block_id=this.value;GFX.previewHtml=null">${opts(s.block_id)}</select>
+      <div class="scene-text">Narration：${esc(s.text)}</div>
+      <div class="scene-asset">Visual Intent：${esc(intent)} · Visual Form：${esc(form)}</div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <span class="hint">Block</span>
+        <select style="flex:2" onchange="GFX.plan.scenes[${i}].block_id=this.value;GFX.plan.scenes[${i}].motion_id=null;GFX.previewHtml=null">${opts(s.block_id)}</select>
+        <span class="hint">Motion</span>
+        ${motionSel}
       </div>
-    </div>`).join('');
-  box.innerHTML = `<div class="card"><b>创作方案</b> <span class="hint">（换块后重新预览；删场景会缩短总时长）</span>
-    <div class="scene-list" style="max-height:340px">${cards}</div></div>`;
+      <div class="btn-row" style="flex-wrap:wrap">
+        <span class="hint">布局</span>
+        <select style="flex:1" onchange="GFX.plan.scenes[${i}].layout=this.value;GFX.previewHtml=null">${layoutOpts(s.layout)}</select>
+        <span class="hint">素材</span>
+        <select style="flex:1.4" onchange="GFX.plan.scenes[${i}].source=this.value;GFX.previewHtml=null">
+          <option value="Generated Graphic"${(s.source||'Generated Graphic')==='Generated Graphic'?' selected':''}>Generated Graphic</option>
+          <option value="Library Asset"${s.source==='Library Asset'?' selected':''}>Library Asset</option>
+          <option value="User Upload"${s.source==='User Upload'?' selected':''}>User Upload</option>
+        </select>
+      </div>
+      <div class="scene-asset">Block：${esc(s.block_id)} · Motion：${esc(motionForScene)} · Source：${esc(s.source||'Generated Graphic')}</div>
+      <div class="btn-row sb-actions" style="flex-wrap:wrap">
+        <button class="btn-secondary btn-sm" onclick="gfxSwapBlock(${i})">👁 换视觉</button>
+        <button class="btn-secondary btn-sm" onclick="gfxSwapMotion(${i})">✨ 换动画</button>
+        <button class="btn-secondary btn-sm" onclick="gfxSwapSource(${i})">🖼 换素材</button>
+        <button class="btn-secondary btn-sm" onclick="gfxSwapLayout(${i})">🧱 换布局</button>
+        <button class="btn-secondary btn-sm" onclick="gfxGenAsset(${i})">✨ 生成素材</button>
+      </div>
+    </div>`;
+  }).join('');
+  box.innerHTML = `<div class="card"><b>📋 你的创作方案</b> <span class="hint">（§34：先审阅再渲染；每场景可换视觉/动画/素材/布局，或删场景）</span>
+    <div class="scene-list" style="max-height:400px">${cards}</div></div>`;
 }
 
+function gfxSwapBlock(i){
+  // 换视觉 = 从 catalog 同域块清单选择（resolver 候选，非 prompt 输入）
+  const cands = GFX.blocks.filter(b=>b.category===GFX.plan.category);
+  const cur = GFX.plan.scenes[i].block_id;
+  const list = cands.map((c,ci)=>`${ci+1}. ${c.name}（${c.id}）`).join('\n');
+  const pick = prompt('选择视觉块：\n'+list+'\n\n输入编号：');
+  if (!pick) return;
+  const c = cands[parseInt(pick)-1];
+  if (!c) { alert('编号无效'); return; }
+  GFX.plan.scenes[i].block_id = c.id;
+  GFX.plan.scenes[i].motion_id = null;  // 跟随新块的默认 motion
+  GFX.previewHtml = null;
+  gfxRenderPlan();
+}
+function gfxSwapMotion(i){
+  const cur = GFX.plan.scenes[i].motion_id || (GFX.blocks.find(b=>b.id===GFX.plan.scenes[i].block_id)||{}).motion || 'graphics.fade-up';
+  const ms = ['fade-up','scale-punch','slide-left','word-relay','rise-soft'];
+  const pick = prompt('选择动画：\n'+ms.map((m,ci)=>`${ci+1}. ${m}`).join('\n')+'\n当前：'+cur.replace('graphics.','')+'\n\n输入编号：');
+  if (!pick) return;
+  const m = ms[parseInt(pick)-1];
+  if (!m) { alert('编号无效'); return; }
+  GFX.plan.scenes[i].motion_id = 'graphics.' + m;
+  GFX.previewHtml = null;
+  gfxRenderPlan();
+}
+function gfxSwapSource(i){
+  // §34 换素材：素材来源切换（Generated Graphic / Library Asset / User Upload）
+  const cur = GFX.plan.scenes[i].source || 'Generated Graphic';
+  const pick = prompt('素材来源：\n1. Generated Graphic（程序化视觉，本场景默认）\n2. Library Asset（素材库已有资产）\n3. User Upload（本地上传）\n\n当前：'+cur+'\n输入编号：');
+  if (!pick) return;
+  const map = {1:'Generated Graphic', 2:'Library Asset', 3:'User Upload'};
+  const v = map[parseInt(pick)];
+  if (!v) { alert('编号无效'); return; }
+  GFX.plan.scenes[i].source = v;
+  GFX.previewHtml = null;
+  gfxRenderPlan();
+}
+function gfxSwapLayout(i){
+  // §34 换布局：同块排版取向（center/left/split 由 CSS 变量消费）
+  const cur = GFX.plan.scenes[i].layout || 'center';
+  const pick = prompt('布局取向：\n1. center 居中\n2. left 左对齐\n3. split 分栏\n\n当前：'+cur+'\n输入编号：');
+  if (!pick) return;
+  const map = {1:'center', 2:'left', 3:'split'};
+  const v = map[parseInt(pick)];
+  if (!v) { alert('编号无效'); return; }
+  GFX.plan.scenes[i].layout = v;
+  GFX.previewHtml = null;
+  gfxRenderPlan();
+}
+async function gfxGenAsset(i){
+  // §34 生成素材：走生图角色（未配置 key 时诚实提示，不假成功）
+  try {
+    const r = await apiPost('/api/gfx/gen_asset', {scene_index: i, plan: GFX.plan});
+    if (!r.ok) throw new Error(r.error || '生成失败');
+    GFX.plan.scenes[i].source = 'Generated Image';
+    GFX.previewHtml = null;
+    gfxRenderPlan();
+  } catch(e) {
+    alert('生成素材不可用：' + e.message + '\n（需在「大模型配置中心」为 image 角色配置 API key；当前可先用程序化视觉块）');
+  }
+}
+function gfxNoop(msg){ alert(msg); }
+
+// §42 Block 开发体验：New Block 表单提交
+async function gfxNewBlock(){
+  const status = document.getElementById('nb-status');
+  const id = document.getElementById('nb-id').value.trim();
+  const name = document.getElementById('nb-name').value.trim();
+  if (!id || !name) { status.textContent = '块 id 和块名都必填'; return; }
+  const r = await apiPost('/api/catalog/blocks/create', {
+    id, name,
+    base_block: document.getElementById('nb-base').value,
+    semantic_intents: (document.getElementById('nb-intents').value || 'custom').split(',').map(s=>s.trim()).filter(Boolean),
+  });
+  if (r.ok) {
+    status.textContent = `✅ 块「${r.name}」（${r.id}）已进 Creative Catalog（换视觉下拉可见）`;
+    GFX.blocks = [];  // 强制重拉 catalog
+    await gfxEnsureBlocks();
+    if (GFX.plan) gfxRenderPlan();
+  } else {
+    status.textContent = '❌ ' + (r.error || '保存失败');
+  }
+}
 function gfxRemoveScene(i){
   GFX.plan.scenes.splice(i, 1);
   GFX.plan.scene_count = GFX.plan.scenes.length;
@@ -1187,24 +1510,57 @@ function gfxRemoveScene(i){
 async function gfxPreview(){
   const status = document.getElementById('gfx-status');
   if (!GFX.plan) { status.textContent = '先「生成创作方案」'; return; }
-  // 换过 block 或首次 → 重新编译 HTML
   if (!GFX.previewHtml) {
     status.textContent = '编译确定性 HTML 中……';
     const r = await apiPost('/api/graphics/preview', {plan: GFX.plan});
     if (!r.ok) { status.textContent = '❌ ' + (r.error || '预览失败'); return; }
     GFX.previewHtml = r.html;
   }
-  const box = document.getElementById('gfx-preview-box');
   const [w, h] = document.getElementById('gfx-aspect').value.split('x');
   const scale = Math.min(1, 420 / parseInt(h));
+  const box = document.getElementById('gfx-preview-box');
+  // §40 Developer Mode：Visual / Source 两模式（Source=编译产物 HTML 只读展示）
   box.innerHTML = `<div class="card"><b>动效预览</b> <span class="hint">（沙箱 iframe 隔离运行，与正式渲染同一份 HTML——预览即所得）</span>
-    <iframe id="gfx-preview-frame" sandbox="allow-scripts" style="width:${parseInt(w)*scale}px;height:${parseInt(h)*scale}px;transform-origin:top left;border:1px solid #2a343d;border-radius:8px;background:#101418;display:block"></iframe>
+    <div class="btn-row"><button class="btn-secondary btn-sm" id="gfx-mode-visual" onclick="gfxMode('visual')">Visual 视图</button>
+    <button class="btn-secondary btn-sm" id="gfx-mode-source" onclick="gfxMode('source')">Source 源码（开发者模式）</button></div>
+    <div id="gfx-visual-view"><iframe id="gfx-preview-frame" sandbox="allow-scripts" style="width:${parseInt(w)*scale}px;height:${parseInt(h)*scale}px;transform-origin:top left;border:1px solid #2a343d;border-radius:8px;background:#101418;display:block"></iframe>
     <div class="btn-row"><button class="btn-secondary btn-sm" onclick="gfxPlay()">▶ 播放</button>
-    <button class="btn-secondary btn-sm" onclick="gfxPause()">⏸ 暂停</button></div></div>`;
+    <button class="btn-secondary btn-sm" onclick="gfxPause()">⏸ 暂停</button></div>
+    <div class="btn-row"><span class="hint">Seek</span>
+    <input type="range" id="gfx-seek-slider" min="0" max="100" value="0" style="flex:1" oninput="gfxSeekTo(this.value)">
+    <span class="hint" id="gfx-seek-label">0%</span></div></div>
+    <div id="gfx-source-view" style="display:none">
+      <div class="hint">§41 Developer Mode：编译产物 HTML（只读；重编译须回方案换块——HTML 是执行格式，不是编辑入口）</div>
+      <textarea id="gfx-source-ta" style="min-height:200px;font-family:Consolas,monospace;font-size:12px" readonly></textarea>
+    </div></div>`;
   const frame = document.getElementById('gfx-preview-frame');
   frame.srcdoc = GFX.previewHtml;
-  status.textContent = '预览就绪（播放查看动效，满意后渲染成片）';
+  document.getElementById('gfx-source-ta').value = GFX.previewHtml;
+  // §39 Direct Manipulation：启用点击选中（元素 → bounds 高亮 → 信号回 Inspector 面板）
+  window.addEventListener('message', function(ev){
+    if (ev.data && ev.data.type === 'gf-selected') {
+      const el = document.getElementById('gfx-selected-info');
+      if (el) el.textContent = `已选中：${ev.data.cls.split(' ')[0]}「${ev.data.text}…」——修改请回上方方案卡（手势→Command→重编译，不直接改 HTML）`;
+    }
+  });
+  frame.addEventListener('load', function(){
+    frame.contentWindow.postMessage({type:'gf-enable-select'}, '*');
+  });
+  const selInfo = document.createElement('div');
+  selInfo.id = 'gfx-selected-info';
+  selInfo.className = 'hint';
+  document.getElementById('gfx-visual-view').appendChild(selInfo);
+  status.textContent = '预览就绪（Visual/Source 可切换；播放查看动效，满意后渲染成片）';
   box.scrollIntoView({behavior:'smooth'});
+}
+function gfxMode(mode){
+  const v = document.getElementById('gfx-visual-view');
+  const s = document.getElementById('gfx-source-view');
+  if (!v || !s) return;
+  v.style.display = mode === 'visual' ? '' : 'none';
+  s.style.display = mode === 'source' ? '' : 'none';
+  document.getElementById('gfx-mode-visual').style.background = mode === 'visual' ? '#26405a' : '';
+  document.getElementById('gfx-mode-source').style.background = mode === 'source' ? '#26405a' : '';
 }
 
 function gfxPlay(){
@@ -1214,6 +1570,18 @@ function gfxPlay(){
 function gfxPause(){
   const frame = document.getElementById('gfx-preview-frame');
   if (frame) frame.contentWindow.postMessage({type:'gf-pause'}, '*');
+}
+// §53 Timeline Interaction：drag 滑块 → 统一 runtime.seek（不各管各的）
+function gfxSeekTo(pct){
+  const frame = document.getElementById('gfx-preview-frame');
+  if (!frame) return;
+  // 总帧数从 srcdoc 编译时已知：用 GFX.plan.total_duration × fps
+  const fps = 30;
+  const totalFrames = Math.max(1, Math.round((GFX.plan ? GFX.plan.total_duration : 0) * fps));
+  const f = Math.round(totalFrames * (parseFloat(pct) / 100));
+  frame.contentWindow.postMessage({type:'gf-seek', frame: f}, '*');
+  const label = document.getElementById('gfx-seek-label');
+  if (label) label.textContent = pct + '% · frame ' + f;
 }
 
 async function gfxRender(){
@@ -1225,7 +1593,7 @@ async function gfxRender(){
   try {
     const r = await apiPost('/api/graphics/render', {
       plan: GFX.plan,
-      quality: document.getElementById('gfx-quality').value,
+      quality: 'draft',
       script: document.getElementById('gfx-script').value,
     });
     if (!r.ok) throw new Error(r.error || '渲染失败');
@@ -1265,6 +1633,18 @@ function newEntry(kind){
 
 async function loadHome(){
   try {
+    // §90 系统定位 + §61 Capability Map
+    try {
+      const ident = await (await fetch('/api/system_identity')).json();
+      if (!ident.error) {
+        document.getElementById('system-identity-tag').textContent =
+          ident.name + '——' + (ident.core_loop || []).join(' → ');
+        const map = ident.capability_map || {};
+        document.getElementById('capability-map').innerHTML =
+          Object.entries(map).map(([domain, caps]) =>
+            `<div class="hint"><b>${esc(domain)}</b>：${caps.map(esc).join(' · ')}</div>`).join('');
+      }
+    } catch (e) { /* 能力图失败不阻塞首页 */ }
     const projects = await (await fetch('/api/projects')).json();
     if (!Array.isArray(projects)) throw new Error(projects.error || '读取失败');
     // 封面卡片式最近项目（方案 §十：封面+项目名，不用纯文本行）
@@ -1539,6 +1919,34 @@ async function loadAssetsLibrary(){
     }).join('');
     document.getElementById('assets-list').innerHTML =
       rows || '<div class="hint">还没有素材使用记录，先去创作一次。</div>';
+    // §44 冻结资产台账（asset_resolver manifest：source/license/复用）
+    try {
+      const frozen = await (await fetch('/api/media_library')).json();
+      const frows = (frozen || []).map(f => `
+        <div class="scene-card">
+          <div class="scene-head">
+            <span class="scene-id">${esc(f.id)}</span>
+            <span class="scene-dur">${esc(f.type)}</span>
+            <span class="scene-dur">复用 ${f.reuse_count || 1} 次</span>
+            <span class="scene-dur" style="margin-left:auto">${f.commercial_status === 'CLEAR' ? '<span class="lic-badge lic-clear">✓ CLEAR</span>' : '<span class="lic-badge lic-unknown">⚠ ' + esc(f.commercial_status) + '</span>'}</span>
+          </div>
+          <div class="scene-asset">source：${esc(f.source)}${f.hash ? ' · hash ' + esc(f.hash.slice(0,8)) : ''}</div>
+        </div>`).join('');
+      document.getElementById('media-frozen-list').innerHTML =
+        frows ? `<b>冻结资产（§44 Resolve→Freeze→Provenance）</b>${frows}` : '';
+    } catch (e) { /* 冻结台账为空不阻塞 */ }
+    // §43 Graphic Library 计数（Blocks/Motions/Templates）
+    try {
+      const [blocks, motions, tpls] = await Promise.all([
+        fetch('/api/catalog/blocks').then(r=>r.json()),
+        fetch('/api/registry/motions').then(r=>r.json()),
+        fetch('/api/registry/templates').then(r=>r.json()),
+      ]);
+      document.getElementById('graphic-lib-counts').innerHTML =
+        `<span class="hint">Blocks ×${(blocks||[]).length}</span>`+
+        `<span class="hint">Motions ×${(motions||[]).length}</span>`+
+        `<span class="hint">Templates ×${(tpls||[]).length}</span>`;
+    } catch (e) { /* 计数失败不阻塞 */ }
   } catch (e) {
     document.getElementById('assets-list').innerHTML =
       `<div class="err-box">加载失败：${esc(e.message)}</div>`;
@@ -1779,8 +2187,11 @@ function sbAdjust(i){
 }
 
 function refreshStoryboardUI(){
-  document.getElementById('storyboard-box').innerHTML = renderStoryboard(currentProject.sb);
-  document.getElementById('sb-meta').textContent =
+  const box = document.getElementById('storyboard-box');
+  if (!box || !currentProject.sb) return;  // 结果区无分镜 DOM（成片直出路径）→ 跳过
+  box.innerHTML = renderStoryboard(currentProject.sb);
+  const meta = document.getElementById('sb-meta');
+  if (meta) meta.textContent =
     `总时长 ${(currentProject.sb?.total_duration||0).toFixed(1)}s · ${currentProject.sb?.scene_count||0} 场景`;
 }
 

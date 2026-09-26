@@ -1,0 +1,15 @@
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+本目录记录 HyperFrames 参考项目的许可证信息。HyperFrames 仓库整体标注 Apache-2.0。
+
+本仓库对 HyperFrames 的引用方式是「架构思想 + 协议契约吸收」，未复制其源码。
+Apache-2.0 的完整文本见参考项目仓库内 LICENSE 文件：
+https://github.com/heygen-com/hyperframes/blob/main/LICENSE
+
+再分发义务（Apache-2.0 §4）适用场景仅限「复制/修改/再分发其源码」，
+本仓库未复制源码，故无源码级再分发义务；仍在 ATTRIBUTIONS.md 记录了归属。
+除 Apache-2.0 之外，参考仓库内任何第三方素材/字体/音频/品牌的授权均与本仓库无关，
+且明确不进入本仓库（见 video_director/registries/provenance/sources.json 的
+src-shotcraft-assets=BLOCKED 同类边界）。

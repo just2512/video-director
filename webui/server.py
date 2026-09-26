@@ -610,7 +610,75 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(out)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
-        elif route == "/api/graphics/blocks/resolve":
+        elif route == "/api/system_identity":
+            # §90 系统定位自描述 + §61 Capability Map（能力面板/首页消费）
+            try:
+                from video_director.graphics import visual_elements as vd_ve
+                ident = vd_ve.system_identity()
+                ident["capability_map"] = vd_ve.capability_map()
+                self._send_json(ident)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/media_library":
+            # §44 Media Library：冻结资产台账（source/hash/commercialStatus/复用）
+            try:
+                from video_director.graphics import asset_resolver as vd_ar
+                self._send_json(vd_ar._load_manifest())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/catalog/blocks":
+            # §64 Graphic Blocks：GET /api/catalog/blocks（Block Library 数据源）
+            try:
+                from video_director.graphics import blocks as vd_gfx_blocks
+                qs = parse_qs(parsed.query)
+                block_id = qs.get("id", [""])[0]
+                if block_id:
+                    b = vd_gfx_blocks.get_block(block_id)
+                    self._send_json({
+                        "id": b.id, "name": b.name, "category": b.category,
+                        "semantic_intents": list(b.semantic_intents),
+                        "slots": list(b.slots),
+                        "duration_range": [b.duration_min, b.duration_max],
+                        "motion": b.motion,
+                    })
+                    return
+                self._send_json([{
+                    "id": b.id, "name": b.name, "category": b.category,
+                    "semantic_intents": list(b.semantic_intents),
+                    "slots": list(b.slots),
+                    "duration_range": [b.duration_min, b.duration_max],
+                    "motion": b.motion,
+                } for b in vd_gfx_blocks.all_blocks()])
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/graphics/blocks":
+            # 旧路径兼容（同 /api/catalog/blocks 数据）
+            try:
+                from video_director.graphics import blocks as vd_gfx_blocks
+                self._send_json([{
+                    "id": b.id, "name": b.name, "category": b.category,
+                    "semantic_intents": list(b.semantic_intents),
+                    "slots": list(b.slots),
+                    "duration_range": [b.duration_min, b.duration_max],
+                    "motion": b.motion,
+                } for b in vd_gfx_blocks.all_blocks()])
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/catalog/motions":
+            # §64 Motion：GET /api/catalog/motions（Motion Search 数据源）
+            try:
+                from video_director.graphics import blocks as vd_gfx_blocks
+                self._send_json(vd_gfx_blocks.all_motion_ids())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/graphics/providers":
+            # §5 RendererProvider 能力状态（能力面板可展示）
+            try:
+                from video_director.graphics import provider as vd_gfx_provider
+                self._send_json(vd_gfx_provider.list_providers())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/catalog/blocks/resolve" or route == "/api/graphics/blocks/resolve":
             # GFX-010 Block Resolver（POST，见 do_POST）——GET 拒绝
             self._send_json({"error": "POST only"}, 405)
         elif route == "/api/editor/composition":
@@ -1151,7 +1219,7 @@ class Handler(BaseHTTPRequestHandler):
 
         # ===================== Graphics Runtime 端点（HyperFrames 集成）=====================
 
-        if parsed.path == "/api/graphics/blocks/resolve":
+        if parsed.path in ("/api/catalog/blocks/resolve", "/api/graphics/blocks/resolve"):
             # GFX-010 Block Resolver：意图 → 三态候选（零评分）
             length = int(self.headers.get("Content-Length", 0))
             try:
@@ -1190,10 +1258,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director.graphics import director as vd_gfx_director
+                td = payload.get("target_duration")
                 plan = vd_gfx_director.build_graphic_plan(
                     script,
                     content_type=payload.get("content_type") or "knowledge",
                     style_id=payload.get("style_id") or "editorial",
+                    target_duration=float(td) if td else None,
                     width=int(payload.get("width") or 1080),
                     height=int(payload.get("height") or 1920),
                 )
@@ -1224,6 +1294,128 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._send_json({"ok": True, "html": html, "sandbox": {
                     "isolated_origin": True, "block_network": True}})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/catalog/blocks/create":
+            # §42 Block 开发体验：New Block → BlockDefinition → 进 Creative Catalog
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            try:
+                from video_director.graphics import blocks as vd_gfx_blocks
+                block_id = (payload.get("id") or "").strip()
+                name = (payload.get("name") or "").strip()
+                base_block = payload.get("base_block") or "kb.title"
+                intents = payload.get("semantic_intents") or ["custom"]
+                if not block_id.startswith("kb.") and not block_id.startswith("pd."):
+                    self._send_json({"ok": False, "error": "block id 须以 kb./pd. 开头"}, 400)
+                    return
+                if not name:
+                    self._send_json({"ok": False, "error": "块名不能为空"}, 400)
+                    return
+                # 以既有块为渲染基件（§42：定义语义/槽位/意图，视觉结构复用基件）
+                try:
+                    base = vd_gfx_blocks.get_block(base_block)
+                except KeyError:
+                    self._send_json({"ok": False, "error": f"base_block {base_block} 不存在"}, 400)
+                    return
+                # 持久化用户块定义（storage/composer/custom_blocks.json；加载时并入 catalog）
+                from dataclasses import replace
+                custom_dir = STORAGE / "composer"
+                custom_dir.mkdir(parents=True, exist_ok=True)
+                cfile = custom_dir / "custom_blocks.json"
+                defs = []
+                if cfile.is_file():
+                    try:
+                        defs = json.loads(cfile.read_text(encoding="utf-8"))
+                    except json.JSONDecodeError:
+                        defs = []
+                defs = [d for d in defs if d.get("id") != block_id]
+                defs.append({
+                    "id": block_id, "name": name, "category": base.category,
+                    "semantic_intents": list(intents), "slots": list(base.slots),
+                    "duration_min": base.duration_min, "duration_max": base.duration_max,
+                    "motion": payload.get("motion") or base.motion,
+                    "base_block": base_block,
+                })
+                cfile.write_text(json.dumps(defs, ensure_ascii=False, indent=2), encoding="utf-8")
+                # 注册进运行时 catalog（本进程立即可用）
+                vd_gfx_blocks.register_custom_block(block_id, name, base.category,
+                                                    tuple(intents), base.slots,
+                                                    base.duration_min, base.duration_max,
+                                                    payload.get("motion") or base.motion,
+                                                    base_block)
+                self._send_json({"ok": True, "id": block_id, "name": name})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/graphics/compile":
+            # §65 Graphic Compile API：{projectId/sceneId 或 plan} → 编译产物 lineage
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            plan = payload.get("plan")
+            if not plan or not plan.get("scenes"):
+                self._send_json({"error": "缺少 plan"}, 400)
+                return
+            try:
+                from video_director.graphics import director as vd_gfx_director
+                from video_director.graphics import provider as vd_gfx_provider
+                program = vd_gfx_director.instantiate_graphic_program(plan)
+                prov = vd_gfx_provider.resolve_provider(program)
+                artifact = prov.compile(program)
+                # §66 Graphic Artifact Lineage：source/blockIds/motionIds/compilerVersion
+                block_ids = [s.block_id for s in program.scenes]
+                motion_ids = sorted({s.motion_id for s in program.scenes})
+                self._send_json({
+                    "ok": True,
+                    "graphicArtifactId": f"ga-{program.id[-8:]}",
+                    "htmlArtifactId": f"html-{program.id[-8:]}",
+                    "assets": [a.id for a in program.assets],
+                    "runtime": artifact.runtime,
+                    "blockIds": block_ids,
+                    "motionIds": motion_ids,
+                    "compilerVersion": artifact.compiler_version,
+                    "frames": program.total_frames,
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/gfx/gen_asset":
+            # §34 生成素材：为场景生成配图（image 角色）。未配置 key → 诚实失败。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            plan = payload.get("plan") or {}
+            i = payload.get("scene_index")
+            scenes = plan.get("scenes") or []
+            if i is None or not (0 <= int(i) < len(scenes)):
+                self._send_json({"ok": False, "error": "scene_index 越界"}, 400)
+                return
+            try:
+                from video_director import model_config as vd_mc
+                img_cfg = vd_mc.get_role_config("image")
+                if not (img_cfg or {}).get("api_key"):
+                    self._send_json({"ok": False,
+                                     "error": "image 角色未配置 API key（生成素材需生图能力；当前可先用程序化视觉块）"}, 503)
+                    return
+                # image 角色 key 已配置但生图管线未接线（Generation 契约 §23：
+                # Provider unavailable → GENERATION_FAILED，禁止 fake success）
+                self._send_json({"ok": False,
+                                 "error": "image provider 管线未接线（配置了 key 但生成端点未实现）"}, 503)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
@@ -1678,6 +1870,14 @@ def main(port: int = 8501):
         vd_audio.generate_style_bgm_library()
     except Exception as exc:
         print(f"[web] 音频库自检失败（不阻塞）: {exc}", file=sys.stderr)
+    # §42 Block 开发体验：启动时加载用户自定义块进 Creative Catalog
+    try:
+        from video_director.graphics import blocks as _vd_gfx_blocks
+        n = _vd_gfx_blocks.load_custom_blocks(STORAGE)
+        if n:
+            print(f"[web] 自定义块加载 {n} 个进 Creative Catalog", file=sys.stderr)
+    except Exception as exc:
+        print(f"[web] 自定义块加载失败（不阻塞）: {exc}", file=sys.stderr)
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"AI Video Director → http://127.0.0.1:{port}")
     try:

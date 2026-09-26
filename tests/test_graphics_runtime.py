@@ -221,9 +221,10 @@ def test_director_empty_script_rejected():
 
 
 def test_director_plan_structure():
-    plan = build_graphic_plan("很多人以为AI只能聊天。其实改变的是流程。", content_type="knowledge")
-    assert plan["scene_count"] == 2
-    assert plan["scenes"][0]["role"] == "hook"
+    # §22：知识六场景 arc（problem_title 起、conclusion 止）
+    plan = build_graphic_plan("很多人以为AI只能聊天。其实改变的是流程。效率提升了80%。结论句。", content_type="knowledge")
+    assert plan["scene_count"] == 4
+    assert plan["scenes"][0]["role"] == "problem_title"
     assert plan["scenes"][-1]["role"] == "conclusion"
     total = round(sum(s["duration"] for s in plan["scenes"]), 2)
     assert abs(total - plan["total_duration"]) < 0.01

@@ -27,12 +27,18 @@ from video_director import config
 
 
 class LayerType(str, Enum):
-    """V2 §8：Layer 是未来扩展的核心。第一版只实现 video/image 渲染，
-    其余类型为 schema 预留，出现即拒绝渲染（诚实降级而非静默忽略）。"""
+    """V2 §8：Layer 是未来扩展的核心。
+
+    Graphics 域（§11 新增）：dom/svg/canvas/html/chart/diagram/ui/webgl/
+    webgpu/lottie/three_scene/code/table/map/data_viz —— 这些由 Graphics
+    Runtime 渲染，不由 FFmpeg media renderer 渲染（§3 Renderer 分离）。
+    第一版 media renderer 只实现 video/image 渲染，其余 schema 预留，
+    出现即诚实 REJECT（诚实降级而非静默忽略）。
+    """
 
     video = "video"
     image = "image"
-    # ---- 以下为预留（第一阶段不渲染）----
+    # ---- 以下为预留（media 第一阶段不渲染）----
     text = "text"
     shape = "shape"
     svg = "svg"
@@ -42,10 +48,31 @@ class LayerType(str, Enum):
     logo = "logo"
     lottie = "lottie"
     person = "person"
+    # ---- Graphics 域（§11：可执行视觉程序，由 Graphics Runtime 消费）----
+    dom = "dom"
+    canvas = "canvas"
+    html = "html"
+    diagram = "diagram"
+    ui = "ui"
+    webgl = "webgl"
+    webgpu = "webgpu"
+    three_scene = "three_scene"
+    code = "code"
+    table = "table"
+    map = "map"
+    data_viz = "data_viz"
 
 
-#: 第一版 BasicRenderer 实际支持的 Layer 类型
+#: 第一版 BasicRenderer（FFmpeg media renderer）实际支持的 Layer 类型
 RENDERABLE_LAYER_TYPES = {LayerType.video, LayerType.image}
+
+#: Graphics 域 Layer 类型（§11：交由 Graphics Runtime，非 media renderer）
+GRAPHICS_LAYER_TYPES = {
+    LayerType.dom, LayerType.svg, LayerType.canvas, LayerType.html,
+    LayerType.chart, LayerType.diagram, LayerType.ui, LayerType.webgl,
+    LayerType.webgpu, LayerType.lottie, LayerType.three_scene,
+    LayerType.code, LayerType.table, LayerType.map, LayerType.data_viz,
+}
 
 
 class AudioTrackType(str, Enum):

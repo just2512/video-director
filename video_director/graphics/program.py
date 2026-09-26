@@ -1,10 +1,10 @@
 """GraphicProgram / GraphicScene 数据契约（GFX-002）。
 
 方案 §12：GraphicProgram 是"可执行视觉程序"的核心对象——
-width/height/fps/duration + 结构化 block/scene + 变量 + provenance。
-它**不是** LLM 直接生成的任意 HTML（方案 §14：HTML 是执行格式，不是 AI 知识
-格式）；它是经过 Block Resolve + Validator 的结构化对象，compiler 才把它编译
-成 HTML。
+id/width/height/fps/duration + html/css/assets/animations/variables +
+renderer + provenance。它**不是** LLM 直接生成的任意 HTML（方案 §14：
+HTML 是执行格式，不是 AI 知识格式）；animated 结构经 Block Resolve +
+Validator，compiler 才把它编译成 HTML。
 
 GraphicScene 对应一个时序 clip（data-clip 契约）。每个 scene 绑定一个
 GraphicBlock + 槽位值 + 一个 entrance motion，渲染器逐帧 scrub。
@@ -12,12 +12,47 @@ GraphicBlock + 槽位值 + 一个 entrance motion，渲染器逐帧 scrub。
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 from video_director.graphics.contract import RationalFps, fps_from_number
+
+
+class AssetRef(BaseModel):
+    """GraphicProgram 引用的资产（§12 assets: AssetRef[]）。
+
+    图形域资产可以是图片/字体/外部 SVG；渲染前必须本地化（§51）。
+    """
+
+    id: str
+    type: str  # image | font | svg | video | audio
+    file: str
+    duration: Optional[float] = None
+    source: str = "user"  # user | own | generated | third-party
+    license_note: Optional[str] = None
+
+
+class AnimationProgram(BaseModel):
+    """动画程序（§12 animations: AnimationProgram[]）。
+
+    动画是 Renderer 无关声明（§9）：property + keyframes + easing，
+    由 CSS/WAAPI 等 adapter 各自 seekFrame 实现。禁止携带 shell/ffmpeg/js 原文。
+    """
+
+    id: str
+    target: str  # scene id 或 clip id
+    property: str  # opacity | transform | clip-path
+    from_value: object = 0.0
+    to_value: object = 1.0
+    duration: float = 0.5
+    easing: str = "ease-out"
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.duration <= 0:
+            raise ValueError(f"animation {self.id}: duration 必须为正")
+        return self
 
 
 class GraphicScene(BaseModel):
@@ -43,7 +78,9 @@ class GraphicScene(BaseModel):
 class GraphicProgram(BaseModel):
     """可执行视觉程序（GFX-002 契约，pydantic 校验）。
 
-    provenance_ref 表明 block 内容的来源（own/CLEAR 自撰；第三方须独立授权）。
+    §12 字段全集：id/width/height/fps/duration/html/css/assets/animations/
+    variables/renderer/provenance。html/css 是 compiler 产物（执行格式），
+    不是 AI 输入（§14）。
     """
 
     id: str
@@ -52,7 +89,13 @@ class GraphicProgram(BaseModel):
     fps: float = 30.0
     duration: float = 0.0
     scenes: List[GraphicScene] = Field(default_factory=list)
+    assets: List[AssetRef] = Field(default_factory=list)
+    animations: List[AnimationProgram] = Field(default_factory=list)
     variables: Dict[str, str] = Field(default_factory=dict)
+    #: compiler 编译产物（执行格式，Optional；preview/render 前必须非空）
+    html: Optional[str] = None
+    css: Optional[str] = None
+    renderer: str = "browser"  # GraphicRendererTarget：browser | unavailable
     style_id: str = "editorial"
     provenance_ref: str = "src-own"
 
@@ -73,6 +116,8 @@ class GraphicProgram(BaseModel):
         total = cursor
         if self.duration > 0 and abs(total - self.duration) > 0.05:
             raise ValueError(f"场景总长 {total} 与 duration {self.duration} 不一致")
+        if self.renderer not in ("browser", "unavailable"):
+            raise ValueError(f"renderer {self.renderer!r} 不在 GraphicRendererTarget 内")
         return self
 
     @property
@@ -84,5 +129,8 @@ class GraphicProgram(BaseModel):
         return self.rational_fps.frame_at(self.duration)
 
     def model_dump_exclude_html(self) -> dict:
-        """序列化（不含渲染态；渲染态是 compiler 产物）。"""
-        return self.model_dump()
+        """序列化（不含 renderer 态 html/css；plan 持久化用）。"""
+        d = self.model_dump()
+        d.pop("html", None)
+        d.pop("css", None)
+        return d

@@ -1,0 +1,9 @@
+{
+  "name": "hyperframes",
+  "source_url": "https://github.com/heygen-com/hyperframes",
+  "license": "Apache-2.0",
+  "commit": "UNKNOWN",
+  "absorption_mode": "architecture-and-protocol-only",
+  "notes": "本地 checkout 无 .git 元数据，commit 锚点不可确认（诚实记 UNKNOWN，不臆造）。只吸收 FrameAdapter 契约/有理 FPS/确定性预检/沙箱思想，未复制源码，未引入任何第三方运行时依赖。",
+  "verified_at": "2026-09-26"
+}
