@@ -115,18 +115,3 @@ def get_provenance(provenance_id: str) -> ProvenanceRecord:
     if provenance_id not in records:
         raise RegistryError("PROVENANCE_NOT_FOUND", f"{provenance_id} 未登记")
     return records[provenance_id]
-
-
-def validate_commercial_status(provenance_id: str) -> str:
-    """返回该来源的商业状态（四态之一）。"""
-    return get_provenance(provenance_id).commercial_status
-
-
-def get_license_notice(provenance_id: str) -> Optional[str]:
-    """归属/版权声明（Apache 再分发义务：NOTICE + 修改标识）。"""
-    rec = get_provenance(provenance_id)
-    if rec.copyright_notice:
-        return rec.copyright_notice
-    if rec.license and rec.source_name:
-        return f"{rec.source_name} — {rec.license}"
-    return None

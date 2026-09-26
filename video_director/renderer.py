@@ -145,7 +145,13 @@ def render_layer_segment(
                     layer, asset, out_path, width, height, fps, motion_comp
                 )
                 return _verify_segment_duration(out_path, layer.duration)
-            vf_parts.extend(_motion_vf_filters(motion_comp, layer.duration, *dst))
+            # 若 opacity 无动画，其余通道（scale/x/y）本渲染器对 video 层不支持——
+            # 但"无任何视觉变化"的纯参数动效（如仅调 stagger）应无副作用跳过。
+            if motion_comp["scale_expr"] != "1.0" or motion_comp["overlay_x_expr"] != "0" or motion_comp["overlay_y_expr"] != "0":
+                raise RenderError(
+                    f"[MOTION_LAYER_UNSUPPORTED] video 层动效 {motion_comp['motion_id']} "
+                    "含 scale/x/y 通道，本渲染器暂不支持（仅 opacity）"
+                )
         cmd = [
             ff, "-y", "-loglevel", "error",
             "-ss", f"{layer.source_in:.3f}",

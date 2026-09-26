@@ -51,13 +51,26 @@ def main():
     if audio_src.is_dir():
         shutil.copytree(audio_src, out / "storage" / "composer" / "audio_library")
 
-    # 3. ffmpeg 零依赖（从便携 Python 的 imageio_ffmpeg 复制二进制）
+    # 3. ffmpeg 随包零依赖（分发标准：不能让用户因缺依赖无法运行）
+    # 打包源优先级：release/bin（已验证版本）> 便携 Python imageio_ffmpeg > tools/ffmpeg-btbn
     bin_dir = out / "bin"
     bin_dir.mkdir(exist_ok=True)
     copied_ff = []
-    for pat in (PY_LIB.glob(r"Lib\site-packages\imageio_ffmpeg\binaries\*.exe"),
-                Path(r"D:\autocut\tools\ffmpeg-btbn").glob("ffmpeg-master-latest-win64-gpl/bin/*.exe")):
-        for exe in pat:
+    src_bins = [ROOT / "release" / "bin",
+                Path(r"D:\autocut\tools\ffmpeg-btbn") / "ffmpeg-master-latest-win64-gpl" / "bin"]
+    for src in src_bins:
+        if not (src.is_dir() and any(src.glob("ffmpeg*.exe"))):
+            continue
+        for exe in sorted(src.glob("*.exe")):
+            if (bin_dir / exe.name).is_file():
+                continue
+            shutil.copy2(exe, bin_dir / exe.name)
+            copied_ff.append(exe.name)
+        if copied_ff:
+            break
+    # 便携 Python 的 imageio_ffmpeg 作为补充源（ffprobe 等）
+    if not any((bin_dir / "ffprobe.exe").is_file() for _ in [0]):
+        for exe in PY_LIB.glob(r"Lib\site-packages\imageio_ffmpeg\binaries\*.exe"):
             shutil.copy2(exe, bin_dir / exe.name)
             copied_ff.append(exe.name)
 

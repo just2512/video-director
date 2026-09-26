@@ -15,7 +15,8 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional
 
 from loguru import logger
 
@@ -36,16 +37,41 @@ class ProbeError(Exception):
     pass
 
 
+def _bundled_bin_roots() -> List[str]:
+    """随包 bin/ 候选目录（打包分发口径 pack_release.py）。
+
+    - 打包安装：<app_root>/bin（release/video_director/prober.py → release/bin）
+    - 开发检出：<app_root>/release/bin（release 目录已解包但源码在根）
+    都不存在时为空列表（诚实降级，不编造路径）。
+    """
+    root = Path(__file__).resolve().parent.parent
+    cands = [root / "bin", root / "release" / "bin"]
+    return [str(c) for c in cands if c.is_dir()]
+
+
+def _bundled_exe(name: str) -> Optional[str]:
+    """随包 bin/ 下的可执行文件（win 补 .exe），不存在返回 None。"""
+    exe_name = f"{name}.exe" if os.name == "nt" else name
+    for root in _bundled_bin_roots():
+        cand = Path(root) / exe_name
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
 def _resolve_ffprobe() -> Optional[str]:
-    """ffprobe 优先级：FFPROBE_EXE 环境变量 > PATH > 同目录 ffmpeg 推测。"""
+    """ffprobe 优先级：FFPROBE_EXE 环境变量 > 随包 bin/ > PATH > 同目录 ffmpeg 推测。"""
     env = os.environ.get("FFPROBE_EXE")
     if env and os.path.isfile(env):
         return env
+    bundled = _bundled_exe("ffprobe")
+    if bundled:
+        return bundled
     which = shutil.which("ffprobe")
     if which:
         return which
     # ffmpeg 同目录通常有 ffprobe
-    ffmpeg = shutil.which("ffmpeg") or os.environ.get("IMAGEIO_FFMPEG_EXE")
+    ffmpeg = shutil.which("ffmpeg") or os.environ.get("IMAGEIO_FFMPEG_EXE") or _bundled_exe("ffmpeg")
     if ffmpeg and os.path.isfile(ffmpeg):
         sibling = os.path.join(os.path.dirname(ffmpeg), "ffprobe.exe")
         if os.path.isfile(sibling):
@@ -54,10 +80,18 @@ def _resolve_ffprobe() -> Optional[str]:
 
 
 def _resolve_ffmpeg() -> str:
-    """与 app.utils.utils.get_ffmpeg_binary 相同优先级，但本模块独立成包不依赖 MPT 服务层。"""
+    """ffmpeg 分辨率：显式环境变量 > 随包 bin/ > PATH > imageio_ffmpeg > 兜底。
+
+    随包 bin/ 优先级高于 PATH：分发包自带经测试的 ffmpeg 是"准事实源"，
+    用户机器上的随机 old/broken ffmpeg 不得遮蔽它；显式 IMAGEIO_FFMPEG_EXE
+    仍最高（用户明确覆盖）。
+    """
     env = os.environ.get("IMAGEIO_FFMPEG_EXE")
     if env and os.path.isfile(env):
         return env
+    bundled = _bundled_exe("ffmpeg")
+    if bundled:
+        return bundled
     which = shutil.which("ffmpeg")
     if which:
         return which

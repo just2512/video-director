@@ -101,6 +101,9 @@
   .lic-review { background:#3a351d; color:#d8a657; }
   .lic-unknown { background:#3a1d1d; color:#e05e5e; }
   .lic-blocked { background:#2a0d0d; color:#ff6b6b; }
+  .scene-role { background:#33518c; color:#fff; border-radius:3px; padding:0 5px; font-size:11px; }
+  .sb-actions button { margin-top:0; }
+  #gfx-preview-frame { max-width:100%; }
 </style>
 </head>
 <body>
@@ -120,6 +123,7 @@
     <button class="tab" id="tab-queue" onclick="switchTab('queue')">⚙ 队列</button>
     <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考分析</button>
     <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 创作记忆</button>
+    <button class="tab" id="tab-graphics" onclick="switchTab('graphics')">🔠 图形创作</button>
   </div>
 
   <!-- ======== Tab 0: 首页（我现在该做什么）======== -->
@@ -442,13 +446,52 @@
     </div>
   </div>
 
-  <!-- ======== Tab 3: 创作记忆 ======== -->
+  <!-- ======== Tab: 创作记忆 ======== -->
   <div id="pane-memory" style="display:none">
     <div class="card">
       <b>🧠 创作记忆</b>——你的每次成片与 👍👎 反馈都会沉淀为个人风格偏好（Style DNA），AI 越用越懂你。
       <div class="btn-row"><button class="btn-secondary" onclick="loadMemoryView()">刷新</button></div>
       <div id="memory-view"></div>
     </div>
+  </div>
+
+  <!-- ======== Tab: 图形创作（HyperFrames Graphics Runtime：纯文案→动效视频）======== -->
+  <div id="pane-graphics" style="display:none">
+    <div class="card">
+      <b>🔠 图形创作</b>——纯文案 → 知识/产品动效视频（程序化视觉：HTML/CSS 确定性渲染，无需素材、无需配音）
+      <div class="btn-row">
+        <div style="flex:2"><label>文案（每句一个场景，自动识别钩子/数字/对比/结论）</label>
+          <textarea id="gfx-script" style="min-height:120px" placeholder="例：很多人以为AI只能聊天。其实AI真正改变的是工作流程。效率提升了80%。关键是把AI嵌入流程。所以别只会聊天。"></textarea>
+        </div>
+        <div style="flex:1">
+          <label>内容类型</label>
+          <select id="gfx-content-type">
+            <option value="knowledge">知识分享</option>
+            <option value="product_video">产品介绍</option>
+          </select>
+          <label>画幅</label>
+          <select id="gfx-aspect">
+            <option value="1080x1920">9:16 竖屏</option>
+            <option value="1920x1080">16:9 横屏</option>
+            <option value="1080x1080">1:1 方形</option>
+          </select>
+          <label>渲染质量</label>
+          <select id="gfx-quality">
+            <option value="draft">草稿（半分辨率，快）</option>
+            <option value="final">正式（完整分辨率）</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button onclick="gfxMakePlan()">📋 生成创作方案</button>
+        <button class="btn-secondary" onclick="gfxPreview()">👁 预览动效</button>
+        <button class="btn-secondary" onclick="gfxRender()" id="gfx-render-btn">🎬 渲染成片</button>
+      </div>
+      <div class="hint" id="gfx-status"></div>
+    </div>
+    <div id="gfx-plan-box"></div>
+    <div id="gfx-preview-box"></div>
+    <div id="gfx-result"></div>
   </div>
 
   <div id="result"></div>
@@ -562,9 +605,6 @@ async function saveModelConfig(){
   } catch (e) { status.textContent = '保存失败：' + e.message; }
 }
 
-async function saveLLMConfig(){ await saveModelConfig(); }
-async function clearLLMConfig(){ await saveModelConfig(); }
-
 function toggleLLMPanel(){
   const p = document.getElementById('llm-panel');
   if (p.style.display === 'none') renderModelRoles();
@@ -610,30 +650,6 @@ async function loadCapabilities(){
   }
 }
 
-async function saveLLMConfig(){
-  const status = document.getElementById('llm-save-status');
-  status.textContent = '保存中……';
-  try {
-    const r = await fetch('/api/llm_config', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        api_key: document.getElementById('llm_key').value,
-        base_url: document.getElementById('llm_base_url').value,
-        model: document.getElementById('llm_model').value,
-      })
-    });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || '保存失败');
-    status.textContent = j.config.enabled ? '✅ 已启用' : '已保存（key 为空=禁用）';
-    await refreshLLMBadge();
-  } catch (e) { status.textContent = '保存失败：' + e.message; }
-}
-
-async function clearLLMConfig(){
-  document.getElementById('llm_key').value = '';
-  await saveLLMConfig();
-}
-
 async function enhanceScript(){
   const btn = document.getElementById('enhance-btn');
   const box = document.getElementById('enhance-result');
@@ -672,7 +688,7 @@ function discardEnhanced(){
 }
 
 function switchTab(tab){
-  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','queue','reference','memory']) {
+  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','queue','reference','memory','graphics']) {
     const el = document.getElementById('pane-' + p);
     if (el) el.style.display = (tab === p) ? '' : 'none';
     const tb = document.getElementById('tab-' + p);
@@ -688,6 +704,7 @@ function switchTab(tab){
   if (tab === 'capture') loadInbox();
   if (tab === 'queue') loadQueue();
   if (tab === 'memory') loadMemoryView();
+  if (tab === 'graphics') gfxInit();
 }
 
 // ===========================================================================
@@ -1103,6 +1120,127 @@ async function apiPost(url, body){
   } catch(e) { return {ok:false, error: String(e)}; }
 }
 
+// ===========================================================================
+// 图形创作（HyperFrames Graphics Runtime：纯文案 → GraphicPlan → 预览 → MP4）
+// 方案 §34 Creative Plan Review：先出方案，逐场景可换 block，再渲染。
+// ===========================================================================
+let GFX = {plan:null, blocks:[], previewHtml:null, previewTimer:null};
+
+async function gfxInit(){
+  if (!GFX.blocks.length) {
+    try {
+      GFX.blocks = await (await fetch('/api/graphics/blocks')).json();
+    } catch(e) { GFX.blocks = []; }
+  }
+}
+
+async function gfxMakePlan(){
+  const script = document.getElementById('gfx-script').value.trim();
+  const status = document.getElementById('gfx-status');
+  if (!script) { status.textContent = '请先输入文案'; return; }
+  status.textContent = '生成方案中……';
+  const [w, h] = document.getElementById('gfx-aspect').value.split('x');
+  const r = await apiPost('/api/graphics/plan', {
+    script,
+    content_type: document.getElementById('gfx-content-type').value,
+    width: parseInt(w), height: parseInt(h),
+  });
+  if (!r.ok) { status.textContent = '❌ ' + (r.error || '生成失败'); return; }
+  GFX.plan = r.plan;
+  GFX.previewHtml = null;
+  status.textContent = `✅ 方案已生成：${GFX.plan.scene_count} 个场景 · ${GFX.plan.total_duration}s（下方逐场景可换视觉块，然后预览/渲染）`;
+  gfxRenderPlan();
+}
+
+function gfxRenderPlan(){
+  const box = document.getElementById('gfx-plan-box');
+  if (!GFX.plan) { box.innerHTML = ''; return; }
+  const opts = (sel) => GFX.blocks
+    .filter(b => b.category === GFX.plan.category)
+    .map(b => `<option value="${b.id}"${b.id===sel?' selected':''}>${esc(b.name)}（${esc(b.id)}）</option>`).join('');
+  const cards = GFX.plan.scenes.map((s, i) => `
+    <div class="scene-card">
+      <div class="scene-head">
+        <span class="scene-id">${esc(s.id)}</span>
+        <span class="scene-role">${esc(s.role)}</span>
+        <span class="scene-dur">${s.duration.toFixed(1)}s</span>
+        <button class="scene-move" onclick="gfxRemoveScene(${i})">✕</button>
+      </div>
+      <div class="scene-text">${esc(s.text)}</div>
+      <div class="btn-row">
+        <span class="hint" style="flex:1">视觉块：</span>
+        <select style="flex:2" onchange="GFX.plan.scenes[${i}].block_id=this.value;GFX.previewHtml=null">${opts(s.block_id)}</select>
+      </div>
+    </div>`).join('');
+  box.innerHTML = `<div class="card"><b>创作方案</b> <span class="hint">（换块后重新预览；删场景会缩短总时长）</span>
+    <div class="scene-list" style="max-height:340px">${cards}</div></div>`;
+}
+
+function gfxRemoveScene(i){
+  GFX.plan.scenes.splice(i, 1);
+  GFX.plan.scene_count = GFX.plan.scenes.length;
+  GFX.plan.total_duration = Math.round(GFX.plan.scenes.reduce((a,s)=>a+s.duration,0)*100)/100;
+  GFX.previewHtml = null;
+  gfxRenderPlan();
+}
+
+async function gfxPreview(){
+  const status = document.getElementById('gfx-status');
+  if (!GFX.plan) { status.textContent = '先「生成创作方案」'; return; }
+  // 换过 block 或首次 → 重新编译 HTML
+  if (!GFX.previewHtml) {
+    status.textContent = '编译确定性 HTML 中……';
+    const r = await apiPost('/api/graphics/preview', {plan: GFX.plan});
+    if (!r.ok) { status.textContent = '❌ ' + (r.error || '预览失败'); return; }
+    GFX.previewHtml = r.html;
+  }
+  const box = document.getElementById('gfx-preview-box');
+  const [w, h] = document.getElementById('gfx-aspect').value.split('x');
+  const scale = Math.min(1, 420 / parseInt(h));
+  box.innerHTML = `<div class="card"><b>动效预览</b> <span class="hint">（沙箱 iframe 隔离运行，与正式渲染同一份 HTML——预览即所得）</span>
+    <iframe id="gfx-preview-frame" sandbox="allow-scripts" style="width:${parseInt(w)*scale}px;height:${parseInt(h)*scale}px;transform-origin:top left;border:1px solid #2a343d;border-radius:8px;background:#101418;display:block"></iframe>
+    <div class="btn-row"><button class="btn-secondary btn-sm" onclick="gfxPlay()">▶ 播放</button>
+    <button class="btn-secondary btn-sm" onclick="gfxPause()">⏸ 暂停</button></div></div>`;
+  const frame = document.getElementById('gfx-preview-frame');
+  frame.srcdoc = GFX.previewHtml;
+  status.textContent = '预览就绪（播放查看动效，满意后渲染成片）';
+  box.scrollIntoView({behavior:'smooth'});
+}
+
+function gfxPlay(){
+  const frame = document.getElementById('gfx-preview-frame');
+  if (frame) frame.contentWindow.postMessage({type:'gf-play'}, '*');
+}
+function gfxPause(){
+  const frame = document.getElementById('gfx-preview-frame');
+  if (frame) frame.contentWindow.postMessage({type:'gf-pause'}, '*');
+}
+
+async function gfxRender(){
+  const status = document.getElementById('gfx-status');
+  const btn = document.getElementById('gfx-render-btn');
+  if (!GFX.plan) { status.textContent = '先「生成创作方案」'; return; }
+  btn.disabled = true; btn.textContent = '渲染中……';
+  status.textContent = '逐帧渲染中（Playwright 确定性捕获 + ffmpeg 编码，约 10-60 秒）……';
+  try {
+    const r = await apiPost('/api/graphics/render', {
+      plan: GFX.plan,
+      quality: document.getElementById('gfx-quality').value,
+      script: document.getElementById('gfx-script').value,
+    });
+    if (!r.ok) throw new Error(r.error || '渲染失败');
+    document.getElementById('gfx-result').innerHTML = `
+      <div class="ok-box"><b>图形视频已生成</b> · ${r.duration.toFixed(1)}s · ${r.frames} 帧 · 项目 ${esc(r.project_id)}
+      <video controls src="/file?path=${encodeURIComponent(r.final_path)}"></video><br>
+      <a class="dl" href="/file?path=${encodeURIComponent(r.final_path)}" download="graphic.mp4">⬇ 下载 MP4</a></div>`;
+    status.textContent = '✅ 渲染完成（项目已登记，首页/项目页可见）';
+  } catch(e) {
+    status.textContent = '❌ 渲染失败：' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '🎬 渲染成片';
+  }
+}
+
 // ---- 首页：我现在该做什么 ----
 // 9 入口路由：按起点预填创作页（PDF/录屏暂走素材上传引导，能力就绪前诚实降级）
 function newEntry(kind){
@@ -1133,9 +1271,6 @@ async function loadHome(){
     const recent = projects.slice(0, 6).map(p => {
       const state = p.pending_confirm ? '⚠ 待确认' : (p.has_final ? '✅ 已完成' : '· 进行中');
       const qc = p.qc === 'PASS' ? ' · QC 通过' : '';
-      const poster = p.has_final
-        ? `<img class="home-poster" src="/file?path=${encodeURIComponent(p.final_path.replace(/output.*/, 'render') + '/segments/scene_' + p.project_id + 'S01.mp4').replace(/[^]*?/,'')}" onerror="this.style.display='none'">`
-        : `<div class="home-poster home-poster-empty">${p.project_id.startsWith('tpl-') ? '🧩' : '🎬'}</div>`;
       return `<div class="proj-row home-card" onclick="openProject('${esc(p.project_id)}')">
         ${p.has_final
           ? `<video class="home-poster" src="/file?path=${encodeURIComponent(p.final_path)}#t=1" muted preload="metadata" onerror="this.style.display='none'"></video><div class="home-poster home-poster-empty" style="display:none"></div>`
@@ -1214,7 +1349,7 @@ async function openProject(pid){
         <div class="scene-list" style="max-height:280px">${sceneRows || '<div class="hint">无分镜数据</div>'}</div>
         ${j.final_exists ? `
           <div class="btn-row">
-            <button onclick="playProjectFinal('${esc(pid)}')">▶ 播放成品</button>
+            <button>▶ 播放成品</button>
             <button class="btn-secondary" onclick="publishVariants('${esc(pid)}')">📤 发布多平台（9:16/16:9/3:4/1:1）</button>
           </div>
           <video controls id="proj-video" style="width:100%;max-width:420px;display:none;margin-top:10px;border-radius:8px;background:#000"></video>` : ''}
@@ -1223,11 +1358,11 @@ async function openProject(pid){
     if (j.final_exists) {
       const btn = box.querySelector('button');
       btn.onclick = async () => {
-        // final 路径通过固定约定拼（output/final.mp4 在 storage 内可播放）
+        // 服务端返回的绝对路径（环境无关；不再硬编码检出区目录）
         const v = document.getElementById('proj-video');
         v.style.display = 'block';
-        v.src = '/file?path=' + encodeURIComponent(
-          'D:\\autocut\\video-director\\storage\\composer\\' + pid + '\\output\\final.mp4');
+        v.src = '/file?path=' + encodeURIComponent(j.final_path ||
+          (j.project_id ? j.project_id : ''));
         v.play().catch(()=>{});
       };
     }
@@ -1569,7 +1704,7 @@ function previewSfx(){
 loadOptions();
 loadHome();  // 首页默认 tab
 
-function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // 当前待确认项目的状态（自然语言改稿累积 edits）
 let currentProject = { pid: '', sb: null, edits: {} };

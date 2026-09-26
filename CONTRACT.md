@@ -247,6 +247,17 @@ Publish 前必须执行 Preflight，至少检查 Asset/License/Provenance/Font/A
 
 Video Shotcraft 只作为 Recipe knowledge / Motion knowledge / Template grammar / Timing knowledge 进入系统。**不允许将 third-party original media / unknown audio / unknown asset / brand material / unverified demo material 标记为 CLEAR。Remotion-specific implementation 不得成为核心 Composition Contract 的必要依赖。**
 
+## 44a. HyperFrames Integration 契约（Graphics Runtime）
+
+HyperFrames 只作为**架构思想与 Graphics Execution Backend 的参考**进入系统（方案 §4/§84）：
+
+- **HyperFrames ≠ Composition IR**：上层系统不感知 HyperFrames 命名；Graphics Contract（data-composition-* / data-clip-*）由本系统定义，HyperFrames 思想经 Adapter 边界吸收（未来接真实 HyperFrames Engine 时只动 adapter，不动上层）。
+- **Frame 是唯一时间事实（方案 §7）**：Graphics 渲染与预览全部由 `seekFrame(frame)` 驱动；编译产物含 `Date.now/performance.now/Math.random/requestAnimationFrame/网络请求` 即 Preflight REJECT。
+- **HTML 是执行格式不是 AI 知识格式（方案 §14）**：禁止 `AI → arbitrary HTML → save`；HTML 只能由 GraphicProgram 经 compiler 确定性产出。
+- **沙箱（方案 §48/§49）**：Graphics HTML 一律隔离运行——渲染用 route.abort 网络阻断的 Chromium context；前端预览用 sandbox iframe（不带 allow-same-origin）。用户内容进 innerHTML 前必须转义。
+- **Preview/Final Parity（方案 §55）**：预览 iframe 与正式渲染消费同一 compile_to_html 产物；允许质量差异，禁止语义差异。
+- **商业边界**：Block Catalog 全部自撰 HTML/CSS（origin=own/CLEAR）；不引入第三方字体/图标/动画库（GSAP/Lottie/Three/Remotion 均不进依赖）。
+
 ## 45. Coding Agent 契约
 
 Coding Agent 不得：扩大 Task scope / 修改无关模块 / 删除已有测试 / 绕过现有 Contract / 静默改变公共 API / 修改 Source 数据。

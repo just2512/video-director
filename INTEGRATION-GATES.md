@@ -231,6 +231,44 @@ Commercial Audit：每个进入 Commercial Registry 的对象必须能回答：�
 
 **Remotion Boundary**：ShotRecipe → Composition 不得要求 Remotion Runtime 才能成立。Motion Contract 必须与具体 Renderer 解耦。
 
+## IG-GFX Graphics Runtime Gate（HyperFrames 集成）
+
+**Scope**: GFX-001~007（Contract/Program/Compiler/Frame Seek/捕获/编码）
+
+Flow: `Text → Graphic Plan → Block Resolve → GraphicProgram → HTML → Preflight → Preview → Frame Capture → MP4`
+
+Checks:
+- 确定性：编译 HTML 含 window.__gf.seek(frame)；preflight 拒收 Date.now/Math.random/fetch/外链
+- 沙箱：渲染页网络全阻断（route.abort），preview 用 sandbox iframe 隔离
+- Parity：preview 与 final 消费同一 compile_to_html 产物
+- 失败诚实：playwright 缺失 → RENDERER_UNAVAILABLE（禁 fake success）
+
+命令：`python -m pytest tests/ -q -k graphics` + `python tools/test_webui_hyperframes.py`
+
+## IG-BLOCK Block Gate
+
+Flow: `Block → Plan 绑定 → 前端换块 → HTML → 预览 → 渲染`
+
+Checks:
+- Catalog 自撰（origin=own/CLEAR），无第三方字体/图标/动画库
+- Resolver 三态（SUPPORTED/MISSING_REQUIREMENT/INCOMPATIBLE），零评分
+- 用户内容进 innerHTML 前必须转义（XSS 边界）
+
+命令：`python -m pytest tests/ -q -k graphics`（blocks/resolver 组）
+
+## IG-TEXT-TO-GRAPHIC 文案→图形 Gate
+
+输入纯文案 → 输出 Graphic Plan（场景数/角色/块绑定/时长）→ 可预览 → 可渲染。
+不允许 `AI → arbitrary HTML → save`（HTML 只能经 compiler 产出）。
+
+命令：`python -m pytest tests/ -q -k graphics` + `python tools/test_webui_hyperframes.py`（plan/preview/render 断言组）
+
+## IG-HTML-SANDBOX 沙箱 Gate
+
+测试：生成 HTML 不可发起网络请求/访问主 App DOM/cookie；preflight 拒收网络标记。
+
+命令：`python -m pytest tests/ -q -k preflight`（graphics preflight 组）
+
 ## IG-FINAL Final System Gate
 
 所有 Gate 同时通过才允许声明 Commercial E2E = PASS。任何关键 Gate REJECT → Commercial E2E = REJECT；任何关键证据 MISSING → Commercial E2E = MISSING。**不能通过"整体看起来正常"覆盖单个关键 Gate。**

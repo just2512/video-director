@@ -156,22 +156,6 @@ def _load_llm_config() -> None:
         print(f"[web] 加载模型配置失败: {exc}", file=sys.stderr)
 
 
-def _save_llm_config(api_key: str, base_url: str, model: str) -> None:
-    """持久化 LLM 配置到 storage/composer/llm_config.json。"""
-    try:
-        LLM_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        LLM_CONFIG_FILE.write_text(
-            json.dumps(
-                {"api_key": api_key, "base_url": base_url, "model": model},
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-    except Exception as exc:
-        print(f"[web] 保存 LLM 配置失败: {exc}", file=sys.stderr)
-
-
 def _read_project_draft(project_id: str) -> dict:
     """从项目 plans/ 读初始方案字段（draft 源，给偏好 diff 用）。
 
@@ -477,7 +461,8 @@ class Handler(BaseHTTPRequestHandler):
                 if root.is_dir():
                     for d in sorted(root.iterdir(),
                                     key=lambda p: p.stat().st_mtime, reverse=True):
-                        if not (d.name.startswith("web-") or d.name.startswith("tpl-")):
+                        if not (d.name.startswith("web-") or d.name.startswith("tpl-")
+                                or d.name.startswith("gfx-")):
                             continue
                         run_json = d / "plans" / "run.json"
                         final = d / "plans" / "storyboard.json"
@@ -538,7 +523,10 @@ class Handler(BaseHTTPRequestHandler):
                         s.get("transition_out", {}).get("type")
                         for s in c.get("scenes", [])
                     ]
-                detail["final_exists"] = (pdir / "output" / "final.mp4").is_file()
+                final_p = pdir / "output" / "final.mp4"
+                detail["final_exists"] = final_p.is_file()
+                if final_p.is_file():
+                    detail["final_path"] = str(final_p)
                 detail["draft_exists"] = any(
                     (pdir / "render").glob("draft*.mp4"))
                 script_file = pdir / "input" / "script.txt"
@@ -603,19 +591,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(vd_studio.job_list())
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
-        elif route == "/api/platforms":
-            # 多平台矩阵（§41）
-            from video_director.studio import PLATFORMS
-            self._send_json([
-                {"id": k, "size": v[0], "label": v[1]}
-                for k, v in PLATFORMS.items()
-            ])
         elif route == "/api/registry/shots":
             self._registry_shots(parsed)
         elif route == "/api/registry/motions":
             self._registry_motions(parsed)
         elif route == "/api/registry/templates":
             self._registry_templates(parsed)
+        elif route == "/api/graphics/blocks":
+            # GFX-009 Creative Catalog：block 清单（Block Library UI 数据源）
+            try:
+                from video_director.graphics import blocks as vd_gfx_blocks
+                out = [{
+                    "id": b.id, "name": b.name, "category": b.category,
+                    "semantic_intents": list(b.semantic_intents),
+                    "slots": list(b.slots),
+                    "duration_range": [b.duration_min, b.duration_max],
+                } for b in vd_gfx_blocks.all_blocks()]
+                self._send_json(out)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/graphics/blocks/resolve":
+            # GFX-010 Block Resolver（POST，见 do_POST）——GET 拒绝
+            self._send_json({"error": "POST only"}, 405)
         elif route == "/api/editor/composition":
             # ?project_id= → 场景/层时间线数据（Editor 页事实源）
             qs = parse_qs(parsed.query)
@@ -928,32 +925,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
-        # LLM 配置（旧端点，保留兼容；内部转存到 model_config 的 llm 角色）
-        if parsed.path == "/api/llm_config":
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
-            except json.JSONDecodeError:
-                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
-                return
-            api_key = (payload.get("api_key") or "").strip()
-            base_url = (payload.get("base_url") or "").strip()
-            model = (payload.get("model") or "").strip()
-            try:
-                vd_llm.set_llm_config(api_key, base_url or None, model or None)
-                if api_key:
-                    _save_llm_config(api_key, base_url, model)
-                else:
-                    # 清除配置 = 删除持久化文件，回退环境变量
-                    try:
-                        LLM_CONFIG_FILE.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-                self._send_json({"ok": True, "config": vd_llm.get_llm_config()})
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, 500)
-            return
-
         # LLM 文案润色（无 provider 时诚实降级原样返回）
         if parsed.path == "/api/enhance":
             length = int(self.headers.get("Content-Length", 0))
@@ -1174,6 +1145,125 @@ class Handler(BaseHTTPRequestHandler):
                     "qc": final.qc_report,
                     "warnings": final.warnings,
                 })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        # ===================== Graphics Runtime 端点（HyperFrames 集成）=====================
+
+        if parsed.path == "/api/graphics/blocks/resolve":
+            # GFX-010 Block Resolver：意图 → 三态候选（零评分）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            try:
+                from video_director.graphics import resolver as vd_gfx_resolver
+                cands = vd_gfx_resolver.resolve_blocks(vd_gfx_resolver.BlockResolveRequest(
+                    semantic_intents=tuple(payload.get("semantic_intents") or ()),
+                    content_type=payload.get("content_type") or "",
+                    duration=float(payload.get("duration") or 3.0),
+                ))
+                self._send_json({"ok": True, "candidates": [
+                    {"block_id": c.block_id, "name": c.name, "category": c.category,
+                     "compatibility": c.compatibility, "reasons": list(c.reasons),
+                     "missing_requirements": list(c.missing_requirements)}
+                    for c in cands
+                ]})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/graphics/plan":
+            # GFX-019 Text → Graphic Plan（纯文案 → 可编辑创作方案，方案 §34 先看方案再渲染）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            script = (payload.get("script") or "").strip()
+            if not script:
+                self._send_json({"error": "请先输入文案"}, 400)
+                return
+            try:
+                from video_director.graphics import director as vd_gfx_director
+                plan = vd_gfx_director.build_graphic_plan(
+                    script,
+                    content_type=payload.get("content_type") or "knowledge",
+                    style_id=payload.get("style_id") or "editorial",
+                    width=int(payload.get("width") or 1080),
+                    height=int(payload.get("height") or 1920),
+                )
+                self._send_json({"ok": True, "plan": plan})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/graphics/preview":
+            # GFX-013 Graphic Preview：plan → 确定性 HTML（iframe srcdoc 即时预览）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            plan = payload.get("plan")
+            if not plan or not plan.get("scenes"):
+                self._send_json({"error": "缺少 plan（先 /api/graphics/plan 生成）"}, 400)
+                return
+            try:
+                from video_director.graphics import director as vd_gfx_director
+                from video_director.graphics.preflight import deterministic_preflight
+                html = vd_gfx_director.plan_to_html(plan)
+                rep = deterministic_preflight(html)
+                if rep.status != "PASS":
+                    self._send_json({"ok": False, "error": "确定性预检失败: " + "; ".join(rep.issues)}, 400)
+                    return
+                self._send_json({"ok": True, "html": html, "sandbox": {
+                    "isolated_origin": True, "block_network": True}})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/graphics/render":
+            # GFX-006/007：plan → 编译 → Playwright 逐帧 → ffmpeg → MP4（项目落盘）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            plan = payload.get("plan")
+            quality = payload.get("quality") or "draft"
+            if not plan or not plan.get("scenes"):
+                self._send_json({"error": "缺少 plan"}, 400)
+                return
+            pid = "gfx-" + uuid.uuid4().hex[:8]
+            try:
+                from video_director.graphics import director as vd_gfx_director
+                from video_director.graphics import render as vd_gfx_render
+                program = vd_gfx_director.instantiate_graphic_program(plan, program_id=pid)
+                base = vd_config.project_dir(pid)
+                vd_config.init_project_dirs(base)
+                out = str(base / "output" / "final.mp4")
+                vd_gfx_render.render_graphic_program(program, out, quality=quality)
+                # 项目登记（项目页/首页可见）
+                (base / "plans" / "graphic_plan.json").write_text(
+                    json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+                (base / "input" / "script.txt").write_text(
+                    (payload.get("script") or ""), encoding="utf-8")
+                try:
+                    vd_store.create_project(pid, "[图形] " + (plan.get("content_type") or "knowledge"), {
+                        "mode": "graphic", "quality": quality})
+                    vd_store.finish_project(pid, out, program.duration, {"verdict": "SKIP"})
+                except Exception as exc:
+                    print(f"[web] create_project(gfx) 失败（不阻塞）: {exc}", file=sys.stderr)
+                self._send_json({"ok": True, "project_id": pid, "final_path": out,
+                                 "duration": program.duration,
+                                 "frames": program.total_frames})
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return

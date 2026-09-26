@@ -1,0 +1,144 @@
+"""HTML Compiler（GFX-003）：GraphicProgram → 确定性 HTML。
+
+方案 §6/§7/§8/§14：HTML 是执行格式（render 的中间产物），不是 AI 的知识格式。
+本编译器把**已校验的 GraphicProgram**编译成自包含 HTML：
+    - data-composition-* 顶层时序契约
+    - 每个 scene 一个 .gfx-scene（data-clip-start/duration 契约由 CSS 变量承载）
+    - FrameAdapter runtime：注入 window.__gf.seek(frame)，设置 --t 变量，
+      CSS 动画负 delay 让 Chromium 停在 frame 的精确视觉态
+    - 纯 CSS 动画（transform/opacity），零 JS 动画库、零外链、零网络
+
+确定性保证（方案 §50/§52）：编译产物不含 Date.now/performance.now/Math.random/
+fetch/外链字体——这些标记由 preflight 显式校验。
+"""
+
+from __future__ import annotations
+
+from typing import List, Tuple
+
+from video_director.graphics import blocks as blocks_mod
+from video_director.graphics.program import GraphicProgram, GraphicScene
+
+#: FrameAdapter runtime（浏览器侧 seek 协议，GFX-005）——注入进每一份编译 HTML
+#: 控制协议用 postMessage（sandbox iframe 是 opaque origin，父页面不可直接
+#: 访问其 JS——这本身就是沙箱边界正确的证据；消息驱动保持隔离可控）。
+_SEEK_RUNTIME = """
+<script>
+/* FrameAdapter（GFX-005）：frame 是唯一时间事实。逐帧 scrub 驱动 CSS。 */
+window.__gf = (function(){
+  var fps = __GF_FPS__;
+  var total = __GF_TOTAL__;
+  var scenes = __GF_SCENES__;  // [{start,duration,motion}]
+  var timer = null;
+  function seek(frame){
+    if (frame < 0) frame = 0;
+    if (frame > total) frame = total;
+    var t = frame / fps;             // 绝对时间
+    var els = document.querySelectorAll('.gfx-scene');
+    for (var i = 0; i < els.length; i++){
+      var s = scenes[i];
+      var on = (t >= s.start - 1e-6 && t < s.start + s.duration);
+      els[i].style.display = on ? '' : 'none';
+      els[i].style.setProperty('--t', on ? (t - s.start) + 's' : '-1s');
+      els[i].style.setProperty('--dur', (s.duration) + 's');
+    }
+    return {frame: frame, t: t};
+  }
+  function play(){
+    pause();
+    var f = window.__gf._last || 0;
+    timer = setInterval(function(){
+      f = (f + 1) % (total + 1);
+      window.__gf._last = f;
+      seek(f);
+    }, 1000 / fps);
+  }
+  function pause(){ if (timer) { clearInterval(timer); timer = null; } }
+  /* 沙箱控制协议：父页面 postMessage（opaque origin 下唯一合法通道） */
+  window.addEventListener('message', function(ev){
+    var d = ev.data || {};
+    if (d.type === 'gf-seek') { seek(d.frame | 0); }
+    else if (d.type === 'gf-play') { play(); }
+    else if (d.type === 'gf-pause') { pause(); }
+  });
+  seek(0);
+  return { fps: fps, totalFrames: total, scenes: scenes, seek: seek, play: play, pause: pause };
+})();
+</script>
+"""
+
+
+class CompileError(Exception):
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(f"[{code}] {message}")
+
+
+def compile_to_html(program: GraphicProgram) -> str:
+    """GraphicProgram → 自包含确定性 HTML（供 preview iframe 与 render 共用）。
+
+    返回的完整 HTML 文档，iframe srcdoc 直接可用（preview），也作为 render 的
+    输入（Chromium 逐帧 scrub）。这两条路径共享同一份产物 → parity by construction
+    （方案 §55）。
+    """
+    if not program.scenes:
+        raise CompileError("EMPTY_PROGRAM", "GraphicProgram 无 scene 不可编译")
+
+    scenes_sorted = sorted(program.scenes, key=lambda s: s.start)
+    total = scenes_sorted[-1].start + scenes_sorted[-1].duration
+    rfp = program.rational_fps
+
+    # 逐 scene 编译 block 片段
+    bodies: List[str] = []
+    for sc in scenes_sorted:
+        try:
+            block = blocks_mod.get_block(sc.block_id)
+        except KeyError as exc:
+            raise CompileError("BLOCK_NOT_FOUND", str(exc)) from exc
+        dur = sc.duration
+        if not (block.duration_min - 0.01 <= dur <= block.duration_max + 0.01):
+            raise CompileError(
+                "BLOCK_DURATION_OUT_OF_RANGE",
+                f"scene {sc.id}: block {sc.block_id} 时长 {dur}s 越界",
+            )
+        bodies.append(blocks_mod.render_block(block, sc.slot_values, dur, program.style_id))
+
+    # motion 样式：每种 motion 一套 keyframes（去重）
+    motion_ids = sorted({sc.motion_id for sc in scenes_sorted})
+    motion_css = "\n".join(
+        blocks_mod.block_motion_style(m, 3.0) for m in motion_ids
+    )
+
+    # scene 时序 JSON（FrameAdapter 定位 clip 用）
+    scenes_json = [
+        {"start": round(sc.start, 3), "duration": round(sc.duration, 3),
+         "motion": sc.motion_id}
+        for sc in scenes_sorted
+    ]
+    import json
+
+    runtime = (
+        _SEEK_RUNTIME
+        .replace("__GF_FPS__", str(rfp.value))
+        .replace("__GF_TOTAL__", str(program.total_frames))
+        .replace("__GF_SCENES__", json.dumps(scenes_json, ensure_ascii=False))
+    )
+
+    html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+{blocks_mod.graphics_base_css(program.style_id)}
+{motion_css}
+</style>
+</head>
+<body data-composition-id="{program.id}"
+      data-width="{program.width}" data-height="{program.height}"
+      data-fps="{int(rfp.numerator)}" data-fps-den="{int(rfp.denominator)}"
+      data-duration="{total:.3f}">
+{runtime}
+{''.join(bodies)}
+</body>
+</html>"""
+    return html
