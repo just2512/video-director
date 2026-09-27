@@ -910,13 +910,16 @@ function edSelectedCount(){ return ED.selSet.size; }
 
 async function editorInit(){
   // 项目下拉：全部有 composition.json 的项目（compose 过或模板实例）
-  const projs = await (await fetch('/api/projects')).json();
+  let projs;
+  try { projs = await (await fetch('/api/projects')).json(); } catch(e) { projs = null; }
   const editable = [];
-  for (const p of projs) {
-    try {
-      const c = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(p.project_id))).json();
-      if (c && c.scenes) editable.push([p.project_id, p.project_id]);
-    } catch(e) {}
+  if (Array.isArray(projs)) {
+    for (const p of projs) {
+      try {
+        const c = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(p.project_id))).json();
+        if (c && c.scenes) editable.push([p.project_id, p.project_id]);
+      } catch(e) {}
+    }
   }
   _rebuildSelect('editor-project', editable.length ? editable : [['','（先去创作页或模板库生成一个项目）']]);
 }
@@ -2749,7 +2752,9 @@ function renderResult(j){
 async function loadReview(){
   const box = document.getElementById('review-list');
   box.innerHTML = '加载中……';
-  const projs = await (await fetch('/api/projects')).json();
+  let projs;
+  try { projs = await (await fetch('/api/projects')).json(); } catch(e) { projs = null; }
+  if (!Array.isArray(projs)) { box.innerHTML = '<div class="hint">项目列表加载失败，点刷新重试</div>'; return; }
   const rows = [];
   for (const p of projs) {
     let stage = p.stage || '';
@@ -2765,7 +2770,9 @@ async function loadReview(){
 async function loadPublish(){
   const box = document.getElementById('publish-list');
   box.innerHTML = '加载中……';
-  const projs = await (await fetch('/api/projects')).json();
+  let projs;
+  try { projs = await (await fetch('/api/projects')).json(); } catch(e) { projs = null; }
+  if (!Array.isArray(projs)) { box.innerHTML = '<div class="hint">项目列表加载失败，点刷新重试</div>'; return; }
   const rows = [];
   for (const p of projs) {
     let pf;
