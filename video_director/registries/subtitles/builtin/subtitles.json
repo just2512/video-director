@@ -1,0 +1,26 @@
+[
+  {
+    "id": "subtitle.plain",
+    "version": "1.0.0",
+    "kind": "subtitle_style",
+    "name": "普通字幕",
+    "description": "逐句显示",
+    "tags": [
+      "plain"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "subtitle.karaoke",
+    "version": "1.0.0",
+    "kind": "subtitle_style",
+    "name": "卡拉OK",
+    "description": "逐词高亮跟读",
+    "tags": [
+      "karaoke"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  }
+]

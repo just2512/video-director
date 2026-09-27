@@ -87,6 +87,22 @@ def _cover_filter(src_w: int, src_h: int, dst_w: int, dst_h: int) -> str:
     )
 
 
+def _static_transform(layer: Layer) -> Optional[dict]:
+    """读取 set_transform 写入的静态变换 {scale, opacity}（常值，无动画）。
+
+    无 → None。§20 set_transform：静态缩放/透明度（x/y 偏移暂不支持）。
+    """
+    inst = layer.motion_instance or {}
+    tr = (inst.get("parameters") or {}).get("transform") or {}
+    if not tr:
+        return None
+    scale = float(tr.get("scale", 1.0))
+    opacity = float(tr.get("opacity", 1.0))
+    if scale == 1.0 and opacity == 1.0:
+        return None
+    return {"scale": scale, "opacity": opacity}
+
+
 # ---------------------------------------------------------------------------
 # 单层渲染
 # ---------------------------------------------------------------------------
@@ -168,6 +184,34 @@ def render_layer_segment(
     elif layer.type == LayerType.image:
         dur = layer.duration
         frames = int(round(dur * fps))
+        st = _static_transform(layer)
+        # 静态变换（§20 set_transform）：scale 常值 zoompan + opacity 常值 alpha
+        if st is not None and (st["opacity"] != 1.0 or st["scale"] != 1.0):
+            zoom_expr = f"{st['scale']:.4f}" if st["scale"] != 1.0 else None
+            if st["opacity"] != 1.0:
+                _render_image_layer_alpha_composite(
+                    asset, out_path, width, height, fps, frames,
+                    {"opacity_expr": f"{st['opacity']:.4f}"},
+                    zoom_expr=zoom_expr,
+                )
+            else:
+                # 仅静态缩放：常值 zoompan（居中）
+                vf = (
+                    f"scale={width * 2}:{height * 2},"
+                    f"zoompan=z='({zoom_expr})'"
+                    f":x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2'"
+                    f":d={frames}:s={width}x{height}:fps={fps}"
+                )
+                cmd = [
+                    ff, "-y", "-loglevel", "error",
+                    "-loop", "1", "-i", asset.file,
+                    "-frames:v", str(frames),
+                    "-vf", vf,
+                    *out_common,
+                    out_path,
+                ]
+                _run(cmd)
+            return _verify_segment_duration(out_path, layer.duration)
         # Motion Recipe 优先（Gallery 应用的动效），旧 motion 枚举兜底
         if motion_comp and motion_comp["scale_expr"] != "1.0":
             # zoompan 动态缩放：z=编译表达式（on 方言），x/y 居中

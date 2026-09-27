@@ -16,6 +16,7 @@ from video_director.registries.core import (
     RegistryItem,
     RegistryLoader,
     RegistryError,
+    LayeredRegistryLoader,
 )
 
 #: 画幅白名单（与 studio.PLATFORMS 对齐）
@@ -143,13 +144,12 @@ def template_from_item(raw: dict, item: RegistryItem) -> TemplateDefinition:
 
 
 class TemplateRegistry:
-    """模板注册表加载与查询（REG-005 API）。"""
+    """模板注册表加载与查询（REG-005 API）。§39 三层加载（system/user/project）。"""
 
     def __init__(self):
-        self._loader = RegistryLoader("template", "templates")
+        self._loader = LayeredRegistryLoader("template", "templates")
 
     def all(self) -> List[TemplateDefinition]:
-        import json
         out = []
         for item in self._loader.load_all():
             raw = self._find_raw(item.id, item.version)
@@ -157,12 +157,10 @@ class TemplateRegistry:
         return out
 
     def _find_raw(self, item_id: str, version: str) -> dict:
-        import json
-        for path in sorted(self._loader._root.rglob("*.json")):
-            for data in json.loads(path.read_text(encoding="utf-8")):
-                if data.get("id") == item_id and str(data.get("version")) == version:
-                    return data
-        raise RegistryError("NOT_FOUND", f"{item_id}@{version} 原始定义缺失")
+        return self._loader.raw_of(item_id, version)
+
+    def layer_of(self, item_id: str, version: str) -> str:
+        return self._loader.layer_of(item_id, version)
 
     def get(self, item_id: str, version: Optional[str] = None) -> TemplateDefinition:
         item = self._loader.load(item_id, version)

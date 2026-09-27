@@ -1,0 +1,28 @@
+[
+  {
+    "id": "graphic.kb-title",
+    "version": "1.0.0",
+    "kind": "graphic",
+    "name": "知识标题卡",
+    "description": "Graphic Runtime 块 kb.title",
+    "tags": [
+      "block",
+      "title"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "graphic.pd-hero",
+    "version": "1.0.0",
+    "kind": "graphic",
+    "name": "产品 Hero 卡",
+    "description": "Graphic Runtime 块 pd.hero",
+    "tags": [
+      "block",
+      "product"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  }
+]

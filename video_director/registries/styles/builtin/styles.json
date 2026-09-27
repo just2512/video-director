@@ -1,0 +1,54 @@
+[
+  {
+    "id": "style.documentary-calm",
+    "version": "1.0.0",
+    "kind": "style",
+    "name": "纪录片沉稳",
+    "description": "冷静叙述，克制动效",
+    "tags": [
+      "documentary",
+      "calm"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "style.knowledge-explainer",
+    "version": "1.0.0",
+    "kind": "style",
+    "name": "知识讲解",
+    "description": "高信息密度，知识点拆解",
+    "tags": [
+      "knowledge",
+      "explainer"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "style.energetic-social",
+    "version": "1.0.0",
+    "kind": "style",
+    "name": "社交活泼",
+    "description": "快节奏，强钩子",
+    "tags": [
+      "social",
+      "energetic"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "style.cinematic-story",
+    "version": "1.0.0",
+    "kind": "style",
+    "name": "电影叙事",
+    "description": "电影感，情绪铺陈",
+    "tags": [
+      "cinematic",
+      "story"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  }
+]

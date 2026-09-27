@@ -1,0 +1,41 @@
+[
+  {
+    "id": "transition.cut",
+    "version": "1.0.0",
+    "kind": "transition",
+    "name": "硬切",
+    "description": "直接切换（默认；非效果转场）",
+    "tags": [
+      "cut",
+      "basic"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "transition.crossfade",
+    "version": "1.0.0",
+    "kind": "transition",
+    "name": "交叉淡化",
+    "description": "柔和淡入淡出衔接",
+    "tags": [
+      "fade",
+      "soft"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "transition.zoom-through",
+    "version": "1.0.0",
+    "kind": "transition",
+    "name": "镜头穿越",
+    "description": "缩放推进转场（效果转场，克制使用）",
+    "tags": [
+      "zoom",
+      "strong"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "lower-third.classic",
+    "version": "1.0.0",
+    "kind": "lower_third",
+    "name": "经典字幕条",
+    "description": "半透明底 + 白字",
+    "tags": [
+      "classic"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "lower-third.clean",
+    "version": "1.0.0",
+    "kind": "lower_third",
+    "name": "简洁字幕条",
+    "description": "无底只描边",
+    "tags": [
+      "clean"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  }
+]

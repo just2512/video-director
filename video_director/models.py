@@ -160,6 +160,8 @@ class Layer(BaseModel):
     motion_recipe_id: Optional[str] = None
     motion_version: Optional[str] = None
     motion_instance: Optional[dict] = None
+    # ---- EDT-006 Timeline：lock 防止误改（§13 Layer.locked）----
+    locked: Optional[bool] = None
 
     @model_validator(mode="after")
     def _check_layer(self):

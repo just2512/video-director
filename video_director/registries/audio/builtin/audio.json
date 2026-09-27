@@ -1,0 +1,26 @@
+[
+  {
+    "id": "audio.bgm-builtin",
+    "version": "1.0.0",
+    "kind": "audio_asset",
+    "name": "内置 BGM",
+    "description": "自有合成背景音乐",
+    "tags": [
+      "bgm"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "audio.sfx-builtin",
+    "version": "1.0.0",
+    "kind": "audio_asset",
+    "name": "内置音效",
+    "description": "自有录制音效",
+    "tags": [
+      "sfx"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  }
+]

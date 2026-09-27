@@ -19,6 +19,7 @@ from video_director.registries.core import (
     RegistryItem,
     RegistryLoader,
     RegistryError,
+    LayeredRegistryLoader,
 )
 
 # ---------------------------------------------------------------------------
@@ -161,29 +162,23 @@ def shot_from_item(raw: dict, item: RegistryItem) -> ShotRecipe:
 
 
 class ShotRegistry:
-    """镜头配方加载与查询（REG-003 API）。"""
+    """镜头配方加载与查询（REG-003 API）。§39 三层加载（system/user/project）。"""
 
     def __init__(self):
-        self._loader = RegistryLoader("shot_recipe", "shots")
+        self._loader = LayeredRegistryLoader("shot_recipe", "shots")
 
     def all(self) -> List[ShotRecipe]:
         out = []
-        for path in sorted((self._loader._root).rglob("*.json")) if self._loader._root.is_dir() else []:
-            pass  # noqa: S110（原始文件由 loader 保证已验证；这里经 raw 重建领域对象）
-        # 经 loader 拿验证后的 item，再按原始 dict 重建（loader 已验证基础 schema）
-        import json
         for item in self._loader.load_all():
             raw = self._find_raw(item.id, item.version)
             out.append(shot_from_item(raw, item))
         return out
 
+    def layer_of(self, item_id: str, version: str) -> str:
+        return self._loader.layer_of(item_id, version)
+
     def _find_raw(self, item_id: str, version: str) -> dict:
-        import json
-        for path in sorted(self._loader._root.rglob("*.json")):
-            for data in json.loads(path.read_text(encoding="utf-8")):
-                if data.get("id") == item_id and str(data.get("version")) == version:
-                    return data
-        raise RegistryError("NOT_FOUND", f"{item_id}@{version} 原始定义缺失")
+        return self._loader.raw_of(item_id, version)
 
     def get(self, item_id: str, version: Optional[str] = None) -> ShotRecipe:
         item = self._loader.load(item_id, version)
@@ -307,26 +302,23 @@ def motion_from_item(raw: dict, item: RegistryItem) -> MotionRecipe:
 
 
 class MotionRegistry:
-    """动效配方加载与查询（REG-004 API）。"""
+    """动效配方加载与查询（REG-004 API）。§39 三层加载（system/user/project）。"""
 
     def __init__(self):
-        self._loader = RegistryLoader("motion_recipe", "motions")
+        self._loader = LayeredRegistryLoader("motion_recipe", "motions")
 
     def all(self) -> List[MotionRecipe]:
-        import json
         out = []
         for item in self._loader.load_all():
             raw = self._find_raw(item.id, item.version)
             out.append(motion_from_item(raw, item))
         return out
 
+    def layer_of(self, item_id: str, version: str) -> str:
+        return self._loader.layer_of(item_id, version)
+
     def _find_raw(self, item_id: str, version: str) -> dict:
-        import json
-        for path in sorted(self._loader._root.rglob("*.json")):
-            for data in json.loads(path.read_text(encoding="utf-8")):
-                if data.get("id") == item_id and str(data.get("version")) == version:
-                    return data
-        raise RegistryError("NOT_FOUND", f"{item_id}@{version} 原始定义缺失")
+        return self._loader.raw_of(item_id, version)
 
     def get(self, item_id: str, version: Optional[str] = None) -> MotionRecipe:
         item = self._loader.load(item_id, version)

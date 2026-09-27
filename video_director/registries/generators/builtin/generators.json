@@ -1,0 +1,51 @@
+[
+  {
+    "id": "generator.graphics-runtime",
+    "version": "1.0.0",
+    "kind": "generator",
+    "name": "程序化图形",
+    "description": "自有 Graphics Runtime 确定性渲染（可用）",
+    "tags": [
+      "graphic",
+      "available"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "generator.image-llm",
+    "version": "1.0.0",
+    "kind": "generator",
+    "name": "AI 生图",
+    "description": "provider 未接线（不可用）",
+    "tags": [
+      "image",
+      "unavailable"
+    ],
+    "commercial_status": "UNKNOWN"
+  },
+  {
+    "id": "generator.video-llm",
+    "version": "1.0.0",
+    "kind": "generator",
+    "name": "AI 生视频",
+    "description": "provider 未接线（不可用）",
+    "tags": [
+      "video",
+      "unavailable"
+    ],
+    "commercial_status": "UNKNOWN"
+  },
+  {
+    "id": "generator.sfx-llm",
+    "version": "1.0.0",
+    "kind": "generator",
+    "name": "AI 合成音",
+    "description": "provider 未接线（不可用）",
+    "tags": [
+      "sfx",
+      "unavailable"
+    ],
+    "commercial_status": "UNKNOWN"
+  }
+]

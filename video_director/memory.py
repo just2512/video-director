@@ -99,6 +99,17 @@ CREATE TABLE IF NOT EXISTS style_dna (
     source_case_ids_json TEXT NOT NULL DEFAULT '[]',
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS motion_behavior (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id TEXT NOT NULL,
+    item_kind TEXT NOT NULL DEFAULT 'motion',
+    behavior TEXT NOT NULL CHECK(behavior IN ('used','pinned','liked','rejected','avoided')),
+    project_id TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_motion_behavior_item ON motion_behavior(item_id);
+CREATE INDEX IF NOT EXISTS idx_motion_behavior_behavior ON motion_behavior(behavior);
 """
 
 
@@ -683,3 +694,82 @@ def list_preferences(
             params,
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# §三十二 Style DNA 明确行为记录（Used/Pinned/Liked/Rejected/Avoided，零评分）
+# ---------------------------------------------------------------------------
+
+#: 方案白名单行为（motion_behavior.behavior CHECK 同源）
+MOTION_BEHAVIORS = ("used", "pinned", "liked", "rejected", "avoided")
+
+
+def record_motion_behavior(
+    item_id: str,
+    behavior: str,
+    item_kind: str = "motion",
+    project_id: Optional[str] = None,
+) -> bool:
+    """记录用户对动效/镜头/模板的明确行为（§三十二：只记明确行为，不评分）。
+
+    used     = 应用到项目（replace_motion/replace_recipe/动效库应用）
+    pinned   = 用户点「收藏」
+    liked    = 用户点「赞」
+    rejected = AI 提案被用户拒绝时涉及的 item
+    avoided  = 用户点「不再推荐」
+
+    行为不在白名单 → 拒收（返回 False，诚实）。
+    """
+    if behavior not in MOTION_BEHAVIORS:
+        logger.warning(f"style_dna: behavior {behavior!r} 不在白名单，拒收")
+        return False
+    if not item_id or not str(item_id).strip():
+        return False
+    init_db()
+    with _DB_LOCK, _conn() as conn:
+        conn.execute(
+            "INSERT INTO motion_behavior (item_id, item_kind, behavior, project_id, created_at) "
+            "VALUES (?,?,?,?,?)",
+            (item_id.strip(), item_kind, behavior, project_id, time.time()),
+        )
+    logger.debug(f"style_dna: {behavior} {item_kind}:{item_id}")
+    return True
+
+
+def list_motion_behaviors(
+    item_kind: Optional[str] = None,
+    behavior: Optional[str] = None,
+    limit: int = 500,
+) -> List[Dict[str, Any]]:
+    """行为台账（Motion Gallery 置顶 pinned、过滤 avoided 的数据源）。"""
+    init_db()
+    clauses, params = [], []
+    if item_kind:
+        clauses.append("item_kind=?")
+        params.append(item_kind)
+    if behavior:
+        clauses.append("behavior=?")
+        params.append(behavior)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(limit)
+    with _conn() as conn:
+        rows = conn.execute(
+            f"SELECT item_id, item_kind, behavior, project_id, created_at "
+            f"FROM motion_behavior{where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def motion_behavior_summary() -> Dict[str, Dict[str, int]]:
+    """每 item 的行为计数汇总 {item_id: {used: n, pinned: n, ...}}（前端展示用）。"""
+    init_db()
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT item_id, behavior, COUNT(*) AS n FROM motion_behavior "
+            "GROUP BY item_id, behavior"
+        ).fetchall()
+    out: Dict[str, Dict[str, int]] = {}
+    for r in rows:
+        out.setdefault(r["item_id"], {})[r["behavior"]] = r["n"]
+    return out

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "title.lower-third",
+    "version": "1.0.0",
+    "kind": "title_style",
+    "name": "下三分之一标题",
+    "description": "画面下方标题条",
+    "tags": [
+      "lower-third"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  },
+  {
+    "id": "title.watermark",
+    "version": "1.0.0",
+    "kind": "title_style",
+    "name": "水印",
+    "description": "右下角水印",
+    "tags": [
+      "watermark"
+    ],
+    "commercial_status": "CLEAR",
+    "provenance_ref": "src-own"
+  }
+]

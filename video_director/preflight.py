@@ -85,6 +85,19 @@ def _commercial_status_of(origin: str, provenance_records: Dict[str, object]) ->
     return "UNKNOWN"
 
 
+def commercial_status_of_origin(origin: str) -> str:
+    """origin → 四态（AssetInspector 展示用，简化映射）。
+
+    user/generated/own → CLEAR；third-party → REVIEW；其余 → UNKNOWN。
+    """
+    origin = (origin or "").strip()
+    if origin in ("user", "generated", "own"):
+        return "CLEAR"
+    if origin == "third-party":
+        return "REVIEW"
+    return "UNKNOWN"
+
+
 def run_preflight(project_id: str, for_publish: bool = True) -> PreflightReport:
     """项目商用预检。
 

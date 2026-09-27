@@ -131,11 +131,43 @@ def _stale_of_layer(project_id: str, scene_id: str, layer_id: str) -> List[str]:
     return [f"{layer_id}:render", f"{scene_id}:preview"]
 
 
+def _ensure_layer_unlocked(layer: Layer) -> None:
+    """§13 Layer.locked：锁定的层拒绝改动（防误改）。"""
+    if getattr(layer, "locked", None):
+        raise EditorError("LAYER_LOCKED", f"层 {layer.asset_id or type(layer)} 已锁定，先解锁再改")
+
+
+def _record_behavior_if_applicable(cmd_name: str, command: dict) -> None:
+    """§三十二 Style DNA：换动效/换镜头/生成素材落 used（只记明确行为，不评分）。
+
+    失败不阻断编辑命令（行为记录是旁路，best-effort）。
+    """
+    item_id = None
+    if cmd_name == "replace_motion":
+        item_id = (command.get("payload") or {}).get("motionRecipeId")
+    elif cmd_name == "replace_recipe":
+        item_id = (command.get("payload") or {}).get("recipeId")
+    elif cmd_name == "generate_media":
+        item_id = (command.get("payload") or {}).get("assetId")
+    if not item_id:
+        return
+    try:
+        from video_director import memory as vd_memory
+        vd_memory.record_motion_behavior(
+            item_id, "used",
+            item_kind="motion" if cmd_name == "replace_motion" else
+                     ("shot" if cmd_name == "replace_recipe" else "asset"),
+            project_id=None,
+        )
+    except Exception as exc:  # noqa: BLE001 行为记录旁路，绝不影响编辑主流程
+        logger.debug(f"style_dna: used 记录失败（忽略）: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Editor Command 主入口（§27）
 # ---------------------------------------------------------------------------
 
-#: 第一版命令集（全局契约 §29 Timeline Interaction + Task Card §11）
+#: 第一版命令集（全局契约 §29 Timeline Interaction + Task Card §11/§20）
 SUPPORTED_COMMANDS = (
     "select",                    # 无副作用（前端选择态，服务端不记 revision）
     "trim",                      # layer 时长调整（视频层 source 区间变化）
@@ -148,7 +180,15 @@ SUPPORTED_COMMANDS = (
     "replace_motion",            # 换动效（Motion Gallery）
     "set_motion_parameter",      # 调动效参数（Inspector）
     "set_duration",              # 调场景时长
-    "set_opacity",              # 层透明度（当前折叠为 motion opacity 近似，占位）
+    "set_opacity",               # 层透明度（折叠为 motion opacity 近似）
+    "set_style",                 # 项目级风格（§20）
+    "set_transform",             # 层静态变换（scale/opacity，§20）
+    "set_audio_volume",          # 音轨音量（§20）
+    "add_broll",                 # 加 B-roll 层（§20）
+    "remove_broll",              # 删 B-roll 层（§20）
+    "generate_media",            # 生成素材落地为层（§20/EDT-008）
+    "replace_generated_media",   # 换生成素材层（§20）
+    "lock",                      # 锁/解锁层（§13 Layer.locked）
 )
 
 
@@ -179,6 +219,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
     if cmd_name == "select":
         # selection 是前端 transient 态（§35），不产生 revision
         return CommandResult(status="APPLIED", composition_version=composition_version(project_id))
+    # §三十二 Style DNA：记录明确行为（used；不评分）。仅换动效/换镜头/加 B-roll 记 used
+    _record_behavior_if_applicable(cmd_name, command)
 
     expected = command.get("expectedVersion")
     current = composition_version(project_id)
@@ -222,6 +264,22 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_duration(ir, target_id, payload)
         elif cmd_name == "set_opacity":
             changed, stale = _cmd_set_opacity(ir, target_id, payload)
+        elif cmd_name == "set_style":
+            changed, stale = _cmd_set_style(ir, target_id, payload)
+        elif cmd_name == "set_transform":
+            changed, stale = _cmd_set_transform(ir, target_id, payload)
+        elif cmd_name == "set_audio_volume":
+            changed, stale = _cmd_set_audio_volume(ir, target_id, payload)
+        elif cmd_name == "add_broll":
+            changed, stale = _cmd_add_broll(ir, target_id, payload)
+        elif cmd_name == "remove_broll":
+            changed, stale = _cmd_remove_broll(ir, target_id, payload)
+        elif cmd_name == "generate_media":
+            changed, stale = _cmd_generate_media(ir, target_id, payload)
+        elif cmd_name == "replace_generated_media":
+            changed, stale = _cmd_replace_generated_media(ir, target_id, payload)
+        elif cmd_name == "lock":
+            changed, stale = _cmd_lock(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -276,6 +334,7 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
 def _cmd_replace_motion(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Motion Gallery 应用：Layer.motion_recipe_id 替换（CMP-002 复用）。"""
     scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
     motion_id = payload.get("motionRecipeId") or ""
     if not motion_id:
         raise EditorError("INVALID_PAYLOAD", "payload 缺 motionRecipeId")
@@ -293,6 +352,7 @@ def _cmd_replace_motion(ir: CompositionIR, target_id: str, payload: dict) -> Tup
 def _cmd_set_motion_parameter(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Inspector 参数调整：重建 motion_instance（duration/parameters）。"""
     scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
     if not layer.motion_recipe_id:
         raise EditorError("INVALID_PAYLOAD", f"层 {target_id} 无 motion，先应用动效")
     params = dict(layer.motion_instance or {}).get("parameters") or {}
@@ -371,6 +431,7 @@ def _assets_like_from_manifest(project_id: str, asset_ids: List[str]) -> Dict[st
 def _cmd_replace_source(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """换素材：layer.asset_id 替换（同类型素材）。"""
     scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
     new_asset = payload.get("assetId") or ""
     if not new_asset:
         raise EditorError("INVALID_PAYLOAD", "payload 缺 assetId")
@@ -384,6 +445,7 @@ def _cmd_replace_source(ir: CompositionIR, target_id: str, payload: dict) -> Tup
 def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """trim 层：视频层改 source 区间（in/out），时长联动。"""
     scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
     if layer.type != LayerType.video:
         raise EditorError("INVALID_TARGET", f"trim 仅支持 video 层（image 用 set_duration）")
     new_in = float(payload.get("sourceIn", layer.source_in))
@@ -520,6 +582,7 @@ def _cmd_set_opacity(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     与 replace_motion 不同：不换 recipe，只调透明度标量。
     """
     scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
     opacity = float(payload.get("opacity", 1.0))
     if not (0.0 <= opacity <= 1.0):
         raise EditorError("INVALID_PAYLOAD", f"opacity {opacity} 越界 [0,1]")
@@ -566,3 +629,138 @@ def _respread_layers(scene: SceneIR) -> None:
         else:
             scene.layers[i] = lay.model_copy(update={"start": cursor, "duration": new_dur})
         cursor += new_dur
+
+
+# ---------------------------------------------------------------------------
+# §20 第一版命令补全（set_style/set_transform/set_audio_volume/add_broll/
+# remove_broll/generate_media/replace_generated_media/lock）
+# ---------------------------------------------------------------------------
+
+
+def _cmd_set_style(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """项目级风格（§20）。styleId 变化影响整体 render，不改场景结构。"""
+    style_id = payload.get("styleId")
+    if not style_id:
+        raise EditorError("INVALID_PAYLOAD", "payload 缺 styleId")
+    ir.style_id = style_id
+    return [], [f"project:{ir.project.width}x{ir.project.height}:render"]
+
+
+def _cmd_set_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """层静态变换（§20）：scale/opacity（x/y 偏移本渲染器暂不支持，诚实拒绝）。"""
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    for key in payload:
+        if key not in ("scale", "opacity"):
+            raise EditorError(
+                "INVALID_PAYLOAD",
+                f"set_transform 仅支持 scale/opacity（收到 {key!r}；x/y 偏移需 PIP 背景，本渲染器暂不支持）",
+            )
+    transform = {"scale": 1.0, "opacity": 1.0}
+    existing = ((layer.motion_instance or {}).get("parameters") or {}).get("transform") or {}
+    transform.update(existing)
+    if "scale" in payload:
+        scale = float(payload["scale"])
+        if not (0.1 <= scale <= 3.0):
+            raise EditorError("INVALID_PARAMETER", f"scale {scale} 越界 [0.1,3.0]")
+        transform["scale"] = scale
+    if "opacity" in payload:
+        opacity = float(payload["opacity"])
+        if not (0.0 <= opacity <= 1.0):
+            raise EditorError("INVALID_PARAMETER", f"opacity {opacity} 越界 [0,1]")
+        transform["opacity"] = opacity
+    inst = dict(layer.motion_instance or {})
+    params = dict(inst.get("parameters") or {})
+    params["transform"] = transform
+    inst["parameters"] = params
+    scene.layers[idx] = layer.model_copy(update={"motion_instance": inst})
+    layer_id = f"{scene.id}#{idx}"
+    return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _cmd_set_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """音轨音量（§20）：targetId = narration|bgm|sfx|ambient，payload.volume ∈ [0,2]。"""
+    track_type = target_id or payload.get("track_type") or ""
+    if track_type not in ("narration", "bgm", "sfx", "ambient"):
+        raise EditorError("INVALID_TARGET", f"set_audio_volume 目标音轨 {track_type!r} 非法")
+    volume = float(payload.get("volume", 1.0))
+    if not (0.0 <= volume <= 2.0):
+        raise EditorError("INVALID_PARAMETER", f"volume {volume} 越界 [0,2]")
+    changed = False
+    for i, t in enumerate(ir.audio):
+        if t.type.value == track_type:
+            ir.audio[i] = t.model_copy(update={"volume": volume})
+            changed = True
+    if not changed:
+        # 允许为尚不存在的音轨预置音量（下次加轨沿用），但诚实提示
+        from video_director.models import AudioTrack, AudioTrackType
+        ir.audio.append(AudioTrack(
+            type=AudioTrackType(track_type), asset_id=None,
+            start=0.0, duration=ir.project.duration, volume=volume,
+        ))
+    return [], [f"audio:{track_type}:render"]
+
+
+def _cmd_add_broll(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """加 B-roll 层（§20）：scene 内追加一视觉层，复用 _respread_layers 重铺。
+
+    video 层需 payload.sourceOut（源内可用秒）；image 层无需。
+    """
+    si, scene = _find_scene(ir, target_id)
+    asset_id = payload.get("assetId") or ""
+    if not asset_id:
+        raise EditorError("INVALID_PAYLOAD", "add_broll 缺 assetId")
+    asset_type = payload.get("assetType") or "image"
+    if asset_type == "video":
+        try:
+            source_out = float(payload.get("sourceOut") or payload.get("duration") or 0)
+        except (TypeError, ValueError):
+            source_out = 0.0
+        if source_out <= 0:
+            raise EditorError(
+                "INVALID_PAYLOAD", "add_broll 视频层需 sourceOut（源内秒数，可用素材库时长）"
+            )
+        broll = Layer(type=LayerType.video, asset_id=asset_id, start=scene.duration,
+                      duration=source_out, source_in=0.0, source_out=source_out)
+    else:
+        broll = Layer(type=LayerType.image, asset_id=asset_id, start=scene.duration, duration=1.0)
+    scene.layers.append(broll)
+    _respread_layers(scene)
+    broll_id = f"{scene.id}#{len(scene.layers) - 1}"
+    return [broll_id], _stale_of_scene(project_id="", scene_id=scene.id)
+
+
+def _cmd_remove_broll(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """删 B-roll 层（§20）：删 targetId 命中的层（同 delete 语义）。"""
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    if len(scene.layers) <= 1:
+        raise EditorError("INVALID_PAYLOAD", f"场景 {scene.id} 只剩一层，不能删")
+    del scene.layers[idx]
+    _respread_layers(scene)
+    layer_id = f"{scene.id}#{idx}"
+    return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _cmd_generate_media(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """生成素材落地为层（EDT-008）：已生成的 asset 插为 scene 内视觉层（§31 lineage）。"""
+    si, scene = _find_scene(ir, target_id)
+    asset_id = payload.get("assetId") or ""
+    if not asset_id:
+        raise EditorError("INVALID_PAYLOAD", "generate_media 缺 assetId（先经 /api/generation 产出）")
+    asset_type = payload.get("assetType") or "image"
+    return _cmd_add_broll(ir, target_id, {"assetId": asset_id, "assetType": asset_type})
+
+
+def _cmd_replace_generated_media(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """换生成素材层（§20）：替换生成层的 asset，保留层时长/动效。"""
+    return _cmd_replace_source(ir, target_id, payload)
+
+
+def _cmd_lock(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """锁/解锁层（§13 Layer.locked）。"""
+    scene, idx, layer = _find_layer(ir, target_id)
+    lock = bool(payload.get("locked", not getattr(layer, "locked", None)))
+    scene.layers[idx] = layer.model_copy(update={"locked": lock})
+    layer_id = f"{scene.id}#{idx}"
+    return [layer_id], []
