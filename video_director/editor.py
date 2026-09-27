@@ -189,6 +189,7 @@ SUPPORTED_COMMANDS = (
     "generate_media",            # 生成素材落地为层（§20/EDT-008）
     "replace_generated_media",   # 换生成素材层（§20）
     "lock",                      # 锁/解锁层（§13 Layer.locked）
+    "batch",                     # 多选批量命令（§47 multi-select：delete/duplicate/lock 集合）
 )
 
 
@@ -280,6 +281,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_replace_generated_media(ir, target_id, payload)
         elif cmd_name == "lock":
             changed, stale = _cmd_lock(ir, target_id, payload)
+        elif cmd_name == "batch":
+            changed, stale = _cmd_batch(ir, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -764,3 +767,38 @@ def _cmd_lock(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
     scene.layers[idx] = layer.model_copy(update={"locked": lock})
     layer_id = f"{scene.id}#{idx}"
     return [layer_id], []
+
+
+def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
+    """多选批量命令（§47 multi-select）：对选中集合逐条执行，单 revision 原子记录。
+
+    payload = {subcommand: "delete"|"duplicate"|"lock", targets: [...],
+               lock: bool}（lock 用）。
+    各子命令按 id 定位（delete/duplicate 内部重查 id，不受重排影响）。
+    """
+    sub = payload.get("subcommand") or ""
+    targets = [t for t in (payload.get("targets") or []) if t]
+    if not targets:
+        raise EditorError("INVALID_PAYLOAD", "batch 缺 targets")
+    if sub not in ("delete", "duplicate", "lock"):
+        raise EditorError("INVALID_PAYLOAD", f"batch 不支持的 subcommand {sub!r}")
+    changed_all: List[str] = []
+    stale_all: List[str] = []
+    for t in targets:
+        try:
+            if sub == "delete":
+                c, s = _cmd_delete(ir, t, {})
+            elif sub == "duplicate":
+                c, s = _cmd_duplicate(ir, t, {})
+            else:  # lock
+                c, s = _cmd_lock(ir, t, {"locked": bool(payload.get("locked", True))})
+        except EditorError as exc:
+            # 集合中单个失败：余下目标继续（集合语义），但整体标记该错误
+            if exc.code in ("NOT_FOUND", "INVALID_PAYLOAD") and exc.recoverable:
+                continue
+            raise
+        changed_all.extend(c)
+        stale_all.extend(s)
+    if not changed_all:
+        raise EditorError("NOOP", "批量操作无有效目标（可能已删除或锁定）")
+    return changed_all, stale_all

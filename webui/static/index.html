@@ -130,7 +130,6 @@
     <button class="tab" id="tab-assets" onclick="switchTab('assets')">🖼 素材库</button>
     <button class="tab" id="tab-series" onclick="switchTab('series')">📚 系列</button>
     <button class="tab" id="tab-capture" onclick="switchTab('capture')">📥 收集箱</button>
-    <button class="tab" id="tab-queue" onclick="switchTab('queue')">⚙ 队列</button>
     <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考分析</button>
     <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 创作记忆</button>
     <button class="tab" id="tab-review" onclick="switchTab('review')">✅ 审核</button>
@@ -580,16 +579,7 @@
     </div>
   </div>
 
-  <!-- ======== Tab 6: 队列（Automation）======== -->
-  <div id="pane-queue" style="display:none">
-    <div class="card">
-      <b>生产队列</b>——批量任务自动执行（系列/多平台变体），失败可查原因
-      <div class="btn-row"><button class="btn-secondary" onclick="loadQueue()">刷新</button></div>
-      <div id="queue-list">加载中……</div>
-    </div>
-  </div>
-
-  <!-- ======== Tab 7: 参考视频分析 ======== -->
+  <!-- ======== Tab 6: 参考视频分析 ======== -->
   <div id="pane-reference" style="display:none">
     <div class="card">
       <b>参考视频分析</b>——上传一条优秀视频，系统提取镜头结构 / 节奏 / 运动语言 / 转场语法（风格重构，不复制内容），
@@ -630,7 +620,7 @@
     <div id="publish-detail-box"></div>
   </div>
 
-  <!-- ======== Tab: 自动化（Automation §四十二 队列）======== -->
+  <!-- ======== Tab: 自动化（Automation §四十二 队列 + 系列 + 批量）======== -->
   <div id="pane-automation" style="display:none">
     <div class="card">
       <b>🤖 自动化</b>——生产队列（系列/批量）+ 系列模板入口；任务状态可查、失败可定位
@@ -638,7 +628,7 @@
         <button class="btn-secondary" onclick="loadQueue()">刷新队列</button>
         <button class="btn-secondary" onclick="switchTab('series')">去系列模板 →</button>
       </div>
-      <div id="automation-queue">加载中……</div>
+      <div id="queue-list">加载中……</div>
     </div>
   </div>
 
@@ -848,7 +838,7 @@ function discardEnhanced(){
 }
 
 function switchTab(tab){
-  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','queue','reference','memory','review','publish','automation','settings']) {
+  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','reference','memory','review','publish','automation','settings']) {
     const el = document.getElementById('pane-' + p);
     if (el) el.style.display = (tab === p) ? '' : 'none';
     const tb = document.getElementById('tab-' + p);
@@ -862,7 +852,6 @@ function switchTab(tab){
   if (tab === 'assets') loadAssetsLibrary();
   if (tab === 'series') loadSeries();
   if (tab === 'capture') loadInbox();
-  if (tab === 'queue') loadQueue();
   if (tab === 'memory') loadMemoryView();
   if (tab === 'review') loadReview();
   if (tab === 'publish') loadPublish();
@@ -997,14 +986,15 @@ function edShowInspector(){
   if (!ED.sel) { card.style.display='none'; return; }
   card.style.display='';
   if (edSelectedCount() > 1) {
-    // 多选聚合视图（§23 Inspector 多选态）
-    // 批量操作第一版作用于「当前 sel」（多选批量逐条命令属后续能力，诚实标注）
+    // 多选聚合视图（§23/§47：批量命令作用于选中集合，单 revision）
     const sceneIds = ED.comp.scenes.filter(s => edIsSelected('scene', s.id)).map(s => s.id);
+    const layerIds = [...ED.selSet].filter(k => k.startsWith('layer:')).map(k => k.slice(6));
     box.innerHTML = `<b>已选 ${edSelectedCount()} 项</b>`+
-      `<div class="hint">场景：${sceneIds.length} 个 · 图层：${edSelectedCount() - sceneIds.length} 个</div>`+
-      `<div class="hint">批次操作（作用于当前主选；多选逐条批量属后续）：</div>`+
-      `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorCmd('delete')">🗑 删除当前项</button>`+
-      `<button class="btn-secondary btn-sm" onclick="editorCmd('duplicate')">⧉ 复制当前项</button>`+
+      `<div class="hint">场景：${sceneIds.length} 个 · 图层：${layerIds.length} 个</div>`+
+      `<div class="btn-row">`+
+      `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('duplicate')">⧉ 批量复制场景</button>`+
+      `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('delete')">🗑 批量删除场景</button>`+
+      `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('lock')">🔒 批量锁定图层</button>`+
       `<button class="btn-secondary btn-sm" onclick="edClearSelection()">取消选择</button></div>`;
     return;
   }
@@ -1126,6 +1116,39 @@ async function editorOpenAssetPicker(sceneId, idx){
 }
 async function editorReplaceSource(sceneId, idx, assetId){
   editorCmd('replace_source', {assetId}, `${sceneId}#${idx}`);
+}
+
+async function editorBatchCmd(subcommand){
+  // §47 multi-select：多选集合批量命令（单 revision）
+  if (!ED.pid) { alert('先打开项目'); return; }
+  let targets = [];
+  if (subcommand === 'lock') {
+    targets = [...ED.selSet].filter(k => k.startsWith('layer:')).map(k => k.slice(6));
+    if (!targets.length) { alert('批量锁定需选中图层'); return; }
+  } else {
+    // delete/duplicate 作用于选中场景
+    targets = ED.comp.scenes.filter(s => edIsSelected('scene', s.id)).map(s => s.id);
+    if (!targets.length) { alert('批量' + (subcommand==='delete'?'删除':'复制') + '需选中场景'); return; }
+  }
+  const r = await apiPost('/api/editor/command', {
+    project_id: ED.pid, command: 'batch',
+    targetId: targets[0],
+    payload: {subcommand, targets, locked: true},
+    expectedVersion: ED.version,
+  });
+  if (r.ok) {
+    ED.version = r.composition_version;
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    ED.sel = null; ED.selSet = new Set();
+    editorRenderTimeline();
+    const cnt = document.getElementById('editor-selection-count');
+    if (cnt) cnt.textContent = '未选中';
+    editorToast(`批量${subcommand} 完成（revision ${r.revision_id}；变更 ${(r.changed_artifacts||[]).length} 项）`);
+  } else {
+    const err = (r.errors && r.errors[0]) || {};
+    editorToast(`❌ 批量${subcommand}：${err.message || r.error || ''}`, true);
+  }
 }
 
 async function editorCmd(cmd, extra, targetOverride, useRawTarget){
@@ -2159,8 +2182,8 @@ async function createSeriesAndBatch(){
     const r2 = await fetch('/api/series_batch', {method:'POST', body: fd});
     const j2 = await r2.json();
     if (!j2.ok) throw new Error(j2.error);
-    status.textContent = `✅ 已入队 ${j2.episodes} 集，去「队列」页看进度`;
-    switchTab('queue');
+    status.textContent = `✅ 已入队 ${j2.episodes} 集，去「自动化」页看进度`;
+    switchTab('automation');
   } catch (e) {
     status.textContent = '失败：' + e.message;
   }
@@ -2247,8 +2270,8 @@ async function publishVariants(pid){
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);
-    alert(`已入队 ${j.job_ids.length} 个平台变体，去「队列」页看进度`);
-    switchTab('queue');
+    alert(`已入队 ${j.job_ids.length} 个平台变体，去「自动化」页看进度`);
+    switchTab('automation');
   } catch (e) { alert('发布失败：' + e.message); }
 }
 
@@ -2819,10 +2842,8 @@ function locateAsset(assetId){
 }
 
 async function loadAutomation(){
-  const box = document.getElementById('automation-queue');
-  box.innerHTML = '加载中……';
+  // §四十二 Automation：队列已并入本页（#queue-list），直接加载队列
   await loadQueue();
-  box.textContent = document.getElementById('queue-list').textContent || '队列为空';
 }
 
 async function loadSettings(){

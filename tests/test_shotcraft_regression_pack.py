@@ -258,3 +258,58 @@ class TestGenerationLineage:
         with pytest.raises(vd_generation.GenerationError) as ei:
             vd_generation.generate("gentest-02", "whoosh 音效", gen_type="sfx")
         assert ei.value.code == "GENERATION_UNAVAILABLE"
+
+
+class TestAIProviderDispatch:
+    def test_image_size_mapping(self):
+        from video_director import generation as vd_generation
+        assert vd_generation._image_size(1920, 1080) == "1792x1024"
+        assert vd_generation._image_size(1080, 1920) == "1024x1792"
+        assert vd_generation._image_size(1080, 1080) == "1024x1024"
+
+    def test_image_provider_unconfigured_raises(self):
+        """§五十一 Capability G：roles.image 无 key → IMAGE_PROVIDER_UNAVAILABLE。"""
+        from video_director import generation as vd_generation
+        import video_director.generation as gmod
+        orig = gmod._role_cfg
+        gmod._role_cfg = lambda role: {"api_key": ""}
+        try:
+            with pytest.raises(vd_generation.GenerationError) as ei:
+                vd_generation.generate_image_variants("测试", 1080, 1920, count=1)
+            assert ei.value.code == "IMAGE_PROVIDER_UNAVAILABLE"
+        finally:
+            gmod._role_cfg = orig
+
+    def test_video_generation_unconfigured_honest(self, tmp_path, monkeypatch):
+        """EDT-008：roles.video 无 key → 诚实报错（不 fake 成程序化卡）。"""
+        monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
+        import video_director.generation as gmod
+        orig = gmod._role_cfg
+        gmod._role_cfg = lambda role: {"api_key": ""}
+        try:
+            with pytest.raises(gmod.GenerationError) as ei:
+                gmod.generate("gentest-vid", "夜景", gen_type="video")
+            assert ei.value.code == "VIDEO_PROVIDER_UNAVAILABLE"
+        finally:
+            gmod._role_cfg = orig
+
+    def test_image_unconfigured_falls_back_to_graphic(self, tmp_path, monkeypatch):
+        """image 无 key → 兜底程序化视觉卡（仍真正成片，source=generated）。"""
+        monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
+        try:
+            from playwright.sync_api import sync_playwright  # noqa: F401
+        except ImportError:
+            pytest.skip("playwright 不可用")
+        import video_director.generation as gmod
+        orig = gmod._role_cfg
+        gmod._role_cfg = lambda role: {"api_key": ""}
+        try:
+            pid = "genimg-fallback"
+            base = tmp_path / pid
+            (base / "assets").mkdir(parents=True)
+            results = gmod.generate(pid, "测试配图", gen_type="image",
+                                    width=320, height=180)
+            assert len(results) == 3
+            assert all(r.provider_id == "graphics-runtime" for r in results)
+        finally:
+            gmod._role_cfg = orig

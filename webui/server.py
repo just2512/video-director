@@ -1637,15 +1637,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director import model_config as vd_mc
+                from video_director import generation as vd_generation
                 img_cfg = vd_mc.get_role_config("image")
                 if not (img_cfg or {}).get("api_key"):
                     self._send_json({"ok": False,
                                      "error": "image 角色未配置 API key（生成素材需生图能力；当前可先用程序化视觉块）"}, 503)
                     return
-                # image 角色 key 已配置但生图管线未接线（Generation 契约 §23：
-                # Provider unavailable → GENERATION_FAILED，禁止 fake success）
-                self._send_json({"ok": False,
-                                 "error": "image provider 管线未接线（配置了 key 但生成端点未实现）"}, 503)
+                # §34 生成素材：为场景生成配图（roles["image"] AI 生图，已接线）
+                scene_text = scenes[int(i)].get("text") or scenes[int(i)].get("role") or ""
+                prompt = scene_text or payload.get("prompt") or "视觉配图"
+                try:
+                    imgs = vd_generation.generate_image_variants(
+                        prompt, width=int(payload.get("width") or 1080),
+                        height=int(payload.get("height") or 1920), count=1)
+                except vd_generation.GenerationError as gexc:
+                    self._send_json({"ok": False, "error": str(gexc), "code": gexc.code}, 503)
+                    return
+                item = imgs[0]
+                self._send_json({
+                    "ok": True,
+                    "image_b64": __import__("base64").b64encode(item["data"]).decode("ascii"),
+                    "variant": item.get("variant"),
+                    "model": item.get("model"),
+                })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return

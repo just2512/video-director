@@ -355,6 +355,59 @@ class TestEditorCommands:
         result = editor.execute_command(pid, {"command": "delete", "targetId": "S02"})
         assert result.status == "REJECTED"  # 只剩一个不能删
 
+    def test_batch_duplicate_scenes(self):
+        """§47 multi-select：batch duplicate 对多场景集合逐条执行，单 revision。"""
+        from video_director import editor as vd_editor
+        from video_director import config as vd_config
+        import tempfile
+        from pathlib import Path as _P
+        with tempfile.TemporaryDirectory() as tmp:
+            pid = "batchtest"
+            base = _P(tmp) / pid
+            base.mkdir(parents=True)
+            ir = CompositionIR(
+                project=ProjectSpec(width=1080, height=1920, fps=30, duration=15.0),
+                scenes=[
+                    SceneIR(id="S01", start=0.0, duration=5.0, text="一",
+                            layers=[Layer(type=LayerType.image, asset_id="a", start=0.0, duration=5.0)]),
+                    SceneIR(id="S02", start=5.0, duration=5.0, text="二",
+                            layers=[Layer(type=LayerType.image, asset_id="a", start=0.0, duration=5.0)]),
+                    SceneIR(id="S03", start=10.0, duration=5.0, text="三",
+                            layers=[Layer(type=LayerType.image, asset_id="a", start=0.0, duration=5.0)]),
+                ],
+            )
+            (base / "plans").mkdir(parents=True)
+            (base / "assets").mkdir(parents=True)
+            (base / "plans" / "composition.json").write_text(
+                json.dumps(json.loads(ir.model_dump_json()), ensure_ascii=False), encoding="utf-8")
+            (base / "assets" / "manifest.json").write_text('[]', encoding="utf-8")
+            import video_director.config as cfg
+            orig = cfg.composer_storage_root
+            cfg.composer_storage_root = lambda: _P(tmp)
+            try:
+                result = vd_editor.execute_command(pid, {
+                    "command": "batch", "targetId": "S01",
+                    "payload": {"subcommand": "duplicate", "targets": ["S01", "S03"]},
+                })
+                assert result.status == "APPLIED"
+                scenes = vd_editor.load_composition(pid).scenes
+                ids = [s.id for s in scenes]
+                assert len(ids) == 5  # 3 + 2 复制
+                assert any("S01-copy" in i or "S01-copy" in i for i in ids) or \
+                       any("copy" in i for i in ids)
+            finally:
+                cfg.composer_storage_root = orig
+
+    def test_batch_delete_scenes(self, editor_project):
+        """§47：batch delete 多场景（末场景受保护，删一个保一个）。"""
+        pid, _ = editor_project
+        result = editor.execute_command(pid, {
+            "command": "batch", "targetId": "S01",
+            "payload": {"subcommand": "delete", "targets": ["S01"]},
+        })
+        assert result.status == "APPLIED"
+        assert len(editor.load_composition(pid).scenes) == 1
+
 
 class TestProposalFlow:
     def test_propose_preview_reject_zero_mutation(self, editor_project, monkeypatch):
