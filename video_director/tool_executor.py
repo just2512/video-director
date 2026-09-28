@@ -164,6 +164,9 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
     elif tool in ("watermark.add", "watermark.update"):
         p = {k: v for k, v in p.items()
              if k in ("kind", "text", "assetId", "anchor", "opacity", "scale", "start", "duration")}
+        # §19：text 水印空文本 → 默认占位（用户后续可 update 成真实品牌名）
+        if (p.get("kind") or "text") == "text" and not (p.get("text") or "").strip():
+            p["text"] = "水印"
     elif tool == "subtitle.update_style":
         p = {k: v for k, v in p.items()
              if k in ("font", "size", "color", "strokeColor", "strokeWidth",
