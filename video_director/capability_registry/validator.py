@@ -82,7 +82,10 @@ SCHEMAS: Dict[str, InputSchema] = {
         "strokeColor": FieldSpec("str"),
         "strokeWidth": FieldSpec("int", minimum=0, maximum=12),
         "background": FieldSpec("str"),
+        "backgroundOpacity": FieldSpec("float", minimum=0.0, maximum=1.0),
         "position": FieldSpec("enum:str", enum=frozenset({"bottom", "center", "top"})),
+        "alignment": FieldSpec("enum:str", enum=frozenset({"left", "center", "right"})),
+        "maxWidth": FieldSpec("float", minimum=0.3, maximum=1.0),
         "animation": FieldSpec("enum:str", enum=frozenset({"none", "pop_spring", "fade"})),
     }),
     "SubtitleTimingRequest": InputSchema("SubtitleTimingRequest", {

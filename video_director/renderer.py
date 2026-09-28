@@ -508,10 +508,17 @@ def mix_audio(
             ss = original_track.source_in or 0.0
             dur = original_track.source_out or original_track.duration
             inputs += ["-ss", f"{ss:.3f}", "-t", f"{dur:.3f}", "-i", src.file]
-            filters.append(
-                f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
-                f"volume={vol_db:.2f}dB,atrim=0:{total:.3f}[orig]"
-            )
+            # §18 OriginalAudioPolicy fadeIn/fadeOut
+            chain_o = (f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
+                       f"volume={vol_db:.2f}dB")
+            fin_o = float(getattr(original_track, "fadeIn", 0.0) or 0.0)
+            fout_o = float(getattr(original_track, "fadeOut", 0.0) or 0.0)
+            if fin_o > 0:
+                chain_o += f",afade=t=in:st=0:d={min(fin_o, total):.2f}"
+            if fout_o > 0:
+                chain_o += f",afade=t=out:st={max(0.0, total - fout_o):.2f}:d={min(fout_o, total):.2f}"
+            chain_o += f",atrim=0:{total:.3f}[orig]"
+            filters.append(chain_o)
             ref_labels.append("[orig]")
             idx += 1
 
@@ -525,10 +532,17 @@ def mix_audio(
         duck_db = config.DUCKING_DB if narration_file else 0.0
         total_db = duck_db + 20 * math.log10(max(bgm_track.volume, 0.01))
         inputs += ["-stream_loop", "-1", "-i", assets[bgm_track.asset_id].file]
-        filters.append(
-            f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
-            f"volume={total_db:.2f}dB,atrim=0:{total:.3f}[bgm]"
-        )
+        # §35 BGM fade：fadeIn/fadeOut（秒）非零时接 afade（先淡入再淡出）
+        chain = (f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
+                 f"volume={total_db:.2f}dB")
+        fin = float(getattr(bgm_track, "fadeIn", 0.0) or 0.0)
+        fout = float(getattr(bgm_track, "fadeOut", 0.0) or 0.0)
+        if fin > 0:
+            chain += f",afade=t=in:st=0:d={min(fin, total):.2f}"
+        if fout > 0:
+            chain += f",afade=t=out:st={max(0.0, total - fout):.2f}:d={min(fout, total):.2f}"
+        chain += f",atrim=0:{total:.3f}[bgm]"
+        filters.append(chain)
         ref_labels.append("[bgm]")
         idx += 1
 

@@ -96,6 +96,7 @@ _GEN_EDIT_TOOLS = {
     "asset.search", "asset.add_to_timeline", "asset.replace",
     "audio.original.preserve", "audio.original.mute", "audio.original.volume",
     "audio.original.duck", "tts.list_voices", "subtitle.update_style",
+    "subtitle.generate", "subtitle.update_timing",
     "music.volume", "music.duck", "music.add", "music.remove",
     "watermark.add", "watermark.update", "watermark.remove",
     "generation.image", "generation.video", "generation.sfx",
@@ -180,6 +181,11 @@ def _rule_plan(instruction: str, context: dict) -> Optional[List[dict]]:
 
     # 字幕样式（§三十二）
     if "字幕" in instruction:
+        # §31 生成字幕轨（word timing → SubtitleTrack）：'生成字幕' 触发
+        if any(k in instruction for k in ("生成字幕", "加字幕", "出字幕")):
+            mode = "word" if ("word" in instruction or "逐词" in instruction) else "sentence"
+            plan.append({"tool": "subtitle.generate", "payload": {"mode": mode},
+                         "reason": "生成字幕轨（§31/§33）"})
         payload = {}
         if any(k in instruction for k in ("白字黑边", "白色字幕", "白字")):
             payload["color"] = "#FFFFFF"

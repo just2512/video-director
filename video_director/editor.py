@@ -205,6 +205,7 @@ SUPPORTED_COMMANDS = (
     "set_watermark",             # 加水印/更新水印（§19 WatermarkLayer）
     "remove_watermark",          # 移除水印（§19）
     "set_subtitle_style",        # 字幕样式（§32 SubtitleStyle 入 IR）
+    "set_subtitle_track",        # 字幕轨（§31/§33 SubtitleTrack：句级/逐词 cues 入 IR）
 )
 
 
@@ -308,6 +309,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_remove_watermark(ir, target_id, payload)
         elif cmd_name == "set_subtitle_style":
             changed, stale = _cmd_set_subtitle_style(ir, target_id, payload)
+        elif cmd_name == "set_subtitle_track":
+            changed, stale = _cmd_set_subtitle_track(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -855,15 +858,20 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
             if asset_id:
                 break
     duck = bool(payload.get("duckAgainst") or payload.get("ducking", False))
+    # §18 OriginalAudioPolicy fadeIn/fadeOut（0-10s，诚实边界）
+    fin = max(0.0, min(float(payload.get("fadeIn") or 0.0), 10.0))
+    fout = max(0.0, min(float(payload.get("fadeOut") or 0.0), 10.0))
     # 幂等：已有 original 轨则更新，否则新建
     for i, t in enumerate(ir.audio):
         if t.type == AudioTrackType.original:
             ir.audio[i] = t.model_copy(update={"volume": volume, "ducking": duck,
+                                                "fadeIn": fin, "fadeOut": fout,
                                                 "asset_id": asset_id or t.asset_id})
             return [], ["audio:original:render"]
     ir.audio.append(AudioTrack(
         type=AudioTrackType.original, asset_id=asset_id,
         start=0.0, duration=ir.project.duration, volume=volume, ducking=duck,
+        fadeIn=fin, fadeOut=fout,
     ))
     return [], ["audio:original:render"]
 
@@ -957,8 +965,47 @@ def _cmd_set_subtitle_style(ir: CompositionIR, target_id: str, payload: dict) ->
     existing = ir.subtitle_style or SubtitleStyle()
     data = existing.model_dump()
     for key in ("font", "size", "color", "strokeColor", "strokeWidth",
-                "background", "position", "animation", "mode"):
+                "background", "backgroundOpacity", "position", "alignment",
+                "maxWidth", "animation", "mode"):
         if key in payload and payload[key] is not None:
             data[key] = payload[key]
     ir.subtitle_style = SubtitleStyle(**data)
     return [], ["subtitle:render"]
+
+
+# ---------------------------------------------------------------------------
+# MPT 吸收方案 §31/§33 Subtitle Track（word timing → Track 入 IR）
+# ---------------------------------------------------------------------------
+
+
+def _cmd_set_subtitle_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§31/§33：字幕轨入 IR。
+
+    payload.mode = sentence | word；cues=[{start,end,text}] 直接给或经
+    subtitle.generate 能力（ToolExecutor 从项目 words.json 读取后传入）。
+    source 记录对齐来源（§33 lineage：tts_word_boundary|asr|manual|estimated）。
+    """
+    from video_director.models import SubtitleCue, SubtitleTrack
+
+    mode = payload.get("mode") or "sentence"
+    source = payload.get("source") or "manual"
+    cues_data = payload.get("cues")
+    if not cues_data:
+        # editor 命令层无 project_id 入参（IR 不含），不能猜文件路径——
+        # 直接调用必须显式给 cues（诚实拒绝，不猜）
+        raise EditorError(
+            "INVALID_PAYLOAD",
+            "set_subtitle_track 需 payload.cues=[{start,end,text}]（或经 subtitle.generate 能力，"
+            "由 ToolExecutor 从项目 words.json 读取后传入）")
+    cues = []
+    for c in cues_data:
+        try:
+            cues.append(SubtitleCue(start=float(c["start"]), end=float(c["end"]),
+                                    text=str(c.get("text", ""))))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PAYLOAD", f"cue 非法 {c!r}: {exc}")
+    try:
+        ir.subtitle_track = SubtitleTrack(mode=mode, source=source, cues=cues)
+    except ValueError as exc:
+        raise EditorError("INVALID_PAYLOAD", str(exc))
+    return [f"subtitle_track:{len(cues)}"], ["subtitle:render"]

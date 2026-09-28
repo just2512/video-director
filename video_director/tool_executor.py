@@ -62,6 +62,8 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
             return _execute_generation(project_id, tool, payload, target_id)
         if _is_render(tool):
             return _execute_render(project_id, tool, payload, target_id)
+        if _is_project_mgmt(tool):
+            return _execute_project_mgmt(project_id, tool, payload, target_id)
         return _execute_editor_command(project_id, tool, payload, target_id)
     except ToolExecutorError as exc:
         return _result(tool, False, exc.code, error=str(exc))
@@ -99,6 +101,7 @@ _COMMAND_MAP: Dict[str, str] = {
     "watermark.remove": "remove_watermark",
     "subtitle.update_style": "set_subtitle_style",
     "subtitle.update_timing": "set_subtitle_style",
+    "subtitle.generate": "set_subtitle_track",
 }
 
 _READONLY = {
@@ -114,6 +117,9 @@ _REVISION = {"revision.propose", "revision.preview", "revision.apply", "revision
 _GENERATION = {"generation.image", "generation.video", "generation.sfx", "generation.music"}
 
 _RENDER = {"render.draft", "render.final"}
+
+#: §37/§57 项目管理能力（Variant 快照 / 重开 / 保存）
+_PROJECT_MGMT = {"version.create", "project.reopen", "project.save", "project.create"}
 
 
 def _is_readonly(tool: str) -> bool:
@@ -132,13 +138,17 @@ def _is_render(tool: str) -> bool:
     return tool in _RENDER
 
 
+def _is_project_mgmt(tool: str) -> bool:
+    return tool in _PROJECT_MGMT
+
+
 # ---------------------------------------------------------------------------
 # 执行器
 # ---------------------------------------------------------------------------
 
-def _result(tool: str, ok: bool, status: str, result=None, error=None) -> dict:
+def _result(tool: str, ok: bool, status: str, result=None, error=None, verify=None) -> dict:
     return {"tool": tool, "ok": ok, "status": status,
-            "result": result or {}, "error": error, "verify": {}}
+            "result": result or {}, "error": error, "verify": verify or {}}
 
 
 def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id) -> dict:
@@ -156,7 +166,8 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
         p = {k: v for k, v in p.items() if k in ("scale", "opacity")}
     elif tool in ("audio.original.preserve", "audio.original.mute"):
         p = {"mode": "preserve" if tool.endswith("preserve") else "mute",
-             "volume": p.get("volume"), "duckAgainst": p.get("duckAgainst")}
+             "volume": p.get("volume"), "duckAgainst": p.get("duckAgainst"),
+             "fadeIn": p.get("fadeIn"), "fadeOut": p.get("fadeOut")}
     elif tool == "set_original_audio" or tool == "audio.original.volume":
         p = {"volume": p.get("volume")}
     elif tool in ("music.volume", "music.duck"):
@@ -170,7 +181,43 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
     elif tool == "subtitle.update_style":
         p = {k: v for k, v in p.items()
              if k in ("font", "size", "color", "strokeColor", "strokeWidth",
-                      "background", "position", "animation", "mode")}
+                      "background", "backgroundOpacity", "position",
+                      "alignment", "maxWidth", "animation", "mode")}
+    elif tool == "subtitle.generate":
+        # §31/§33：从项目词级时间轴（TTS WordBoundary/ASR 产物）生成字幕轨 cues
+        import json as _json
+        from video_director import config as _cfg
+        words_path = _cfg.project_dir(project_id) / "plans" / "alignment" / "words.json"
+        cues = None
+        source = "manual"
+        if words_path.is_file():
+            try:
+                words = _json.loads(words_path.read_text(encoding="utf-8"))
+                cues = [{"start": w["start"], "end": w["end"], "text": w["text"]}
+                        for w in words if w.get("text")]
+                source = "tts_word_boundary"
+            except Exception as exc:
+                logger.info(f"subtitle.generate: words.json 读取失败: {exc}")
+        if not cues:
+            # 退路：分镜文本按时长估算（§33 segmentation，诚实标注 estimated）
+            scenes_path = _cfg.project_dir(project_id) / "plans" / "scenes.json"
+            if scenes_path.is_file():
+                try:
+                    scenes = _json.loads(scenes_path.read_text(encoding="utf-8"))
+                    from video_director.narration import estimate_word_timeline
+                    words = estimate_word_timeline(
+                        [s.get("text", "") for s in scenes],
+                        [s.get("duration", 2.0) for s in scenes])
+                    cues = [{"start": w["start"], "end": w["end"], "text": w["text"]}
+                            for w in words if w.get("text")]
+                    source = "estimated"
+                except Exception as exc:
+                    logger.info(f"subtitle.generate: 估算失败: {exc}")
+        if not cues:
+            return _result(tool, False, "MISSING_REQUIREMENT",
+                           error="项目无词级时间轴（words.json）且无分镜文本，无法生成字幕轨")
+        p = {"mode": payload.get("mode") or "word",
+             "source": source, "cues": cues}
     result: CommandResult = editor.execute_command(project_id, {
         "command": cmd_name, "targetId": target_id, "payload": p,
         "author": "ai-director",
@@ -215,6 +262,59 @@ def _execute_render(project_id: str, tool: str, payload: dict, target_id) -> dic
                        verify={"draft_exists": bool(path and __import__("os").path.isfile(path))})
     path = confirm.finalize_after_review(project_id, profile=profile)
     return _result(tool, True, "APPLIED", result={"final": path})
+
+
+def _execute_project_mgmt(project_id: str, tool: str, payload: dict, target_id) -> dict:
+    """§37/§57 项目管理：version.create（Variant 快照）/ project.reopen / save / create。"""
+    import shutil as _shutil
+    from video_director import config
+
+    if tool == "version.create":
+        # §37 Variant System：项目目录快照 → <pid>-v<N>（Composition/Revision/素材全量）
+        base = config.project_dir(project_id)
+        if not base.is_dir():
+            return _result(tool, False, "NOT_FOUND", error=f"项目 {project_id} 不存在")
+        existing = sorted(base.parent.glob(f"{project_id}-v*"))
+        n = len(existing) + 1
+        variant_id = f"{project_id}-v{n}"
+        variant_dir = base.parent / variant_id
+        if variant_dir.exists():
+            return _result(tool, False, "CONFLICT", error=f"版本目录已存在: {variant_id}")
+        _shutil.copytree(base, variant_dir)
+        logger.info(f"version.create: {project_id} → {variant_id}")
+        return _result(tool, True, "APPLIED",
+                       result={"variant_id": variant_id, "path": str(variant_dir)},
+                       verify={"variant_exists": variant_dir.is_dir()})
+    if tool == "project.reopen":
+        target = payload.get("projectId") or project_id
+        base = config.project_dir(target)
+        if not base.is_dir():
+            return _result(tool, False, "NOT_FOUND", error=f"项目 {target} 不存在")
+        return _result(tool, True, "OK", result={"project_id": target, "path": str(base)})
+    if tool == "project.save":
+        # 项目状态已由 Command Bus 每次命令原子落盘（execute_command 内 save_composition）
+        # project.save 语义=确认落盘存在 + 版本号上报
+        from video_director import editor
+        try:
+            ir = editor.load_composition(project_id)
+        except Exception as exc:
+            return _result(tool, False, "LOAD_FAILED", error=str(exc)[:150])
+        return _result(tool, True, "OK",
+                       result={"project_id": project_id,
+                               "version": editor.composition_version(project_id),
+                               "duration": ir.project.duration})
+    # project.create：新建空项目目录结构
+    import uuid as _uuid
+    ratio = payload.get("ratio") or "9:16"
+    dims = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}.get(ratio)
+    if dims is None:
+        return _result(tool, False, "INVALID_PAYLOAD", error=f"ratio {ratio!r} 非法")
+    new_pid = f"web-{_uuid.uuid4().hex[:8]}"
+    config.init_project_dirs(config.project_dir(new_pid))
+    return _result(tool, True, "APPLIED",
+                   result={"project_id": new_pid, "ratio": ratio,
+                           "width": dims[0], "height": dims[1]},
+                   verify={"project_dir_exists": config.project_dir(new_pid).is_dir()})
 
 
 def _execute_revision(project_id: str, tool: str, payload: dict, target_id) -> dict:
@@ -293,7 +393,86 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
             return _result(tool, True, "OK", result={"qc": report})
         except Exception as exc:
             return _result(tool, False, "QC_ERROR", error=str(exc)[:200])
-    # 其余只读（stock.preview、music.search/preview、tts.preview 等仍诚实降级）
+    if tool in ("tts.preview_voice", "tts.preview_narration", "tts.generate"):
+        # §15 试听三级 Artifact：VoicePreview / NarrationPreview / Narration。
+        # 全部走 edge-tts 合成到项目 audio 目录（试听产物非正式 Narration，
+        # tts.generate 落 narration_preview.mp3/narration.mp3 由调用方确认后入轨）。
+        from video_director import config as cfg
+        import uuid as _uuid
+        voice_id = payload.get("voiceId") or "zh-CN-XiaoxiaoNeural"
+        text = (payload.get("text") or "").strip()
+        if not text:
+            # 未给文本：读项目分镜文本合成完整试听（§15 完整试听）
+            try:
+                scenes = json.loads(
+                    (cfg.project_dir(project_id) / "plans" / "scenes.json")
+                    .read_text(encoding="utf-8"))
+                text = "。".join(s.get("text", "") for s in scenes if s.get("text"))
+            except Exception:
+                return _result(tool, False, "MISSING_REQUIREMENT",
+                               error="缺 text 且项目无分镜文本（先创作或传 text）")
+        if not text.strip():
+            return _result(tool, False, "MISSING_REQUIREMENT", error="合成文本为空")
+        audio_dir = cfg.project_dir(project_id) / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        if tool == "tts.preview_voice":
+            out_name = f"voice_preview_{_uuid.uuid4().hex[:6]}.mp3"
+        elif tool == "tts.preview_narration":
+            out_name = "narration_preview.mp3"
+        else:
+            out_name = "narration.mp3"
+        out_path = audio_dir / out_name
+        try:
+            from video_director.narration import synth_scene_audio
+            words = synth_scene_audio(text, voice_id, str(out_path))
+        except Exception as exc:
+            return _result(tool, False, "TTS_FAILED", error=str(exc)[:200])
+        artifact = {"artifactType": {
+            "tts.preview_voice": "VoicePreviewArtifact",
+            "tts.preview_narration": "NarrationPreviewArtifact",
+            "tts.generate": "NarrationArtifact"}[tool],
+            "file": str(out_path), "voice": voice_id, "words": len(words)}
+        return _result(tool, True, "OK", result=artifact)
+    if tool == "music.search":
+        # §89 CAP-MUSIC-001/002：本地音乐库搜索（audio.scan_library）
+        from video_director import audio as audio_mod
+        try:
+            lib = audio_mod.scan_library()
+            query = (payload.get("query") or "").lower()
+            hits = []
+            for a in lib.values():
+                if a.type != "bgm":
+                    continue
+                blob = " ".join([a.id] + list(a.keywords or [])).lower()
+                if not query or query in blob:
+                    hits.append({"asset_id": a.id, "file": a.file,
+                                 "keywords": list(a.keywords or [])})
+                if len(hits) >= 30:
+                    break
+            return _result(tool, True, "OK", result={"music": hits})
+        except Exception as exc:
+            return _result(tool, False, "MUSIC_SEARCH_FAILED", error=str(exc)[:200])
+    if tool == "music.preview":
+        # §89 CAP-MUSIC-003：BGM 试听（audio_preview 通道同源）
+        from video_director import audio as audio_mod
+        asset_id = payload.get("targetId") or payload.get("assetId") or ""
+        lib = audio_mod.scan_library()
+        a = lib.get(asset_id)
+        if a is None or a.type != "bgm":
+            return _result(tool, False, "NOT_FOUND", error=f"BGM {asset_id!r} 不在音频库")
+        return _result(tool, True, "OK",
+                       result={"MusicPreviewArtifact": {"asset_id": asset_id,
+                                                        "file": a.file}})
+    if tool == "stock.preview":
+        # §86 CAP-ASSET-006：Stock 素材预览页 URL（不下载、不伪造可播）
+        from video_director import stock as stock_mod
+        page = payload.get("targetId") or payload.get("url") or ""
+        if not page:
+            return _result(tool, False, "INVALID_PAYLOAD", error="缺 targetId/url")
+        return _result(tool, True, "OK",
+                       result={"source_page": page,
+                               "note": "浏览器打开 source page 预览（不代理下载）"})
+    # 其余只读（asset.resolve 等）诚实降级
     return _result(tool, False, "NOT_IMPLEMENTED",
                    error=f"能力 {tool} 的后端 provider 尚未接线（诚实降级，不伪造）")
 

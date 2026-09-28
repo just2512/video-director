@@ -42,6 +42,44 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 STORAGE = ROOT / "storage"
 LLM_CONFIG_FILE = STORAGE / "composer" / "llm_config.json"
 
+# ---------------------------------------------------------------------------
+# §48 SSE 进度推送：事件总线（Director/生成/渲染过程事件 → 前端 EventSource）
+# ---------------------------------------------------------------------------
+import queue as _queue_mod
+
+#: 全局 SSE 事件队列（多订阅者各持一个 Queue；无订阅者时事件即丢，不积压）
+_SSE_SUBSCRIBERS: list = []
+_SSE_LOCK = threading.Lock()
+
+
+def sse_publish(event: str, data: dict) -> None:
+    """广播一条 SSE 事件（§48：进度推送；无订阅者时静默丢弃）。"""
+    msg = json.dumps({"event": event, "data": data}, ensure_ascii=False)
+    with _SSE_LOCK:
+        dead = []
+        for q in _SSE_SUBSCRIBERS:
+            try:
+                q.put_nowait(msg)
+            except _queue_mod.Full:
+                dead.append(q)  # 慢消费者丢事件不阻塞广播
+        for q in dead:
+            _SSE_SUBSCRIBERS.remove(q)
+
+
+def sse_subscribe():
+    """新订阅者注册（返回其专属 Queue）。"""
+    q = _queue_mod.Queue(maxsize=200)
+    with _SSE_LOCK:
+        _SSE_SUBSCRIBERS.append(q)
+    return q
+
+
+def sse_unsubscribe(q) -> None:
+    with _SSE_LOCK:
+        if q in _SSE_SUBSCRIBERS:
+            _SSE_SUBSCRIBERS.remove(q)
+
+
 # §三十四：通用 Registry 类别（shots/motions/templates/provenance 之外的 8 类）。
 # route → kind（registry item kind 字段值）；kind → 子目录名（LayeredRegistryLoader）。
 GENERIC_REGISTRY_KINDS = {
@@ -430,6 +468,30 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html(STATIC_DIR / "index.html")
         elif route == "/api/health":
             self._send_json({"ok": True, "app": "AI Video Director"})
+        elif route == "/api/events":
+            # §48 SSE 进度推送：text/event-stream 长连接（Director/生成/渲染事件）
+            q = sse_subscribe()
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+                # 初始 hello 事件（前端确认连接建立）
+                self.wfile.write(b"event: hello\ndata: {\"connected\": true}\n\n")
+                self.wfile.flush()
+                import queue as _q
+                while True:
+                    try:
+                        msg = q.get(timeout=15)
+                        self.wfile.write(f"data: {msg}\n\n".encode("utf-8"))
+                    except _q.Empty:
+                        self.wfile.write(b": keepalive\n\n")  # 心跳防代理断连
+                    self.wfile.flush()
+            except (ConnectionAbortedError, ConnectionResetError, OSError):
+                pass
+            finally:
+                sse_unsubscribe(q)
         elif route == "/api/voices":
             self._send_json([{"id": v, "label": l} for v, l in VOICES])
         elif route == "/api/voice/providers":
@@ -1070,6 +1132,117 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": f"上传失败: {exc}"}, 500)
             return
 
+        # §24/§50 AssetPicker 本地导入 tab：multipart 文件 → 项目 assets manifest
+        if parsed.path == "/api/assets_import":
+            mp = _parse_multipart(self)
+            fields, files = mp["fields"], mp["files"]
+            project_id = (fields.get("project_id") or "").strip()
+            if not project_id:
+                self._send_json({"error": "缺少 project_id（先打开项目）"}, 400)
+                return
+            vids = [f for f in files if f["name"] == "files"]
+            if not vids:
+                self._send_json({"error": "请选择文件"}, 400)
+                return
+            try:
+                base = vd_config.project_dir(project_id)
+                in_dir = base / "input" / "videos"
+                in_dir.mkdir(parents=True, exist_ok=True)
+                from video_director import assets as vd_assets_mod
+                video_paths, image_paths = [], []
+                asset_ids = []
+                for f in vids:
+                    dst = in_dir / Path(f["filename"]).name
+                    dst.write_bytes(f["data"])
+                    try:
+                        kind = vd_assets_mod.classify(str(dst))
+                    except vd_assets_mod.AssetError:
+                        dst.unlink(missing_ok=True)
+                        continue
+                    if kind == "video":
+                        video_paths.append(str(dst))
+                    else:
+                        image_paths.append(str(dst))
+                # 探测并入项目 manifest（build_manifest + 合并已有）
+                if video_paths or image_paths:
+                    new_assets, _order = vd_assets_mod.build_manifest(
+                        video_paths, image_paths,
+                        license_note="user-imported-from-picker")
+                    manifest_path = base / "assets" / "manifest.json"
+                    existing = []
+                    if manifest_path.is_file():
+                        try:
+                            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+                        except (OSError, json.JSONDecodeError):
+                            existing = []
+                    have = {a["id"] for a in existing}
+                    for k, ref in new_assets.items():
+                        if k not in have:
+                            existing.append(json.loads(ref.model_dump_json()))
+                            asset_ids.append(k)
+                    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                    manifest_path.write_text(
+                        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+                # §48 SSE：素材导入事件
+                sse_publish("asset", {"phase": "imported", "project_id": project_id,
+                                     "count": len(asset_ids)})
+                self._send_json({"ok": True, "imported": len(asset_ids),
+                                 "asset_ids": asset_ids})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"导入失败: {exc}"}, 500)
+            return
+
+        # §16 上传配音（Import→Probe→ASR→Word Timing→Narration 轨，TTS=SKIP）
+        if parsed.path == "/api/voice_upload":
+            mp = _parse_multipart(self)
+            fields, files = mp["fields"], mp["files"]
+            project_id = (fields.get("project_id") or "").strip()
+            if not project_id:
+                self._send_json({"error": "缺少 project_id（先创作或打开项目）"}, 400)
+                return
+            up = [f for f in files if f["name"] == "voice_file"]
+            if not up:
+                self._send_json({"error": "请选择配音音频文件"}, 400)
+                return
+            f = up[0]
+            ext = Path(f["filename"]).suffix.lower()
+            ALLOWED_V = (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".wma")
+            if ext not in ALLOWED_V:
+                self._send_json({"error": f"不支持的格式 {ext}，允许：{'/'.join(ALLOWED_V)}"}, 400)
+                return
+            if len(f["data"]) > 30 * 1024 * 1024:
+                self._send_json({"error": "文件超过 30MB 上限"}, 400)
+                return
+            # 场景文本（可选）：项目已有分镜则按其文本对齐，无则整段
+            scene_texts = []
+            try:
+                sb_file = vd_config.project_dir(project_id) / "plans" / "scenes.json"
+                if sb_file.is_file():
+                    for s in json.loads(sb_file.read_text(encoding="utf-8")):
+                        if s.get("text"):
+                            scene_texts.append(s["text"])
+            except Exception:
+                scene_texts = []
+            try:
+                tmp = vd_config.project_dir(project_id) / "input"
+                tmp.mkdir(parents=True, exist_ok=True)
+                tmp_file = tmp / f"voice_upload{ext}"
+                tmp_file.write_bytes(f["data"])
+                from video_director import voice_upload as vd_vu
+                out = vd_vu.import_uploaded_voice(
+                    project_id, str(tmp_file),
+                    scene_texts=scene_texts or None)
+                # §48 SSE：配音导入完成事件
+                sse_publish("voice", {"phase": "uploaded", "project_id": project_id,
+                                      "source": out["source"],
+                                      "duration": out["duration"]})
+                self._send_json({"ok": True, **out})
+            except vd_vu.VoiceUploadError as exc:
+                self._send_json({"ok": False, "error": str(exc), "code": exc.code}, 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"配音导入失败: {exc}"}, 500)
+            return
+
         # 多模型配置中心（四角色独立配置，整体保存）
         if parsed.path == "/api/model_config":
             length = int(self.headers.get("Content-Length", 0))
@@ -1213,9 +1386,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director import director as vd_director
+                # §48 SSE：Director 过程事件推送（规划开始 → 逐工具 → 完成）
+                sse_publish("director", {"phase": "planning", "project_id": pid,
+                                         "instruction": instruction[:60]})
                 result = vd_director.direct(pid, instruction)
+                for step in result.get("executed", []):
+                    sse_publish("director", {
+                        "phase": "tool", "project_id": pid, "tool": step.get("tool"),
+                        "ok": step.get("ok"), "status": step.get("status")})
+                sse_publish("director", {"phase": "done", "project_id": pid,
+                                         "verify_ok": result.get("verify_ok")})
                 self._send_json({"ok": True, "director": result})
             except vd_director.DirectorError as exc:
+                sse_publish("director", {"phase": "error", "project_id": pid,
+                                         "code": exc.code})
                 self._send_json({"ok": False, "error": str(exc), "code": exc.code}, 400)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)

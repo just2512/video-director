@@ -325,9 +325,22 @@
       <input type="file" id="images" multiple accept=".jpg,.jpeg,.png,.webp">
       <label>配音</label>
       <div class="preview-row">
+        <select id="narration_mode" onchange="narrationModeChange()">
+          <option value="auto">自动配音（TTS，推荐）</option>
+          <option value="upload">上传配音（免 TTS，ASR 对齐）</option>
+          <option value="silent">无配音（纯视觉/BGM/字幕）</option>
+        </select>
+      </div>
+      <div class="preview-row" id="voice-auto-row">
         <select id="voice"></select>
         <button class="btn-secondary btn-sm prev-btn" onclick="previewVoice()">▶ 试听</button>
       </div>
+      <div class="preview-row" id="voice-upload-row" style="display:none">
+        <input type="file" id="voice_upload_file" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma">
+        <button class="btn-secondary btn-sm" onclick="uploadVoice()">⬆ 导入配音</button>
+        <span class="hint" id="voice-upload-status">选项目后上传（§16：Import→Probe→ASR→词级时间轴，TTS 跳过）</span>
+      </div>
+      <div class="hint" id="voice-silent-note" style="display:none">无配音模式（§17）：不做 TTS 不伪造声音；字幕/BGM/SFX/视觉照常。</div>
       <label>语速（可选，默认 1.0 倍）</label>
       <select id="voice_rate">
         <option value="0.8">0.8x 较慢</option>
@@ -401,7 +414,7 @@
               onkeydown="if(event.key==='Enter')directorExecute()">
             <button class="btn" onclick="directorExecute()">🧠 执行</button>
           </div>
-          <div class="hint" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项系统能力</div>
+          <div class="hint" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项系统能力 · <span id="director-progress">SSE 进度通道就绪后实时推送（§48）</span></div>
           <div id="director-result"></div>
         </div>
       </div>
@@ -468,11 +481,48 @@
           <div id="editor-watermark-list" class="hint" style="margin-top:4px"></div>
         </div>
         <div class="role-block" style="margin-top:8px">
-          <b>Subtitle（字幕样式）</b>
+          <b>Subtitle（字幕样式 §52）</b>
           <div class="btn-row" style="margin-top:4px">
             <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('white_black')">白字黑边</button>
             <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('position_bottom')">位置·底部</button>
             <button class="btn-secondary btn-sm" onclick="editorBgmVolume()">🎚 BGM 音量</button>
+          </div>
+          <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
+            <label style="font-size:12px">Mode</label>
+            <select id="sub-mode" style="width:90px">
+              <option value="sentence">句子</option>
+              <option value="word">逐词</option>
+            </select>
+            <label style="font-size:12px">Size</label>
+            <input type="number" id="sub-size" step="0.1" min="0.3" max="3" style="width:60px" placeholder="1.0">
+            <label style="font-size:12px">Color</label>
+            <input type="color" id="sub-color" value="#ffffff" style="width:44px">
+            <label style="font-size:12px">Outline</label>
+            <input type="color" id="sub-stroke" value="#000000" style="width:44px">
+            <label style="font-size:12px">W</label>
+            <input type="number" id="sub-stroke-w" step="1" min="0" max="12" value="2" style="width:50px">
+            <label style="font-size:12px">Pos</label>
+            <select id="sub-pos" style="width:80px">
+              <option value="bottom">底部</option>
+              <option value="center">居中</option>
+              <option value="top">顶部</option>
+            </select>
+            <label style="font-size:12px">Anim</label>
+            <select id="sub-anim" style="width:100px">
+              <option value="none">None</option>
+              <option value="fade">Fade</option>
+              <option value="pop_spring">Pop Spring</option>
+            </select>
+            <label style="font-size:12px">Bg</label>
+            <input type="color" id="sub-bg" value="#000000" style="width:44px" title="底色（含 BG=开启底色）">
+            <label style="font-size:12px">Align</label>
+            <select id="sub-align" style="width:80px">
+              <option value="center">居中</option>
+              <option value="left">左</option>
+              <option value="right">右</option>
+            </select>
+            <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply()">应用样式</button>
+            <button class="btn-secondary btn-sm" onclick="editorSubtitleGenerate()">生成字幕轨（§31）</button>
           </div>
         </div>
       </div>
@@ -504,13 +554,15 @@
           </div>
           <div class="btn-row">
             <label style="font-size:12px">引用</label>
-            <select id="gen-reference" style="width:200px">
+            <select id="gen-reference" style="width:220px">
               <option value="">无（纯文本）</option>
               <option value="style:editorial">风格 · Editorial</option>
               <option value="style:minimal">风格 · Minimal</option>
               <option value="style:cinematic">风格 · Cinematic</option>
+              <option value="asset:first-image">参考画面 · 项目首图（asset 引用 §90）</option>
+              <option value="asset:first-video">参考画面 · 项目首视频（asset 引用 §90）</option>
             </select>
-            <span class="hint">引用素材/风格将作为生成上下文（reference-focused creation §17）</span>
+            <span class="hint">风格或 asset: 素材引用作为生成上下文（§17/§90）</span>
           </div>
           <div class="btn-row">
             <button class="btn-secondary" onclick="editorGenerate()">🪄 生成 3 变体</button>
@@ -1258,11 +1310,77 @@ async function editorWatermarkAdd(){
 async function editorWatermarkRemove(){
   editorCmd('remove_watermark', {});
 }
+// §55 Inspector context-aware：水印条目显 Asset/Position/Opacity/Scale（项目级卡内联）
+function renderWatermarkList(){
+  const box = document.getElementById('editor-watermark-list');
+  if (!box) return;
+  const wms = (ED.comp && ED.comp.watermarks) || [];
+  if (!wms.length) { box.textContent = '当前无水印'; return; }
+  box.innerHTML = wms.map((w, i) =>
+    `<div class="proj-row"><span><b>${esc(w.text || w.asset_id || w.kind)}</b>`+
+    `<span class="hint">kind=${esc(w.kind||'text')} · 位置=${esc(w.anchor||'bottom_right')} · 透明=${w.opacity??'—'} · 缩放=${w.scale??'—'}</span></span>`+
+    `<span class="btn-row">`+
+    `<button class="btn-secondary btn-sm" onclick="editorWatermarkMove(${i})">📍 移位</button>`+
+    `<button class="btn-secondary btn-sm" onclick="editorWatermarkOpacity(${i})">🎚 透明度</button>`+
+    `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_watermark',{})">🗑 删</button></span></div>`).join('');
+}
+function editorWatermarkMove(i){
+  const anchor = prompt('位置（top_left/top_right/bottom_left/bottom_right/center）：', 'top_right');
+  if (!anchor) return;
+  const w = (ED.comp.watermarks||[])[i] || {};
+  editorCmd('set_watermark', {kind: w.kind||'text', text: w.text||'水印',
+                              anchor, opacity: w.opacity ?? 0.75});
+}
+function editorWatermarkOpacity(i){
+  const v = prompt('透明度（0-1）：', '0.75');
+  if (v === null) return;
+  const w = (ED.comp.watermarks||[])[i] || {};
+  editorCmd('set_watermark', {kind: w.kind||'text', text: w.text||'水印',
+                              anchor: w.anchor||'top_right', opacity: parseFloat(v)});
+}
 async function editorSubtitleStyle(which){
   const payload = which === 'white_black'
     ? {color: '#FFFFFF', strokeColor: '#000000'}
     : {position: 'bottom'};
   editorCmd('set_subtitle_style', payload);
+}
+// §52 完整字幕样式面板：Font/Size/Color/Outline/Background/Position/Animation
+function editorSubtitleStyleApply(){
+  const payload = {};
+  const mode = document.getElementById('sub-mode');
+  const size = document.getElementById('sub-size');
+  const color = document.getElementById('sub-color');
+  const stroke = document.getElementById('sub-stroke');
+  const strokeW = document.getElementById('sub-stroke-w');
+  const pos = document.getElementById('sub-pos');
+  const anim = document.getElementById('sub-anim');
+  const bg = document.getElementById('sub-bg');
+  const align = document.getElementById('sub-align');
+  if (mode && mode.value) payload.mode = mode.value;
+  if (size && size.value) payload.size = parseFloat(size.value);
+  if (color && color.value) payload.color = color.value;
+  if (stroke && stroke.value) payload.strokeColor = stroke.value;
+  if (strokeW && strokeW.value !== '') payload.strokeWidth = parseInt(strokeW.value);
+  if (pos && pos.value) payload.position = pos.value;
+  if (anim && anim.value) payload.animation = anim.value;
+  if (bg && bg.value) { payload.background = bg.value; payload.backgroundOpacity = 0.5; }
+  if (align && align.value) payload.alignment = align.value;
+  if (!Object.keys(payload).length) { alert('先调整样式字段'); return; }
+  editorCmd('set_subtitle_style', payload);
+}
+// §31/§33 生成字幕轨（word timing → SubtitleTrack 入 IR）
+async function editorSubtitleGenerate(){
+  const r = await apiPost('/api/director/execute', {
+    project_id: ED.pid,
+    instruction: '生成字幕（word 模式）',
+  });
+  if (r.ok) {
+    const d = r.director || {};
+    const gen = (d.executed||[]).find(e => e.tool === 'subtitle.generate');
+    editorToast(gen && gen.ok ? '字幕轨已生成入 IR（§31）' : '字幕轨生成失败：' + ((gen||{}).error||''));
+  } else {
+    editorToast('❌ ' + (r.error || ''), true);
+  }
 }
 async function editorBgmVolume(){
   const v = prompt('BGM 音量（0-2，1=原始）：', '0.3');
@@ -1290,11 +1408,12 @@ async function editorApplyMotionParam(sceneId, idx){
 }
 
 async function editorOpenAssetPicker(sceneId, idx){
-  // §49/§50 统一 AssetPicker：项目素材 / Stock / AI生成 三个 tab（同一选择组件，非多个 picker）
+  // §49/§50 统一 AssetPicker：项目素材 / 本地导入 / Stock / AI生成（同一选择组件）
   const box = document.getElementById('editor-picker-box');
   box.innerHTML =
     '<div class="btn-row" style="margin-bottom:6px">'+
     '<button class="btn-secondary btn-sm" data-aptab="project">🗂 项目素材</button>'+
+    '<button class="btn-secondary btn-sm" data-aptab="local">📥 本地导入</button>'+
     '<button class="btn-secondary btn-sm" data-aptab="stock">🌐 Stock</button>'+
     '<button class="btn-secondary btn-sm" data-aptab="generated">🪄 AI生成</button></div>'+
     '<div id="asset-picker-body">加载素材……</div>';
@@ -1327,6 +1446,29 @@ async function assetPickerTab(tab, idx, sceneId){
       return row.outerHTML;
     }).join('')
       : '<div class="hint">项目素材库为空</div>');
+  } else if (tab === 'local') {
+    // §50 本地导入 tab：文件直接进项目素材库（video/image），再替换到层
+    body.innerHTML = '<div class="btn-row"><input type="file" id="ap-local-file" multiple accept=".mp4,.mov,.mkv,.avi,.webm,.m4v,.jpg,.jpeg,.png,.webp">'+
+      '<button class="btn-secondary btn-sm" id="ap-local-btn">⬆ 导入到项目</button></div>'+
+      '<div id="ap-local-status" class="hint">选择视频/图片文件导入（导入后在本 tab 与项目素材可见）</div>';
+    const btn = document.getElementById('ap-local-btn');
+    if (btn) btn.onclick = async () => {
+      const fi = document.getElementById('ap-local-file');
+      const st = document.getElementById('ap-local-status');
+      if (!fi.files || !fi.files.length) { st.textContent = '请先选择文件'; return; }
+      if (!ED.pid) { st.textContent = '需先打开项目'; return; }
+      st.textContent = '导入中……';
+      const fd = new FormData();
+      for (const f of fi.files) fd.append('files', f);
+      fd.append('project_id', ED.pid);
+      try {
+        const resp = await fetch('/api/assets_import', {method:'POST', body: fd});
+        const r = await resp.json();
+        st.textContent = r.ok ? `✅ 已导入 ${r.imported||0} 个素材（asset ids: ${(r.asset_ids||[]).slice(0,3).join('、')}）`
+                              : '❌ ' + (r.error || '导入失败');
+        if (r.ok) await assetPickerTab('project', idx, sceneId);
+      } catch(e) { st.textContent = '❌ ' + e; }
+    };
   } else if (tab === 'stock') {
     body.innerHTML = '<div class="btn-row"><input type="text" id="stock-q" class="rev-input" style="flex:1" placeholder="搜索关键词（如 coffee）">'+
       '<button class="btn-secondary btn-sm" id="stock-search-btn">搜索</button></div>'+
@@ -1415,13 +1557,15 @@ async function editorCmd(cmd, extra, targetOverride, useRawTarget){
   // split 只作用于场景：图层选中时归约到其所属场景
   if (cmd === 'split' && target.includes('#')) target = target.split('#')[0];
   const payload = extra || {};
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: cmd, targetId: target, payload, expectedVersion: ED.version});
+  // §82 统一 Command Protocol：commandId/projectId/variantId/targetId/payload/expectedVersion
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, variantId: ED.variantId || ED.pid, command: cmd, targetId: target, payload, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
     const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     edShowInspector();
+    renderWatermarkList();
     editorToast(`${cmd} 完成（revision ${r.revision_id}；失效：${(r.stale_artifacts||[]).join('，') || '无'}；复用：${(r.reused_artifacts||[]).length} 项）`);
   } else {
     const err = (r.errors && r.errors[0]) || {};
@@ -1565,6 +1709,28 @@ async function directorExecute(){
   if (!inst) { alert('请输入剪辑意图（例：保留原声，加右上角水印）'); return; }
   const box = document.getElementById('director-result');
   box.innerHTML = '<div class="hint">AI 导演规划中……</div>';
+  // §48 SSE：实时进度推送（多页面共享通道；无连接时静默跳过）
+  try {
+    if (!window._directorSSE) {
+      window._directorSSE = new EventSource('/api/events');
+      window._directorSSE.onmessage = (ev) => {
+        try {
+          const m = JSON.parse(ev.data);
+          if (m.event === 'director') {
+            const bar = document.getElementById('director-progress');
+            if (!bar) return;
+            const d = m.data || {};
+            if (d.phase === 'planning') bar.textContent = '⏳ 规划中……';
+            else if (d.phase === 'tool') bar.textContent = `${d.ok ? '✅' : '❌'} ${d.tool || ''}（${d.status || ''}）`;
+            else if (d.phase === 'done') bar.textContent = d.verify_ok ? '✅ 全部完成（已验证）' : '⚠ 部分未通过验证';
+            else if (d.phase === 'error') bar.textContent = '❌ ' + (d.code || '失败');
+          }
+        } catch(e) {}
+      };
+    }
+  } catch(e) {}
+  const bar = document.getElementById('director-progress');
+  if (bar) bar.textContent = '⏳ 规划中……';
   const r = await apiPost('/api/director/execute', {project_id: ED.pid, instruction: inst});
   if (!r.ok) {
     box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '执行失败')}${r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`;
@@ -1614,9 +1780,19 @@ async function editorGenerate(){
   const prompt = document.getElementById('gen-prompt').value.trim();
   const type = document.getElementById('gen-type').value;
   const modelSel = (document.getElementById('gen-model') || {}).value || '';
-  const refSel = (document.getElementById('gen-reference') || {}).value || '';
+  let refSel = (document.getElementById('gen-reference') || {}).value || '';
   const status = document.getElementById('gen-status');
   if (!prompt) { status.textContent = '请填生成提示词'; return; }
+  // §90 参考图/参考视频：asset:first-image|first-video 解析为项目首个对应类型素材 id
+  if (refSel === 'asset:first-image' || refSel === 'asset:first-video') {
+    const wantType = refSel.endsWith('image') ? 'image' : 'video';
+    let found = '';
+    for (const sc of (ED.comp.scenes||[])) for (const lay of (sc.layers||[])) {
+      if (lay.type === wantType && lay.asset_id) { found = lay.asset_id; break; }
+    }
+    if (!found) { status.textContent = `项目无 ${wantType} 素材可作参考`; return; }
+    refSel = 'asset:' + found;
+  }
   status.textContent = '生成中……（A/B/C 变体）';
   const r = await apiPost('/api/editor/generate', {project_id: ED.pid, prompt, type,
     model: modelSel.replace(/^\[(image|video)\] /, ''), reference: refSel,
@@ -2808,6 +2984,35 @@ function previewVoice(){
   const v = document.getElementById('voice').value;
   if (!v) return;
   _play('/api/voice_preview?voice=' + encodeURIComponent(v), '配音 ' + v);
+}
+// §14/§16/§17 NarrationConfig 三态：auto/upload/silent（前端切换互斥显隐）
+function narrationModeChange(){
+  const mode = document.getElementById('narration_mode').value;
+  document.getElementById('voice-auto-row').style.display = mode === 'auto' ? '' : 'none';
+  document.getElementById('voice-upload-row').style.display = mode === 'upload' ? '' : 'none';
+  document.getElementById('voice-silent-note').style.display = mode === 'silent' ? '' : 'none';
+}
+// §16 上传配音：Import → Probe → ASR → Word Timing → Narration（TTS=SKIP）
+async function uploadVoice(){
+  const fi = document.getElementById('voice_upload_file');
+  const st = document.getElementById('voice-upload-status');
+  if (!fi.files || !fi.files.length) { st.textContent = '请先选择音频文件'; return; }
+  const pid = (window.currentProject && window.currentProject.project_id) ||
+              (document.getElementById('editor-project')||{}).value || '';
+  if (!pid) { st.textContent = '需要项目：先在创作页生成或编辑器打开一个项目'; return; }
+  st.textContent = '导入中（探测→对齐）……';
+  const fd = new FormData();
+  fd.append('project_id', pid);
+  fd.append('voice_file', fi.files[0]);
+  try {
+    const resp = await fetch('/api/voice_upload', {method:'POST', body: fd});
+    const r = await resp.json();
+    if (r.ok) {
+      st.textContent = `✅ 已导入 ${r.duration}s（来源 ${r.source}${r.source==='estimated'?'（估算时间轴）':''}，TTS 已跳过 §12）`;
+    } else {
+      st.textContent = '❌ ' + (r.error || '导入失败');
+    }
+  } catch(e) { st.textContent = '❌ ' + e; }
 }
 function previewAudio(kind){
   const sel = document.getElementById(kind);

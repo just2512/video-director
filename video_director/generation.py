@@ -236,11 +236,23 @@ def generate(
             f"类型 {gen_type!r} 无可用生成 provider（可用: image/graphic/video）",
         )
     prompt = str(prompt).strip()
-    # §17/§38 引用接入：reference 风格 → 进 prompt 上下文 + graphic style 分流
+    # §17/§38 引用接入：reference 风格 → 进 prompt 上下文 + graphic style 分流；
+    # §90 CAP-GEN-007/008 参考图/参考视频：asset:<id> 形式把项目素材路径进 prompt
+    # 上下文（视觉参考描述；生视频 image-to-video 协议接入后可升级为首帧输入）。
     if reference and reference.startswith("style:"):
         style = reference.split(":", 1)[1]
         prompt = f"{prompt}（风格：{style}）"
         _GEN_STYLE_OVERRIDE = style
+    elif reference and reference.startswith("asset:"):
+        ref_asset_id = reference.split(":", 1)[1]
+        ref_manifest = _load_manifest(project_id)
+        ref_entry = next((m for m in ref_manifest if m.get("id") == ref_asset_id), None)
+        if ref_entry is None:
+            raise GenerationError("REFERENCE_NOT_FOUND",
+                                  f"参考素材 {ref_asset_id!r} 不在项目 manifest（§90）")
+        ref_desc = ref_entry.get("description") or ref_entry.get("prompt") or Path(ref_entry.get("file", "")).stem
+        prompt = f"{prompt}（参考画面：{ref_desc}）"
+        _GEN_STYLE_OVERRIDE = None
     else:
         _GEN_STYLE_OVERRIDE = None
     variants = [variant] if variant else list(VARIANTS)
@@ -248,7 +260,7 @@ def generate(
     assets_dir = base / "assets" / "generated"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    # §39 CacheKey + InputFingerprint：prompt + type + 引用 + 首末帧都进指纹
+    # §39 CacheKey + InputFingerprint：prompt + type + 引用 + 首末帧 + providerVersion 都进指纹
     fp_src = prompt + "|" + gen_type
     if reference:
         fp_src += "|ref:" + reference
@@ -256,6 +268,8 @@ def generate(
         fp_src += "|first:" + str(first_frame)[:80]
     if last_frame:
         fp_src += "|last:" + str(last_frame)[:80]
+    if model:
+        fp_src += "|model:" + str(model)
     input_fp = hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16]
     results: List[GenerationResult] = []
     manifest = _load_manifest(project_id)

@@ -299,7 +299,10 @@ class SubtitleStyle(BaseModel):
     stroke_color: str = "#000000"
     stroke_width: int = 2
     background: Optional[str] = None  # None = 无底色；如 "#000000@0.5"
+    background_opacity: float = 0.5   # background 存在时的底色透明度
     position: str = "bottom"          # bottom | center | top
+    alignment: str = "center"         # left | center | right（§32 alignment）
+    max_width: float = 0.9            # 相对画幅宽（§32 maxWidth）
     animation: str = "none"           # none | pop_spring | fade
     mode: str = "sentence"           # sentence | word（逐词）
 
@@ -309,6 +312,10 @@ class SubtitleStyle(BaseModel):
             raise ValueError(f"subtitle_style: size {self.size} 非法")
         if self.position not in ("bottom", "center", "top"):
             raise ValueError(f"subtitle_style: position {self.position!r} 非法")
+        if self.alignment not in ("left", "center", "right"):
+            raise ValueError(f"subtitle_style: alignment {self.alignment!r} 非法")
+        if not (0.3 <= self.max_width <= 1.0):
+            raise ValueError(f"subtitle_style: max_width {self.max_width} 越界 [0.3,1.0]")
         if self.animation not in ("none", "pop_spring", "fade"):
             raise ValueError(f"subtitle_style: animation {self.animation!r} 非法")
         if self.mode not in ("sentence", "word"):
@@ -333,6 +340,8 @@ class AudioTrack(BaseModel):
     source_in: float = 0.0
     source_out: Optional[float] = None
     volume: float = 1.0
+    fadeIn: float = 0.0        # §18/§35：淡入秒数
+    fadeOut: float = 0.0       # §18/§35：淡出秒数
     ducking: bool = False  # BGM 在 narration 下自动压低
 
     @model_validator(mode="after")
@@ -343,6 +352,36 @@ class AudioTrack(BaseModel):
             raise ValueError(f"audio track({self.type}): volume {self.volume} 非法")
         if self.start < 0:
             raise ValueError(f"audio track({self.type}): start {self.start} 为负")
+        return self
+
+
+class SubtitleCue(BaseModel):
+    """§33 单条字幕（句级或逐词）。word 逐词时 text 为单词，sentence 为整句。"""
+
+    start: float
+    end: float
+    text: str
+
+
+class SubtitleTrack(BaseModel):
+    """§31 字幕 = Timeline Track（不再是 Video Export Setting）。
+
+    §33 Word Timing：cues 可为句级（mode=sentence）或逐词（mode=word）。
+    source 指明对齐来源（tts_word_boundary / asr / manual），lineage 可溯。
+    """
+
+    mode: str = "sentence"              # sentence | word
+    source: str = "tts_word_boundary"   # tts_word_boundary | asr | manual
+    cues: List[SubtitleCue] = Field(default_factory=list)
+    style_id: Optional[str] = None      # Subtitle Registry 样式引用（与 subtitle_style 并存）
+
+    @model_validator(mode="after")
+    def _check_cues(self):
+        if self.mode not in ("sentence", "word"):
+            raise ValueError(f"subtitle track mode {self.mode!r} 非法")
+        for c in self.cues:
+            if c.end <= c.start:
+                raise ValueError(f"subtitle cue ({c.start}-{c.end}) end <= start")
         return self
 
 
@@ -361,6 +400,8 @@ class CompositionIR(BaseModel):
     # ---- MPT 吸收方案 §十九/§三十一：水印与字幕样式是一等 IR 字段 ----
     watermarks: List[WatermarkLayer] = Field(default_factory=list)
     subtitle_style: Optional[SubtitleStyle] = None
+    # ---- §31/§33：字幕是 Timeline Track（句级/逐词 cues + 对齐来源 lineage）----
+    subtitle_track: Optional["SubtitleTrack"] = None
     origin_template_id: Optional[str] = None
     origin_template_version: Optional[str] = None
 
