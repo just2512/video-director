@@ -26,7 +26,6 @@
   .err-box { background:#2b1d1d; border:1px solid #5e2e2e; border-radius:8px; padding:16px; }
   video { width:100%; max-width:480px; border-radius:8px; margin-top:12px; background:#000; }
   a.dl { color:#4a90d9; font-size:14px; display:inline-block; margin-top:10px; }
-  .sb { background:#0d1116; border:1px solid #2a343d; border-radius:6px; padding:12px; font-size:13px; max-height:300px; overflow:auto; white-space:pre-wrap; margin-top:10px; }
   .qc-line { font-size:13px; margin:2px 0; }
   .qc-pass { color:#5ec46a; } .qc-fail { color:#e05e5e; }
   .btn-row { display:flex; gap:10px; margin-top:14px; }
@@ -44,8 +43,6 @@
   .enhanced-ta { min-height:200px; margin-top:8px; }
   .feedback-row { display:flex; gap:10px; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid #2a343d; }
   .fb-btn { width:auto; padding:9px 14px; font-size:14px; }
-  .fb-btn.liked { background:#2e5e3e; }
-  .fb-btn.disliked { background:#5e2e2e; }
   .fb-note { flex:1; }
   .fb-note input { font-size:13px; }
   .scene-list { margin-top:12px; max-height:360px; overflow:auto; }
@@ -125,7 +122,6 @@
   .asset-card:hover { border-color:#4a90d9; }
   .asset-card.sel { border-color:#4a90d9; }
   .lic-clear { background:#1d3a24; color:#5ec46a; }
-  .lic-review { background:#3a351d; color:#d8a657; }
   .lic-unknown { background:#3a1d1d; color:#e05e5e; }
   .lic-blocked { background:#2a0d0d; color:#ff6b6b; }
   .scene-role { background:#33518c; color:#fff; border-radius:3px; padding:0 5px; font-size:11px; }
@@ -396,6 +392,19 @@
       </div>
     </div>
     <div id="editor-body" style="display:none">
+      <div class="card" id="director-bar-card">
+        <b>🧠 AI 导演</b> <span class="hint">用一句话描述剪辑意图，AI 读系统能力 + 项目状态，自动规划并执行（§47/§92）</span>
+        <div class="rev-console" style="margin-top:6px">
+          <div class="btn-row">
+            <input type="text" id="director-input" class="rev-input" style="flex:1"
+              placeholder="例：保留原声，加右上角水印，BGM 小一点，字幕白字黑边，生成草稿"
+              onkeydown="if(event.key==='Enter')directorExecute()">
+            <button class="btn" onclick="directorExecute()">🧠 执行</button>
+          </div>
+          <div class="hint" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项系统能力</div>
+          <div id="director-result"></div>
+        </div>
+      </div>
       <div class="card">
         <b>📚 Creative Library</b>——选中场景后按分类浏览可用素材（§36 Editor 左侧库）
         <div class="btn-row" style="flex-wrap:wrap">
@@ -439,6 +448,33 @@
       <div class="card" id="editor-inspector-card" style="display:none">
         <b>Inspector</b>——选中图层后可换动效/调参数（先预览后应用）
         <div id="editor-inspector"></div>
+      </div>
+      <div class="card" id="editor-audio-card">
+        <b>🎚 音频 / 水印 / 字幕</b> <span class="hint">项目级设置（§18 原声一等公民 / §19 水印 / §32 字幕样式）</span>
+        <div class="role-block" style="margin-top:6px">
+          <b>Original Audio（素材原声）</b>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('preserve')">🔊 保留原声</button>
+            <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('mute')">🔇 静音原声</button>
+            <button class="btn-secondary btn-sm" onclick="editorOriginalAudioVolume()">🎚 原声音量</button>
+          </div>
+        </div>
+        <div class="role-block" style="margin-top:8px">
+          <b>Watermark（水印）</b>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn-secondary btn-sm" onclick="editorWatermarkAdd()">➕ 文字水印</button>
+            <button class="btn-secondary btn-sm" onclick="editorWatermarkRemove()">🗑 移除水印</button>
+          </div>
+          <div id="editor-watermark-list" class="hint" style="margin-top:4px"></div>
+        </div>
+        <div class="role-block" style="margin-top:8px">
+          <b>Subtitle（字幕样式）</b>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('white_black')">白字黑边</button>
+            <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('position_bottom')">位置·底部</button>
+            <button class="btn-secondary btn-sm" onclick="editorBgmVolume()">🎚 BGM 音量</button>
+          </div>
+        </div>
       </div>
       <div class="card">
         <b>🤖 AI 改稿</b>——用一句话描述修改，AI 出提案（先预览，应用才生效）
@@ -986,6 +1022,7 @@ async function editorLoad(){
   editorRenderTimeline();
   editorLoadVersions();
   populateGenModels();
+  directorLoadCapCount();
 }
 
 function timelineView(view){
@@ -1162,7 +1199,7 @@ function edShowInspector(){
     `<button class="btn-sm" onclick="editorApplyMotionParam('${sceneId}',${idx})">✅ 应用参数</button></div>`+
     `<div id="ed-motion-preview" style="margin-top:6px"></div></div>`+
     `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorOpenMotionPicker('${sceneId}',${idx})">✨ 换动效</button>`+
-    `<button class="btn-secondary btn-sm" onclick="editorOpenAssetPicker('${sceneId}',${idx}')">🖼 换素材</button>`+
+    `<button class="btn-secondary btn-sm" onclick="editorOpenAssetPicker('${sceneId}',${idx})">🖼 换素材</button>`+
     `<button class="btn-secondary btn-sm" onclick="editorToggleLock('${sceneId}',${idx})">${lay.locked?'🔓 解锁':'🔒 锁定'}</button></div>`+
     `<div id="editor-picker-box"></div>`+
     `<div id="ed-asset-inspector" class="hint" style="margin-top:6px">素材授权……</div>`;
@@ -1203,6 +1240,36 @@ function editorAudioVolume(trackType){
   editorCmd('set_audio_volume', {volume: parseFloat(v)}, trackType, true);
 }
 
+// ---- 项目级控制（§18 original / §19 watermark / §32 subtitle / §34 BGM）----
+function editorOriginalAudio(mode){
+  editorCmd('set_original_audio', {mode, volume: mode === 'preserve' ? 0.8 : 0.0, duckAgainst: 'narration'});
+}
+function editorOriginalAudioVolume(){
+  const v = prompt('原声音量（0-2，1=原始）：', '0.8');
+  if (v === null) return;
+  editorCmd('set_original_audio_volume', {volume: parseFloat(v)});
+}
+async function editorWatermarkAdd(){
+  const text = prompt('水印文本（例：品牌名）：', '水印');
+  if (!text) return;
+  const anchor = prompt('位置：top_left / top_right / bottom_left / bottom_right / center', 'top_right');
+  editorCmd('set_watermark', {kind: 'text', text, anchor: anchor || 'top_right', opacity: 0.75});
+}
+async function editorWatermarkRemove(){
+  editorCmd('remove_watermark', {});
+}
+async function editorSubtitleStyle(which){
+  const payload = which === 'white_black'
+    ? {color: '#FFFFFF', strokeColor: '#000000'}
+    : {position: 'bottom'};
+  editorCmd('set_subtitle_style', payload);
+}
+async function editorBgmVolume(){
+  const v = prompt('BGM 音量（0-2，1=原始）：', '0.3');
+  if (v === null) return;
+  editorCmd('set_audio_volume', {volume: parseFloat(v)}, 'bgm', true);
+}
+
 // EDT-007：参数预览（local）→ 应用（revision）
 async function editorPreviewMotionParam(sceneId, idx){
   const dur = parseFloat(document.getElementById('ed-mot-dur').value) || 0.5;
@@ -1223,16 +1290,86 @@ async function editorApplyMotionParam(sceneId, idx){
 }
 
 async function editorOpenAssetPicker(sceneId, idx){
-  // §32 Asset Picker：统一素材选择器（replace_source）
+  // §49/§50 统一 AssetPicker：项目素材 / Stock / AI生成 三个 tab（同一选择组件，非多个 picker）
   const box = document.getElementById('editor-picker-box');
-  box.innerHTML = '加载素材……';
-  let lib;
-  try { lib = await (await fetch('/api/assets_library')).json(); } catch(e) { lib = []; }
-  const items = (Array.isArray(lib) ? lib : []).filter(a => a.type === 'image' || a.type === 'video');
-  box.innerHTML = '<label>选择替换素材（同一素材选择器，含类型过滤）</label>' +
-    (items.length ? items.slice(0, 60).map(a => `<div class="proj-row"><span>${esc(a.asset_id)} <span class="hint">${esc(a.type)}${a.file ? ' · '+esc(a.file.split(/[\\/]/).pop()) : ''}</span></span>`+
-      `<button class="btn-secondary btn-sm" onclick="editorReplaceSource('${sceneId}',${idx},'${esc(a.asset_id)}')">替换</button></div>`).join('')
-      : '<div class="hint">素材库为空</div>');
+  box.innerHTML =
+    '<div class="btn-row" style="margin-bottom:6px">'+
+    '<button class="btn-secondary btn-sm" data-aptab="project">🗂 项目素材</button>'+
+    '<button class="btn-secondary btn-sm" data-aptab="stock">🌐 Stock</button>'+
+    '<button class="btn-secondary btn-sm" data-aptab="generated">🪄 AI生成</button></div>'+
+    '<div id="asset-picker-body">加载素材……</div>';
+  box.querySelectorAll('[data-aptab]').forEach(btn => {
+    btn.onclick = () => assetPickerTab(btn.getAttribute('data-aptab'), idx, sceneId);
+  });
+  assetPickerTab('project', idx, sceneId);
+}
+async function assetPickerTab(tab, idx, sceneId){
+  const body = document.getElementById('asset-picker-body');
+  if (!body) return;
+  if (tab === 'project') {
+    let lib;
+    try { lib = await (await fetch('/api/assets_library')).json(); } catch(e) { lib = []; }
+    const items = (Array.isArray(lib) ? lib : []).filter(a => a.type === 'image' || a.type === 'video');
+    body.innerHTML = (items.length ? items.slice(0, 60).map(a => {
+      const sid = sceneId; const iidx = idx; const aid = a.asset_id;
+      const row = document.createElement('div');
+      row.className = 'proj-row';
+      const span = document.createElement('span');
+      span.innerHTML = '<span></span>';
+      row.innerHTML = '<span><span class="hint"></span></span>';
+      row.querySelector('span').firstChild.textContent = aid + ' ';
+      row.querySelector('.hint').textContent = (a.type || '') + (a.file ? ' · ' + String(a.file).split(/[\\/]/).pop() : '');
+      const btn = document.createElement('button');
+      btn.className = 'btn-secondary btn-sm';
+      btn.textContent = '替换';
+      btn.onclick = () => editorReplaceSource(sid, iidx, aid);
+      row.appendChild(btn);
+      return row.outerHTML;
+    }).join('')
+      : '<div class="hint">项目素材库为空</div>');
+  } else if (tab === 'stock') {
+    body.innerHTML = '<div class="btn-row"><input type="text" id="stock-q" class="rev-input" style="flex:1" placeholder="搜索关键词（如 coffee）">'+
+      '<button class="btn-secondary btn-sm" id="stock-search-btn">搜索</button></div>'+
+      '<div id="stock-results" class="hint">配置 Pexels/Pixabay/Coverr API key 后可搜（§25 商业安全：缺 key 诚实提示）</div>';
+    const inp = document.getElementById('stock-q');
+    if (inp) inp.onkeydown = (e) => { if (e.key === 'Enter') assetPickerStockSearch(); };
+    const btn = document.getElementById('stock-search-btn');
+    if (btn) btn.onclick = () => assetPickerStockSearch();
+  } else { // generated
+    let lib;
+    try { lib = await (await fetch('/api/assets_library')).json(); } catch(e) { lib = []; }
+    const gen = (Array.isArray(lib) ? lib : []).filter(a => (a.origin === 'generated' || a.source === 'generated'));
+    body.innerHTML = (gen.length ? gen.slice(0, 60).map(a => {
+      const sid = sceneId; const iidx = idx; const aid = a.asset_id;
+      const row = document.createElement('div');
+      row.className = 'proj-row';
+      row.innerHTML = '<span><span class="hint"></span></span>';
+      row.querySelector('span').firstChild.textContent = aid + ' ';
+      row.querySelector('.hint').textContent = (a.type || '') + ' · generated';
+      const btn = document.createElement('button');
+      btn.className = 'btn-secondary btn-sm';
+      btn.textContent = '替换';
+      btn.onclick = () => editorReplaceSource(sid, iidx, aid);
+      row.appendChild(btn);
+      return row.outerHTML;
+    }).join('')
+      : '<div class="hint">尚无生成素材（去「生成素材」面板生成）</div>');
+  }
+}
+async function assetPickerStockSearch(){
+  const q = (document.getElementById('stock-q')||{}).value || '';
+  const box = document.getElementById('stock-results');
+  if (!box) return;
+  if (!q) { box.innerHTML = '<div class="hint">请输入关键词</div>'; return; }
+  box.innerHTML = '搜索中……';
+  const r = await apiPost('/api/stock/search', {query: q, ratio: '9:16'});
+  if (!r.ok) { box.innerHTML = `<div class="err-box">❌ ${esc(r.error||'搜索失败')}${r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`; return; }
+  const cands = r.candidates || [];
+  const statusCn = {SUPPORTED:'✓', MISSING_REQUIREMENT:'⚠ 素材不足', INCOMPATIBLE:'× 画幅不符', UNKNOWN:'? 待确认'};
+  box.innerHTML = cands.length ? cands.map(c =>
+    `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription||c.sourceId)} <span class="hint">${c.width}x${c.height} · ${c.duration}s · ${statusCn[c.status]||c.status}</span></span>`+
+    `<span class="hint">${c.commercialStatus==='CLEAR'?'✓商用':c.commercialStatus}</span></div>`).join('')
+    : '<div class="hint">无匹配素材</div>';
 }
 async function editorReplaceSource(sceneId, idx, assetId){
   editorCmd('replace_source', {assetId}, `${sceneId}#${idx}`);
@@ -1410,6 +1547,48 @@ async function editorAiReject(){
     `<div class="hint">已拒绝（项目零变更${r.changed === false ? '，已验证' : ''}）</div>`;
 }
 
+// ===========================================================================
+// AI Director Command Bar（§47/§92）：一句话剪辑意图 → Director → 执行 → verify
+// ===========================================================================
+async function directorLoadCapCount(){
+  try {
+    const d = await (await fetch('/api/director/capabilities')).json();
+    const n = (d.capabilities || []).length;
+    const el = document.getElementById('director-cap-count');
+    if (el) el.textContent = n;
+  } catch(e) {}
+}
+async function directorExecute(){
+  if (!ED.pid) { alert('先打开项目（上方「打开项目」）'); return; }
+  const inp = document.getElementById('director-input');
+  const inst = (inp.value || '').trim();
+  if (!inst) { alert('请输入剪辑意图（例：保留原声，加右上角水印）'); return; }
+  const box = document.getElementById('director-result');
+  box.innerHTML = '<div class="hint">AI 导演规划中……</div>';
+  const r = await apiPost('/api/director/execute', {project_id: ED.pid, instruction: inst});
+  if (!r.ok) {
+    box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '执行失败')}${r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`;
+    return;
+  }
+  const d = r.director || {};
+  const ctx = d.context_summary || {};
+  box.innerHTML =
+    `<div class="hint">项目 ${esc(ctx.duration??'')}s · 轨 ${esc((ctx.tracks||[]).join('/'))} · 来源 ${esc(d.source)}</div>`+
+    (d.plan||[]).map(p=>`<div class="proj-row"><span><code>${esc(p.tool)}</code>`+
+      `<span class="hint">${esc(p.reason||'')}</span></span></div>`).join('') +
+    `<div class="hint" style="margin-top:4px">执行结果：</div>`+
+    (d.executed||[]).map(e=>`<div class="proj-row"><span>${e.ok?'✅':'❌'} <code>${esc(e.tool)}</code>`+
+      `<span class="hint">${esc(e.status)}${e.error?' · '+esc(e.error):''}`+
+      (e.verify && e.verify.checks ? ' · 验证 ' + Object.entries(e.verify.checks).map(([k,v])=>`${esc(k)}=${esc(v)}`).join(' ') : '')+
+      `</span></span></div>`).join('') +
+    `<div class="hint" style="margin-top:2px">${d.verify_ok ? '✅ 全部验证通过' : '⚠ 部分步骤未通过验证（见上方 ❌）'}</div>`;
+  // 刷新时间线 + Inspector，展示 AI 落地效果
+  const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+  if (comp && comp.version !== undefined) { ED.comp = comp; ED.version = comp.version; }
+  editorRenderTimeline();
+  editorToast(`AI 导演完成：${(d.executed||[]).filter(e=>e.ok).length}/${(d.executed||[]).length} 步成功`);
+}
+
 // ---- EDT-008 Timeline-native Generation（生成素材：变体 → 加入时间线）----
 function populateGenModels(){
   // §38 Model 选择器：从 model_config 状态（角色数组）取 image/video 角色模型
@@ -1453,9 +1632,7 @@ async function editorGenerate(){
     `<button class="btn-sm" onclick="addGenToTimeline('${esc(res.asset_id)}')">加入时间线</button>`+
     `<button class="btn-secondary btn-sm" onclick="switchTab('assets')">已存素材库</button>`+
     `</span></div>`).join('');
-  GEN_RESULTS = r.results;
 }
-let GEN_RESULTS = [];
 async function addGenToTimeline(assetId){
   // 加入时间线需目标场景：无选中场景则用第一场景
   const sceneId = (ED.sel && ED.sel.type === 'scene') ? ED.sel.id :
@@ -1829,7 +2006,6 @@ async function gfxEnsureBlocks(){
     } catch(e) { GFX.blocks = []; }
   }
 }
-async function gfxInit(){ await gfxEnsureBlocks(); }
 
 function gfxSetType(t, btn){
   GFX.content_type = t;
@@ -1996,7 +2172,6 @@ async function gfxGenAsset(i){
     alert('生成素材不可用：' + e.message + '\n（需在「大模型配置中心」为 image 角色配置 API key；当前可先用程序化视觉块）');
   }
 }
-function gfxNoop(msg){ alert(msg); }
 
 // §42 Block 开发体验：New Block 表单提交
 async function gfxNewBlock(){
@@ -2706,15 +2881,8 @@ async function sbChangeShot(i){
   if (!pick) return;
   const chosen = cands[parseInt(pick)-1];
   if (!chosen) { alert('未匹配：' + pick); return; }
-  if (window.currentProjectId) {
-    const scid = window.SB_DATA && window.SB_DATA.scenes && window.SB_DATA.scenes[i] ? window.SB_DATA.scenes[i].scene_id : '';
-    if (!scid) { alert('当前项目无 composition，换镜头请先确认分镜渲染'); return; }
-    const rr = await apiPost('/api/editor/command', {project_id: currentProjectId, command: 'replace_recipe', targetId: scid, payload: {recipeId: chosen.recipe_id}});
-    alert(rr.ok ? `已换镜头：${chosen.name}` : '换镜头失败：' + ((rr.errors||[{}])[0].message || rr.error));
-  } else {
-    document.getElementById('creative_brief').value += `\n[分镜${i+1} 使用镜头方案：${chosen.recipe_id}]`;
-    alert('镜头方案已记入创作要求（渲染时生效）：' + chosen.name);
-  }
+  document.getElementById('creative_brief').value += `\n[分镜${i+1} 使用镜头方案：${chosen.recipe_id}]`;
+  alert('镜头方案已记入创作要求（渲染时生效）：' + chosen.name);
 }
 function sbChangeVisual(i){
   const t = prompt('换视觉：输入要绑定的素材文件名（如 3.mp4），或"自动"让 AI 重新匹配');

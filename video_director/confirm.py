@@ -563,11 +563,14 @@ def load_storyboard(path: Path) -> dict:
 DRAFT_SCALE = 0.5
 
 
-def render_draft(project_id: str, scale: float = DRAFT_SCALE) -> str:
+def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[str] = None) -> str:
     """读已落盘的 composition.json IR → 缩小分辨率快速渲染 draft.mp4。
 
     返回 draft 路径。供 WebUI st.video 播放（Gate B 审片）。
     不烧字幕、不做完整 QC——草稿只求快（用户看节奏/素材对不对）。
+
+    profile（§43）：草案也支持 4K profile（target 分辨率从 profile 取，
+    缩 scale 后输出）；默认 None 走原 IR 尺寸。
     """
     from video_director import config, pipeline, renderer
     from video_director.models import CompositionIR, AssetRef
@@ -593,9 +596,17 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE) -> str:
     except Exception as exc:
         logger.warning(f"draft: 音频库并入失败（不阻塞）: {exc}")
 
+    # §43：profile 决定目标尺寸（4K 诚实：草稿缩放预览，尺寸标注在 profile）
+    from video_director import output_profile
+    if profile:
+        prof = output_profile.resolve_profile(profile, ir.project.width, ir.project.height)
+        target_w, target_h = prof.width, prof.height
+    else:
+        target_w, target_h = ir.project.width, ir.project.height
+
     # 缩分辨率（草稿 IR 与正式 IR 同构，仅 project 尺寸缩）
-    dw = max(2, int(ir.project.width * scale) // 2 * 2)   # 偶数对齐（yuv420p 要求）
-    dh = max(2, int(ir.project.height * scale) // 2 * 2)
+    dw = max(2, int(target_w * scale) // 2 * 2)   # 偶数对齐（yuv420p 要求）
+    dh = max(2, int(target_h * scale) // 2 * 2)
     draft_ir = ir.model_copy(deep=True)
     object.__setattr__(draft_ir.project, "width", dw)
     object.__setattr__(draft_ir.project, "height", dh)
@@ -616,10 +627,10 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE) -> str:
     return draft_path
 
 
-def finalize_after_review(project_id: str, edits: Optional[dict] = None):
+def finalize_after_review(project_id: str, edits: Optional[dict] = None, profile: Optional[str] = None):
     """Gate B 审片通过 → 正式渲染（复用 pipeline.resume_after_confirm）。
 
-    返回 PipelineResult（final.mp4 + QC）。
+    返回 PipelineResult（final.mp4 + QC）。profile（§43）透传给渲染链。
     """
     from video_director import pipeline
-    return pipeline.resume_after_confirm(project_id, edits=edits)
+    return pipeline.resume_after_confirm(project_id, edits=edits, profile=profile)

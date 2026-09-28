@@ -209,6 +209,8 @@ def generate(
     variant: Optional[str] = None,
     model: Optional[str] = None,
     reference: Optional[str] = None,
+    first_frame: Optional[str] = None,
+    last_frame: Optional[str] = None,
 ) -> List[GenerationResult]:
     """生成 1 或 3 个素材变体，落地到项目 assets 并登记 lineage。
 
@@ -216,6 +218,10 @@ def generate(
     model：显式模型覆盖（§38 Model 选择器；None 用角色配置）。
     reference：引用风格/素材标记（§17 reference-focused；当前接入 prompt 上下文
     与 graphic style 分流，资产引用待 Reference Graph 扩展）。
+    first_frame / last_frame（§29 GenerationRequest）：视频生成的首帧/末帧
+    引用。当前 provider（OpenAI 兼容 / ModelScope）协议支持有限——首末帧
+    会进入 input_fingerprint（§39 CacheKey 语义）并诚实记录到 lineage，
+    但若 provider 不支持则生成时明确报错而非静默忽略。
     provider 分流（§五十一 Capability G）：
         image   → roles["image"] AI 生图；无 key 兜底 Graphics Runtime 程序化
         graphic → Graphics Runtime 程序化（自有 renderer，确定性）
@@ -242,7 +248,15 @@ def generate(
     assets_dir = base / "assets" / "generated"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    input_fp = hashlib.sha256((prompt + "|" + gen_type).encode("utf-8")).hexdigest()[:16]
+    # §39 CacheKey + InputFingerprint：prompt + type + 引用 + 首末帧都进指纹
+    fp_src = prompt + "|" + gen_type
+    if reference:
+        fp_src += "|ref:" + reference
+    if first_frame:
+        fp_src += "|first:" + str(first_frame)[:80]
+    if last_frame:
+        fp_src += "|last:" + str(last_frame)[:80]
+    input_fp = hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16]
     results: List[GenerationResult] = []
     manifest = _load_manifest(project_id)
 
@@ -251,6 +265,13 @@ def generate(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=model)
     elif gen_type == "video":
+        # §29 first_frame/last_frame：provider 协议不支持首末帧时诚实报错
+        if first_frame or last_frame:
+            raise GenerationError(
+                "FIRST_FRAME_UNSUPPORTED",
+                "当前视频生成 provider 协议不支持首帧/末帧引用（§29）；"
+                "换一个支持 image-to-video 的 provider 后重试",
+            )
         results = _generate_video(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=model)

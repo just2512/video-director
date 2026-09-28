@@ -491,6 +491,30 @@ def mix_audio(
         ref_labels.append("[nar]")
         idx += 1
 
+    # ---- original（§18：素材原声轨，从 source video 抽取音轨）----
+    # original 轨 asset_id 指向一个视频素材；渲染时 ffmpeg 抽其音轨按音量混入，
+    # 有旁白时 duck（§18 OriginalAudioPolicy.duckAgainst=narration）。
+    original_track: Optional[AudioTrack] = None
+    for t in ir.audio:
+        if t.type == AudioTrackType.original and assets.get(t.asset_id or ""):
+            original_track = t
+            break
+    if original_track is not None:
+        # 只有 video 素材才有可抽的原声；image/audio 源不匹配 original 语义
+        src = assets[original_track.asset_id]
+        if src.type == "video" and os.path.isfile(src.file):
+            duck_db = config.DUCKING_DB if (narration_file and original_track.ducking) else 0.0
+            vol_db = 20 * math.log10(max(original_track.volume, 0.01)) + duck_db
+            ss = original_track.source_in or 0.0
+            dur = original_track.source_out or original_track.duration
+            inputs += ["-ss", f"{ss:.3f}", "-t", f"{dur:.3f}", "-i", src.file]
+            filters.append(
+                f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
+                f"volume={vol_db:.2f}dB,atrim=0:{total:.3f}[orig]"
+            )
+            ref_labels.append("[orig]")
+            idx += 1
+
     # ---- BGM（首个有效 bgm track；循环铺满总长 + duck + 用户音量）----
     bgm_track: Optional[AudioTrack] = None
     for t in ir.audio:
@@ -633,10 +657,11 @@ def render_composition(
     if audio_result is None:
         master_path = visual_path  # 纯视觉
 
-    # 4. 字幕烧录（必须最后，V1 §20）
+    # 4. 字幕烧录（必须最后，V1 §20；§32 用 IR subtitle_style 样式）
     final_path = str(work_dir / "final.mp4")
     if subtitle_file and os.path.isfile(subtitle_file):
-        subtitle_burn_in(master_path, subtitle_file, final_path)
+        subtitle_burn_in(master_path, subtitle_file, final_path,
+                         style=getattr(ir, "subtitle_style", None))
     else:
         final_path = master_path
 
@@ -649,13 +674,17 @@ def render_composition(
             role=lower_third_role,
         )
 
-    # 6. 水印（右下角，最后叠加，全程显示）
-    if watermark and watermark.strip():
+    # 6. 水印（§19：读 ir.watermarks IR 水印层；旧 watermark 参数向后兼容）
+    #    优先级：ir.watermarks > watermark 参数。逐条叠加。
+    wm_list = list(ir.watermarks) if getattr(ir, "watermarks", None) else []
+    if watermark and watermark.strip() and not wm_list:
+        from video_director.models import WatermarkLayer
+        wm_list.append(WatermarkLayer(kind="text", text=watermark.strip(),
+                                      anchor="bottom_right", opacity=0.75, scale=1.0))
+    for i, wm in enumerate(wm_list):
         from video_director import title_engine
-        wm_out = str(work_dir / "final_watermark.mp4")
-        final_path = title_engine.render_watermark_overlay(
-            final_path, watermark.strip(), wm_out,
-        )
+        wm_out = str(work_dir / f"final_watermark_{i}.mp4")
+        final_path = title_engine.render_watermark_layer(final_path, wm, wm_out)
 
     return RenderResult(
         visual_path=visual_path,
@@ -665,18 +694,37 @@ def render_composition(
     )
 
 
-def subtitle_burn_in(video_in: str, srt_path: str, out_path: str) -> str:
+def subtitle_burn_in(video_in: str, srt_path: str, out_path: str, style=None) -> str:
     """ffmpeg subtitles filter 烧录（Windows 路径转义）。
 
     正确转义 = 反斜杠换正斜杠 + 冒号转 \\: + 整条路径用单引号包裹：
         subtitles='D\\:/path/to/master.srt'
     （实测：缺单引号会把冒号误解为 original_size option 分隔符）
+
+    style：SubtitleStyle（§32 IR）→ force_style 覆盖字/色/描边/位置。
     """
     esc = srt_path.replace("\\", "/").replace(":", "\\:")
+    vf = f"subtitles='{esc}'"
+    if style is not None:
+        fs_parts = []
+        color = getattr(style, "color", None) or "#FFFFFF"
+        stroke = getattr(style, "stroke_color", None) or "#000000"
+        stroke_w = int(getattr(style, "stroke_width", 2) or 2)
+        pos = {"bottom": "2", "center": "5", "top": "8"}.get(
+            getattr(style, "position", "bottom"), "2")
+        # ASS 对齐：1=左 2=底中 5=中 8=顶中（§32 position 映射）
+        fs_parts.append(f"PrimaryColour={_hex_to_ass(color)}")
+        fs_parts.append(f"OutlineColour={_hex_to_ass(stroke)}")
+        fs_parts.append(f"Outline={stroke_w}")
+        fs_parts.append(f"Alignment={pos}")
+        fs_parts.append(f"BorderStyle=1")
+        if getattr(style, "size", None):
+            fs_parts.append(f"FontSize={max(12, int(18 * float(style.size)))}")
+        vf = f"subtitles='{esc}':force_style='{','.join(fs_parts)}'"
     cmd = [
         _ffmpeg(), "-y", "-loglevel", "error",
         "-i", video_in,
-        "-vf", f"subtitles='{esc}'",
+        "-vf", vf,
         "-c:v", config.DEFAULT_VIDEO_CODEC,
         "-preset", "veryfast",
         "-crf", str(config.DEFAULT_CRF),
@@ -685,3 +733,12 @@ def subtitle_burn_in(video_in: str, srt_path: str, out_path: str) -> str:
     ]
     _run(cmd)
     return out_path
+
+
+def _hex_to_ass(hex_color: str) -> str:
+    """#RRGGBB → ASS &HAABBGGRR（蓝绿红序）。"""
+    c = (hex_color or "#FFFFFF").lstrip("#")
+    if len(c) != 6:
+        c = "FFFFFF"
+    r, g, b = c[0:2], c[2:4], c[4:6]
+    return f"&H00{b}{g}{r}"

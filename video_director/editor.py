@@ -24,7 +24,16 @@ from typing import Dict, List, Optional, Tuple
 from loguru import logger
 
 from video_director import config
-from video_director.models import CompositionIR, Layer, LayerType, SceneIR
+from video_director.models import (
+    AudioTrack,
+    AudioTrackType,
+    CompositionIR,
+    Layer,
+    LayerType,
+    SceneIR,
+    SubtitleStyle,
+    WatermarkLayer,
+)
 from video_director.registries.compiler import (
     CompileError,
     apply_motion_to_layer,
@@ -190,6 +199,12 @@ SUPPORTED_COMMANDS = (
     "replace_generated_media",   # 换生成素材层（§20）
     "lock",                      # 锁/解锁层（§13 Layer.locked）
     "batch",                     # 多选批量命令（§47 multi-select：delete/duplicate/lock 集合）
+    # ---- MPT 吸收方案 §18/§19/§32：原声/水印/字幕样式（一等公民）----
+    "set_original_audio",        # 原声 preserve/mute/duck（§18 OriginalAudioPolicy）
+    "set_original_audio_volume", # 原声音量（§18）
+    "set_watermark",             # 加水印/更新水印（§19 WatermarkLayer）
+    "remove_watermark",          # 移除水印（§19）
+    "set_subtitle_style",        # 字幕样式（§32 SubtitleStyle 入 IR）
 )
 
 
@@ -283,6 +298,16 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_lock(ir, target_id, payload)
         elif cmd_name == "batch":
             changed, stale = _cmd_batch(ir, payload)
+        elif cmd_name == "set_original_audio":
+            changed, stale = _cmd_set_original_audio(ir, target_id, payload)
+        elif cmd_name == "set_original_audio_volume":
+            changed, stale = _cmd_set_original_audio_volume(ir, target_id, payload)
+        elif cmd_name == "set_watermark":
+            changed, stale = _cmd_set_watermark(ir, target_id, payload)
+        elif cmd_name == "remove_watermark":
+            changed, stale = _cmd_remove_watermark(ir, target_id, payload)
+        elif cmd_name == "set_subtitle_style":
+            changed, stale = _cmd_set_subtitle_style(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -802,3 +827,138 @@ def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
     if not changed_all:
         raise EditorError("NOOP", "批量操作无有效目标（可能已删除或锁定）")
     return changed_all, stale_all
+
+
+# ---------------------------------------------------------------------------
+# MPT 吸收方案 §18 Original Audio（一等公民）
+# ---------------------------------------------------------------------------
+
+
+def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§18：original 轨 policy（preserve/mute/duck）。original 是独立音轨
+    类型，不是渲染开关。绑定素材源：若无显式 assetId，取首场景首视频层的源。"""
+    mode = payload.get("mode") or "preserve"
+    if mode not in ("preserve", "mute"):
+        raise EditorError("INVALID_PAYLOAD", f"set_original_audio 的 mode {mode!r} 非法")
+    _vol = payload.get("volume")
+    volume = float(_vol if _vol is not None else (0.8 if mode == "preserve" else 0.0))
+    if not (0.0 <= volume <= 2.0):
+        raise EditorError("INVALID_PARAMETER", f"original volume {volume} 越界 [0,2]")
+    asset_id = payload.get("assetId")
+    if not asset_id:
+        # 缺显式源 → 取第一个视频层（original 语义：素材原声）
+        for sc in ir.scenes:
+            for lay in sc.layers:
+                if lay.type == LayerType.video and lay.asset_id:
+                    asset_id = lay.asset_id
+                    break
+            if asset_id:
+                break
+    duck = bool(payload.get("duckAgainst") or payload.get("ducking", False))
+    # 幂等：已有 original 轨则更新，否则新建
+    for i, t in enumerate(ir.audio):
+        if t.type == AudioTrackType.original:
+            ir.audio[i] = t.model_copy(update={"volume": volume, "ducking": duck,
+                                                "asset_id": asset_id or t.asset_id})
+            return [], ["audio:original:render"]
+    ir.audio.append(AudioTrack(
+        type=AudioTrackType.original, asset_id=asset_id,
+        start=0.0, duration=ir.project.duration, volume=volume, ducking=duck,
+    ))
+    return [], ["audio:original:render"]
+
+
+def _cmd_set_original_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§18：original 轨音量。无 original 轨时新建（AI 首次调 volume 也应生效）。"""
+    volume = float(payload.get("volume", 1.0))
+    if not (0.0 <= volume <= 2.0):
+        raise EditorError("INVALID_PARAMETER", f"original volume {volume} 越界 [0,2]")
+    for i, t in enumerate(ir.audio):
+        if t.type == AudioTrackType.original:
+            ir.audio[i] = t.model_copy(update={"volume": volume})
+            return [], ["audio:original:render"]
+    # 未有 original 轨：至少要有素材源才能建原声轨（诚实：无源不凭空造）
+    asset_id = None
+    for sc in ir.scenes:
+        for lay in sc.layers:
+            if lay.type == LayerType.video and lay.asset_id:
+                asset_id = lay.asset_id
+                break
+        if asset_id:
+            break
+    if not asset_id:
+        raise EditorError("MISSING_REQUIREMENT", "项目无视频素材，无法建立原声轨")
+    ir.audio.append(AudioTrack(
+        type=AudioTrackType.original, asset_id=asset_id,
+        start=0.0, duration=ir.project.duration, volume=volume,
+    ))
+    return [], ["audio:original:render"]
+
+
+# ---------------------------------------------------------------------------
+# MPT 吸收方案 §19 Watermark（一等公民）
+# ---------------------------------------------------------------------------
+
+
+def _cmd_set_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§19：添加/更新水印（WatermarkLayer 入 IR，渲染器读 ir.watermarks）。"""
+    kind = payload.get("kind") or "text"
+    text = payload.get("text")
+    asset_id = payload.get("assetId")
+    anchor = payload.get("anchor") or "bottom_right"
+    opacity = float(payload.get("opacity", 0.75))
+    scale = float(payload.get("scale", 1.0))
+    start = float(payload.get("start", 0.0))
+    duration = payload.get("duration")
+    # 校验：kind=text 需 text；kind=image/logo 需 assetId
+    if kind == "text" and not (text or "").strip():
+        raise EditorError("INVALID_PAYLOAD", "text 水印缺 text")
+    if kind in ("image", "logo", "svg") and not asset_id:
+        raise EditorError("INVALID_PAYLOAD", f"{kind} 水印缺 assetId")
+    wm = WatermarkLayer(
+        kind=kind, text=text or None, asset_id=asset_id,
+        anchor=anchor, opacity=opacity, scale=scale, start=start,
+        duration=duration,
+    )
+    # 幂等：同 kind 已存在则更新第一条，否则追加
+    for i, w in enumerate(ir.watermarks):
+        if w.kind == kind:
+            ir.watermarks[i] = wm
+            return [f"watermark:{kind}"], ["project:render"]
+    ir.watermarks.append(wm)
+    return [f"watermark:{kind}"], ["project:render"]
+
+
+def _cmd_remove_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§19：移除水印。targetId 可为 kind（text/image/logo/svg）或 index。"""
+    if not ir.watermarks:
+        raise EditorError("NOOP", "项目无水印")
+    kind = target_id or payload.get("kind") or payload.get("id") or ""
+    removed = False
+    if kind:
+        before = len(ir.watermarks)
+        ir.watermarks = [w for w in ir.watermarks if w.kind != kind]
+        removed = len(ir.watermarks) < before
+    else:
+        ir.watermarks = ir.watermarks[:-1]  # 移除最后一条
+        removed = True
+    if not removed:
+        raise EditorError("NOT_FOUND", f"水印 {kind!r} 不存在")
+    return ["watermark"], ["project:render"]
+
+
+# ---------------------------------------------------------------------------
+# MPT 吸收方案 §32 Subtitle Style（一等 IR 字段）
+# ---------------------------------------------------------------------------
+
+
+def _cmd_set_subtitle_style(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§32：字幕样式入 IR（SubtitleStyle），不是导出设置。合并式更新。"""
+    existing = ir.subtitle_style or SubtitleStyle()
+    data = existing.model_dump()
+    for key in ("font", "size", "color", "strokeColor", "strokeWidth",
+                "background", "position", "animation", "mode"):
+        if key in payload and payload[key] is not None:
+            data[key] = payload[key]
+    ir.subtitle_style = SubtitleStyle(**data)
+    return [], ["subtitle:render"]

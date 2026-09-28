@@ -673,7 +673,7 @@ def _edits_change_narration(edits: Optional[dict]) -> bool:
     )
 
 
-def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> PipelineResult:
+def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile: Optional[str] = None) -> PipelineResult:
     """人工确认后从 RENDERING 继续 → QC → final。
 
     流程：
@@ -727,6 +727,11 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None) -> Pipel
     voice_rate = params.get("voice_rate", "+0%")
     width = params.get("width")
     height = params.get("height")
+    # §43/§44：profile 覆盖导出尺寸（4K 诚实：raster 源非 4K 由 preflight 提示）
+    if profile:
+        from video_director import output_profile
+        prof = output_profile.resolve_profile(profile, width or 1080, height or 1920)
+        width, height = prof.width, prof.height
     fps = params.get("fps")
     bgm_asset_id = params.get("bgm")
     manual_manifest = params.get("manual_manifest")

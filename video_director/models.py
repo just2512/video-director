@@ -76,9 +76,14 @@ GRAPHICS_LAYER_TYPES = {
 
 
 class AudioTrackType(str, Enum):
-    """V2 §27：声音四分。Narration 主音轨，其余背景/事件/环境。"""
+    """V2 §27：声音四分。Narration 主音轨，其余背景/事件/环境。
+
+    MPT 吸收方案 §十八：original（素材原声）必须成为一等公民——
+    "保留现场声音"是独立音轨类型，不是渲染开关。
+    """
 
     narration = "narration"
+    original = "original"
     bgm = "bgm"
     sfx = "sfx"
     ambient = "ambient"
@@ -249,13 +254,84 @@ class ProjectSpec(BaseModel):
     duration: float
 
 
+class WatermarkLayer(BaseModel):
+    """MPT 吸收方案 §十九：水印是一等公民（IR 字段而非渲染参数）。
+
+    支持文本/图片/Logo；anchor 九宫格 + 偏移；全程或区间显示。
+    AI Tool：watermark.add / watermark.update / watermark.remove。
+    """
+
+    id: str = "wm-1"
+    kind: str = "text"  # text | image | logo | svg
+    text: Optional[str] = None        # kind=text 时必填
+    asset_id: Optional[str] = None    # kind=image/logo 时必填（项目素材）
+    anchor: str = "bottom_right"     # 九宫格 top_left/top_right/bottom_left/bottom_right/center/...
+    offset_x: int = 0                # 像素偏移（相对 anchor）
+    offset_y: int = 0
+    opacity: float = 0.75
+    scale: float = 1.0                # 字号/图片缩放系数
+    start: float = 0.0
+    duration: Optional[float] = None  # None = 全程
+
+    @model_validator(mode="after")
+    def _check_watermark(self):
+        if not 0.0 <= self.opacity <= 1.0:
+            raise ValueError(f"watermark: opacity {self.opacity} 越界 [0,1]")
+        if self.scale <= 0:
+            raise ValueError(f"watermark: scale {self.scale} 非法")
+        if self.start < 0:
+            raise ValueError(f"watermark: start {self.start} 为负")
+        if self.kind == "text" and not (self.text or "").strip():
+            raise ValueError("watermark(kind=text) 缺 text")
+        if self.kind in ("image", "logo", "svg") and not self.asset_id:
+            raise ValueError(f"watermark(kind={self.kind}) 缺 assetId")
+        return self
+
+
+class SubtitleStyle(BaseModel):
+    """MPT 吸收方案 §三十一/§三十二：字幕是 Timeline Track 的样式契约，
+    不再只是导出设置。字段对齐 MPT（font/size/color/stroke/background/
+    position/animation）+ 本系统 Subtitle Registry 的样式白名单。"""
+
+    font: Optional[str] = None        # None = 系统默认 CJK 字体
+    size: float = 1.0                 # 相对基准字号的缩放（>1 放大）
+    color: str = "#FFFFFF"
+    stroke_color: str = "#000000"
+    stroke_width: int = 2
+    background: Optional[str] = None  # None = 无底色；如 "#000000@0.5"
+    position: str = "bottom"          # bottom | center | top
+    animation: str = "none"           # none | pop_spring | fade
+    mode: str = "sentence"           # sentence | word（逐词）
+
+    @model_validator(mode="after")
+    def _check_style(self):
+        if self.size <= 0:
+            raise ValueError(f"subtitle_style: size {self.size} 非法")
+        if self.position not in ("bottom", "center", "top"):
+            raise ValueError(f"subtitle_style: position {self.position!r} 非法")
+        if self.animation not in ("none", "pop_spring", "fade"):
+            raise ValueError(f"subtitle_style: animation {self.animation!r} 非法")
+        if self.mode not in ("sentence", "word"):
+            raise ValueError(f"subtitle_style: mode {self.mode!r} 非法")
+        if self.stroke_width < 0 or self.stroke_width > 12:
+            raise ValueError(f"subtitle_style: stroke_width {self.stroke_width} 越界 [0,12]")
+        return self
+
+
 class AudioTrack(BaseModel):
-    """V2 §30/§58：BGM/SFX 是正式时间轴资源。"""
+    """V2 §30/§58：BGM/SFX 是正式时间轴资源。
+
+    MPT 吸收方案 §十八：original 轨绑定素材源（asset_id 指向视频素材，
+    渲染时从源视频抽取音轨按音量混入）。source_in/source_out 为源内区间
+    （original 轨取其素材在时间线上的对应源区间；其他类型忽略）。
+    """
 
     type: AudioTrackType
     asset_id: Optional[str] = None
     start: float = 0.0
     duration: float
+    source_in: float = 0.0
+    source_out: Optional[float] = None
     volume: float = 1.0
     ducking: bool = False  # BGM 在 narration 下自动压低
 
@@ -265,6 +341,8 @@ class AudioTrack(BaseModel):
             raise ValueError(f"audio track({self.type}): duration must be positive")
         if not 0 <= self.volume <= 2.0:
             raise ValueError(f"audio track({self.type}): volume {self.volume} 非法")
+        if self.start < 0:
+            raise ValueError(f"audio track({self.type}): start {self.start} 为负")
         return self
 
 
@@ -280,6 +358,9 @@ class CompositionIR(BaseModel):
     style_id: Optional[str] = None
     scenes: List[SceneIR]
     audio: List[AudioTrack] = Field(default_factory=list)
+    # ---- MPT 吸收方案 §十九/§三十一：水印与字幕样式是一等 IR 字段 ----
+    watermarks: List[WatermarkLayer] = Field(default_factory=list)
+    subtitle_style: Optional[SubtitleStyle] = None
     origin_template_id: Optional[str] = None
     origin_template_version: Optional[str] = None
 

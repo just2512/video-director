@@ -287,41 +287,6 @@ class Handler(BaseHTTPRequestHandler):
         self._send_bytes(data, ctype or "text/html; charset=utf-8", status)
 
     # ------------------------------------------------------------------
-    def _registry_shots(self, parsed):
-        """GET /api/registry/shots：镜头配方卡清单（Shot Picker 数据源）。
-
-        §16 Query：?intent=&contentType=&style=&commercialStatus= 服务端过滤。
-        """
-        try:
-            from video_director.registries.recipes import ShotRegistry
-            qs = parse_qs(parsed.query)
-            intent = qs.get("intent", [""])[0]
-            content_type = qs.get("contentType", [""])[0]
-            style = qs.get("style", [""])[0]
-            status = qs.get("commercialStatus", [""])[0]
-            out = []
-            for s in ShotRegistry().all():
-                if intent and intent not in s.semantic_intents:
-                    continue
-                if content_type and content_type not in s.compatible_content_types:
-                    continue
-                if style and not any(b and style in b.preferred_styles for b in s.motion_bindings):
-                    continue
-                if status and s.commercial_status != status:
-                    continue
-                out.append({
-                    "id": s.id, "version": s.version, "name": s.name,
-                    "category": s.category, "energy": s.energy,
-                    "one_liner": s.item.description or "",
-                    "duration_recommended": s.duration_recommended,
-                    "duration_range": [s.duration_min, s.duration_max],
-                    "required_slot_types": [sl.type for sl in s.slots if sl.required],
-                    "commercial_status": s.commercial_status,
-                })
-            self._send_json(out)
-        except Exception as exc:
-            self._send_json({"error": str(exc)}, 500)
-
     def _registry_motions(self, parsed):
         """GET /api/registry/motions：动效清单（Motion Gallery 数据源）。
 
@@ -380,97 +345,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(out)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
-
-    def _registry_detail(self, parsed):
-        """GET /api/registry/{kind}/{id}：单条详情（§16-18 :id 端点）。"""
-        try:
-            parts = parsed.path.strip("/").split("/")
-            # /api/registry/shots/<id> → api/registry/shots/<id>
-            kind = parts[2] if len(parts) >= 3 else ""
-            item_id = parts[3] if len(parts) >= 4 else ""
-            if kind not in ("shots", "motions", "templates") or not item_id:
-                self._send_json({"error": "detail 路径需 /api/registry/{shots|motions|templates}/{id}"}, 400)
-                return
-            if kind == "shots":
-                from video_director.registries.recipes import ShotRegistry
-                s = ShotRegistry().get(item_id)
-                self._send_json({
-                    "id": s.id, "version": s.version, "name": s.name,
-                    "category": s.category, "energy": s.energy,
-                    "description": s.item.description or "",
-                    "semantic_intents": list(s.semantic_intents),
-                    "compatible_content_types": list(s.compatible_content_types),
-                    "duration": {"min": s.duration_min, "recommended": s.duration_recommended,
-                                 "max": s.duration_max},
-                    "slots": [{"id": sl.id, "type": sl.type, "required": sl.required,
-                               "cardinality": sl.cardinality, "semantic_role": sl.semantic_role}
-                              for sl in s.slots],
-                    "layer_plan": [{"id": p.id, "layer_type": p.layer_type, "source_slot": p.source_slot,
-                                    "motion": p.motion, "z_index": p.z_index} for p in s.layer_plan],
-                    "motion_bindings": [{"semantic_intent": b.semantic_intent,
-                                         "preferred_styles": list(b.preferred_styles)}
-                                        for b in s.motion_bindings],
-                    "commercial_status": s.commercial_status,
-                    "provenance_ref": s.provenance_ref,
-                    "source_layer": s._loader.layer_of(s.id, s.version) if hasattr(s, "_loader") else "system",
-                })
-            elif kind == "motions":
-                from video_director.registries.recipes import MotionRegistry
-                m = MotionRegistry().get(item_id)
-                self._send_json({
-                    "id": m.id, "version": m.version, "name": m.name,
-                    "motion_type": m.motion_type,
-                    "semantic_intents": list(m.semantic_intents),
-                    "compatible_layers": list(m.compatible_layers),
-                    "duration": {"min": m.duration_min, "recommended": m.duration_recommended,
-                                 "max": m.duration_max},
-                    "channels": [{"property": c.property,
-                                  "keyframes": [{"at": k.at, "value": k.value} for k in c.keyframes],
-                                  "interpolation": c.interpolation} for c in m.channels],
-                    "parameters": list(m.parameters),
-                    "constraints": list(m.constraints),
-                    "commercial_status": m.commercial_status,
-                    "provenance_ref": m.provenance_ref,
-                })
-            else:
-                from video_director.registries.templates import TemplateRegistry
-                t = TemplateRegistry().get(item_id)
-                self._send_json({
-                    "id": t.id, "version": t.version, "name": t.name,
-                    "category": t.category,
-                    "supported_ratios": list(t.supported_ratios),
-                    "duration_recommended": t.duration_recommended,
-                    "style_contract": t.style_contract,
-                    "slots": [{"id": s.id, "label": s.label, "type": s.type,
-                               "required": s.required, "editable": s.editable} for s in t.slots],
-                    "scenes": [{"id": s.id, "duration": s.duration, "semantic_role": s.semantic_role,
-                                "shot_recipe_id": s.shot_recipe_id} for s in t.scenes],
-                    "required_capabilities": list(t.required_capabilities),
-                    "commercial_status": t.commercial_status,
-                    "provenance_ref": t.provenance_ref,
-                })
-        except Exception as exc:
-            self._send_json({"error": str(exc)}, 404)
-
-    def _registry_motion_preview(self, parsed):
-        """GET /api/registry/motions/:id/preview：（§17）返回可嵌入的预览摘要。
-
-        前端 Motion Gallery 已有 CSS 循环预览；此端点返回 channels→CSS 摘要
-        （same MotionRecipe → Renderer，Preview/Final parity §38）。
-        """
-        try:
-            from video_director.registries.recipes import MotionRegistry
-            item_id = parsed.path.rstrip("/").split("/")[-2]
-            m = MotionRegistry().get(item_id)
-            self._send_json({
-                "id": m.id, "name": m.name,
-                "duration_recommended": m.duration_recommended,
-                "channels": [{"property": c.property,
-                              "keyframes": [{"at": k.at, "value": k.value} for k in c.keyframes]}
-                             for c in m.channels],
-            })
-        except Exception as exc:
-            self._send_json({"error": str(exc)}, 404)
 
     def _generic_registry(self, parsed, kind: str):
         """GET /api/registry/{transitions|styles|...}：§三十四 通用 Registry 清单。"""
@@ -558,6 +432,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "app": "AI Video Director"})
         elif route == "/api/voices":
             self._send_json([{"id": v, "label": l} for v, l in VOICES])
+        elif route == "/api/voice/providers":
+            # §13/§14：TTSProvider Registry + VoiceProfile（Audio UI 音色试听）
+            try:
+                from video_director import voice as vd_voice
+                self._send_json({"providers": vd_voice.list_providers(),
+                                 "voices": vd_voice.list_voices()})
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
         elif route == "/api/aspects":
             self._send_json([{"value": a, "label": l} for a, l in ASPECTS])
         elif route == "/api/bgm":
@@ -813,36 +695,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(vd_studio.job_list())
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
-        elif route == "/api/registry/shots":
-            self._registry_shots(parsed)
         elif route == "/api/registry/motions":
             self._registry_motions(parsed)
         elif route == "/api/registry/templates":
             self._registry_templates(parsed)
-        elif route.startswith("/api/registry/motions/") and route.endswith("/preview"):
-            self._registry_motion_preview(parsed)
         elif route in GENERIC_REGISTRY_KINDS:
             self._generic_registry(parsed, GENERIC_REGISTRY_KINDS[route])
-        elif route.startswith("/api/registry/") and "/resolve" not in route:
-            # §16-18：GET /api/registry/{kind}/{id} 单条详情（shots/motions/templates）
-            self._registry_detail(parsed)
         elif route == "/api/style_dna/behaviors":
             self._style_dna(parsed)
         elif route == "/api/asset_detail":
             self._asset_detail(parsed)
-        elif route == "/api/graphics/blocks":
-            # GFX-009 Creative Catalog：block 清单（Block Library UI 数据源）
-            try:
-                from video_director.graphics import blocks as vd_gfx_blocks
-                out = [{
-                    "id": b.id, "name": b.name, "category": b.category,
-                    "semantic_intents": list(b.semantic_intents),
-                    "slots": list(b.slots),
-                    "duration_range": [b.duration_min, b.duration_max],
-                } for b in vd_gfx_blocks.all_blocks()]
-                self._send_json(out)
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, 500)
         elif route == "/api/system_identity":
             # §90 系统定位自描述 + §61 Capability Map（能力面板/首页消费）
             try:
@@ -884,33 +746,6 @@ class Handler(BaseHTTPRequestHandler):
                 } for b in vd_gfx_blocks.all_blocks()])
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
-        elif route == "/api/graphics/blocks":
-            # 旧路径兼容（同 /api/catalog/blocks 数据）
-            try:
-                from video_director.graphics import blocks as vd_gfx_blocks
-                self._send_json([{
-                    "id": b.id, "name": b.name, "category": b.category,
-                    "semantic_intents": list(b.semantic_intents),
-                    "slots": list(b.slots),
-                    "duration_range": [b.duration_min, b.duration_max],
-                    "motion": b.motion,
-                } for b in vd_gfx_blocks.all_blocks()])
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, 500)
-        elif route == "/api/catalog/motions":
-            # §64 Motion：GET /api/catalog/motions（Motion Search 数据源）
-            try:
-                from video_director.graphics import blocks as vd_gfx_blocks
-                self._send_json(vd_gfx_blocks.all_motion_ids())
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, 500)
-        elif route == "/api/graphics/providers":
-            # §5 RendererProvider 能力状态（能力面板可展示）
-            try:
-                from video_director.graphics import provider as vd_gfx_provider
-                self._send_json(vd_gfx_provider.list_providers())
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, 500)
         elif route == "/api/catalog/blocks/resolve" or route == "/api/graphics/blocks/resolve":
             # GFX-010 Block Resolver（POST，见 do_POST）——GET 拒绝
             self._send_json({"error": "POST only"}, 405)
@@ -949,6 +784,18 @@ class Handler(BaseHTTPRequestHandler):
                             ],
                         } for sc in ir.scenes
                     ],
+                    # §18/§19/§32：音频轨/水印/字幕样式回传（Inspector/时间线可视化）
+                    "audio": [
+                        {"type": t.type.value, "asset_id": t.asset_id, "start": t.start,
+                         "duration": t.duration, "volume": t.volume, "ducking": t.ducking}
+                        for t in ir.audio
+                    ],
+                    "watermarks": [
+                        {"kind": w.kind, "text": w.text, "asset_id": w.asset_id,
+                         "anchor": w.anchor, "opacity": w.opacity, "scale": w.scale}
+                        for w in (ir.watermarks or [])
+                    ],
+                    "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
                     "revisions_count": len(revs),
                 })
             except Exception as exc:
@@ -973,6 +820,31 @@ class Handler(BaseHTTPRequestHandler):
                 from video_director import preflight as vd_preflight
                 report = vd_preflight.run_preflight(pid, for_publish=True)
                 self._send_json(report.to_dict())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/director/capabilities":
+            # §5/§63：编辑能力 Manifest（Level-1 摘要 / 按 id describe Level-2）
+            try:
+                from video_director.capability_registry import (
+                    describe_capability, list_capabilities)
+                qs = parse_qs(parsed.query)
+                cap_id = qs.get("id", [""])[0]
+                if cap_id:
+                    self._send_json({"capability": describe_capability(cap_id)})
+                    return
+                self._send_json({"capabilities": list_capabilities()})
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/director/context":
+            # §6：Project Context 快照（Director 读当前状态用）
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import project_context
+                self._send_json({"context": project_context.inspect_project_context(pid)})
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/file":
@@ -1326,6 +1198,57 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        # Director：一句话剪辑意图 → 读 Manifest+Context → 规划能力序列 → 执行 + verify
+        if parsed.path == "/api/director/execute":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            instruction = (payload.get("instruction") or "").strip()
+            if not pid or not instruction:
+                self._send_json({"error": "缺少 project_id 或 instruction"}, 400)
+                return
+            try:
+                from video_director import director as vd_director
+                result = vd_director.direct(pid, instruction)
+                self._send_json({"ok": True, "director": result})
+            except vd_director.DirectorError as exc:
+                self._send_json({"ok": False, "error": str(exc), "code": exc.code}, 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        # Stock 搜索（§24 统一入口 + §25 商业安全矩阵）
+        if parsed.path == "/api/stock/search":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            query = (payload.get("query") or "").strip()
+            if not query:
+                self._send_json({"error": "缺少 query"}, 400)
+                return
+            try:
+                from video_director import stock as vd_stock
+                hits = vd_stock.search_stock(
+                    query, provider=payload.get("provider"),
+                    orientation=payload.get("orientation"))
+                cands = vd_stock.resolve_candidates(
+                    hits, target_ratio=payload.get("ratio") or "9:16",
+                    target_duration=payload.get("targetDuration"))
+                self._send_json({"ok": True,
+                                 "candidates": [c.to_dict() for c in cands]})
+            except vd_stock.StockError as exc:
+                self._send_json({"ok": False, "error": str(exc), "code": exc.code}, 503)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         # Revision Console：自然语言改稿 → 累积 edits → 应用到分镜书（预览，不落盘）
         if parsed.path == "/api/revision":
             length = int(self.headers.get("Content-Length", 0))
@@ -1453,31 +1376,6 @@ class Handler(BaseHTTPRequestHandler):
 
         # ===================== Graphics Runtime 端点（HyperFrames 集成）=====================
 
-        if parsed.path in ("/api/catalog/blocks/resolve", "/api/graphics/blocks/resolve"):
-            # GFX-010 Block Resolver：意图 → 三态候选（零评分）
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
-            except json.JSONDecodeError:
-                self._send_json({"error": "请求体不是合法 JSON"}, 400)
-                return
-            try:
-                from video_director.graphics import resolver as vd_gfx_resolver
-                cands = vd_gfx_resolver.resolve_blocks(vd_gfx_resolver.BlockResolveRequest(
-                    semantic_intents=tuple(payload.get("semantic_intents") or ()),
-                    content_type=payload.get("content_type") or "",
-                    duration=float(payload.get("duration") or 3.0),
-                ))
-                self._send_json({"ok": True, "candidates": [
-                    {"block_id": c.block_id, "name": c.name, "category": c.category,
-                     "compatibility": c.compatibility, "reasons": list(c.reasons),
-                     "missing_requirements": list(c.missing_requirements)}
-                    for c in cands
-                ]})
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, 500)
-            return
-
         if parsed.path == "/api/graphics/plan":
             # GFX-019 Text → Graphic Plan（纯文案 → 可编辑创作方案，方案 §34 先看方案再渲染）
             length = int(self.headers.get("Content-Length", 0))
@@ -1585,42 +1483,6 @@ class Handler(BaseHTTPRequestHandler):
                                                     payload.get("motion") or base.motion,
                                                     base_block)
                 self._send_json({"ok": True, "id": block_id, "name": name})
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, 500)
-            return
-
-        if parsed.path == "/api/graphics/compile":
-            # §65 Graphic Compile API：{projectId/sceneId 或 plan} → 编译产物 lineage
-            length = int(self.headers.get("Content-Length", 0))
-            try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
-            except json.JSONDecodeError:
-                self._send_json({"error": "请求体不是合法 JSON"}, 400)
-                return
-            plan = payload.get("plan")
-            if not plan or not plan.get("scenes"):
-                self._send_json({"error": "缺少 plan"}, 400)
-                return
-            try:
-                from video_director.graphics import director as vd_gfx_director
-                from video_director.graphics import provider as vd_gfx_provider
-                program = vd_gfx_director.instantiate_graphic_program(plan)
-                prov = vd_gfx_provider.resolve_provider(program)
-                artifact = prov.compile(program)
-                # §66 Graphic Artifact Lineage：source/blockIds/motionIds/compilerVersion
-                block_ids = [s.block_id for s in program.scenes]
-                motion_ids = sorted({s.motion_id for s in program.scenes})
-                self._send_json({
-                    "ok": True,
-                    "graphicArtifactId": f"ga-{program.id[-8:]}",
-                    "htmlArtifactId": f"html-{program.id[-8:]}",
-                    "assets": [a.id for a in program.assets],
-                    "runtime": artifact.runtime,
-                    "blockIds": block_ids,
-                    "motionIds": motion_ids,
-                    "compilerVersion": artifact.compiler_version,
-                    "frames": program.total_frames,
-                })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return

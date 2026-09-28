@@ -239,3 +239,126 @@ def render_watermark_overlay(
         raise RuntimeError(f"水印渲染失败: {r.stderr[-300:]}")
     logger.info(f"watermark: 「{text.strip()[:16]}」→ 右下角")
     return str(out)
+
+
+# ---------------------------------------------------------------------------
+# MPT 吸收方案 §19：WatermarkLayer 完整渲染（anchor 九宫格 / opacity /
+# scale / image-logo overlay）。供 render_composition 读 ir.watermarks 调用。
+# ---------------------------------------------------------------------------
+
+#: anchor → drawtext x/y 表达式（相对 w/h，九宫格 + margin 因子）
+def _anchor_xy(anchor: str, w: int, h: int, m: float) -> tuple:
+    """返回 (x_expr, y_expr) 字符串。m 为边距占宽高比。"""
+    xm, ym = int(w * m), int(h * m)
+    if anchor == "top_left":
+        return f"{xm}", f"{ym}"
+    if anchor == "top_right":
+        return f"w-text_w-{xm}", f"{ym}"
+    if anchor == "bottom_left":
+        return f"{xm}", f"h-text_h-{ym}"
+    if anchor == "center":
+        return "(w-text_w)/2", "(h-text_h)/2"
+    # 默认 bottom_right（原 render_watermark_overlay 语义）
+    return f"w-text_w-{xm}", f"h-text_h-{ym}"
+
+
+def render_watermark_layer(
+    video_in: str,
+    wm,  # WatermarkLayer（models）
+    out_path: str,
+) -> str:
+    """§19：按 WatermarkLayer 渲染水印（text 用 drawtext，image/logo 用 overlay）。
+
+    anchor 九宫格定位；opacity/scale 生效；start/duration 区间未铺满时
+    用 enable 表达式控制显示窗口（第一版：全程显示 text 水印是主流，
+    image/logo 支持 overlay）。
+    """
+    from video_director import prober as _prober
+    try:
+        from video_director.models import WatermarkLayer  # noqa: F401
+    except ImportError:
+        pass
+    probe = _prober.probe_media(video_in)
+    w = probe.width or config.DEFAULT_RESOLUTION[0]
+    h = probe.height or config.DEFAULT_RESOLUTION[1]
+
+    ff = _prober._resolve_ffmpeg()
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    opacity = float(getattr(wm, "opacity", 0.75) or 0.75)
+    scale = float(getattr(wm, "scale", 1.0) or 1.0)
+    anchor = getattr(wm, "anchor", "bottom_right") or "bottom_right"
+    kind = getattr(wm, "kind", "text") or "text"
+
+    if kind == "text":
+        text = (getattr(wm, "text", "") or "").strip()
+        if not text:
+            return video_in
+        font = find_cjk_font()
+        if font is None:
+            return video_in
+        esc_font = _esc_font_path(font)
+        size = max(16, int(w * 0.026 * scale))
+        margin = 0.03
+        x_expr, y_expr = _anchor_xy(anchor, w, h, margin)
+        # opacity → fontcolor alpha（§19 opacity 字段语义）
+        alpha_hex = f"{int(opacity * 255):02x}"
+        draw = (
+            f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(text)}'"
+            f":fontsize={size}:fontcolor=white@{alpha_hex}"
+            f":x={x_expr}:y={y_expr}"
+        )
+    else:
+        # image/logo 水印：overlay 一张项目素材图
+        asset_id = getattr(wm, "asset_id", None)
+        if not asset_id:
+            return video_in
+        asset_path = Path(str(asset_id))
+        if not asset_path.is_file():
+            # asset_id 可能是 manifest id 而非路径（渲染入口已经过 assets 表解析）
+            logger.warning(f"watermark image/logo asset 非文件路径，跳过: {asset_id}")
+            return video_in
+        ow = max(1, int(w * 0.18 * scale))
+        xm, ym = int(w * 0.03), int(h * 0.03)
+        if anchor == "top_left":
+            ox, oy = xm, ym
+        elif anchor == "top_right":
+            ox, oy = w - ow - xm, ym
+        elif anchor == "bottom_left":
+            ox, oy = xm, h - (ow * 9 // 16) - ym
+        elif anchor == "center":
+            ox, oy = (w - ow) // 2, (h - ow) // 2
+        else:
+            ox, oy = w - ow - xm, h - (ow * 9 // 16) - ym
+        draw = (
+            f"[1:v]scale={ow}:-1,format=rgba[wm];"
+            f"[0:v][wm]overlay={ox}:{oy}:alpha={opacity:.2f}"
+        )
+        cmd = [
+            ff, "-y", "-loglevel", "error",
+            "-i", video_in, "-i", str(asset_path),
+            "-filter_complex", draw,
+            "-c:v", config.DEFAULT_VIDEO_CODEC,
+            "-preset", "veryfast", "-crf", str(config.DEFAULT_CRF),
+            "-c:a", "copy", str(out),
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=300)
+        if r.returncode != 0:
+            raise RuntimeError(f"image 水印渲染失败: {r.stderr[-300:]}")
+        logger.info(f"watermark: {anchor} image/logo (scale={scale})")
+        return str(out)
+
+    cmd = [
+        ff, "-y", "-loglevel", "error", "-i", video_in,
+        "-vf", draw, "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-preset", "veryfast", "-crf", str(config.DEFAULT_CRF),
+        "-c:a", "copy", str(out),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError(f"text 水印渲染失败: {r.stderr[-300:]}")
+    logger.info(f"watermark: 「{text[:16]}」→ {anchor} (opacity={opacity}, scale={scale})")
+    return str(out)
