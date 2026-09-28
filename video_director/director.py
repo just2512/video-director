@@ -37,13 +37,14 @@ def _llm_plan(instruction: str, context: dict) -> Optional[List[dict]]:
     if provider is None:
         return None
 
-    caps = "\n".join(sorted(_GEN_EDIT_TOOLS))
+    caps = "\n".join(_edit_tool_prompt_lines())
     system = (
         "你是视频创意系统的 Director。把用户的自然语言剪辑要求转成能力调用序列。"
         "只输出 JSON 数组，不要解释。每个元素："
         '{"tool": "<capability id>", "targetId": "<场景id 或 空>", '
         '"payload": {...}, "reason": "一句话理由"}'
-        "\n可用能力（只能从下面选）：\n" + caps +
+        "\n可用能力（只能从下面选，payload 字段必须严格按每条能力列的 payload 字段/取值写，"
+        "不要发明字段名或取值）：\n" + caps +
         "\n如果指令无法定位到可执行能力，返回 [{\"tool\": \"MISSING_TARGET\"}]。"
         "不要发明不存在的 capability id。"
     )
@@ -103,6 +104,36 @@ _GEN_EDIT_TOOLS = {
     "revision.propose", "revision.preview", "revision.apply", "revision.reject",
     "qc.inspect",
 }
+
+
+def _schema_prompt_line(cap_id: str) -> str:
+    """§63 Level-2：单条能力的 payload 字段提示（给 LLM 的 schema 描述）。
+
+    从 validator 的命名 schema 生成人类可读的字段/取值约束，让 LLM 按
+    契约写 payload，避免瞎编字段名（如 watermark 写 position 而非 anchor）。
+    """
+    from video_director.capability_registry.manifest import manifest as _mf
+    from video_director.capability_registry.validator import SCHEMAS
+    cap = _mf().get(cap_id)
+    if cap is None or not cap.inputSchema:
+        return f"- {cap_id}（无 payload）"
+    schema = SCHEMAS.get(cap.inputSchema)
+    if schema is None:
+        return f"- {cap_id}"
+    field_descs = []
+    for fname, spec in schema.fields.items():
+        hint = spec.type
+        if spec.enum:
+            hint = "{" + "|".join(sorted(spec.enum)) + "}"
+        req = "必填" if spec.required else "可选"
+        field_descs.append(f"{fname}:{hint}({req})")
+    desc = cap.description or ""
+    return f"- {cap_id} [{desc[:20]}] payload: " + ", ".join(field_descs)
+
+
+def _edit_tool_prompt_lines() -> list:
+    """§63：Level-1 id 摘要 → Level-2 schema 描述（仅编辑域能力展开）。"""
+    return [_schema_prompt_line(t) for t in sorted(_GEN_EDIT_TOOLS)]
 
 
 def _rule_plan(instruction: str, context: dict) -> Optional[List[dict]]:
