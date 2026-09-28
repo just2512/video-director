@@ -118,7 +118,8 @@ class TestLayeredRegistry:
         from video_director.registries.core import (
             LayeredRegistryLoader, RegistryError)
         # user 层复制 system 层的 motion.fade-in@1.0.0
-        src = Path("video_director/registries/motions/builtin/motions.json")
+        # user 层复制 system 层的 motion.fade-in@1.0.0（路径锚定仓库根，与运行 cwd 解耦）
+        src = Path(__file__).resolve().parent.parent / "video_director" / "registries" / "motions" / "builtin" / "motions.json"
         dup = [x for x in json.loads(src.read_text(encoding="utf-8"))
                if x["id"] == "motion.fade-in"]
         user_root = tmp_path / "registries" / "motions"

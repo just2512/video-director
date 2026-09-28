@@ -318,10 +318,10 @@ class TestEditorCommands:
             "command": "replace_motion", "targetId": "S01#0",
             "payload": {"motionRecipeId": "motion.scale-punch", "motionVersion": "1.0.0"},
         })
-        # 模拟 registry 升级：写入 1.1.0 版本到临时目录
+        # 模拟 registry 升级：写入 1.1.0 版本到临时目录（路径锚定仓库根，与运行 cwd 解耦）
         reg_root = tmp_path / "regs" / "motions" / "builtin"
         reg_root.mkdir(parents=True)
-        orig_root = Path("video_director/registries").resolve()
+        orig_root = Path(__file__).resolve().parent.parent / "video_director" / "registries"
         data = json.loads((orig_root / "motions" / "builtin" / "motions.json").read_text(encoding="utf-8"))
         bumped = [dict(m, version="1.1.0") if m["id"] == "motion.scale-punch" else m for m in data]
         (reg_root / "motions.json").write_text(json.dumps(bumped, ensure_ascii=False), encoding="utf-8")
