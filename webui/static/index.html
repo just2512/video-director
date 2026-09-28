@@ -99,6 +99,15 @@
   .ed-track-label { flex:0 0 90px; font-size:11px; color:#8a959e; text-align:right; }
   .ed-track-body { flex:1; display:flex; gap:2px; overflow:hidden; }
   .ed-track-clip { flex:0 0 auto; background:#1a2b21; border:1px solid #2a3a2f; border-radius:4px; font-size:11px; color:#c8d2a8; padding:2px 4px; overflow:hidden; white-space:nowrap; cursor:pointer; }
+  /* §37 Semantic Timeline 语义视图 */
+  .tl-switch-on { background:#26405a; border-color:#4a90d9; color:#fff; }
+  .ed-semantic-list { display:flex; flex-direction:column; gap:4px; }
+  .ed-semantic-row { display:flex; gap:10px; border:1px solid #2a343d; border-radius:8px; padding:6px 10px; cursor:pointer; background:#0d1116; }
+  .ed-semantic-row:hover { border-color:#4a90d9; }
+  .ed-semantic-row.ed-sel { border-color:#4a90d9; box-shadow:0 0 0 2px rgba(74,144,217,0.3); }
+  .ed-semantic-role { flex:0 0 76px; font-size:12px; font-weight:bold; color:#8ab4d8; text-align:center; padding-top:2px; }
+  .ed-semantic-body { flex:1; }
+  .ed-semantic-text { font-size:13px; color:#e8edf2; }
 
   /* ===== 首页封面卡片 + License 徽标 ===== */
   .home-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; }
@@ -106,6 +115,15 @@
   .home-poster { width:100%; height:110px; object-fit:cover; border-radius:6px; background:#1a2026; }
   .home-poster-empty { display:flex; align-items:center; justify-content:center; font-size:36px; }
   .lic-badge { border-radius:4px; padding:1px 6px; font-size:11px; font-weight:bold; }
+  /* §31 Asset Library 三栏布局 */
+  .asset-layout { display:grid; grid-template-columns:150px 1fr 240px; gap:12px; margin-top:8px; }
+  .asset-filters { display:flex; flex-direction:column; gap:6px; padding-top:4px; }
+  .asset-grid { max-height:520px; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px; }
+  .asset-grid.list-mode { display:block; }
+  .asset-inspector { border-left:1px solid #2a343d; padding-left:12px; font-size:13px; }
+  .asset-card { border:1px solid #2a343d; border-radius:8px; padding:6px; cursor:pointer; background:#0d1116; }
+  .asset-card:hover { border-color:#4a90d9; }
+  .asset-card.sel { border-color:#4a90d9; }
   .lic-clear { background:#1d3a24; color:#5ec46a; }
   .lic-review { background:#3a351d; color:#d8a657; }
   .lic-unknown { background:#3a1d1d; color:#e05e5e; }
@@ -395,6 +413,12 @@
       </div>
       <div class="card">
         <b>时间线</b> <span class="hint">点击选中（Ctrl=多选，Shift=范围）；四车道 Narration/MainVisual/BGM·SFX</span>
+        <div class="btn-row" style="margin-bottom:4px">
+          <span style="font-size:12px;margin-right:6px">视图</span>
+          <button class="btn-secondary btn-sm" id="tl-view-time" onclick="timelineView('time')">⏱ 时间</button>
+          <button class="btn-secondary btn-sm" id="tl-view-semantic" onclick="timelineView('semantic')">🏷 语义</button>
+          <button class="btn-secondary btn-sm" id="tl-view-dual" onclick="timelineView('dual')">🔀 双视图</button>
+        </div>
         <div id="editor-timeline"></div>
         <div class="btn-row" style="flex-wrap:wrap;margin-top:6px">
           <button class="btn-secondary btn-sm" onclick="editorCmd('split')">✂ 拆分</button>
@@ -427,7 +451,7 @@
         </div>
       </div>
       <div class="card">
-        <b>🪄 生成素材</b>（Timeline Generation）——选中场景后生成视觉素材（程序化 Graphics Runtime，A/B/C 变体），加入时间线成为真实图层
+        <b>🪄 生成素材</b>（Timeline Generation）——选中场景后生成视觉/图形素材（A/B/C 变体），加入时间线成为真实图层
         <div class="rev-console">
           <div class="btn-row">
             <label style="font-size:12px">类型</label>
@@ -436,7 +460,21 @@
               <option value="graphic">Graphic</option>
               <option value="video">Video</option>
             </select>
-            <input type="text" id="gen-prompt" class="rev-input" style="flex:1" placeholder="生成提示词（例：极简标题卡：效率提升80%）">
+            <label style="font-size:12px">模型</label>
+            <select id="gen-model" style="width:170px"><option value="">自动（按角色配置）</option></select>
+          </div>
+          <div class="btn-row">
+            <input type="text" id="gen-prompt" class="rev-input" style="flex:2" placeholder="生成提示词（例：极简标题卡：效率提升80%）">
+          </div>
+          <div class="btn-row">
+            <label style="font-size:12px">引用</label>
+            <select id="gen-reference" style="width:200px">
+              <option value="">无（纯文本）</option>
+              <option value="style:editorial">风格 · Editorial</option>
+              <option value="style:minimal">风格 · Minimal</option>
+              <option value="style:cinematic">风格 · Cinematic</option>
+            </select>
+            <span class="hint">引用素材/风格将作为生成上下文（reference-focused creation §17）</span>
           </div>
           <div class="btn-row">
             <button class="btn-secondary" onclick="editorGenerate()">🪄 生成 3 变体</button>
@@ -518,11 +556,33 @@
     <div id="project-detail-box"></div>
   </div>
 
-  <!-- ======== Tab 3: 素材库（§43 Media Library 与 Graphic Library 分离）======== -->
+  <!-- ======== Tab 3: 素材库（§31 Asset Library 三栏 + §43 冻结台账）======== -->
   <div id="pane-assets" style="display:none">
     <div class="card">
-      <b>Media Library</b>——项目用过的视频/图片/音频素材 + 冻结资产台账（source/license/复用次数）
-      <div id="assets-list">加载中……</div>
+      <b>Media Library</b>——项目用过的视频/图片/音频素材（§31 左筛选 / 中网格 / 右 Inspector）
+      <div class="asset-layout">
+        <div class="asset-filters">
+          <label style="font-size:12px">来源 / 类型</label>
+          <select id="asset-filter" onchange="loadAssetsLibrary()">
+            <option value="all">全部</option>
+            <option value="type:video">类型 · 视频</option>
+            <option value="type:image">类型 · 图片</option>
+            <option value="type:audio">类型 · 音频</option>
+            <option value="src:user">来源 · 用户上传</option>
+            <option value="src:own">来源 · 自有</option>
+            <option value="src:generated">来源 · 生成</option>
+          </select>
+          <label style="font-size:12px">视图</label>
+          <select id="asset-view" onchange="loadAssetsLibrary()">
+            <option value="grid">网格</option>
+            <option value="list">列表</option>
+          </select>
+        </div>
+        <div class="asset-grid" id="assets-list">加载中……</div>
+        <div class="asset-inspector" id="asset-inspector">
+          <b>素材 Inspector</b><div class="hint">点左侧素材查看详情</div>
+        </div>
+      </div>
       <div id="media-frozen-list" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -862,7 +922,7 @@ function switchTab(tab){
 // ===========================================================================
 // 编辑器（Editor：Timeline + Inspector + AI 提案）——Shotcraft EDT 集成
 // ===========================================================================
-let ED = {pid:null, comp:null, sel:null, selSet:new Set(), version:1, zoom:1.0, snap:true};
+let ED = {pid:null, comp:null, sel:null, selSet:new Set(), version:1, zoom:1.0, snap:true, timelineView:'time'};
 
 // ---- EDT-001 Selection Model：单/多/范围选择统一契约 ----
 function _selKey(type, id){ return type + ':' + id; }
@@ -925,10 +985,70 @@ async function editorLoad(){
     (comp.origin_template_id ? ` · 模板:${comp.origin_template_id}` : '');
   editorRenderTimeline();
   editorLoadVersions();
+  populateGenModels();
+}
+
+function timelineView(view){
+  ED.timelineView = view;
+  ['time','semantic','dual'].forEach(v => {
+    const b = document.getElementById('tl-view-'+v);
+    if (b) b.classList.toggle('tl-switch-on', v === view);
+  });
+  editorRenderTimeline();
+}
+
+// §37 Semantic Timeline：recipe id → 语义角色（Hook/Problem/Evidence/... 七段弧）
+function semanticRoleOf(sc){
+  const rid = sc.origin_recipe_id || '';
+  const map = {
+    'shot.title-card-minimal': 'Hook', 'shot.spotlight-opening': 'Hook',
+    'shot.cta-closing': 'CTA', 'shot.soft-transition-breathe': 'Transition',
+    'shot.person-interview-tight': 'Evidence', 'shot.data-number-burst': 'Proof',
+    'shot.product-hero-assemble': 'Problem', 'shot.screen-demo-flow': 'Process',
+    'shot.editorial-photo-story': 'Context', 'shot.card-stack-reveal': 'Turn',
+  };
+  if (map[rid]) return map[rid];
+  // 位置弧兜底（§37 七段）
+  const arc = ['Hook','Context','Problem','Evidence','Turn','Resolution','CTA'];
+  return arc[0]; // 无 recipe 时归 Hook
+}
+
+function renderSemanticTimeline(){
+  // §37 语义视图：场景按语义角色 + 旁白 + 视觉意图纵向列出
+  const c = ED.comp;
+  const arc = ['Hook','Context','Problem','Evidence','Turn','Resolution','CTA'];
+  const n = c.scenes.length;
+  let html = '<div class="ed-semantic-list">';
+  c.scenes.forEach((sc, si) => {
+    const role = semanticRoleOf(sc);
+    const selCls = edIsSelected('scene', sc.id) ? ' ed-sel' : '';
+    html += `<div class="ed-semantic-row${selCls}" onclick="editorSelectScene('${sc.id}', event)">
+      <div class="ed-semantic-role" title="${esc(role)}">${esc(role)}</div>
+      <div class="ed-semantic-body">
+        <div class="ed-semantic-text">${esc(sc.text || sc.id)}</div>
+        <div class="hint" style="font-size:11px">${sc.duration.toFixed(1)}s · ${esc(sc.origin_recipe_id || '无镜头配方')} · ${sc.layers.length} 层</div>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
 }
 
 function editorRenderTimeline(){
   const box = document.getElementById('editor-timeline');
+  const view = ED.timelineView || 'time';
+  if (view === 'semantic') {
+    box.innerHTML = renderSemanticTimeline();
+    return;
+  }
+  if (view === 'dual') {
+    box.innerHTML = renderSemanticTimeline() + '<div class="hint" style="margin-top:6px">⏱ 物理时间线</div>' + renderPhysicalTimeline();
+    return;
+  }
+  box.innerHTML = renderPhysicalTimeline();
+}
+
+function renderPhysicalTimeline(){
   const c = ED.comp;
   const total = c.duration || 1;
   // §EDT-006 分道：Narration / MainVisual / BGM / SFX 四车道（媒体域真实轨）
@@ -970,7 +1090,7 @@ function editorRenderTimeline(){
       '</div></div>';
   }
   html += '</div>';
-  box.innerHTML = html;
+  return html;
 }
 
 function editorSelectScene(id, ev){
@@ -1291,14 +1411,36 @@ async function editorAiReject(){
 }
 
 // ---- EDT-008 Timeline-native Generation（生成素材：变体 → 加入时间线）----
+function populateGenModels(){
+  // §38 Model 选择器：从 model_config 状态（角色数组）取 image/video 角色模型
+  try {
+    fetch('/api/model_config').then(r => r.json()).then(list => {
+      const sel = document.getElementById('gen-model');
+      if (!sel || !Array.isArray(list)) return;
+      const models = [];
+      for (const ro of list) {
+        if ((ro.role === 'image' || ro.role === 'video') && ro.model) {
+          models.push(`[${ro.role}] ${ro.model}`);
+        }
+      }
+      if (models.length) {
+        sel.innerHTML = '<option value="">自动（按角色配置）</option>' +
+          models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+      }
+    });
+  } catch(e) {}
+}
 async function editorGenerate(){
   if (!ED.pid) { alert('先打开项目'); return; }
   const prompt = document.getElementById('gen-prompt').value.trim();
   const type = document.getElementById('gen-type').value;
+  const modelSel = (document.getElementById('gen-model') || {}).value || '';
+  const refSel = (document.getElementById('gen-reference') || {}).value || '';
   const status = document.getElementById('gen-status');
   if (!prompt) { status.textContent = '请填生成提示词'; return; }
-  status.textContent = '生成中……（程序化 Graphics Runtime 渲染 A/B/C 变体）';
+  status.textContent = '生成中……（A/B/C 变体）';
   const r = await apiPost('/api/editor/generate', {project_id: ED.pid, prompt, type,
+    model: modelSel.replace(/^\[(image|video)\] /, ''), reference: refSel,
     width: ED.comp ? (ED.comp.width || 1080) : 1080,
     height: ED.comp ? (ED.comp.height || 1920) : 1920});
   const box = document.getElementById('gen-results');
@@ -2279,23 +2421,23 @@ async function loadAssetsLibrary(){
   try {
     const assets = await (await fetch('/api/assets_library')).json();
     if (!Array.isArray(assets)) throw new Error(assets.error || '读取失败');
-    const rows = assets.slice(0, 100).map(a => {
-      // License 四态徽标（§二十一）：来源推断 + 前端展示；发布时 preflight 再验证
-      const lic = licenseBadge(a);
-      return `
-      <div class="scene-card">
-        <div class="scene-head">
-          <span class="scene-id">${esc(a.asset_id)}</span>
-          <span class="scene-dur">${esc(a.type)}</span>
-          ${a.duration ? `<span class="scene-dur">${a.duration.toFixed(1)}s</span>` : ''}
-          <span class="scene-dur" style="margin-left:auto">${lic}</span>
-        </div>
-        ${a.description ? `<div class="scene-text" style="font-size:13px">${esc(a.description)}</div>` : ''}
-        <div class="scene-asset">用于 ${a.used_in.length} 个项目：${esc(a.used_in.slice(0,3).join('、'))}${a.used_in.length>3?'…':''}${a.used_in.length?'':'（未使用）'}</div>
-      </div>`;
-    }).join('');
-    document.getElementById('assets-list').innerHTML =
-      rows || '<div class="hint">还没有素材使用记录，先去创作一次。</div>';
+    const filter = (document.getElementById('asset-filter') || {}).value || 'all';
+    const view = (document.getElementById('asset-view') || {}).value || 'grid';
+    let list = assets;
+    if (filter.startsWith('type:')) list = list.filter(a => a.type === filter.slice(5));
+    if (filter.startsWith('src:')) list = list.filter(a => (a.source || 'user') === filter.slice(4));
+    const grid = document.getElementById('assets-list');
+    grid.classList.toggle('list-mode', view === 'list');
+    const lic = (a) => licenseBadge(a);
+    const rows = list.slice(0, 120).map(a => `
+      <div class="asset-card${view==='list' ? ' proj-row' : ''}" onclick="inspectAsset('${esc(a.asset_id)}')">
+        <div style="font-size:12px"><b>${esc(a.asset_id)}</b></div>
+        <div class="hint" style="font-size:11px">${esc(a.type)}${a.duration ? ' · '+a.duration.toFixed(1)+'s' : ''}</div>
+        <div style="font-size:11px">${lic(a)}</div>
+        <div class="hint" style="font-size:11px">用于 ${a.used_in.length} 项目</div>
+      </div>`).join('');
+    grid.innerHTML = rows || '<div class="hint">无匹配素材</div>';
+
     // §44 冻结资产台账（asset_resolver manifest：source/license/复用）
     try {
       const frozen = await (await fetch('/api/media_library')).json();
@@ -2327,6 +2469,34 @@ async function loadAssetsLibrary(){
   } catch (e) {
     document.getElementById('assets-list').innerHTML =
       `<div class="err-box">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+async function inspectAsset(assetId){
+  // §31 Asset Library 右侧 Inspector（Preview/Metadata/Source/Rights/Used In）
+  const box = document.getElementById('asset-inspector');
+  if (!box) return;
+  box.innerHTML = '加载中……';
+  try {
+    const d = await (await fetch('/api/asset_detail?asset_id=' + encodeURIComponent(assetId))).json();
+    if (d && d.error) throw new Error(d.error);
+    const statusCn = {CLEAR:'✓ 商用可用', REVIEW:'⚠ 需复核', BLOCKED:'× 已阻断', UNKNOWN:'⚠ 状态未知'};
+    box.innerHTML = `<b>${esc(assetId)}</b>
+      ${d.type ? `<div class="hint">类型：${esc(d.type)}</div>` : ''}
+      ${d.duration ? `<div class="hint">时长：${d.duration.toFixed(1)}s</div>` : ''}
+      ${d.width ? `<div class="hint">尺寸：${d.width}×${d.height}</div>` : ''}
+      <div class="hint">来源：${esc(d.source || '—')}</div>
+      <div class="hint">授权：<b>${statusCn[d.commercial_status] || esc(d.commercial_status || '—')}</b></div>
+      ${d.license_note ? `<div class="hint">许可：${esc(d.license_note)}</div>` : ''}
+      <div class="hint">用于 ${(d.used_in || []).length} 个项目</div>
+      ${(d.used_in || []).length ? `<div class="hint" style="font-size:11px">${esc(d.used_in.slice(0,5).join('、'))}${d.used_in.length>5?'…':''}</div>` : ''}`;
+    // 高亮选中卡片
+    document.querySelectorAll('#assets-list .asset-card').forEach(c => c.classList.remove('sel'));
+    document.querySelectorAll('#assets-list .asset-card').forEach(c => {
+      if (c.textContent.includes(assetId)) c.classList.add('sel');
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
   }
 }
 // 许可证四态徽标（§二十一 License UI）：用户上传 CLEAR / 内置自有 CLEAR /
@@ -2780,14 +2950,59 @@ async function loadReview(){
   if (!Array.isArray(projs)) { box.innerHTML = '<div class="hint">项目列表加载失败，点刷新重试</div>'; return; }
   const rows = [];
   for (const p of projs) {
-    let stage = p.stage || '';
+    const stage = p.stage || '';
     const done = p.has_final;
-    if (done && stage !== 'DONE') continue;  // 已完成的不进待办
-    const label = stage === 'AWAITING_CONFIRM' ? '🟡 待确认分镜' : stage === 'AWAITING_DRAFT' ? '🟠 待确认草稿' : '🔵 生成中/待处理';
+    const label = stage === 'AWAITING_CONFIRM' ? '🟡 待确认分镜' : stage === 'AWAITING_DRAFT' ? '🟠 待确认草稿' : (done ? '✅ 已完成' : '🔵 生成中/待处理');
+    // §39：每个项目附带 Issues（preflight 阻断/警告），Issue 有 [去时间线][让 AI 修复]
+    let issuesHtml = '';
+    try {
+      const pf = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(p.project_id))).json();
+      const issues = (pf && pf.issues) || [];
+      if (issues.length) {
+        issuesHtml = '<div class="hint" style="margin:2px 0 2px 12px">' +
+          issues.map(i => {
+            const block = i.recoverable === false;
+            return `<div class="hint" style="margin:2px 0">${block ? '⛔' : '⚠'} ${esc(i.code || '')} — ${esc(i.message || i.detail || '')}
+              <button class="btn-secondary btn-sm" onclick="reviewGoTimeline('${esc(p.project_id)}')">去时间线</button>
+              <button class="btn-secondary btn-sm" onclick="reviewAskAI('${esc(p.project_id)}','${esc((i.message || i.detail || '').slice(0,40))}')">让 AI 修复</button></div>`;
+          }).join('') + '</div>';
+      }
+    } catch(e) {}
     rows.push(`<div class="proj-row"><span><b>${esc(p.project_id)}</b> ${label}</span>`+
-      `<button class="btn-sm" onclick="switchTab('projects'); setTimeout(()=>openProject('${esc(p.project_id)}'),300)">打开确认</button></div>`);
+      `<button class="btn-sm" onclick="reviewGoTimeline('${esc(p.project_id)}')">打开确认</button></div>` + issuesHtml);
   }
   box.innerHTML = rows.join('') || '<div class="hint">没有待审核项目（去创作页开始一个）</div>';
+}
+
+function reviewGoTimeline(pid){
+  switchTab('editor');
+  setTimeout(async () => {
+    await editorInit();
+    const sel = document.getElementById('editor-project');
+    if (sel) {
+      let found = false;
+      for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === pid) { sel.selectedIndex = i; found = true; break; }
+      }
+      if (found) editorLoad();
+    }
+  }, 500);
+}
+
+async function reviewAskAI(pid, issue){
+  switchTab('editor');
+  setTimeout(async () => {
+    await editorInit();
+    const sel = document.getElementById('editor-project');
+    if (sel) {
+      for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === pid) { sel.selectedIndex = i; break; }
+      }
+      editorLoad();
+    }
+    const inp = document.getElementById('editor-ai-input');
+    if (inp) inp.value = '修复以下问题：' + issue;
+  }, 500);
 }
 
 async function loadPublish(){

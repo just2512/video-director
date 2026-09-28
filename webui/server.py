@@ -514,6 +514,8 @@ class Handler(BaseHTTPRequestHandler):
             used_in = []
             duration = None
             width = height = None
+            atype = None
+            prompt = None
             for d in root.iterdir() if root.is_dir() else []:
                 man = d / "assets" / "manifest.json"
                 if not man.is_file():
@@ -533,13 +535,15 @@ class Handler(BaseHTTPRequestHandler):
                         duration = a.get("duration")
                         width = a.get("width")
                         height = a.get("height")
+                        atype = a.get("type")
+                        prompt = a.get("prompt")
             from video_director import preflight as vd_preflight
             status = vd_preflight.commercial_status_of_origin(source)
             self._send_json({
-                "asset_id": asset_id, "source": source,
+                "asset_id": asset_id, "source": source, "type": atype,
                 "license_note": license_note, "commercial_status": status,
                 "used_in": used_in, "duration": duration,
-                "width": width, "height": height,
+                "width": width, "height": height, "prompt": prompt,
             })
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
@@ -1928,6 +1932,8 @@ class Handler(BaseHTTPRequestHandler):
                     gen_type=payload.get("type", "image"),
                     width=int(payload.get("width") or 1080),
                     height=int(payload.get("height") or 1920),
+                    model=payload.get("model") or None,
+                    reference=payload.get("reference") or None,
                 )
                 self._send_json({"ok": True, "results": [
                     {"asset_id": r.asset_id, "variant": r.variant, "type": r.type,

@@ -72,12 +72,14 @@ def generate_image_variants(
     height: int,
     count: int = 3,
     variant: Optional[str] = None,
+    model_override: Optional[str] = None,
 ) -> List[dict]:
     """AI 生图（§五十一 Capability G Image）。返回 [{variant, data(bytes), meta}]。
 
     roles["image"] 有 key → OpenAI Images 协议 images.generate，逐变体呼叫。
     无 key → 抛 GenerationError("IMAGE_PROVIDER_UNAVAILABLE")，由调用方兜底。
     供应商拒绝（size/协议不符）→ 抛 GenerationError("IMAGE_GENERATION_FAILED")，诚实。
+    model_override：§38 Model 选择器的显式模型（None 用角色配置）。
     """
     cfg = _role_cfg("image")
     if not (cfg or {}).get("api_key"):
@@ -85,7 +87,7 @@ def generate_image_variants(
             "IMAGE_PROVIDER_UNAVAILABLE",
             "生图模型未配置（roles.image.api_key 为空）；将走程序化视觉卡兜底",
         )
-    model = cfg.get("model") or "gpt-image-1"
+    model = model_override or cfg.get("model") or "gpt-image-1"
     base_url = cfg.get("base_url") or "https://api.openai.com/v1"
     size = _image_size(width, height)
     try:
@@ -205,10 +207,15 @@ def generate(
     width: int = 1080,
     height: int = 1920,
     variant: Optional[str] = None,
+    model: Optional[str] = None,
+    reference: Optional[str] = None,
 ) -> List[GenerationResult]:
     """生成 1 或 3 个素材变体，落地到项目 assets 并登记 lineage。
 
     variant=None → 生成 A/B/C 三变体（§31）；指定则只生成该变体。
+    model：显式模型覆盖（§38 Model 选择器；None 用角色配置）。
+    reference：引用风格/素材标记（§17 reference-focused；当前接入 prompt 上下文
+    与 graphic style 分流，资产引用待 Reference Graph 扩展）。
     provider 分流（§五十一 Capability G）：
         image   → roles["image"] AI 生图；无 key 兜底 Graphics Runtime 程序化
         graphic → Graphics Runtime 程序化（自有 renderer，确定性）
@@ -223,6 +230,13 @@ def generate(
             f"类型 {gen_type!r} 无可用生成 provider（可用: image/graphic/video）",
         )
     prompt = str(prompt).strip()
+    # §17/§38 引用接入：reference 风格 → 进 prompt 上下文 + graphic style 分流
+    if reference and reference.startswith("style:"):
+        style = reference.split(":", 1)[1]
+        prompt = f"{prompt}（风格：{style}）"
+        _GEN_STYLE_OVERRIDE = style
+    else:
+        _GEN_STYLE_OVERRIDE = None
     variants = [variant] if variant else list(VARIANTS)
     base = config.project_dir(project_id)
     assets_dir = base / "assets" / "generated"
@@ -234,10 +248,12 @@ def generate(
 
     if gen_type == "image":
         results = _generate_image_or_fallback(
-            project_id, prompt, width, height, variants, assets_dir, input_fp, manifest)
+            project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
+            model=model)
     elif gen_type == "video":
         results = _generate_video(
-            project_id, prompt, width, height, variants, assets_dir, input_fp, manifest)
+            project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
+            model=model)
     else:  # graphic → 程序化视觉卡（自有 renderer，确定性）
         results = _generate_graphic(
             prompt, width, height, variants, assets_dir, input_fp, manifest)
@@ -292,13 +308,14 @@ def _generate_graphic(prompt, width, height, variants, assets_dir, input_fp, man
 
 
 def _generate_image_or_fallback(project_id, prompt, width, height, variants,
-                                assets_dir, input_fp, manifest):
+                                assets_dir, input_fp, manifest, model=None):
     """image → AI 生图（roles["image"]）；无 key/失败 → 兜底程序化视觉卡。"""
     results: List[GenerationResult] = []
     try:
         imgs = generate_image_variants(
             prompt, width, height, count=len(variants),
-            variant=variants[0] if len(variants) == 1 else None)
+            variant=variants[0] if len(variants) == 1 else None,
+            model_override=model)
         for i, item in enumerate(imgs):
             asset_id = f"gen-{uuid.uuid4().hex[:8]}"
             out_file = assets_dir / f"{asset_id}.png"
@@ -322,7 +339,7 @@ def _generate_image_or_fallback(project_id, prompt, width, height, variants,
 
 
 def _generate_video(project_id, prompt, width, height, variants, assets_dir,
-                    input_fp, manifest):
+                    input_fp, manifest, model=None):
     """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。"""
     cfg = _role_cfg("video")
     if not (cfg or {}).get("api_key"):
@@ -330,7 +347,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
             "VIDEO_PROVIDER_UNAVAILABLE",
             "生视频模型未配置（roles.video.api_key 为空）；请按供应商文档填写模型/端点",
         )
-    model = cfg.get("model") or ""
+    model = model or cfg.get("model") or ""
     base_url = cfg.get("base_url") or ""
     if not model or not base_url:
         raise GenerationError(
