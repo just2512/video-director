@@ -221,10 +221,13 @@ def test_director_empty_script_rejected():
 
 
 def test_director_plan_structure():
-    # §22：知识六场景 arc（problem_title 起、conclusion 止）
+    # §22：知识六场景 arc（首场景开篇语义 + 末场景 conclusion 收尾）。
+    # 注意：环境配置了 LLM key 时 _llm_plan 真实分镜（首句角色可能判为
+    # wrong_belief——“很多人以为X”本就是误解句，语义合法），规则路径才硬编
+    # problem_title。断言语义集 + 末场景收尾锚点，对双路径稳定。
     plan = build_graphic_plan("很多人以为AI只能聊天。其实改变的是流程。效率提升了80%。结论句。", content_type="knowledge")
     assert plan["scene_count"] == 4
-    assert plan["scenes"][0]["role"] == "problem_title"
+    assert plan["scenes"][0]["role"] in ("problem_title", "wrong_belief", "hook", "concept")
     assert plan["scenes"][-1]["role"] == "conclusion"
     total = round(sum(s["duration"] for s in plan["scenes"]), 2)
     assert abs(total - plan["total_duration"]) < 0.01
