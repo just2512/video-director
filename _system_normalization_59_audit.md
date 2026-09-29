@@ -83,3 +83,19 @@
 1. `safeArea:boolean` vs `safe_area:int=32`：int 是 boolean 超集（safe_area=0↔safeArea=false，>0↔true 且距离 N px）。字段名经 to_dict/validator 已对齐 camelCase。
 2. `source:AssetRef` vs `kind+text+asset_id`：当前支持「文字水印(text)」和「素材水印(image/logo/svg, asset_id)」两种，方案要求统一 `source:AssetRef`。文字水印无 AssetRef 是合理扩展。
 3. `position:Position` vs `anchor+offset_x/offset_y`：anchor 九宫格（top_left~center）+像素偏移是 position 的具体实现超集。
+
+---
+
+## 七、三 Contract 落地（2026-09-29 第二轮，按 Jerry 决策执行）
+
+决策原则：归一 Contract 不迁目录、建边界不搬旧代码、注册可执行动作不造虚假 Capability。
+
+| 决策项 | 结果 | 落地方式 |
+|---|---|---|
+| §6 Canonical Composition IR（DO） | ✅ | Variant/Beat/SemanticAnchor 模型 + Scene.semantic_role/beats + CompositionIR.active_variant_id/variants + `canonical_variant()` 兼容旧 IR（旧 JSON 无 variant/beat 时包装默认单 Variant） |
+| §10 Canonical Asset（DO） | ✅ | AssetSource 7 来源枚举 + `normalize_asset_source` 归一（user→uploaded 等映射）+ AssetRef.provenance/rights_status + StockAsset.source=stock（与 provider 分离） |
+| §40 Executable Capability Manifest（DO） | ✅ | Capability 加 domain/kind 字段，kind 据 side_effect 自动推断（无副作用=query/有副作用=command），只注册可执行动作 |
+| §38 adapters 边界（DO PARTIAL） | ✅ | adapters/ 包 + AdapterContract 登记 MPT/HyperFrames/Shotcraft，旧代码不物理搬迁 |
+| §3/§37 物理目录重组（DEFER） | ➖ | 保持 video_director/ 现有结构，adapters/ 与 capability_registry/graphics/registries 构成公共 import 边界 |
+
+验证：pytest 173 passed；worktree 8535 前端实测——无 JS error、domain/kind API 正确（timeline.query=query/watermark.add=command）、旧项目 IR 兼容打开、中文界面、Library 入口可点。
