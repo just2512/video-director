@@ -69,6 +69,9 @@ def _llm_parse(instruction: str, composition_summary: dict) -> Optional[List[dic
         '{"command": "replace_motion|replace_recipe|set_motion_parameter|replace_source|'
         'set_duration|trim", "targetId": "<场景id 或 场景id#层序号>", '
         '"payload": {...}, "reason": "一句话理由"}'
+        "\ntargetId 格式：图层级命令（replace_motion/set_motion_parameter/replace_source/trim）"
+        "必须用「场景id#层序号」（如 s1#0 表第一个层）；场景级命令（replace_recipe/set_duration）"
+        "用「场景id」。"
         "\n可用命令：replace_motion(payload.motionRecipeId 如 motion.scale-punch / motion.word-relay /"
         " motion.fade-slide / motion.rise-fade / motion.ken-burns-soft / motion.fade-in / motion.fade-out)、"
         "replace_recipe(payload.recipeId 如 shot.product-hero-assemble / shot.spotlight-opening /"
@@ -112,6 +115,25 @@ def _llm_parse(instruction: str, composition_summary: dict) -> Optional[List[dic
             "reason": p.get("reason", ""),
         })
     return out or None
+
+
+#: 图层级命令（target 必须是 '<scene>#<idx>'；场景级 id 归一化补 #0 首层）
+_LAYER_LEVEL_COMMANDS = frozenset({
+    "replace_motion", "set_motion_parameter", "replace_source", "trim",
+})
+
+
+def _normalize_layer_targets(patches: List[dict], summary: dict) -> List[dict]:
+    """§63 target 定位契约归一化：图层级命令若收到场景级 id（无 #idx），
+    补 '#0'（该场景第一个层），让 preview/apply 稳定命中 editor 命令。"""
+    out = []
+    for p in patches:
+        tid = (p.get("targetId") or "")
+        if p.get("command") in _LAYER_LEVEL_COMMANDS and tid and "#" not in tid:
+            p = dict(p)
+            p["targetId"] = f"{tid}#0"
+        out.append(p)
+    return out
 
 
 def _rule_parse_fallback(instruction: str, composition_summary: dict) -> Optional[List[dict]]:
@@ -188,6 +210,9 @@ def propose(project_id: str, instruction: str) -> dict:
         )
     if patches and patches[0].get("command") == "MISSING_TARGET":
         raise ProposalError("MISSING_TARGET", "指令目标不明确，请指明第几段/哪个场景")
+    # §63 target 定位契约归一化：LLM 可能给图层级命令填场景级 id（无 #idx），
+    # 统一补 #0（场景第一个层），让 preview/apply 都能命中（避免 INVALID_TARGET）。
+    patches = _normalize_layer_targets(patches, summary)
 
     proposal_id = f"prop-{uuid.uuid4().hex[:8]}"
     record = {
