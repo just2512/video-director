@@ -1449,6 +1449,68 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        # Stock 下载采用（§24：联网素材 → 下载到项目输入目录 → 进时间线）
+        if parsed.path == "/api/stock/download":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            a = payload.get("asset") or {}
+            if not pid or not a.get("media_url"):
+                self._send_json({"error": "缺少 project_id 或 asset.media_url"}, 400)
+                return
+            try:
+                from video_director import stock as vd_stock
+                asset = vd_stock.StockAsset(
+                    provider=a.get("provider", ""), source_id=a.get("sourceId", ""),
+                    source_page=a.get("sourcePage", ""),
+                    media_url=(a.get("mediaUrl") or a.get("media_url", "")),
+                    width=int(a.get("width") or 0), height=int(a.get("height") or 0),
+                    duration=float(a.get("duration") or 0),
+                    creator=a.get("creator", ""), description=a.get("visualDescription", ""))
+                base = vd_config.project_dir(pid)
+                out = vd_stock.download_asset(asset, base)
+                # §24：下载后注册进项目 manifest（build_manifest 探测 + 合并），
+                # 返回本地 asset_id，前端才能 replace_source 采用
+                try:
+                    from video_director import assets as vd_assets_mod
+                    if out["type"] == "video":
+                        new_assets, _ = vd_assets_mod.build_manifest(
+                            [out["file"]], [], license_note=f"stock-{asset.provider}")
+                    else:
+                        new_assets, _ = vd_assets_mod.build_manifest(
+                            [], [out["file"]], license_note=f"stock-{asset.provider}")
+                    manifest_path = base / "assets" / "manifest.json"
+                    existing = []
+                    if manifest_path.is_file():
+                        try:
+                            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+                        except (OSError, json.JSONDecodeError):
+                            existing = []
+                    have = {a["id"] for a in existing}
+                    local_id = None
+                    for k, ref in new_assets.items():
+                        if k not in have:
+                            existing.append(json.loads(ref.model_dump_json()))
+                        local_id = k
+                    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                    manifest_path.write_text(
+                        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+                    if local_id:
+                        out["asset_id"] = local_id
+                except Exception as exc:
+                    print(f"[web] stock download 注册 manifest 失败（不阻塞下载）: {exc}",
+                          file=sys.stderr)
+                self._send_json({"ok": True, **out})
+            except vd_stock.StockError as exc:
+                self._send_json({"ok": False, "error": str(exc), "code": exc.code}, 502)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         # Revision Console：自然语言改稿 → 累积 edits → 应用到分镜书（预览，不落盘）
         if parsed.path == "/api/revision":
             length = int(self.headers.get("Content-Length", 0))

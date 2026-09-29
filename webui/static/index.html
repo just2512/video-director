@@ -334,9 +334,9 @@
       </div>
     </div>
     <div class="card">
-      <label>视频素材（可多选）</label>
+      <label>视频素材（可多选，或 <button class="btn-sm" style="margin:0 4px" onclick="createGoStock()">🌐 联网搜图库</button>）</label>
       <input type="file" id="videos" multiple accept=".mp4,.mov,.mkv,.webm">
-      <div class="hint">文件名带语义（如「战场出征.mp4」）即可自动按内容匹配</div>
+      <div class="hint">本地上传：文件名带语义（如「战场出征.mp4」）即可自动按内容匹配；也可点「联网搜图库」到编辑器搜索并下载采用 Pexels/Pixabay 素材</div>
       <label>图片素材（可多选；产品模式下=产品图）</label>
       <input type="file" id="images" multiple accept=".jpg,.jpeg,.png,.webp">
       <label>配音</label>
@@ -1768,8 +1768,23 @@ async function assetPickerStockSearch(){
   const statusCn = {SUPPORTED:'✓', MISSING_REQUIREMENT:'⚠ 素材不足', INCOMPATIBLE:'× 画幅不符', UNKNOWN:'? 待确认'};
   box.innerHTML = cands.length ? cands.map(c =>
     `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription||c.sourceId)} <span class="hint">${c.width}x${c.height} · ${c.duration}s · ${statusCn[c.status]||c.status}</span></span>`+
-    `<span class="hint">${COMMERCIAL_CN[c.commercialStatus]||c.commercialStatus}</span></div>`).join('')
+    `<span class="btn-row" style="gap:4px"><span class="hint">${COMMERCIAL_CN[c.commercialStatus]||c.commercialStatus}</span>`+
+    `<button class="btn-sm" onclick="assetPickerStockDownload(${esc(JSON.stringify(c))})">⬇ 下载采用</button></span></div>`).join('')
     : '<div class="hint">无匹配素材</div>';
+}
+async function assetPickerStockDownload(asset){
+  if (!ED.pid) { alert('先在编辑器打开一个项目'); return; }
+  const r = await apiPost('/api/stock/download', {project_id: ED.pid, asset: asset});
+  if (!r.ok) { editorToast('❌ ' + (r.error||'下载失败'), true); return; }
+  editorToast(`✅ 已下载 ${r.type} 素材到项目库（${r.width}x${r.height}）`);
+  if (ED.sel && ED.sel.type === 'layer') {
+    await editorReplaceSource(ED.sel.id.split('#')[0], parseInt(ED.sel.id.split('#')[1]), r.asset_id);
+  }
+}
+function createGoStock(){
+  // 创作页「联网搜图库」入口 → 引导到编辑器图库（下载采用需项目上下文）
+  switchTab('editor');
+  editorToast('联网素材：打开项目后，左侧「资源库→图库」搜索 → 点「下载采用」');
 }
 async function editorReplaceSource(sceneId, idx, assetId){
   // §24 最近使用：替换动作记入 AP.recent（去重置顶，最多 50）

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -333,3 +334,52 @@ def _norm_ratio_of(w: int, h: int) -> str:
     if abs(r - 1.0) < 0.1:
         return "1:1"
     return "other"
+
+
+def _guess_ext(url: str) -> str:
+    """从 media_url 猜扩展名（图片/视频），缺省按视频兜底。"""
+    path = urllib.parse.urlparse(url).path
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        return ext
+    if ext in (".mp4", ".mov", ".webm", ".mkv"):
+        return ext
+    return ".mp4" if "video" in url.lower() else ".jpg"
+
+
+def download_asset(asset: StockAsset, project_base) -> dict:
+    """§24 联网素材下载到项目输入目录（打通「搜索 → 下载采用 → 进时间线」）。
+
+    返回 {asset_id, file, type, width, height, duration, provider, source_page,
+    creator, commercial_status}；失败抛 StockError(DOWNLOAD_FAILED)。
+    """
+    ext = _guess_ext(asset.media_url)
+    kind = "image" if ext in (".jpg", ".jpeg", ".png", ".webp") else "video"
+    out_dir = project_base / "input" / ("images" if kind == "image" else "videos")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^\w\-]", "_", str(asset.source_id or "")) or "asset"
+    dst = out_dir / f"stock-{asset.provider}-{safe}{ext}"
+    try:
+        req = urllib.request.Request(asset.media_url, headers={"User-Agent": "Mozilla/5.0"})
+        dst.write_bytes(urllib.request.urlopen(req, timeout=60).read())
+        if dst.stat().st_size == 0:
+            dst.unlink(missing_ok=True)
+            raise StockError("DOWNLOAD_FAILED", "下载内容为空")
+    except StockError:
+        raise
+    except Exception as exc:
+        dst.unlink(missing_ok=True)
+        raise StockError("DOWNLOAD_FAILED", f"下载失败: {exc}") from exc
+    try:
+        from video_director import prober
+        probe = prober.probe_media(str(dst))
+        width, height, duration = probe.width, probe.height, probe.duration
+    except Exception:
+        width, height, duration = None, None, None
+    return {
+        "asset_id": asset.asset_id, "file": str(dst), "type": kind,
+        "width": width or asset.width, "height": height or asset.height,
+        "duration": duration or asset.duration,
+        "provider": asset.provider, "source_page": asset.source_page,
+        "creator": asset.creator, "commercial_status": asset.commercial_status,
+    }
