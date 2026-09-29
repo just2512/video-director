@@ -1075,6 +1075,7 @@ async function editorLoad(){
   editorLoadVersions();
   populateGenModels();
   directorLoadCapCount();
+  renderWatermarkList();
 }
 
 function timelineView(view){
@@ -1752,6 +1753,7 @@ async function directorExecute(){
   const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
   if (comp && comp.version !== undefined) { ED.comp = comp; ED.version = comp.version; }
   editorRenderTimeline();
+  renderWatermarkList();
   editorToast(`AI 导演完成：${(d.executed||[]).filter(e=>e.ok).length}/${(d.executed||[]).length} 步成功`);
 }
 
