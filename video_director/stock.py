@@ -65,7 +65,11 @@ UNKNOWN = "UNKNOWN"
 
 @dataclass(frozen=True)
 class StockAsset:
-    """§21：Asset Resolver 返回的完整 Stock 资产（非"视频链接"）。"""
+    """§21：Asset Resolver 返回的完整 Stock 资产（非"视频链接"）。
+
+    字段名对齐方案 JSON：assetId / semanticTags / visualDescription /
+    commercialStatus + sourceId / sourcePage / width / height / duration。
+    """
 
     provider: str
     source_id: str
@@ -76,7 +80,18 @@ class StockAsset:
     duration: float
     creator: str = ""
     description: str = ""
+    asset_id: str = ""             # §21 assetId（provider:source_id 稳定 id）
+    semantic_tags: tuple = ()      # §21 semanticTags（检索词+描述词）
     commercial_status: str = UNKNOWN  # §25 由 provider policy 定
+
+    def __post_init__(self):
+        if not self.asset_id:
+            # §21 assetId：provider+sourceId 构成的稳定资产 id
+            object.__setattr__(self, "asset_id", f"{self.provider}:{self.source_id}")
+        if not self.semantic_tags:
+            # §21 semanticTags：从描述派生的语义标签（无 LLM 时的确定性降级）
+            words = [w for w in str(self.description or "").split() if w]
+            object.__setattr__(self, "semantic_tags", tuple(words[:8]))
 
 
 @dataclass(frozen=True)
@@ -100,6 +115,7 @@ class AssetCandidate:
     def to_dict(self) -> dict:
         a = self.asset
         return {
+            "assetId": a.asset_id,          # §21
             "provider": a.provider,
             "sourceId": a.source_id,
             "sourcePage": a.source_page,
@@ -108,9 +124,10 @@ class AssetCandidate:
             "height": a.height,
             "duration": a.duration,
             "creator": a.creator,
+            "semanticTags": list(a.semantic_tags),   # §21
+            "visualDescription": self.visual_description or a.description,  # §21
             "commercialStatus": a.commercial_status,
             "status": self.status,
-            "visualDescription": self.visual_description,
             "durationCompatible": self.duration_compatible,
             "aspectCompatible": self.aspect_compatible,
             "sourceUnique": self.source_unique,

@@ -80,13 +80,17 @@ class AudioTrackType(str, Enum):
 
     MPT 吸收方案 §十八：original（素材原声）必须成为一等公民——
     "保留现场声音"是独立音轨类型，不是渲染开关。
+    六类型对齐方案原文：narration / dialogue / original / bgm / sfx / ambience。
     """
 
     narration = "narration"
+    dialogue = "dialogue"
     original = "original"
     bgm = "bgm"
     sfx = "sfx"
-    ambient = "ambient"
+    ambience = "ambience"
+    # 兼容别名：历史 IR / 旧代码使用 ambient；加载时归一到 ambience
+    ambient = "ambience"
 
 
 class MissingAssetError(Exception):
@@ -268,6 +272,7 @@ class WatermarkLayer(BaseModel):
     anchor: str = "bottom_right"     # 九宫格 top_left/top_right/bottom_left/bottom_right/center/...
     offset_x: int = 0                # 像素偏移（相对 anchor）
     offset_y: int = 0
+    safe_area: int = 32              # §19 safeArea：距边安全距离（px，anchor 内缩）
     opacity: float = 0.75
     scale: float = 1.0                # 字号/图片缩放系数
     start: float = 0.0
@@ -281,6 +286,8 @@ class WatermarkLayer(BaseModel):
             raise ValueError(f"watermark: scale {self.scale} 非法")
         if self.start < 0:
             raise ValueError(f"watermark: start {self.start} 为负")
+        if not (0 <= self.safe_area <= 200):
+            raise ValueError(f"watermark: safe_area {self.safe_area} 越界 [0,200]")
         if self.kind == "text" and not (self.text or "").strip():
             raise ValueError("watermark(kind=text) 缺 text")
         if self.kind in ("image", "logo", "svg") and not self.asset_id:

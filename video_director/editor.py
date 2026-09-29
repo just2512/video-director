@@ -104,6 +104,88 @@ def _append_revision(project_id: str, revision: dict) -> None:
         f.write(json.dumps(revision, ensure_ascii=False) + "\n")
 
 
+
+
+def _snapshot_for_revision(ir: "CompositionIR") -> dict:
+    """§46：revision 内嵌 IR 快照（undo/redo 恢复点）。"""
+    try:
+        return json.loads(ir.model_dump_json())
+    except Exception:  # noqa: BLE001 快照失败不阻断主命令
+        return {}
+
+
+def _undo_redo(project_id: str, action: str) -> CommandResult:
+    """§46 Undo/Redo：快照恢复式（revision 带 ir_before/ir_after 后可回退）。
+
+    undo：最后一个未撤销 revision → 恢复其 ir_before；
+    redo：最近被撤销 revision → 恢复其 ir_after。
+    旧 revision 无快照 → 诚实 UNDO_UNAVAILABLE（不猜不 fake）。
+    """
+    import copy as _copy
+    revisions = load_revisions(project_id)
+    undo_path = config.project_dir(project_id) / "plans" / "undo_stack.json"
+    try:
+        undone_ids = json.loads(undo_path.read_text(encoding="utf-8")) if undo_path.is_file() else []
+        if not isinstance(undone_ids, list):
+            undone_ids = []
+    except (OSError, json.JSONDecodeError):
+        undone_ids = []
+
+    if action == "undo":
+        candidates = [r for r in revisions if r.get("revision_id") not in undone_ids]
+        if not candidates:
+            return CommandResult(status="REJECTED", errors=[{
+                "code": "NOTHING_TO_UNDO", "message": "没有可撤销的编辑",
+                "recoverable": True}])
+        target = candidates[-1]
+        snap = target.get("ir_before")
+        if not snap:
+            return CommandResult(status="REJECTED", errors=[{
+                "code": "UNDO_UNAVAILABLE",
+                "message": f"revision {target.get('revision_id')} 无 IR 快照"
+                           f"（历史记录早于 Undo 能力上线），无法撤销",
+                "recoverable": True}])
+        try:
+            ir = CompositionIR(**_copy.deepcopy(snap))
+        except Exception as exc:
+            return CommandResult(status="REJECTED", errors=[{
+                "code": "SNAPSHOT_INVALID", "message": f"快照恢复失败: {exc}",
+                "recoverable": True}])
+        save_composition(project_id, ir)
+        undone_ids.append(target.get("revision_id"))
+        undo_path.parent.mkdir(parents=True, exist_ok=True)
+        undo_path.write_text(json.dumps(undone_ids[-200:], ensure_ascii=False), encoding="utf-8")
+        return CommandResult(
+            status="APPLIED", revision_id=f"undo-{target.get('revision_id')}",
+            composition_version=composition_version(project_id),
+            composition=json.loads(ir.model_dump_json()))
+    # redo
+    if not undone_ids:
+        return CommandResult(status="REJECTED", errors=[{
+            "code": "NOTHING_TO_REDO", "message": "没有可恢复的编辑", "recoverable": True}])
+    redo_id = undone_ids.pop()
+    target = next((r for r in revisions if r.get("revision_id") == redo_id), None)
+    if target is None:
+        return CommandResult(status="REJECTED", errors=[{
+            "code": "REVISION_MISSING", "message": f"待恢复 revision {redo_id} 不存在",
+            "recoverable": True}])
+    snap = target.get("ir_after")
+    if not snap:
+        return CommandResult(status="REJECTED", errors=[{
+            "code": "REDO_UNAVAILABLE",
+            "message": f"revision {redo_id} 无 IR 快照，无法恢复", "recoverable": True}])
+    try:
+        ir = CompositionIR(**_copy.deepcopy(snap))
+    except Exception as exc:
+        return CommandResult(status="REJECTED", errors=[{
+            "code": "SNAPSHOT_INVALID", "message": f"快照恢复失败: {exc}", "recoverable": True}])
+    save_composition(project_id, ir)
+    undo_path.parent.mkdir(parents=True, exist_ok=True)
+    undo_path.write_text(json.dumps(undone_ids, ensure_ascii=False), encoding="utf-8")
+    return CommandResult(
+        status="APPLIED", revision_id=f"redo-{redo_id}",
+        composition_version=composition_version(project_id),
+        composition=json.loads(ir.model_dump_json()))
 # ---------------------------------------------------------------------------
 # 定位辅助
 # ---------------------------------------------------------------------------
@@ -205,7 +287,9 @@ SUPPORTED_COMMANDS = (
     "set_watermark",             # 加水印/更新水印（§19 WatermarkLayer）
     "remove_watermark",          # 移除水印（§19）
     "set_subtitle_style",        # 字幕样式（§32 SubtitleStyle 入 IR）
-    "set_subtitle_track",        # 字幕轨（§31/§33 SubtitleTrack：句级/逐词 cues 入 IR）
+    "set_subtitle_track",        # 字幕轨（§31/§33 SubtitleTrack：句级/逐词 cues 入 IR）,
+    "undo",
+    "redo",
 )
 
 
@@ -251,7 +335,11 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             }],
         )
 
+    if cmd_name in ("undo", "redo"):
+        return _undo_redo(project_id, cmd_name)
+
     ir = load_composition(project_id)
+    before_ir = ir.model_copy(deep=True)  # §46 undo 快照基线
     target_id = command.get("targetId") or ""
     payload = command.get("payload") or {}
 
@@ -325,6 +413,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             reused.remove(c)
 
     # 保存 + revision 记录（§21：不覆盖历史，追加）
+    # §46 Undo/Redo：revision 附 before/after IR 快照（undo 恢复点）。
+    # 快照体积可控（Composition IR 纯 JSON），旧记录无快照时 undo 诚实报错。
     save_composition(project_id, ir)
     revision_id = f"rev-{uuid.uuid4().hex[:8]}"
     revision = {
@@ -339,6 +429,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
         "reused_artifacts": reused,
         "author": command.get("author", "user"),
         "created_at": time.time(),
+        "ir_before": _snapshot_for_revision(before_ir),
+        "ir_after": _snapshot_for_revision(ir),
     }
     _append_revision(project_id, revision)
     logger.info(
@@ -712,7 +804,7 @@ def _cmd_set_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
 def _cmd_set_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """音轨音量（§20）：targetId = narration|bgm|sfx|ambient，payload.volume ∈ [0,2]。"""
     track_type = target_id or payload.get("track_type") or ""
-    if track_type not in ("narration", "bgm", "sfx", "ambient"):
+    if track_type not in ("narration", "dialogue", "bgm", "sfx", "ambient", "ambience"):
         raise EditorError("INVALID_TARGET", f"set_audio_volume 目标音轨 {track_type!r} 非法")
     volume = float(payload.get("volume", 1.0))
     if not (0.0 <= volume <= 2.0):
@@ -918,6 +1010,7 @@ def _cmd_set_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     scale = float(payload.get("scale", 1.0))
     start = float(payload.get("start", 0.0))
     duration = payload.get("duration")
+    safe_area = int(payload.get("safeArea", 32))
     # 校验：kind=text 需 text；kind=image/logo 需 assetId
     if kind == "text" and not (text or "").strip():
         raise EditorError("INVALID_PAYLOAD", "text 水印缺 text")
@@ -926,7 +1019,7 @@ def _cmd_set_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     wm = WatermarkLayer(
         kind=kind, text=text or None, asset_id=asset_id,
         anchor=anchor, opacity=opacity, scale=scale, start=start,
-        duration=duration,
+        duration=duration, safe_area=safe_area,
     )
     # 幂等：同 kind 已存在则更新第一条，否则追加
     for i, w in enumerate(ir.watermarks):

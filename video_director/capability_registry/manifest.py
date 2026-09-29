@@ -303,6 +303,35 @@ def _build_manifest() -> List[Capability]:
         "创建审核意见/Issue（§39 Review Issues）", input_schema="ReviewRequest",
         outputs=("ReviewIssue",), side_effect="", examples=("这一段字幕太小",)))
 
+    # ---- CAP-VERIFY（§59 Verify Tools 硬清单）----
+    caps.append(_cap("timeline.verify", "verify",
+        "验证时间线副作用（IR 读回断言）", input_schema="TargetRequest",
+        outputs=("VerifyReport",), side_effect="", examples=("检查时间线改对了吗",)))
+    caps.append(_cap("audio.verify", "verify",
+        "验证音轨副作用（原声/BGM/字幕轨 IR 读回）", input_schema="TargetRequest",
+        outputs=("VerifyReport",), side_effect="", examples=("原声真的保留了吗",)))
+    caps.append(_cap("asset.verify", "verify",
+        "验证素材替换/导入副作用", input_schema="TargetRequest",
+        outputs=("VerifyReport",), side_effect="", examples=("素材换上了吗",)))
+    caps.append(_cap("render.verify", "verify",
+        "验证渲染产物存在与规格", input_schema="TargetRequest",
+        outputs=("VerifyReport",), side_effect="", examples=("draft 渲染成功了吗",)))
+    caps.append(_cap("composition.verify", "verify",
+        "验证 Composition IR 整体状态", input_schema="TargetRequest",
+        outputs=("VerifyReport",), side_effect="", examples=("整体检查一遍",)))
+
+    # ---- CAP-MUSIC 补齐（§35 七 AI Tool 全表）----
+    caps.append(_cap("music.replace", "music",
+        "替换 BGM（§35）", input_schema="MusicAddRequest", outputs=("AudioTrack",),
+        examples=("换一首 BGM",)))
+    caps.append(_cap("music.disable", "music",
+        "关闭 BGM（§35 music.disable；volume=0 非删轨）", input_schema="TargetRequest",
+        outputs=("AudioTrack",), examples=("不要背景音乐了")))
+    caps.append(_cap("music.match_video", "music",
+        "按参考视频风格匹配 BGM（§35/§68；匹配通道未开时诚实不可用）",
+        input_schema="TargetRequest", outputs=("AudioTrack",), provider_required=True,
+        examples=("配乐风格参考这条视频",)))
+
     return caps
 
 

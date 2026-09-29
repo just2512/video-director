@@ -152,7 +152,7 @@ def validate_composition(
             add("-", "NARRATION_COVERAGE_MISMATCH",
                 f"narration 轨总长 {narration_total:.3f}s 与旁白 {narration_duration:.3f}s 不符")
     for track in ir.audio:
-        if track.type in (AudioTrackType.bgm, AudioTrackType.sfx, AudioTrackType.ambient):
+        if track.type in (AudioTrackType.bgm, AudioTrackType.sfx, AudioTrackType.ambient, AudioTrackType.ambience):
             if track.asset_id and track.asset_id not in assets:
                 add("-", "AUDIO_ASSET_NOT_FOUND", f"音频素材 {track.asset_id} 不在资产清单")
 

@@ -69,7 +69,8 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
     track_types: List[str] = []
     for t in ir.audio:
         name = {"narration": "Narration", "original": "OriginalAudio", "bgm": "BGM",
-                "sfx": "SFX", "ambient": "Ambient"}.get(t.type.value, t.type.value)
+                "sfx": "SFX", "ambient": "Ambient", "ambience": "Ambience",
+                "dialogue": "Dialogue", "original": "OriginalAudio"}.get(t.type.value, t.type.value)
         if name not in track_types:
             track_types.append(name)
     if any(l.type.value in ("video", "image") for sc in ir.scenes for l in sc.layers):

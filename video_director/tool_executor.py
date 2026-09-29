@@ -54,6 +54,8 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
 
     # 2. 路由执行
     try:
+        if _is_verify(tool):
+            return _execute_verify(project_id, tool, payload, target_id)
         if _is_readonly(tool):
             return _execute_readonly(project_id, tool, payload, target_id)
         if _is_revision(tool):
@@ -91,6 +93,9 @@ _COMMAND_MAP: Dict[str, str] = {
     "asset.replace": "replace_source",
     "music.volume": "set_audio_volume",
     "music.duck": "set_audio_volume",
+    "music.add": "set_audio_volume",
+    "music.replace": "set_audio_volume",
+    "music.disable": "set_audio_volume",
     "motion.apply": "replace_motion",
     "style.apply": "set_style",
     "audio.original.preserve": "set_original_audio",
@@ -110,6 +115,9 @@ _READONLY = {
     "stock.search", "stock.preview", "tts.list_voices", "music.search",
     "music.preview", "motion.list", "motion.preview", "shot.resolve",
     "render.preflight", "qc.inspect",
+    # §59 Verify Tools（读回 IR 断言，只读）
+    "timeline.verify", "audio.verify", "asset.verify",
+    "render.verify", "composition.verify",
 }
 
 _REVISION = {"revision.propose", "revision.preview", "revision.apply", "revision.reject"}
@@ -120,6 +128,13 @@ _RENDER = {"render.draft", "render.final"}
 
 #: §37/§57 项目管理能力（Variant 快照 / 重开 / 保存）
 _PROJECT_MGMT = {"version.create", "project.reopen", "project.save", "project.create"}
+
+
+_VERIFY = {"timeline.verify", "audio.verify", "asset.verify", "render.verify", "composition.verify"}
+
+
+def _is_verify(tool: str) -> bool:
+    return tool in _VERIFY
 
 
 def _is_readonly(tool: str) -> bool:
@@ -172,9 +187,21 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
         p = {"volume": p.get("volume")}
     elif tool in ("music.volume", "music.duck"):
         p = {"track_type": p.get("type") or "bgm", "volume": p.get("volume", 1.0)}
+    elif tool == "music.disable":
+        # §35 music.disable：BGM 关闭（volume=0，不删轨，可再开回）
+        p = {"track_type": "bgm", "volume": 0.0}
+    elif tool in ("music.add", "music.replace"):
+        # §35 music.add/replace：当前链=音量/ducking 通道；曲目选择经 music.search→local_selected
+        p = {"track_type": p.get("type") or "bgm",
+             "volume": p.get("volume", 0.3), "ducking": p.get("ducking", True)}
+    elif tool == "music.match_video":
+        raise ToolExecutorError(
+            "MUSIC_MATCH_UNAVAILABLE",
+            "按参考视频匹配配乐通道未开（§68 Reference 链音乐维度）——诚实不可用")
     elif tool in ("watermark.add", "watermark.update"):
         p = {k: v for k, v in p.items()
-             if k in ("kind", "text", "assetId", "anchor", "opacity", "scale", "start", "duration")}
+             if k in ("kind", "text", "assetId", "anchor", "opacity", "scale",
+                      "safeArea", "start", "duration")}
         # §19：text 水印空文本 → 默认占位（用户后续可 update 成真实品牌名）
         if (p.get("kind") or "text") == "text" and not (p.get("text") or "").strip():
             p["text"] = "水印"
@@ -493,6 +520,47 @@ def _fmt_errors(errors: List[dict]) -> Optional[str]:
     if not errors:
         return None
     return "；".join(e.get("message", e.get("code", "")) for e in errors)
+
+
+def _execute_verify(project_id: str, tool: str, payload: dict, target_id) -> dict:
+    """§59 Verify Tools：AI 可主动调用的读回断言（不依赖刚执行命令）。
+
+    timeline.verify / audio.verify / asset.verify → verify_tool 全维读回；
+    render.verify → 产物存在性（draft/final）；
+    composition.verify → IR 加载 + 各轨计数汇总。
+    """
+    import os as _os
+    from video_director import config as _cfg
+    try:
+        ir = editor.load_composition(project_id)
+    except Exception as exc:
+        return _result(tool, False, "VERIFY_FAILED", error=f"IR 读回失败: {exc}")
+    if tool == "render.verify":
+        out_dir = _cfg.project_dir(project_id) / "output"
+        draft = out_dir / "draft.mp4"
+        checks = {"draft_exists": draft.is_file(),
+                  "draft_path": str(draft)}
+        return _result(tool, draft.is_file(),
+                       "PASS" if draft.is_file() else "DRAFT_MISSING",
+                       result={"checks": checks}, verify=checks)
+    if tool == "composition.verify":
+        counts = {"scenes": len(ir.scenes),
+                  "audio_tracks": {t.type.value: 1 + 0 * i for i, t in enumerate(ir.audio)
+                                   } if not ir.audio else
+                  {ty: sum(1 for t in ir.audio if t.type.value == ty)
+                   for ty in {t.type.value for t in ir.audio}},
+                  "watermarks": len(ir.watermarks),
+                  "subtitle_track": bool(ir.subtitle_track),
+                  "subtitle_style": bool(ir.subtitle_style)}
+        return _result(tool, True, "PASS", result={"checks": counts}, verify=counts)
+    # timeline / audio / asset → 全维 verify_tool（拿最近命令名做读回断言）
+    probe_tool = {"timeline.verify": "timeline.trim",
+                  "audio.verify": "audio.original.preserve",
+                  "asset.verify": "asset.replace"}.get(tool, "timeline.trim")
+    v = verify_tool(project_id, probe_tool, None)
+    return _result(tool, v.get("ok", False),
+                   "PASS" if v.get("ok") else "CHECK_FAILED",
+                   result={"checks": v.get("checks", {})}, verify=v.get("checks", {}))
 
 
 # ---------------------------------------------------------------------------

@@ -655,6 +655,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(projects)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route.startswith("/api/projects/") and route.endswith("/draft_info"):
+            # §46 Preview：项目草稿存在性 + 路径（顶栏 Preview 按钮消费）
+            pid = route[len("/api/projects/"):-len("/draft_info")]
+            try:
+                pdir = STORAGE / "composer" / pid
+                draft = pdir / "output" / "draft.mp4"
+                final = pdir / "output" / "final.mp4"
+                self._send_json({
+                    "project_id": pid,
+                    "draft_path": str(draft) if draft.is_file() else "",
+                    "draft_exists": draft.is_file(),
+                    "final_path": str(final) if final.is_file() else "",
+                })
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
         elif route == "/api/project_detail":
             # 项目详情（重开续用：产物清单 + 分镜 + IR 概览）
             qs = parse_qs(parsed.query)

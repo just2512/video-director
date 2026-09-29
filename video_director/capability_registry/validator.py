@@ -58,7 +58,7 @@ SCHEMAS: Dict[str, InputSchema] = {
     }),
     "VolumeRequest": InputSchema("VolumeRequest", {
         "targetId": FieldSpec("str"),
-        "type": FieldSpec("enum:str", enum=frozenset({"bgm", "sfx", "ambient", "original", "narration"})),
+        "type": FieldSpec("enum:str", enum=frozenset({"bgm", "sfx", "ambient", "ambience", "dialogue", "original", "narration"})),
         "volume": FieldSpec("float", minimum=0.0, maximum=2.0, required=True),
     }),
     "WatermarkRequest": InputSchema("WatermarkRequest", {
@@ -69,6 +69,7 @@ SCHEMAS: Dict[str, InputSchema] = {
             "top_left", "top_right", "bottom_left", "bottom_right", "center"})),
         "opacity": FieldSpec("float", minimum=0.0, maximum=1.0),
         "scale": FieldSpec("float", minimum=0.1, maximum=5.0),
+        "safeArea": FieldSpec("int", minimum=0, maximum=200),  # §19 safeArea
         "start": FieldSpec("float", minimum=0.0),
         "duration": FieldSpec("float", minimum=0.0),
     }),
@@ -128,6 +129,7 @@ SCHEMAS: Dict[str, InputSchema] = {
         "type": FieldSpec("enum:str", enum=frozenset({"video", "image", "graphic", "sfx", "music"})),
         "prompt": FieldSpec("str", required=True),
         "targetId": FieldSpec("str"),
+        "target": FieldSpec("dict"),  # §29 target{projectId,variantId,sceneId,start,duration}
         "references": FieldSpec("str"),
         "firstFrame": FieldSpec("str"),
         "lastFrame": FieldSpec("str"),

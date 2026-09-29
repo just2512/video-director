@@ -300,7 +300,9 @@ def render_watermark_layer(
             return video_in
         esc_font = _esc_font_path(font)
         size = max(16, int(w * 0.026 * scale))
-        margin = 0.03
+        # §19 safeArea：像素安全距离 → 边距比例（默认 32px，clamp [0,200]）
+        safe = float(getattr(wm, "safe_area", 32) or 0)
+        margin = max(0.0, min(safe / max(w, 1), 0.2))
         x_expr, y_expr = _anchor_xy(anchor, w, h, margin)
         # opacity → fontcolor alpha（§19 opacity 字段语义）
         alpha_hex = f"{int(opacity * 255):02x}"
@@ -320,7 +322,9 @@ def render_watermark_layer(
             logger.warning(f"watermark image/logo asset 非文件路径，跳过: {asset_id}")
             return video_in
         ow = max(1, int(w * 0.18 * scale))
-        xm, ym = int(w * 0.03), int(h * 0.03)
+        # §19 safeArea 同语义用于 image/logo overlay
+        safe = int(max(0, min(float(getattr(wm, "safe_area", 32) or 0), 200)))
+        xm, ym = safe, safe
         if anchor == "top_left":
             ox, oy = xm, ym
         elif anchor == "top_right":
