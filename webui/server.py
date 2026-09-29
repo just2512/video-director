@@ -873,6 +873,7 @@ class Handler(BaseHTTPRequestHandler):
                         for w in (ir.watermarks or [])
                     ],
                     "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
+                    "references": ir.references.to_dict()["references"] if ir.references else [],
                     "revisions_count": len(revs),
                 })
             except Exception as exc:

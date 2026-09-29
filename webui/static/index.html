@@ -616,11 +616,15 @@
             <label style="font-size:12px">引用</label>
             <select id="gen-reference" style="width:220px">
               <option value="">无（纯文本）</option>
-              <option value="style:editorial">风格 · 编辑风</option>
-              <option value="style:minimal">风格 · 极简风</option>
-              <option value="style:cinematic">风格 · 电影风</option>
-              <option value="asset:first-image">参考画面 · 项目首图</option>
-              <option value="asset:first-video">参考画面 · 项目首视频</option>
+              <optgroup label="风格引用">
+                <option value="style:editorial">编辑风</option>
+                <option value="style:minimal">极简风</option>
+                <option value="style:cinematic">电影风</option>
+              </optgroup>
+              <optgroup label="素材引用">
+                <option value="asset:first-image">项目首图</option>
+                <option value="asset:first-video">项目首视频</option>
+              </optgroup>
             </select>
             <span class="hint">风格或素材引用作为生成上下文</span>
           </div>

@@ -133,6 +133,60 @@ def normalize_asset_source(value: str) -> str:
     return ASSET_SOURCE_ALIASES.get(value, value)
 
 
+class ReferenceType(str, Enum):
+    """§17 Asset Reference Graph：引用类型。
+
+    首帧/末帧/参考图/参考视频/风格/连续性/遮罩 —— 统一 generation 的
+    style:/asset:/first_frame 松散引用为结构化节点，指向 Asset/Artifact。
+    """
+    visual_reference = "visual_reference"
+    style_reference = "style_reference"
+    first_frame = "first_frame"
+    last_frame = "last_frame"
+    generation_reference = "generation_reference"
+    continuity_reference = "continuity_reference"
+    mask_reference = "mask_reference"
+
+
+class Reference(BaseModel):
+    """§17：一条引用节点（指向 Asset 或 Artifact，与 §10 Asset 统一）。"""
+    id: str
+    ref_type: ReferenceType
+    target_asset_id: Optional[str] = None     # 指向 Asset
+    target_artifact_id: Optional[str] = None  # 指向 Artifact
+    role: str = ""                            # 语义角色（人物/产品/视觉风格...）
+    note: str = ""
+
+
+class ReferenceGraph(BaseModel):
+    """§17：Asset/Artifact 引用图。让 Generation/Continuity/Style DNA 共用一套底层。"""
+    references: List[Reference] = Field(default_factory=list)
+
+    def of_type(self, t: ReferenceType) -> List[Reference]:
+        return [r for r in self.references if r.ref_type == t]
+
+    def first_frame_ref(self) -> Optional[Reference]:
+        for r in self.references:
+            if r.ref_type == ReferenceType.first_frame:
+                return r
+        return None
+
+    def to_dict(self) -> dict:
+        return {"references": [r.model_dump() for r in self.references]}
+
+
+def reference_from_marker(marker: str) -> Reference:
+    """§17：把旧松散引用标记（asset:<id> / style:<id>）升级为结构化 Reference。"""
+    if marker.startswith("asset:"):
+        aid = marker.split(":", 1)[1]
+        return Reference(id=f"ref-asset-{aid}", ref_type=ReferenceType.generation_reference,
+                         target_asset_id=aid)
+    if marker.startswith("style:"):
+        sid = marker.split(":", 1)[1]
+        return Reference(id=f"ref-style-{sid}", ref_type=ReferenceType.style_reference, role=sid)
+    return Reference(id=f"ref-{marker[:16]}", ref_type=ReferenceType.visual_reference, note=marker)
+
+
 class MissingAssetError(Exception):
     """素材不足（V1 §29 / V2 §92：诚实上报，禁止编造素材）。"""
 
@@ -493,6 +547,8 @@ class CompositionIR(BaseModel):
     # ---- §6 Canonical：Variant 版本化（空 variants=旧格式单 Variant，scenes/audio 直接）----
     active_variant_id: Optional[str] = None
     variants: List[Variant] = Field(default_factory=list)
+    # ---- §17 Asset Reference Graph：首帧/末帧/参考图/风格/连续性/遮罩引用 ----
+    references: Optional[ReferenceGraph] = None
 
     @model_validator(mode="after")
     def _check_continuity(self):
