@@ -40,6 +40,7 @@ class LayerType(str, Enum):
     image = "image"
     # ---- 以下为预留（media 第一阶段不渲染）----
     text = "text"
+    title = "title"
     shape = "shape"
     svg = "svg"
     icon = "icon"
@@ -48,7 +49,10 @@ class LayerType(str, Enum):
     logo = "logo"
     lottie = "lottie"
     person = "person"
+    pip = "pip"
+    lower_third = "lower_third"
     # ---- Graphics 域（§11：可执行视觉程序，由 Graphics Runtime 消费）----
+    graphic = "graphic"
     dom = "dom"
     canvas = "canvas"
     html = "html"
@@ -68,7 +72,7 @@ RENDERABLE_LAYER_TYPES = {LayerType.video, LayerType.image}
 
 #: Graphics 域 Layer 类型（§11：交由 Graphics Runtime，非 media renderer）
 GRAPHICS_LAYER_TYPES = {
-    LayerType.dom, LayerType.svg, LayerType.canvas, LayerType.html,
+    LayerType.graphic, LayerType.dom, LayerType.svg, LayerType.canvas, LayerType.html,
     LayerType.chart, LayerType.diagram, LayerType.ui, LayerType.webgl,
     LayerType.webgpu, LayerType.lottie, LayerType.three_scene,
     LayerType.code, LayerType.table, LayerType.map, LayerType.data_viz,
