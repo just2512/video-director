@@ -4,3 +4,4 @@ storage/
 venv/
 .pytest_cache/
 .claude/
+release/

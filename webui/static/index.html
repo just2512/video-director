@@ -194,9 +194,9 @@
           </select>
           <label>风格</label>
           <select id="gfx-style">
-            <option value="editorial">Editorial</option>
-            <option value="minimal">Minimal</option>
-            <option value="warm">Warm</option>
+            <option value="editorial">编辑风</option>
+            <option value="minimal">极简风</option>
+            <option value="warm">暖调</option>
           </select>
           <label>时长</label>
           <select id="gfx-duration">
@@ -265,7 +265,7 @@
       <div id="home-done-recent">—</div>
     </div>
     <div class="card">
-      <b>Capability Map</b>——系统的能力地图（§61；点能力徽章查看运行态）
+      <b>能力地图</b>——系统的能力地图（点能力徽章查看运行态）
       <div class="hint" id="system-identity-tag">加载中……</div>
       <div id="capability-map"></div>
     </div>
@@ -354,9 +354,9 @@
       <div class="preview-row" id="voice-upload-row" style="display:none">
         <input type="file" id="voice_upload_file" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma">
         <button class="btn-secondary btn-sm" onclick="uploadVoice()">⬆ 导入配音</button>
-        <span class="hint" id="voice-upload-status">选项目后上传（§16：Import→Probe→ASR→词级时间轴，TTS 跳过）</span>
+        <span class="hint" id="voice-upload-status">选项目后上传（导入→检测→识别→词级时间轴，自动跳过配音）</span>
       </div>
-      <div class="hint" id="voice-silent-note" style="display:none">无配音模式（§17）：不做 TTS 不伪造声音；字幕/BGM/SFX/视觉照常。</div>
+      <div class="hint" id="voice-silent-note" style="display:none">无配音模式：不做配音不伪造声音；字幕/背景音乐/音效/视觉照常。</div>
       <label>语速（可选，默认 1.0 倍）</label>
       <select id="voice_rate">
         <option value="0.8">0.8x 较慢</option>
@@ -412,7 +412,7 @@
   <!-- ======== Tab: 编辑器（Timeline + Inspector + AI 提案）======== -->
   <div id="pane-editor" style="display:none">
     <div class="card">
-      <b>🎛 创作编辑器</b>——打开项目后在时间线上选择场景/图层、换动效、调参数；顶栏 Undo/Redo/Save/预览/渲染（§46）。
+      <b>🎛 创作编辑器</b>——打开项目后在时间线上选择场景/图层、换动效、调参数；顶栏提供撤销/重做/保存/预览/渲染。
       <div class="btn-row">
         <label>打开项目：</label>
         <select id="editor-project"></select>
@@ -425,39 +425,39 @@
       <div class="ed-topbar" id="editor-topbar">
         <b id="tb-project" style="font-size:13px">—</b>
         <span class="hint" id="tb-version">V?</span>
-        <button class="btn-secondary btn-sm" onclick="editorUndo()" title="撤销上一次编辑（§46 Undo）">↩ Undo</button>
-        <button class="btn-secondary btn-sm" onclick="editorRedo()" title="恢复被撤销的编辑（§46 Redo）">↪ Redo</button>
+        <button class="btn-secondary btn-sm" onclick="editorUndo()" title="撤销上一次编辑">↩ 撤销</button>
+        <button class="btn-secondary btn-sm" onclick="editorRedo()" title="恢复被撤销的编辑">↪ 重做</button>
         <span class="tb-sep"></span>
-        <button class="btn-secondary btn-sm" onclick="editorSaveBar()" title="保存项目状态（§46 Save）">💾 Save</button>
-        <button class="btn-secondary btn-sm" onclick="editorPreviewBar()" title="预览当前草稿（§46 Preview）">▶ Preview</button>
-        <button class="btn-secondary btn-sm" onclick="editorRenderFinal()" title="渲染成片（§46 Render）">🎬 Render</button>
+        <button class="btn-secondary btn-sm" onclick="editorSaveBar()" title="保存项目状态">💾 保存</button>
+        <button class="btn-secondary btn-sm" onclick="editorPreviewBar()" title="预览当前草稿">▶ 预览</button>
+        <button class="btn-secondary btn-sm" onclick="editorRenderFinal()" title="渲染成片">🎬 渲染</button>
       </div>
       <!-- §46 三栏工作区：Library | Preview | Inspector -->
       <div class="ed-workspace" id="editor-workspace">
         <!-- 左栏：§48 Library 八入口（只浏览，编辑回 Timeline/Inspector） -->
         <div class="ws-col">
           <div class="card" style="padding:8px">
-            <b style="font-size:13px">📚 Library</b>
+            <b style="font-size:13px">📚 资源库</b>
             <div class="ed-lib-nav" id="ed-lib-nav" style="margin-top:6px">
-              <button data-lib="scenes" onclick="edLibNav('scenes')">🎬 Scenes</button>
-              <button data-lib="script" onclick="edLibNav('script')">📝 Script</button>
-              <button data-lib="assets" onclick="edLibNav('assets')">🖼 Assets</button>
-              <button data-lib="stock" onclick="edLibNav('stock')">🌐 Stock</button>
-              <button data-lib="generate" onclick="edLibNav('generate')">✨ Generate</button>
-              <button data-lib="motions" onclick="edLibNav('motions')">💫 Motions</button>
-              <button data-lib="templates" onclick="edLibNav('templates')">🧩 Templates</button>
-              <button data-lib="references" onclick="edLibNav('references')">🔗 References</button>
+              <button data-lib="scenes" onclick="edLibNav('scenes')">🎬 场景</button>
+              <button data-lib="script" onclick="edLibNav('script')">📝 文案</button>
+              <button data-lib="assets" onclick="edLibNav('assets')">🖼 素材</button>
+              <button data-lib="stock" onclick="edLibNav('stock')">🌐 图库</button>
+              <button data-lib="generate" onclick="edLibNav('generate')">✨ 生成</button>
+              <button data-lib="motions" onclick="edLibNav('motions')">💫 动效</button>
+              <button data-lib="templates" onclick="edLibNav('templates')">🧩 模板</button>
+              <button data-lib="references" onclick="edLibNav('references')">🔗 引用</button>
             </div>
             <input type="text" id="ed-lib-search" class="rev-input" style="margin-top:6px" placeholder="搜索…" oninput="edLibLoad()">
             <div id="ed-lib-list" style="max-height:180px;overflow:auto;margin-top:6px"></div>
-            <div class="hint" style="font-size:11px">入口仅浏览（§48）；点击应用回 Timeline/Inspector。</div>
+            <div class="hint" style="font-size:11px">入口仅浏览；点击应用回时间线/检视器。</div>
           </div>
         </div>
         <!-- 中栏：Preview（§46 中央预览区） -->
         <div class="ws-col">
           <div class="ed-preview-pane">
             <div class="btn-row" style="align-items:center">
-              <b style="font-size:13px">Preview</b>
+              <b style="font-size:13px">预览</b>
               <span class="hint" id="ed-preview-meta">打开项目后加载草稿预览</span>
             </div>
             <div class="ed-preview-stage" id="ed-preview-stage">未加载预览</div>
@@ -466,22 +466,22 @@
         <!-- 右栏：Inspector（§55 context-aware） -->
         <div class="ws-col">
           <div class="card" id="editor-inspector-card" style="display:none;padding:8px">
-            <b style="font-size:13px">Inspector</b> <span class="hint" id="ed-inspector-ctx">—</span>
+            <b style="font-size:13px">检视器</b> <span class="hint" id="ed-inspector-ctx">—</span>
             <div id="editor-inspector" style="margin-top:6px"></div>
           </div>
           <div class="card" id="editor-audio-card" style="padding:8px;margin-top:8px">
-        <b>🎚 Audio / Watermark / Subtitle</b> <span class="hint">§51 Audio UI 归一（全部对应 AudioTrack/IR）</span>
+        <b>🎚 音频 / 水印 / 字幕</b> <span class="hint">统一界面（全部对应时间线轨道）</span>
         <div class="role-block" style="margin-top:6px">
-          <b>Narration / Voice（§51）</b>
+          <b>旁白 / 配音</b>
           <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
             <select id="ed-voice-sel" style="flex:1;min-width:120px"></select>
             <button class="btn-secondary btn-sm" onclick="edVoicePreview()">▶ 试听</button>
             <span class="hint" id="ed-voice-status"></span>
           </div>
-          <div class="hint" style="font-size:11px">Narration 三态（自动/上传/无配音）在创作页项目参数设定；此处编辑期试听音色。</div>
+          <div class="hint" style="font-size:11px">旁白方式（自动/上传/无配音）在创作页设定；此处可在编辑期试听音色。</div>
         </div>
         <div class="role-block" style="margin-top:8px">
-          <b>Original Audio（素材原声）</b>
+          <b>素材原声</b>
           <div class="btn-row" style="margin-top:4px">
             <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('preserve')">🔊 保留原声</button>
             <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('mute')">🔇 静音原声</button>
@@ -489,7 +489,7 @@
           </div>
         </div>
         <div class="role-block" style="margin-top:8px">
-          <b>Watermark（水印）</b>
+          <b>水印</b>
           <div class="btn-row" style="margin-top:4px">
             <button class="btn-secondary btn-sm" onclick="editorWatermarkAdd()">➕ 文字水印</button>
             <button class="btn-secondary btn-sm" onclick="editorWatermarkRemove()">🗑 移除水印</button>
@@ -497,50 +497,50 @@
           <div id="editor-watermark-list" class="hint" style="margin-top:4px"></div>
         </div>
         <div class="role-block" style="margin-top:8px">
-          <b>Subtitle（字幕样式 §52）</b>
+          <b>字幕（字幕样式）</b>
           <div class="btn-row" style="margin-top:4px">
             <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('white_black')">白字黑边</button>
             <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('position_bottom')">位置·底部</button>
             <button class="btn-secondary btn-sm" onclick="editorBgmVolume()">🎚 BGM 音量</button>
           </div>
           <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
-            <label style="font-size:12px">Mode</label>
+            <label style="font-size:12px">模式</label>
             <select id="sub-mode" style="width:90px">
               <option value="sentence">句子</option>
               <option value="word">逐词</option>
             </select>
-            <label style="font-size:12px">Font</label>
-            <input type="text" id="sub-font" style="width:110px" placeholder="系统默认 CJK" title="字体名（空=系统默认 CJK；§52 Font）">
-            <label style="font-size:12px">Size</label>
+            <label style="font-size:12px">字体</label>
+            <input type="text" id="sub-font" style="width:110px" placeholder="系统默认 CJK" title="字体名（空=系统默认）">
+            <label style="font-size:12px">字号</label>
             <input type="number" id="sub-size" step="0.1" min="0.3" max="3" style="width:60px" placeholder="1.0">
-            <label style="font-size:12px">Color</label>
+            <label style="font-size:12px">颜色</label>
             <input type="color" id="sub-color" value="#ffffff" style="width:44px">
-            <label style="font-size:12px">Outline</label>
+            <label style="font-size:12px">描边</label>
             <input type="color" id="sub-stroke" value="#000000" style="width:44px">
-            <label style="font-size:12px">W</label>
+            <label style="font-size:12px">描边宽</label>
             <input type="number" id="sub-stroke-w" step="1" min="0" max="12" value="2" style="width:50px">
-            <label style="font-size:12px">Pos</label>
+            <label style="font-size:12px">位置</label>
             <select id="sub-pos" style="width:80px">
               <option value="bottom">底部</option>
               <option value="center">居中</option>
               <option value="top">顶部</option>
             </select>
-            <label style="font-size:12px">Anim</label>
+            <label style="font-size:12px">动画</label>
             <select id="sub-anim" style="width:100px">
-              <option value="none">None</option>
-              <option value="fade">Fade</option>
-              <option value="pop_spring">Pop Spring</option>
+              <option value="none">无</option>
+              <option value="fade">淡入</option>
+              <option value="pop_spring">弹出</option>
             </select>
-            <label style="font-size:12px">Bg</label>
-            <input type="color" id="sub-bg" value="#000000" style="width:44px" title="底色（含 BG=开启底色）">
-            <label style="font-size:12px">Align</label>
+            <label style="font-size:12px">底色</label>
+            <input type="color" id="sub-bg" value="#000000" style="width:44px" title="底色（含底色=开启底色）">
+            <label style="font-size:12px">对齐</label>
             <select id="sub-align" style="width:80px">
               <option value="center">居中</option>
               <option value="left">左</option>
               <option value="right">右</option>
             </select>
             <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply()">应用样式</button>
-            <button class="btn-secondary btn-sm" onclick="editorSubtitleGenerate()">生成字幕轨（§31）</button>
+            <button class="btn-secondary btn-sm" onclick="editorSubtitleGenerate()">生成字幕轨</button>
           </div>
         </div>
       </div>
@@ -549,7 +549,7 @@
       </div>
       <!-- §46 AI Command Bar：工作区与时间线之间（中心位置 §47） -->
       <div class="card" id="director-bar-card">
-        <b>🧠 AI Command Bar</b> <span class="hint">一句话表达剪辑意图，AI 读系统能力+项目状态自动规划执行（§47）</span>
+        <b>🧠 AI 指令栏</b> <span class="hint">一句话表达剪辑意图，AI 读系统能力+项目状态自动规划执行</span>
         <div class="rev-console" style="margin-top:6px">
           <div class="btn-row">
             <input type="text" id="director-input" class="rev-input" style="flex:1"
@@ -557,12 +557,12 @@
               onkeydown="if(event.key==='Enter')directorExecute()">
             <button class="btn" onclick="directorExecute()">🧠 执行</button>
           </div>
-          <div class="hint" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项系统能力 · <span id="director-progress">SSE 进度通道就绪后实时推送（§48）</span></div>
+          <div class="hint" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项系统能力 · <span id="director-progress">进度通道就绪后实时推送</span></div>
           <div id="director-result"></div>
         </div>
       </div>
       <div class="card">
-        <b>时间线</b> <span class="hint">点击选中（Ctrl=多选，Shift=范围）；§46 十轨：Narration/Dialogue/Original/MainVisual/B-roll/Graphic/Watermark/Subtitle/BGM/SFX</span>
+        <b>时间线</b> <span class="hint">点击选中（Ctrl=多选，Shift=范围）；十轨：旁白/对白/原声/主视觉/B-roll/图形/水印/字幕/背景音乐/音效</span>
         <div class="btn-row" style="margin-bottom:4px">
           <span style="font-size:12px;margin-right:6px">视图</span>
           <button class="btn-secondary btn-sm" id="tl-view-time" onclick="timelineView('time')">⏱ 时间</button>
@@ -597,14 +597,14 @@
         </div>
       </div>
       <div class="card">
-        <b>🪄 生成素材</b>（Timeline Generation）——选中场景后生成视觉/图形素材（A/B/C 变体），加入时间线成为真实图层
+        <b>🪄 生成素材</b>——选中场景后生成视觉/图形素材（A/B/C 变体），加入时间线成为真实图层
         <div class="rev-console">
           <div class="btn-row">
             <label style="font-size:12px">类型</label>
             <select id="gen-type" style="width:100px">
-              <option value="image">Image</option>
-              <option value="graphic">Graphic</option>
-              <option value="video">Video</option>
+              <option value="image">图片</option>
+              <option value="graphic">图形</option>
+              <option value="video">视频</option>
             </select>
             <label style="font-size:12px">模型</label>
             <select id="gen-model" style="width:170px"><option value="">自动（按角色配置）</option></select>
@@ -616,13 +616,13 @@
             <label style="font-size:12px">引用</label>
             <select id="gen-reference" style="width:220px">
               <option value="">无（纯文本）</option>
-              <option value="style:editorial">风格 · Editorial</option>
-              <option value="style:minimal">风格 · Minimal</option>
-              <option value="style:cinematic">风格 · Cinematic</option>
-              <option value="asset:first-image">参考画面 · 项目首图（asset 引用 §90）</option>
-              <option value="asset:first-video">参考画面 · 项目首视频（asset 引用 §90）</option>
+              <option value="style:editorial">风格 · 编辑风</option>
+              <option value="style:minimal">风格 · 极简风</option>
+              <option value="style:cinematic">风格 · 电影风</option>
+              <option value="asset:first-image">参考画面 · 项目首图</option>
+              <option value="asset:first-video">参考画面 · 项目首视频</option>
             </select>
-            <span class="hint">风格或 asset: 素材引用作为生成上下文（§17/§90）</span>
+            <span class="hint">风格或素材引用作为生成上下文</span>
           </div>
           <div class="btn-row">
             <button class="btn-secondary" onclick="editorGenerate()">🪄 生成 3 变体</button>
@@ -632,7 +632,7 @@
         </div>
       </div>
       <div class="card">
-        <b>📚 版本历史（Versions）</b> <span class="hint">每次编辑记为一个版本，勾选两个可对比 Changed/Reused</span>
+        <b>📚 版本历史</b> <span class="hint">每次编辑记为一个版本，勾选两个可对比已变更/已复用</span>
         <div class="btn-row">
           <button class="btn-secondary btn-sm" onclick="editorLoadVersions()">刷新版本</button>
           <button class="btn-secondary btn-sm" onclick="editorCompareSelected()">对比选中两版</button>
@@ -652,10 +652,10 @@
         <input type="text" id="tpl-search" class="rev-input" placeholder="搜索模板名…" oninput="renderTemplateGallery()">
         <select id="tpl-category" onchange="renderTemplateGallery()">
           <option value="">全部分类</option>
-          <option value="editorial">Editorial</option>
-          <option value="product">Product</option>
-          <option value="cinematic">Cinematic</option>
-          <option value="tutorial">Tutorial</option>
+          <option value="editorial">编辑风</option>
+          <option value="product">产品风</option>
+          <option value="cinematic">电影风</option>
+          <option value="tutorial">教程</option>
         </select>
       </div>
       <div id="templates-list">加载中……</div>
@@ -666,7 +666,7 @@
   <!-- ======== Tab: 动效库（Motion Gallery）======== -->
   <div id="pane-motions" style="display:none">
     <div class="card">
-      <b>✨ 动效库</b>——动效实时循环预览；「应用到项目」写入选中图层；⭐=收藏（Style DNA 记录 Pinned）
+      <b>✨ 动效库</b>——动效实时循环预览；「应用到项目」写入选中图层；⭐=收藏（风格记忆记录收藏）
       <div class="btn-row">
         <input type="text" id="motion-search" class="rev-input" placeholder="搜索动效名…" oninput="renderMotionGallery()">
         <select id="motion-filter" onchange="renderMotionGallery()">
@@ -690,7 +690,7 @@
     </div>
     <!-- §37 Motion 三区视图：Entrance / Emphasis / Exit（按用途分组的推荐区） -->
     <div class="card">
-      <b>Motion 三区</b> <span class="hint">（§37：Entrance 入场 / Emphasis 强调 / Exit 出场；点卡片直接应用）</span>
+      <b>动效三区</b> <span class="hint">（入场 / 强调 / 出场；点卡片直接应用）</span>
       <div id="motion-zones"></div>
     </div>
   </div>
@@ -707,7 +707,7 @@
   <!-- ======== Tab 3: 素材库（§31 Asset Library 三栏 + §43 冻结台账）======== -->
   <div id="pane-assets" style="display:none">
     <div class="card">
-      <b>Media Library</b>——项目用过的视频/图片/音频素材（§31 左筛选 / 中网格 / 右 Inspector）
+      <b>素材库</b>——项目用过的视频/图片/音频素材（左侧筛选 / 中间网格 / 右侧检视）
       <div class="asset-layout">
         <div class="asset-filters">
           <label style="font-size:12px">来源 / 类型</label>
@@ -734,7 +734,7 @@
       <div id="media-frozen-list" style="margin-top:12px"></div>
     </div>
     <div class="card">
-      <b>Graphic Library</b>——可执行视觉能力（不是素材）：Blocks / Motions / Templates / Styles
+      <b>图形库</b>——可执行视觉能力（不是素材）：视觉块 / 动效 / 模板 / 样式
       <div class="hint">Blocks：36+ 视觉块（知识 20 / 产品 16 / 自定义）——去首页 Create 区块或编辑器 Creative Library 使用</div>
       <div class="hint">Motions：确定性动效 5 族 + Shotcraft 19 动效——去「动效库」页预览/应用</div>
       <div class="hint">Templates：3 模板——去「模板库」页试用</div>
@@ -802,7 +802,7 @@
   <!-- ======== Tab: 创作记忆 ======== -->
   <div id="pane-memory" style="display:none">
     <div class="card">
-      <b>🧠 创作记忆</b>——你的每次成片与 👍👎 反馈都会沉淀为个人风格偏好（Style DNA），AI 越用越懂你。
+      <b>🧠 创作记忆</b>——你的每次成片与 👍👎 反馈都会沉淀为个人风格偏好，AI 越用越懂你。
       <div class="btn-row"><button class="btn-secondary" onclick="loadMemoryView()">刷新</button></div>
       <div id="memory-view"></div>
     </div>
@@ -821,7 +821,7 @@
   <!-- ======== Tab: 发布（Publish §二十九/§34 Preflight）======== -->
   <div id="pane-publish" style="display:none">
     <div class="card">
-      <b>🚀 发布</b>——按项目看商用预检（Preflight）与成品状态；UNKNOWN/BLOCKED 素材会在这里被拦截，点「定位素材」可跳转
+      <b>🚀 发布</b>——按项目看商用预检与成品状态；未知/禁止商用的素材会在这里被拦截，点「定位素材」可跳转
       <div class="btn-row"><button class="btn-secondary" onclick="loadPublish()">刷新</button></div>
       <div id="publish-list">加载中……</div>
     </div>
@@ -923,7 +923,7 @@ function renderModelRoles(){
         <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '✓ 已配置' : '未配置（走兜底）'}</span>
       </div>
       <div class="hint">${esc(r.hint)}</div>
-      <label>API Key</label>
+      <label>API 密钥</label>
       <input type="password" id="mc-${r.role}-key" placeholder="sk-…（留空=该角色走规则/内置兜底）" value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">
       <label>API 地址</label>
       <input type="text" id="mc-${r.role}-url" value="${esc(r.base_url || '')}" placeholder="${esc(r.default_base_url)}">
@@ -1250,8 +1250,8 @@ async function editorPreviewBar(){
   try {
     const info = await (await fetch('/api/projects/' + encodeURIComponent(ED.pid) + '/draft_info')).json();
     if (info && info.draft_path) {
-      stage.innerHTML = `<video controls src="/files/${encodeURIComponent(info.draft_path.replace(/\\/g, '/'))}"></video>`;
-      if (meta) meta.textContent = `draft.mp4 · ${info.draft_path.split(/[\\/]/).pop()}`;
+      stage.innerHTML = `<video controls src="/file?path=${encodeURIComponent(info.draft_path)}"></video>`;
+      if (meta) meta.textContent = `草稿 · ${info.draft_path.split(/[\\/]/).pop()}`;
     } else {
       stage.innerHTML = '<div>尚无草稿（时间线「渲染草稿」或 AI 命令「生成草稿」后可预览）</div>';
       if (meta) meta.textContent = '无 draft.mp4';
@@ -1297,15 +1297,15 @@ function renderPhysicalTimeline(){
   // 轨 1 Narration：场景旁白文案（narration 音轨存在时叠加显示）
   let nInner = '';
   c.scenes.forEach(sc => { nInner += clip('💬' + (sc.text || '').slice(0, 8), sc.text, (sc.duration / total * 100).toFixed(2)); });
-  html += trackRow('Narration', nInner || '<div class="hint">无</div>');
-  // 轨 2 Dialogue（§18 六类型：对白轨独立车道）
-  html += trackRow('Dialogue', dialogue.length ? dialogue.map(t => clip('🗣 Dialogue', '对白轨', '100')).join('') : '<div class="hint">无</div>');
-  // 轨 3 Original Audio（§18 原声一等公民：保留/静音状态可视化）
+  html += trackRow('旁白', nInner || '<div class="hint">无</div>');
+  // 轨 2 Dialogue（六类型：对白轨独立车道）
+  html += trackRow('对白', dialogue.length ? dialogue.map(t => clip('🗣 对白', '对白轨', '100')).join('') : '<div class="hint">无</div>');
+  // 轨 3 原声（原声一等公民：保留/静音状态可视化）
   const oInner = original.length
-    ? original.map(t => clip(`🎤 原声${t.volume !== undefined ? ' · ' + t.volume.toFixed(2) : ''}${t.ducking ? ' · duck' : ''}`,
-        '素材原声轨（§18）', '100', `editorAudioVolume('original')`)).join('')
+    ? original.map(t => clip(`🎤 原声${t.volume !== undefined ? ' · ' + t.volume.toFixed(2) : ''}${t.ducking ? ' · 压低' : ''}`,
+        '素材原声轨', '100', `editorAudioVolume('original')`)).join('')
     : '<div class="hint">无（点击「保留原声」加入）</div>';
-  html += trackRow('Original Audio', oInner);
+  html += trackRow('原声', oInner);
   // 轨 4 Main Visual（场景 + 主视觉层，可点选）
   let mInner = '';
   c.scenes.forEach((sc, si) => {
@@ -1320,34 +1320,34 @@ function renderPhysicalTimeline(){
       const lock = lay.locked ? '<span title="已锁定">🔒</span>' : '';
       const mtag = lay.motion_recipe_id ? `<span class="ed-motion-tag">${esc(lay.motion_recipe_id.replace('motion.',''))}</span>` : '';
       mInner += `<div class="ed-layer${lsel}" onclick="event.stopPropagation();editorSelectLayer('${sc.id}',${li}, event)" style="width:${lwPct}%">`+
-        `${lock}${lay.type}${mtag}</div>`;
+        `${lock}${layerTypeCn(lay.type)}${mtag}</div>`;
     });
     mInner += '</div>';
   });
-  html += trackRow('Main Visual', mInner);
+  html += trackRow('主视觉', mInner);
   // 轨 5 B-roll
   html += trackRow('B-roll', brollLayers.length
     ? brollLayers.map(([sc, lay]) => clip('🎞 B-roll', 'B-roll 层', (lay.duration / total * 100).toFixed(2), `editorSelectLayer('${sc.id}',${sc.layers.indexOf(lay)}, event)`)).join('')
     : '<div class="hint">无</div>');
-  // 轨 6 Graphic
-  html += trackRow('Graphic', graphicLayers.length
-    ? graphicLayers.map(([sc, lay]) => clip('🎨 Graphic', '图形层', (lay.duration / total * 100).toFixed(2), `editorSelectLayer('${sc.id}',${sc.layers.indexOf(lay)}, event)`)).join('')
+  // 轨 6 图形
+  html += trackRow('图形', graphicLayers.length
+    ? graphicLayers.map(([sc, lay]) => clip('🎨 图形', '图形层', (lay.duration / total * 100).toFixed(2), `editorSelectLayer('${sc.id}',${sc.layers.indexOf(lay)}, event)`)).join('')
     : '<div class="hint">无</div>');
-  // 轨 7 Watermark（项目级；点击滚动到水印区）
-  html += trackRow('Watermark', wmCount
-    ? (c.watermarks || []).map(w => clip('🔷 ' + (w.text || w.kind), `水印 ${w.kind}@${w.anchor} opacity=${w.opacity}`, '100', "document.getElementById('editor-audio-card').scrollIntoView({behavior:'smooth'})")).join('')
+  // 轨 7 水印（项目级；点击滚动到水印区）
+  html += trackRow('水印', wmCount
+    ? (c.watermarks || []).map(w => clip('🔷 ' + (w.text || w.kind), `水印 ${w.kind}@${w.anchor} 不透明度=${w.opacity}`, '100', "document.getElementById('editor-audio-card').scrollIntoView({behavior:'smooth'})")).join('')
     : '<div class="hint">无</div>');
-  // 轨 8 Subtitle（§31 轨）
-  html += trackRow('Subtitle', hasSub
-    ? clip(`💬 ${c.subtitle_track.mode === 'word' ? '逐词' : '句子'} ${c.subtitle_track.cues.length} cues`, '字幕轨（§31）', '100', "document.getElementById('editor-audio-card').scrollIntoView({behavior:'smooth'})")
+  // 轨 8 字幕
+  html += trackRow('字幕', hasSub
+    ? clip(`💬 ${c.subtitle_track.mode === 'word' ? '逐词' : '句子'} ${c.subtitle_track.cues.length} 条`, '字幕轨', '100', "document.getElementById('editor-audio-card').scrollIntoView({behavior:'smooth'})")
     : '<div class="hint">无</div>');
-  // 轨 9 BGM
-  html += trackRow('BGM', bgms.length
-    ? bgms.map(t => clip(`🎵 BGM${t.volume !== undefined && t.volume !== 1 ? ' · ' + t.volume.toFixed(2) : ''}${t.fadeIn ? ' · in' + t.fadeIn + 's' : ''}${t.fadeOut ? ' · out' + t.fadeOut + 's' : ''}`, 'BGM 轨', '100', "editorAudioVolume('bgm')")).join('')
+  // 轨 9 背景音乐
+  html += trackRow('背景音乐', bgms.length
+    ? bgms.map(t => clip(`🎵 BGM${t.volume !== undefined && t.volume !== 1 ? ' · ' + t.volume.toFixed(2) : ''}${t.fadeIn ? ' · 淡入' + t.fadeIn + 's' : ''}${t.fadeOut ? ' · 淡出' + t.fadeOut + 's' : ''}`, '背景音乐轨', '100', "editorAudioVolume('bgm')")).join('')
     : '<div class="hint">无</div>');
-  // 轨 10 SFX
-  html += trackRow('SFX', sfxs.length
-    ? sfxs.map(t => clip('🔔 SFX' + (t.volume !== undefined && t.volume !== 1 ? ' · ' + t.volume.toFixed(2) : ''), 'SFX 轨', '100', "editorAudioVolume('sfx')")).join('')
+  // 轨 10 音效
+  html += trackRow('音效', sfxs.length
+    ? sfxs.map(t => clip('🔔 音效' + (t.volume !== undefined && t.volume !== 1 ? ' · ' + t.volume.toFixed(2) : ''), '音效轨', '100', "editorAudioVolume('sfx')")).join('')
     : '<div class="hint">无</div>');
   html += '</div>';
   return html;
@@ -1360,6 +1360,11 @@ function editorSelectLayer(sceneId, idx, ev){
   edSelect(`${sceneId}#${idx}`, 'layer', ev);
 }
 
+const LAY_TYPE_CN = {video:'视频', image:'图片', person:'人物', text:'文本', title:'标题', subtitle:'字幕', lowerThird:'下三栏', shape:'形状', svg:'SVG', icon:'图标', chart:'图表', diagram:'示意图', graphic:'图形', background:'背景', logo:'标识', lottie:'动画', pip:'画中画', html:'网页', canvas:'画布', webgl:'3D', three_scene:'3D场景', broll:'B-roll'};
+function layerTypeCn(t){ return LAY_TYPE_CN[t] || t; }
+const MOTION_TYPE_CN = {enter:'入场', emphasis:'强调', exit:'出场', transition:'转场', idle:'静态', ambient:'环境'};
+const COMMERCIAL_CN = {CLEAR:'✓ 可商用', UNKNOWN:'? 待确认', BLOCKED:'× 禁止商用', REVIEW:'⚠ 需复核'};
+
 function edShowInspector(){
   const card = document.getElementById('editor-inspector-card');
   const box = document.getElementById('editor-inspector');
@@ -1367,7 +1372,7 @@ function edShowInspector(){
   card.style.display='';
   if (edSelectedCount() > 1) {
     const _ctxTag3 = document.getElementById('ed-inspector-ctx');
-    if (_ctxTag3) _ctxTag3.textContent = 'Context: Multi';
+    if (_ctxTag3) _ctxTag3.textContent = '上下文：多选';
     // 多选聚合视图（§23/§47：批量命令作用于选中集合，单 revision）
     const sceneIds = ED.comp.scenes.filter(s => edIsSelected('scene', s.id)).map(s => s.id);
     const layerIds = [...ED.selSet].filter(k => k.startsWith('layer:')).map(k => k.slice(6));
@@ -1382,7 +1387,7 @@ function edShowInspector(){
   }
   const _ctxTag = document.getElementById('ed-inspector-ctx');
   if (ED.sel.type === 'scene') {
-    if (_ctxTag) _ctxTag.textContent = 'Context: Scene';
+    if (_ctxTag) _ctxTag.textContent = '上下文：场景';
     const sc = ED.comp.scenes.find(s=>s.id===ED.sel.id);
     if (!sc) { // 场景已被删/重命名（split 产生 a/b）：清选择防 undefined
       edClearSelection();
@@ -1400,7 +1405,7 @@ function edShowInspector(){
   }
   // layer（§55：按选中对象类型显示字段组）
   const _ctxTag2 = document.getElementById('ed-inspector-ctx');
-  if (_ctxTag2) _ctxTag2.textContent = 'Context: ' + (ED.comp.scenes.flatMap(sc=>sc.layers)[parseInt(ED.sel.id.split('#')[1])] || {}).type || 'Layer';
+  if (_ctxTag2) _ctxTag2.textContent = '上下文：' + (layerTypeCn((ED.comp.scenes.flatMap(sc=>sc.layers)[parseInt(ED.sel.id.split('#')[1])] || {}).type) || '图层');
   const [sceneId, idxS] = ED.sel.id.split('#');
   const idx = parseInt(idxS);
   const sc = ED.comp.scenes.find(s=>s.id===sceneId);
@@ -1411,18 +1416,18 @@ function edShowInspector(){
     return;
   }
   box.innerHTML =
-    `<b>图层 ${ED.sel.id}</b>（${lay.type}）`+
+    `<b>图层 ${ED.sel.id}</b>（${layerTypeCn(lay.type)}）`+
     `<div class="hint">时长：${lay.duration.toFixed(1)}s · 素材：${esc(lay.asset_id || '—')}</div>`+
-    `<div class="role-block"><b>Content</b><div class="hint">素材：${esc(lay.asset_id || '无')}</div></div>`+
-    `<div class="role-block"><b>Layout</b><div class="hint">层时长 ${lay.duration.toFixed(1)}s · 场景内起点 ${lay.start.toFixed(1)}s</div></div>`+
-    `<div class="role-block"><b>Style</b><div class="btn-row">`+
+    `<div class="role-block"><b>内容</b><div class="hint">素材：${esc(lay.asset_id || '无')}</div></div>`+
+    `<div class="role-block"><b>布局</b><div class="hint">层时长 ${lay.duration.toFixed(1)}s · 场景内起点 ${lay.start.toFixed(1)}s</div></div>`+
+    `<div class="role-block"><b>样式</b><div class="btn-row">`+
     `<input type="number" id="ed-opacity" placeholder="透明度 0-1" step="0.1" min="0" max="1" style="width:90px">`+
     `<input type="number" id="ed-scale" placeholder="缩放 0.1-3" step="0.1" style="width:90px">`+
     `<button class="btn-secondary btn-sm" onclick="editorSetTransform('${sceneId}',${idx})">应用变换</button></div></div>`+
-    `<div class="role-block"><b>Motion</b><div class="hint">当前：${lay.motion_recipe_id ? esc(lay.motion_recipe_id) : '无'}`+
+    `<div class="role-block"><b>动效</b><div class="hint">当前：${lay.motion_recipe_id ? esc(lay.motion_recipe_id) : '无'}`+
     (lay.motion_version ? ` @${esc(lay.motion_version)}` : '') + `</div>`+
     `<label>动效时长（秒）</label><div class="btn-row"><input type="number" id="ed-mot-dur" value="0.5" step="0.1" min="0.1" style="width:80px">`+
-    `<select id="ed-mot-easing" style="width:110px"><option value="">Easing（默认）</option>`+
+    `<select id="ed-mot-easing" style="width:110px"><option value="">缓动（默认）</option>`+
     ['linear','quad','cubic','quart','expo','back','sine'].map(e=>`<option value="${e}">${e}</option>`).join('') + `</select></div>`+
     `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorPreviewMotionParam('${sceneId}',${idx})">👁 预览参数</button>`+
     `<button class="btn-sm" onclick="editorApplyMotionParam('${sceneId}',${idx})">✅ 应用参数</button></div>`+
@@ -1444,7 +1449,7 @@ async function loadAssetInspector(assetId){
     const d = await (await fetch('/api/asset_detail?asset_id=' + encodeURIComponent(assetId) + '&project_id=' + encodeURIComponent(ED.pid||''))).json();
     if (!d || d.error) { el.textContent = ''; return; }
     const statusCn = {CLEAR:'✓ 商用可用', REVIEW:'⚠ 需复核', BLOCKED:'× 已阻断', UNKNOWN:'⚠ 状态未知'};
-    el.innerHTML = `<b>Asset Inspector</b><br>来源：${esc(d.source||'—')} · 授权：<b>${statusCn[d.commercial_status]||esc(d.commercial_status)}</b>`+
+    el.innerHTML = `<b>素材信息</b><br>来源：${esc(d.source||'—')} · 授权：<b>${statusCn[d.commercial_status]||esc(d.commercial_status)}</b>`+
       (d.license_note ? `<br>许可：${esc(d.license_note)}` : '') +
       (d.used_in && d.used_in.length ? `<br>用于：${esc(d.used_in.slice(0,3).join('、'))}` : '');
   } catch(e) { el.textContent = ''; }
@@ -1721,7 +1726,7 @@ async function assetPickerTab(tab, idx, sceneId){
   } else if (tab === 'stock') {
     body.innerHTML = '<div class="btn-row"><input type="text" id="stock-q" class="rev-input" style="flex:1" placeholder="搜索关键词（如 coffee）">'+
       '<button class="btn-secondary btn-sm" id="stock-search-btn">搜索</button></div>'+
-      '<div id="stock-results" class="hint">配置 Pexels/Pixabay/Coverr API key 后可搜（§25 商业安全：缺 key 诚实提示）</div>';
+      '<div id="stock-results" class="hint">配置 Pexels / Pixabay / Coverr 后可按图库搜索（缺 key 会诚实提示）</div>';
     const inp = document.getElementById('stock-q');
     if (inp) inp.onkeydown = (e) => { if (e.key === 'Enter') assetPickerStockSearch(); };
     const btn = document.getElementById('stock-search-btn');
@@ -1759,7 +1764,7 @@ async function assetPickerStockSearch(){
   const statusCn = {SUPPORTED:'✓', MISSING_REQUIREMENT:'⚠ 素材不足', INCOMPATIBLE:'× 画幅不符', UNKNOWN:'? 待确认'};
   box.innerHTML = cands.length ? cands.map(c =>
     `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription||c.sourceId)} <span class="hint">${c.width}x${c.height} · ${c.duration}s · ${statusCn[c.status]||c.status}</span></span>`+
-    `<span class="hint">${c.commercialStatus==='CLEAR'?'✓商用':c.commercialStatus}</span></div>`).join('')
+    `<span class="hint">${COMMERCIAL_CN[c.commercialStatus]||c.commercialStatus}</span></div>`).join('')
     : '<div class="hint">无匹配素材</div>';
 }
 async function editorReplaceSource(sceneId, idx, assetId){
@@ -2067,7 +2072,7 @@ async function editorGenerate(){
   status.textContent = `✅ 已生成 ${r.results.length} 个变体（已保存到素材库）`;
   box.innerHTML = r.results.map(res =>
     `<div class="proj-row"><span><b>变体 ${esc(res.variant)}</b> <code>${esc(res.asset_id)}</code><br>`+
-    `<span class="hint">${esc(res.type)} · provider ${esc(res.provider_id)} · 指纹 ${esc(res.input_fingerprint)}</span></span>`+
+    `<span class="hint">${layerTypeCn(res.type)} · 提供方 ${esc(res.provider_id)} · 指纹 ${esc(res.input_fingerprint)}</span></span>`+
     `<span class="btn-row">`+
     `<button class="btn-sm" onclick="addGenToTimeline('${esc(res.asset_id)}')">加入时间线</button>`+
     `<button class="btn-secondary btn-sm" onclick="switchTab('assets')">已存素材库</button>`+
@@ -2177,58 +2182,66 @@ async function edLibLoad(){
   const box = document.getElementById('ed-lib-list');
   box.innerHTML = '加载中……';
   try {
-    if (kind === 'blocks') {
+    if (ED_LIB.nav === 'blocks') {
       if (!ED_LIB.blocks.length) ED_LIB.blocks = await (await fetch('/api/catalog/blocks')).json();
       const list = ED_LIB.blocks.filter(b => !q || (b.id + b.name).toLowerCase().includes(q));
       box.innerHTML = list.map(b => `<div class="proj-row"><span><b>${esc(b.name)}</b> <code>${esc(b.id)}</code>`+
         `<span class="hint">${esc(b.category)} · ${b.slots.join('/')}</span></span>`+
         `<button class="btn-secondary btn-sm" onclick="edLibApplyBlock('${esc(b.id)}')">应用</button></div>`).join('')
         || '<div class="hint">无匹配</div>';
-    } else if (kind === 'motions') {
-      if (!ED_LIB.motions.length) ED_LIB.motions = await (await fetch('/api/registry/motions')).json();
-      const list = ED_LIB.motions.filter(m => !q || (m.id + m.name).toLowerCase().includes(q));
-      box.innerHTML = list.map(m => `<div class="proj-row"><span><b>${esc(m.name)}</b> <code>${esc(m.id)}</code>`+
-        `<span class="hint">${esc(m.motion_type)}</span></span>`+
-        `<button class="btn-secondary btn-sm" onclick="edLibApplyMotion('${esc(m.id)}')">应用</button></div>`).join('')
-        || '<div class="hint">无匹配</div>';
-    } else if (kind === 'templates') {
+    } else if (ED_LIB.nav === 'motions') {
+      const ms = await (await fetch('/api/registry/motions')).json();
+      MOTIONS = ms;
+      const zoneCard = (label, ids) => `<div style="margin:6px 0"><b style="color:#8ab4d8">${label}</b><div class="btn-row" style="flex-wrap:wrap">`+
+        ids.map(id => { const m = ms.find(x=>x.id===id); if(!m) return ''; return `<span class="motion-card" style="width:110px">`+
+          `<span class="motion-preview ${m.preview_only?'motion-preview-dim':''}" style="${motionCssPreview(m)}">${esc(m.name)}</span>`+
+          `<button class="btn-secondary btn-sm" onclick="edLibApplyMotion('${esc(m.id)}')">应用</button></span>`; }).join('')+'</div></div>';
+      const shown = [...new Set([...MOTION_ZONES.Entrance, ...MOTION_ZONES.Emphasis, ...MOTION_ZONES.Exit])];
+      const rest = ms.filter(m => !shown.includes(m.id) && (!q || (m.id + m.name).toLowerCase().includes(q)));
+      box.innerHTML = zoneCard('入场', MOTION_ZONES.Entrance) + zoneCard('强调', MOTION_ZONES.Emphasis) + zoneCard('出场', MOTION_ZONES.Exit) +
+        (rest.length ? `<div style="margin:6px 0"><b style="color:#8ab4d8">其他</b><div class="btn-row" style="flex-wrap:wrap">`+
+          rest.map(m => `<span class="motion-card" style="width:110px"><span class="motion-preview ${m.preview_only?'motion-preview-dim':''}" style="${motionCssPreview(m)}">${esc(m.name)}</span>`+
+          `<button class="btn-secondary btn-sm" onclick="edLibApplyMotion('${esc(m.id)}')">应用</button></span>`).join('')+'</div></div>' : '');
+    } else if (ED_LIB.nav === 'templates') {
       const tpls = await (await fetch('/api/registry/templates')).json();
+      TPLS = tpls;
       const list = tpls.filter(t => !q || (t.id + t.name).toLowerCase().includes(q));
       box.innerHTML = list.map(t => `<div class="proj-row"><span><b>${esc(t.name)}</b> <code>${esc(t.id)}</code>`+
-        `<span class="hint">去「模板库」页试用</span></span></div>`).join('') || '<div class="hint">无匹配</div>';
-    } else if (kind === 'assets') {
+        `<span class="hint">画幅 ${t.supported_ratios.join('/')} · ${t.scene_count} 场景</span></span>`+
+        `<button class="btn-sm" onclick="edLibOpenTemplate('${t.id}')">试用</button></div>`).join('') || '<div class="hint">无匹配</div>';
+    } else if (ED_LIB.nav === 'assets') {
       const assets = await (await fetch('/api/assets_library')).json();
       const list = assets.filter(a => !q || (a.asset_id + (a.description||'')).toLowerCase().includes(q));
       box.innerHTML = list.slice(0, 50).map(a => `<div class="proj-row"><span><b>${esc(a.asset_id)}</b>`+
         `<span class="hint">${esc(a.type)} · 用于 ${a.used_in.length} 项目</span></span>`+
         `<button class="btn-secondary btn-sm" onclick="edLibApplyAsset('${esc(a.asset_id)}')">换到此层</button></div>`).join('')
         || '<div class="hint">无素材</div>';
-    } else if (kind === 'scenes') {
+    } else if (ED_LIB.nav === 'scenes') {
       if (!ED.comp || !ED.comp.scenes) { box.innerHTML = '<div class="hint">先打开项目</div>'; return; }
       const list = ED.comp.scenes.filter(s => !q || (s.id + s.text).toLowerCase().includes(q));
       box.innerHTML = list.map(s => `<div class="proj-row" onclick="editorSelectScene('${esc(s.id)}', event)"><span><b>${esc(s.id)}</b>`+
         `<span class="hint">${s.duration.toFixed(1)}s · ${esc((s.text||'').slice(0,20))}</span></span></div>`).join('');
-    } else if (kind === 'script') {
+    } else if (ED_LIB.nav === 'script') {
       // §48 Script 入口：项目分镜文案浏览（只读，编辑回 Inspector/时间线）
       if (!ED.comp || !ED.comp.scenes) { box.innerHTML = '<div class="hint">先打开项目</div>'; return; }
       const list = ED.comp.scenes.filter(s => !q || (s.text||'').toLowerCase().includes(q));
       box.innerHTML = list.map((s, i) => `<div class="proj-row"><span><span class="hint">#${i+1} ${esc(s.id)} · ${s.duration.toFixed(1)}s</span><br>${esc(s.text||'')}</span></div>`).join('')
         || '<div class="hint">无文案场景</div>';
-    } else if (kind === 'stock') {
+    } else if (ED_LIB.nav === 'stock') {
       // §48 Stock 入口：三 Provider 统一搜索（缺 key 诚实提示 §25）
       box.innerHTML = `<div class="btn-row"><input type="text" id="ed-stock-q" class="rev-input" style="flex:1" placeholder="搜索 Stock 素材（coffee）" onkeydown="if(event.key==='Enter')edLibStockSearch()">
-        <button class="btn-secondary btn-sm" onclick="edLibStockSearch()">搜索</button></div><div id="ed-stock-results" class="hint" style="margin-top:6px">Pexels / Pixabay / Coverr 统一入口（§25 商业安全矩阵）</div>`;
-    } else if (kind === 'generate') {
+        <button class="btn-secondary btn-sm" onclick="edLibStockSearch()">搜索</button></div><div id="ed-stock-results" class="hint" style="margin-top:6px">Pexels / Pixabay / Coverr 统一入口</div>`;
+    } else if (ED_LIB.nav === 'generate') {
       // §48 Generate 入口：跳到下方生成面板（入口非独立产品）
-      box.innerHTML = '<div class="hint">生成素材面板在时间线下方（Timeline-native §30）。<br>选中场景后填 prompt → 生成 A/B/C 变体 → 加入时间线。</div>';
-    } else if (kind === 'references') {
+      box.innerHTML = '<div class="hint">生成素材面板在时间线下方。<br>选中场景后填提示词 → 生成 A/B/C 变体 → 加入时间线。</div>';
+    } else if (ED_LIB.nav === 'references') {
       // §48 References 入口：参考视频/素材引用列表（§68/§90 asset: 引用）
       if (!ED.comp) { box.innerHTML = '<div class="hint">先打开项目</div>'; return; }
       const refs = [];
       for (const sc of ED.comp.scenes) for (const lay of (sc.layers||[])) {
         if (lay.asset_id && !refs.includes(lay.asset_id)) refs.push(lay.asset_id);
       }
-      box.innerHTML = refs.length ? refs.map(r => `<div class="proj-row"><span><b>${esc(r)}</b><span class="hint">可作 asset: 生成引用（§90）</span></span></div>`).join('')
+      box.innerHTML = refs.length ? refs.map(r => `<div class="proj-row"><span><b>${esc(r)}</b><span class="hint">可作生成引用</span></span></div>`).join('')
         : '<div class="hint">项目暂无素材引用</div>';
     }
   } catch (e) {
@@ -2251,7 +2264,7 @@ async function edLibStockSearch(){
   const statusCn = {SUPPORTED:'✓', MISSING_REQUIREMENT:'⚠ 素材不足', INCOMPATIBLE:'× 画幅不符', UNKNOWN:'? 待确认'};
   box.innerHTML = cands.length ? cands.map(c =>
     `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription || c.sourceId)}`+
-    `<span class="hint">${c.width}x${c.height} · ${c.duration}s · ${statusCn[c.status] || c.status} · ${c.commercialStatus === 'CLEAR' ? '✓商用' : esc(c.commercialStatus)}</span></span></div>`).join('')
+    `<span class="hint">${c.width}x${c.height} · ${c.duration}s · ${statusCn[c.status] || c.status} · ${COMMERCIAL_CN[c.commercialStatus] || esc(c.commercialStatus)}</span></span></div>`).join('')
     : '<div class="hint">无匹配素材</div>';
 }
 
@@ -2283,6 +2296,24 @@ async function edLibApplyAsset(assetId){
     editorRenderTimeline();
     editorToast(`✅ 素材已换为 ${assetId}`);
   } else { editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error), true); }
+}
+
+function edLibOpenTemplate(tid){
+  const t = TPLS.find(x=>x.id===tid);
+  if (!t) return;
+  const box = document.getElementById('ed-lib-list');
+  const ratioOpts = t.supported_ratios.map(r=>`<option value="${r}">${r}</option>`).join('');
+  const slotInputs = t.slots.map(s=>
+    `<label>${esc(s.label)}${s.required?'（必填）':''}</label>`+
+    (s.type === 'image' || s.type === 'video' || s.type === 'product' || s.type === 'person'
+      ? `<input type="file" id="tpl-slot-${s.id}" accept=".mp4,.jpg,.jpeg,.png,.webp,.mov">`
+      : `<input type="text" id="tpl-slot-${s.id}" placeholder="填入${esc(s.label)}">`)
+  ).join('');
+  box.innerHTML = `<div><b>试用模板：${esc(t.name)}</b>`+
+    `<label>画幅</label><select id="tpl-ratio">${ratioOpts}</select>`+slotInputs+
+    `<div class="btn-row"><button class="btn" onclick="instantiateTemplate('${t.id}')">🧩 生成可编辑项目</button>`+
+    `<button class="btn-secondary btn-sm" onclick="edLibNav('templates')">← 返回模板列表</button></div>`+
+    `<div class="hint" id="tpl-status"></div></div>`;
 }
 
 // ===========================================================================
@@ -2397,9 +2428,9 @@ function renderMotionZones(){
         `<div class="motion-preview ${m.preview_only ? 'motion-preview-dim' : ''}" style="${kf}">${esc(m.name)}</div>`+
         `<button class="btn-secondary btn-sm" style="margin-top:6px;width:100%" onclick="motionApplyToProject('${esc(m.id)}')">应用</button></div>`;
     }).join('') + '</div></div>';
-  box.innerHTML = zoneHtml('Entrance（入场）', MOTION_ZONES.Entrance) +
-                   zoneHtml('Emphasis（强调）', MOTION_ZONES.Emphasis) +
-                   zoneHtml('Exit（出场）', MOTION_ZONES.Exit);
+  box.innerHTML = zoneHtml('入场', MOTION_ZONES.Entrance) +
+                   zoneHtml('强调', MOTION_ZONES.Emphasis) +
+                   zoneHtml('出场', MOTION_ZONES.Exit);
 }
 function renderMotionGallery(){
   const q = (document.getElementById('motion-search').value || '').toLowerCase();
@@ -2420,8 +2451,8 @@ function renderMotionGallery(){
     const usedN = (MOTION_BEHAVIOR[m.id]||{}).used || 0;
     return `<div class="motion-card" data-mid="${esc(m.id)}">`+
       `<div class="motion-preview ${m.preview_only ? 'motion-preview-dim' : ''}" style="${kf}">预览</div>`+
-      `<div class="motion-title">${esc(m.name)} <button class="fav-btn ${pinned?'pinned':''}" title="收藏（Style DNA 记 Pinned）" onclick="toggleMotionPin('${esc(m.id)}', this)">${pinned?'★':'☆'}</button></div>`+
-      `<div class="hint">${esc(m.id)} · ${m.motion_type} · ${m.duration_recommended}s${m.preview_only ? ' · 仅预览' : ''}${usedN ? ' · 用过'+usedN+'次' : ''}</div>`+
+      `<div class="motion-title">${esc(m.name)} <button class="fav-btn ${pinned?'pinned':''}" title="收藏（风格记忆）" onclick="toggleMotionPin('${esc(m.id)}', this)">${pinned?'★':'☆'}</button></div>`+
+      `<div class="hint">${esc(m.id)} · ${MOTION_TYPE_CN[m.motion_type]||m.motion_type} · ${m.duration_recommended}s${m.preview_only ? ' · 仅预览' : ''}${usedN ? ' · 用过'+usedN+'次' : ''}</div>`+
       `<button class="btn-secondary btn-sm" onclick="motionApplyToProject('${esc(m.id)}')">应用到项目</button>`+
       `</div>`;
   }).join('') || '<div class="hint">无匹配动效</div>';
@@ -2570,12 +2601,12 @@ function gfxRenderPlan(){
         <span class="scene-dur">${s.duration.toFixed(1)}s</span>
         <button class="scene-move" onclick="gfxRemoveScene(${i})">✕</button>
       </div>
-      <div class="scene-text">Narration：${esc(s.text)}</div>
-      <div class="scene-asset">Visual Intent：${esc(intent)} · Visual Form：${esc(form)}</div>
+      <div class="scene-text">旁白：${esc(s.text)}</div>
+      <div class="scene-asset">视觉意图：${esc(intent)} · 视觉形态：${esc(form)}</div>
       <div class="btn-row" style="flex-wrap:wrap">
-        <span class="hint">Block</span>
+        <span class="hint">视觉块</span>
         <select style="flex:2" onchange="GFX.plan.scenes[${i}].block_id=this.value;GFX.plan.scenes[${i}].motion_id=null;GFX.previewHtml=null">${opts(s.block_id)}</select>
-        <span class="hint">Motion</span>
+        <span class="hint">动效</span>
         ${motionSel}
       </div>
       <div class="btn-row" style="flex-wrap:wrap">
@@ -2583,12 +2614,12 @@ function gfxRenderPlan(){
         <select style="flex:1" onchange="GFX.plan.scenes[${i}].layout=this.value;GFX.previewHtml=null">${layoutOpts(s.layout)}</select>
         <span class="hint">素材</span>
         <select style="flex:1.4" onchange="GFX.plan.scenes[${i}].source=this.value;GFX.previewHtml=null">
-          <option value="Generated Graphic"${(s.source||'Generated Graphic')==='Generated Graphic'?' selected':''}>Generated Graphic</option>
-          <option value="Library Asset"${s.source==='Library Asset'?' selected':''}>Library Asset</option>
-          <option value="User Upload"${s.source==='User Upload'?' selected':''}>User Upload</option>
+          <option value="Generated Graphic"${(s.source||'Generated Graphic')==='Generated Graphic'?' selected':''}>程序化图形</option>
+          <option value="Library Asset"${s.source==='Library Asset'?' selected':''}>素材库资产</option>
+          <option value="User Upload"${s.source==='User Upload'?' selected':''}>用户上传</option>
         </select>
       </div>
-      <div class="scene-asset">Block：${esc(s.block_id)} · Motion：${esc(motionForScene)} · Source：${esc(s.source||'Generated Graphic')}</div>
+      <div class="scene-asset">视觉块：${esc(s.block_id)} · 动效：${esc(motionForScene)} · 来源：${s.source==='Library Asset'?'素材库资产':s.source==='User Upload'?'用户上传':'程序化图形'}</div>
       <div class="btn-row sb-actions" style="flex-wrap:wrap">
         <button class="btn-secondary btn-sm" onclick="gfxSwapBlock(${i})">👁 换视觉</button>
         <button class="btn-secondary btn-sm" onclick="gfxSwapMotion(${i})">✨ 换动画</button>
@@ -2598,7 +2629,7 @@ function gfxRenderPlan(){
       </div>
     </div>`;
   }).join('');
-  box.innerHTML = `<div class="card"><b>📋 你的创作方案</b> <span class="hint">（§34：先审阅再渲染；每场景可换视觉/动画/素材/布局，或删场景）</span>
+  box.innerHTML = `<div class="card"><b>📋 你的创作方案</b> <span class="hint">（先审阅再渲染；每场景可换视觉/动画/素材/布局，或删场景）</span>
     <div class="scene-list" style="max-height:400px">${cards}</div></div>`;
 }
 
@@ -2706,8 +2737,8 @@ async function gfxPreview(){
   const box = document.getElementById('gfx-preview-box');
   // §40 Developer Mode：Visual / Source 两模式（Source=编译产物 HTML 只读展示）
   box.innerHTML = `<div class="card"><b>动效预览</b> <span class="hint">（沙箱 iframe 隔离运行，与正式渲染同一份 HTML——预览即所得）</span>
-    <div class="btn-row"><button class="btn-secondary btn-sm" id="gfx-mode-visual" onclick="gfxMode('visual')">Visual 视图</button>
-    <button class="btn-secondary btn-sm" id="gfx-mode-source" onclick="gfxMode('source')">Source 源码（开发者模式）</button></div>
+    <div class="btn-row"><button class="btn-secondary btn-sm" id="gfx-mode-visual" onclick="gfxMode('visual')">视觉视图</button>
+    <button class="btn-secondary btn-sm" id="gfx-mode-source" onclick="gfxMode('source')">源码视图（开发者模式）</button></div>
     <div id="gfx-visual-view"><iframe id="gfx-preview-frame" sandbox="allow-scripts" style="width:${parseInt(w)*scale}px;height:${parseInt(h)*scale}px;transform-origin:top left;border:1px solid #2a343d;border-radius:8px;background:#101418;display:block"></iframe>
     <div class="btn-row"><button class="btn-secondary btn-sm" onclick="gfxPlay()">▶ 播放</button>
     <button class="btn-secondary btn-sm" onclick="gfxPause()">⏸ 暂停</button></div>
@@ -2715,7 +2746,7 @@ async function gfxPreview(){
     <input type="range" id="gfx-seek-slider" min="0" max="100" value="0" style="flex:1" oninput="gfxSeekTo(this.value)">
     <span class="hint" id="gfx-seek-label">0%</span></div></div>
     <div id="gfx-source-view" style="display:none">
-      <div class="hint">§41 Developer Mode：编译产物 HTML（只读；重编译须回方案换块——HTML 是执行格式，不是编辑入口）</div>
+      <div class="hint">开发者模式：编译产物 HTML（只读；重编译须回方案换块——HTML 是执行格式，不是编辑入口）</div>
       <textarea id="gfx-source-ta" style="min-height:200px;font-family:Consolas,monospace;font-size:12px" readonly></textarea>
     </div></div>`;
   const frame = document.getElementById('gfx-preview-frame');
@@ -3118,7 +3149,7 @@ async function loadAssetsLibrary(){
           <div class="scene-asset">source：${esc(f.source)}${f.hash ? ' · hash ' + esc(f.hash.slice(0,8)) : ''}</div>
         </div>`).join('');
       document.getElementById('media-frozen-list').innerHTML =
-        frows ? `<b>冻结资产（§44 Resolve→Freeze→Provenance）</b>${frows}` : '';
+        frows ? `<b>冻结资产</b>${frows}` : '';
     } catch (e) { /* 冻结台账为空不阻塞 */ }
     // §43 Graphic Library 计数（Blocks/Motions/Templates）
     try {
