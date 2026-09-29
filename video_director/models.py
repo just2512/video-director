@@ -21,7 +21,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 from video_director import config
 
@@ -97,6 +97,42 @@ class AudioTrackType(str, Enum):
     ambient = "ambience"
 
 
+class AssetSource(str, Enum):
+    """§10 Asset 统一：7 来源枚举（系统能力归一方案）。
+
+    与 Provider 区分：source=来源大类，provider=具体提供方。
+    例 source=stock+provider=pexels；source=generated+provider=seedance；
+    source=uploaded+provider=None。
+    """
+    local = "local"
+    uploaded = "uploaded"
+    stock = "stock"
+    generated = "generated"
+    extracted = "extracted"
+    graphic = "graphic"
+    hybrid = "hybrid"
+
+
+#: 旧 source 松散值 → AssetSource 归一映射（兼容历史 JSON，不爆炸迁移）
+ASSET_SOURCE_ALIASES = {
+    "user": "uploaded",               # 用户本地导入
+    "self-generated": "generated",     # 自产音频合成
+    "generated": "generated",
+    "pexels": "stock",
+    "pixabay": "stock",
+    "coverr": "stock",
+    "stock": "stock",
+    "shotcraft-assets": "stock",
+}
+
+
+def normalize_asset_source(value: str) -> str:
+    """把旧松散 source 值归一到 AssetSource 枚举值（未知值原样保留）。"""
+    if not value:
+        return AssetSource.local.value
+    return ASSET_SOURCE_ALIASES.get(value, value)
+
+
 class MissingAssetError(Exception):
     """素材不足（V1 §29 / V2 §92：诚实上报，禁止编造素材）。"""
 
@@ -124,9 +160,16 @@ class AssetRef(BaseModel):
     prompt: Optional[str] = None
     description: Optional[str] = None
     keywords: List[str] = Field(default_factory=list)
-    # 许可台账（V2 §38）：外部素材从第一天记录来源
-    source: str = "user"
+    # §10 Asset 统一：来源大类（AssetSource 枚举值）+ 溯源/权利（canonical 字段）
+    source: str = "uploaded"
     license_note: Optional[str] = None
+    provenance: Optional[dict] = None    # §10 Provenance（Provider/Creator/SourcePage 等）
+    rights_status: Optional[str] = None  # §10 RightsStatus（CLEAR/UNKNOWN/BLOCKED/REVIEW）
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def _norm_source(cls, v):
+        return normalize_asset_source(v or "uploaded")
 
 
 class Selection(BaseModel):
@@ -224,6 +267,9 @@ class SceneIR(BaseModel):
     transition_out: TransitionOut = Field(default_factory=TransitionOut)
     origin_recipe_id: Optional[str] = None
     origin_recipe_version: Optional[str] = None
+    # ---- §6 Canonical：语义角色 + Beat 细分（空 beats=旧格式单视觉层段）----
+    semantic_role: Optional[str] = None   # hook/context/problem/evidence/turn/resolution/cta
+    beats: List["Beat"] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_scene(self):
@@ -396,6 +442,35 @@ class SubtitleTrack(BaseModel):
         return self
 
 
+class SemanticAnchor(BaseModel):
+    """§6：Beat 内的语义锚点（Hypit 语义：词/段/时刻/概念/配方）。"""
+    id: str
+    kind: str = ""   # word | segment | moment | concept | recipe
+    label: str = ""
+
+
+class Beat(BaseModel):
+    """§6：Scene 内部最小创作单元（一句话一个视觉动作的最小粒度）。
+
+    空 beats = 旧格式（Scene.layers 就是唯一视觉层段，等价单 Beat）。
+    """
+    id: str
+    role: str = ""                          # reveal | explanation | emphasis | hook...
+    semantic_anchors: List[SemanticAnchor] = Field(default_factory=list)
+    layers: List["Layer"] = Field(default_factory=list)
+    audio: List["AudioTrack"] = Field(default_factory=list)
+
+
+class Variant(BaseModel):
+    """§6：项目的版本化创作（scenes/tracks/style；Project.active_variant_id 指向）。"""
+    id: str
+    version: int = 1
+    scenes: List["SceneIR"] = Field(default_factory=list)
+    tracks: List["AudioTrack"] = Field(default_factory=list)
+    style: Optional[dict] = None   # StyleContract（style registry 引用 + 参数）
+    metadata: dict = Field(default_factory=dict)
+
+
 class CompositionIR(BaseModel):
     """最终 Composition IR：AI 规划唯一产物，渲染唯一输入。
 
@@ -415,6 +490,9 @@ class CompositionIR(BaseModel):
     subtitle_track: Optional["SubtitleTrack"] = None
     origin_template_id: Optional[str] = None
     origin_template_version: Optional[str] = None
+    # ---- §6 Canonical：Variant 版本化（空 variants=旧格式单 Variant，scenes/audio 直接）----
+    active_variant_id: Optional[str] = None
+    variants: List[Variant] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_continuity(self):
@@ -439,6 +517,16 @@ class CompositionIR(BaseModel):
     # ------------------------------------------------------------------
     # 便捷读取
     # ------------------------------------------------------------------
+    def canonical_variant(self) -> "Variant":
+        """§6：返回当前 active Variant。兼容旧 IR（无 variants 时把 scenes/audio
+        包装成默认单 Variant），让新代码稳定拿到 Canonical 结构。"""
+        if self.variants and self.active_variant_id:
+            for v in self.variants:
+                if v.id == self.active_variant_id:
+                    return v
+        return Variant(id=self.active_variant_id or "v1", version=self.version,
+                       scenes=self.scenes, tracks=self.audio)
+
     def narration_tracks(self) -> List[AudioTrack]:
         return [t for t in self.audio if t.type == AudioTrackType.narration]
 

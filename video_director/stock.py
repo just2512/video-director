@@ -80,6 +80,7 @@ class StockAsset:
     duration: float
     creator: str = ""
     description: str = ""
+    source: str = "stock"          # §10 AssetSource：来源大类（stock），provider 是具体方
     asset_id: str = ""             # §21 assetId（provider:source_id 稳定 id）
     semantic_tags: tuple = ()      # §21 semanticTags（检索词+描述词）
     commercial_status: str = UNKNOWN  # §25 由 provider policy 定
@@ -116,6 +117,7 @@ class AssetCandidate:
         a = self.asset
         return {
             "assetId": a.asset_id,          # §21
+            "source": a.source,             # §10 来源大类（stock）
             "provider": a.provider,
             "sourceId": a.source_id,
             "sourcePage": a.source_page,

@@ -42,9 +42,15 @@ def _cap(
     outputs=(), preconditions=(),
     side_effect="composition", supports_preview=False,
     requires_confirmation=False, provider_required=False, examples=(),
+    domain: str = "", kind: str = "",
 ) -> Capability:
+    # §40：domain 缺省继承 category（域分类）；kind 缺省据 side_effect 推断——
+    # 无副作用=只读查询(query)，有副作用=可执行动作(command)。
+    dom = domain or category
+    knd = kind or ("query" if side_effect == "" else "command")
     return Capability(
         id=cap_id, version="1.0.0", category=category, description=description,
+        domain=dom, kind=knd,
         inputSchema=input_schema,
         outputArtifacts=frozenset(outputs),
         preconditions=frozenset(preconditions),

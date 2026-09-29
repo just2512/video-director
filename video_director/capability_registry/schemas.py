@@ -19,12 +19,20 @@ from typing import Dict, FrozenSet, List, Optional
 
 @dataclass(frozen=True)
 class Capability:
-    """一条系统能力契约（§5）。frozen：Manifest 是只读事实源。"""
+    """一条系统能力契约（§5）。frozen：Manifest 是只读事实源。
+
+    §40 归一（系统能力归一方案）：domain = 能力域（composition/creative/edit/
+    asset/audio/subtitle/music/generation/render/revision/qc/ai，即 category 的
+    规范语义）；kind = command（可执行动作）/ query（只读查询）。
+    只注册「可执行操作」，不把 Composition IR 等纯数据模型注册成 AI Tool。
+    """
 
     id: str
     version: str
     category: str
     description: str
+    domain: str = ""
+    kind: str = "command"
     inputSchema: Optional[str] = None
     outputArtifacts: FrozenSet[str] = frozenset()
     preconditions: FrozenSet[str] = frozenset()
@@ -41,6 +49,8 @@ class Capability:
             "id": self.id,
             "version": self.version,
             "category": self.category,
+            "domain": self.domain or self.category,
+            "kind": self.kind,
             "description": self.description,
             "inputSchema": self.inputSchema,
             "outputArtifacts": sorted(self.outputArtifacts),
