@@ -99,3 +99,10 @@
 | §3/§37 物理目录重组（DEFER） | ➖ | 保持 video_director/ 现有结构，adapters/ 与 capability_registry/graphics/registries 构成公共 import 边界 |
 
 验证：pytest 173 passed；worktree 8535 前端实测——无 JS error、domain/kind API 正确（timeline.query=query/watermark.add=command）、旧项目 IR 兼容打开、中文界面、Library 入口可点。
+
+**第四个 Contract（§17 Asset Reference Graph，第三轮）**：
+- ReferenceType 7 类型枚举（visual/style/first_frame/last_frame/generation/continuity/mask）+ Reference/ReferenceGraph 模型 + `reference_from_marker` 归一（asset:/style: 松散字符串升级为结构化 Reference）
+- CompositionIR.references 关联项目引用图；`/api/editor/composition` 返回 references
+- 前端体现：生成面板引用选择器 optgroup 分组（风格引用/素材引用）
+
+验证：pytest 173 passed；main 8501 前端实测——ref_optgroup=true（风格引用/素材引用分组）、ref_api=true（references 键返回）、js_errors=[]。
