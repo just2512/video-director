@@ -31,6 +31,11 @@ CATEGORY = {
     "render": "渲染域能力（草稿/终稿/1080/4K/预检/校验/恢复）",
     "revision": "修改域能力（提案/预览/应用/拒绝）",
     "qc": "质检域能力",
+    # ---- 视觉语义归一新增域（§71 能力族）----
+    "visual": "视觉语义能力（概念/分镜/连续性/摄影机/关键帧/蒙版/抠像/PiP/形变）",
+    "graphics": "程序化图形能力（HTML/SVG/Canvas/Lottie/Chart/DataViz/3D/WebGPU）",
+    "promo": "项目宣传片能力（Repo→Promo：发现/扫描/证据/分镜/渲染/验证）",
+    "agent": "Agent 网关能力（MCP/CLI/上下文/Job流/工具发现）",
 }
 
 
@@ -337,6 +342,153 @@ def _build_manifest() -> List[Capability]:
         "按参考视频风格匹配 BGM（§35/§68；匹配通道未开时诚实不可用）",
         input_schema="TargetRequest", outputs=("AudioTrack",), provider_required=True,
         examples=("配乐风格参考这条视频",)))
+
+    # ---- 视觉语义归一 CAP-VIS-001~009（§71：Concept/Storyboard/Continuity/
+    #      Camera/Keyframe/Mask/Matting/PiP/Morph）----
+    caps.append(_cap("visual.concept", "visual",
+        "提出多个视觉概念供选择（Concept-first §八：一个元素贯穿/一镜到底/前后对比...）",
+        outputs=("ConceptList",), side_effect="", examples=("给我3个视觉概念",)))
+    caps.append(_cap("visual.storyboard", "visual",
+        "分镜编排（含 Before/Action/Carry/After 前后状态 §三十）",
+        outputs=("Storyboard",), examples=("做一份分镜",)))
+    caps.append(_cap("visual.continuity.plan", "visual",
+        "连续镜头编排（Continuity Planner §29：Carry/相机过渡/空间关系/Morph 候选）",
+        outputs=("ContinuityPlan",), examples=("让镜头之间有延续",)))
+    caps.append(_cap("visual.continuity.verify", "visual",
+        "连续性检查（PPT Detector §三十三：无 Carry/无相机延续 → CONTINUITY_WARNING）",
+        outputs=("ContinuityReport",), side_effect="", examples=("检查是不是PPT式",)))
+    caps.append(_cap("camera.apply", "visual",
+        "应用摄影机运动（推/拉/横移/俯视/环绕/穿越/跟拍 §十一）",
+        input_schema="CameraApplyRequest", outputs=("CameraTrack",), examples=("镜头推进",)))
+    caps.append(_cap("keyframe.add", "visual",
+        "在当前时间创建关键帧（§24 Inspector 小圆点）",
+        input_schema="KeyframeAddRequest", outputs=("KeyframeTrack",), examples=("在这里打个关键帧",)))
+    caps.append(_cap("keyframe.remove", "visual",
+        "删除关键帧", input_schema="KeyframeTargetRequest", outputs=("KeyframeTrack",),
+        examples=("去掉这个关键帧",)))
+    caps.append(_cap("mask.apply", "visual",
+        "应用几何蒙版（rect/rounded/ellipse/polygon/path + 羽化/反转/关键帧 §63）",
+        input_schema="MaskApplyRequest", outputs=("Mask",), examples=("给这个层加个圆形蒙版",)))
+    caps.append(_cap("matting.generate", "visual",
+        "抠像生成 Matte（segmentation/chroma provider → MaskArtifact §六十四；无 provider 诚实 UNAVAILABLE）",
+        input_schema="MattingRequest", outputs=("MaskArtifact",), provider_required=True,
+        examples=("把人物抠出来",)))
+    caps.append(_cap("pip.configure", "visual",
+        "配置画中画层（video/image/screen/product/camera + 圆角/阴影/蒙版/裁剪 §二十二）",
+        input_schema="PipConfigRequest", outputs=("Layer",), examples=("加一个小窗录屏",)))
+    caps.append(_cap("visual.morph", "visual",
+        "UI→Graphic Morph（按钮→箭头→流程图节点，程序化形变 §四十二）",
+        input_schema="MorphRequest", outputs=("MorphPlan",), examples=("把这个按钮变成流程图节点",)))
+
+    # ---- 视觉语义归一 CAP-SUB-006~011（§26 字幕能力族补全）----
+    caps.append(_cap("subtitle.word_token", "subtitle",
+        "逐词时间轴（Word Token；模式 word 的逐词高亮基础）", input_schema="TargetRequest",
+        outputs=("SubtitleTrack",), examples=("逐词高亮",)))
+    caps.append(_cap("subtitle.highlight", "subtitle",
+        "关键词高亮/变色/放大（§26 Highlight）", input_schema="HighlightRequest",
+        outputs=("SubtitleTrack",), examples=("关键词变黄色",)))
+    caps.append(_cap("subtitle.karaoke", "subtitle",
+        "卡拉OK式逐词填充（§26 Karaoke）", input_schema="TargetRequest",
+        outputs=("SubtitleTrack",), examples=("做卡拉OK字幕",)))
+    caps.append(_cap("subtitle.kinetic", "subtitle",
+        "动力学字幕（逐字入场/放大/重排 §26 Animation）", input_schema="KineticRequest",
+        outputs=("SubtitleTrack",), examples=("字幕逐字蹦出来",)))
+    caps.append(_cap("subtitle.layout", "subtitle",
+        "字幕布局（断句/换行/避让/位置跟踪 §26 Layout）", input_schema="LayoutRequest",
+        outputs=("SubtitleTrack",), examples=("字幕不要挡住人脸",)))
+    caps.append(_cap("subtitle.safe_zone", "subtitle",
+        "字幕安全区（平台安全边距 §26 Safe Zone）", input_schema="SafeZoneRequest",
+        outputs=("SubtitleTrack",), examples=("按抖音安全区摆放",)))
+
+    # ---- 视觉语义归一 CAP-GFX-001~008（§45：GFX 按能力拆分注册，不再一揽子）----
+    caps.append(_cap("gfx.html", "graphics",
+        "HTML 图形（DOM 组件，Graphics Runtime 渲染）", input_schema="GfxRequest",
+        outputs=("Graphic",), examples=("做一个HTML卡片",)))
+    caps.append(_cap("gfx.svg", "graphics",
+        "SVG 矢量图形", input_schema="GfxRequest", outputs=("Graphic",),
+        examples=("画个SVG图标",)))
+    caps.append(_cap("gfx.canvas", "graphics",
+        "Canvas 位图动画图形", input_schema="GfxRequest", outputs=("Graphic",),
+        examples=("用canvas画粒子",)))
+    caps.append(_cap("gfx.lottie", "graphics",
+        "Lottie 动画（可控动画资源 §四十五；无 renderer 诚实 UNAVAILABLE）",
+        input_schema="GfxRequest", outputs=("Graphic",), provider_required=True,
+        examples=("放一个Lottie动画",)))
+    caps.append(_cap("gfx.chart", "graphics",
+        "图表图形（柱/线/饼，结构化数据→视觉）", input_schema="GfxRequest",
+        outputs=("Graphic",), examples=("画个增长曲线图",)))
+    caps.append(_cap("gfx.data_viz", "graphics",
+        "数据可视化（Workflow/Comparison/Hierarchy/Timeline 等扩展族 §四十四）",
+        input_schema="GfxRequest", outputs=("Graphic",), examples=("做个流程图",)))
+    caps.append(_cap("gfx.three", "graphics",
+        "Three.js 3D 图形（§45 3D Graphics Provider；未接通诚实 UNAVAILABLE）",
+        input_schema="GfxRequest", outputs=("Graphic",), provider_required=True,
+        examples=("加个3D元素",)))
+    caps.append(_cap("gfx.webgpu", "graphics",
+        "WebGPU 实验图形（§45 Experimental Provider；未接通诚实 UNAVAILABLE）",
+        input_schema="GfxRequest", outputs=("Graphic",), provider_required=True,
+        examples=("试试WebGPU效果",)))
+
+    # ---- 视觉语义归一 CAP-PROMO-001~011（§34：Repo → Promo 全链）----
+    caps.append(_cap("promo.repo_discovery", "promo",
+        "发现开发项目（WorkspaceRoot 下 .git/package.json 等指纹 §三十五；不扫全盘）",
+        input_schema="PathRequest", outputs=("RepoList",), side_effect="",
+        examples=("找到我电脑里的项目",)))
+    caps.append(_cap("promo.project_scan", "promo",
+        "项目扫描（README/CHANGELOG/routes/components/design tokens/git history §三十六；排除 .env/keys）",
+        input_schema="PathRequest", outputs=("ProjectSnapshot",), side_effect="",
+        examples=("扫描这个项目",)))
+    caps.append(_cap("promo.feature_discovery", "promo",
+        "功能发现（Claim→Source→Runtime→Evidence，只认 VERIFIED §三十八）",
+        input_schema="PathRequest", outputs=("FeatureClaimList",), side_effect="",
+        examples=("这个软件有哪些功能值得宣传",)))
+    caps.append(_cap("promo.runtime_launch", "promo",
+        "启动项目运行时（Playwright 打开真实 UI §五）", input_schema="RuntimeRequest",
+        outputs=("RuntimeStatus",), side_effect="runtime", requires_confirmation=True,
+        examples=("把项目跑起来",)))
+    caps.append(_cap("promo.component_trace", "promo",
+        "组件溯源（功能→真实组件/route/state §2 Evidence Graph）",
+        input_schema="TraceRequest", outputs=("EvidenceRefList",), side_effect="",
+        examples=("这个功能对应哪个组件",)))
+    caps.append(_cap("promo.evidence_graph", "promo",
+        "证据图（镜头↔代码/运行时/截图证据追溯 §3 ProjectEvidenceGraph）",
+        input_schema="PathRequest", outputs=("ProjectEvidenceGraph",), side_effect="",
+        examples=("给宣传片建证据链",)))
+    caps.append(_cap("promo.product_brief", "promo",
+        "产品简报（从 Evidence 提炼卖点，禁编造 §六）", input_schema="TargetRequest",
+        outputs=("ProductBrief",), side_effect="", examples=("写产品简报",)))
+    caps.append(_cap("promo.concept", "promo",
+        "宣传创意（3 个 Concept 供选择 §六十六）", input_schema="TargetRequest",
+        outputs=("ConceptList",), side_effect="", examples=("给我3个宣传创意",)))
+    caps.append(_cap("promo.storyboard", "promo",
+        "宣传片分镜（连续镜头：Carry/Camera 延续 §六十七）", input_schema="TargetRequest",
+        outputs=("Storyboard",), examples=("生成宣传片分镜",)))
+    caps.append(_cap("promo.render", "promo",
+        "渲染宣传片（代码驱动：真实组件+GSAP+FFmpeg，不用 AI Video §四十）",
+        input_schema="TargetRequest", outputs=("RenderResult",), side_effect="render",
+        requires_confirmation=True, examples=("渲染宣传片",)))
+    caps.append(_cap("promo.verify", "promo",
+        "宣传片验证（Evidence 核对 + Continuity QC §74 E2E）", input_schema="TargetRequest",
+        outputs=("PromoVerifyReport",), side_effect="", examples=("验证宣传片内容属实",)))
+
+    # ---- 视觉语义归一 CAP-AGENT-001~005（§四十九：Agent Gateway）----
+    caps.append(_cap("agent.mcp", "agent",
+        "MCP 网关（creative.inspect/plan/execute/preview/render/verify/watch §五十一；未接通诚实 UNAVAILABLE）",
+        outputs=("AgentGateway",), side_effect="", provider_required=True,
+        examples=("接 MCP",)))
+    caps.append(_cap("agent.cli", "agent",
+        "CLI 网关（creative-os inspect/plan/render/edit §五十二；未接通诚实 UNAVAILABLE）",
+        outputs=("AgentGateway",), side_effect="", provider_required=True,
+        examples=("用命令行操作",)))
+    caps.append(_cap("agent.context", "agent",
+        "Agent 上下文（Project Context 快照给 Agent §53）", outputs=("ProjectContext",),
+        side_effect="", examples=("给Agent看项目上下文",)))
+    caps.append(_cap("agent.job_watch", "agent",
+        "Job 事件流（SSE job.watch §四十八；未订阅诚实 UNKNOWN）",
+        outputs=("JobEvent",), side_effect="", examples=("盯这个任务",)))
+    caps.append(_cap("agent.tool_discovery", "agent",
+        "工具发现（Capability Contract → MCP tools/list 派生 §五十）",
+        outputs=("ToolList",), side_effect="", examples=("Agent能调什么工具",)))
 
     return caps
 

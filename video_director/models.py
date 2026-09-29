@@ -24,6 +24,15 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator, field_validator
 
 from video_director import config
+from video_director.visual_semantics import (
+    CameraTrack,
+    ContinuityLink,
+    KeyframeTrack,
+    Mask,
+    SceneState,
+    StyleContract,
+    Transform,
+)
 
 
 class LayerType(str, Enum):
@@ -272,6 +281,12 @@ class Layer(BaseModel):
     motion_instance: Optional[dict] = None
     # ---- EDT-006 Timeline：lock 防止误改（§13 Layer.locked）----
     locked: Optional[bool] = None
+    # ---- 视觉语义归一：结构化 Transform/Keyframe/Mask（后向兼容 Optional）----
+    # transform：层变换（position/scale/rotation/opacity），替代 motion_instance.parameters
+    #          里的松散 dict；keyframes：层属性关键帧轨；mask：几何蒙版。
+    transform: Optional[Transform] = None
+    keyframes: List[KeyframeTrack] = Field(default_factory=list)
+    mask: Optional[Mask] = None
 
     @model_validator(mode="after")
     def _check_layer(self):
@@ -324,6 +339,14 @@ class SceneIR(BaseModel):
     # ---- §6 Canonical：语义角色 + Beat 细分（空 beats=旧格式单视觉层段）----
     semantic_role: Optional[str] = None   # hook/context/problem/evidence/turn/resolution/cta
     beats: List["Beat"] = Field(default_factory=list)
+    # ---- 视觉语义归一：Scene Contract（§31/§32/§七十二 Continuity，后向兼容）----
+    intent: str = ""                      # §31 intent（这个场景要表达什么）
+    visual_intent: str = ""               # §31 visualIntent（这个场景视觉上做什么）
+    entrance_state: Optional[SceneState] = None   # 进入状态（可见层/锚点/机位/空间图）
+    exit_state: Optional[SceneState] = None       # 退出状态（供连续性一致性检查）
+    continuity_in: Optional[ContinuityLink] = None   # 上一镜→本镜的延续
+    continuity_out: Optional[ContinuityLink] = None  # 本镜→下一镜的延续
+    camera: Optional[CameraTrack] = None  # §31 场景内嵌的摄影机轨
 
     @model_validator(mode="after")
     def _check_scene(self):
@@ -549,6 +572,14 @@ class CompositionIR(BaseModel):
     variants: List[Variant] = Field(default_factory=list)
     # ---- §17 Asset Reference Graph：首帧/末帧/参考图/风格/连续性/遮罩引用 ----
     references: Optional[ReferenceGraph] = None
+    # ---- 视觉语义归一：Composition 顶层结构升级（§十六/§七十⑤，后向兼容）----
+    # §十七 Track 不新造成平行模型：现有 audio（narration/dialogue/original/bgm/
+    #   sfx/ambience 六型）+ Scene.layers（video/image/pip/title/lower_third/graphic
+    #   等 Layer.type）已覆盖 16 种轨道的语义，避免同一物两套表达造成新割裂。
+    style_contract: Optional[StyleContract] = None          # §十六 styleContract
+    camera_tracks: List[CameraTrack] = Field(default_factory=list)       # §十六 cameraTracks
+    continuity_links: List[ContinuityLink] = Field(default_factory=list)  # §十六 continuityLinks
+    assets: List[AssetRef] = Field(default_factory=list)                 # §十六 assets
 
     @model_validator(mode="after")
     def _check_continuity(self):

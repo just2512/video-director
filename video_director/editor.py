@@ -39,6 +39,13 @@ from video_director.registries.compiler import (
     apply_motion_to_layer,
     instantiate_shot,
 )
+from video_director.visual_semantics import (
+    KEYFRAME_PROPERTIES,
+    Keyframe,
+    KeyframeTrack,
+    Mask,
+    Transform,
+)
 
 
 class EditorError(Exception):
@@ -288,6 +295,12 @@ SUPPORTED_COMMANDS = (
     "remove_watermark",          # 移除水印（§19）
     "set_subtitle_style",        # 字幕样式（§32 SubtitleStyle 入 IR）
     "set_subtitle_track",        # 字幕轨（§31/§33 SubtitleTrack：句级/逐词 cues 入 IR）,
+    # ---- 视觉语义归一（§72 六 Contract 可执行化）----
+    "set_visual_transform",       # 结构化层变换（x/y/scale/rotation/opacity/anchor）
+    "add_keyframe",               # 层属性关键帧（§23 KeyframeTrack）
+    "remove_keyframe",            # 删关键帧
+    "apply_mask",                 # 几何蒙版（§20 Mask）
+    "remove_mask",                # 移除蒙版
     "undo",
     "redo",
 )
@@ -399,6 +412,16 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_subtitle_style(ir, target_id, payload)
         elif cmd_name == "set_subtitle_track":
             changed, stale = _cmd_set_subtitle_track(ir, target_id, payload)
+        elif cmd_name == "set_visual_transform":
+            changed, stale = _cmd_set_visual_transform(ir, target_id, payload)
+        elif cmd_name == "add_keyframe":
+            changed, stale = _cmd_add_keyframe(ir, target_id, payload)
+        elif cmd_name == "remove_keyframe":
+            changed, stale = _cmd_remove_keyframe(ir, target_id, payload)
+        elif cmd_name == "apply_mask":
+            changed, stale = _cmd_apply_mask(ir, target_id, payload)
+        elif cmd_name == "remove_mask":
+            changed, stale = _cmd_remove_mask(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -1102,3 +1125,124 @@ def _cmd_set_subtitle_track(ir: CompositionIR, target_id: str, payload: dict) ->
     except ValueError as exc:
         raise EditorError("INVALID_PAYLOAD", str(exc))
     return [f"subtitle_track:{len(cues)}"], ["subtitle:render"]
+
+
+# ---------------------------------------------------------------------------
+# 视觉语义归一命令（§72 六 Contract 可执行化：set_visual_transform /
+# add_keyframe / remove_keyframe / apply_mask / remove_mask）
+# ---------------------------------------------------------------------------
+
+
+def _cmd_set_visual_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§72.1 结构化层变换：写 Layer.transform（替代 motion_instance.parameters 松散 dict）。
+
+    payload 可含 x/y/scale/rotation/opacity/anchor 任意子集（增量更新，不覆盖未给字段）。
+    """
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    patch = {k: payload[k] for k in ("x", "y", "scale", "rotation", "opacity", "anchor")
+             if k in payload}
+    if not patch:
+        raise EditorError("INVALID_PAYLOAD",
+                          "set_visual_transform 需 x/y/scale/rotation/opacity/anchor 至少一项")
+    try:
+        base = layer.transform or Transform()
+        # model_copy(update=) 不重跑 validator → 用 model_validate 重建（越界 fail-closed）
+        new_transform = Transform.model_validate({**base.model_dump(), **patch})
+    except ValueError as exc:
+        raise EditorError("INVALID_PARAMETER", str(exc))
+    # 静态 opacity 兼容旧渲染链（motion_instance.parameters.opacity 消费点保留）
+    inst = dict(layer.motion_instance or {})
+    if "opacity" in patch:
+        params = dict(inst.get("parameters") or {})
+        params["opacity"] = float(new_transform.opacity)
+        params["transform"] = {"scale": new_transform.scale, "opacity": new_transform.opacity}
+        inst["parameters"] = params
+    scene.layers[idx] = layer.model_copy(update={"transform": new_transform,
+                                                 "motion_instance": inst or None})
+    layer_id = f"{scene.id}#{idx}"
+    return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _cmd_add_keyframe(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§72.2 层关键帧：payload={property, at, value, easing?} → Layer.keyframes。
+
+    同 property 同 at 已存在 → 覆盖（编辑语义）；同 property 其他 at → 追加后按时间排序。
+    """
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    prop = payload.get("property") or ""
+    if prop not in KEYFRAME_PROPERTIES:
+        raise EditorError(
+            "INVALID_PAYLOAD",
+            f"add_keyframe: property {prop!r} 非法，应为 {sorted(KEYFRAME_PROPERTIES)}")
+    try:
+        kf = Keyframe(at=float(payload["at"]), value=payload["value"],
+                      easing=payload.get("easing") or "linear")
+    except KeyError:
+        raise EditorError("INVALID_PAYLOAD", "add_keyframe 需 payload.at / payload.value")
+    except ValueError as exc:
+        raise EditorError("INVALID_PARAMETER", str(exc))
+    tracks = list(layer.keyframes)
+    track_idx = next((i for i, t in enumerate(tracks) if t.property == prop), None)
+    if track_idx is None:
+        tracks.append(KeyframeTrack(property=prop, keyframes=[kf]))
+    else:
+        existing = [k for k in tracks[track_idx].keyframes if abs(k.at - kf.at) > 1e-6]
+        existing.append(kf)
+        existing.sort(key=lambda k: k.at)
+        tracks[track_idx] = KeyframeTrack(property=prop, keyframes=existing)
+    scene.layers[idx] = layer.model_copy(update={"keyframes": tracks})
+    layer_id = f"{scene.id}#{idx}"
+    return [f"{layer_id}:{prop}"], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _cmd_remove_keyframe(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§72.2 删关键帧：payload={property, at}。property 无剩余关键帧 → 整轨删除。"""
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    prop = payload.get("property") or ""
+    at = float(payload.get("at", -1))
+    tracks = [t for t in layer.keyframes if t.property != prop]
+    keep_track = next((t for t in layer.keyframes if t.property == prop), None)
+    if keep_track is not None:
+        remaining = [k for k in keep_track.keyframes if abs(k.at - at) > 1e-6]
+        if remaining:
+            tracks.append(KeyframeTrack(property=prop, keyframes=remaining))
+    if keep_track is None:
+        raise EditorError("INVALID_TARGET", f"层 {target_id} 无 {prop!r} 关键帧轨")
+    scene.layers[idx] = layer.model_copy(update={"keyframes": tracks})
+    layer_id = f"{scene.id}#{idx}"
+    return [f"{layer_id}:{prop}"], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _cmd_apply_mask(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§72.3 几何蒙版：payload={shape, x?, y?, width?, height?, feather?, inverted?, geometry?}。
+
+    同层已有 mask → 覆盖（编辑语义）。Mask ≠ Matte：抠像走 matting.generate 能力。
+    """
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    data = {"id": payload.get("maskId") or f"mask-{scene.id}-{idx}"}
+    for k in ("shape", "x", "y", "width", "height", "feather",
+              "inverted", "opacity", "animated", "keyframes", "geometry"):
+        if k in payload:
+            data[k] = payload[k]
+    try:
+        mask = Mask.model_validate(data)
+    except ValueError as exc:
+        raise EditorError("INVALID_PARAMETER", str(exc))
+    scene.layers[idx] = layer.model_copy(update={"mask": mask})
+    layer_id = f"{scene.id}#{idx}"
+    return [f"{layer_id}:mask"], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _cmd_remove_mask(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§72.3 移除蒙版（无 mask 时诚实报错，不静默成功）。"""
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    if layer.mask is None:
+        raise EditorError("INVALID_TARGET", f"层 {target_id} 无蒙版")
+    scene.layers[idx] = layer.model_copy(update={"mask": None})
+    layer_id = f"{scene.id}#{idx}"
+    return [f"{layer_id}:mask"], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
