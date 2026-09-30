@@ -1948,6 +1948,110 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        if parsed.path in ("/api/promo/discover", "/api/promo/scan", "/api/promo/features"):
+            # §65 Repo Promo UI：发现项目 → 扫描 → 功能证据（§34/§三十五~三十八）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            root = (payload.get("root") or "").strip()
+            if not root or not Path(root).is_dir():
+                self._send_json({"error": "请提供有效的开发项目根目录（不扫全盘）"}, 400)
+                return
+            try:
+                from video_director import repo_promo as vd_repo_promo
+                if parsed.path == "/api/promo/discover":
+                    repos = vd_repo_promo.discover_repos(root)
+                    self._send_json({"ok": True, "repos": repos})
+                elif parsed.path == "/api/promo/scan":
+                    snap = vd_repo_promo.scan_project(root)
+                    self._send_json({"ok": True, "snapshot": snap})
+                else:
+                    graph = vd_repo_promo.discover_features(root)
+                    self._send_json({"ok": True, "evidence_graph": graph.to_dict()})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/editor/matting":
+            # §64 抠像（Matte）：ChromaKey Provider → 抠像产物注册进项目素材库
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            target = (payload.get("target_id") or "").strip()
+            if not pid or not target:
+                self._send_json({"error": "缺少 project_id / target_id"}, 400)
+                return
+            try:
+                from video_director import editor as vd_editor
+                from video_director import matting as vd_matting
+                from video_director import assets as vd_assets_mod
+                ir = vd_editor.load_composition(pid)
+                scene_id, idx_s = target.split("#")
+                idx = int(idx_s)
+                scene = next(s for s in ir.scenes if s.id == scene_id)
+                layer = scene.layers[idx]
+                if not layer.asset_id:
+                    self._send_json({"error": "该层无素材可抠像"}, 400)
+                    return
+                provider = vd_matting.get_matting_provider()
+                if provider is None:
+                    self._send_json({"error": "抠像 Provider 不可用（ffmpeg 未就绪）",
+                                     "code": "UNAVAILABLE"}, 503)
+                    return
+                base = Path(vd_config.composer_storage_root()) / pid
+                manifest_path = base / "assets" / "manifest.json"
+                existing = []
+                if manifest_path.is_file():
+                    try:
+                        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        existing = []
+                src = next((a for a in existing if a.get("id") == layer.asset_id), None)
+                if not src or not src.get("file"):
+                    self._send_json({"error": f"素材 {layer.asset_id} 不在项目库"}, 404)
+                    return
+                out_dir = base / "output" / "matting"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                out_name = f"matte-{layer.asset_id}{Path(src['file']).suffix or '.mp4'}"
+                out_path = out_dir / out_name
+                vd_matting.ChromaKeyProvider().extract(
+                    src["file"], str(out_path),
+                    color=payload.get("color", "0x00FF00"),
+                    similarity=float(payload.get("similarity", 0.18)),
+                    blend=float(payload.get("blend", 0.08)),
+                    replace_color=payload.get("replace_color", "black"),
+                )
+                # 抠像产物注册进项目 manifest（source=extracted，§10 来源链）
+                new_assets, _ = vd_assets_mod.build_manifest(
+                    [str(out_path)], [], license_note="chromakey-matte")
+                new_id = f"{layer.asset_id}-matte"
+                have = {a.get("id") for a in existing}
+                existing = [a for a in existing if a.get("id") != new_id]
+                for k, ref in new_assets.items():
+                    ref_dict = json.loads(ref.model_dump_json())
+                    ref_dict["id"] = new_id
+                    ref_dict["source"] = "extracted"
+                    ref_dict["description"] = f"抠像产物（ChromaKey，源自 {layer.asset_id}）"
+                    ref_dict["provenance"] = {"provider": "ChromaKey",
+                                              "source_asset": layer.asset_id}
+                    existing.append(ref_dict)
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2),
+                                         encoding="utf-8")
+                self._send_json({"ok": True, "asset_id": new_id, "file": str(out_path)})
+            except StopIteration:
+                self._send_json({"error": f"目标层 {target} 不存在"}, 404)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         if parsed.path == "/api/editor/command":
             # Editor Command（UI → 命令 → 校验 → Revision；前端不得直改 IR）
             length = int(self.headers.get("Content-Length", 0))

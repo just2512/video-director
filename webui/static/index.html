@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Video Director</title>
+<title>AI 视频创作系统</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:"Microsoft YaHei",system-ui,sans-serif; background:#101418; color:#e8e8e8; min-height:100vh; }
@@ -94,7 +94,8 @@
   .ed-track-row { width:100%; }
   .ed-track { display:flex; align-items:center; gap:6px; margin:4px 0; }
   .ed-track-label { flex:0 0 90px; font-size:11px; color:#8a959e; text-align:right; }
-  .ed-track-body { flex:1; display:flex; gap:2px; overflow:hidden; }
+  .ed-track-body { flex:1; display:flex; gap:2px; overflow:hidden; position:relative; }
+  .ed-kf-dot { position:absolute; top:2px; color:#ffd166; cursor:pointer; font-size:11px; z-index:2; text-shadow:0 0 2px #000; }
   .ed-track-clip { flex:0 0 auto; background:#1a2b21; border:1px solid #2a3a2f; border-radius:4px; font-size:11px; color:#c8d2a8; padding:2px 4px; overflow:hidden; white-space:nowrap; cursor:pointer; }
   /* ===== §46 最终前端结构：顶栏 + Library|Preview|Inspector 三栏 + Command Bar + 十轨 ===== */
   .ed-topbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 10px;
@@ -148,23 +149,12 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🎬 AI Video Creative OS</h1>
+  <h1>🎬 AI 视频创作系统</h1>
   <div class="sub">理解创意 → 编排内容 → 程序化图形 + 媒体素材 → 可编辑时间线 → 人工确认 → AI 局部修改 → 确定性渲染 → 版本化复用</div>
   <div class="tab-row">
-    <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">🏠 首页</button>
-    <button class="tab" id="tab-create" onclick="switchTab('create')">🎬 创作</button>
-    <button class="tab" id="tab-projects" onclick="switchTab('projects')">📁 项目</button>
-    <button class="tab" id="tab-editor" onclick="switchTab('editor')">🎛 编辑器</button>
-    <button class="tab" id="tab-templates" onclick="switchTab('templates')">🧩 模板库</button>
-    <button class="tab" id="tab-motions" onclick="switchTab('motions')">✨ 动效库</button>
-    <button class="tab" id="tab-assets" onclick="switchTab('assets')">🖼 素材库</button>
-    <button class="tab" id="tab-series" onclick="switchTab('series')">📚 系列</button>
-    <button class="tab" id="tab-capture" onclick="switchTab('capture')">📥 收集箱</button>
-    <button class="tab" id="tab-reference" onclick="switchTab('reference')">🔍 参考分析</button>
-    <button class="tab" id="tab-memory" onclick="switchTab('memory')">🧠 创作记忆</button>
-    <button class="tab" id="tab-review" onclick="switchTab('review')">✅ 审核</button>
-    <button class="tab" id="tab-publish" onclick="switchTab('publish')">🚀 发布</button>
-    <button class="tab" id="tab-automation" onclick="switchTab('automation')">🤖 自动化</button>
+    <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">🎬 创作</button>
+    <button class="tab" id="tab-editor" onclick="switchTab('editor')">🎛 工作台</button>
+    <button class="tab" id="tab-review" onclick="switchTab('review')">✅ 审阅</button>
     <button class="tab" id="tab-settings" onclick="switchTab('settings')">⚙️ 设置</button>
   </div>
 
@@ -173,7 +163,7 @@
 
     <!-- §33 Frontend：新的 Create 入口（从文字开始 → 程序化视觉） -->
     <div class="card">
-      <b>Create · 从文字开始</b>——输入文案或创意，自动生成知识/产品动效视频（程序化视觉，无需素材、无需配音）
+      <b>📝 文字创作</b>——输入文案或创意，自动生成知识/产品动效视频（程序化视觉，无需素材、无需配音）
       <div style="display:flex;gap:12px;align-items:flex-start;margin-top:10px">
         <div style="flex:2">
           <textarea id="gfx-script" style="min-height:96px" placeholder="例：介绍一下我的产品……"></textarea>
@@ -219,7 +209,7 @@
 
     <!-- §42 Block 开发体验：New Block → BlockDefinition → Creative Catalog -->
     <div class="card">
-      <b>🧱 新建视觉块（开发者模式）</b> <span class="hint">——定义语义/意图/基件，保存进 Creative Catalog（刷新后仍在）</span>
+      <b>🧱 新建视觉块（开发者模式）</b> <span class="hint">——定义语义/意图/基件，保存进创作目录（刷新后仍在）</span>
       <div class="btn-row" style="flex-wrap:wrap">
         <input type="text" id="nb-id" class="rev-input" style="flex:1" placeholder="块 id（如 kb.mycard）">
         <input type="text" id="nb-name" class="rev-input" style="flex:1" placeholder="块名（如 我的卡片）">
@@ -234,7 +224,7 @@
           <option value="pd.hero">基件：产品 Hero</option>
         </select>
         <input type="text" id="nb-intents" class="rev-input" style="flex:1" placeholder="语义意图（逗号分隔，如 mycard,custom）">
-        <button class="btn-secondary" onclick="gfxNewBlock()">💾 保存进 Catalog</button>
+        <button class="btn-secondary" onclick="gfxNewBlock()">💾 保存进创作目录</button>
       </div>
       <div class="hint" id="nb-status"></div>
     </div>
@@ -250,8 +240,20 @@
         <button class="btn-secondary" onclick="newEntry('pdf')">📄 从 PDF 开始</button>
         <button class="btn-secondary" onclick="newEntry('screen')">🖥 从录屏开始</button>
         <button class="btn-secondary" onclick="switchTab('reference')">🎬 从参考视频开始</button>
+        <button class="btn-secondary" onclick="promoTogglePanel()">🖥 从软件项目开始（Repo → 宣传片）</button>
         <button class="btn-secondary" onclick="newEntry('blank')">⬜ 空白项目</button>
       </div>
+    </div>
+    <!-- §65 Repo Promo UI：发现项目 → 扫描 → 功能证据 → 创意 -->
+    <div class="card" id="promo-panel" style="display:none">
+      <b>🖥 软件宣传片</b>——从代码库发现可验证的卖点（证据链追溯，AI 不编造功能）
+      <div class="btn-row">
+        <input type="text" id="promo-root" class="rev-input" style="flex:2" placeholder="开发项目根目录（如 D:\\Projects）">
+        <button class="btn-secondary" onclick="promoDiscover()">🔍 发现项目</button>
+      </div>
+      <div id="promo-repos" class="hint">输入目录后「发现项目」，列出其中的开发项目（不扫全盘、跳过敏感文件）。</div>
+      <div id="promo-scan-result"></div>
+      <div id="promo-features"></div>
     </div>
     <div class="card">
       <b>最近项目</b>（点击打开）
@@ -269,28 +271,6 @@
       <div class="hint" id="system-identity-tag">加载中……</div>
       <div id="capability-map"></div>
     </div>
-  </div>
-  <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
-  <div id="cap-badge" class="llm-badge" onclick="toggleCapPanel()">⚙ 系统能力：检测中…</div>
-
-  <div id="cap-panel" class="card llm-panel" style="display:none">
-    <b>系统能力状态</b>（可用=主路径或降级兜底可工作；缺失=该功能当前不可用）
-    <div id="cap-table"></div>
-    <div class="hint">Vision（视觉理解）配置 API key 后启用：设置 COMPOSER_VISION_API_KEY 环境变量；未配置时走文件名语义匹配兜底。</div>
-  </div>
-
-  <div id="llm-panel" class="card llm-panel" style="display:none">
-    <b>🤖 大模型配置中心</b>——按创作角色分组，各自独立配置（OpenAI 协议兼容端点均可）
-    <div id="model-roles"></div>
-    <div class="btn-row">
-      <button class="btn-secondary" onclick="saveModelConfig()">💾 保存全部配置</button>
-    </div>
-    <div class="hint" id="llm-save-status"></div>
-    <div class="hint">未配置的角色自动走规则/内置路径兜底，功能不缺失；已保存配置立即生效。文本模型驱动导演/文案润色/改稿解析，视觉模型驱动素材画面理解，生图/生视频模型为生成类创作模式预留。</div>
-  </div>
-
-  <!-- ======== Tab 1: 创作 ======== -->
-  <div id="pane-create" style="display:none">
   <div class="grid">
     <div class="card">
       <label>创作模式</label>
@@ -398,7 +378,7 @@
         <option value="karaoke">卡拉OK（逐词高亮跟读）</option>
       </select>
       <label>水印（可选，右下角；留空=不加水印）</label>
-      <input type="text" id="watermark" value="AI Video Director" placeholder="水印文字（留空=不加水印）">
+      <input type="text" id="watermark" value="AI 创作" placeholder="水印文字（留空=不加水印）">
       <label>成片前人工确认</label>
       <select id="confirm_mode">
         <option value="preview">先预览分镜再渲染（推荐）</option>
@@ -407,8 +387,81 @@
       <button id="go" onclick="compose()">🎬 自动制作</button>
     </div>
   </div>
+    <!-- §59 融合：项目/系列/收集箱/创作记忆 并入创作页工具区 -->
+    <div class="card">
+      <details>
+        <summary><b>📁 项目与工具</b>（项目列表 / 系列批量创作 / 收集箱 / 创作记忆）</summary>
+    <div class="card">
+      <b>我的项目</b>——点击任意项目可查看分镜/产物，未完成的可继续渲染
+      <div id="projects-list">加载中……</div>
+    </div>
+    <div id="project-detail-box"></div>
+    <div class="card">
+      <b>系列模板</b>——同一系列多集共用配音/画幅/字幕/风格/水印，一次配置批量成片
+      <div id="series-list">加载中……</div>
+      <div class="rev-console">
+        <b>新建系列</b>
+        <label>系列名</label>
+        <input type="text" id="series-name" placeholder="例：历史悬疑系列">
+        <label>每集文案分隔：每集之间用一行 <code>------------</code> 分隔</label>
+        <textarea id="series-scripts" placeholder="第一集文案……&#10;------------&#10;第二集文案……&#10;------------&#10;第三集文案……" style="min-height:140px"></textarea>
+        <label>共享素材（可选，系列内每集复用）</label>
+        <input type="file" id="series-videos" multiple accept=".mp4,.mov,.mkv,.webm">
+        <label>画幅</label>
+        <select id="series-aspect"></select>
+        <label>配音</label>
+        <select id="series-voice"></select>
+        <label>字幕样式</label>
+        <select id="series-subtitle">
+          <option value="plain">普通字幕</option>
+          <option value="karaoke">卡拉OK</option>
+        </select>
+        <label>水印（留空不加）</label>
+        <input type="text" id="series-watermark" value="AI 创作">
+        <div class="btn-row">
+          <button onclick="createSeriesAndBatch()">🚀 创建系列并批量生成</button>
+        </div>
+        <div class="hint" id="series-status"></div>
+      </div>
+    </div>
+    <div class="card">
+      <b>收集箱</b>——看到好的链接/想法先存这里，回头转创作（不必当场处理）
+      <div class="btn-row">
+        <input type="text" id="inbox-content" class="rev-input" placeholder="粘贴链接 / 记一个想法 / 一句选题……">
+        <button class="btn-secondary" onclick="inboxAdd('idea')">📥 存入</button>
+      </div>
+      <div class="hint" id="inbox-status"></div>
+      <div id="inbox-list">加载中……</div>
+    </div>
+    <div class="card">
+      <b>🧠 创作记忆</b>——你的每次成片与 👍👎 反馈都会沉淀为个人风格偏好，AI 越用越懂你。
+      <div class="btn-row"><button class="btn-secondary" onclick="loadMemoryView()">刷新</button></div>
+      <div id="memory-view"></div>
+    </div>
+      </details>
+    </div>
+
+  </div>
+  <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
+  <div id="cap-badge" class="llm-badge" onclick="toggleCapPanel()">⚙ 系统能力：检测中…</div>
+
+  <div id="cap-panel" class="card llm-panel" style="display:none">
+    <b>系统能力状态</b>（可用=主路径或降级兜底可工作；缺失=该功能当前不可用）
+    <div id="cap-table"></div>
+    <div class="hint">Vision（视觉理解）配置 API key 后启用：设置 COMPOSER_VISION_API_KEY 环境变量；未配置时走文件名语义匹配兜底。</div>
   </div>
 
+  <div id="llm-panel" class="card llm-panel" style="display:none">
+    <b>🤖 大模型配置中心</b>——按创作角色分组，各自独立配置（OpenAI 协议兼容端点均可）
+    <div id="model-roles"></div>
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="saveModelConfig()">💾 保存全部配置</button>
+    </div>
+    <div class="hint" id="llm-save-status"></div>
+    <div class="hint">未配置的角色自动走规则/内置路径兜底，功能不缺失；已保存配置立即生效。文本模型驱动导演/文案润色/改稿解析，视觉模型驱动素材画面理解，生图/生视频模型为生成类创作模式预留。</div>
+  </div>
+
+  <!-- ======== Tab 1: 创作 ======== -->
   <!-- ======== Tab: 编辑器（Timeline + Inspector + AI 提案）======== -->
   <div id="pane-editor" style="display:none">
     <div class="card">
@@ -646,10 +699,10 @@
       </div>
       <div id="editor-preflight-box"></div>
     </div>
-  </div>
-
-  <!-- ======== Tab: 模板库（Template Gallery）======== -->
-  <div id="pane-templates" style="display:none">
+    <!-- §59 融合：模板/动效/素材/参考 并入工作台（Library 入口的浏览页） -->
+    <div class="card">
+      <details>
+        <summary><b>📦 素材与灵感库</b>（模板库 / 动效库 / 素材库 / 参考分析）</summary>
     <div class="card">
       <b>🧩 模板库</b>——选择模板并填入你的内容，生成可编辑项目（模板不是 MP4，槽位内容随你改）
       <div class="btn-row">
@@ -665,10 +718,6 @@
       <div id="templates-list">加载中……</div>
     </div>
     <div id="template-form-box"></div>
-  </div>
-
-  <!-- ======== Tab: 动效库（Motion Gallery）======== -->
-  <div id="pane-motions" style="display:none">
     <div class="card">
       <b>✨ 动效库</b>——动效实时循环预览；「应用到项目」写入选中图层；⭐=收藏（风格记忆记录收藏）
       <div class="btn-row">
@@ -697,19 +746,6 @@
       <b>动效三区</b> <span class="hint">（入场 / 强调 / 出场；点卡片直接应用）</span>
       <div id="motion-zones"></div>
     </div>
-  </div>
-
-  <!-- ======== Tab 2: 项目（Portable Project 列表 + 重开续用）======== -->
-  <div id="pane-projects" style="display:none">
-    <div class="card">
-      <b>我的项目</b>——点击任意项目可查看分镜/产物，未完成的可继续渲染
-      <div id="projects-list">加载中……</div>
-    </div>
-    <div id="project-detail-box"></div>
-  </div>
-
-  <!-- ======== Tab 3: 素材库（§31 Asset Library 三栏 + §43 冻结台账）======== -->
-  <div id="pane-assets" style="display:none">
     <div class="card">
       <b>素材库</b>——项目用过的视频/图片/音频素材（左侧筛选 / 中间网格 / 右侧检视）
       <div class="asset-layout">
@@ -744,55 +780,6 @@
       <div class="hint">Templates：3 模板——去「模板库」页试用</div>
       <div id="graphic-lib-counts" class="btn-row" style="flex-wrap:wrap;margin-top:8px"></div>
     </div>
-  </div>
-
-  <!-- ======== Tab 4: 系列（模板 + 多集批量）======== -->
-  <div id="pane-series" style="display:none">
-    <div class="card">
-      <b>系列模板</b>——同一系列多集共用配音/画幅/字幕/风格/水印，一次配置批量成片
-      <div id="series-list">加载中……</div>
-      <div class="rev-console">
-        <b>新建系列</b>
-        <label>系列名</label>
-        <input type="text" id="series-name" placeholder="例：历史悬疑系列">
-        <label>每集文案分隔：每集之间用一行 <code>------------</code> 分隔</label>
-        <textarea id="series-scripts" placeholder="第一集文案……&#10;------------&#10;第二集文案……&#10;------------&#10;第三集文案……" style="min-height:140px"></textarea>
-        <label>共享素材（可选，系列内每集复用）</label>
-        <input type="file" id="series-videos" multiple accept=".mp4,.mov,.mkv,.webm">
-        <label>画幅</label>
-        <select id="series-aspect"></select>
-        <label>配音</label>
-        <select id="series-voice"></select>
-        <label>字幕样式</label>
-        <select id="series-subtitle">
-          <option value="plain">普通字幕</option>
-          <option value="karaoke">卡拉OK</option>
-        </select>
-        <label>水印（留空不加）</label>
-        <input type="text" id="series-watermark" value="AI Video Director">
-        <div class="btn-row">
-          <button onclick="createSeriesAndBatch()">🚀 创建系列并批量生成</button>
-        </div>
-        <div class="hint" id="series-status"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ======== Tab 5: 收集箱（Capture Inbox）======== -->
-  <div id="pane-capture" style="display:none">
-    <div class="card">
-      <b>收集箱</b>——看到好的链接/想法先存这里，回头转创作（不必当场处理）
-      <div class="btn-row">
-        <input type="text" id="inbox-content" class="rev-input" placeholder="粘贴链接 / 记一个想法 / 一句选题……">
-        <button class="btn-secondary" onclick="inboxAdd('idea')">📥 存入</button>
-      </div>
-      <div class="hint" id="inbox-status"></div>
-      <div id="inbox-list">加载中……</div>
-    </div>
-  </div>
-
-  <!-- ======== Tab 6: 参考视频分析 ======== -->
-  <div id="pane-reference" style="display:none">
     <div class="card">
       <b>参考视频分析</b>——上传一条优秀视频，系统提取镜头结构 / 节奏 / 运动语言 / 转场语法（风格重构，不复制内容），
       之后创作时可用报告指导你的成片。
@@ -801,17 +788,19 @@
       <div class="btn-row"><button onclick="analyzeReference()">🔍 开始分析</button></div>
       <div id="reference-result"></div>
     </div>
-  </div>
-
-  <!-- ======== Tab: 创作记忆 ======== -->
-  <div id="pane-memory" style="display:none">
-    <div class="card">
-      <b>🧠 创作记忆</b>——你的每次成片与 👍👎 反馈都会沉淀为个人风格偏好，AI 越用越懂你。
-      <div class="btn-row"><button class="btn-secondary" onclick="loadMemoryView()">刷新</button></div>
-      <div id="memory-view"></div>
+      </details>
     </div>
+
   </div>
 
+  <!-- ======== Tab: 模板库（Template Gallery）======== -->
+  <!-- ======== Tab: 动效库（Motion Gallery）======== -->
+  <!-- ======== Tab 2: 项目（Portable Project 列表 + 重开续用）======== -->
+  <!-- ======== Tab 3: 素材库（§31 Asset Library 三栏 + §43 冻结台账）======== -->
+  <!-- ======== Tab 4: 系列（模板 + 多集批量）======== -->
+  <!-- ======== Tab 5: 收集箱（Capture Inbox）======== -->
+  <!-- ======== Tab 6: 参考视频分析 ======== -->
+  <!-- ======== Tab: 创作记忆 ======== -->
   <!-- ======== Tab: 审核（Review §三十三）======== -->
   <div id="pane-review" style="display:none">
     <div class="card">
@@ -820,20 +809,16 @@
       <div id="review-list">加载中……</div>
     </div>
     <div id="review-detail-box"></div>
-  </div>
-
-  <!-- ======== Tab: 发布（Publish §二十九/§34 Preflight）======== -->
-  <div id="pane-publish" style="display:none">
+    <!-- §59 融合：发布/自动化 并入审阅页（审核→发布→自动化 是同一交付链） -->
+    <div class="card">
+      <details>
+        <summary><b>🚀 发布与自动化</b>（多平台发布 / 自动化任务）</summary>
     <div class="card">
       <b>🚀 发布</b>——按项目看商用预检与成品状态；未知/禁止商用的素材会在这里被拦截，点「定位素材」可跳转
       <div class="btn-row"><button class="btn-secondary" onclick="loadPublish()">刷新</button></div>
       <div id="publish-list">加载中……</div>
     </div>
     <div id="publish-detail-box"></div>
-  </div>
-
-  <!-- ======== Tab: 自动化（Automation §四十二 队列 + 系列 + 批量）======== -->
-  <div id="pane-automation" style="display:none">
     <div class="card">
       <b>🤖 自动化</b>——生产队列（系列/批量）+ 系列模板入口；任务状态可查、失败可定位
       <div class="btn-row">
@@ -842,8 +827,13 @@
       </div>
       <div id="queue-list">加载中……</div>
     </div>
+      </details>
+    </div>
+
   </div>
 
+  <!-- ======== Tab: 发布（Publish §二十九/§34 Preflight）======== -->
+  <!-- ======== Tab: 自动化（Automation §四十二 队列 + 系列 + 批量）======== -->
   <!-- ======== Tab: 设置（Settings §三十三）======== -->
   <div id="pane-settings" style="display:none">
     <div class="card">
@@ -856,6 +846,7 @@
       <div id="settings-env">点击「环境自检」查看 ffmpeg / 字体 / 存储 / 渲染器状态。</div>
     </div>
   </div>
+</div><!-- /wrap -->
 
   <div id="result"></div>
 
@@ -1050,24 +1041,17 @@ function discardEnhanced(){
 }
 
 function switchTab(tab){
-  for (const p of ['home','create','projects','editor','templates','motions','assets','series','capture','reference','memory','review','publish','automation','settings']) {
+  const TAB_ALIAS = {create:'home', projects:'home', series:'home', capture:'home', memory:'home', templates:'editor', motions:'editor', assets:'editor', reference:'editor', publish:'review', automation:'review'};
+  tab = TAB_ALIAS[tab] || tab;
+  for (const p of ['home','editor','review','settings']) {
     const el = document.getElementById('pane-' + p);
     if (el) el.style.display = (tab === p) ? '' : 'none';
     const tb = document.getElementById('tab-' + p);
     if (tb) tb.classList.toggle('tab-active', tab === p);
   }
-  if (tab === 'home') loadHome();
-  if (tab === 'projects') loadProjects();
-  if (tab === 'editor') editorInit();
-  if (tab === 'templates') loadTemplates();
-  if (tab === 'motions') loadMotions();
-  if (tab === 'assets') loadAssetsLibrary();
-  if (tab === 'series') loadSeries();
-  if (tab === 'capture') loadInbox();
-  if (tab === 'memory') loadMemoryView();
-  if (tab === 'review') loadReview();
-  if (tab === 'publish') loadPublish();
-  if (tab === 'automation') loadAutomation();
+  if (tab === 'home') { loadHome(); loadProjects(); loadSeries(); loadInbox(); loadMemoryView(); }
+  if (tab === 'editor') { editorInit(); loadTemplates(); loadMotions(); loadAssetsLibrary(); }
+  if (tab === 'review') { loadReview(); loadPublish(); loadAutomation(); }
   if (tab === 'settings') loadSettings();
 }
 
@@ -1353,6 +1337,18 @@ function renderPhysicalTimeline(){
   html += trackRow('音效', sfxs.length
     ? sfxs.map(t => clip('🔔 音效' + (t.volume !== undefined && t.volume !== 1 ? ' · ' + t.volume.toFixed(2) : ''), '音效轨', '100', "editorAudioVolume('sfx')")).join('')
     : '<div class="hint">无</div>');
+  // 轨 11 关键帧（§24：层的 KeyframeTrack 帧点按时间位置可视化）
+  let kInner = '';
+  c.scenes.forEach(sc => (sc.layers || []).forEach((lay, li) => {
+    (lay.keyframes || []).forEach(t => t.keyframes.forEach(k => {
+      // 帧点绝对时间 = 场景起点 + 层起点 + 帧 at；按全片总长定位
+      const absAt = sc.start + (lay.start || 0) + k.at;
+      const leftPct = Math.min(99.5, Math.max(0, absAt / total * 100));
+      kInner += `<span class="ed-kf-dot" style="left:${leftPct}%" title="${sc.id}#${li} ${t.property} @${k.at}s=${k.value}" `+
+        `onclick="editorSelectLayer('${sc.id}',${li}, event)">◆</span>`;
+    }));
+  }));
+  html += trackRow('关键帧', kInner || '<div class="hint">无（检视器「打关键帧」添加）</div>');
   html += '</div>';
   return html;
 }
@@ -1424,10 +1420,30 @@ function edShowInspector(){
     `<div class="hint">时长：${lay.duration.toFixed(1)}s · 素材：${esc(lay.asset_id || '—')}</div>`+
     `<div class="role-block"><b>内容</b><div class="hint">素材：${esc(lay.asset_id || '无')}</div></div>`+
     `<div class="role-block"><b>布局</b><div class="hint">层时长 ${lay.duration.toFixed(1)}s · 场景内起点 ${lay.start.toFixed(1)}s</div></div>`+
-    `<div class="role-block"><b>样式</b><div class="btn-row">`+
-    `<input type="number" id="ed-opacity" placeholder="透明度 0-1" step="0.1" min="0" max="1" style="width:90px">`+
-    `<input type="number" id="ed-scale" placeholder="缩放 0.1-3" step="0.1" style="width:90px">`+
-    `<button class="btn-secondary btn-sm" onclick="editorSetTransform('${sceneId}',${idx})">应用变换</button></div></div>`+
+    `<div class="role-block"><b>变换</b>（§24 Transform）<div class="btn-row">`+
+    `<input type="number" id="ed-tf-x" placeholder="水平 0-1" step="0.05" min="0" max="1" style="width:76px" value="${lay.transform ? lay.transform.x : ''}">`+
+    `<input type="number" id="ed-tf-y" placeholder="垂直 0-1" step="0.05" min="0" max="1" style="width:76px" value="${lay.transform ? lay.transform.y : ''}">`+
+    `<input type="number" id="ed-tf-rot" placeholder="旋转°" step="5" style="width:64px" value="${lay.transform && lay.transform.rotation ? lay.transform.rotation : ''}">`+
+    `<input type="number" id="ed-opacity" placeholder="透明度 0-1" step="0.1" min="0" max="1" style="width:90px" value="${lay.transform ? lay.transform.opacity : ''}">`+
+    `<input type="number" id="ed-scale" placeholder="缩放 0.1-3" step="0.1" style="width:76px" value="${lay.transform ? lay.transform.scale : ''}">`+
+    `<button class="btn-secondary btn-sm" onclick="editorSetVisualTransform('${sceneId}',${idx})">应用变换</button></div>`+
+    `<div class="hint">水平/垂直为画幅归一坐标（0.5=居中）；旋转单位为度。</div></div>`+
+    `<div class="role-block"><b>关键帧</b>（§24 点击 ● 在当前时间打帧）<div id="ed-kf-list">${renderKeyframeList(lay, sceneId, idx)}</div>`+
+    `<div class="btn-row">`+
+    `<select id="ed-kf-prop" style="width:96px"><option value="opacity">透明度</option><option value="scale">缩放</option><option value="x">水平</option><option value="y">垂直</option><option value="rotation">旋转</option></select>`+
+    `<input type="number" id="ed-kf-at" placeholder="时间秒" step="0.1" min="0" style="width:72px">`+
+    `<input type="number" id="ed-kf-val" placeholder="数值" step="0.1" style="width:64px">`+
+    `<button class="btn-secondary btn-sm" onclick="editorAddKeyframe('${sceneId}',${idx})">● 打关键帧</button></div></div>`+
+    `<div class="role-block"><b>蒙版</b>（§63 Mask）${lay.mask ? `<div class="hint">当前：${maskShapeCn(lay.mask.shape)} · 羽化 ${lay.mask.feather}${lay.mask.inverted ? ' · 反转' : ''}</div>` : ''}`+
+    `<div class="btn-row"><select id="ed-mask-shape" style="width:100px"><option value="">形状…</option><option value="rectangle">矩形</option><option value="rounded_rect">圆角矩形</option><option value="ellipse">椭圆</option></select>`+
+    `<input type="number" id="ed-mask-feather" placeholder="羽化px" min="0" style="width:72px">`+
+    `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="ed-mask-invert"> 反转</label>`+
+    `<button class="btn-secondary btn-sm" onclick="editorApplyMask('${sceneId}',${idx})">应用蒙版</button>`+
+    (lay.mask ? `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_mask', {}, '${ED.sel.id}')">移除蒙版</button>` : '')+`</div></div>`+
+    (lay.type === 'video' ? `<div class="role-block"><b>抠像</b>（§64 Matte：绿幕/蓝幕抠底，产物入素材库）<div class="btn-row">`+
+    `<select id="ed-mat-color" style="width:110px"><option value="0x00FF00">绿幕</option><option value="0x0000FF">蓝幕</option></select>`+
+    `<button class="btn-secondary btn-sm" onclick="editorRunMatting('${sceneId}',${idx})">🎞 生成抠像</button></div>`+
+    `<div class="hint" id="ed-mat-status">ChromaKey（ffmpeg colorkey）；无 Provider 时诚实不可用。</div></div>` : '')+
     `<div class="role-block"><b>动效</b><div class="hint">当前：${lay.motion_recipe_id ? esc(lay.motion_recipe_id) : '无'}`+
     (lay.motion_version ? ` @${esc(lay.motion_version)}` : '') + `</div>`+
     `<label>动效时长（秒）</label><div class="btn-row"><input type="number" id="ed-mot-dur" value="0.5" step="0.1" min="0.1" style="width:80px">`+
@@ -1459,14 +1475,122 @@ async function loadAssetInspector(assetId){
   } catch(e) { el.textContent = ''; }
 }
 
-function editorSetTransform(sceneId, idx){
+function editorSetVisualTransform(sceneId, idx){
+  // §72.1 结构化变换：任填几项，增量更新（服务端 model_validate fail-closed）
   const payload = {};
-  const op = document.getElementById('ed-opacity');
-  const sc = document.getElementById('ed-scale');
-  if (op && op.value !== '') payload.opacity = parseFloat(op.value);
-  if (sc && sc.value !== '') payload.scale = parseFloat(sc.value);
-  if (!Object.keys(payload).length) { alert('先填透明度或缩放'); return; }
-  editorCmd('set_transform', payload, `${sceneId}#${idx}`);
+  const fields = [['ed-tf-x','x'],['ed-tf-y','y'],['ed-tf-rot','rotation'],['ed-opacity','opacity'],['ed-scale','scale']];
+  for (const [id, key] of fields) {
+    const el = document.getElementById(id);
+    if (el && el.value !== '') payload[key] = parseFloat(el.value);
+  }
+  if (!Object.keys(payload).length) { alert('至少填一项（水平/垂直/旋转/透明度/缩放）'); return; }
+  editorCmd('set_visual_transform', payload, `${sceneId}#${idx}`);
+}
+
+function renderKeyframeList(lay, sceneId, idx){
+  // §24 关键帧轨列表（每轨一行，帧点可删）
+  if (!lay.keyframes || !lay.keyframes.length) return '<div class="hint">暂无关键帧</div>';
+  const propCn = {opacity:'透明度', scale:'缩放', x:'水平', y:'垂直', rotation:'旋转', volume:'音量', blur:'模糊', mask_path:'蒙版路径', camera_x:'机位X', camera_y:'机位Y', camera_scale:'机位缩放'};
+  return lay.keyframes.map(t =>
+    `<div class="hint">◆ ${propCn[t.property]||t.property}：` +
+    t.keyframes.map(k => `<span style="margin-right:6px">●${k.at.toFixed(1)}s=${esc(String(k.value))}`+
+      ` <a href="#" onclick="editorRemoveKeyframe('${sceneId}',${idx},'${t.property}',${k.at});return false" title="删除该帧">✕</a></span>`).join('') +
+    `</div>`).join('');
+}
+
+function editorAddKeyframe(sceneId, idx){
+  const prop = document.getElementById('ed-kf-prop').value;
+  const at = document.getElementById('ed-kf-at').value;
+  const val = document.getElementById('ed-kf-val').value;
+  if (at === '' || val === '') { alert('填时间（秒）和数值'); return; }
+  editorCmd('add_keyframe', {property: prop, at: parseFloat(at), value: parseFloat(val)}, `${sceneId}#${idx}`);
+}
+
+function editorRemoveKeyframe(sceneId, idx, prop, at){
+  editorCmd('remove_keyframe', {property: prop, at: at}, `${sceneId}#${idx}`);
+}
+
+function maskShapeCn(shape){
+  return {rectangle:'矩形', rounded_rect:'圆角矩形', ellipse:'椭圆', polygon:'多边形', path:'路径'}[shape] || shape;
+}
+
+function editorApplyMask(sceneId, idx){
+  const shape = document.getElementById('ed-mask-shape').value;
+  if (!shape) { alert('先选蒙版形状'); return; }
+  const payload = {shape: shape};
+  const f = document.getElementById('ed-mask-feather');
+  if (f && f.value !== '') payload.feather = parseFloat(f.value);
+  const inv = document.getElementById('ed-mask-invert');
+  if (inv && inv.checked) payload.inverted = true;
+  editorCmd('apply_mask', payload, `${sceneId}#${idx}`);
+}
+
+async function editorRunMatting(sceneId, idx){
+  // §64 Matting：ChromaKey 抠像 → 产物入项目素材库 → 替换当前层素材
+  const st = document.getElementById('ed-mat-status');
+  if (st) st.textContent = '抠像处理中……（ffmpeg colorkey）';
+  try {
+    const r = await apiPost('/api/editor/matting', {
+      project_id: ED.pid, target_id: `${sceneId}#${idx}`,
+      color: (document.getElementById('ed-mat-color') || {}).value || '0x00FF00',
+    });
+    if (!r.ok) {
+      if (st) st.textContent = '❌ ' + (r.error || '抠像失败');
+      return;
+    }
+    if (st) st.textContent = `✅ 抠像完成（${r.asset_id}），已替换当前层素材`;
+    // 抠像产物替换当前层（走标准 replace_source 命令）
+    editorCmd('replace_source', {assetId: r.asset_id}, `${sceneId}#${idx}`);
+  } catch (e) {
+    if (st) st.textContent = '❌ ' + String(e);
+  }
+}
+
+// ---- §65 Repo Promo：发现项目 → 扫描 → 功能证据 ----
+function promoTogglePanel(){
+  const p = document.getElementById('promo-panel');
+  if (p) p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+
+async function promoDiscover(){
+  const root = (document.getElementById('promo-root').value || '').trim();
+  if (!root) { alert('先填开发项目根目录'); return; }
+  const box = document.getElementById('promo-repos');
+  box.textContent = '扫描中……';
+  try {
+    const r = await apiPost('/api/promo/discover', {root: root});
+    if (!r.ok) { box.textContent = '❌ ' + (r.error || '未发现项目'); return; }
+    const repos = r.repos || [];
+    if (!repos.length) { box.textContent = '该目录下未发现开发项目（需要 .git / package.json 等指纹）'; return; }
+    box.innerHTML = repos.map(x =>
+      `<div class="btn-row"><span class="hint">📁 ${esc(x.name)}${x.frameworks.length ? ' · ' + x.frameworks.join('/') : ''}${x.has_git ? ' · git' : ''}</span>`+
+      `<button class="btn-secondary btn-sm" onclick="promoScan('${esc(x.path)}')">扫描</button></div>`).join('');
+  } catch (e) { box.textContent = '❌ ' + String(e); }
+}
+
+async function promoScan(path){
+  const scanBox = document.getElementById('promo-scan-result');
+  const featBox = document.getElementById('promo-features');
+  scanBox.textContent = '项目扫描中……';
+  try {
+    const r = await apiPost('/api/promo/scan', {root: path});
+    if (!r.ok) { scanBox.textContent = '❌ ' + (r.error || '扫描失败'); return; }
+    const s = r.snapshot || {};
+    scanBox.innerHTML = `<div class="hint">✅ <b>${esc(s.project_id)}</b> · 框架：${esc((s.framework||[]).join('、') || '未识别')} · `+
+      `入口：${(s.entry_points||[]).length} · 路由：${(s.routes||[]).length} · 组件：${(s.components||[]).length}`+
+      (s.design_system && Object.keys(s.design_system).length ? ` · 设计令牌：${Object.keys(s.design_system).length}` : '')+`</div>`;
+    // 功能发现（证据链）
+    featBox.textContent = '功能发现中……';
+    const f = await apiPost('/api/promo/features', {root: path});
+    if (!f.ok) { featBox.textContent = '❌ ' + (f.error || '功能发现失败'); return; }
+    const g = f.evidence_graph || {};
+    const claims = g.claims || [];
+    const verified = claims.filter(c => c.status === 'VERIFIED');
+    featBox.innerHTML = `<b>功能卖点（${verified.length} 条已验证，只显示可追溯证据的）</b>`+
+      (verified.length ? verified.slice(0, 12).map(c =>
+        `<div class="hint">✓ ${esc(c.text)}<br><span style="font-size:11px;color:#6b7a86">证据：${(c.evidence_refs||[]).map(id => { const e = (g.evidence||[]).find(x=>x.id===id); return e ? esc(e.source_path || e.evidence_type) : id; }).join('、')}</span></div>`).join('')
+        : '<div class="hint">未在 README/CHANGELOG 中发现可验证的功能声明（可先补文档或直接用「从文字开始」创作）</div>');
+  } catch (e) { scanBox.textContent = '❌ ' + String(e); }
 }
 
 function editorToggleLock(sceneId, idx){
@@ -1636,7 +1760,7 @@ async function editorOpenAssetPicker(sceneId, idx){
     '<span class="hint">筛选：</span>'+
     '<select id="ap-f-type" style="width:90px"><option value="">全部</option><option value="video">视频</option><option value="image">图片</option></select>'+
     '<select id="ap-f-ratio" style="width:80px"><option value="">比例</option><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option></select>'+
-    '<label><input type="checkbox" id="ap-f-clear"> Commercial Clear</label>'+
+    '<label><input type="checkbox" id="ap-f-clear"> 只看可商用素材</label>'+
     '</div>'+
     '<div id="asset-picker-body">加载素材……</div>';
   box.querySelectorAll('[data-aptab]').forEach(btn => {
@@ -1886,7 +2010,7 @@ async function editorOpenMotionPicker(sceneId, idx){
   box.innerHTML = '加载动效候选……';
   const r = await apiPost('/api/registry/motions/resolve', {layer_type: 'image', semantic_intent: 'enter', duration: 0.5});
   const cands = (r.candidates || []).filter(c=>c.compatibility !== 'INCOMPATIBLE');
-  box.innerHTML = '<label>选择动效（SUPPORTED 优先，MISSING_REQUIREMENT 也可应用）</label>' +
+  box.innerHTML = '<label>选择动效（优先推荐可用动效；缺依赖的也可应用）</label>' +
     cands.map(c=>`<div class="proj-row"><span>${esc(c.name)} <code>${esc(c.recipe_id)}</code>`+
       `<span class="hint">${c.compatibility === 'SUPPORTED' ? '✅ 可用' : '⚠ ' + esc((c.missing_requirements||[]).join('；'))}</span></span>`+
       `<button class="btn-secondary btn-sm" onclick="editorApplyMotion('${sceneId}',${idx},'${c.recipe_id}')">应用</button></div>`).join('');
@@ -2142,9 +2266,9 @@ async function editorCompareSelected(){
   const com = reusedA.filter(x => reusedB.includes(x));
   document.getElementById('editor-compare').innerHTML =
     `<div class="card"><b>对比 v${a.base_version+1} vs v${b.base_version+1}</b>`+
-    `<div class="proj-row"><b>Changed</b><span>左侧：${changed[0]}</span></div>`+
-    `<div class="proj-row"><b>Changed</b><span>右侧：${changed[1]}</span></div>`+
-    `<div class="proj-row"><b>Reused（两版都未动）</b><span>${com.length} 项：${esc(com.slice(0,5).join('、'))}${com.length>5?'…':''}</span></div></div>`;
+    `<div class="proj-row"><b>有改动</b><span>左侧：${changed[0]}</span></div>`+
+    `<div class="proj-row"><b>有改动</b><span>右侧：${changed[1]}</span></div>`+
+    `<div class="proj-row"><b>复用未动（两版相同）</b><span>${com.length} 项：${esc(com.slice(0,5).join('、'))}${com.length>5?'…':''}</span></div></div>`;
 }
 async function editorPreflight(){
   const box = document.getElementById('editor-preflight-box');
@@ -2288,9 +2412,20 @@ async function edLibStockSearch(){
 }
 
 async function edLibApplyBlock(blockId){
-  // §36：Block 应用到选中场景 = 换该场景的视觉块（走 editor command 链，若项目是 gfx/媒体混排则诚实提示）
+  // §36：Block 应用 = 给选中场景/层挂 graphic 层（layer.add 链，Block id 记 lineage）
   if (!ED.pid || !ED.sel) { alert('先在时间线选中场景或图层'); return; }
-  alert('Block「'+blockId+'」：图形块应用于图形场景（首页 Create 入口的方案里换视觉块）；媒体时间线场景请用「换镜头」。');
+  const sceneId = ED.sel.type === 'layer' ? ED.sel.id.split('#')[0] : ED.sel.id;
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'add_broll',
+    targetId: sceneId, payload: {kind: 'graphic', blockId: blockId}, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    ED.comp = comp; ED.version = comp.version;
+    editorRenderTimeline();
+    editorToast(`✅ 图形块「${blockId}」已加入场景 ${sceneId}`);
+  } else {
+    editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error || '应用失败'), true);
+  }
 }
 async function edLibApplyMotion(motionId){
   if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { alert('先在时间线选中一个图层'); return; }
@@ -2612,7 +2747,23 @@ function gfxRenderPlan(){
     const blkKey = s.block_id.split('.')[1];
     const intent = s.visual_intent || intentMap[s.role] || '表达内容';
     const form = s.visual_form || formMap[blkKey] || 'Typography';
+    const FORM_CN = {Typography:'标题排版', 'Concept Card':'概念卡', Duopanel:'双栏对比', Flow:'流程图',
+      Timeline:'时间线', Grid:'网格', Quote:'引用', Number:'数字', 'Rank Rows':'排行列表', List:'列表',
+      Frame:'框图', Code:'代码', 'KPI Row':'指标行', 'Feature Card':'特性卡'};
+    const formCn = FORM_CN[form] || form;
     const motionForScene = (s.motion_id || blk.motion).replace('graphics.','');
+    // §61 Continuity UI：段落边界显示「什么从上一镜延续过来 + 怎么过渡」
+    const carryCn = {carry:'元素延续', zoom_through:'推镜穿越', morph:'形变过渡', pan_follow:'平移跟随',
+      camera_dive:'镜头俯冲', materialize:'具象成形', gather:'聚拢收束', hard_cut:'结构性硬切'};
+    const prev = i > 0 ? GFX.plan.scenes[i-1] : null;
+    const carryHtml = prev
+      ? `<div class="hint" style="margin:2px 0;border-left:2px solid #ffd166;padding-left:6px">`+
+        `↳ 从上一镜延续：${esc((s.carry_from || prev.text||'').slice(0,16))} · 过渡方式 `+
+        `<select style="width:96px;font-size:11px" onchange="GFX.plan.scenes[${i}].continuity=this.value">`+
+        ['hard_cut','carry','zoom_through','morph','pan_follow','camera_dive','materialize','gather']
+          .map(t=>`<option value="${t}"${(s.continuity||'hard_cut')===t?' selected':''}>${carryCn[t]}</option>`).join('')+
+        `</select></div>`
+      : '';
     return `<div class="scene-card">
       <div class="scene-head">
         <span class="scene-id">${esc(s.id)}</span>
@@ -2621,7 +2772,8 @@ function gfxRenderPlan(){
         <button class="scene-move" onclick="gfxRemoveScene(${i})">✕</button>
       </div>
       <div class="scene-text">旁白：${esc(s.text)}</div>
-      <div class="scene-asset">视觉意图：${esc(intent)} · 视觉形态：${esc(form)}</div>
+      <div class="scene-asset">视觉意图：${esc(intent)} · 视觉形态：${esc(formCn)}</div>
+      ${carryHtml}
       <div class="btn-row" style="flex-wrap:wrap">
         <span class="hint">视觉块</span>
         <select style="flex:2" onchange="GFX.plan.scenes[${i}].block_id=this.value;GFX.plan.scenes[${i}].motion_id=null;GFX.previewHtml=null">${opts(s.block_id)}</select>
@@ -2680,7 +2832,7 @@ function gfxSwapMotion(i){
 function gfxSwapSource(i){
   // §34 换素材：素材来源切换（Generated Graphic / Library Asset / User Upload）
   const cur = GFX.plan.scenes[i].source || 'Generated Graphic';
-  const pick = prompt('素材来源：\n1. Generated Graphic（程序化视觉，本场景默认）\n2. Library Asset（素材库已有资产）\n3. User Upload（本地上传）\n\n当前：'+cur+'\n输入编号：');
+  const pick = prompt('素材来源：\n1. 程序化图形（本场景默认）\n2. 素材库已有资产\n3. 本地上传\n\n当前：'+(cur==='Generated Graphic'?'程序化图形':cur==='素材库资产'?cur:cur==='本地上传'?cur:cur)+'\n输入编号：');
   if (!pick) return;
   const map = {1:'Generated Graphic', 2:'Library Asset', 3:'User Upload'};
   const v = map[parseInt(pick)];
@@ -2726,7 +2878,7 @@ async function gfxNewBlock(){
     semantic_intents: (document.getElementById('nb-intents').value || 'custom').split(',').map(s=>s.trim()).filter(Boolean),
   });
   if (r.ok) {
-    status.textContent = `✅ 块「${r.name}」（${r.id}）已进 Creative Catalog（换视觉下拉可见）`;
+    status.textContent = `✅ 块「${r.name}」（${r.id}）已进创作目录（换视觉下拉可见）`;
     GFX.blocks = [];  // 强制重拉 catalog
     await gfxEnsureBlocks();
     if (GFX.plan) gfxRenderPlan();
@@ -3334,7 +3486,7 @@ function _ensurePreviewAudio(){
     _previewEl = document.createElement('audio');
     _previewEl.id = 'preview-audio';
     _previewEl.controls = true;
-    document.getElementById('pane-create').appendChild(_previewEl);
+    document.getElementById('pane-home').appendChild(_previewEl);
   }
   return _previewEl;
 }
@@ -3461,8 +3613,17 @@ function sbChangeVisual(i){
   document.getElementById('rev-input').value = `第${nums[i]||(i+1)}段换成 ${t}`;
   applyRevision();
 }
-function sbGenAsset(i){
-  alert('生成素材需要「生图」能力：请到大模型配置中心为 image 角色配置 API key 后，再在此生成（当前可先本地上传素材文件）。');
+async function sbGenAsset(i){
+  // 分镜卡生成素材：与编辑器「生成」同一链（/api/editor/generate，诚实依赖生图 Provider）
+  if (!currentProject.pid) { alert('先创建/打开项目'); return; }
+  const t = prompt('为第 ' + (i+1) + ' 段生成配图，请输入画面描述：');
+  if (!t) return;
+  try {
+    const r = await apiPost('/api/editor/generate', {project_id: currentProject.pid, prompt: t,
+      type: 'image', model: '', reference: ''});
+    if (!r.ok) { alert('生成暂不可用：' + (r.error || '生图 Provider 未配置。可到大模型配置中心为 image 角色配置 API key，或先本地上传素材文件。')); return; }
+    alert(`✅ 已生成 ${r.results.length} 个变体并保存到素材库，可到编辑器「资源库→生成」查看采用`);
+  } catch (e) { alert('生成失败：' + String(e)); }
 }
 function sbAdjust(i){
   const t = prompt('调整：描述你要的改变（例：这段时长改为 6 秒 / 这段文案改成……）');
