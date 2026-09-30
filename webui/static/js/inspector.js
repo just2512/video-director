@@ -32,13 +32,35 @@ function edShowInspector(){
       document.getElementById('editor-inspector').innerHTML = '<div class="hint">场景已变化（拆分/删除），请重新选择</div>';
       return;
     }
+    const si = ED.comp.scenes.indexOf(sc);
+    const cont = sc.continuity_in;
+    const contCn = {carry:'元素延续', zoom_through:'推镜穿越', morph:'形变过渡', pan_follow:'平移跟随',
+      camera_dive:'镜头俯冲', materialize:'具象成形', gather:'聚拢收束', hard_cut:'结构性硬切'};
+    const audioOf = ty => (ED.comp.audio || []).find(a => a.type === ty);
     box.innerHTML =
       `<b>场景 ${esc(ED.sel.id)}</b><div class="hint">文案：${esc(sc.text)}<br>时长：${sc.duration.toFixed(1)}s · ${sc.layers.length} 层` +
-      (sc.origin_recipe_id ? `<br>镜头方案：${esc(motionCnName(sc.origin_recipe_id))}` : '') + `</div>` +
-      `<label>改时长（秒）</label><div class="btn-row"><input type="number" id="ed-dur" value="${sc.duration.toFixed(1)}" step="0.5" style="width:80px">`+
-      `<button class="btn-secondary btn-sm" onclick="editorApplyDuration('${sc.id}')">应用</button></div>`+
+      (sc.origin_recipe_id ? `<br>镜头方案：${esc(shotCnName(sc.origin_recipe_id))}` : '') + `</div>` +
+      `<div class="role-block"><b>时长</b><div class="btn-row"><input type="number" id="ed-dur" value="${sc.duration.toFixed(1)}" step="0.5" style="width:80px">`+
+      `<button class="btn-secondary btn-sm" onclick="editorApplyDuration('${sc.id}')">应用</button></div></div>`+
+      `<div class="role-block"><b>镜头</b><div class="btn-row">`+
       `<button class="btn-secondary btn-sm" onclick="editorOpenShotPicker('${sc.id}')">🎬 换镜头</button>`+
-      `<div id="editor-picker-box"></div>`;
+      `<button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','push_in')">🎥 缓慢推进</button>`+
+      `<button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','pull_out')">🎥 缓慢拉远</button>`+
+      `</div><div id="editor-picker-box"></div></div>`+
+      (si > 0 ? `<div class="role-block"><b>连续性</b> <span class="hint">（从上一镜延续过来什么、怎么过渡）</span>`+
+        `<div class="hint">当前：${cont ? (contCn[cont.type] || cont.type) : '未声明（默认硬切）'}</div>`+
+        `<div class="btn-row"><select id="ed-cont-type" style="width:110px">`+
+        Object.entries(contCn).map(([v, l]) => `<option value="${v}"${cont && cont.type === v ? ' selected' : ''}>${l}</option>`).join('')+
+        `</select><button class="btn-secondary btn-sm" onclick="editorApplyContinuity('${sc.id}')">应用延续</button></div>`+
+        (cont && cont.type === 'carry' ? `<div class="hint">元素延续需指定延续的图层（在下方输入，格式 scene#idx）</div>`+
+          `<div class="btn-row"><input type="text" id="ed-cont-src" placeholder="来源层（如上一场景#0）" style="width:120px">`+
+          `<input type="text" id="ed-cont-dst" placeholder="目标层（本场景#0）" style="width:120px"></div>` : '')+
+        `</div>` : '')+
+      `<div class="role-block"><b>声音</b><div class="hint">`+
+      (audioOf('narration') ? `旁白轨 ✓（音量 ${(audioOf('narration').volume ?? 1)}）` : '无旁白轨')+
+      ` · ` + (audioOf('original') ? `原声轨 ✓（音量 ${(audioOf('original').volume ?? 1)}）` : '无原声轨')+
+      ` · ` + (audioOf('bgm') ? `BGM ✓（音量 ${(audioOf('bgm').volume ?? 1)}）` : '无 BGM')+
+      `</div><div class="hint">音量调整在右侧「音频 / 水印 / 字幕」面板。</div></div>`;
     return;
   }
   // layer（§55：按选中对象类型显示字段组）
@@ -77,8 +99,24 @@ function edShowInspector(){
     `<input type="number" id="ed-mask-feather" placeholder="羽化px" min="0" style="width:72px">`+
     `<label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="ed-mask-invert"> 反转</label>`+
     `<button class="btn-secondary btn-sm" onclick="editorApplyMask('${sceneId}',${idx})">应用蒙版</button>`+
+    `<button class="btn-secondary btn-sm" onclick="maskEditorOpen('${sceneId}',${idx})">✏️ 编辑路径</button>`+
+    (MASK_ED && MASK_ED.open ? `<button class="btn-sm" onclick="maskEditorSave()">💾 保存路径</button>`+
+      `<button class="btn-secondary btn-sm" onclick="maskEditorUndo()">↩ 撤销点</button>`+
+      `<button class="btn-secondary btn-sm" onclick="maskEditorRedo()">↪ 重做点</button>` : '')+
     (lay.mask ? `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_mask', {}, '${ED.sel.id}')">移除蒙版</button>` : '')+`</div></div>`+
-    (lay.type === 'video' ? `<div class="role-block"><b>抠像</b>（§64 Matte：绿幕/蓝幕抠底，产物入素材库）<div class="btn-row">`+
+    (lay.type === 'video' ? `<div class="role-block"><b>裁剪 / 速度</b><div class="hint">源区间 ${lay.source_in.toFixed(1)}s → ${lay.source_out ? lay.source_out.toFixed(1) + 's' : '结尾'} · 速度 ${lay.speed.toFixed(1)}x · 输出 ${lay.duration.toFixed(1)}s</div>`+
+    `<div class="btn-row"><input type="number" id="ed-trim-in" placeholder="起点秒" step="0.5" min="0" style="width:76px">`+
+    `<input type="number" id="ed-trim-out" placeholder="终点秒" step="0.5" min="0" style="width:76px">`+
+    `<button class="btn-secondary btn-sm" onclick="editorApplyTrim('${sceneId}',${idx})">应用裁剪</button>`+
+    `<select id="ed-speed" style="width:70px">${[0.5,1,1.5,2].map(s2=>`<option value="${s2}"${Math.abs(lay.speed-s2)<0.01?' selected':''}>${s2}x</option>`).join('')}</select>`+
+    `<button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>`+
+    `<div class="hint" style="font-size:11px">裁剪=选取素材源区间；速度=播放快慢（输出时长随之变化）。</div></div>`+
+    `<div class="role-block"><b>画中画</b>（PiP：本层缩小浮在画面上，如小窗录屏/产品角标）`+
+    ((lay.motion_instance||{}).parameters||{}).pip
+      ? `<div class="hint">当前已配置画中画（${esc(((lay.motion_instance||{}).parameters||{}).pip.fit === 'cover' ? '填满裁切' : '完整可见')}）</div><div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorRemovePip('${sceneId}',${idx})">取消画中画</button></div>`
+      : `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorApplyPip('${sceneId}',${idx})">⚁ 设为画中画（右上角小窗）</button></div>`+
+        `<div class="hint" style="font-size:11px">配置后在「变换」组拖位置/大小继续精调。</div>`+`</div>` : '')+
+    (lay.type === 'video' ? `<div class="role-block"><b>抠像</b>（绿幕/蓝幕抠底，产物入素材库）<div class="btn-row">`+
     `<select id="ed-mat-color" style="width:110px"><option value="0x00FF00">绿幕</option><option value="0x0000FF">蓝幕</option></select>`+
     `<button class="btn-secondary btn-sm" onclick="editorRunMatting('${sceneId}',${idx})">🎞 生成抠像</button></div>`+
     `<div class="hint" id="ed-mat-status">ChromaKey（ffmpeg colorkey）；无 Provider 时诚实不可用。</div></div>` : '')+
@@ -498,12 +536,99 @@ async function editorOpenAssetPicker(sceneId, idx, intent){
   assetPickerTab('project', idx, sceneId);
 }
 
+// ---------------------------------------------------------------------------
+// §23 对象上下文能力：场景级 camera / continuity（走 executeCommand 统一入口）
+// ---------------------------------------------------------------------------
+const CAMERA_CN = {push_in:'缓慢推进', pull_out:'缓慢拉远', pan_left:'向左平移', pan_right:'向右平移',
+  tilt_up:'向上摇', tilt_down:'向下摇', follow:'跟拍'};
+
+async function editorApplyCamera(sceneId, preset){
+  const r = await executeCommand({command: 'apply_camera', targetId: sceneId,
+    payload: {preset, strength: 0.6}});
+  if (r.ok) {
+    editorToast(`✅ 镜头运动已应用：${CAMERA_CN[preset] || preset}` + (DEV.mode ? `（版本 ${r.data.composition_version}）` : ''));
+    if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+    edShowInspector();
+  } else {
+    editorToast('❌ 镜头应用失败：' + (r.error || ''), true);
+  }
+}
+
+async function editorApplyContinuity(sceneId){
+  const type = (document.getElementById('ed-cont-type') || {}).value || 'hard_cut';
+  const payload = {type};
+  if (type === 'carry') {
+    const src = (document.getElementById('ed-cont-src') || {}).value || '';
+    const dst = (document.getElementById('ed-cont-dst') || {}).value || '';
+    if (src) payload.sourceLayerId = src;
+    if (dst) payload.targetLayerId = dst;
+  }
+  const r = await executeCommand({command: 'set_scene_continuity', targetId: sceneId, payload});
+  if (r.ok) {
+    const contCn2 = {carry:'元素延续', zoom_through:'推镜穿越', morph:'形变过渡', pan_follow:'平移跟随',
+      camera_dive:'镜头俯冲', materialize:'具象成形', gather:'聚拢收束', hard_cut:'结构性硬切'};
+    editorToast(`✅ 延续方式已设置：${contCn2[type] || type}`);
+    if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+    edShowInspector();
+  } else {
+    editorToast('❌ 延续设置失败：' + (r.error || ''), true);
+  }
+}
+
+// §23 Video Layer：画中画（PiP=Layer 结构化属性 §15）
+async function editorApplyPip(sceneId, idx){
+  const aid = (lay0 => lay0 && lay0.asset_id)(ED.comp.scenes.find(s => s.id === sceneId)?.layers[idx]);
+  const r = await executeCommand({command: 'configure_pip',
+    targetId: `${sceneId}#${idx}`,
+    payload: {action: 'set', source: aid || '', fit: 'contain', radius: 12, shadow: true,
+              transform: {x: 0.78, y: 0.22, scale: 0.35}, audioPolicy: 'auto'}});
+  if (r.ok) {
+    editorToast('✅ 已配置为画中画（右上角小窗；可在变换组继续调整位置/大小）');
+    edShowInspector();
+  } else {
+    editorToast('❌ 画中画配置失败：' + (r.error || ''), true);
+  }
+}
+async function editorRemovePip(sceneId, idx){
+  const r = await executeCommand({command: 'configure_pip',
+    targetId: `${sceneId}#${idx}`, payload: {action: 'remove'}});
+  if (r.ok) { editorToast('✅ 已取消画中画'); edShowInspector(); }
+  else editorToast('❌ 取消失败：' + (r.error || ''), true);
+}
+
+// §23 Video Layer：裁剪（trim=源区间）/ 速度（layer.update 通道）
+async function editorApplyTrim(sceneId, idx){
+  const srcIn = parseFloat((document.getElementById('ed-trim-in') || {}).value);
+  const srcOut = parseFloat((document.getElementById('ed-trim-out') || {}).value);
+  if (isNaN(srcIn) || isNaN(srcOut) || srcOut <= srcIn) {
+    editorToast('裁剪需填起点和终点秒数（终点需大于起点）', true); return;
+  }
+  const r = await executeCommand({command: 'trim',
+    targetId: `${sceneId}#${idx}`, payload: {sourceIn: srcIn, sourceOut: srcOut}});
+  if (r.ok) { editorToast(`✅ 已裁剪为源区间 ${srcIn}s–${srcOut}s`); if (typeof editorRenderTimeline === 'function') editorRenderTimeline(); edShowInspector(); }
+  else editorToast('❌ 裁剪失败：' + (r.error || ''), true);
+}
+async function editorApplySpeed(sceneId, idx){
+  const speed = parseFloat((document.getElementById('ed-speed') || {}).value);
+  if (!(speed > 0)) { editorToast('速度需为正数', true); return; }
+  const r = await executeCommand({command: 'set_transform',
+    targetId: `${sceneId}#${idx}`, payload: {speed}});
+  if (r.ok) { editorToast(`✅ 速度已改为 ${speed}x`); if (typeof editorRenderTimeline === 'function') editorRenderTimeline(); edShowInspector(); }
+  else editorToast('❌ 速度调整失败：' + (r.error || ''), true);
+}
+
 // §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
 Object.assign(window, {
   layerTypeCn,
   edShowInspector,
   loadAssetInspector,
   editorSetVisualTransform,
+  editorApplyCamera,
+  editorApplyContinuity,
+  editorApplyPip,
+  editorRemovePip,
+  editorApplyTrim,
+  editorApplySpeed,
   renderKeyframeList,
   editorAddKeyframe,
   editorRemoveKeyframe,
