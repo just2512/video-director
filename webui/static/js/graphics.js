@@ -119,67 +119,49 @@ function gfxRenderPlan(){
       </div>
       <div class="scene-asset">视觉块：${esc(s.block_id)} · 动效：${esc(motionForScene)} · 来源：${s.source==='Library Asset'?'素材库资产':s.source==='User Upload'?'用户上传':'程序化图形'}</div>
       <div class="btn-row sb-actions" style="flex-wrap:wrap">
-        <button class="btn-secondary btn-sm" onclick="gfxSwapBlock(${i})">👁 换视觉</button>
-        <button class="btn-secondary btn-sm" onclick="gfxSwapMotion(${i})">✨ 换动画</button>
-        <button class="btn-secondary btn-sm" onclick="gfxSwapSource(${i})">🖼 换素材</button>
-        <button class="btn-secondary btn-sm" onclick="gfxSwapLayout(${i})">🧱 换布局</button>
         <button class="btn-secondary btn-sm" onclick="gfxGenAsset(${i})">✨ 生成素材</button>
+        <span class="hint">换视觉/动效/布局/素材：用上方下拉直接改（改后需重新预览）</span>
       </div>
     </div>`;
   }).join('');
-  box.innerHTML = `<div class="card"><b>📋 你的创作方案</b> <span class="hint">（先审阅再渲染；每场景可换视觉/动画/素材/布局，或删场景）</span>
+  box.innerHTML = `<div class="card"><b>📋 你的创作方案</b> <span class="hint">（先审阅再渲染；每场景可换视觉/动画/素材/布局，或删场景。方案确认后可进入工作台继续精修——正式修改都会记入版本历史）</span>
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="gfxApplyToWorkspace()">🎛 确认方案，进入工作台精修</button>
+      <span class="hint" id="gfx-apply-status"></span>
+    </div>
     <div class="scene-list" style="max-height:400px">${cards}</div></div>`;
 }
 
-function gfxSwapBlock(i){
-  // 换视觉 = 从 catalog 同域块清单选择（resolver 候选，非 prompt 输入）
-  const cands = GFX.blocks.filter(b=>b.category===GFX.plan.category);
-  const cur = GFX.plan.scenes[i].block_id;
-  const list = cands.map((c,ci)=>`${ci+1}. ${c.name}（${c.id}）`).join('\n');
-  const pick = prompt('选择视觉块：\n'+list+'\n\n输入编号：');
-  if (!pick) return;
-  const c = cands[parseInt(pick)-1];
-  if (!c) { alert('编号无效'); return; }
-  GFX.plan.scenes[i].block_id = c.id;
-  GFX.plan.scenes[i].motion_id = null;  // 跟随新块的默认 motion
-  GFX.previewHtml = null;
-  gfxRenderPlan();
+// §7/FE-003 Creative Plan → Composition 归一：proposal 确认 → 建项目（合法 IR）
+// → 打开工作台。此后换块/布局/连续性全部经 executeCommand（Command Bus）。
+async function gfxApplyToWorkspace(){
+  const status = document.getElementById('gfx-apply-status') || document.getElementById('gfx-status');
+  if (!GFX.plan) { status.textContent = '先生成创作方案'; return; }
+  status.textContent = '正在创建可编辑项目……';
+  const [w, h] = document.getElementById('gfx-aspect').value.split('x');
+  const r = await apiPost('/api/graphics/plan_to_project', {
+    plan: GFX.plan,
+    script: document.getElementById('gfx-script').value,
+    size: w + 'x' + h,
+  });
+  if (!r.ok) { status.textContent = '❌ ' + (r.error || '创建失败'); return; }
+  // 打开工作台并选中新项目（editorLoad 读项目列表）
+  switchTab('editor');
+  const sel = document.getElementById('editor-project');
+  await new Promise(res => setTimeout(res, 400));  // editorInit 填充下拉
+  if (sel) {
+    for (const opt of sel.options) {
+      if (opt.value === r.project_id) { sel.value = r.project_id; break; }
+    }
+  }
+  if (typeof editorLoad === 'function') editorLoad();
+  if (typeof editorToast === 'function') {
+    editorToast(`✅ 方案已转为可编辑项目（${r.scene_count} 场景）。后续修改都会记入版本历史，可撤销。`);
+  }
 }
-function gfxSwapMotion(i){
-  const cur = GFX.plan.scenes[i].motion_id || (GFX.blocks.find(b=>b.id===GFX.plan.scenes[i].block_id)||{}).motion || 'graphics.fade-up';
-  const ms = ['fade-up','scale-punch','slide-left','word-relay','rise-soft'];
-  const pick = prompt('选择动画：\n'+ms.map((m,ci)=>`${ci+1}. ${m}`).join('\n')+'\n当前：'+cur.replace('graphics.','')+'\n\n输入编号：');
-  if (!pick) return;
-  const m = ms[parseInt(pick)-1];
-  if (!m) { alert('编号无效'); return; }
-  GFX.plan.scenes[i].motion_id = 'graphics.' + m;
-  GFX.previewHtml = null;
-  gfxRenderPlan();
-}
-function gfxSwapSource(i){
-  // §34 换素材：素材来源切换（Generated Graphic / Library Asset / User Upload）
-  const cur = GFX.plan.scenes[i].source || 'Generated Graphic';
-  const pick = prompt('素材来源：\n1. 程序化图形（本场景默认）\n2. 素材库已有资产\n3. 本地上传\n\n当前：'+(cur==='Generated Graphic'?'程序化图形':cur==='素材库资产'?cur:cur==='本地上传'?cur:cur)+'\n输入编号：');
-  if (!pick) return;
-  const map = {1:'Generated Graphic', 2:'Library Asset', 3:'User Upload'};
-  const v = map[parseInt(pick)];
-  if (!v) { alert('编号无效'); return; }
-  GFX.plan.scenes[i].source = v;
-  GFX.previewHtml = null;
-  gfxRenderPlan();
-}
-function gfxSwapLayout(i){
-  // §34 换布局：同块排版取向（center/left/split 由 CSS 变量消费）
-  const cur = GFX.plan.scenes[i].layout || 'center';
-  const pick = prompt('布局取向：\n1. center 居中\n2. left 左对齐\n3. split 分栏\n\n当前：'+cur+'\n输入编号：');
-  if (!pick) return;
-  const map = {1:'center', 2:'left', 3:'split'};
-  const v = map[parseInt(pick)];
-  if (!v) { alert('编号无效'); return; }
-  GFX.plan.scenes[i].layout = v;
-  GFX.previewHtml = null;
-  gfxRenderPlan();
-}
+
+// §9.3/FE-007：gfxSwapBlock/Motion/Source/Layout 四个「输入编号」prompt 路径
+// 已删除——方案卡内下拉（onchange）已覆盖同功能，正式 UI 不依赖 prompt()。
 async function gfxGenAsset(i){
   // §34 生成素材：走生图角色（未配置 key 时诚实提示，不假成功）
   try {
@@ -189,7 +171,7 @@ async function gfxGenAsset(i){
     GFX.previewHtml = null;
     gfxRenderPlan();
   } catch(e) {
-    alert('生成素材不可用：' + e.message + '\n（需在「大模型配置中心」为 image 角色配置 API key；当前可先用程序化视觉块）');
+    editorToast('生成素材不可用：' + e.message + '\n（需在「大模型配置中心」为 image 角色配置 API key；当前可先用程序化视觉块）', true);
   }
 }
 
@@ -576,7 +558,7 @@ async function inboxAction(itemId, act){
     await fetch('/api/inbox_action', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({item_id: itemId, action: act})});
     loadInbox();
-  } catch (e) { alert('操作失败：' + e.message); }
+  } catch (e) { editorToast('操作失败：' + e.message, true); }
 }
 
 // ---- 队列（§42）----
@@ -607,9 +589,9 @@ async function publishVariants(pid){
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);
-    alert(`已入队 ${j.job_ids.length} 个平台变体，去「自动化」页看进度`);
+    editorToast(`已入队 ${j.job_ids.length} 个平台变体，去「自动化」页看进度`);
     switchTab('automation');
-  } catch (e) { alert('发布失败：' + e.message); }
+  } catch (e) { editorToast('发布失败：' + e.message, true); }
 }
 
 // §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
@@ -618,10 +600,7 @@ Object.assign(window, {
   gfxSetType,
   gfxMakePlan,
   gfxRenderPlan,
-  gfxSwapBlock,
-  gfxSwapMotion,
-  gfxSwapSource,
-  gfxSwapLayout,
+  gfxApplyToWorkspace,
   gfxGenAsset,
   gfxNewBlock,
   gfxRemoveScene,

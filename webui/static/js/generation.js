@@ -17,10 +17,57 @@ function populateGenModels(){
     });
   } catch(e) {}
 }
+/** §12/§31.1 Capability Availability：拉取 generation 可用态并驱动按钮禁用。 */
+async function refreshGenerationAvailability(){
+  try {
+    const caps = await (await fetch('/api/capabilities')).json();
+    const gen = (Array.isArray(caps) ? caps : []).find(c => c.name === 'generation.availability');
+    if (gen && gen.generation) {
+      CAPS.imageAvailable = !!gen.generation.image.available;
+      CAPS.imageReason = gen.generation.image.reason || '';
+      CAPS.videoAvailable = !!gen.generation.video.available;
+      CAPS.videoReason = gen.generation.video.reason || '';
+    }
+  } catch (e) { /* 拉取失败保持 null（不误禁用） */ }
+  applyGenerationAvailability();
+}
+/** §31.1 Gate：unavailable → 按钮 disabled + 原因可见 + 不发请求；程序化视觉仍可用。 */
+function applyGenerationAvailability(){
+  const sel = document.getElementById('gen-type');
+  const status = document.getElementById('gen-status');
+  const btn = document.querySelector('#pane-editor .card .btn-row button[onclick="editorGenerate()"]');
+  if (!sel) return;
+  const type = sel.value;
+  const unavailable = (type === 'image' && CAPS.imageAvailable === false)
+                   || (type === 'video' && CAPS.videoAvailable === false);
+  if (btn) {
+    btn.disabled = unavailable;
+    btn.title = unavailable
+      ? ((type === 'image' ? CAPS.imageReason : CAPS.videoReason) || '该生成服务未配置')
+      : '';
+    btn.textContent = unavailable ? '🪄 生成（暂不可用）' : '🪄 生成 3 变体';
+  }
+  if (status && unavailable) {
+    const reason = (type === 'image' ? CAPS.imageReason : CAPS.videoReason)
+      || '未配置对应的生成服务';
+    status.textContent = `⏸ ${reason}。程序化视觉（类型选「图形」）与本地素材不受影响。`;
+  } else if (status && status.textContent.startsWith('⏸')) {
+    status.textContent = '';
+  }
+}
+
 async function editorGenerate(){
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   const prompt = document.getElementById('gen-prompt').value.trim();
   const type = document.getElementById('gen-type').value;
+  // §31.1 禁止「先允许点击再 503」：unavailable 直接拦截，不发起生成请求
+  if ((type === 'image' && CAPS.imageAvailable === false)
+      || (type === 'video' && CAPS.videoAvailable === false)) {
+    const reason = (type === 'image' ? CAPS.imageReason : CAPS.videoReason)
+      || '未配置对应的生成服务';
+    editorToast(`⏸ ${reason}。可改用程序化视觉（类型选「图形」）或本地素材。`, true);
+    return;
+  }
   const modelSel = (document.getElementById('gen-model') || {}).value || '';
   let refSel = (document.getElementById('gen-reference') || {}).value || '';
   const status = document.getElementById('gen-status');
@@ -45,7 +92,8 @@ async function editorGenerate(){
   status.textContent = `✅ 已生成 ${r.results.length} 个变体（已保存到素材库）`;
   box.innerHTML = r.results.map(res =>
     `<div class="proj-row"><span><b>变体 ${esc(res.variant)}</b> <code>${esc(res.asset_id)}</code><br>`+
-    `<span class="hint">${layerTypeCn(res.type)} · 提供方 ${esc(res.provider_id)} · 指纹 ${esc(res.input_fingerprint)}</span></span>`+
+    `<span class="hint">${layerTypeCn(res.type)} · 来源：${res.provider_id === 'image-llm' ? '图片生成' : esc(res.provider_id || '生成')}</span>`+
+    (DEV.mode ? `<span class="hint" style="font-size:11px">指纹 ${esc(res.input_fingerprint || '')}</span>` : '')+`</span>`+
     `<span class="btn-row">`+
     `<button class="btn-sm" onclick="addGenToTimeline('${esc(res.asset_id)}')">加入时间线</button>`+
     `<button class="btn-secondary btn-sm" onclick="switchTab('assets')">已存素材库</button>`+
@@ -55,14 +103,14 @@ async function addGenToTimeline(assetId){
   // 加入时间线需目标场景：无选中场景则用第一场景
   const sceneId = (ED.sel && ED.sel.type === 'scene') ? ED.sel.id :
                   (ED.comp && ED.comp.scenes[0] ? ED.comp.scenes[0].id : '');
-  if (!sceneId) { alert('项目无场景'); return; }
+  if (!sceneId) { editorToast('项目无场景'); return; }
   const r = await apiPost('/api/editor/generate/add', {project_id: ED.pid, scene_id: sceneId, asset_id: assetId});
   if (r.ok) {
     ED.version = r.composition_version;
     const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
-    document.getElementById('gen-status').textContent = `✅ ${assetId} 已加入场景 ${sceneId}（revision ${r.revision_id}）`;
+    document.getElementById('gen-status').textContent = `✅ ${assetId} 已加入场景 ${sceneId}`;
   } else {
     document.getElementById('gen-status').textContent = '❌ ' + (r.error || '加入失败');
   }
@@ -73,6 +121,8 @@ async function addGenToTimeline(assetId){
 // §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
 Object.assign(window, {
   populateGenModels,
+  refreshGenerationAvailability,
+  applyGenerationAvailability,
   editorGenerate,
   addGenToTimeline,
 });

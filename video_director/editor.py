@@ -309,6 +309,11 @@ SUPPORTED_COMMANDS = (
     "apply_camera",               # 摄影机运动 → Composition.camera_tracks（canonical §14）
     "configure_pip",              # 画中画层配置（PiP=Layer 结构化属性 §15）
     "apply_morph",                # 自有 Graphic Block 间形变（§16 MorphLink）
+    # ---- Frontend Unification §7/§32A（GFX Plan → Composition 归一）----
+    "apply_graphic_plan",         # Creative Plan（proposal）确认 → Composition IR（§7 分层）
+    "set_graphic_block",          # 换视觉块（graphic 层 program.block_id）
+    "set_graphic_layout",         # 换布局（graphic 层 program.layout）
+    "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
     "undo",
     "redo",
 )
@@ -436,6 +441,14 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_configure_pip(ir, target_id, payload)
         elif cmd_name == "apply_morph":
             changed, stale = _cmd_apply_morph(ir, target_id, payload)
+        elif cmd_name == "apply_graphic_plan":
+            changed, stale = _cmd_apply_graphic_plan(ir, target_id, payload)
+        elif cmd_name == "set_graphic_block":
+            changed, stale = _cmd_set_graphic_block(ir, target_id, payload)
+        elif cmd_name == "set_graphic_layout":
+            changed, stale = _cmd_set_graphic_layout(ir, target_id, payload)
+        elif cmd_name == "set_scene_continuity":
+            changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -1468,3 +1481,168 @@ def _cmd_apply_morph(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     ir.continuity_links = links
     return [f"{from_scene_id}->{to_scene_id}:morph"], [
         f"{to_scene_id}:render", f"{to_scene_id}:preview"]
+
+
+# ---------------------------------------------------------------------------
+# Frontend Unification §7/§32A：GFX Plan → Composition 归一
+# 分层：Graphic Plan = proposal（前端可临时改）；Composition = 正式事实源。
+# 禁止 GFX.plan → save 直通持久化——确认/进入工作台必须经 Command。
+# ---------------------------------------------------------------------------
+
+def _cmd_apply_graphic_plan(ir: CompositionIR, target_id: str,
+                            payload: dict) -> Tuple[List[str], List[str]]:
+    """§7 apply_graphic_plan：Creative Plan（proposal）确认 → Composition IR。
+
+    payload={plan: {scenes: [...], content_type, style_id}}。
+    每场景更新一个 graphic 层：block/layout/source 进结构化
+    parameters.graphic 子对象。plan 场景数与 Composition 不一致 → fail-closed。
+    """
+    plan = payload.get("plan") or {}
+    scenes = plan.get("scenes") or []
+    if not scenes:
+        raise EditorError("INVALID_PAYLOAD", "apply_graphic_plan: plan.scenes 为空")
+    if len(scenes) != len(ir.scenes):
+        raise EditorError(
+            "INVALID_PAYLOAD",
+            f"apply_graphic_plan: plan 有 {len(scenes)} 场景，Composition "
+            f"有 {len(ir.scenes)}——先在创作页确认分镜数一致")
+    changed: List[str] = []
+    for i, sc in enumerate(scenes):
+        scene = ir.scenes[i]
+        graphic_params = {
+            "block_id": sc.get("block_id") or "kb.title",
+            "block_name": sc.get("block_name") or sc.get("block_id") or "",
+            "layout": sc.get("layout") or "center",
+            "source": sc.get("source") or "Generated Graphic",
+            "motion_id": sc.get("motion_id") or "graphics.fade-up",
+            "content_type": plan.get("content_type") or "knowledge",
+            "style_id": plan.get("style_id") or "editorial",
+            "narration": sc.get("narration") or sc.get("text") or scene.text,
+            "visual_intent": sc.get("visual_intent") or "",
+        }
+        layer_data = {
+            "type": "graphic", "duration": scene.duration,
+            "motion_recipe_id": graphic_params["motion_id"],
+            "motion_instance": {"parameters": {"graphic": graphic_params}},
+        }
+        gi = None
+        for j, l in enumerate(scene.layers):
+            t = (l.type.value if hasattr(l.type, "value") else str(l.type))
+            if t == "graphic":
+                gi = j
+                break
+        if gi is None:
+            # 无 graphic 层：替换首个视觉层（plan 是该场景的视觉表达，非叠加）；
+            # 场景只有视觉层时整体替换，保留 start 继承排布校验
+            from video_director.models import Layer
+            if scene.layers:
+                layer_data["start"] = scene.layers[0].start
+                scene.layers[0] = Layer.model_validate(layer_data)
+            else:
+                layer_data["start"] = 0.0
+                scene.layers.append(Layer.model_validate(layer_data))
+        else:
+            layer_data["start"] = scene.layers[gi].start
+            scene.layers[gi] = scene.layers[gi].model_validate({
+                **scene.layers[gi].model_dump(), **layer_data,
+                "duration": scene.duration})
+        changed.append(f"{scene.id}:graphic")
+    stale = [f"{s.id}:render" for s in ir.scenes] + [f"{s.id}:preview" for s in ir.scenes]
+    return changed, stale
+
+
+def _find_graphic_layer(scene) -> Tuple[int, object]:
+    """定位场景内唯一 graphic 层（无 → INVALID_TARGET）。"""
+    for j, l in enumerate(scene.layers):
+        t = (l.type.value if hasattr(l.type, "value") else str(l.type))
+        if t == "graphic":
+            return j, l
+    raise EditorError("INVALID_TARGET", f"场景 {scene.id} 无 graphic 层")
+
+
+def _cmd_set_graphic_block(ir: CompositionIR, target_id: str,
+                           payload: dict) -> Tuple[List[str], List[str]]:
+    """§7 换视觉块：payload={blockId, blockName?, motionId?}（motion 跟随新块）。"""
+    si, scene = _find_scene(ir, target_id)
+    gi, layer = _find_graphic_layer(scene)
+    _ensure_layer_unlocked(layer)
+    block_id = payload.get("blockId") or ""
+    if not block_id:
+        raise EditorError("INVALID_PAYLOAD", "set_graphic_block: blockId 必填")
+    inst = dict(layer.motion_instance or {})
+    params = dict(inst.get("parameters") or {})
+    graphic = dict(params.get("graphic") or {})
+    graphic["block_id"] = block_id
+    if payload.get("blockName"):
+        graphic["block_name"] = payload["blockName"]
+    if payload.get("motionId"):
+        graphic["motion_id"] = payload["motionId"]
+    params["graphic"] = graphic
+    inst["parameters"] = params
+    update = {"motion_instance": inst or None}
+    if payload.get("motionId"):
+        update["motion_recipe_id"] = payload["motionId"]
+    scene.layers[gi] = layer.model_validate({**layer.model_dump(), **update})
+    return [f"{scene.id}:graphic"], [f"{scene.id}:render", f"{scene.id}:preview"]
+
+
+def _cmd_set_graphic_layout(ir: CompositionIR, target_id: str,
+                            payload: dict) -> Tuple[List[str], List[str]]:
+    """§7 换布局：payload={layout}。"""
+    si, scene = _find_scene(ir, target_id)
+    gi, layer = _find_graphic_layer(scene)
+    _ensure_layer_unlocked(layer)
+    layout = payload.get("layout") or ""
+    if not layout:
+        raise EditorError("INVALID_PAYLOAD", "set_graphic_layout: layout 必填")
+    inst = dict(layer.motion_instance or {})
+    params = dict(inst.get("parameters") or {})
+    graphic = dict(params.get("graphic") or {})
+    graphic["layout"] = layout
+    params["graphic"] = graphic
+    inst["parameters"] = params
+    scene.layers[gi] = layer.model_validate({**layer.model_dump(),
+                                             "motion_instance": inst or None})
+    return [f"{scene.id}:graphic"], [f"{scene.id}:render", f"{scene.id}:preview"]
+
+
+_SCENE_CONTINUITY_TYPES = tuple(t.value for t in ContinuityType)
+
+
+def _cmd_set_scene_continuity(ir: CompositionIR, target_id: str,
+                               payload: dict) -> Tuple[List[str], List[str]]:
+    """§7 连续性修改：payload={type, sourceLayerId?, targetLayerId?}。
+
+    写 Scene.continuity_in（声明式）+ Composition.continuity_links（canonical）。
+    carry 需 source/target layer id（ContinuityVerifier 规则 B 会 REJECT 缺失）。
+    """
+    si, scene = _find_scene(ir, target_id)
+    if si == 0:
+        raise EditorError("INVALID_TARGET", "首场景无「从上一镜延续」")
+    prev = ir.scenes[si - 1]
+    ctype = payload.get("type") or ""
+    if ctype not in _SCENE_CONTINUITY_TYPES:
+        raise EditorError(
+            "INVALID_PAYLOAD",
+            f"set_scene_continuity: type {ctype!r} 非法，应为 {list(_SCENE_CONTINUITY_TYPES)}")
+    link_data = {
+        "id": f"cont-{prev.id}-{scene.id}",
+        "from_scene_id": prev.id, "to_scene_id": scene.id,
+        "type": ctype,
+    }
+    if payload.get("sourceLayerId"):
+        link_data["source_layer_id"] = payload["sourceLayerId"]
+    if payload.get("targetLayerId"):
+        link_data["target_layer_id"] = payload["targetLayerId"]
+    try:
+        link = ContinuityLink.model_validate(link_data)
+    except ValueError as exc:
+        raise EditorError("INVALID_PARAMETER", str(exc))
+    scene_data = scene.model_dump()
+    scene_data["continuity_in"] = link.model_dump()
+    ir.scenes[si] = scene.model_validate(scene_data)
+    links = [l for l in ir.continuity_links
+             if not (l.from_scene_id == prev.id and l.to_scene_id == scene.id)]
+    links.append(link)
+    ir.continuity_links = links
+    return [f"{prev.id}->{scene.id}:continuity"], [f"{scene.id}:preview"]

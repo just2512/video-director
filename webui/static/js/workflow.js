@@ -29,47 +29,74 @@ function renderStoryboard(sb){
         <button class="btn-secondary btn-sm" onclick="sbGenAsset(${i})">✨ 生成素材</button>
         <button class="btn-secondary btn-sm" onclick="sbAdjust(${i})">⚙ 调整</button>
       </div>
+      <div id="sb-card-${i}-inline"></div>
     </div>`;
   }).join('');
   return `<div class="scene-list">${cards}</div>`;
 }
 // 分镜卡四按钮（§十二）：换镜头=resolver 候选；换视觉=素材重绑；生成素材=生图引导；调整=改稿
+// §9.3/FE-007：全部 prompt/alert → 卡内联 UI / Toast（分镜卡尾部原位展开）
+function _sbInlineRow(i, inner, onApply, applyLabel){
+  const host = document.getElementById(`sb-card-${i}-inline`);
+  if (!host) { if (typeof editorToast === 'function') editorToast('界面元素缺失，请刷新页面'); return; }
+  host.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  row.style.cssText = 'margin-top:6px;flex-wrap:wrap;align-items:center;gap:6px';
+  row.innerHTML = inner + `<button class="btn-sm">${esc(applyLabel || '应用')}</button>`;
+  host.appendChild(row);
+  row.querySelector('button').onclick = () => {
+    const v = row.querySelector('select, input');
+    host.innerHTML = '';
+    onApply(v ? v.value : '');
+  };
+}
 async function sbChangeShot(i){
   const r = await apiPost('/api/registry/shots/resolve', {semantic_intents: [], content_type: 'product_video', duration: 4, available_asset_types: ['image','product','video'], scene_position: i===0?'first':'middle'});
   const cands = (r.candidates||[]).filter(c=>c.compatibility!=='INCOMPATIBLE');
-  if (!cands.length) { alert('暂无匹配的镜头方案'); return; }
-  const names = cands.slice(0,5).map((c,ci)=>`${ci+1}. ${c.name}（${c.recipe_id}）`).join('\n');
-  const pick = prompt('推荐视觉方案（方案 §十二）：\n' + names + '\n\n输入编号（1-' + Math.min(5,cands.length) + '）：');
-  if (!pick) return;
-  const chosen = cands[parseInt(pick)-1];
-  if (!chosen) { alert('未匹配：' + pick); return; }
-  document.getElementById('creative_brief').value += `\n[分镜${i+1} 使用镜头方案：${chosen.recipe_id}]`;
-  alert('镜头方案已记入创作要求（渲染时生效）：' + chosen.name);
+  if (!cands.length) { editorToast('暂无匹配的镜头方案', true); return; }
+  const top5 = cands.slice(0, 5);
+  const opts = top5.map((c, ci) => `<option value="${ci}">${ci + 1}. ${esc(c.name)}（${esc(c.recipe_id)}）</option>`).join('');
+  _sbInlineRow(i, `<select style="flex:2">${opts}</select>`, (v) => {
+    const chosen = top5[parseInt(v)];
+    if (!chosen) { editorToast('编号无效', true); return; }
+    document.getElementById('creative_brief').value += `\n[分镜${i+1} 使用镜头方案：${chosen.name}（${chosen.recipe_id}）]`;
+    editorToast(`✅ 镜头方案已记入创作要求（渲染时生效）：${chosen.name}`);
+  }, '记入要求');
 }
 function sbChangeVisual(i){
-  const t = prompt('换视觉：输入要绑定的素材文件名（如 3.mp4），或"自动"让 AI 重新匹配');
-  if (!t) return;
-  const nums = ['一','二','三','四','五','六','七','八','九','十'];
-  document.getElementById('rev-input').value = `第${nums[i]||(i+1)}段换成 ${t}`;
-  applyRevision();
+  _sbInlineRow(i,
+    `<input type="text" placeholder="素材文件名（如 3.mp4），或"自动"让 AI 重新匹配" style="flex:2">`,
+    (t) => {
+      if (!t) return;
+      const nums = ['一','二','三','四','五','六','七','八','九','十'];
+      document.getElementById('rev-input').value = `第${nums[i]||(i+1)}段换成 ${t}`;
+      applyRevision();
+    });
 }
 async function sbGenAsset(i){
   // 分镜卡生成素材：与编辑器「生成」同一链（/api/editor/generate，诚实依赖生图 Provider）
-  if (!currentProject.pid) { alert('先创建/打开项目'); return; }
-  const t = prompt('为第 ' + (i+1) + ' 段生成配图，请输入画面描述：');
-  if (!t) return;
-  try {
-    const r = await apiPost('/api/editor/generate', {project_id: currentProject.pid, prompt: t,
-      type: 'image', model: '', reference: ''});
-    if (!r.ok) { alert('生成暂不可用：' + (r.error || '生图 Provider 未配置。可到大模型配置中心为 image 角色配置 API key，或先本地上传素材文件。')); return; }
-    alert(`✅ 已生成 ${r.results.length} 个变体并保存到素材库，可到编辑器「资源库→生成」查看采用`);
-  } catch (e) { alert('生成失败：' + String(e)); }
+  if (!currentProject.pid) { editorToast('先创建/打开项目', true); return; }
+  _sbInlineRow(i,
+    `<input type="text" placeholder="画面描述（例：极简产品特写，暖光）" style="flex:2">`,
+    async (t) => {
+      if (!t) return;
+      try {
+        const r = await apiPost('/api/editor/generate', {project_id: currentProject.pid, prompt: t,
+          type: 'image', model: '', reference: ''});
+        if (!r.ok) { editorToast('生成暂不可用：' + (r.error || '未配置图片生成服务。可到「大模型配置中心」为生图角色配置服务，或先本地上传素材文件。'), true); return; }
+        editorToast(`✅ 已生成 ${(r.results||[]).length} 个变体并保存到素材库，可到编辑器「资源库→生成」查看采用`);
+      } catch (e) { editorToast('生成失败：' + String(e), true); }
+    }, '生成配图');
 }
 function sbAdjust(i){
-  const t = prompt('调整：描述你要的改变（例：这段时长改为 6 秒 / 这段文案改成……）');
-  if (!t) return;
-  document.getElementById('rev-input').value = t;
-  applyRevision();
+  _sbInlineRow(i,
+    `<input type="text" placeholder="描述你要的改变（例：这段时长改为 6 秒）" style="flex:2">`,
+    (t) => {
+      if (!t) return;
+      document.getElementById('rev-input').value = t;
+      applyRevision();
+    });
 }
 
 function refreshStoryboardUI(){

@@ -34,7 +34,7 @@ function edShowInspector(){
     }
     box.innerHTML =
       `<b>场景 ${esc(ED.sel.id)}</b><div class="hint">文案：${esc(sc.text)}<br>时长：${sc.duration.toFixed(1)}s · ${sc.layers.length} 层` +
-      (sc.origin_recipe_id ? `<br>镜头配方：${esc(sc.origin_recipe_id)}` : '') + `</div>` +
+      (sc.origin_recipe_id ? `<br>镜头方案：${esc(motionCnName(sc.origin_recipe_id))}` : '') + `</div>` +
       `<label>改时长（秒）</label><div class="btn-row"><input type="number" id="ed-dur" value="${sc.duration.toFixed(1)}" step="0.5" style="width:80px">`+
       `<button class="btn-secondary btn-sm" onclick="editorApplyDuration('${sc.id}')">应用</button></div>`+
       `<button class="btn-secondary btn-sm" onclick="editorOpenShotPicker('${sc.id}')">🎬 换镜头</button>`+
@@ -82,7 +82,7 @@ function edShowInspector(){
     `<select id="ed-mat-color" style="width:110px"><option value="0x00FF00">绿幕</option><option value="0x0000FF">蓝幕</option></select>`+
     `<button class="btn-secondary btn-sm" onclick="editorRunMatting('${sceneId}',${idx})">🎞 生成抠像</button></div>`+
     `<div class="hint" id="ed-mat-status">ChromaKey（ffmpeg colorkey）；无 Provider 时诚实不可用。</div></div>` : '')+
-    `<div class="role-block"><b>动效</b><div class="hint">当前：${lay.motion_recipe_id ? esc(lay.motion_recipe_id) : '无'}`+
+    `<div class="role-block"><b>动效</b><div class="hint">当前：${lay.motion_recipe_id ? esc(motionCnName(lay.motion_recipe_id)) : '无'}`+
     (lay.motion_version ? ` @${esc(lay.motion_version)}` : '') + `</div>`+
     `<label>动效时长（秒）</label><div class="btn-row"><input type="number" id="ed-mot-dur" value="0.5" step="0.1" min="0.1" style="width:80px">`+
     `<select id="ed-mot-easing" style="width:110px"><option value="">缓动（默认）</option>`+
@@ -121,7 +121,7 @@ function editorSetVisualTransform(sceneId, idx){
     const el = document.getElementById(id);
     if (el && el.value !== '') payload[key] = parseFloat(el.value);
   }
-  if (!Object.keys(payload).length) { alert('至少填一项（水平/垂直/旋转/透明度/缩放）'); return; }
+  if (!Object.keys(payload).length) { editorToast('至少填一项（水平/垂直/旋转/透明度/缩放）'); return; }
   editorCmd('set_visual_transform', payload, `${sceneId}#${idx}`);
 }
 
@@ -140,7 +140,7 @@ function editorAddKeyframe(sceneId, idx){
   const prop = document.getElementById('ed-kf-prop').value;
   const at = document.getElementById('ed-kf-at').value;
   const val = document.getElementById('ed-kf-val').value;
-  if (at === '' || val === '') { alert('填时间（秒）和数值'); return; }
+  if (at === '' || val === '') { editorToast('填时间（秒）和数值'); return; }
   editorCmd('add_keyframe', {property: prop, at: parseFloat(at), value: parseFloat(val)}, `${sceneId}#${idx}`);
 }
 
@@ -154,7 +154,7 @@ function maskShapeCn(shape){
 
 function editorApplyMask(sceneId, idx){
   const shape = document.getElementById('ed-mask-shape').value;
-  if (!shape) { alert('先选蒙版形状'); return; }
+  if (!shape) { editorToast('先选蒙版形状'); return; }
   const payload = {shape: shape};
   const f = document.getElementById('ed-mask-feather');
   if (f && f.value !== '') payload.feather = parseFloat(f.value);
@@ -192,7 +192,7 @@ function promoTogglePanel(){
 
 async function promoDiscover(){
   const root = (document.getElementById('promo-root').value || '').trim();
-  if (!root) { alert('先填开发项目根目录'); return; }
+  if (!root) { editorToast('先填开发项目根目录'); return; }
   const box = document.getElementById('promo-repos');
   box.textContent = '扫描中……';
   try {
@@ -231,13 +231,68 @@ async function promoScan(path){
   } catch (e) { scanBox.textContent = '❌ ' + String(e); }
 }
 
+// ---------------------------------------------------------------------------
+// §9.3/FE-007 内联输入组件：替代 prompt()（Popover 模式——点击展开输入行）
+// 用法：uiInlineInput(hostId, {type:'number'|'select', ...}, (value) => {...})
+// ---------------------------------------------------------------------------
+const _UI_CN_ANCHORS = [['top_left','左上'],['top_right','右上'],['bottom_left','左下'],['bottom_right','右下'],['center','居中']];
+
+function uiInlineInput(hostId, opts, applyFn){
+  const host = document.getElementById(hostId);
+  if (!host) { if (typeof editorToast === 'function') editorToast('界面元素缺失，请刷新页面'); return; }
+  const id = hostId + '-inline';
+  const exist = document.getElementById(id);
+  if (exist) { exist.remove(); return; }  // 再点同一按钮 = 收起
+  const row = document.createElement('div');
+  row.id = id;
+  row.className = 'btn-row';
+  row.style.cssText = 'margin-top:6px;align-items:center;gap:6px;flex-wrap:wrap';
+  if (opts.type === 'select') {
+    row.innerHTML = `<select id="${id}-v" style="width:110px">`+
+      opts.options.map(([v, l]) => `<option value="${esc(v)}"${v === (opts.def ?? opts.options[0][0]) ? ' selected' : ''}>${esc(l)}</option>`).join('')+
+      `</select><button class="btn-sm">应用</button>`;
+  } else {
+    row.innerHTML = `<input type="number" id="${id}-v" value="${esc(String(opts.def))}" min="${opts.min}" max="${opts.max}" step="${opts.step || 0.1}" style="width:90px">`+
+      (opts.unit ? `<span class="hint" style="margin:0">${esc(opts.unit)}</span>` : '')+
+      `<button class="btn-sm">应用</button>`;
+  }
+  host.appendChild(row);
+  window._uiInlineApplies[id] = (v) => {
+    row.remove();
+    delete window._uiInlineApplies[id];
+    applyFn(v);
+  };
+  const btn = row.querySelector('button');
+  const input = row.querySelector('#' + id + '-v');
+  btn.onclick = () => { window._uiInlineApplies[id](
+    opts.type === 'number' ? parseFloat(input.value) : input.value); };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btn.click();
+    if (e.key === 'Escape') { row.remove(); delete window._uiInlineApplies[id]; }
+  });
+  input.focus();
+  if (input.select) input.select();
+}
+window._uiInlineApplies = {};
+
 function editorToggleLock(sceneId, idx){
   editorCmd('lock', {locked: undefined}, `${sceneId}#${idx}`);
 }
 function editorAudioVolume(trackType){
-  const v = prompt('音轨音量（0-2，1=原始）：', '1.0');
-  if (v === null) return;
-  editorCmd('set_audio_volume', {volume: parseFloat(v)}, trackType, true);
+  // §9.3：prompt → 内联输入（音轨音量 0-2）
+  const hostId = 'ed-audio-volume-host';
+  _ensureInlineHost(hostId);
+  uiInlineInput(hostId, {type: 'number', def: 1.0, min: 0, max: 2, step: 0.1, unit: '倍'},
+    (v) => { if (!isNaN(v)) editorCmd('set_audio_volume', {volume: v}, trackType, true); });
+}
+/** 在当前按钮旁挂一个内联输入宿主 span（无固定 DOM 锚点的按钮用）。 */
+function _ensureInlineHost(hostId){
+  if (document.getElementById(hostId)) return;
+  const btn = document.activeElement;
+  const span = document.createElement('span');
+  span.id = hostId;
+  span.style.display = 'inline-block';
+  if (btn && btn.parentElement) btn.parentElement.appendChild(span);
 }
 
 // ---- 项目级控制（§18 original / §19 watermark / §32 subtitle / §34 BGM）----
@@ -270,15 +325,38 @@ function editorOriginalAudio(mode){
   editorCmd('set_original_audio', {mode, volume: mode === 'preserve' ? 0.8 : 0.0, duckAgainst: 'narration'});
 }
 function editorOriginalAudioVolume(){
-  const v = prompt('原声音量（0-2，1=原始）：', '0.8');
-  if (v === null) return;
-  editorCmd('set_original_audio_volume', {volume: parseFloat(v)});
+  // §9.3：prompt → 内联输入（原声音量 0-2）
+  const hostId = 'ed-origvol-host';
+  _ensureInlineHost(hostId);
+  uiInlineInput(hostId, {type: 'number', def: 0.8, min: 0, max: 2, step: 0.1, unit: '倍'},
+    (v) => { if (!isNaN(v)) editorCmd('set_original_audio_volume', {volume: v}); });
 }
 async function editorWatermarkAdd(){
-  const text = prompt('水印文本（例：品牌名）：', '水印');
-  if (!text) return;
-  const anchor = prompt('位置：top_left / top_right / bottom_left / bottom_right / center', 'top_right');
-  editorCmd('set_watermark', {kind: 'text', text, anchor: anchor || 'top_right', opacity: 0.75});
+  // §9.3：prompt×2 → 内联表单（文本 + 位置下拉一次填齐）
+  const hostId = 'editor-watermark-list';
+  const box = document.getElementById(hostId);
+  if (!box) { editorToast('界面元素缺失，请刷新页面'); return; }
+  const id = hostId + '-inline';
+  if (document.getElementById(id)) { document.getElementById(id).remove(); return; }
+  const row = document.createElement('div');
+  row.id = id;
+  row.className = 'btn-row';
+  row.style.cssText = 'margin-top:6px;align-items:center;gap:6px;flex-wrap:wrap';
+  row.innerHTML =
+    `<input type="text" id="${id}-text" placeholder="水印文字（例：品牌名）" style="width:130px">`+
+    `<select id="${id}-anchor" style="width:86px">`+
+    _UI_CN_ANCHORS.map(([v, l]) => `<option value="${v}"${v === 'top_right' ? ' selected' : ''}>${l}</option>`).join('')+
+    `</select><button class="btn-sm">加水印</button>`;
+  box.appendChild(row);
+  const btn = row.querySelector('button');
+  btn.onclick = () => {
+    const text = row.querySelector('#' + id + '-text').value.trim();
+    const anchor = row.querySelector('#' + id + '-anchor').value;
+    row.remove();
+    if (!text) { editorToast('水印文字为空，未添加'); return; }
+    editorCmd('set_watermark', {kind: 'text', text, anchor, opacity: 0.75});
+  };
+  row.querySelector('#' + id + '-text').focus();
 }
 async function editorWatermarkRemove(){
   editorCmd('remove_watermark', {});
@@ -298,18 +376,21 @@ function renderWatermarkList(){
     `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_watermark',{})">🗑 删</button></span></div>`).join('');
 }
 function editorWatermarkMove(i){
-  const anchor = prompt('位置（top_left/top_right/bottom_left/bottom_right/center）：', 'top_right');
-  if (!anchor) return;
-  const w = (ED.comp.watermarks||[])[i] || {};
-  editorCmd('set_watermark', {kind: w.kind||'text', text: w.text||'水印',
-                              anchor, opacity: w.opacity ?? 0.75});
+  // §9.3：prompt → 内联下拉（九宫格位置）
+  const hostId = 'editor-watermark-list';
+  const w = (ED.comp.watermarks || [])[i] || {};
+  uiInlineInput(hostId, {type: 'select', options: _UI_CN_ANCHORS, def: w.anchor || 'top_right'},
+    (v) => editorCmd('set_watermark', {kind: w.kind || 'text', text: w.text || '水印',
+                                       anchor: v, opacity: w.opacity ?? 0.75}));
 }
 function editorWatermarkOpacity(i){
-  const v = prompt('透明度（0-1）：', '0.75');
-  if (v === null) return;
-  const w = (ED.comp.watermarks||[])[i] || {};
-  editorCmd('set_watermark', {kind: w.kind||'text', text: w.text||'水印',
-                              anchor: w.anchor||'top_right', opacity: parseFloat(v)});
+  // §9.3：prompt → 内联输入（透明度 0-1）
+  const hostId = 'editor-watermark-list';
+  const w = (ED.comp.watermarks || [])[i] || {};
+  uiInlineInput(hostId, {type: 'number', def: 0.75, min: 0, max: 1, step: 0.05},
+    (v) => { if (!isNaN(v)) editorCmd('set_watermark',
+      {kind: w.kind || 'text', text: w.text || '水印',
+       anchor: w.anchor || 'top_right', opacity: v}); });
 }
 async function editorSubtitleStyle(which){
   const payload = which === 'white_black'
@@ -340,7 +421,7 @@ function editorSubtitleStyleApply(){
   if (anim && anim.value) payload.animation = anim.value;
   if (bg && bg.value) { payload.background = bg.value; payload.backgroundOpacity = 0.5; }
   if (align && align.value) payload.alignment = align.value;
-  if (!Object.keys(payload).length) { alert('先调整样式字段'); return; }
+  if (!Object.keys(payload).length) { editorToast('先调整样式字段'); return; }
   editorCmd('set_subtitle_style', payload);
 }
 // §31/§33 生成字幕轨（word timing → SubtitleTrack 入 IR）
@@ -358,9 +439,11 @@ async function editorSubtitleGenerate(){
   }
 }
 async function editorBgmVolume(){
-  const v = prompt('BGM 音量（0-2，1=原始）：', '0.3');
-  if (v === null) return;
-  editorCmd('set_audio_volume', {volume: parseFloat(v)}, 'bgm', true);
+  // §9.3：prompt → 内联输入（BGM 音量 0-2）
+  const hostId = 'ed-bgmvol-host';
+  _ensureInlineHost(hostId);
+  uiInlineInput(hostId, {type: 'number', def: 0.3, min: 0, max: 2, step: 0.1, unit: '倍'},
+    (v) => { if (!isNaN(v)) editorCmd('set_audio_volume', {volume: v}, 'bgm', true); });
 }
 
 // EDT-007：参数预览（local）→ 应用（revision）
@@ -382,12 +465,16 @@ async function editorApplyMotionParam(sceneId, idx){
   editorCmd('set_motion_parameter', payload, `${sceneId}#${idx}`);
 }
 
-async function editorOpenAssetPicker(sceneId, idx){
+async function editorOpenAssetPicker(sceneId, idx, intent){
   // §49/§50 统一 AssetPicker：项目素材 / 本地导入 / 最近使用 / 收藏 / Stock / AI生成
   // （§24 六项同一组件；Stock 下 Pexels/Pixabay/Coverr 只是 Provider）
+  // intent：'replace'（换素材，默认）| 'addbroll'（作为 B-roll 层加进场景 §20）
+  AP.intent = intent || 'replace';
   const box = document.getElementById('editor-picker-box');
   box.innerHTML =
     '<div class="btn-row" style="margin-bottom:6px;flex-wrap:wrap">'+
+    (AP.intent === 'addbroll'
+      ? '<span class="hint">选择要加入的 B-roll 素材：</span>' : '')+
     '<button class="btn-secondary btn-sm" data-aptab="project">🗂 项目素材</button>'+
     '<button class="btn-secondary btn-sm" data-aptab="local">📥 本地导入</button>'+
     '<button class="btn-secondary btn-sm" data-aptab="recent">🕘 最近使用</button>'+
@@ -427,6 +514,8 @@ Object.assign(window, {
   promoDiscover,
   promoScan,
   editorToggleLock,
+  uiInlineInput,
+  _ensureInlineHost,
   editorAudioVolume,
   edVoiceLoadOptions,
   edVoicePreview,

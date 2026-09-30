@@ -2001,6 +2001,81 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        if parsed.path == "/api/graphics/plan_to_project":
+            # §7/FE-003 Graphic Plan → Composition 归一：proposal 确认 → 建项目
+            # （合法 IR 骨架：每场景一个 graphic 层）→ 前端立即走
+            # apply_graphic_plan Command 完善（此后修改全经 Command Bus）。
+            # 禁止 GFX.plan → save 直通持久化：此端点只建骨架，正式数据经 Command。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            plan = payload.get("plan") or {}
+            scenes = plan.get("scenes") or []
+            script = (payload.get("script") or "").strip()
+            if not scenes:
+                self._send_json({"error": "缺少创作方案（先生成方案）"}, 400)
+                return
+            try:
+                import uuid as _uuid
+                from video_director.models import CompositionIR, SceneIR, Layer, LayerType
+                pid = "gfx-" + _uuid.uuid4().hex[:8]
+                base = vd_config.project_dir(pid)
+                dirs = vd_config.init_project_dirs(base)
+                [w, h] = (payload.get("size") or "1080x1920").split("x")
+                fps = 30
+                t0 = 0.0
+                ir_scenes = []
+                for sc in scenes:
+                    dur = max(0.5, float(sc.get("duration") or 3.0))
+                    gparams = {
+                        "block_id": sc.get("block_id") or "kb.title",
+                        "block_name": sc.get("block_name") or sc.get("block_id") or "",
+                        "layout": sc.get("layout") or "center",
+                        "source": sc.get("source") or "Generated Graphic",
+                        "motion_id": sc.get("motion_id") or "graphics.fade-up",
+                        "content_type": plan.get("content_type") or "knowledge",
+                        "style_id": plan.get("style_id") or "editorial",
+                        "narration": sc.get("narration") or sc.get("text") or "",
+                        "visual_intent": sc.get("visual_intent") or "",
+                    }
+                    ir_scenes.append(SceneIR.model_validate({
+                        "id": f"scene-{len(ir_scenes) + 1:02d}",
+                        "start": t0, "duration": dur,
+                        "text": gparams["narration"] or " ",
+                        "visual_intent": gparams["visual_intent"],
+                        "layers": [Layer(type=LayerType.graphic, start=0.0,
+                                         duration=dur,
+                                         motion_recipe_id=gparams["motion_id"],
+                                         motion_instance={"parameters":
+                                                          {"graphic": gparams}})],
+                    }))
+                    t0 += dur
+                ir = CompositionIR.model_validate({
+                    "project": {"title": script[:24] or "程序化创作",
+                                "width": int(w), "height": int(h), "fps": fps,
+                                "duration": t0},
+                    "scenes": [json.loads(s.model_dump_json()) for s in ir_scenes],
+                    "audio": [], "watermarks": [],
+                })
+                comp_path = dirs["plans"] / "composition.json"
+                comp_path.write_text(json.dumps(json.loads(ir.model_dump_json()),
+                                                ensure_ascii=False, indent=2),
+                                     encoding="utf-8")
+                (dirs["assets"] / "manifest.json").write_text("[]", encoding="utf-8")
+                (dirs["input"] / "script.txt").write_text(script, encoding="utf-8")
+                vd_store.create_project(pid, "[图形] " + (plan.get("content_type") or "knowledge"),
+                                        {"mode": "graphic_workspace",
+                                         "content_type": plan.get("content_type")})
+                vd_store.set_stage(pid, vd_store.Stage.AWAITING_CONFIRM)
+                self._send_json({"ok": True, "project_id": pid,
+                                 "scene_count": len(ir.scenes), "duration": t0})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         if parsed.path in ("/api/promo/discover", "/api/promo/scan", "/api/promo/features"):
             # §65 Repo Promo UI：发现项目 → 扫描 → 功能证据（§34/§三十五~三十八）
             length = int(self.headers.get("Content-Length", 0))

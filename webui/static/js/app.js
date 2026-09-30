@@ -155,7 +155,7 @@ async function enhanceScript(){
   const btn = document.getElementById('enhance-btn');
   const box = document.getElementById('enhance-result');
   const script = document.getElementById('script').value;
-  if (!script.trim()) { alert('请先粘贴文案'); return; }
+  if (!script.trim()) { editorToast('请先粘贴文案', true); return; }
   btn.disabled = true; btn.textContent = '润色中……';
   try {
     const r = await fetch('/api/enhance', {
@@ -174,7 +174,7 @@ async function enhanceScript(){
       box.querySelector('.hint').textContent = 'AI 润色结果（对比后采用，原文保留）：';
     }
   } catch (e) {
-    alert('润色失败：' + e.message);
+    editorToast('润色失败：' + e.message, true);
   } finally {
     btn.disabled = false; btn.textContent = '✨ AI 润色文案';
   }
@@ -210,6 +210,7 @@ function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>
 // §8 入口：模块加载完成即初始化（等价旧 <script> 底部的直接调用）
 loadOptions();
 loadHome();  // 首页默认 tab
+if (typeof devInit === 'function') devInit();  // §10 Developer Mode 状态恢复 + 名称映射预热
 
 // §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
 Object.assign(window, {

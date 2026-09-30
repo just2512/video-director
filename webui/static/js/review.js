@@ -1,5 +1,5 @@
 async function editorLoadVersions(){
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   const revs = await (await fetch('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid))).json();
   const box = document.getElementById('editor-versions');
   if (!Array.isArray(revs) || !revs.length) {
@@ -17,7 +17,7 @@ async function editorLoadVersions(){
 }
 async function editorCompareSelected(){
   const chk = Array.from(document.querySelectorAll('.ver-chk:checked'));
-  if (chk.length < 2) { alert('勾选两个版本再对比'); return; }
+  if (chk.length < 2) { editorToast('勾选两个版本再对比'); return; }
   const revs = await (await fetch('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid))).json();
   const a = revs[parseInt(chk[0].dataset.i)], b = revs[parseInt(chk[1].dataset.i)];
   const changed = [a, b].map(x => (x.changed_artifacts || []).join('、') || '无');
@@ -44,7 +44,7 @@ async function editorPreflight(){
 }
 async function editorRenderFinal(){
   const pf = await editorPreflight();
-  if (pf.status !== 'PASS') { alert('商用预检未通过，渲染中止（先处理阻断项）'); return; }
+  if (pf.status !== 'PASS') { editorToast('商用预检未通过，渲染中止（先处理阻断项）'); return; }
   editorToast('预检通过，渲染已提交到队列……');
   // 渲染走既有管线：confirm 接口渲染 AWAITING_CONFIRM 项目
   const r = await apiPost('/api/confirm', {project_id: ED.pid});
@@ -58,10 +58,29 @@ async function editorRenderFinal(){
 }
 
 function editorToast(msg, isErr){
+  // §28 全局 Toast：优先顶栏 meta；不存在（创作页/分镜页）时降级右下角浮层
   const meta = document.getElementById('editor-meta');
-  meta.textContent = msg;
-  meta.style.color = isErr ? '#c0392b' : '#27ae60';
-  setTimeout(()=>{ meta.style.color=''; }, 6000);
+  if (meta) {
+    meta.textContent = msg;
+    meta.style.color = isErr ? '#c0392b' : '#27ae60';
+    setTimeout(() => { meta.style.color = ''; }, 6000);
+    return;
+  }
+  let host = document.getElementById('global-toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'global-toast-host';
+    host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;max-width:420px';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'background:' + (isErr ? '#3a1d1d' : '#1d2b22') + ';' +
+    'border:1px solid ' + (isErr ? '#c0392b' : '#2e5e3e') + ';color:' +
+    (isErr ? '#ff8f8f' : '#7fd49a') + ';padding:10px 14px;border-radius:8px;' +
+    'font-size:13px;margin-top:6px;box-shadow:0 4px 16px rgba(0,0,0,.4)';
+  host.appendChild(t);
+  setTimeout(() => { t.remove(); }, 6000);
 }
 
 // ===========================================================================
@@ -172,7 +191,7 @@ async function edLibStockSearch(){
 
 async function edLibApplyBlock(blockId){
   // §36：Block 应用 = 给选中场景/层挂 graphic 层（layer.add 链，Block id 记 lineage）
-  if (!ED.pid || !ED.sel) { alert('先在时间线选中场景或图层'); return; }
+  if (!ED.pid || !ED.sel) { editorToast('先在时间线选中场景或图层'); return; }
   const sceneId = ED.sel.type === 'layer' ? ED.sel.id.split('#')[0] : ED.sel.id;
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'add_broll',
     targetId: sceneId, payload: {kind: 'graphic', blockId: blockId}, expectedVersion: ED.version});
@@ -187,7 +206,7 @@ async function edLibApplyBlock(blockId){
   }
 }
 async function edLibApplyMotion(motionId){
-  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { alert('先在时间线选中一个图层'); return; }
+  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { editorToast('先在时间线选中一个图层'); return; }
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
     targetId: ED.sel.id, payload: {motionRecipeId: motionId}, expectedVersion: ED.version});
   if (r.ok) {
@@ -199,7 +218,7 @@ async function edLibApplyMotion(motionId){
   } else { editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error), true); }
 }
 async function edLibApplyAsset(assetId){
-  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { alert('先在时间线选中一个图层'); return; }
+  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { editorToast('先在时间线选中一个图层'); return; }
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_source',
     targetId: ED.sel.id, payload: {assetId}, expectedVersion: ED.version});
   if (r.ok) {
@@ -401,7 +420,7 @@ function motionCssPreview(m){
 }
 async function motionApplyToProject(mid){
   if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') {
-    alert('先在「编辑器」打开项目并选中一个图层，再回来应用动效'); switchTab('editor'); return;
+    editorToast('先在「编辑器」打开项目并选中一个图层，再回来应用动效'); switchTab('editor'); return;
   }
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
     targetId: ED.sel.id, payload: {motionRecipeId: mid}, expectedVersion: ED.version});
@@ -413,7 +432,7 @@ async function motionApplyToProject(mid){
     switchTab('editor'); editorRenderTimeline();
   } else {
     const err = (r.errors && r.errors[0]) || {};
-    alert('❌ ' + (err.message || r.error));
+    editorToast('❌ ' + (err.message || r.error), true);
   }
 }
 

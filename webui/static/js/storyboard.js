@@ -160,7 +160,7 @@ async function sendFeedback(caseId, liked){
       ? '<span class="cap-ok">已记录 👍 —— 你的偏好正在沉淀进个人风格记忆</span>'
       : '<span class="cap-off">已记录 👎 —— 系统将避免这类风格</span>';
   } catch (e) {
-    alert('反馈失败：' + e.message);
+    editorToast('反馈失败：' + e.message, true);
   }
 }
 
@@ -247,8 +247,8 @@ async function uploadVoice(){
 function previewAudio(kind){
   const sel = document.getElementById(kind);
   const v = sel.value;
-  if (!v) { alert('当前选项无音频可播（关闭/不配乐状态）'); return; }
-  if (v === 'auto') { alert('AI 自动匹配在成片时按风格选曲，试听请选择具体曲目'); return; }
+  if (!v) { editorToast('当前选项无音频可播（关闭/不配乐状态）'); return; }
+  if (v === 'auto') { editorToast('AI 自动匹配在成片时按风格选曲，试听请选择具体曲目'); return; }
   _play('/api/audio_preview?asset_id=' + encodeURIComponent(v), v);
 }
 function previewSfx(){
@@ -259,7 +259,7 @@ function previewSfx(){
     const opts = sel.options;
     const ids = [];
     for (let i = 0; i < opts.length; i++) { const ov = opts[i].value; if (ov && ov !== 'auto') ids.push(ov); }
-    if (!ids.length) { alert('音效库为空'); return; }
+    if (!ids.length) { editorToast('音效库为空', true); return; }
     _play('/api/audio_preview?asset_id=' + encodeURIComponent(ids[0]), ids[0]);
     return;
   }

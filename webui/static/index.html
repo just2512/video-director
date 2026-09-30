@@ -72,7 +72,7 @@
     <div id="gfx-result"></div>
 
     <!-- §42 Block 开发体验：New Block → BlockDefinition → Creative Catalog -->
-    <div class="card">
+    <div class="card dev-only">
       <b>🧱 新建视觉块（开发者模式）</b> <span class="hint">——定义语义/意图/基件，保存进创作目录（刷新后仍在）</span>
       <div class="btn-row" style="flex-wrap:wrap">
         <input type="text" id="nb-id" class="rev-input" style="flex:1" placeholder="块 id（如 kb.mycard）">
@@ -308,6 +308,7 @@
   </div>
   <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
   <div id="cap-badge" class="llm-badge" onclick="toggleCapPanel()">⚙ 系统能力：检测中…</div>
+  <div id="dev-badge" class="llm-badge" style="cursor:pointer" onclick="devToggleMode()" title="开发者模式：显示内部技术信息（默认关闭）">🔧 开发者模式</div>
 
   <div id="cap-panel" class="card llm-panel" style="display:none">
     <b>系统能力状态</b>（可用=主路径或降级兜底可工作；缺失=该功能当前不可用）
@@ -518,9 +519,9 @@
         <div class="rev-console">
           <div class="btn-row">
             <label style="font-size:12px">类型</label>
-            <select id="gen-type" style="width:100px">
+            <select id="gen-type" style="width:100px" onchange="applyGenerationAvailability()">
               <option value="image">图片</option>
-              <option value="graphic">图形</option>
+              <option value="graphic">图形（程序化视觉，无需配置）</option>
               <option value="video">视频</option>
             </select>
             <label style="font-size:12px">模型</label>
@@ -706,7 +707,9 @@
         <button class="btn-secondary" onclick="toggleLLMPanel()">🤖 大模型配置中心</button>
         <button class="btn-secondary" onclick="toggleCapPanel()">⚙ 系统能力状态</button>
         <button class="btn-secondary" onclick="loadSettings()">🩺 环境自检</button>
+        <button class="btn-secondary" onclick="devToggleMode()">🔧 开发者模式（显示内部技术信息）</button>
       </div>
+      <div class="hint" id="settings-dev-note">开发者模式默认关闭：开启后界面会显示动效/镜头的技术编号、生成来源指纹等内部信息，供调试用；不影响任何功能。</div>
       <div id="settings-env">点击「环境自检」查看 ffmpeg / 字体 / 存储 / 渲染器状态。</div>
     </div>
   </div>
@@ -726,6 +729,7 @@
 <script src="/static/js/graphics.js"></script>
 <script src="/static/js/storyboard.js"></script>
 <script src="/static/js/workflow.js"></script>
+<script src="/static/js/developer.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -48,9 +48,9 @@ async function editorInit(){
 
 async function editorLoad(){
   const pid = document.getElementById('editor-project').value;
-  if (!pid) { alert('请先选择项目'); return; }
+  if (!pid) { editorToast('请先选择项目', true); return; }
   const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(pid))).json();
-  if (!comp.scenes) { alert('项目无可编辑时间线：' + (comp.error || '未知')); return; }
+  if (!comp.scenes) { editorToast('项目无可编辑时间线：' + (comp.error || '未知')); return; }
   ED.pid = pid; ED.comp = comp; ED.version = comp.version; ED.sel = null;
   document.getElementById('editor-body').style.display = '';
   document.getElementById('editor-meta').textContent =
@@ -59,6 +59,7 @@ async function editorLoad(){
   editorRenderTimeline();
   editorLoadVersions();
   populateGenModels();
+  refreshGenerationAvailability();  // §31.1 生图/生视频按钮禁用态（先于点击，不 503）
   directorLoadCapCount();
   renderWatermarkList();
   // §46 顶栏 + Preview + §48 Library 默认入口
@@ -107,7 +108,7 @@ function renderSemanticTimeline(){
       <div class="ed-semantic-role" title="${esc(role)}">${esc(role)}</div>
       <div class="ed-semantic-body">
         <div class="ed-semantic-text">${esc(sc.text || sc.id)}</div>
-        <div class="hint" style="font-size:11px">${sc.duration.toFixed(1)}s · ${esc(sc.origin_recipe_id || '无镜头配方')} · ${sc.layers.length} 层</div>
+        <div class="hint" style="font-size:11px">${sc.duration.toFixed(1)}s · ${sc.origin_recipe_id ? esc(shotCnName(sc.origin_recipe_id)) : '自由镜头'} · ${sc.layers.length} 层</div>
       </div>
     </div>`;
   });
@@ -131,33 +132,33 @@ function editorRenderTimeline(){
 
 // ---- §46 顶栏：Undo / Redo / Save / Preview ----
 async function editorUndo(){
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'undo'});
   if (r.ok) {
     const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline(); edShowInspector(); renderWatermarkList(); editorTopbarRefresh();
-    editorToast(`↩ 已撤销（${r.revision_id || ''}）`);
+    editorToast('↩ 已撤销上一步' + (DEV.mode && r.revision_id ? `（${r.revision_id}）` : ''));
   } else {
     const err = (r.errors && r.errors[0]) || {};
     editorToast(`❌ Undo：${err.message || r.error || '不可用'}`, true);
   }
 }
 async function editorRedo(){
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'redo'});
   if (r.ok) {
     const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline(); edShowInspector(); renderWatermarkList(); editorTopbarRefresh();
-    editorToast(`↪ 已恢复（${r.revision_id || ''}）`);
+    editorToast('↪ 已恢复' + (DEV.mode && r.revision_id ? `（${r.revision_id}）` : ''));
   } else {
     const err = (r.errors && r.errors[0]) || {};
     editorToast(`❌ Redo：${err.message || r.error || '不可用'}`, true);
   }
 }
 async function editorSaveBar(){
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   // project.save：命令落盘已原子，此处确认 + 版本号上报（§46 Save 语义）
   const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
   if (comp && comp.version) {
@@ -167,7 +168,7 @@ async function editorSaveBar(){
 }
 async function editorPreviewBar(){
   // §46 Preview：加载项目草稿到中央预览区（有 draft 播放，无 draft 诚实提示）
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   const stage = document.getElementById('ed-preview-stage');
   const meta = document.getElementById('ed-preview-meta');
   if (!stage) return;
@@ -243,7 +244,7 @@ function renderPhysicalTimeline(){
       const lwPct = (lay.duration / sc.duration * 100).toFixed(2);
       const lsel = edIsSelected('layer', `${sc.id}#${li}`) ? ' ed-sel' : '';
       const lock = lay.locked ? '<span title="已锁定">🔒</span>' : '';
-      const mtag = lay.motion_recipe_id ? `<span class="ed-motion-tag">${esc(lay.motion_recipe_id.replace('motion.',''))}</span>` : '';
+      const mtag = lay.motion_recipe_id ? `<span class="ed-motion-tag">${esc(motionCnName(lay.motion_recipe_id))}</span>` : '';
       mInner += `<div class="ed-layer${lsel}" onclick="event.stopPropagation();editorSelectLayer('${sc.id}',${li}, event)" style="width:${lwPct}%">`+
         `${lock}${layerTypeCn(lay.type)}${mtag}</div>`;
     });

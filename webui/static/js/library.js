@@ -13,6 +13,17 @@ function _apPassFilters(a){
   if (fc && a.commercial_status && a.commercial_status !== 'CLEAR') return false;
   return true;
 }
+/** 素材应用意图分流：replace=换层素材 / addbroll=作为新层加入场景（§20）。 */
+function _apApplyAsset(sceneId, idx, aid, type){
+  if (AP.intent === 'addbroll') {
+    const payload = {assetId: aid, assetType: type === 'video' ? 'video' : 'image'};
+    if (type === 'video') { payload.sourceOut = 5; }
+    editorCmd('add_broll', payload, sceneId);
+  } else {
+    editorReplaceSource(sceneId, idx, aid);
+  }
+}
+
 async function assetPickerTab(tab, idx, sceneId){
   const body = document.getElementById('asset-picker-body');
   if (!body) return;
@@ -25,7 +36,7 @@ async function assetPickerTab(tab, idx, sceneId){
     try { lib = await (await fetch('/api/assets_library')).json(); } catch(e) { lib = []; }
     const items = (Array.isArray(lib) ? lib : []).filter(a => ids.includes(a.asset_id) && _apPassFilters(a));
     body.innerHTML = (items.length ? items.map(a => {
-      const btn = `<button class="btn-secondary btn-sm" onclick="editorReplaceSource('${esc(sceneId)}',${idx},'${esc(a.asset_id)}')">替换</button>`+
+      const btn = `<button class="btn-secondary btn-sm" onclick="_apApplyAsset('${esc(sceneId)}',${idx},'${esc(a.asset_id)}','${esc(a.type || '')}')">${AP.intent === 'addbroll' ? '加入' : '替换'}</button>`+
         (tab === 'favorites'
           ? ` <button class="btn-sm" onclick="apToggleFav('${esc(a.asset_id)}',this)" title="取消收藏">★</button>`
           : ` <button class="btn-sm" onclick="apToggleFav('${esc(a.asset_id)}',this)" title="收藏">☆</button>`);
@@ -48,8 +59,8 @@ async function assetPickerTab(tab, idx, sceneId){
       row.querySelector('.hint').textContent = (a.type || '') + (a.file ? ' · ' + String(a.file).split(/[\\/]/).pop() : '');
       const btn = document.createElement('button');
       btn.className = 'btn-secondary btn-sm';
-      btn.textContent = '替换';
-      btn.onclick = () => editorReplaceSource(sid, iidx, aid);
+      btn.textContent = AP.intent === 'addbroll' ? '加入' : '替换';
+      btn.onclick = () => _apApplyAsset(sid, iidx, aid, a.type || '');
       row.appendChild(btn);
       return row.outerHTML;
     }).join('')
@@ -98,8 +109,8 @@ async function assetPickerTab(tab, idx, sceneId){
       row.querySelector('.hint').textContent = (a.type || '') + ' · generated';
       const btn = document.createElement('button');
       btn.className = 'btn-secondary btn-sm';
-      btn.textContent = '替换';
-      btn.onclick = () => editorReplaceSource(sid, iidx, aid);
+      btn.textContent = AP.intent === 'addbroll' ? '加入' : '替换';
+      btn.onclick = () => _apApplyAsset(sid, iidx, aid, a.type || '');
       row.appendChild(btn);
       return row.outerHTML;
     }).join('')
@@ -123,7 +134,7 @@ async function assetPickerStockSearch(){
     : '<div class="hint">无匹配素材</div>';
 }
 async function assetPickerStockDownload(asset){
-  if (!ED.pid) { alert('先在编辑器打开一个项目'); return; }
+  if (!ED.pid) { editorToast('先在编辑器打开一个项目'); return; }
   const r = await apiPost('/api/stock/download', {project_id: ED.pid, asset: asset});
   if (!r.ok) { editorToast('❌ ' + (r.error||'下载失败'), true); return; }
   editorToast(`✅ 已下载 ${r.type} 素材到项目库（${r.width}x${r.height}）`);
@@ -156,15 +167,15 @@ function apToggleFav(assetId, btnEl){
 
 async function editorBatchCmd(subcommand){
   // §47 multi-select：多选集合批量命令（单 revision）
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   let targets = [];
   if (subcommand === 'lock') {
     targets = [...ED.selSet].filter(k => k.startsWith('layer:')).map(k => k.slice(6));
-    if (!targets.length) { alert('批量锁定需选中图层'); return; }
+    if (!targets.length) { editorToast('批量锁定需选中图层'); return; }
   } else {
     // delete/duplicate 作用于选中场景
     targets = ED.comp.scenes.filter(s => edIsSelected('scene', s.id)).map(s => s.id);
-    if (!targets.length) { alert('批量' + (subcommand==='delete'?'删除':'复制') + '需选中场景'); return; }
+    if (!targets.length) { editorToast('批量' + (subcommand==='delete'?'删除':'复制') + '需选中场景'); return; }
   }
   const r = await apiPost('/api/editor/command', {
     project_id: ED.pid, command: 'batch',
@@ -180,7 +191,7 @@ async function editorBatchCmd(subcommand){
     editorRenderTimeline();
     const cnt = document.getElementById('editor-selection-count');
     if (cnt) cnt.textContent = '未选中';
-    editorToast(`批量${subcommand} 完成（revision ${r.revision_id}；变更 ${(r.changed_artifacts||[]).length} 项）`);
+    editorToast(`批量${subcommand} 完成` + (DEV.mode ? `（版本 ${r.revision_id}；变更 ${(r.changed_artifacts||[]).length} 项）` : ''));
   } else {
     const err = (r.errors && r.errors[0]) || {};
     editorToast(`❌ 批量${subcommand}：${err.message || r.error || ''}`, true);
@@ -188,9 +199,9 @@ async function editorBatchCmd(subcommand){
 }
 
 async function editorCmd(cmd, extra, targetOverride, useRawTarget){
-  if (!ED.pid) { alert('先打开项目'); return; }
+  if (!ED.pid) { editorToast('先打开项目'); return; }
   let target = targetOverride || (ED.sel ? ED.sel.id : '');
-  if (!target && cmd !== 'noop' && !useRawTarget) { alert('先在时间线选中场景或图层'); return; }
+  if (!target && cmd !== 'noop' && !useRawTarget) { editorToast('先在时间线选中场景或图层'); return; }
   // split 只作用于场景：图层选中时归约到其所属场景
   if (cmd === 'split' && target.includes('#')) target = target.split('#')[0];
   const payload = extra || {};
@@ -203,7 +214,7 @@ async function editorCmd(cmd, extra, targetOverride, useRawTarget){
     editorRenderTimeline();
     edShowInspector();
     renderWatermarkList();
-    editorToast(`${cmd} 完成（revision ${r.revision_id}；失效：${(r.stale_artifacts||[]).join('，') || '无'}；复用：${(r.reused_artifacts||[]).length} 项）`);
+    editorToast(`${cmd} 完成` + (DEV.mode ? `（版本 ${r.revision_id}；已更新：${(r.stale_artifacts||[]).join('，') || '无'}）` : ''));
   } else {
     const err = (r.errors && r.errors[0]) || {};
     editorToast(`❌ ${err.code || '错误'}：${err.message || r.error || ''}`, true);
@@ -211,23 +222,21 @@ async function editorCmd(cmd, extra, targetOverride, useRawTarget){
 }
 function editorApplyDuration(sceneId){
   const v = parseFloat(document.getElementById('ed-dur').value);
-  if (!(v > 0.3)) { alert('时长需 ≥0.3s'); return; }
+  if (!(v > 0.3)) { editorToast('时长需不小于 0.3 秒', true); return; }
   editorCmd('set_duration', {duration: v});
 }
 function editorMovePrompt(){
-  const to = prompt('移动到第几个位置？（从 1 开始）');
-  if (!to) return;
-  editorCmd('move', {toIndex: parseInt(to) - 1});
+  // §9.3：prompt → 内联输入（目标序号）
+  const hostId = 'ed-move-host';
+  _ensureInlineHost(hostId);
+  uiInlineInput(hostId, {type: 'number', def: 1, min: 1, max: 99, step: 1, unit: '第几位'},
+    (v) => { if (v >= 1) editorCmd('move', {toIndex: Math.round(v) - 1}); });
 }
 function editorAddBrollPrompt(){
-  // 加 B-roll：从素材库选一个 image/video 追加为场景层（§20 add_broll）
-  if (!ED.sel || ED.sel.type !== 'scene') { alert('先选中一个场景（目标场景）'); return; }
-  const aid = prompt('B-roll 素材 id（去素材库复制，如 asset-01）：');
-  if (!aid) return;
-  const type = confirm('是视频素材吗？（取消=图片）') ? 'video' : 'image';
-  const payload = {assetId: aid, assetType: type};
-  if (type === 'video') { payload.sourceOut = 5; }
-  editorCmd('add_broll', payload, ED.sel.id);
+  // 加 B-roll：打开统一素材选择器，选素材「加入」为场景新层（§20 add_broll；
+  // §9.3：prompt/confirm → 素材选择器弹层）
+  if (!ED.sel || ED.sel.type !== 'scene') { editorToast('先在时间线选中一个场景', true); return; }
+  editorOpenAssetPicker(ED.sel.id, 0, 'addbroll');
 }
 
 // ---- Motion Picker（动效库数据源 + resolver 三态）----
@@ -237,7 +246,8 @@ async function editorOpenMotionPicker(sceneId, idx){
   const r = await apiPost('/api/registry/motions/resolve', {layer_type: 'image', semantic_intent: 'enter', duration: 0.5});
   const cands = (r.candidates || []).filter(c=>c.compatibility !== 'INCOMPATIBLE');
   box.innerHTML = '<label>选择动效（优先推荐可用动效；缺依赖的也可应用）</label>' +
-    cands.map(c=>`<div class="proj-row"><span>${esc(c.name)} <code>${esc(c.recipe_id)}</code>`+
+    cands.map(c=>`<div class="proj-row"><span><b>${esc(c.name)}</b>`+
+      `<span class="dev-only hint"><code>${esc(c.recipe_id)}</code></span>`+
       `<span class="hint">${c.compatibility === 'SUPPORTED' ? '✅ 可用' : '⚠ ' + esc((c.missing_requirements||[]).join('；'))}</span></span>`+
       `<button class="btn-secondary btn-sm" onclick="editorApplyMotion('${sceneId}',${idx},'${c.recipe_id}')">应用</button></div>`).join('');
 }
@@ -250,7 +260,7 @@ async function editorApplyMotion(sceneId, idx, motionId){
     ED.comp = comp; ED.version = comp.version;
     edSelect(`${sceneId}#${idx}`, 'layer', null);
     editorRenderTimeline(); edShowInspector();
-    editorToast(`✅ 动效已应用：${motionId}（revision ${r.revision_id}）`);
+    editorToast(`✅ 动效已应用：${motionCnName(motionId)}` + (DEV.mode ? `（${motionId}）` : ''));
   } else {
     const err = (r.errors && r.errors[0]) || {};
     editorToast(`❌ ${err.message || r.error}`, true);
@@ -268,8 +278,10 @@ async function editorOpenShotPicker(sceneId){
     scene_position: sceneId.startsWith('scene-hook') || ED.comp.scenes[0].id===sceneId ? 'first' : 'middle',
   });
   const cands = (r.candidates || []).filter(c=>c.compatibility !== 'INCOMPATIBLE');
-  box.innerHTML = '<label>选择镜头配方（换镜头不换素材）</label>' +
-    cands.map(c=>`<div class="proj-row"><span>${esc(c.name)} <code>${esc(c.recipe_id)}</code>`+
+  devCacheShots(r.candidates);  // §9.2 中文名缓存（Inspector 显示用）
+  box.innerHTML = '<label>选择镜头方案（换镜头不换素材）</label>' +
+    cands.map(c=>`<div class="proj-row"><span><b>${esc(c.name)}</b>`+
+      `<span class="dev-only hint"><code>${esc(c.recipe_id)}</code></span>`+
       `<span class="hint">${esc((c.reasons||[]).join('；'))}</span></span>`+
       `<button class="btn-secondary btn-sm" onclick="editorApplyShot('${sceneId}','${c.recipe_id}')">使用</button></div>`).join('');
 }
@@ -291,7 +303,7 @@ async function editorApplyShot(sceneId, recipeId){
 // ---- AI 提案（propose → preview → apply/reject）----
 async function editorAiPropose(){
   const inst = document.getElementById('editor-ai-input').value.trim();
-  if (!inst) { alert('请输入修改描述'); return; }
+  if (!inst) { editorToast('请输入修改描述'); return; }
   const box = document.getElementById('editor-ai-proposal');
   box.innerHTML = 'AI 解析中……';
   const r = await apiPost('/api/proposal/propose', {project_id: ED.pid, instruction: inst});
@@ -340,10 +352,10 @@ async function directorLoadCapCount(){
   } catch(e) {}
 }
 async function directorExecute(){
-  if (!ED.pid) { alert('先打开项目（上方「打开项目」）'); return; }
+  if (!ED.pid) { editorToast('先打开项目（上方「打开项目」）'); return; }
   const inp = document.getElementById('director-input');
   const inst = (inp.value || '').trim();
-  if (!inst) { alert('请输入剪辑意图（例：保留原声，加右上角水印）'); return; }
+  if (!inst) { editorToast('请输入剪辑意图（例：保留原声，加右上角水印）'); return; }
   const box = document.getElementById('director-result');
   box.innerHTML = '<div class="hint">AI 导演规划中……</div>';
   // §48 SSE：实时进度推送（多页面共享通道；无连接时静默跳过）
@@ -404,6 +416,7 @@ Object.assign(window, {
   createGoStock,
   editorReplaceSource,
   apToggleFav,
+  _apApplyAsset,
   editorBatchCmd,
   editorCmd,
   editorApplyDuration,
