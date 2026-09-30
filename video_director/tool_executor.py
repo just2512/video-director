@@ -107,6 +107,13 @@ _COMMAND_MAP: Dict[str, str] = {
     "subtitle.update_style": "set_subtitle_style",
     "subtitle.update_timing": "set_subtitle_style",
     "subtitle.generate": "set_subtitle_track",
+    # ---- Frontend Unification §14/§15/§16（camera/pip/morph 执行链接入）----
+    "camera.apply": "apply_camera",
+    "pip.configure": "configure_pip",
+    "visual.morph": "apply_morph",
+    "mask.apply": "apply_mask",
+    "keyframe.add": "add_keyframe",
+    "keyframe.remove": "remove_keyframe",
 }
 
 _READONLY = {
@@ -118,6 +125,8 @@ _READONLY = {
     # §59 Verify Tools（读回 IR 断言，只读）
     "timeline.verify", "audio.verify", "asset.verify",
     "render.verify", "composition.verify",
+    # §13 ContinuityVerifier（PPT Detector，只读检查）
+    "visual.continuity.verify",
 }
 
 _REVISION = {"revision.propose", "revision.preview", "revision.apply", "revision.reject"}
@@ -378,6 +387,18 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
     if tool == "timeline.query":
         return _result(tool, True, "OK",
                        result={"timeline": _timeline_summary(project_id)})
+    if tool == "visual.continuity.verify":
+        # §13 ContinuityVerifier（PPT Detector）：只读检查相邻场景连续性
+        from video_director import continuity as vd_continuity
+        try:
+            ir = editor.load_composition(project_id)
+        except Exception as exc:
+            return _result(tool, False, "NOT_FOUND", error=f"项目不存在或 IR 加载失败: {exc}")
+        report = vd_continuity.verify_composition_continuity(ir)
+        return _result(tool, True, "OK", result={
+            "status": report.status,
+            "issues": [i.model_dump() for i in report.issues],
+        })
     if tool == "project.inspect":
         return _result(tool, True, "OK",
                        result={"project": project_context.inspect_project_context(project_id)})

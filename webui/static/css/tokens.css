@@ -1,0 +1,11 @@
+/* §8 tokens：设计令牌（变量）。现有页面为直写色值，新样式统一在此定义变量后引用。 */
+:root {
+  --bg: #101418;
+  --surface: #1a2026;
+  --border: #2a343d;
+  --text: #e8e8e8;
+  --muted: #9aa4ad;
+  --accent: #4a90d9;
+  --ok: #5ec46a;
+  --err: #e05e5e;
+}

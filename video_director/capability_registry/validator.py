@@ -173,6 +173,60 @@ SCHEMAS: Dict[str, InputSchema] = {
         "projectId": FieldSpec("str", required=True),
         "issue": FieldSpec("str", required=True),
     }),
+    # ---- Frontend Unification §14/§15/§16：camera/pip/morph 请求契约 ----
+    "CameraApplyRequest": InputSchema("CameraApplyRequest", {
+        "preset": FieldSpec("enum:str", enum=frozenset({
+            "push_in", "pull_out", "pan_left", "pan_right",
+            "tilt_up", "tilt_down", "follow"})),
+        "strength": FieldSpec("float", minimum=0.01, maximum=1.0),
+        "duration": FieldSpec("float", minimum=0.0),
+        "followTarget": FieldSpec("str"),
+        "keyframes": FieldSpec("list"),
+    }),
+    "PipConfigRequest": InputSchema("PipConfigRequest", {
+        "action": FieldSpec("enum:str", enum=frozenset({"set", "remove"})),
+        "source": FieldSpec("str"),
+        "fit": FieldSpec("enum:str", enum=frozenset({"contain", "cover"})),
+        "radius": FieldSpec("float", minimum=0.0),
+        "shadow": FieldSpec("bool"),
+        "crop": FieldSpec("dict"),
+        "mask": FieldSpec("dict"),
+        "transform": FieldSpec("dict"),
+        "audioPolicy": FieldSpec("str"),
+    }),
+    "MorphRequest": InputSchema("MorphRequest", {
+        "fromBlockId": FieldSpec("str", required=True),
+        "toBlockId": FieldSpec("str", required=True),
+        "duration": FieldSpec("float", minimum=0.0),
+        "easing": FieldSpec("str"),
+    }),
+    # ---- 视觉语义归一（§71 已登记的 inputSchema 补契约）----
+    "KeyframeAddRequest": InputSchema("KeyframeAddRequest", {
+        "property": FieldSpec("str", required=True),
+        "at": FieldSpec("float", minimum=0.0, required=True),
+        "value": FieldSpec("str", required=True),
+        "easing": FieldSpec("str"),
+    }),
+    "KeyframeTargetRequest": InputSchema("KeyframeTargetRequest", {
+        "property": FieldSpec("str", required=True),
+        "at": FieldSpec("float", minimum=0.0, required=True),
+    }),
+    "MaskApplyRequest": InputSchema("MaskApplyRequest", {
+        "shape": FieldSpec("enum:str", enum=frozenset({
+            "rectangle", "rounded_rect", "ellipse", "polygon", "path"}), required=True),
+        "x": FieldSpec("float", minimum=0.0, maximum=1.0),
+        "y": FieldSpec("float", minimum=0.0, maximum=1.0),
+        "width": FieldSpec("float", minimum=0.0, maximum=1.0),
+        "height": FieldSpec("float", minimum=0.0, maximum=1.0),
+        "feather": FieldSpec("float", minimum=0.0),
+        "inverted": FieldSpec("bool"),
+        "geometry": FieldSpec("list"),
+    }),
+    "MattingRequest": InputSchema("MattingRequest", {
+        "chroma": FieldSpec("enum:str", enum=frozenset({"green", "blue"})),
+        "similarity": FieldSpec("float", minimum=0.0, maximum=1.0),
+        "blend": FieldSpec("float", minimum=0.0, maximum=1.0),
+    }),
 }
 
 

@@ -68,7 +68,7 @@ class Capability:
 class FieldSpec:
     """命名 schema 内的单字段约束（validator 用）。"""
 
-    type: str  # str | int | float | bool | enum:int | enum:str
+    type: str  # str | int | float | bool | enum:int | enum:str | list | dict
     required: bool = False
     enum: FrozenSet[str] = frozenset()
     minimum: Optional[float] = None
@@ -101,6 +101,10 @@ class InputSchema:
                 errors.append(f"{fname} 取值 {val!r} 非法，应为 {sorted(spec.enum)}")
             elif spec.type == "enum:int" and val not in {int(x) for x in spec.enum}:
                 errors.append(f"{fname} 取值 {val!r} 非法，应为 {sorted(spec.enum)}")
+            elif spec.type == "list" and not isinstance(val, list):
+                errors.append(f"{fname} 应为列表，收到 {type(val).__name__}")
+            elif spec.type == "dict" and not isinstance(val, dict):
+                errors.append(f"{fname} 应为对象，收到 {type(val).__name__}")
             if spec.minimum is not None and isinstance(val, (int, float)) and val < spec.minimum:
                 errors.append(f"{fname} 值 {val} 低于下限 {spec.minimum}")
             if spec.maximum is not None and isinstance(val, (int, float)) and val > spec.maximum:

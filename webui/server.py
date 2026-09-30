@@ -466,6 +466,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/" or route == "/index.html":
             self._send_html(STATIC_DIR / "index.html")
+        elif route.startswith("/static/"):
+            # §8 Frontend module split：ES Module / CSS 静态资源
+            # 路径穿越防护：resolve 后必须仍在 STATIC_DIR 内
+            rel = route[len("/static/"):]
+            target = (STATIC_DIR / rel).resolve()
+            if (not str(target).startswith(str(STATIC_DIR.resolve()))
+                    or not target.is_file()):
+                self._send_json({"error": "not found"}, 404)
+                return
+            self._send_html(target)
         elif route == "/api/health":
             self._send_json({"ok": True, "app": "AI Video Director"})
         elif route == "/api/events":
@@ -599,7 +609,50 @@ class Handler(BaseHTTPRequestHandler):
                         "supports": list(cap.supports or []),
                         "fallback_tools": list(cap.fallback_tools or []),
                     })
+                # §12/§31.1 Generation Availability：AI 生图/生视频是否可用
+                # 前端据此 disable 按钮 + 显示原因（不先允许点击再 503）
+                try:
+                    from video_director import model_config as _mc
+                    data.append({
+                        "name": "generation.availability",
+                        "status": "AVAILABLE",
+                        "generation": {
+                            "image": {
+                                "available": _mc.is_role_enabled("image"),
+                                "reason": "" if _mc.is_role_enabled("image")
+                                else "未配置图片生成服务（设置 → 模型里填写生图服务）",
+                            },
+                            "video": {
+                                "available": _mc.is_role_enabled("video"),
+                                "reason": "" if _mc.is_role_enabled("video")
+                                else "未配置视频生成服务（设置 → 模型里填写生视频服务）",
+                            },
+                        },
+                        "providers": [],
+                        "supports": [],
+                        "fallback_tools": [],
+                    })
+                except Exception:
+                    logger.debug("generation availability 读取失败（忽略）")
                 self._send_json(data)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/continuity":
+            # §13 ContinuityVerifier（PPT Detector）：审阅页连续性检查
+            try:
+                from video_director import continuity as vd_continuity
+                from video_director import editor as vd_editor_mod
+                qs = parse_qs(parsed.query)
+                pid = (qs.get("project_id") or [""])[0]
+                if not pid:
+                    self._send_json({"error": "缺少 project_id"}, 400)
+                    return
+                ir = vd_editor_mod.load_composition(pid)
+                report = vd_continuity.verify_composition_continuity(ir)
+                self._send_json({
+                    "status": report.status,
+                    "issues": [i.model_dump() for i in report.issues],
+                })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/style_dna":

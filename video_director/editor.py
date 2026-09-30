@@ -41,6 +41,10 @@ from video_director.registries.compiler import (
 )
 from video_director.visual_semantics import (
     KEYFRAME_PROPERTIES,
+    CameraKeyframe,
+    CameraTrack,
+    ContinuityLink,
+    ContinuityType,
     Keyframe,
     KeyframeTrack,
     Mask,
@@ -301,6 +305,10 @@ SUPPORTED_COMMANDS = (
     "remove_keyframe",            # 删关键帧
     "apply_mask",                 # 几何蒙版（§20 Mask）
     "remove_mask",                # 移除蒙版
+    # ---- Frontend Unification §14/§15/§16（camera/pip/morph 执行链）----
+    "apply_camera",               # 摄影机运动 → Composition.camera_tracks（canonical §14）
+    "configure_pip",              # 画中画层配置（PiP=Layer 结构化属性 §15）
+    "apply_morph",                # 自有 Graphic Block 间形变（§16 MorphLink）
     "undo",
     "redo",
 )
@@ -422,6 +430,12 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_apply_mask(ir, target_id, payload)
         elif cmd_name == "remove_mask":
             changed, stale = _cmd_remove_mask(ir, target_id, payload)
+        elif cmd_name == "apply_camera":
+            changed, stale = _cmd_apply_camera(ir, target_id, payload)
+        elif cmd_name == "configure_pip":
+            changed, stale = _cmd_configure_pip(ir, target_id, payload)
+        elif cmd_name == "apply_morph":
+            changed, stale = _cmd_apply_morph(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -1246,3 +1260,211 @@ def _cmd_remove_mask(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     scene.layers[idx] = layer.model_copy(update={"mask": None})
     layer_id = f"{scene.id}#{idx}"
     return [f"{layer_id}:mask"], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+# ---------------------------------------------------------------------------
+# Frontend Unification §14/§15/§16：camera / pip / morph 执行链
+# （§17 Visual Operations：共享 Coordinate Space / Command Bus / Revision，
+#   只语义不同，不再各造系统）
+# ---------------------------------------------------------------------------
+
+#: §14 第一性原理最小完整集合：摄影机运动预设 → CameraKeyframe 映射。
+#: Renderer 消费 orthographic 2D 投影（zoompan）；perspective 诚实 UNAVAILABLE。
+CAMERA_PRESETS = {
+    #   preset:      (start_pos, end_pos, start_target, end_target)  z=深度（1.0=中性）
+    "push_in":   ((0.5, 0.5, 1.0), (0.5, 0.5, 0.6), (0.5, 0.5, 0.0), (0.5, 0.5, 0.0)),
+    "pull_out":  ((0.5, 0.5, 0.6), (0.5, 0.5, 1.0), (0.5, 0.5, 0.0), (0.5, 0.5, 0.0)),
+    "pan_left":  ((0.7, 0.5, 1.0), (0.3, 0.5, 1.0), (0.5, 0.5, 0.0), (0.5, 0.5, 0.0)),
+    "pan_right": ((0.3, 0.5, 1.0), (0.7, 0.5, 1.0), (0.5, 0.5, 0.0), (0.5, 0.5, 0.0)),
+    "tilt_up":   ((0.5, 0.6, 1.0), (0.5, 0.4, 1.0), (0.5, 0.5, 0.0), (0.5, 0.5, 0.0)),
+    "tilt_down": ((0.5, 0.4, 1.0), (0.5, 0.6, 1.0), (0.5, 0.5, 0.0), (0.5, 0.5, 0.0)),
+    "follow":    ((0.5, 0.5, 1.0), (0.5, 0.5, 1.0), (0.5, 0.5, 0.0), (0.5, 0.5, 0.0)),
+}
+
+
+def _cmd_apply_camera(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§14 camera.apply：摄影机运动 → Composition.camera_tracks（canonical）。
+
+    payload={preset, strength?（0-1 强度，默认 1）, duration?} 或 {keyframes: [...]}。
+    target_id=场景 id → 写该场景内嵌 camera（兼容访问层）+ Composition.camera_tracks。
+    Scene.camera 只是访问层（§14），唯一正式状态是 Composition.camera_tracks。
+    """
+    si, scene = _find_scene(ir, target_id)
+    strength = float(payload.get("strength", 1.0))
+    if not 0.0 < strength <= 1.0:
+        raise EditorError("INVALID_PARAMETER", f"camera.apply: strength 需 ∈(0,1]，got {strength}")
+    track_id = f"cam-{scene.id}"
+    raw_kfs = payload.get("keyframes")
+    if raw_kfs:
+        # 显式关键帧路径：逐个验证（fail-closed）
+        try:
+            kfs = [CameraKeyframe.model_validate(k) for k in raw_kfs]
+        except (KeyError, ValueError) as exc:
+            raise EditorError("INVALID_PARAMETER", f"camera.apply: keyframes 非法: {exc}")
+    else:
+        preset = str(payload.get("preset") or "")
+        if preset not in CAMERA_PRESETS:
+            raise EditorError(
+                "INVALID_PAYLOAD",
+                f"camera.apply: preset {preset!r} 非法，应为 {sorted(CAMERA_PRESETS)} "
+                "或提供 keyframes 数组")
+        (s_pos, e_pos, s_tgt, e_tgt) = CAMERA_PRESETS[preset]
+        mid = [(a + (b - a) * strength) for a, b in zip(s_pos, e_pos)]
+        kfs = [
+            CameraKeyframe(at=0.0, position=list(s_pos), target=list(s_tgt)),
+            CameraKeyframe(at=float(payload.get("duration", scene.duration)),
+                           position=mid, target=list(e_tgt)),
+        ]
+    try:
+        track = CameraTrack(id=track_id, keyframes=kfs,
+                           follow_target=payload.get("followTarget"))
+    except ValueError as exc:
+        raise EditorError("INVALID_PARAMETER", str(exc))
+    # canonical：Composition.camera_tracks（同 id 覆盖 = 编辑语义）
+    tracks = [t for t in ir.camera_tracks if t.id != track_id]
+    tracks.append(track)
+    ir.camera_tracks = tracks
+    # 兼容访问层：Scene.camera 指向同一 track 数据（非第二份状态——同源对象序列化）
+    scene_dict = scene.model_dump()
+    scene_dict["camera"] = track.model_dump()
+    ir.scenes[si] = scene.model_validate(scene_dict)
+    return [f"{scene.id}:camera"], [f"{scene.id}:render", f"{scene.id}:preview"]
+
+
+#: §15 PiP fit 模式（contain=完整可见留边 / cover=填满裁切）
+PIP_FIT_MODES = ("contain", "cover")
+
+
+def _cmd_configure_pip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§15 pip.configure：画中画 = 普通 Layer 的结构化属性（非另一系统）。
+
+    payload={action: set|remove, source?, crop?{x,y,w,h}, fit?, radius?, shadow?,
+             mask?, transform?{x,y,scale}, audioPolicy?}
+    写入 Layer.motion_instance.parameters.pip（结构化子对象）+ Layer.transform。
+    渲染层按 pip 子对象 overlay 合成（PiP 只是层的一种视觉呈现方式）。
+    """
+    scene, idx, layer = _find_layer(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    action = payload.get("action") or "set"
+    inst = dict(layer.motion_instance or {})
+    params = dict(inst.get("parameters") or {})
+    pip = dict(params.get("pip") or {})
+    if action == "remove":
+        if not pip:
+            raise EditorError("INVALID_TARGET", f"层 {target_id} 无画中画配置")
+        params.pop("pip", None)
+        inst["parameters"] = params
+        scene.layers[idx] = layer.model_copy(update={"motion_instance": inst or None})
+        layer_id = f"{scene.id}#{idx}"
+        return [f"{layer_id}:pip"], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+    if action != "set":
+        raise EditorError("INVALID_PAYLOAD", f"pip.configure: action 需 set|remove，got {action!r}")
+    source = payload.get("source")
+    if not (source or "").strip():
+        raise EditorError("INVALID_PAYLOAD", "pip.configure: source 必填（素材 id 或路径）")
+    fit = payload.get("fit") or "contain"
+    if fit not in PIP_FIT_MODES:
+        raise EditorError("INVALID_PARAMETER", f"pip.configure: fit 需 {PIP_FIT_MODES}，got {fit!r}")
+    crop = payload.get("crop")
+    if crop is not None:
+        try:
+            cx, cy, cw, ch = (float(crop[k]) for k in ("x", "y", "w", "h"))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PARAMETER", f"pip.configure: crop 需 {{x,y,w,h}} 数值: {exc}")
+        if min(cx, cy, cw, ch) < 0:
+            raise EditorError("INVALID_PARAMETER", "pip.configure: crop 各值需 ≥0")
+    # 结构化 pip 子对象（全部字段显式，渲染层按此 overlay）
+    pip.update({
+        "source": source,
+        "fit": fit,
+        "crop": crop,
+        "radius": float(payload.get("radius", 0.0)),
+        "shadow": bool(payload.get("shadow", False)),
+        "audio_policy": str(payload.get("audioPolicy") or "auto"),
+    })
+    params["pip"] = pip
+    inst["parameters"] = params
+    update: dict = {"motion_instance": inst or None}
+    tf = payload.get("transform")
+    if tf:
+        try:
+            base = layer.transform or Transform()
+            update["transform"] = Transform.model_validate(
+                {**base.model_dump(), **{k: tf[k] for k in ("x", "y", "scale", "opacity") if k in tf}})
+        except ValueError as exc:
+            raise EditorError("INVALID_PARAMETER", f"pip.configure: transform 非法: {exc}")
+    if payload.get("mask"):
+        try:
+            update["mask"] = Mask.model_validate(payload["mask"])
+        except ValueError as exc:
+            raise EditorError("INVALID_PARAMETER", f"pip.configure: mask 非法: {exc}")
+    scene.layers[idx] = layer.model_copy(update=update)
+    layer_id = f"{scene.id}#{idx}"
+    return [f"{layer_id}:pip"], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+#: §16 自有 Graphic Block 间 morph 映射（源块 → 可形变目标块）。
+#: 只支持系统自有 Block（结构化 GraphicProgram），不允许任意 HTML/DOM。
+MORPHABLE_BLOCKS = {
+    "ui.button": ("ui.arrow", "flow.node"),
+    "ui.arrow": ("ui.button", "flow.node"),
+    "flow.node": ("flow.arrow", "ui.card"),
+    "ui.card": ("flow.node", "metric.card"),
+    "metric.card": ("ui.card", "chart.node"),
+    "chart.node": ("metric.card", "flow.node"),
+}
+
+
+def _cmd_apply_morph(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§16 visual.morph：自有 Graphic Block 间结构化形变。
+
+    payload={fromBlockId, toBlockId, duration?, easing?}。
+    落地为相邻场景间 ContinuityLink(type=morph, morph_path)（§72.5 复用：
+    morph 是连续性的一种），morph_path 记录 from→to 映射。确定性编译
+    （GraphicProgram→HTML），不引入任意 HTML/JS。
+    """
+    from_block = str(payload.get("fromBlockId") or "")
+    to_block = str(payload.get("toBlockId") or "")
+    if not from_block or not to_block:
+        raise EditorError("INVALID_PAYLOAD", "apply_morph: fromBlockId/toBlockId 必填")
+    if from_block == to_block:
+        raise EditorError("INVALID_PAYLOAD", "apply_morph: from/to 不能同块")
+    targets = MORPHABLE_BLOCKS.get(from_block)
+    if targets is None or to_block not in targets:
+        raise EditorError(
+            "MORPH_UNSUPPORTED",
+            f"apply_morph: {from_block!r} → {to_block!r} 不在自有 Block 形变映射内"
+            f"（支持: {from_block!r} → {list(targets) if targets else []}）")
+    # 相邻场景定位：targetId 可为 "<sceneA>-><sceneB>" 或缺省取相邻两场景
+    if "->" in target_id:
+        from_scene_id, to_scene_id = target_id.split("->", 1)
+        _find_scene(ir, from_scene_id)
+        _find_scene(ir, to_scene_id)
+    else:
+        if len(ir.scenes) < 2:
+            raise EditorError("INVALID_TARGET", "apply_morph: 需两个场景（或 targetId='A->B'）")
+        si = _find_scene(ir, target_id)[0] if target_id else 0
+        if si >= len(ir.scenes) - 1:
+            si = len(ir.scenes) - 2
+        from_scene_id, to_scene_id = ir.scenes[si].id, ir.scenes[si + 1].id
+    link_id = f"morph-{from_scene_id}-{to_scene_id}"
+    morph_path = {
+        "from_block": from_block, "to_block": to_block,
+        "duration": float(payload.get("duration", 0.6)),
+        "easing": str(payload.get("easing") or "ease_in_out"),
+    }
+    try:
+        link = ContinuityLink(
+            id=link_id, from_scene_id=from_scene_id, to_scene_id=to_scene_id,
+            type=ContinuityType.morph, morph_path=json.dumps(morph_path),
+        )
+    except ValueError as exc:
+        raise EditorError("INVALID_PARAMETER", str(exc))
+    # 同 from→to 已有 morph 链 → 覆盖（编辑语义）
+    links = [l for l in ir.continuity_links
+             if not (l.from_scene_id == from_scene_id and l.to_scene_id == to_scene_id
+                     and l.type == ContinuityType.morph)]
+    links.append(link)
+    ir.continuity_links = links
+    return [f"{from_scene_id}->{to_scene_id}:morph"], [
+        f"{to_scene_id}:render", f"{to_scene_id}:preview"]
