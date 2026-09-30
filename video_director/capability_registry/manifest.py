@@ -473,16 +473,16 @@ def _build_manifest() -> List[Capability]:
 
     # ---- 视觉语义归一 CAP-AGENT-001~005（§四十九：Agent Gateway）----
     caps.append(_cap("agent.mcp", "agent",
-        "MCP 网关（creative.inspect/plan/execute/preview/render/verify/watch §五十一；未接通诚实 UNAVAILABLE）",
-        outputs=("AgentGateway",), side_effect="", provider_required=True,
-        examples=("接 MCP",)))
+        "MCP 网关（creative.inspect/plan/execute/preview/render/verify/watch 七工具；"
+        "已接通 agent_gateway.mcp_server §51/AG-001）",
+        outputs=("AgentGateway",), side_effect="", examples=("接 MCP",)))
     caps.append(_cap("agent.cli", "agent",
-        "CLI 网关（creative-os inspect/plan/render/edit §五十二；未接通诚实 UNAVAILABLE）",
-        outputs=("AgentGateway",), side_effect="", provider_required=True,
-        examples=("用命令行操作",)))
+        "CLI 网关（creative-os inspect/plan/execute/preview/render/verify/watch；"
+        "已接通 agent_gateway.cli §52/AG-002）",
+        outputs=("AgentGateway",), side_effect="", examples=("用命令行操作",)))
     caps.append(_cap("agent.context", "agent",
-        "Agent 上下文（Project Context 快照给 Agent §53）", outputs=("ProjectContext",),
-        side_effect="", examples=("给Agent看项目上下文",)))
+        "Agent 上下文（Project Context 快照给 Agent §53；agent_gateway.context）",
+        outputs=("ProjectContext",), side_effect="", examples=("给Agent看项目上下文",)))
     caps.append(_cap("agent.job_watch", "agent",
         "Job 事件流（SSE job.watch §四十八；未订阅诚实 UNKNOWN）",
         outputs=("JobEvent",), side_effect="", examples=("盯这个任务",)))
