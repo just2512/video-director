@@ -1,1 +1,79 @@
-/* §8 workspace：工作台三栏（Library/Preview/Inspector）与卡片。 */
+/* §8/§3 workspace：工作台三栏（Library/Preview/Inspector）+ 时间线。
+   §3.2 full viewport 尺寸：rail 64 / inspector 336 / timeline 300 / topbar 56。
+   现有 HTML 用 170px/300px 列（可读性优先），此处按 token 统一，编辑器尽量占满视口。 */
+
+/* 顶栏（§14：项目/版本/撤销/保存/预览/渲染，渲染是唯一 Primary） */
+.ed-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-3);
+  height: var(--topbar-h);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--sp-2);
+}
+.ed-topbar .tb-sep { flex: 1; }
+
+/* 三栏：Library | Preview | Inspector（§3.1） */
+.ed-workspace {
+  display: grid;
+  grid-template-columns: 176px 1fr var(--inspector-w);
+  gap: var(--gap);
+  align-items: start;
+  margin-bottom: var(--sp-2);
+}
+.ed-workspace .ws-col { min-width: 0; }
+
+/* 左栏 Library（§9 上下文资源栏：浏览→预览→选择→应用到当前选择） */
+.ed-lib-nav { display: flex; flex-direction: column; gap: var(--sp-1); }
+.ed-lib-nav button {
+  text-align: left; padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  cursor: pointer; font-size: 13px;
+}
+.ed-lib-nav button:hover { border-color: var(--border-strong); }
+.ed-lib-nav button.active { background: var(--surface-3); border-color: var(--accent); color: var(--text); }
+
+/* 中栏 Preview */
+.ed-preview-pane {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg); min-height: 320px; padding: var(--sp-2);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.ed-preview-stage {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: #000; border-radius: var(--radius-sm); min-height: 240px;
+  color: var(--muted); font-size: 13px;
+}
+.ed-preview-stage video { max-width: 100%; max-height: 360px; border-radius: var(--radius-sm); }
+
+/* 语义时间线 */
+.tl-switch-on { background: var(--surface-3); border-color: var(--accent); color: var(--text); }
+.ed-semantic-list { display: flex; flex-direction: column; gap: var(--sp-1); }
+.ed-semantic-row {
+  display: flex; gap: var(--gap); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 6px 10px; cursor: pointer;
+  background: var(--surface-soft);
+}
+.ed-semantic-row:hover { border-color: var(--accent); }
+.ed-semantic-row.ed-sel { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.ed-semantic-role { flex: 0 0 76px; font-size: 12px; font-weight: bold; color: var(--accent); text-align: center; padding-top: 2px; }
+.ed-semantic-body { flex: 1; }
+.ed-semantic-text { font-size: 13px; color: var(--text); }
+
+/* 轨道 */
+.ed-track-row { width: 100%; }
+.ed-track { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0; }
+.ed-track-label { flex: 0 0 90px; font-size: 11px; color: var(--muted); text-align: right; }
+.ed-track-body { flex: 1; display: flex; gap: 2px; overflow: hidden; position: relative; }
+.ed-track-clip {
+  flex: 0 0 auto; background: var(--surface-3); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); font-size: 11px; color: var(--text);
+  padding: 2px 4px; overflow: hidden; white-space: nowrap; cursor: pointer;
+}

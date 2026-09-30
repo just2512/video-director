@@ -382,21 +382,25 @@ async function directorExecute(){
   if (bar) bar.textContent = '⏳ 规划中……';
   const r = await apiPost('/api/director/execute', {project_id: ED.pid, instruction: inst});
   if (!r.ok) {
-    box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '执行失败')}${r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`;
+    box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '执行失败')}${DEV.mode && r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`;
     return;
   }
   const d = r.director || {};
-  const ctx = d.context_summary || {};
+  const failures = (d.executed||[]).filter(e => !e.ok);
+  const reasons = (d.plan||[]).map(p => p.reason).filter(Boolean);
+  // §11 Command Bar：默认只说人话（改了什么/是否成功）；tool id/verify 入 dev-only
   box.innerHTML =
-    `<div class="hint">项目 ${esc(ctx.duration??'')}s · 轨 ${esc((ctx.tracks||[]).join('/'))} · 来源 ${esc(d.source)}</div>`+
-    (d.plan||[]).map(p=>`<div class="proj-row"><span><code>${esc(p.tool)}</code>`+
-      `<span class="hint">${esc(p.reason||'')}</span></span></div>`).join('') +
-    `<div class="hint" style="margin-top:4px">执行结果：</div>`+
-    (d.executed||[]).map(e=>`<div class="proj-row"><span>${e.ok?'✅':'❌'} <code>${esc(e.tool)}</code>`+
-      `<span class="hint">${esc(e.status)}${e.error?' · '+esc(e.error):''}`+
-      (e.verify && e.verify.checks ? ' · 验证 ' + Object.entries(e.verify.checks).map(([k,v])=>`${esc(k)}=${esc(v)}`).join(' ') : '')+
-      `</span></span></div>`).join('') +
-    `<div class="hint" style="margin-top:2px">${d.verify_ok ? '✅ 全部验证通过' : '⚠ 部分步骤未通过验证（见上方 ❌）'}</div>`;
+    `<div class="hint"><b>${failures.length ? '⚠ 部分修改未应用' : '✅ 已应用'}</b>`+
+    ` · ${(d.executed||[]).length} 处修改 · 版本 ${ED.version || ''}</div>`+
+    (reasons.length ? `<div class="hint">${reasons.map(r=>esc(r)).join('；')}</div>` : '')+
+    (failures.length ? `<div class="hint" style="color:var(--danger)">未应用：${failures.map(e=>esc(e.error||e.tool)).join('；')}</div>` : '')+
+    (DEV.mode ? `<div class="hint" style="margin-top:4px">计划：`+
+      (d.plan||[]).map(p=>`<code>${esc(p.tool)}</code>`).join(' · ') + `</div>`+
+      (d.executed||[]).map(e=>`<div class="hint" style="font-size:11px">${e.ok?'✅':'❌'} <code>${esc(e.tool)}</code> ${esc(e.status||'')}${e.verify && e.verify.checks ? ' · '+Object.entries(e.verify.checks).map(([k,v])=>`${esc(k)}=${esc(v)}`).join(' ') : ''}</div>`).join('')
+    : '')+
+    `<div class="hint" style="margin-top:2px">${d.verify_ok ? '✓ 验证通过' : (failures.length ? '请先处理未应用项' : '⚠ 部分步骤未通过验证')}</div>`;
+  if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+  if (typeof edShowInspector === 'function') edShowInspector();
   // 刷新时间线 + Inspector，展示 AI 落地效果
   const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
   if (comp && comp.version !== undefined) { ED.comp = comp; ED.version = comp.version; }

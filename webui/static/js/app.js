@@ -22,6 +22,15 @@ async function loadOptions(){
   const sfx = await apiGet('/api/sfx');
   _rebuildSelect('sfx', [['auto','自动（按镜头动作配音效，推荐）'],['','关闭（不加音效）'],
                          ...sfx.map(s=>[s.id, s.label])]);
+  // §8 Registry 产品化：风格选择器（style registry → 预设 chips，点击填入）
+  try {
+    const styles = await apiGet('/api/registry/styles');
+    if (Array.isArray(styles) && styles.length) {
+      document.getElementById('style-presets').innerHTML =
+        `<span>风格：</span>` + styles.map(s =>
+          `<button class="btn-secondary btn-sm" onclick="stylePresetPick('${esc(s.name)}','${esc((s.description||'').slice(0,20))}')" title="${esc(s.description||'')}">${esc(s.name)}</button>`).join('');
+    }
+  } catch (e) { document.getElementById('style-presets').innerHTML = ''; }
   await refreshLLMBadge();
   // 能力徽章摘要（不展开面板，只数状态）
   try {
@@ -205,6 +214,13 @@ function switchTab(tab){
 // 编辑器（Editor：Timeline + Inspector + AI 提案）——Shotcraft EDT 集成
 function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'); }
 
+// §8 Registry 产品化：风格预设点击 → 填入 style_intent（名称 + 描述语义）
+function stylePresetPick(name, desc){
+  const el = document.getElementById('style_intent');
+  if (!el) return;
+  el.value = name + (desc ? '（' + desc + '）' : '');
+}
+
 // §8 入口：模块加载完成即初始化（等价旧 <script> 底部的直接调用）
 loadOptions();
 loadHome();  // 首页默认 tab
@@ -215,6 +231,7 @@ Object.assign(window, {
   _rebuildSelect,
   loadOptions,
   refreshLLMBadge,
+  stylePresetPick,
   renderModelRoles,
   saveModelConfig,
   toggleLLMPanel,

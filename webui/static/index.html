@@ -16,10 +16,10 @@
   <h1>🎬 AI 视频创作系统</h1>
   <div class="sub">理解创意 → 编排内容 → 程序化图形 + 媒体素材 → 可编辑时间线 → 人工确认 → AI 局部修改 → 确定性渲染 → 版本化复用</div>
   <div class="tab-row">
-    <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">🎬 创作</button>
-    <button class="tab" id="tab-editor" onclick="switchTab('editor')">🎛 工作台</button>
-    <button class="tab" id="tab-review" onclick="switchTab('review')">✅ 审阅</button>
-    <button class="tab" id="tab-settings" onclick="switchTab('settings')">⚙️ 设置</button>
+    <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">创作</button>
+    <button class="tab" id="tab-editor" onclick="switchTab('editor')">工作台</button>
+    <button class="tab" id="tab-review" onclick="switchTab('review')">审阅</button>
+    <button class="tab" id="tab-settings" onclick="switchTab('settings')">设置</button>
   </div>
 
   <!-- ======== Tab 0: 首页（我现在该做什么）======== -->
@@ -203,7 +203,8 @@
         <option value="1.5">1.5x 很快</option>
       </select>
       <label>风格（可选，留空 AI 自动决定）</label>
-      <input type="text" id="style_intent" placeholder="例：历史悬疑感 / 快节奏冲击 / 克制纪录片">
+      <div class="btn-row" id="style-presets" style="flex-wrap:wrap;gap:6px;margin-top:6px;color:var(--muted);font-size:12px">加载风格……</div>
+      <input type="text" id="style_intent" placeholder="或自己描述：历史悬疑感 / 快节奏冲击 / 克制纪录片">
       <label>片头标题（可选：成片自动加标题卡）</label>
       <input type="text" id="title" placeholder="例：凌晨四点的城市（留空=不加片头）">
       <label>人物条（可选：口播标注，片头后左下角显示主讲人）</label>
@@ -459,15 +460,15 @@
       </div>
       <!-- §46 AI Command Bar：工作区与时间线之间（中心位置 §47） -->
       <div class="card" id="director-bar-card">
-        <b>🧠 AI 指令栏</b> <span class="hint">一句话表达剪辑意图，AI 读系统能力+项目状态自动规划执行</span>
+        <b>修改</b> <span class="hint">描述你要修改的地方，例如「第二段换成产品近景，标题慢一点，字幕小一点」</span>
         <div class="rev-console" style="margin-top:6px">
           <div class="btn-row">
             <input type="text" id="director-input" class="rev-input" style="flex:1"
-              placeholder="例：保留原声，加右上角水印，BGM 小一点，字幕白字黑边，生成草稿"
+              placeholder="⌘K  描述你要修改的地方……"
               onkeydown="if(event.key==='Enter')directorExecute()">
-            <button class="btn" onclick="directorExecute()">🧠 执行</button>
+            <button class="btn-sm btn-secondary" onclick="directorExecute()">应用修改</button>
           </div>
-          <div class="hint" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项系统能力 · <span id="director-progress">进度通道就绪后实时推送</span></div>
+          <div class="hint dev-only" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项能力 · <span id="director-progress">进度通道就绪后实时推送</span></div>
           <div id="director-result"></div>
         </div>
       </div>
