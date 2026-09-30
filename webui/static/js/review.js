@@ -257,6 +257,7 @@ async function loadTemplates(){
   renderTemplateGallery();
 }
 function renderTemplateGallery(){
+  if (!document.getElementById('templates-list')) return;  // 平铺页已收进 Library 左栏（历史兼容，防误调）
   const q = ((document.getElementById('tpl-search')||{}).value || '').toLowerCase();
   const cat = (document.getElementById('tpl-category')||{}).value || '';
   const list = TPLS.filter(t =>
@@ -349,6 +350,7 @@ const MOTION_ZONES = {
   Exit: ['motion.fade-out', 'motion.scale-down-exit', 'motion.slide-down-exit', 'motion.blur-slide'],
 };
 function renderMotionZones(){
+  if (!document.getElementById('motion-zones')) return;
   const box = document.getElementById('motion-zones');
   if (!box) return;
   const zoneHtml = (label, ids) => `<div style="margin:1.2vh 0"><b style="color:#8ab4d8">${label}</b><div>`+
@@ -365,6 +367,7 @@ function renderMotionZones(){
                    zoneHtml('出场', MOTION_ZONES.Exit);
 }
 function renderMotionGallery(){
+  if (!document.getElementById('motions-list')) return;
   const q = (document.getElementById('motion-search').value || '').toLowerCase();
   const f = document.getElementById('motion-filter').value;
   const intentSel = document.getElementById('motion-intent-filter');

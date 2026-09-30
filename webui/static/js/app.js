@@ -29,9 +29,8 @@ async function loadOptions(){
     if (Array.isArray(caps)) {
       const ok = caps.filter(c=>c.status==='PASS'||c.status==='AVAILABLE').length;
       const warn = caps.filter(c=>c.status==='DEGRADED').length;
-      const miss = caps.filter(c=>c.status==='MISSING').length;
       const el = document.getElementById('cap-badge');
-      el.textContent = `⚙ 系统能力：${ok} 可用${warn?` · ${warn} 降级`:''}${miss?` · ${miss} 缺失`:''}（点击查看）`;
+      el.textContent = `🔌 功能就绪：${ok} 项${warn?` · ${warn} 项可用但受限`:''}`;
     }
   } catch (e) { /* 能力徽章失败不阻塞主界面 */ }
 }
@@ -129,8 +128,7 @@ async function loadCapabilities(){
     const cls = {PASS:'cap-ok', AVAILABLE:'cap-ok', DEGRADED:'cap-warn', MISSING:'cap-off'};
     const label = {PASS:'✓ 正常', AVAILABLE:'✓ 可用', DEGRADED:'⚠ 降级', MISSING:'✗ 缺失'};
     const PROV_CN = {
-      'FFmpeg':'FFmpeg 视频引擎（随包内置）', 'MPT（本机参考）':'MPT 参考实现（本机）', 'HyperFrames（云端参考）':'HyperFrames 云端参考（付费可选）',
-      'Edge':'微软 Edge 语音', 'EdgeWordBoundary':'Edge 词级时间戳', 'FasterWhisper':'本地语音识别',
+      'FFmpeg':'视频引擎（随包内置）', 'Edge':'微软 Edge 语音', 'EdgeWordBoundary':'Edge 词级时间戳', 'FasterWhisper':'本地语音识别',
       'FrameVision':'视觉大模型', 'Manual':'人工标注', 'LocalLibrary':'本地音频库',
       'SelfGenerated':'自产音频合成', 'ChromaKey':'绿幕抠像', 'Rembg':'人像抠像模型'};
     const rows = caps.map(c=>{
@@ -198,7 +196,7 @@ function switchTab(tab){
     if (tb) tb.classList.toggle('tab-active', tab === p);
   }
   if (tab === 'home') { loadHome(); loadProjects(); loadSeries(); loadInbox(); loadMemoryView(); }
-  if (tab === 'editor') { editorInit(); loadTemplates(); loadMotions(); loadAssetsLibrary(); }
+  if (tab === 'editor') { editorInit(); }
   if (tab === 'review') { loadReview(); loadPublish(); loadAutomation(); }
   if (tab === 'settings') loadSettings();
 }

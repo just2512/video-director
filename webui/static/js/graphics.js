@@ -285,7 +285,7 @@ async function gfxRender(){
   const btn = document.getElementById('gfx-render-btn');
   if (!GFX.plan) { status.textContent = '先「生成创作方案」'; return; }
   btn.disabled = true; btn.textContent = '渲染中……';
-  status.textContent = '逐帧渲染中（Playwright 确定性捕获 + ffmpeg 编码，约 10-60 秒）……';
+  status.textContent = '逐帧渲染中（约 10-60 秒）……';
   try {
     const r = await apiPost('/api/graphics/render', {
       plan: GFX.plan,
@@ -329,18 +329,6 @@ function newEntry(kind){
 
 async function loadHome(){
   try {
-    // §90 系统定位 + §61 Capability Map
-    try {
-      const ident = await (await fetch('/api/system_identity')).json();
-      if (!ident.error) {
-        document.getElementById('system-identity-tag').textContent =
-          ident.name + '——' + (ident.core_loop || []).join(' → ');
-        const map = ident.capability_map || {};
-        document.getElementById('capability-map').innerHTML =
-          Object.entries(map).map(([domain, caps]) =>
-            `<div class="hint"><b>${esc(domain)}</b>：${caps.map(esc).join(' · ')}</div>`).join('');
-      }
-    } catch (e) { /* 能力图失败不阻塞首页 */ }
     const projects = await (await fetch('/api/projects')).json();
     if (!Array.isArray(projects)) throw new Error(projects.error || '读取失败');
     // 封面卡片式最近项目（方案 §十：封面+项目名，不用纯文本行）

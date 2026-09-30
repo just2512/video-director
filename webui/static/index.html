@@ -27,7 +27,7 @@
 
     <!-- §33 Frontend：新的 Create 入口（从文字开始 → 程序化视觉） -->
     <div class="card">
-      <b>📝 文字创作</b>——输入文案或创意，自动生成知识/产品动效视频（程序化视觉，无需素材、无需配音）
+      <b>⚡ 快速创作</b>——只输入文案/创意，直接产出程序化动效视频（无需素材、无需配音，几分钟出片）
       <div style="display:flex;gap:12px;align-items:flex-start;margin-top:10px">
         <div style="flex:2">
           <textarea id="gfx-script" style="min-height:96px" placeholder="例：介绍一下我的产品……"></textarea>
@@ -65,6 +65,7 @@
         <button class="btn-secondary" onclick="gfxPreview()">👁 预览动效</button>
         <button class="btn-secondary" onclick="gfxRender()" id="gfx-render-btn">🎬 渲染成片</button>
       </div>
+      <div class="hint">其他起点：<button class="btn-secondary btn-sm" style="margin:0 4px" onclick="promoTogglePanel()">🖥 从软件项目做宣传片</button><button class="btn-secondary btn-sm" style="margin:0 4px" onclick="referenceTogglePanel()">🎬 从参考视频学风格</button></div>
       <div class="hint" id="gfx-status"></div>
     </div>
     <div id="gfx-plan-box"></div>
@@ -93,21 +94,6 @@
       <div class="hint" id="nb-status"></div>
     </div>
 
-    <div class="card">
-      <b>开始新创作</b>——选择你的起点
-      <div class="btn-row" style="flex-wrap:wrap">
-        <button onclick="newEntry('script')">📝 从脚本开始</button>
-        <button class="btn-secondary" onclick="newEntry('article')">📰 从文章开始</button>
-        <button class="btn-secondary" onclick="newEntry('video')">🎥 从已有视频开始</button>
-        <button class="btn-secondary" onclick="newEntry('assets')">🖼 从素材开始</button>
-        <button class="btn-secondary" onclick="newEntry('product')">📦 从产品开始</button>
-        <button class="btn-secondary" onclick="newEntry('pdf')">📄 从 PDF 开始</button>
-        <button class="btn-secondary" onclick="newEntry('screen')">🖥 从录屏开始</button>
-        <button class="btn-secondary" onclick="switchTab('reference')">🎬 从参考视频开始</button>
-        <button class="btn-secondary" onclick="promoTogglePanel()">🖥 从软件项目开始（Repo → 宣传片）</button>
-        <button class="btn-secondary" onclick="newEntry('blank')">⬜ 空白项目</button>
-      </div>
-    </div>
     <!-- §65 Repo Promo UI：发现项目 → 扫描 → 功能证据 → 创意 -->
     <div class="card" id="promo-panel" style="display:none">
       <b>🖥 软件宣传片</b>——从代码库发现可验证的卖点（证据链追溯，AI 不编造功能）
@@ -118,6 +104,16 @@
       <div id="promo-repos" class="hint">输入目录后「发现项目」，列出其中的开发项目（不扫全盘、跳过敏感文件）。</div>
       <div id="promo-scan-result"></div>
       <div id="promo-features"></div>
+    </div>
+    <!-- 参考视频分析：创作输入（从优秀视频提取风格/节奏/镜头结构，指导成片） -->
+    <div class="card" id="reference-panel" style="display:none">
+      <b>🎬 参考视频分析</b>——上传优秀视频，分析镜头结构 / 节奏 / 运动语言 / 转场语法，
+      报告会指导之后的创作（风格重构，不复制内容）。
+      <div class="btn-row">
+        <input type="file" id="reference_video" accept=".mp4,.mov,.mkv,.webm">
+        <button class="btn-secondary" onclick="analyzeReference()">🔍 开始分析</button>
+      </div>
+      <div id="reference-result"></div>
     </div>
     <div class="card">
       <b>最近项目</b>（点击打开）
@@ -130,13 +126,9 @@
       <div id="home-pending-draft">—</div>
       <div id="home-done-recent">—</div>
     </div>
-    <div class="card">
-      <b>能力地图</b>——系统的能力地图（点能力徽章查看运行态）
-      <div class="hint" id="system-identity-tag">加载中……</div>
-      <div id="capability-map"></div>
-    </div>
   <div class="grid">
     <div class="card">
+      <b>🎬 完整成片</b>——文案 + 素材 + 配音 + 字幕水印，精细控制每一步（可留空让 AI 自动决定）
       <label>创作模式</label>
       <select id="mode">
         <option value="auto">文案 + 素材成片（主线）</option>
@@ -311,9 +303,9 @@
   <div id="dev-badge" class="llm-badge" style="cursor:pointer" onclick="devToggleMode()" title="开发者模式：显示内部技术信息（默认关闭）">🔧 开发者模式</div>
 
   <div id="cap-panel" class="card llm-panel" style="display:none">
-    <b>系统能力状态</b>（可用=主路径或降级兜底可工作；缺失=该功能当前不可用）
+    <b>功能就绪状态</b>（就绪=可直接用；受限=部分能力暂缺，不影响其他功能）
     <div id="cap-table"></div>
-    <div class="hint">Vision（视觉理解）配置 API key 后启用：设置 COMPOSER_VISION_API_KEY 环境变量；未配置时走文件名语义匹配兜底。</div>
+    <div class="hint dev-only">技术细节（开发者模式）：视觉理解可配置 API 密钥启用（环境变量 COMPOSER_VISION_API_KEY）；未配置时用文件名语义匹配兜底。</div>
   </div>
 
   <div id="llm-panel" class="card llm-panel" style="display:none">
@@ -505,55 +497,6 @@
         </div>
       </div>
       <div class="card">
-        <b>🤖 AI 改稿</b>——用一句话描述修改，AI 出提案（先预览，应用才生效）
-        <div class="rev-console">
-          <input type="text" id="editor-ai-input" class="rev-input" placeholder="例：第一段动画换成有冲击力的 / 第二段时长改为 6 秒">
-          <div class="btn-row">
-            <button class="btn-secondary" onclick="editorAiPropose()">🤖 生成提案</button>
-          </div>
-          <div id="editor-ai-proposal"></div>
-        </div>
-      </div>
-      <div class="card">
-        <b>🪄 生成素材</b>——选中场景后生成视觉/图形素材（A/B/C 变体），加入时间线成为真实图层
-        <div class="rev-console">
-          <div class="btn-row">
-            <label style="font-size:12px">类型</label>
-            <select id="gen-type" style="width:100px" onchange="applyGenerationAvailability()">
-              <option value="image">图片</option>
-              <option value="graphic">图形（程序化视觉，无需配置）</option>
-              <option value="video">视频</option>
-            </select>
-            <label style="font-size:12px">模型</label>
-            <select id="gen-model" style="width:170px"><option value="">自动（按角色配置）</option></select>
-          </div>
-          <div class="btn-row">
-            <input type="text" id="gen-prompt" class="rev-input" style="flex:2" placeholder="生成提示词（例：极简标题卡：效率提升80%）">
-          </div>
-          <div class="btn-row">
-            <label style="font-size:12px">引用</label>
-            <select id="gen-reference" style="width:220px">
-              <option value="">无（纯文本）</option>
-              <optgroup label="风格引用">
-                <option value="style:editorial">编辑风</option>
-                <option value="style:minimal">极简风</option>
-                <option value="style:cinematic">电影风</option>
-              </optgroup>
-              <optgroup label="素材引用">
-                <option value="asset:first-image">项目首图</option>
-                <option value="asset:first-video">项目首视频</option>
-              </optgroup>
-            </select>
-            <span class="hint">风格或素材引用作为生成上下文</span>
-          </div>
-          <div class="btn-row">
-            <button class="btn-secondary" onclick="editorGenerate()">🪄 生成 3 变体</button>
-            <span class="hint" id="gen-status"></span>
-          </div>
-          <div id="gen-results"></div>
-        </div>
-      </div>
-      <div class="card">
         <b>📚 版本历史</b> <span class="hint">每次编辑记为一个版本，勾选两个可对比已变更/已复用</span>
         <div class="btn-row">
           <button class="btn-secondary btn-sm" onclick="editorLoadVersions()">刷新版本</button>
@@ -563,97 +506,6 @@
         <div id="editor-compare"></div>
       </div>
       <div id="editor-preflight-box"></div>
-    </div>
-    <!-- §59 融合：模板/动效/素材/参考 并入工作台（Library 入口的浏览页） -->
-    <div class="card">
-      <details>
-        <summary><b>📦 素材与灵感库</b>（模板库 / 动效库 / 素材库 / 参考分析）</summary>
-    <div class="card">
-      <b>🧩 模板库</b>——选择模板并填入你的内容，生成可编辑项目（模板不是 MP4，槽位内容随你改）
-      <div class="btn-row">
-        <input type="text" id="tpl-search" class="rev-input" placeholder="搜索模板名…" oninput="renderTemplateGallery()">
-        <select id="tpl-category" onchange="renderTemplateGallery()">
-          <option value="">全部分类</option>
-          <option value="editorial">编辑风</option>
-          <option value="product">产品风</option>
-          <option value="cinematic">电影风</option>
-          <option value="tutorial">教程</option>
-        </select>
-      </div>
-      <div id="templates-list">加载中……</div>
-    </div>
-    <div id="template-form-box"></div>
-    <div class="card">
-      <b>✨ 动效库</b>——动效实时循环预览；「应用到项目」写入选中图层；⭐=收藏（风格记忆记录收藏）
-      <div class="btn-row">
-        <input type="text" id="motion-search" class="rev-input" placeholder="搜索动效名…" oninput="renderMotionGallery()">
-        <select id="motion-filter" onchange="renderMotionGallery()">
-          <option value="">全部类型</option>
-          <option value="entrance">入场</option>
-          <option value="exit">出场</option>
-          <option value="camera">镜头</option>
-          <option value="kinetic_text">文字</option>
-          <option value="highlight">强调</option>
-          <option value="reveal">揭示</option>
-          <option value="transform">变形</option>
-          <option value="compound">组合</option>
-        </select>
-        <select id="motion-intent-filter" onchange="renderMotionGallery()">
-          <option value="">全部意图</option>
-        </select>
-        <label style="font-size:12px"><input type="checkbox" id="motion-fav-only" onchange="renderMotionGallery()"> 只看收藏</label>
-      </div>
-      <div id="motions-list">加载中……</div>
-      <div class="hint">应用动效需要先在「编辑器」打开项目并选中一个图层。</div>
-    </div>
-    <!-- §37 Motion 三区视图：Entrance / Emphasis / Exit（按用途分组的推荐区） -->
-    <div class="card">
-      <b>动效三区</b> <span class="hint">（入场 / 强调 / 出场；点卡片直接应用）</span>
-      <div id="motion-zones"></div>
-    </div>
-    <div class="card">
-      <b>素材库</b>——项目用过的视频/图片/音频素材（左侧筛选 / 中间网格 / 右侧检视）
-      <div class="asset-layout">
-        <div class="asset-filters">
-          <label style="font-size:12px">来源 / 类型</label>
-          <select id="asset-filter" onchange="loadAssetsLibrary()">
-            <option value="all">全部</option>
-            <option value="type:video">类型 · 视频</option>
-            <option value="type:image">类型 · 图片</option>
-            <option value="type:audio">类型 · 音频</option>
-            <option value="src:user">来源 · 用户上传</option>
-            <option value="src:own">来源 · 自有</option>
-            <option value="src:generated">来源 · 生成</option>
-          </select>
-          <label style="font-size:12px">视图</label>
-          <select id="asset-view" onchange="loadAssetsLibrary()">
-            <option value="grid">网格</option>
-            <option value="list">列表</option>
-          </select>
-        </div>
-        <div class="asset-grid" id="assets-list">加载中……</div>
-        <div class="asset-inspector" id="asset-inspector">
-          <b>素材 Inspector</b><div class="hint">点左侧素材查看详情</div>
-        </div>
-      </div>
-      <div id="media-frozen-list" style="margin-top:12px"></div>
-    </div>
-    <div class="card">
-      <b>图形库</b>——可执行视觉能力（不是素材）：视觉块 / 动效 / 模板 / 样式
-      <div class="hint">Blocks：36+ 视觉块（知识 20 / 产品 16 / 自定义）——去首页 Create 区块或编辑器 Creative Library 使用</div>
-      <div class="hint">Motions：确定性动效 5 族 + Shotcraft 19 动效——去「动效库」页预览/应用</div>
-      <div class="hint">Templates：3 模板——去「模板库」页试用</div>
-      <div id="graphic-lib-counts" class="btn-row" style="flex-wrap:wrap;margin-top:8px"></div>
-    </div>
-    <div class="card">
-      <b>参考视频分析</b>——上传一条优秀视频，系统提取镜头结构 / 节奏 / 运动语言 / 转场语法（风格重构，不复制内容），
-      之后创作时可用报告指导你的成片。
-      <label>参考视频</label>
-      <input type="file" id="reference_video" accept=".mp4,.mov,.mkv,.webm">
-      <div class="btn-row"><button onclick="analyzeReference()">🔍 开始分析</button></div>
-      <div id="reference-result"></div>
-    </div>
-      </details>
     </div>
 
   </div>
@@ -710,7 +562,7 @@
         <button class="btn-secondary" onclick="devToggleMode()">🔧 开发者模式（显示内部技术信息）</button>
       </div>
       <div class="hint" id="settings-dev-note">开发者模式默认关闭：开启后界面会显示动效/镜头的技术编号、生成来源指纹等内部信息，供调试用；不影响任何功能。</div>
-      <div id="settings-env">点击「环境自检」查看 ffmpeg / 字体 / 存储 / 渲染器状态。</div>
+      <div id="settings-env">点击「环境自检」查看视频引擎 / 字体 / 存储 / 渲染器状态。</div>
     </div>
   </div>
 </div><!-- /wrap -->

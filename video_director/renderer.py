@@ -426,6 +426,7 @@ def splice_with_transitions(
     processed: List[str] = []
     for i, clip in enumerate(clips):
         p = clip
+        # morph 过渡与 crossfade 同类（非 cut 即有淡入淡出，不压缩旁白轴）
         fade_in = 0.4 if (i > 0 and transitions[i - 1] not in ("cut",)) else 0.0
         fade_out = 0.4 if (i < len(clips) - 1 and transitions[i] not in ("cut",)) else 0.0
         if fade_in > 0 or fade_out > 0:
@@ -640,13 +641,59 @@ def render_composition(
             seq += 1
             seg_path = str(seg_dir / f"{seq:04d}.mp4")
             render_layer_segment(layer, asset, seg_path, w, h, ir.project.fps)
+            # 层视觉后处理（§15/§63 Frontend Unification）：mask 几何裁剪 + pip 小窗缩放
+            from video_director import visual_render as _vr2
+            post_filters: List[str] = []
+            if getattr(layer, "mask", None) is not None:
+                mf = _vr2.mask_crop_filter(layer.mask, w, h)
+                if mf:
+                    post_filters.append(mf)
+            pip_cfg = ((layer.motion_instance or {}).get("parameters") or {}).get("pip")
+            if pip_cfg:
+                pf = _vr2.pip_filter_expr(pip_cfg, w, h)
+                if pf:
+                    post_filters.append(pf)
+            if post_filters:
+                post_path = str(seg_dir / f"{seq:04d}_post.mp4")
+                _run([
+                    _ffmpeg(), "-y", "-loglevel", "error", "-i", seg_path,
+                    "-vf", ",".join(post_filters),
+                    "-c:v", config.DEFAULT_VIDEO_CODEC, "-preset", "veryfast",
+                    "-crf", str(config.DEFAULT_CRF), "-an", post_path,
+                ])
+                seg_path = post_path
+                logger.info(f"segment {seq:04d} visual post [mask/pip] applied")
             scene_segs.append(seg_path)
             logger.info(f"segment {seq:04d} [{scene.id}/{layer.type.value}] {layer.duration:.2f}s")
         scene_clip = str(seg_dir / f"scene_{scene.id}.mp4")
         concat_segments(scene_segs, scene_clip, w, h, ir.project.fps)
+        # 场景级 camera（§14/Frontend Unification）：scene.camera → zoompan 运动
+        # （camera_tracks canonical 与 scene.camera 兼容层同源，读 scene.camera）
+        if getattr(scene, "camera", None) is not None:
+            from video_director import visual_render as vr
+            cam_expr = vr.apply_camera_filter(scene.camera, w, h, ir.project.fps, scene.duration)
+            if cam_expr:
+                cam_out = str(seg_dir / f"scene_{scene.id}_cam.mp4")
+                _run([
+                    _ffmpeg(), "-y", "-loglevel", "error", "-i", scene_clip,
+                    "-vf", cam_expr,
+                    "-c:v", config.DEFAULT_VIDEO_CODEC, "-preset", "veryfast",
+                    "-crf", str(config.DEFAULT_CRF), "-an", cam_out,
+                ])
+                scene_clip = cam_out
+                logger.info(f"scene {scene.id} camera applied: {scene.camera.id}")
         scene_clips.append(scene_clip)
         # 场景转出到下一场景的转场类型（最后一个场景的 transition_out 忽略）
         tr = getattr(scene.transition_out, "type", "cut") if len(scene_clips) < len(ir.scenes) else "cut"
+        # morph continuity（§16）：相邻场景间的 morph 链 → 'morph' 过渡
+        if len(ir.scenes) > 1 and len(scene_clips) < len(ir.scenes):
+            from video_director import visual_render as _vr
+            for link in getattr(ir, "continuity_links", []) or []:
+                if (link.from_scene_id == scene.id
+                        and link.to_scene_id == ir.scenes[len(scene_clips)].id
+                        and link.type.value == "morph"):
+                    tr = "morph"
+                    break
         scene_transitions.append(tr)
 
     # 0. 片头标题卡（§16：MainTitle 入场动效，前置段不压缩正文）

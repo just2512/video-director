@@ -1,4 +1,5 @@
 async function loadAssetsLibrary(){
+  if (!document.getElementById('assets-list')) return;  // 平铺页已收进 Library 左栏
   try {
     const assets = await (await fetch('/api/assets_library')).json();
     if (!Array.isArray(assets)) throw new Error(assets.error || '读取失败');
@@ -94,12 +95,14 @@ function licenseBadge(a){
 }
 
 async function analyzeReference(){
-  const f = document.getElementById('reference_video').files[0];
+  const f = document.getElementById('reference_video');
   const out = document.getElementById('reference-result');
-  if (!f) { out.innerHTML = '<div class="err-box">请先选择参考视频</div>'; return; }
+  if (!f || !out) return;
+  const file = f.files[0];
+  if (!file) { out.innerHTML = '<div class="err-box">请先选择参考视频</div>'; return; }
   out.innerHTML = '<div class="card">分析中……（镜头检测 + 抽帧 + 语法提取，约 10-40 秒）</div>';
   const fd = new FormData();
-  fd.append('reference', f, f.name);
+  fd.append('reference', file, file.name);
   try {
     const r = await fetch('/api/reference', {method:'POST', body: fd});
     const j = await r.json();
@@ -267,7 +270,14 @@ function previewSfx(){
 }
 
 // §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
+function referenceTogglePanel(){
+  const p = document.getElementById('reference-panel');
+  if (!p) return;
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+
 Object.assign(window, {
+  referenceTogglePanel,
   loadAssetsLibrary,
   inspectAsset,
   licenseBadge,

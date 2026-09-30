@@ -60,7 +60,16 @@ function edShowInspector(){
       (audioOf('narration') ? `旁白轨 ✓（音量 ${(audioOf('narration').volume ?? 1)}）` : '无旁白轨')+
       ` · ` + (audioOf('original') ? `原声轨 ✓（音量 ${(audioOf('original').volume ?? 1)}）` : '无原声轨')+
       ` · ` + (audioOf('bgm') ? `BGM ✓（音量 ${(audioOf('bgm').volume ?? 1)}）` : '无 BGM')+
-      `</div><div class="hint">音量调整在右侧「音频 / 水印 / 字幕」面板。</div></div>`;
+      `</div><div class="hint">音量调整在右侧「音频 / 水印 / 字幕」面板。</div></div>`+
+      `<div class="role-block"><b>画面生成</b> <span class="hint">（§11 Timeline-native：为此场景生成新图层）</span>`+
+        `<div class="btn-row"><select id="gen-type" style="width:96px" onchange="applyGenerationAvailability()">`+
+          `<option value="image">图片</option><option value="graphic">图形（程序化，无需配置）</option><option value="video">视频</option></select>`+
+        `<input type="text" id="gen-prompt" class="rev-input" style="flex:1" placeholder="画面描述（例：极简标题卡：效率提升80%）">`+
+        `</div>`+
+        `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorGenerate()">🪄 生成 3 变体</button>`+
+        `<span class="hint" id="gen-status"></span></div>`+
+        `<div id="gen-results"></div>`+
+      `</div>`;
     return;
   }
   // layer（§55：按选中对象类型显示字段组）
@@ -119,7 +128,7 @@ function edShowInspector(){
     (lay.type === 'video' ? `<div class="role-block"><b>抠像</b>（绿幕/蓝幕抠底，产物入素材库）<div class="btn-row">`+
     `<select id="ed-mat-color" style="width:110px"><option value="0x00FF00">绿幕</option><option value="0x0000FF">蓝幕</option></select>`+
     `<button class="btn-secondary btn-sm" onclick="editorRunMatting('${sceneId}',${idx})">🎞 生成抠像</button></div>`+
-    `<div class="hint" id="ed-mat-status">ChromaKey（ffmpeg colorkey）；无 Provider 时诚实不可用。</div></div>` : '')+
+    `<div class="hint" id="ed-mat-status">绿幕/蓝幕抠底；无可用抠像服务时诚实提示。</div></div>` : '')+
     `<div class="role-block"><b>动效</b><div class="hint">当前：${lay.motion_recipe_id ? esc(motionCnName(lay.motion_recipe_id)) : '无'}`+
     (lay.motion_version ? ` @${esc(lay.motion_version)}` : '') + `</div>`+
     `<label>动效时长（秒）</label><div class="btn-row"><input type="number" id="ed-mot-dur" value="0.5" step="0.1" min="0.1" style="width:80px">`+
@@ -204,7 +213,7 @@ function editorApplyMask(sceneId, idx){
 async function editorRunMatting(sceneId, idx){
   // §64 Matting：ChromaKey 抠像 → 产物入项目素材库 → 替换当前层素材
   const st = document.getElementById('ed-mat-status');
-  if (st) st.textContent = '抠像处理中……（ffmpeg colorkey）';
+  if (st) st.textContent = '抠像处理中……';
   try {
     const r = await apiPost('/api/editor/matting', {
       project_id: ED.pid, target_id: `${sceneId}#${idx}`,
