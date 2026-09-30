@@ -1,6 +1,6 @@
 async function editorLoadVersions(){
   if (!ED.pid) { editorToast('先打开项目'); return; }
-  const revs = await (await fetch('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid))).json();
+  const revs = await apiGet('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid));
   const box = document.getElementById('editor-versions');
   if (!Array.isArray(revs) || !revs.length) {
     box.innerHTML = '<div class="hint">尚无编辑版本（去动效库换动效、或时间线拆分/删场景，即生成版本）。</div>';
@@ -18,7 +18,7 @@ async function editorLoadVersions(){
 async function editorCompareSelected(){
   const chk = Array.from(document.querySelectorAll('.ver-chk:checked'));
   if (chk.length < 2) { editorToast('勾选两个版本再对比'); return; }
-  const revs = await (await fetch('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid))).json();
+  const revs = await apiGet('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid));
   const a = revs[parseInt(chk[0].dataset.i)], b = revs[parseInt(chk[1].dataset.i)];
   const changed = [a, b].map(x => (x.changed_artifacts || []).join('、') || '无');
   const reusedA = (a.reused_artifacts || []), reusedB = (b.reused_artifacts || []);
@@ -31,7 +31,7 @@ async function editorCompareSelected(){
 }
 async function editorPreflight(){
   const box = document.getElementById('editor-preflight-box');
-  const r = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(ED.pid))).json();
+  const r = await apiGet('/api/preflight?project_id=' + encodeURIComponent(ED.pid));
   if (r.status === 'PASS') {
     box.innerHTML = `<div class="card ok-box">🛡 商用预检通过（${r.issues.length} 项提示，无阻断）`+
       (r.issues.length ? `<div>${r.issues.map(i=>`<div class="hint">⚠ ${esc(i.code)}: ${esc(i.message)}</div>`).join('')}</div>` : '') + `</div>`;
@@ -104,14 +104,14 @@ async function edLibLoad(){
   box.innerHTML = '加载中……';
   try {
     if (ED_LIB.nav === 'blocks') {
-      if (!ED_LIB.blocks.length) ED_LIB.blocks = await (await fetch('/api/catalog/blocks')).json();
+      if (!ED_LIB.blocks.length) ED_LIB.blocks = await apiGet('/api/catalog/blocks');
       const list = ED_LIB.blocks.filter(b => !q || (b.id + b.name).toLowerCase().includes(q));
       box.innerHTML = list.map(b => `<div class="proj-row"><span><b>${esc(b.name)}</b> <code>${esc(b.id)}</code>`+
         `<span class="hint">${esc(b.category)} · ${b.slots.join('/')}</span></span>`+
         `<button class="btn-secondary btn-sm" onclick="edLibApplyBlock('${esc(b.id)}')">应用</button></div>`).join('')
         || '<div class="hint">无匹配</div>';
     } else if (ED_LIB.nav === 'motions') {
-      const ms = await (await fetch('/api/registry/motions')).json();
+      const ms = await apiGet('/api/registry/motions');
       window.MOTIONS = ms;
       const zoneCard = (label, ids) => `<div style="margin:6px 0"><b style="color:#8ab4d8">${label}</b><div class="btn-row" style="flex-wrap:wrap">`+
         ids.map(id => { const m = ms.find(x=>x.id===id); if(!m) return ''; return `<span class="motion-card" style="width:110px">`+
@@ -124,14 +124,14 @@ async function edLibLoad(){
           rest.map(m => `<span class="motion-card" style="width:110px"><span class="motion-preview ${m.preview_only?'motion-preview-dim':''}" style="${motionCssPreview(m)}">${esc(m.name)}</span>`+
           `<button class="btn-secondary btn-sm" onclick="edLibApplyMotion('${esc(m.id)}')">应用</button></span>`).join('')+'</div></div>' : '');
     } else if (ED_LIB.nav === 'templates') {
-      const tpls = await (await fetch('/api/registry/templates')).json();
+      const tpls = await apiGet('/api/registry/templates');
       window.TPLS = tpls;
       const list = tpls.filter(t => !q || (t.id + t.name).toLowerCase().includes(q));
       box.innerHTML = list.map(t => `<div class="proj-row"><span><b>${esc(t.name)}</b> <code>${esc(t.id)}</code>`+
         `<span class="hint">画幅 ${t.supported_ratios.join('/')} · ${t.scene_count} 场景</span></span>`+
         `<button class="btn-sm" onclick="edLibOpenTemplate('${t.id}')">试用</button></div>`).join('') || '<div class="hint">无匹配</div>';
     } else if (ED_LIB.nav === 'assets') {
-      const assets = await (await fetch('/api/assets_library')).json();
+      const assets = await apiGet('/api/assets_library');
       const list = assets.filter(a => !q || (a.asset_id + (a.description||'')).toLowerCase().includes(q));
       box.innerHTML = list.slice(0, 50).map(a => `<div class="proj-row"><span><b>${esc(a.asset_id)}</b>`+
         `<span class="hint">${esc(a.type)} · 用于 ${a.used_in.length} 项目</span></span>`+
@@ -197,7 +197,7 @@ async function edLibApplyBlock(blockId){
     targetId: sceneId, payload: {kind: 'graphic', blockId: blockId}, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     editorToast(`✅ 图形块「${blockId}」已加入场景 ${sceneId}`);
@@ -211,7 +211,7 @@ async function edLibApplyMotion(motionId){
     targetId: ED.sel.id, payload: {motionRecipeId: motionId}, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     editorToast(`✅ ${motionId} 已应用（Creative Library）`);
@@ -223,7 +223,7 @@ async function edLibApplyAsset(assetId){
     targetId: ED.sel.id, payload: {assetId}, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     editorToast(`✅ 素材已换为 ${assetId}`);
@@ -253,7 +253,7 @@ function edLibOpenTemplate(tid){
 // ===========================================================================
 let TPLS = [];
 async function loadTemplates(){
-  window.TPLS = await (await fetch('/api/registry/templates')).json();
+  window.TPLS = await apiGet('/api/registry/templates');
   renderTemplateGallery();
 }
 function renderTemplateGallery(){
@@ -327,7 +327,7 @@ async function instantiateTemplate(tid){
 let MOTIONS = [];
 let MOTION_BEHAVIOR = {};  // §三十二 Style DNA：{id: {pinned: n, used: n, ...}}
 async function loadMotions(){
-  window.MOTIONS = await (await fetch('/api/registry/motions')).json();
+  window.MOTIONS = await apiGet('/api/registry/motions');
   // 意图筛选项动态填充（§25：Semantic Intent 过滤）
   const intentSel = document.getElementById('motion-intent-filter');
   if (intentSel) {
@@ -336,7 +336,7 @@ async function loadMotions(){
       intents.map(i=>`<option value="${esc(i)}">${esc(i)}</option>`).join('');
   }
   try {
-    const r = await (await fetch('/api/style_dna/behaviors')).json();
+    const r = await apiGet('/api/style_dna/behaviors');
     window.MOTION_BEHAVIOR = r.summary || {};
   } catch(e) { MOTION_BEHAVIOR = {}; }
   renderMotionGallery();
@@ -429,7 +429,7 @@ async function motionApplyToProject(mid){
     targetId: ED.sel.id, payload: {motionRecipeId: mid}, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorToast(`✅ ${mid} 已应用到 ${ED.sel.id}`);
     switchTab('editor'); editorRenderTimeline();

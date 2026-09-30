@@ -5,7 +5,7 @@ async function gfxEnsureBlocks(){
   if (!GFX.blocks.length) {
     try {
       // §64 正名端点 /api/catalog/blocks（含 motion 字段；旧 /api/graphics/blocks 仅兼容）
-      GFX.blocks = await (await fetch('/api/catalog/blocks')).json();
+      GFX.blocks = await apiGet('/api/catalog/blocks');
     } catch(e) { GFX.blocks = []; }
   }
 }
@@ -310,7 +310,7 @@ function newEntry(kind){
 
 async function loadHome(){
   try {
-    const projects = await (await fetch('/api/projects')).json();
+    const projects = await apiGet('/api/projects');
     if (!Array.isArray(projects)) throw new Error(projects.error || '读取失败');
     // 封面卡片式最近项目（方案 §十：封面+项目名，不用纯文本行）
     const recent = projects.slice(0, 6).map(p => {
@@ -354,7 +354,7 @@ async function loadHome(){
 // ---- 项目页 ----
 async function loadProjects(){
   try {
-    const projects = await (await fetch('/api/projects')).json();
+    const projects = await apiGet('/api/projects');
     if (!Array.isArray(projects)) throw new Error(projects.error || '读取失败');
     document.getElementById('projects-list').innerHTML = projects.map(p => {
       const state = p.pending_confirm ? '⚠ 待确认' : (p.has_final ? '✅ 已完成' : '· 进行中');
@@ -375,7 +375,7 @@ async function openProject(pid){
   const box = document.getElementById('project-detail-box');
   box.innerHTML = '加载项目详情……';
   try {
-    const j = await (await fetch('/api/project_detail?project_id=' + encodeURIComponent(pid))).json();
+    const j = await apiGet('/api/project_detail?project_id=' + encodeURIComponent(pid));
     if (j.error) throw new Error(j.error);
     const sb = j.storyboard || {};
     const sceneRows = (sb.scenes || []).map(s =>
@@ -420,7 +420,7 @@ async function openProject(pid){
 // ---- 系列（§5 模板 + §42 批量）----
 async function loadSeries(){
   try {
-    const list = await (await fetch('/api/series')).json();
+    const list = await apiGet('/api/series');
     if (!Array.isArray(list)) throw new Error(list.error || '读取失败');
     document.getElementById('series-list').innerHTML = list.map(s => `
       <div class="proj-row">
@@ -497,7 +497,7 @@ async function inboxAdd(kind){
 
 async function loadInbox(){
   try {
-    const list = await (await fetch('/api/inbox')).json();
+    const list = await apiGet('/api/inbox');
     if (!Array.isArray(list)) throw new Error(list.error || '读取失败');
     document.getElementById('inbox-list').innerHTML = list.map(it => `
       <div class="proj-row">
@@ -533,7 +533,7 @@ async function inboxAction(itemId, act){
 // ---- 队列（§42）----
 async function loadQueue(){
   try {
-    const jobs = await (await fetch('/api/jobs')).json();
+    const jobs = await apiGet('/api/jobs');
     if (!Array.isArray(jobs)) throw new Error(jobs.error || '读取失败');
     const st = {waiting:'· 排队中', running:'⚙ 生成中', done:'✅ 完成', failed:'✗ 失败'};
     document.getElementById('queue-list').innerHTML = jobs.map(j => `

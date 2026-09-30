@@ -33,12 +33,12 @@ function edSelectedCount(){ return ED.selSet.size; }
 async function editorInit(){
   // 项目下拉：全部有 composition.json 的项目（compose 过或模板实例）
   let projs;
-  try { projs = await (await fetch('/api/projects')).json(); } catch(e) { projs = null; }
+  try { projs = await apiGet('/api/projects'); } catch(e) { projs = null; }
   const editable = [];
   if (Array.isArray(projs)) {
     for (const p of projs) {
       try {
-        const c = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(p.project_id))).json();
+        const c = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(p.project_id));
         if (c && c.scenes) editable.push([p.project_id, p.project_id]);
       } catch(e) {}
     }
@@ -49,7 +49,7 @@ async function editorInit(){
 async function editorLoad(){
   const pid = document.getElementById('editor-project').value;
   if (!pid) { editorToast('请先选择项目', true); return; }
-  const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(pid))).json();
+  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(pid));
   if (!comp.scenes) { editorToast('项目无可编辑时间线：' + (comp.error || '未知')); return; }
   ED.pid = pid; ED.comp = comp; ED.version = comp.version; ED.sel = null;
   document.getElementById('editor-body').style.display = '';
@@ -135,7 +135,7 @@ async function editorUndo(){
   if (!ED.pid) { editorToast('先打开项目'); return; }
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'undo'});
   if (r.ok) {
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline(); edShowInspector(); renderWatermarkList(); editorTopbarRefresh();
     editorToast('↩ 已撤销上一步' + (DEV.mode && r.revision_id ? `（${r.revision_id}）` : ''));
@@ -148,7 +148,7 @@ async function editorRedo(){
   if (!ED.pid) { editorToast('先打开项目'); return; }
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'redo'});
   if (r.ok) {
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline(); edShowInspector(); renderWatermarkList(); editorTopbarRefresh();
     editorToast('↪ 已恢复' + (DEV.mode && r.revision_id ? `（${r.revision_id}）` : ''));
@@ -160,7 +160,7 @@ async function editorRedo(){
 async function editorSaveBar(){
   if (!ED.pid) { editorToast('先打开项目'); return; }
   // project.save：命令落盘已原子，此处确认 + 版本号上报（§46 Save 语义）
-  const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
   if (comp && comp.version) {
     ED.comp = comp; ED.version = comp.version; editorTopbarRefresh();
     editorToast(`💾 已保存（composition v${comp.version}）`);
@@ -174,7 +174,7 @@ async function editorPreviewBar(){
   if (!stage) return;
   stage.innerHTML = '加载草稿信息……';
   try {
-    const info = await (await fetch('/api/projects/' + encodeURIComponent(ED.pid) + '/draft_info')).json();
+    const info = await apiGet('/api/projects/' + encodeURIComponent(ED.pid) + '/draft_info');
     if (info && info.draft_path) {
       stage.innerHTML = `<video controls src="/file?path=${encodeURIComponent(info.draft_path)}"></video>`;
       if (meta) meta.textContent = `草稿 · ${info.draft_path.split(/[\\/]/).pop()}`;

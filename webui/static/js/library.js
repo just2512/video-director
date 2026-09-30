@@ -33,7 +33,7 @@ async function assetPickerTab(tab, idx, sceneId){
     try { AP.favorites = JSON.parse(localStorage.getItem('ap_favorites') || '[]'); } catch(e) { AP.favorites = []; }
     const ids = tab === 'recent' ? AP.recent : AP.favorites;
     let lib;
-    try { lib = await (await fetch('/api/assets_library')).json(); } catch(e) { lib = []; }
+    try { lib = await apiGet('/api/assets_library'); } catch(e) { lib = []; }
     const items = (Array.isArray(lib) ? lib : []).filter(a => ids.includes(a.asset_id) && _apPassFilters(a));
     body.innerHTML = (items.length ? items.map(a => {
       const btn = `<button class="btn-secondary btn-sm" onclick="_apApplyAsset('${esc(sceneId)}',${idx},'${esc(a.asset_id)}','${esc(a.type || '')}')">${AP.intent === 'addbroll' ? '加入' : '替换'}</button>`+
@@ -46,7 +46,7 @@ async function assetPickerTab(tab, idx, sceneId){
   }
   if (tab === 'project') {
     let lib;
-    try { lib = await (await fetch('/api/assets_library')).json(); } catch(e) { lib = []; }
+    try { lib = await apiGet('/api/assets_library'); } catch(e) { lib = []; }
     const items = (Array.isArray(lib) ? lib : []).filter(a => a.type === 'image' || a.type === 'video' && _apPassFilters(a));
     body.innerHTML = (items.length ? items.slice(0, 60).map(a => {
       const sid = sceneId; const iidx = idx; const aid = a.asset_id;
@@ -98,7 +98,7 @@ async function assetPickerTab(tab, idx, sceneId){
     if (btn) btn.onclick = () => assetPickerStockSearch();
   } else { // generated
     let lib;
-    try { lib = await (await fetch('/api/assets_library')).json(); } catch(e) { lib = []; }
+    try { lib = await apiGet('/api/assets_library'); } catch(e) { lib = []; }
     const gen = (Array.isArray(lib) ? lib : []).filter(a => (a.origin === 'generated' || a.source === 'generated'));
     body.innerHTML = (gen.length ? gen.slice(0, 60).map(a => {
       const sid = sceneId; const iidx = idx; const aid = a.asset_id;
@@ -185,7 +185,7 @@ async function editorBatchCmd(subcommand){
   });
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     ED.sel = null; ED.selSet = new Set();
     editorRenderTimeline();
@@ -209,7 +209,7 @@ async function editorCmd(cmd, extra, targetOverride, useRawTarget){
   const r = await apiPost('/api/editor/command', {project_id: ED.pid, variantId: ED.variantId || ED.pid, command: cmd, targetId: target, payload, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     edShowInspector();
@@ -256,7 +256,7 @@ async function editorApplyMotion(sceneId, idx, motionId){
     targetId: `${sceneId}#${idx}`, payload: {motionRecipeId: motionId}, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     edSelect(`${sceneId}#${idx}`, 'layer', null);
     editorRenderTimeline(); edShowInspector();
@@ -290,7 +290,7 @@ async function editorApplyShot(sceneId, recipeId){
     targetId: sceneId, payload: {recipeId}, expectedVersion: ED.version});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     editorToast(`✅ 镜头已更换：${recipeId}`);
@@ -326,7 +326,7 @@ async function editorAiApply(){
   const r = await apiPost('/api/proposal/apply', {project_id: ED.pid, proposal_id: ED.pendingProposal});
   const box = document.getElementById('editor-ai-proposal');
   if (r.ok && r.status === 'APPLIED') {
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     box.innerHTML += `<div class="hint">✅ 已应用 ${r.applied.length} 项修改（revision 已记录）</div>`;
@@ -345,7 +345,7 @@ async function editorAiReject(){
 // ===========================================================================
 async function directorLoadCapCount(){
   try {
-    const d = await (await fetch('/api/director/capabilities')).json();
+    const d = await apiGet('/api/director/capabilities');
     const n = (d.capabilities || []).length;
     const el = document.getElementById('director-cap-count');
     if (el) el.textContent = n;
@@ -398,7 +398,7 @@ async function directorExecute(){
       `</span></span></div>`).join('') +
     `<div class="hint" style="margin-top:2px">${d.verify_ok ? '✅ 全部验证通过' : '⚠ 部分步骤未通过验证（见上方 ❌）'}</div>`;
   // 刷新时间线 + Inspector，展示 AI 落地效果
-  const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
   if (comp && comp.version !== undefined) { ED.comp = comp; ED.version = comp.version; }
   editorRenderTimeline();
   renderWatermarkList();

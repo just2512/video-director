@@ -9,7 +9,7 @@ async function devWarmNameCache(){
   // 预热动效映射（失败不阻塞——映射缺失时回退显示原始 id）。
   // shot 映射由 Shot Picker 的 resolve 响应顺手填充（无独立列表端点）。
   try {
-    const r = await (await fetch('/api/registry/motions')).json();
+    const r = await apiGet('/api/registry/motions');
     const list = Array.isArray(r) ? r : (r.motions || []);
     for (const m of list) {
       if (m && m.id) _CN_CACHE.motion[m.id] = m.name || m.id;

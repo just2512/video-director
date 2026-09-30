@@ -12,20 +12,20 @@ function _rebuildSelect(id, opts){
   }
 }
 async function loadOptions(){
-  const voices = await (await fetch('/api/voices')).json();
+  const voices = await apiGet('/api/voices');
   _rebuildSelect('voice', voices.map(v=>[v.id, v.label]));
-  const aspects = await (await fetch('/api/aspects')).json();
+  const aspects = await apiGet('/api/aspects');
   _rebuildSelect('aspect', aspects.map(a=>[a.value, a.label]));
-  window.BGMLIST = await (await fetch('/api/bgm')).json();
+  window.BGMLIST = await apiGet('/api/bgm');
   _rebuildSelect('bgm', [['auto','🤖 AI 自动匹配（按视频风格选曲）'],['','（不配乐）'],
                          ...BGMLIST.map(b=>[b.id, b.label])]);
-  const sfx = await (await fetch('/api/sfx')).json();
+  const sfx = await apiGet('/api/sfx');
   _rebuildSelect('sfx', [['auto','自动（按镜头动作配音效，推荐）'],['','关闭（不加音效）'],
                          ...sfx.map(s=>[s.id, s.label])]);
   await refreshLLMBadge();
   // 能力徽章摘要（不展开面板，只数状态）
   try {
-    const caps = await (await fetch('/api/capabilities')).json();
+    const caps = await apiGet('/api/capabilities');
     if (Array.isArray(caps)) {
       const ok = caps.filter(c=>c.status==='PASS'||c.status==='AVAILABLE').length;
       const warn = caps.filter(c=>c.status==='DEGRADED').length;
@@ -38,7 +38,7 @@ async function loadOptions(){
 let MODEL_ROLES = [];
 async function refreshLLMBadge(){
   // 徽章：文本模型状态（主角色），面板打开时展示四角色
-  const cfg = await (await fetch('/api/llm_status')).json();
+  const cfg = await apiGet('/api/llm_status');
   const el = document.getElementById('llm-badge');
   if (cfg.enabled) {
     el.textContent = `🤖 大模型已启用（${cfg.model} · ${cfg.source === 'runtime' ? '页面设置' : '环境变量'}）`;
@@ -48,7 +48,7 @@ async function refreshLLMBadge(){
     el.classList.remove('on');
   }
   try {
-    window.MODEL_ROLES = await (await fetch('/api/model_config')).json();
+    window.MODEL_ROLES = await apiGet('/api/model_config');
     if (Array.isArray(MODEL_ROLES) && document.getElementById('llm-panel').style.display !== 'none') {
       renderModelRoles();
     }
@@ -121,7 +121,7 @@ async function loadCapabilities(){
   const el = document.getElementById('cap-table');
   el.innerHTML = '检测中……';
   try {
-    const caps = await (await fetch('/api/capabilities')).json();
+    const caps = await apiGet('/api/capabilities');
     if (!Array.isArray(caps)) throw new Error(caps.error || '读取失败');
     const NAME_CN = {tts:'配音TTS', vision:'视觉理解', alignment:'词级对齐',
                      renderer:'渲染器', audio:'音频库', matting:'抠像'};

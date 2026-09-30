@@ -20,7 +20,7 @@ function populateGenModels(){
 /** §12/§31.1 Capability Availability：拉取 generation 可用态并驱动按钮禁用。 */
 async function refreshGenerationAvailability(){
   try {
-    const caps = await (await fetch('/api/capabilities')).json();
+    const caps = await apiGet('/api/capabilities');
     const gen = (Array.isArray(caps) ? caps : []).find(c => c.name === 'generation.availability');
     if (gen && gen.generation) {
       CAPS.imageAvailable = !!gen.generation.image.available;
@@ -107,7 +107,7 @@ async function addGenToTimeline(assetId){
   const r = await apiPost('/api/editor/generate/add', {project_id: ED.pid, scene_id: sceneId, asset_id: assetId});
   if (r.ok) {
     ED.version = r.composition_version;
-    const comp = await (await fetch('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid))).json();
+    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
     ED.comp = comp; ED.version = comp.version;
     editorRenderTimeline();
     document.getElementById('gen-status').textContent = `✅ ${assetId} 已加入场景 ${sceneId}`;

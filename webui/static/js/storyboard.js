@@ -1,7 +1,7 @@
 async function loadAssetsLibrary(){
   if (!document.getElementById('assets-list')) return;  // 平铺页已收进 Library 左栏
   try {
-    const assets = await (await fetch('/api/assets_library')).json();
+    const assets = await apiGet('/api/assets_library');
     if (!Array.isArray(assets)) throw new Error(assets.error || '读取失败');
     const filter = (document.getElementById('asset-filter') || {}).value || 'all';
     const view = (document.getElementById('asset-view') || {}).value || 'grid';
@@ -22,7 +22,7 @@ async function loadAssetsLibrary(){
 
     // §44 冻结资产台账（asset_resolver manifest：source/license/复用）
     try {
-      const frozen = await (await fetch('/api/media_library')).json();
+      const frozen = await apiGet('/api/media_library');
       const frows = (frozen || []).map(f => `
         <div class="scene-card">
           <div class="scene-head">
@@ -60,7 +60,7 @@ async function inspectAsset(assetId){
   if (!box) return;
   box.innerHTML = '加载中……';
   try {
-    const d = await (await fetch('/api/asset_detail?asset_id=' + encodeURIComponent(assetId))).json();
+    const d = await apiGet('/api/asset_detail?asset_id=' + encodeURIComponent(assetId));
     if (d && d.error) throw new Error(d.error);
     const statusCn = {CLEAR:'✓ 商用可用', REVIEW:'⚠ 需复核', BLOCKED:'× 已阻断', UNKNOWN:'⚠ 状态未知'};
     box.innerHTML = `<b>${esc(assetId)}</b>
@@ -126,7 +126,7 @@ async function loadMemoryView(){
   const out = document.getElementById('memory-view');
   out.innerHTML = '加载中……';
   try {
-    const j = await (await fetch('/api/style_dna')).json();
+    const j = await apiGet('/api/style_dna');
     if (j.error) throw new Error(j.error);
     const dna = j.style_dna;
     const prefs = j.recent_preferences || [];

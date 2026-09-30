@@ -4,6 +4,35 @@
 
 let _cmdSeq = 0;
 
+/** 版本冲突 → resync composition（读回最新，刷新时间线）。§20 禁止静默覆盖。 */
+async function resyncComposition(){
+  const pid = ED.pid;
+  if (!pid) return {ok: false, error: '无项目'};
+  const fresh = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(pid));
+  if (fresh.error) return {ok: false, error: fresh.error};
+  ED.version = fresh.version ?? ED.version;
+  ED.comp = fresh;
+  if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+  return {ok: true, version: ED.version};
+}
+
+/** CONFLICT 处理：resync + 明确提示（不静默重试）。 */
+function handleConflict(){
+  resyncComposition();
+  return {ok: false, status: 'CONFLICT',
+          error: '内容已被其他操作更新，已为你刷新到最新版本，请重试'};
+}
+
+/**
+ * executeBatch：批量命令（同 project/version，原子提交，单 revision）。
+ * spec = {commands: [{command, targetId, payload}]}。用 editor 的 batch 命令落单 revision。
+ */
+async function executeBatch(spec) {
+  const commands = (spec && spec.commands) || [];
+  if (!commands.length) return {ok: false, status: 'INVALID_PAYLOAD', error: '批量命令为空'};
+  return executeCommand({command: 'batch', targetId: '', payload: {operations: commands}});
+}
+
 /**
  * executeCommand({command, targetId, payload}) → {ok, status, data}
  * CONFLICT：不静默覆盖——调用方须 resync 并提示用户刷新。
@@ -39,13 +68,7 @@ async function executeCommand(spec) {
   }
   const code = (data.errors && data.errors[0] && data.errors[0].code) || data.status || 'ERROR';
   if (code === 'CONFLICT') {
-    // §20：resync → 显示冲突 → 禁止静默覆盖
-    try {
-      const fresh = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(pid));
-      ED.version = fresh.version || ED.version;
-      if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
-    } catch (e) { /* resync 尽力而为 */ }
-    return {ok: false, status: 'CONFLICT', error: '内容已被其他操作更新，已为你刷新到最新版本，请重试', data};
+    return handleConflict();
   }
   if (code === 'CAPABILITY_UNAVAILABLE') {
     return {ok: false, status: 'CAPABILITY_UNAVAILABLE',
@@ -65,11 +88,10 @@ function friendlyError(data) {
   return cn[data.errors?.[0]?.code] || raw;
 }
 
-Object.assign(window, {executeCommand, friendlyError});
-
-// §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
 Object.assign(window, {
   executeCommand,
+  executeBatch,
+  resyncComposition,
+  handleConflict,
   friendlyError,
-  _cmdSeq,
 });

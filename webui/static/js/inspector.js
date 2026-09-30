@@ -159,7 +159,7 @@ async function loadAssetInspector(assetId){
   const el = document.getElementById('ed-asset-inspector');
   if (!el) return;
   try {
-    const d = await (await fetch('/api/asset_detail?asset_id=' + encodeURIComponent(assetId) + '&project_id=' + encodeURIComponent(ED.pid||''))).json();
+    const d = await apiGet('/api/asset_detail?asset_id=' + encodeURIComponent(assetId) + '&project_id=' + encodeURIComponent(ED.pid||''));
     if (!d || d.error) { el.textContent = ''; return; }
     const statusCn = {CLEAR:'✓ 商用可用', REVIEW:'⚠ 需复核', BLOCKED:'× 已阻断', UNKNOWN:'⚠ 状态未知'};
     el.innerHTML = `<b>素材信息</b><br>来源：${esc(d.source||'—')} · 授权：<b>${statusCn[d.commercial_status]||esc(d.commercial_status)}</b>`+
@@ -356,7 +356,7 @@ async function edVoiceLoadOptions(){
   const sel = document.getElementById('ed-voice-sel');
   if (!sel || sel.options.length) return;
   try {
-    const voices = await (await fetch('/api/voices')).json();
+    const voices = await apiGet('/api/voices');
     const list = Array.isArray(voices) ? voices : (voices.voices || []);
     sel.innerHTML = list.slice(0, 20).map(v =>
       `<option value="${esc(v.voice_id || v.id || v)}">${esc(v.name || v.label || v.voice_id || v)}</option>`).join('');

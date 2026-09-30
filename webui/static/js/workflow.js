@@ -102,7 +102,7 @@ async function loadReview(){
   const box = document.getElementById('review-list');
   box.innerHTML = '加载中……';
   let projs;
-  try { projs = await (await fetch('/api/projects')).json(); } catch(e) { projs = null; }
+  try { projs = await apiGet('/api/projects'); } catch(e) { projs = null; }
   if (!Array.isArray(projs)) { box.innerHTML = '<div class="hint">项目列表加载失败，点刷新重试</div>'; return; }
   const rows = [];
   for (const p of projs) {
@@ -111,7 +111,7 @@ async function loadReview(){
     const label = stage === 'AWAITING_CONFIRM' ? '🟡 待确认分镜' : stage === 'AWAITING_DRAFT' ? '🟠 待确认草稿' : (done ? '✅ 已完成' : '🔵 生成中/待处理');
     let issuesHtml = '';
     try {
-      const pf = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(p.project_id))).json();
+      const pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(p.project_id));
       const issues = (pf && pf.issues) || [];
       if (issues.length) {
         issuesHtml = '<div class="hint" style="margin:2px 0 2px 12px">' +
@@ -165,12 +165,12 @@ async function loadPublish(){
   const box = document.getElementById('publish-list');
   box.innerHTML = '加载中……';
   let projs;
-  try { projs = await (await fetch('/api/projects')).json(); } catch(e) { projs = null; }
+  try { projs = await apiGet('/api/projects'); } catch(e) { projs = null; }
   if (!Array.isArray(projs)) { box.innerHTML = '<div class="hint">项目列表加载失败，点刷新重试</div>'; return; }
   const rows = [];
   for (const p of projs) {
     let pf;
-    try { pf = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(p.project_id))).json(); } catch(e) {}
+    try { pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(p.project_id)); } catch(e) {}
     const status = pf && pf.status ? pf.status : '—';
     const blocked = (pf && pf.issues || []).filter(i=>!i.recoverable).length;
     rows.push(`<div class="proj-row"><span><b>${esc(p.project_id)}</b>
@@ -183,7 +183,7 @@ async function loadPublish(){
 async function publishDetail(pid){
   const box = document.getElementById('publish-detail-box');
   box.innerHTML = '预检中……';
-  const pf = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(pid))).json();
+  const pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(pid));
   const row = (i) => {
     const block = i.recoverable === false && i.code && !i.code.startsWith('ASSET_');
     return `<div class="${block ? 'err-box' : 'hint'}" style="margin:4px 0">
@@ -221,7 +221,7 @@ async function loadSettings(){
   const box = document.getElementById('settings-env');
   box.innerHTML = '自检中……';
   try {
-    const r = await (await fetch('/api/doctor')).json();
+    const r = await apiGet('/api/doctor');
     const cn = {PASS:'✅', FAIL:'⛔', SKIP:'🔶'};
     box.innerHTML = (Array.isArray(r) ? r : []).map(c =>
       `<div class="hint">${cn[c.status]||'·'} ${esc(c.name)}：<b>${esc(c.status)}</b> — ${esc(c.detail)}</div>`).join('')
