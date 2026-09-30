@@ -230,8 +230,7 @@ async function uploadVoice(){
   const fi = document.getElementById('voice_upload_file');
   const st = document.getElementById('voice-upload-status');
   if (!fi.files || !fi.files.length) { st.textContent = '请先选择音频文件'; return; }
-  const pid = (window.currentProject && window.currentProject.project_id) ||
-              (document.getElementById('editor-project')||{}).value || '';
+  const pid = (document.getElementById('editor-project')||{}).value || '';
   if (!pid) { st.textContent = '需要项目：先在创作页生成或编辑器打开一个项目'; return; }
   st.textContent = '导入中（探测→对齐）……';
   const fd = new FormData();

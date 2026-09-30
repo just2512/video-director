@@ -1,194 +1,7 @@
-// 当前待确认项目的状态（自然语言改稿累积 edits）
-let currentProject = { pid: '', sb: null, edits: {} };
-
-function renderStoryboard(sb){
-  if (!sb || !sb.scenes || !sb.scenes.length) return '<div class="hint">（无场景）</div>';
-  const cards = sb.scenes.map((sc, i) => {
-    // 展示该场景全部素材（多镜头全列出——用户能看到 8 个素材都进片）
-    const aids = (sc.assets_used || []).map(a => a.asset_id).filter(Boolean);
-    const aidText = aids.length ? aids.join('、') : '未配素材';
-    const n = sb.scenes.length;
-    // 语义角色（§十二：HOOK/intro/body/outro 按位置推断）
-    const role = i === 0 ? 'HOOK' : (i === n - 1 ? 'OUTRO' : 'BODY');
-    const moveBtns = (n > 1) ? `
-        <button class="scene-move" onclick="moveScene(${i}, -1)" ${i===0?'disabled':''}>↑</button>
-        <button class="scene-move" onclick="moveScene(${i}, 1)" ${i===n-1?'disabled':''}>↓</button>` : '';
-    return `<div class="scene-card">
-      <div class="scene-head">
-        <span class="scene-id">${esc(sc.scene_id||'')}</span>
-        <span class="scene-role">${role}</span>
-        <span class="scene-dur">${(sc.duration||0).toFixed(1)}s</span>
-        ${moveBtns}
-        <button class="scene-del" onclick="removeSceneDirect('${esc(sc.scene_id||'')}')">删除</button>
-      </div>
-      <div class="scene-text">${esc(sc.text||'')}</div>
-      <div class="scene-asset">素材（${aids.length}个）：${esc(aidText)}</div>
-      <div class="btn-row sb-actions">
-        <button class="btn-secondary btn-sm" onclick="sbChangeShot(${i})">🎬 换一个镜头</button>
-        <button class="btn-secondary btn-sm" onclick="sbChangeVisual(${i})">🖼 换视觉</button>
-        <button class="btn-secondary btn-sm" onclick="sbGenAsset(${i})">✨ 生成素材</button>
-        <button class="btn-secondary btn-sm" onclick="sbAdjust(${i})">⚙ 调整</button>
-      </div>
-      <div id="sb-card-${i}-inline"></div>
-    </div>`;
-  }).join('');
-  return `<div class="scene-list">${cards}</div>`;
-}
-// 分镜卡四按钮（§十二）：换镜头=resolver 候选；换视觉=素材重绑；生成素材=生图引导；调整=改稿
-// §9.3/FE-007：全部 prompt/alert → 卡内联 UI / Toast（分镜卡尾部原位展开）
-function _sbInlineRow(i, inner, onApply, applyLabel){
-  const host = document.getElementById(`sb-card-${i}-inline`);
-  if (!host) { if (typeof editorToast === 'function') editorToast('界面元素缺失，请刷新页面'); return; }
-  host.innerHTML = '';
-  const row = document.createElement('div');
-  row.className = 'btn-row';
-  row.style.cssText = 'margin-top:6px;flex-wrap:wrap;align-items:center;gap:6px';
-  row.innerHTML = inner + `<button class="btn-sm">${esc(applyLabel || '应用')}</button>`;
-  host.appendChild(row);
-  row.querySelector('button').onclick = () => {
-    const v = row.querySelector('select, input');
-    host.innerHTML = '';
-    onApply(v ? v.value : '');
-  };
-}
-async function sbChangeShot(i){
-  const r = await apiPost('/api/registry/shots/resolve', {semantic_intents: [], content_type: 'product_video', duration: 4, available_asset_types: ['image','product','video'], scene_position: i===0?'first':'middle'});
-  const cands = (r.candidates||[]).filter(c=>c.compatibility!=='INCOMPATIBLE');
-  if (!cands.length) { editorToast('暂无匹配的镜头方案', true); return; }
-  const top5 = cands.slice(0, 5);
-  const opts = top5.map((c, ci) => `<option value="${ci}">${ci + 1}. ${esc(c.name)}（${esc(c.recipe_id)}）</option>`).join('');
-  _sbInlineRow(i, `<select style="flex:2">${opts}</select>`, (v) => {
-    const chosen = top5[parseInt(v)];
-    if (!chosen) { editorToast('编号无效', true); return; }
-    document.getElementById('creative_brief').value += `\n[分镜${i+1} 使用镜头方案：${chosen.name}（${chosen.recipe_id}）]`;
-    editorToast(`✅ 镜头方案已记入创作要求（渲染时生效）：${chosen.name}`);
-  }, '记入要求');
-}
-function sbChangeVisual(i){
-  _sbInlineRow(i,
-    `<input type="text" placeholder="素材文件名（如 3.mp4），或"自动"让 AI 重新匹配" style="flex:2">`,
-    (t) => {
-      if (!t) return;
-      const nums = ['一','二','三','四','五','六','七','八','九','十'];
-      document.getElementById('rev-input').value = `第${nums[i]||(i+1)}段换成 ${t}`;
-      applyRevision();
-    });
-}
-async function sbGenAsset(i){
-  // 分镜卡生成素材：与编辑器「生成」同一链（/api/editor/generate，诚实依赖生图 Provider）
-  if (!currentProject.pid) { editorToast('先创建/打开项目', true); return; }
-  _sbInlineRow(i,
-    `<input type="text" placeholder="画面描述（例：极简产品特写，暖光）" style="flex:2">`,
-    async (t) => {
-      if (!t) return;
-      try {
-        const r = await apiPost('/api/editor/generate', {project_id: currentProject.pid, prompt: t,
-          type: 'image', model: '', reference: ''});
-        if (!r.ok) { editorToast('生成暂不可用：' + (r.error || '未配置图片生成服务。可到「大模型配置中心」为生图角色配置服务，或先本地上传素材文件。'), true); return; }
-        editorToast(`✅ 已生成 ${(r.results||[]).length} 个变体并保存到素材库，可到编辑器「资源库→生成」查看采用`);
-      } catch (e) { editorToast('生成失败：' + String(e), true); }
-    }, '生成配图');
-}
-function sbAdjust(i){
-  _sbInlineRow(i,
-    `<input type="text" placeholder="描述你要的改变（例：这段时长改为 6 秒）" style="flex:2">`,
-    (t) => {
-      if (!t) return;
-      document.getElementById('rev-input').value = t;
-      applyRevision();
-    });
-}
-
-function refreshStoryboardUI(){
-  const box = document.getElementById('storyboard-box');
-  if (!box || !currentProject.sb) return;  // 结果区无分镜 DOM（成片直出路径）→ 跳过
-  box.innerHTML = renderStoryboard(currentProject.sb);
-  const meta = document.getElementById('sb-meta');
-  if (meta) meta.textContent =
-    `总时长 ${(currentProject.sb?.total_duration||0).toFixed(1)}s · ${currentProject.sb?.scene_count||0} 场景`;
-}
-
-async function doRevision(payload){
-  const out = document.getElementById('rev-status');
-  out.innerHTML = '<span class="rev-hint">应用修改中……</span>';
-  try {
-    const r = await fetch('/api/revision', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(Object.assign({project_id: currentProject.pid, edits: currentProject.edits}, payload))
-    });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || '修改失败');
-    currentProject.edits = j.edits || {};
-    currentProject.sb = j.storyboard || currentProject.sb;
-    refreshStoryboardUI();
-    document.getElementById('rev-input').value = '';
-    out.innerHTML = '<span class="rev-done">✅ 已应用（正式渲染时将生效）</span>';
-  } catch (e) {
-    out.innerHTML = `<span class="rev-err">${esc(e.message)}</span>`;
-  }
-}
-
-function applyRevision(){
-  const instr = (document.getElementById('rev-input').value || '').trim();
-  if (!instr) { document.getElementById('rev-status').innerHTML = '<span class="rev-err">请输入修改内容</span>'; return; }
-  doRevision({instruction: instr});
-}
-
-function removeSceneDirect(sid){
-  doRevision({direct_edits: {remove: [sid]}});
-}
-
-function moveScene(index, delta){
-  // 前端本地重排（reorder 语义在 edits 里表达，确认渲染时生效）
-  const sc = currentProject.sb;
-  if (!sc || !sc.scenes) return;
-  const j = index + delta;
-  if (j < 0 || j >= sc.scenes.length) return;
-  const ids = sc.scenes.map(s => s.scene_id);
-  [ids[index], ids[j]] = [ids[j], ids[index]];
-  doRevision({direct_edits: {reorder: ids}});
-}
-
-async function renderDraftPreview(){
-  const box = document.getElementById('draft-box');
-  const vid = document.getElementById('draft-video');
-  box.style.display = 'block';
-  vid.removeAttribute('src');
-  vid.insertAdjacentHTML('beforebegin', '');
-  const statusEl = box.querySelector('.hint');
-  statusEl.textContent = '草稿渲染中……（低分辨率快速，约 10-30 秒）';
-  try {
-    const r = await fetch('/api/draft', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({project_id: currentProject.pid})
-    });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || '草稿渲染失败');
-    vid.src = '/file?path=' + encodeURIComponent(j.draft_path);
-    vid.play().catch(()=>{});
-    statusEl.textContent = '动态草稿（低分辨率快速预览，不烧字幕）：';
-  } catch (e) {
-    statusEl.textContent = '草稿渲染失败：' + e.message;
-  }
-}
-
-async function confirmRender(){
-  const statusEl = document.getElementById('confirm-status');
-  statusEl.textContent = '正在正式渲染……';
-  try {
-    const r = await fetch('/api/confirm', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({project_id: currentProject.pid, edits: currentProject.edits})
-    });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || '确认渲染失败');
-    // 复用 renderResult 展示 final（pending_confirm=false 走成片分支）
-    renderResult({...j, elapsed_s: 0});
-  } catch (e) {
-    statusEl.textContent = '渲染失败：' + e.message;
-  }
-}
+// §6 旧 Revision 链已收口：不再维护 currentProject.sb/edits 第二编辑态。
+// compose 后 pending_confirm → 直接打开工作台（项目 composition 已就绪），
+// 分镜审阅改稿统一走工作台 AI 指令栏/Inspector（proposal → executeCommand → composition）。
+// 渲染出口与工作台 editorRenderFinal 统一（都走 /api/confirm，无 edits 重规划）。
 
 // 平台 → 画幅联动（§十一 CreativeBrief：选平台自动定画幅）
 function platformAspectSync(){
@@ -251,37 +64,14 @@ async function compose(){
 function renderResult(j){
   const out = document.getElementById('result');
   if (j.pending_confirm) {
-    window.currentProject = { pid: j.project_id || '', sb: j.storyboard || {}, edits: {} };
-    const briefNow = (document.getElementById('creative_brief').value || '').trim();
-    const briefLine = briefNow
-      ? `<div class="hint">📋 创作要求：${esc(briefNow)}</div>` : '';
+    // §6/§13.3 收口：项目已创建（composition 已就绪），直接打开工作台。
+    // 分镜审阅/改稿/渲染统一在工作台（选中场景→Inspector，或 AI 指令栏一句话）。
     out.innerHTML = `
       <div class="ok-box" data-pid="${esc(j.project_id || '')}">
-        <b>已暂停在「等待确认」。</b>分镜如下，可逐段改稿：
-        ${briefLine}
-        <div class="hint" id="sb-meta"></div>
-        <div id="storyboard-box"></div>
-        <div class="rev-console">
-          <b>自然语言改稿</b>
-          <div class="btn-row">
-            <input type="text" id="rev-input" class="rev-input" placeholder="输入修改，如：第二段换成 3.mp4 / 删掉第二段 / 第三段改成新文案">
-            <button class="btn-secondary" onclick="applyRevision()">应用修改</button>
-          </div>
-          <div id="rev-status"></div>
-          <div class="rev-hint">换素材（换镜头）正式渲染时生效；删段/改文案正式渲染时重合成旁白生效。</div>
-        </div>
-        <div class="btn-row">
-          <button class="btn-secondary" onclick="renderDraftPreview()">🎬 先看草稿视频（快速低清）</button>
-          <button onclick="confirmRender()">✅ 确认渲染</button>
-          <button class="btn-secondary" onclick="location.reload()">↩ 返回修改</button>
-        </div>
-        <div id="draft-box" style="display:none" class="enhance-box">
-          <div class="hint">动态草稿（低分辨率快速预览，不烧字幕；正式渲染看下方确认）：</div>
-          <video controls id="draft-video" style="width:100%;max-width:420px;margin-top:8px;border-radius:8px;background:#000"></video>
-        </div>
-        <div class="hint" id="confirm-status"></div>
+        <b>方案已生成，正在打开工作台……</b>
+        <div class="hint">分镜审阅、改稿、渲染都在工作台完成——选中场景改属性，或用 AI 指令栏一句话修改。</div>
       </div>`;
-    refreshStoryboardUI();
+    reviewGoTimeline(j.project_id);
     return;
   }
   const QC_CN = {PASS:'通过', FAIL:'未通过', SKIP:'跳过'};
@@ -306,7 +96,7 @@ function renderResult(j){
 }
 
 // ===========================================================================
-// §三十三 新增四页：Review / Publish / Automation / Settings
+// §三十三 四页：Review / Publish / Automation / Settings
 // ===========================================================================
 async function loadReview(){
   const box = document.getElementById('review-list');
@@ -319,7 +109,6 @@ async function loadReview(){
     const stage = p.stage || '';
     const done = p.has_final;
     const label = stage === 'AWAITING_CONFIRM' ? '🟡 待确认分镜' : stage === 'AWAITING_DRAFT' ? '🟠 待确认草稿' : (done ? '✅ 已完成' : '🔵 生成中/待处理');
-    // §39：每个项目附带 Issues（preflight 阻断/警告），Issue 有 [去时间线][让 AI 修复]
     let issuesHtml = '';
     try {
       const pf = await (await fetch('/api/preflight?project_id=' + encodeURIComponent(p.project_id))).json();
@@ -366,7 +155,8 @@ async function reviewAskAI(pid, issue){
       }
       editorLoad();
     }
-    const inp = document.getElementById('editor-ai-input');
+    // AI 指令栏（Director）承载自然语言修复（§11 Command Bar）
+    const inp = document.getElementById('director-input');
     if (inp) inp.value = '修复以下问题：' + issue;
   }, 500);
 }
@@ -439,20 +229,8 @@ async function loadSettings(){
   } catch(e) { box.innerHTML = '<div class="err-box">自检失败：' + esc(String(e)) + '</div>'; }
 }
 
-// §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
+// §8 拆分导出：inline onclick/window 引用兼容
 Object.assign(window, {
-  renderStoryboard,
-  sbChangeShot,
-  sbChangeVisual,
-  sbGenAsset,
-  sbAdjust,
-  refreshStoryboardUI,
-  doRevision,
-  applyRevision,
-  removeSceneDirect,
-  moveScene,
-  renderDraftPreview,
-  confirmRender,
   platformAspectSync,
   compose,
   renderResult,
@@ -464,5 +242,4 @@ Object.assign(window, {
   locateAsset,
   loadAutomation,
   loadSettings,
-  currentProject,
 });

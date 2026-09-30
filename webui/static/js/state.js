@@ -2,8 +2,8 @@
 // 事实源是服务端 Composition；这里只维护瞬态（选择/缩放/面板/预览缓存）。
 // Reload 后 Composition 保持（服务端持久化）；Selection/Hover 允许丢失。
 //
-// 实现方式：全部挂 window 属性（非 let+快照）——因为多处模块会整体重赋值
-// （MOTIONS = ...、TPLS = ...、currentProject = {...}），let 快照会与 window 脱钩。
+// 实现方式：全部挂 window 属性（非 let+快照）——因为部分模块会整体重赋值
+// （MOTIONS = ...、TPLS = ...），let 快照会与 window 脱钩。
 
 // BGMLIST（创作页 BGM 下拉）
 window.BGMLIST = [];
@@ -15,12 +15,13 @@ window.ED = {pid:null, comp:null, sel:null, selSet:new Set(), version:1, zoom:1.
 window.AP = {lastTab: 'project', recent: [], favorites: []};
 // GFX：程序化图形创作计划（proposal——非正式事实源 §7；正式持久化一律走 Command）
 window.GFX = {plan:null, blocks:[], previewHtml:null, content_type:'knowledge'};
+// §16 方案新增：统一 UI 瞬态状态（route/selection/panel/loading/errors）
+window.UI = { route: 'create', selection: null, selectionSet: [], panel: 'assets',
+              inspectorTab: 'context', commandOpen: false, loading: {}, errors: {} };
 // MOTIONS/TPLS：库缓存（只读 server state 的瞬态副本）
 window.TPLS = [];
 window.MOTIONS = [];
 window.MOTION_BEHAVIOR = {};  // §三十二 Style DNA：{id: {pinned: n, used: n, ...}}
-// 当前待确认项目（自然语言改稿累积 edits）
-window.currentProject = { pid: '', sb: null, edits: {} };
 // 音频预览元素
 window._previewEl = null;
 // §10 DeveloperState：默认关闭；开启后显示 capability/command/原始错误等内部信息

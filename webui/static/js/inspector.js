@@ -47,14 +47,22 @@ function edShowInspector(){
       `<button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','push_in')">🎥 缓慢推进</button>`+
       `<button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','pull_out')">🎥 缓慢拉远</button>`+
       `</div><div id="editor-picker-box"></div></div>`+
-      (si > 0 ? `<div class="role-block"><b>连续性</b> <span class="hint">（从上一镜延续过来什么、怎么过渡）</span>`+
-        `<div class="hint">当前：${cont ? (contCn[cont.type] || cont.type) : '未声明（默认硬切）'}</div>`+
-        `<div class="btn-row"><select id="ed-cont-type" style="width:110px">`+
+      (si > 0 ? `<div class="role-block"><b>镜头关系</b> <span class="hint">（上一镜 → 当前镜：延续什么、怎么过渡）</span>`+
+        `<div class="hint">当前：${cont ? (contCn[cont.type] || cont.type) : '硬切（默认）'}</div>`+
+        `<div class="btn-row"><select id="ed-cont-type" style="width:110px" onchange="edContTypeChanged()">`+
         Object.entries(contCn).map(([v, l]) => `<option value="${v}"${cont && cont.type === v ? ' selected' : ''}>${l}</option>`).join('')+
-        `</select><button class="btn-secondary btn-sm" onclick="editorApplyContinuity('${sc.id}')">应用延续</button></div>`+
+        `</select><button class="btn-secondary btn-sm" onclick="editorApplyContinuity('${sc.id}')">应用</button></div>`+
         (cont && cont.type === 'carry' ? `<div class="hint">元素延续需指定延续的图层（在下方输入，格式 scene#idx）</div>`+
           `<div class="btn-row"><input type="text" id="ed-cont-src" placeholder="来源层（如上一场景#0）" style="width:120px">`+
           `<input type="text" id="ed-cont-dst" placeholder="目标层（本场景#0）" style="width:120px"></div>` : '')+
+        `<div id="ed-morph-row" ${cont && cont.type === 'morph' ? '' : 'style="display:none"'}>`+
+          _morphBlockRow(ED.comp.scenes[si-1], sc)+
+        `</div>`+
+        `<div class="btn-row" style="margin-top:4px">`+
+          `<button class="btn-secondary btn-sm" onclick="editorVerifyContinuity('${sc.id}')">🔍 检查当前镜头</button>`+
+          `<button class="btn-secondary btn-sm" onclick="editorVerifyContinuity('')">🔍 检查全片</button>`+
+        `</div>`+
+        `<div id="ed-cont-verify"></div>`+
         `</div>` : '')+
       `<div class="role-block"><b>声音</b><div class="hint">`+
       (audioOf('narration') ? `旁白轨 ✓（音量 ${(audioOf('narration').volume ?? 1)}）` : '无旁白轨')+
@@ -565,6 +573,13 @@ async function editorApplyCamera(sceneId, preset){
 
 async function editorApplyContinuity(sceneId){
   const type = (document.getElementById('ed-cont-type') || {}).value || 'hard_cut';
+  // §9 morph 是「镜头关系」的一种：选 morph 走 apply_morph（带 from/to block）
+  if (type === 'morph') {
+    const fromBlock = (document.getElementById('ed-morph-from') || {}).value || '';
+    const toBlock = (document.getElementById('ed-morph-to') || {}).value || '';
+    await editorApplyMorph(sceneId, fromBlock, toBlock);
+    return;
+  }
   const payload = {type};
   if (type === 'carry') {
     const src = (document.getElementById('ed-cont-src') || {}).value || '';
@@ -582,6 +597,94 @@ async function editorApplyContinuity(sceneId){
   } else {
     editorToast('❌ 延续设置失败：' + (r.error || ''), true);
   }
+}
+
+// §4.3/§9「镜头关系」：类型切换时，morph 显隐 from/to block 行；carry 不显
+function edContTypeChanged(){
+  const type = (document.getElementById('ed-cont-type') || {}).value;
+  const morphRow = document.getElementById('ed-morph-row');
+  if (morphRow) morphRow.style.display = (type === 'morph') ? '' : 'none';
+}
+
+// 自有 Graphic Block 形变映射（与后端 editor.MORPHABLE_BLOCKS 一致，前端只做候选展示）
+const MORPH_BLOCKS = {
+  'ui.button': { label: '按钮', targets: ['ui.arrow','flow.node'] },
+  'ui.arrow': { label: '箭头', targets: ['ui.button','flow.node'] },
+  'flow.node': { label: '流程节点', targets: ['flow.arrow','ui.card'] },
+  'flow.arrow': { label: '流程箭头', targets: ['flow.node'] },
+  'ui.card': { label: '卡片', targets: ['flow.node','metric.card'] },
+  'metric.card': { label: '指标卡', targets: ['ui.card','chart.node'] },
+  'chart.node': { label: '图表节点', targets: ['metric.card','flow.node'] },
+};
+function _blockCn(id){ const b = MORPH_BLOCKS[id]; return b ? b.label : (id || ''); }
+
+function _graphicBlockOf(scene){
+  if (!scene || !scene.layers) return null;
+  const g = scene.layers.find(l => l.type === 'graphic');
+  if (!g) return null;
+  const gp = ((g.motion_instance || {}).parameters || {}).graphic;
+  return (gp && gp.block_id) || null;
+}
+
+function _morphBlockRow(prevScene, curScene){
+  const fromCur = _graphicBlockOf(prevScene);
+  const toCur = _graphicBlockOf(curScene);
+  const fromOpts = Object.keys(MORPH_BLOCKS).map(id =>
+    `<option value="${id}"${id === fromCur ? ' selected' : ''}>${_blockCn(id)}</option>`).join('');
+  const fromId = fromCur || 'ui.button';
+  const targets = (MORPH_BLOCKS[fromId] || {}).targets || Object.keys(MORPH_BLOCKS);
+  const toOpts = targets.map(id =>
+    `<option value="${id}"${id === toCur ? ' selected' : ''}>${_blockCn(id)}</option>`).join('');
+  return `<div class="hint">形变过渡：当前图形 → 目标图形（自有图形块间结构化形变，非任意 HTML）</div>`+
+    `<div class="btn-row"><select id="ed-morph-from" style="width:120px" onchange="edMorphFromChanged()">${fromOpts}</select>`+
+    `<span class="hint">→</span>`+
+    `<select id="ed-morph-to" style="width:120px">${toOpts}</select>`+
+    `<button class="btn-sm" onclick="editorApplyMorph('${prevScene ? prevScene.id : ''}','${curScene ? curScene.id : ''}')">应用形变</button></div>`;
+}
+
+function edMorphFromChanged(){
+  const fromId = (document.getElementById('ed-morph-from') || {}).value || 'ui.button';
+  const targets = (MORPH_BLOCKS[fromId] || {}).targets || Object.keys(MORPH_BLOCKS);
+  const toSel = document.getElementById('ed-morph-to');
+  if (toSel) toSel.innerHTML = targets.map(id => `<option value="${id}">${_blockCn(id)}</option>`).join('');
+}
+
+async function editorApplyMorph(prevSceneId, sceneId){
+  const fromB = (document.getElementById('ed-morph-from') || {}).value || '';
+  const toB = (document.getElementById('ed-morph-to') || {}).value || '';
+  if (!fromB || !toB) { editorToast('请选择形变前后的图形块', true); return; }
+  if (!prevSceneId || !sceneId) { editorToast('形变需要两个相邻镜头（在第二个镜头上设置）', true); return; }
+  const r = await executeCommand({
+    command: 'apply_morph', targetId: `${prevSceneId}->${sceneId}`,
+    payload: {fromBlockId: fromB, toBlockId: toB, duration: 0.6},
+  });
+  if (r.ok) {
+    editorToast(`✅ 形变过渡已应用：${_blockCn(fromB)} → ${_blockCn(toB)}`);
+    if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+    edShowInspector();
+  } else {
+    editorToast('❌ 形变应用失败：' + (r.error || ''), true);
+  }
+}
+
+// §4.3 连续性验证：后端 /api/continuity（ContinuityVerifier），只显示四态，零评分
+async function editorVerifyContinuity(sceneId){
+  const box = document.getElementById('ed-cont-verify');
+  if (!box) return;
+  box.innerHTML = '连续性检查中……';
+  const r = await apiGet('/api/continuity?project_id=' + encodeURIComponent(ED.pid));
+  if (r.error) { box.innerHTML = `<div class="err-box">${esc(r.error)}</div>`; return; }
+  const statusCN = {PASS:{t:'✓ 通过',cls:'cap-ok'}, WARNING:{t:'⚠ 有提示',cls:'cap-warn'},
+                   REJECT:{t:'✗ 不通过',cls:'cap-off'}, UNKNOWN:{t:'? 未知',cls:'cap-off'}};
+  const s = (r.status || 'UNKNOWN').toUpperCase();
+  const st = statusCN[s] || statusCN.UNKNOWN;
+  // sceneId 过滤：只看该场景（作为 to_scene）相关 issue；空 sceneId=全片
+  const issues = (r.issues || []).filter(i => !sceneId || i.scene_id === sceneId || i.from_scene_id === sceneId);
+  const issueCN = {CARRY_MISSING_SOURCE:'元素延续缺来源层', CARRY_MISSING_TARGET:'元素延续缺目标层',
+    CAMERA_PATH_MISSING:'镜头穿越缺路径', MORPH_PATH_MISSING:'形变缺路径',
+    STATIC_REPLACEMENT:'静态画面连续替换（PPT 式）', ANCHOR_JUMP:'延续元素锚点跳变'};
+  box.innerHTML = `<div class="hint"><b class="${st.cls}">${st.t}</b> · ${sceneId ? '当前镜头' : '全片'} · ${issues.length} 条`+
+    (issues.length ? '</div>' + issues.map(i => `<div class="hint" style="margin:2px 0 2px 14px">· ${esc(issueCN[i.issue_code] || i.issue_code)}：${esc(i.message || '')}</div>`).join('') : '</div><div class="hint" style="margin-left:14px">未发现问题（明确的切换/延续关系都成立）。</div>');
 }
 
 // §23 Video Layer：画中画（PiP=Layer 结构化属性 §15）
@@ -634,6 +737,10 @@ Object.assign(window, {
   editorSetVisualTransform,
   editorApplyCamera,
   editorApplyContinuity,
+  edContTypeChanged,
+  edMorphFromChanged,
+  editorApplyMorph,
+  editorVerifyContinuity,
   editorApplyPip,
   editorRemovePip,
   editorApplyTrim,

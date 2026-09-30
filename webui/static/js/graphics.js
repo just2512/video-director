@@ -281,28 +281,9 @@ function gfxSeekTo(pct){
 }
 
 async function gfxRender(){
-  const status = document.getElementById('gfx-status');
-  const btn = document.getElementById('gfx-render-btn');
-  if (!GFX.plan) { status.textContent = '先「生成创作方案」'; return; }
-  btn.disabled = true; btn.textContent = '渲染中……';
-  status.textContent = '逐帧渲染中（约 10-60 秒）……';
-  try {
-    const r = await apiPost('/api/graphics/render', {
-      plan: GFX.plan,
-      quality: 'draft',
-      script: document.getElementById('gfx-script').value,
-    });
-    if (!r.ok) throw new Error(r.error || '渲染失败');
-    document.getElementById('gfx-result').innerHTML = `
-      <div class="ok-box"><b>图形视频已生成</b> · ${r.duration.toFixed(1)}s · ${r.frames} 帧 · 项目 ${esc(r.project_id)}
-      <video controls src="/file?path=${encodeURIComponent(r.final_path)}"></video><br>
-      <a class="dl" href="/file?path=${encodeURIComponent(r.final_path)}" download="graphic.mp4">⬇ 下载 MP4</a></div>`;
-    status.textContent = '✅ 渲染完成（项目已登记，首页/项目页可见）';
-  } catch(e) {
-    status.textContent = '❌ 渲染失败：' + e.message;
-  } finally {
-    btn.disabled = false; btn.textContent = '🎬 渲染成片';
-  }
+  // §5.2 GFX 收口：不再直接调用 /api/graphics/render 独立成片。
+  // 统一出口：plan_to_project → 工作台 → editor render（单一 Render 语义）。
+  await gfxApplyToWorkspace();
 }
 
 // ---- 首页：我现在该做什么 ----
