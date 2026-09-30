@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -91,11 +92,53 @@ def _wait_and_open(url: str, proc: subprocess.Popen) -> None:
     webbrowser.open(url)  # 超时也尝试打开一次，服务可能稍后就绪
 
 
+def _kill_stale_server(port: str) -> int:
+    """启动前清理：杀掉占用目标端口的旧 server 进程（一键启动不再因端口被占而失败）。
+
+    只杀监听该端口的 python 进程（127.0.0.1:port LISTENING），
+    其他端口的进程不动。返回杀掉的进程数（诊断日志用）。
+    """
+    import re as _re
+    import subprocess as _sp
+    killed = 0
+    try:
+        out = _sp.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace",
+        ).stdout
+    except Exception as exc:  # noqa: BLE001 清理失败不阻塞启动（旧进程可能已死）
+        _log_error(f"端口 {port} 旧进程检查失败（忽略）: {exc}")
+        return 0
+    pids = set()
+    for line in (out or "").splitlines():
+        # 形如：TCP    127.0.0.1:8501    0.0.0.0:0    LISTENING    9888
+        if "LISTENING" not in line:
+            continue
+        m = _re.search(r"127\.0\.0\.1:(\d+)\s+\S+\s+LISTENING\s+(\d+)", line)
+        if m and m.group(1) == port:
+            pids.add(m.group(2))
+    my_pid = str(os.getpid())
+    for pid in pids:
+        if pid == my_pid:
+            continue
+        try:
+            _sp.run(["taskkill", "/PID", pid, "/F"], capture_output=True, timeout=10)
+            killed += 1
+            _log_error(f"已停掉占用端口 {port} 的旧进程 PID {pid}")
+        except Exception as exc:  # noqa: BLE001 单个杀失败继续
+            _log_error(f"杀旧进程 PID {pid} 失败（忽略）: {exc}")
+    return killed
+
+
 def main():
     port = "8501"
     args = sys.argv[1:]
     if "--port" in args:
         port = args[args.index("--port") + 1]
+
+    # 启动前先清理占用端口的旧 server（一键启动语义：启动即用最新代码）
+    _kill_stale_server(port)
 
     python = _pick_python()
     if python is None:
