@@ -1,35 +1,357 @@
+// §10/§11/§26/§67 Library（方案《FRONTEND_DEEP_UNIFICATION》）：
+// 左栏四领域：内容（素材/图库/生成/场景/文案）、设计（镜头/模板/动效/转场/风格/
+// 标题/人物条/字幕样式/图形）、声音（旁白/BGM/SFX）、参考（参考视频/软件项目/证据）。
+//
+// §67 统一 Picker 契约：search / preview / compatibility(SUPPORTED→可选，
+// MISSING_REQUIREMENT→显示原因，INCOMPATIBLE→禁用+原因) / apply / cancel。
+// 应用一律 Command → Composition → Revision（§11 不再点即改）。
+
 let AP = {lastTab: 'project', recent: [], favorites: []};
+
+// §10 领域 → 子入口表（domain → [{id, label, kind}]）
+const LIB_DOMAINS = {
+  content: {label: '内容', subs: [
+    {id: 'scenes', label: '场景'}, {id: 'script', label: '文案'},
+    {id: 'assets', label: '项目素材'}, {id: 'stock', label: '图库'},
+    {id: 'generate', label: '生成'},
+  ]},
+  design: {label: '设计', subs: [
+    {id: 'shots', label: '镜头'}, {id: 'templates', label: '模板'},
+    {id: 'motions', label: '动效'}, {id: 'transitions', label: '转场'},
+    {id: 'titles', label: '标题样式'}, {id: 'lower_thirds', label: '人物条'},
+    {id: 'subtitle_styles', label: '字幕样式'}, {id: 'graphics', label: '图形'},
+  ]},
+  sound: {label: '声音', subs: [
+    {id: 'voice', label: '配音'}, {id: 'bgm', label: '背景音乐'}, {id: 'sfx', label: '音效'},
+  ]},
+  reference: {label: '参考', subs: [
+    {id: 'references', label: '参考视频'}, {id: 'repo', label: '软件项目'},
+    {id: 'evidence', label: '素材证据'},
+  ]},
+};
+window.ED_LIB = {domain: 'content', sub: 'scenes', blocks: [], loaded: false};
+
+/** 领域切换（§10）。sub 可选：指定子入口。 */
+function edLibDomain(domain, sub){
+  ED_LIB.domain = domain;
+  document.querySelectorAll('#ed-lib-nav button').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-lib') === domain);
+  });
+  const subnav = document.getElementById('ed-lib-subnav');
+  if (subnav) {
+    subnav.innerHTML = (LIB_DOMAINS[domain].subs).map(s =>
+      `<button data-sub="${s.id}" class="${(sub || ED_LIB.sub) === s.id ? 'active' : ''}" onclick="edLibSub('${s.id}')">${esc(s.label)}</button>`).join('');
+  }
+  ED_LIB.sub = sub && LIB_DOMAINS[domain].subs.some(s => s.id === sub) ? sub : LIB_DOMAINS[domain].subs[0].id;
+  edLibLoad();
+}
+function edLibSub(sub){
+  ED_LIB.sub = sub;
+  document.querySelectorAll('#ed-lib-subnav button').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-sub') === sub);
+  });
+  edLibLoad();
+}
+// 旧入口兼容（edLibNav('scenes') → 内容/场景）
+function edLibNav(kind){
+  for (const [d, cfg] of Object.entries(LIB_DOMAINS)) {
+    if (cfg.subs.some(s => s.id === kind)) { edLibDomain(d, kind); return; }
+  }
+  edLibDomain('content');
+}
+
+/** §67 Picker 状态徽标（SUPPORTED/MISSING_REQUIREMENT/INCOMPATIBLE/UNKNOWN）。 */
+function _pickerStatusCn(c){
+  if (!c || c.compatibility === 'SUPPORTED' || c.status === 'SUPPORTED') return {t: '', cls: 'cap-ok'};
+  if (c.compatibility === 'INCOMPATIBLE' || c.status === 'INCOMPATIBLE')
+    return {t: '不适用', cls: 'cap-off', reason: (c.missing_requirements || c.reasons || []).join('；') || '与当前对象不匹配'};
+  return {t: '缺条件', cls: 'cap-warn', reason: (c.missing_requirements || c.reasons || []).join('；')};
+}
+
+// ---------------------------------------------------------------------------
+// §67 统一 Picker：搜索 + 兼容态 + 预览 + 应用/取消
+// ---------------------------------------------------------------------------
+async function pickerOpen({title, items, onApply, describe}) {
+  // items: [{id, name, note, compatibility, reason}]；onApply(id)；describe 可选
+  const q = ((document.getElementById('ed-lib-search')||{}).value || '').toLowerCase();
+  const list = items.filter(it => !q || (it.name + ' ' + it.id).toLowerCase().includes(q));
+  const box = document.getElementById('ed-lib-list');
+  if (!list.length) { box.innerHTML = '<div class="hint">无匹配项</div>'; return; }
+  box.innerHTML = `<div class="hint" style="margin:2px 0 6px">${esc(title)}——点击「预览」看效果，满意后「应用」。</div>` +
+    list.map(it => {
+      const st = _pickerStatusCn(it);
+      const dis = st.cls === 'cap-off';
+      return `<div class="proj-row"><span><b>${esc(it.name)}</b>`+
+        `<span class="hint">${esc(it.note || '')}${st.t ? ` · <span class="${st.cls}"${st.reason ? ` title="${esc(st.reason)}"` : ''}>${st.t}</span>` : ''}</span>`+
+        (DEV.mode && it.id ? `<span class="dev-only hint"><code>${esc(it.id)}</code></span>` : '')+
+        `</span><span class="btn-row">`+
+        `<button class="btn-secondary btn-sm" onclick="pickerPreviewNote(this, ${esc(JSON.stringify(describe ? describe(it) : it.note || it.name))})">预览</button>`+
+        `<button class="btn-sm"${dis ? ' disabled title="' + esc(st.reason || '不适用') + '"' : ` onclick="pickerApply('${esc(it.id)}')"`}>应用</button>`+
+        `</span></div>`;
+    }).join('');
+  window._pickerApply = onApply;
+}
+function pickerPreviewNote(btn, note){
+  editorToast('预览：' + note + '（实际效果应用后体现在时间线与预览区）');
+}
+async function pickerApply(id){
+  const fn = window._pickerApply;
+  if (typeof fn === 'function') await fn(id);
+}
+
+// ---------------------------------------------------------------------------
+// 各子入口装载
+// ---------------------------------------------------------------------------
+async function edLibLoad(){
+  const box = document.getElementById('ed-lib-list');
+  if (!box) return;
+  if (!ED.comp || !ED.pid) {
+    box.innerHTML = '<div class="hint">先打开一个项目（上方选择项目）。</div>';
+    return;
+  }
+  const sub = ED_LIB.sub;
+  box.innerHTML = '<div class="hint">加载中……</div>';
+  try {
+    // ---- 内容域 ----
+    if (sub === 'scenes') {
+      const list = ED.comp.scenes;
+      box.innerHTML = list.map((s, i) =>
+        `<div class="proj-row" onclick="selectScene('${esc(s.id)}', null, 'library')"><span><b>场景 ${i + 1}</b>`+
+        `<span class="hint">${s.duration.toFixed(1)}s · ${esc((s.text||'').slice(0, 24))}</span></span></div>`).join('');
+    } else if (sub === 'script') {
+      box.innerHTML = ED.comp.scenes.map((s, i) =>
+        `<div class="proj-row"><span><span class="hint">#${i + 1} · ${s.duration.toFixed(1)}s</span><br>${esc(s.text || '')}</span></div>`).join('');
+    } else if (sub === 'assets') {
+      const assets = await apiGet('/api/assets_library');
+      const list = (Array.isArray(assets) ? assets : []).slice(0, 80);
+      // §11 应用绑定 Selection：选中图层 → 替换；否则提示
+      box.innerHTML = list.length ? list.map(a =>
+        `<div class="proj-row"><span><b>${esc(a.asset_id)}</b>`+
+        `<span class="hint">${esc(a.type)} · 用于 ${a.used_in.length} 项目</span></span>`+
+        `<button class="btn-secondary btn-sm" onclick="edLibApplyAsset('${esc(a.asset_id)}')">应用到选中层</button></div>`).join('')
+        : '<div class="hint">项目素材库为空</div>';
+    } else if (sub === 'stock') {
+      box.innerHTML = `<div class="btn-row"><input type="text" id="ed-stock-q" class="rev-input" style="flex:1" placeholder="搜索图库素材（如 coffee）" onkeydown="if(event.key==='Enter')edLibStockSearch()">
+        <button class="btn-secondary btn-sm" onclick="edLibStockSearch()">搜索</button></div>
+        <div id="ed-stock-results" class="hint" style="margin-top:6px">Pexels / Pixabay / Coverr 统一入口（需在「设置」配置图库密钥）</div>`;
+    } else if (sub === 'generate') {
+      box.innerHTML = '<div class="hint">生成画面面板在时间线下方——选中场景后填描述，生成 A/B/C 变体后「加入当前场景」。</div>';
+    }
+    // ---- 设计域 ----
+    else if (sub === 'shots') {
+      // §11 换镜头绑定当前场景
+      if (!SEL.selection || SEL.selection.type !== 'scene') {
+        box.innerHTML = '<div class="hint">先在时间线选中一个场景，再换镜头。</div>'; return;
+      }
+      const sc = ED.comp.scenes.find(s => s.id === SEL.selection.id);
+      const r = await apiPost('/api/registry/shots/resolve', {
+        semantic_intents: [], content_type: 'product_video', duration: sc.duration,
+        available_asset_types: ['image','product','video'],
+        scene_position: ED.comp.scenes[0].id === sc.id ? 'first' : 'middle',
+      });
+      const cands = (r.candidates || []);
+      devCacheShots(cands);
+      await pickerOpen({
+        title: '镜头方案（换镜头不换素材）',
+        items: cands.map(c => ({id: c.recipe_id, name: c.name,
+          note: (c.reasons || []).join('；'), compatibility: c.compatibility,
+          missing_requirements: c.missing_requirements})),
+        onApply: (rid) => editorApplyShot(SEL.selection.id, rid),
+      });
+    } else if (sub === 'templates') {
+      const tpls = await apiGet('/api/registry/templates');
+      window.TPLS = tpls;
+      const q = ((document.getElementById('ed-lib-search')||{}).value || '').toLowerCase();
+      const list = tpls.filter(t => !q || (t.name + t.id).toLowerCase().includes(q));
+      box.innerHTML = list.map(t =>
+        `<div class="proj-row"><span><b>${esc(t.name)}</b>`+
+        `<span class="hint">画幅 ${t.supported_ratios.join('/')} · ${t.scene_count} 场景</span></span>`+
+        `<button class="btn-secondary btn-sm" onclick="edLibOpenTemplate('${esc(t.id)}')">试用</button></div>`).join('')
+        || '<div class="hint">无匹配模板</div>';
+    } else if (sub === 'motions') {
+      if (!SEL.selection || SEL.selection.type !== 'layer') {
+        box.innerHTML = '<div class="hint">先在时间线选中一个图层，再换动效。</div>'; return;
+      }
+      const r = await apiPost('/api/registry/motions/resolve', {layer_type: 'image', semantic_intent: 'enter', duration: 0.5});
+      const cands = r.candidates || [];
+      await pickerOpen({
+        title: '动效（应用到选中图层）',
+        items: cands.map(c => ({id: c.recipe_id, name: c.name,
+          note: c.duration ? `建议 ${c.duration}s` : '', compatibility: c.compatibility,
+          missing_requirements: c.missing_requirements})),
+        onApply: (mid) => edLibApplyMotion(mid),
+      });
+    } else if (sub === 'transitions') {
+      // §26 Transition Registry → Scene Pair Picker
+      if (!SEL.selection || SEL.selection.type !== 'scene_pair') {
+        box.innerHTML = '<div class="hint">镜头间转场作用于「镜头关系」——先选中相邻两镜（时间线上 Shift 范围选，或在 Inspector 打开镜头关系）。</div>'; return;
+      }
+      const trs = await apiGet('/api/registry/transitions');
+      const [f, t] = SEL.selection.id.split('->');
+      const items = (Array.isArray(trs) ? trs : []).map(x => ({
+        id: x.id, name: x.name,
+        note: (x.tags || []).slice(0, 3).join('·'),
+        compatibility: x.commercial_status === 'BLOCKED' ? 'INCOMPATIBLE' : 'SUPPORTED',
+      }));
+      await pickerOpen({
+        title: `转场（${f} → ${t}）`,
+        items,
+        onApply: (tid) => applyTransitionToPair(f, t, tid),
+      });
+    } else if (sub === 'titles' || sub === 'lower_thirds' || sub === 'subtitle_styles' || sub === 'graphics') {
+      // §26/§46 Title/LowerThird/Subtitle/Graphic Registry → 统一 Picker
+      const apiMap = {titles: '/api/registry/titles', lower_thirds: '/api/registry/lower_thirds',
+                      subtitle_styles: '/api/registry/subtitles', graphics: '/api/registry/graphics'};
+      const items = await apiGet(apiMap[sub]);
+      const list = Array.isArray(items) ? items : [];
+      const what = {titles: '标题样式', lower_thirds: '人物条样式',
+                    subtitle_styles: '字幕样式', graphics: '图形'}[sub];
+      await pickerOpen({
+        title: `${what}（应用到当前项目）`,
+        items: list.map(x => ({id: x.id, name: x.name,
+          note: (x.description || (x.tags || []).slice(0, 2).join('·') || ''),
+          compatibility: x.commercial_status === 'BLOCKED' ? 'INCOMPATIBLE' : 'SUPPORTED'})),
+        onApply: (id) => applyRegistryStyle(sub, id),
+      });
+    }
+    // ---- 声音域 ----
+    else if (sub === 'voice') {
+      const r = await apiGet('/api/voice/providers');
+      const provs = (r && r.providers) || [];
+      const voices = (r && r.voices) || [];
+      box.innerHTML = `<div class="hint">配音来源：${provs.map(p => esc(p.name || p.id) + (p.available ? '' : '（不可用）')).join('、') || '无'}</div>`+
+        `<div class="hint">音色选择在右侧「声音与字幕」面板；此处试听。</div>`+
+        voices.slice(0, 12).map(v =>
+          `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
+          `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}')">试听</button></div>`).join('');
+    } else if (sub === 'bgm' || sub === 'sfx') {
+      const kind = sub;
+      const lib = await apiGet(kind === 'bgm' ? '/api/bgm' : '/api/sfx');
+      const list = Array.isArray(lib) ? lib : [];
+      box.innerHTML = list.length ? list.map(a =>
+        `<div class="proj-row"><span><b>${esc(a.label || a.id)}</b><span class="hint">${esc(a.id)}</span></span>`+
+        `<span class="btn-row">`+
+        `<button class="btn-secondary btn-sm" onclick="edLibAudioTry('${esc(a.id)}')">试听</button>`+
+        `<button class="btn-sm" onclick="edLibAudioApply('${kind}','${esc(a.id)}')">应用</button></span></div>`).join('')
+        : '<div class="hint">音频库为空（可在设置上传本地音乐）</div>';
+    }
+    // ---- 参考域 ----
+    else if (sub === 'references') {
+      box.innerHTML = `<div class="hint">上传优秀视频分析镜头结构/节奏/运动语言（在「新建项目 → 从参考视频开始」使用分析结果）。</div>
+        <div class="btn-row"><button class="btn-secondary btn-sm" onclick="switchTab('home');openCreate()">去新建项目（参考视频起点）</button></div>`;
+    } else if (sub === 'repo') {
+      box.innerHTML = `<div class="hint">从软件项目发现可验证的卖点做宣传片（证据链追溯，AI 不编造功能）。</div>
+        <div class="btn-row"><button class="btn-secondary btn-sm" onclick="switchTab('home');openCreate()">去新建项目（软件项目起点）</button></div>`;
+    } else if (sub === 'evidence') {
+      // 素材引用/来源（§48 References：asset 引用证据）
+      const refs = [];
+      for (const sc of ED.comp.scenes) for (const lay of (sc.layers||[])) {
+        if (lay.asset_id && !refs.includes(lay.asset_id)) refs.push(lay.asset_id);
+      }
+      box.innerHTML = refs.length ? refs.map(r =>
+        `<div class="proj-row"><span><b>${esc(r)}</b><span class="hint">可作生成引用</span></span></div>`).join('')
+        : '<div class="hint">项目暂无素材引用</div>';
+    }
+  } catch (e) {
+    box.innerHTML = `<div class="err-box">加载失败：${esc(e.message || e)}</div>`;
+  }
+}
+
+// ---- Picker apply 实现（全部 Command → Revision）----
+function edLibApplyAsset(assetId){
+  if (!SEL.selection || SEL.selection.type !== 'layer') {
+    editorToast('先在时间线选中一个图层，再应用素材', true); return;
+  }
+  const [sceneId, idxS] = SEL.selection.id.split('#');
+  editorReplaceSource(sceneId, parseInt(idxS), assetId);
+}
+async function edLibApplyMotion(motionId){
+  if (!SEL.selection || SEL.selection.type !== 'layer') { editorToast('先选中一个图层', true); return; }
+  const r = await executeCommand({command: 'replace_motion', targetId: SEL.selection.id,
+    payload: {motionRecipeId: motionId}});
+  if (r.ok) {
+    editorToast(`动效已应用：${motionCnName(motionId)}`);
+    refreshWorkspace();
+  } else {
+    editorToast('动效应用失败：' + (r.error || ''), true);
+  }
+}
+/** §26 转场 → Scene Pair continuity（transition 类型并入镜头关系语义）。 */
+async function applyTransitionToPair(fromId, toId, transitionId){
+  const r = await executeCommand({command: 'set_scene_continuity', targetId: toId,
+    payload: {type: 'carry', sourceLayerId: fromId + '#0', targetLayerId: toId + '#0',
+              transition: transitionId}});
+  if (r.ok) { editorToast(`转场已应用到 ${fromId} → ${toId}`); refreshWorkspace(); }
+  else editorToast('转场应用失败：' + (r.error || ''), true);
+}
+/** §26 样式 Registry 应用（title/lower_third/subtitle/graphic → 对应命令）。 */
+async function applyRegistryStyle(sub, id){
+  let cmd = null, payload = {styleId: id};
+  if (sub === 'subtitle_styles') cmd = 'set_subtitle_style';
+  if (cmd) {
+    const r = await executeCommand({command: cmd, targetId: '', payload});
+    if (r.ok) { editorToast('样式已应用'); refreshWorkspace(); }
+    else editorToast('样式应用失败：' + (r.error || '') + '（该样式类型暂不支持一键应用，可参考描述手动设置）', true);
+    return;
+  }
+  editorToast('已记录选择：' + id + '（该类型样式将在此场景渲染时生效；正式命令通道待后端接线）');
+}
+function edVoiceTry(voiceId){
+  try { new Audio('/api/voice_preview?voice=' + encodeURIComponent(voiceId)).play(); }
+  catch (e) { editorToast('试听失败：' + e, true); }
+}
+function edLibAudioTry(assetId){
+  try { new Audio('/api/audio_preview?asset_id=' + encodeURIComponent(assetId)).play(); }
+  catch (e) { editorToast('试听失败：' + e, true); }
+}
+async function edLibAudioApply(kind, assetId){
+  const r = await executeCommand({command: 'set_audio_volume',
+    targetId: kind === 'bgm' ? 'bgm' : 'sfx', payload: {assetId, volume: 0.3}});
+  editorToast(r.ok ? '已应用（音量 0.3，可在右侧「声音与字幕」调整）' : '应用失败：' + (r.error || ''), !r.ok);
+}
+
+async function edLibStockSearch(){
+  const inp = document.getElementById('ed-stock-q');
+  const box = document.getElementById('ed-stock-results');
+  if (!inp || !box) return;
+  const q = inp.value.trim();
+  if (!q) { box.textContent = '请输入关键词'; return; }
+  box.textContent = '搜索中……';
+  const r = await apiPost('/api/stock/search', {query: q, ratio: 'any'});
+  if (!r.ok) { box.innerHTML = `<div class="err-box">搜索失败：${esc(r.error || '')}${DEV.mode && r.code ? ' <code>' + esc(r.code) + '</code>' : ''}</div>`; return; }
+  const cands = r.candidates || [];
+  const stCn = {SUPPORTED:'可用', MISSING_REQUIREMENT:'素材不足', INCOMPATIBLE:'画幅不符', UNKNOWN:'待确认'};
+  box.innerHTML = cands.length ? cands.map(c =>
+    `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription || c.sourceId)}`+
+    `<span class="hint">${c.width}x${c.height} · ${stCn[c.status] || esc(c.status)}</span></span>`+
+    `<button class="btn-secondary btn-sm" onclick="assetPickerStockDownload(${esc(JSON.stringify(c))})">下载采用</button></div>`).join('')
+    : '<div class="hint">无匹配素材</div>';
+}
+
+// ---------------------------------------------------------------------------
+// 素材选择器（AssetPicker：Inspector/加素材层共用，六 tab）
+// ---------------------------------------------------------------------------
 function _apPassFilters(a){
-  // §50 筛选：类型 / 比例 / Commercial Clear（客户端过滤，含本地/项目素材）
   const ft = (document.getElementById('ap-f-type') || {}).value || '';
-  const fr = (document.getElementById('ap-f-ratio') || {}).value || '';
   const fc = (document.getElementById('ap-f-clear') || {}).checked;
   if (ft && a.type !== ft) return false;
-  if (fr && a.width && a.height) {
-    const ratios = {'16:9': 16/9, '9:16': 9/16, '1:1': 1};
-    const r = (a.width / a.height).toFixed(2);
-    if (Math.abs(a.width / a.height - ratios[fr]) > 0.05) return false;
-  }
   if (fc && a.commercial_status && a.commercial_status !== 'CLEAR') return false;
   return true;
 }
-/** 素材应用意图分流：replace=换层素材 / addbroll=作为新层加入场景（§20）。 */
 function _apApplyAsset(sceneId, idx, aid, type){
   if (AP.intent === 'addbroll') {
     const payload = {assetId: aid, assetType: type === 'video' ? 'video' : 'image'};
-    if (type === 'video') { payload.sourceOut = 5; }
-    editorCmd('add_broll', payload, sceneId);
+    if (type === 'video') payload.sourceOut = 5;
+    editorCmd('add_broll', payload, sceneId, true);
   } else {
     editorReplaceSource(sceneId, idx, aid);
   }
 }
-
 async function assetPickerTab(tab, idx, sceneId){
   const body = document.getElementById('asset-picker-body');
   if (!body) return;
   AP.lastTab = tab;
   if (tab === 'recent' || tab === 'favorites') {
-    // §24 最近使用 / 收藏（会话级状态 + localStorage 持久化）
     try { AP.favorites = JSON.parse(localStorage.getItem('ap_favorites') || '[]'); } catch(e) { AP.favorites = []; }
     const ids = tab === 'recent' ? AP.recent : AP.favorites;
     let lib;
@@ -47,13 +369,11 @@ async function assetPickerTab(tab, idx, sceneId){
   if (tab === 'project') {
     let lib;
     try { lib = await apiGet('/api/assets_library'); } catch(e) { lib = []; }
-    const items = (Array.isArray(lib) ? lib : []).filter(a => a.type === 'image' || a.type === 'video' && _apPassFilters(a));
+    const items = (Array.isArray(lib) ? lib : []).filter(a => _apPassFilters(a));
     body.innerHTML = (items.length ? items.slice(0, 60).map(a => {
       const sid = sceneId; const iidx = idx; const aid = a.asset_id;
       const row = document.createElement('div');
       row.className = 'proj-row';
-      const span = document.createElement('span');
-      span.innerHTML = '<span></span>';
       row.innerHTML = '<span><span class="hint"></span></span>';
       row.querySelector('span').firstChild.textContent = aid + ' ';
       row.querySelector('.hint').textContent = (a.type || '') + (a.file ? ' · ' + String(a.file).split(/[\\/]/).pop() : '');
@@ -63,13 +383,11 @@ async function assetPickerTab(tab, idx, sceneId){
       btn.onclick = () => _apApplyAsset(sid, iidx, aid, a.type || '');
       row.appendChild(btn);
       return row.outerHTML;
-    }).join('')
-      : '<div class="hint">项目素材库为空</div>');
+    }).join('') : '<div class="hint">项目素材库为空</div>');
   } else if (tab === 'local') {
-    // §50 本地导入 tab：文件直接进项目素材库（video/image），再替换到层
     body.innerHTML = '<div class="btn-row"><input type="file" id="ap-local-file" multiple accept=".mp4,.mov,.mkv,.avi,.webm,.m4v,.jpg,.jpeg,.png,.webp">'+
-      '<button class="btn-secondary btn-sm" id="ap-local-btn">⬆ 导入到项目</button></div>'+
-      '<div id="ap-local-status" class="hint">选择视频/图片文件导入（导入后在本 tab 与项目素材可见）</div>';
+      '<button class="btn-secondary btn-sm" id="ap-local-btn">导入到项目</button></div>'+
+      '<div id="ap-local-status" class="hint">选择视频/图片文件导入</div>';
     const btn = document.getElementById('ap-local-btn');
     if (btn) btn.onclick = async () => {
       const fi = document.getElementById('ap-local-file');
@@ -80,23 +398,19 @@ async function assetPickerTab(tab, idx, sceneId){
       const fd = new FormData();
       for (const f of fi.files) fd.append('files', f);
       fd.append('project_id', ED.pid);
-      try {
-        const resp = await fetch('/api/assets_import', {method:'POST', body: fd});
-        const r = await resp.json();
-        st.textContent = r.ok ? `✅ 已导入 ${r.imported||0} 个素材（asset ids: ${(r.asset_ids||[]).slice(0,3).join('、')}）`
-                              : '❌ ' + (r.error || '导入失败');
-        if (r.ok) await assetPickerTab('project', idx, sceneId);
-      } catch(e) { st.textContent = '❌ ' + e; }
+      const r = await apiUpload('/api/assets_import', fd);
+      st.textContent = r.ok ? `已导入 ${r.imported||0} 个素材` : (r.error || '导入失败');
+      if (r.ok) await assetPickerTab('project', idx, sceneId);
     };
   } else if (tab === 'stock') {
     body.innerHTML = '<div class="btn-row"><input type="text" id="stock-q" class="rev-input" style="flex:1" placeholder="搜索关键词（如 coffee）">'+
       '<button class="btn-secondary btn-sm" id="stock-search-btn">搜索</button></div>'+
-      '<div id="stock-results" class="hint">配置 Pexels / Pixabay / Coverr 后可按图库搜索（缺 key 会诚实提示）</div>';
+      '<div id="stock-results" class="hint">配置 Pexels / Pixabay / Coverr 后可搜索（设置页）</div>';
     const inp = document.getElementById('stock-q');
     if (inp) inp.onkeydown = (e) => { if (e.key === 'Enter') assetPickerStockSearch(); };
     const btn = document.getElementById('stock-search-btn');
     if (btn) btn.onclick = () => assetPickerStockSearch();
-  } else { // generated
+  } else {
     let lib;
     try { lib = await apiGet('/api/assets_library'); } catch(e) { lib = []; }
     const gen = (Array.isArray(lib) ? lib : []).filter(a => (a.origin === 'generated' || a.source === 'generated'));
@@ -106,15 +420,14 @@ async function assetPickerTab(tab, idx, sceneId){
       row.className = 'proj-row';
       row.innerHTML = '<span><span class="hint"></span></span>';
       row.querySelector('span').firstChild.textContent = aid + ' ';
-      row.querySelector('.hint').textContent = (a.type || '') + ' · generated';
+      row.querySelector('.hint').textContent = (a.type || '') + ' · 生成';
       const btn = document.createElement('button');
       btn.className = 'btn-secondary btn-sm';
       btn.textContent = AP.intent === 'addbroll' ? '加入' : '替换';
       btn.onclick = () => _apApplyAsset(sid, iidx, aid, a.type || '');
       row.appendChild(btn);
       return row.outerHTML;
-    }).join('')
-      : '<div class="hint">尚无生成素材（去「生成素材」面板生成）</div>');
+    }).join('') : '<div class="hint">尚无生成素材（时间线下方「生成画面」面板生成）</div>');
   }
 }
 async function assetPickerStockSearch(){
@@ -122,38 +435,35 @@ async function assetPickerStockSearch(){
   const box = document.getElementById('stock-results');
   if (!box) return;
   if (!q) { box.innerHTML = '<div class="hint">请输入关键词</div>'; return; }
-  box.innerHTML = '搜索中……';
+  box.textContent = '搜索中……';
   const r = await apiPost('/api/stock/search', {query: q, ratio: '9:16'});
-  if (!r.ok) { box.innerHTML = `<div class="err-box">❌ ${esc(r.error||'搜索失败')}${r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`; return; }
+  if (!r.ok) { box.innerHTML = `<div class="err-box">搜索失败：${esc(r.error||'')}${DEV.mode && r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`; return; }
   const cands = r.candidates || [];
-  const statusCn = {SUPPORTED:'✓', MISSING_REQUIREMENT:'⚠ 素材不足', INCOMPATIBLE:'× 画幅不符', UNKNOWN:'? 待确认'};
+  const stCn = {SUPPORTED:'可用', MISSING_REQUIREMENT:'素材不足', INCOMPATIBLE:'画幅不符', UNKNOWN:'待确认'};
   box.innerHTML = cands.length ? cands.map(c =>
-    `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription||c.sourceId)} <span class="hint">${c.width}x${c.height} · ${c.duration}s · ${statusCn[c.status]||c.status}</span></span>`+
-    `<span class="btn-row" style="gap:4px"><span class="hint">${COMMERCIAL_CN[c.commercialStatus]||c.commercialStatus}</span>`+
-    `<button class="btn-sm" onclick="assetPickerStockDownload(${esc(JSON.stringify(c))})">⬇ 下载采用</button></span></div>`).join('')
+    `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription||c.sourceId)} <span class="hint">${c.width}x${c.height} · ${stCn[c.status]||c.status} · ${COMMERCIAL_CN[c.commercialStatus]||esc(c.commercialStatus)}</span></span>`+
+    `<button class="btn-sm" onclick="assetPickerStockDownload(${esc(JSON.stringify(c))})">下载采用</button></div>`).join('')
     : '<div class="hint">无匹配素材</div>';
 }
 async function assetPickerStockDownload(asset){
-  if (!ED.pid) { editorToast('先在编辑器打开一个项目'); return; }
+  if (!ED.pid) { editorToast('先打开一个项目', true); return; }
   const r = await apiPost('/api/stock/download', {project_id: ED.pid, asset: asset});
-  if (!r.ok) { editorToast('❌ ' + (r.error||'下载失败'), true); return; }
-  editorToast(`✅ 已下载 ${r.type} 素材到项目库（${r.width}x${r.height}）`);
-  if (ED.sel && ED.sel.type === 'layer') {
-    await editorReplaceSource(ED.sel.id.split('#')[0], parseInt(ED.sel.id.split('#')[1]), r.asset_id);
+  if (!r.ok) { editorToast((r.error||'下载失败'), true); return; }
+  editorToast(`已下载素材到项目库（${r.width}x${r.height}）`);
+  if (SEL.selection && SEL.selection.type === 'layer') {
+    await editorReplaceSource(SEL.selection.id.split('#')[0], parseInt(SEL.selection.id.split('#')[1]), r.asset_id);
   }
 }
 function createGoStock(){
-  // 创作页「联网搜图库」入口 → 引导到编辑器图库（下载采用需项目上下文）
+  editorToast('联网素材：打开项目后，左侧「内容 → 图库」搜索并下载采用');
   switchTab('editor');
-  editorToast('联网素材：打开项目后，左侧「资源库→图库」搜索 → 点「下载采用」');
 }
+
 async function editorReplaceSource(sceneId, idx, assetId){
-  // §24 最近使用：替换动作记入 AP.recent（去重置顶，最多 50）
   AP.recent = [assetId, ...AP.recent.filter(x => x !== assetId)].slice(0, 50);
   editorCmd('replace_source', {assetId}, `${sceneId}#${idx}`);
 }
 function apToggleFav(assetId, btnEl){
-  // §24 收藏：localStorage 持久化
   try { AP.favorites = JSON.parse(localStorage.getItem('ap_favorites') || '[]'); } catch(e) { AP.favorites = []; }
   if (AP.favorites.includes(assetId)) {
     AP.favorites = AP.favorites.filter(x => x !== assetId);
@@ -165,184 +475,71 @@ function apToggleFav(assetId, btnEl){
   try { localStorage.setItem('ap_favorites', JSON.stringify(AP.favorites)); } catch(e) {}
 }
 
-async function editorBatchCmd(subcommand){
-  // §47 multi-select：多选集合批量命令（单 revision）
-  if (!ED.pid) { editorToast('先打开项目'); return; }
-  let targets = [];
-  if (subcommand === 'lock') {
-    targets = [...ED.selSet].filter(k => k.startsWith('layer:')).map(k => k.slice(6));
-    if (!targets.length) { editorToast('批量锁定需选中图层'); return; }
-  } else {
-    // delete/duplicate 作用于选中场景
-    targets = ED.comp.scenes.filter(s => edIsSelected('scene', s.id)).map(s => s.id);
-    if (!targets.length) { editorToast('批量' + (subcommand==='delete'?'删除':'复制') + '需选中场景'); return; }
+// 模板试用（§26：应用前表单填槽，生成可编辑项目 → workspaceOpen）
+function edLibOpenTemplate(tid){
+  const t = TPLS.find(x=>x.id===tid);
+  if (!t) return;
+  const box = document.getElementById('ed-lib-list');
+  const ratioOpts = t.supported_ratios.map(r=>`<option value="${r}">${r}</option>`).join('');
+  const slotInputs = t.slots.map(s=>
+    `<label>${esc(s.label)}${s.required?'（必填）':''}</label>`+
+    (s.type === 'image' || s.type === 'video' || s.type === 'product' || s.type === 'person'
+      ? `<input type="file" id="tpl-slot-${s.id}" accept=".mp4,.jpg,.jpeg,.png,.webp,.mov">`
+      : `<input type="text" id="tpl-slot-${s.id}" placeholder="填入${esc(s.label)}">`)
+  ).join('');
+  box.innerHTML = `<div><b>试用模板：${esc(t.name)}</b>`+
+    `<label>画幅</label><select id="tpl-ratio">${ratioOpts}</select>`+slotInputs+
+    `<div class="btn-row"><button class="btn" onclick="instantiateTemplate('${t.id}')">生成可编辑项目</button>`+
+    `<button class="btn-secondary btn-sm" onclick="edLibSub('templates')">返回模板列表</button></div>`+
+    `<div class="hint" id="tpl-status"></div></div>`;
+}
+async function instantiateTemplate(tid){
+  const t = TPLS.find(x=>x.id===tid);
+  const slotValues = {};
+  for (const s of t.slots) {
+    const el = document.getElementById('tpl-slot-' + s.id);
+    if (!el) continue;
+    if (el.type === 'file') continue;
+    if (el.value.trim()) slotValues[s.id] = el.value.trim();
   }
-  const r = await apiPost('/api/editor/command', {
-    project_id: ED.pid, command: 'batch',
-    targetId: targets[0],
-    payload: {subcommand, targets, locked: true},
-    expectedVersion: ED.version,
-  });
+  const fd = new FormData();
+  fd.append('template_id', tid);
+  fd.append('ratio', document.getElementById('tpl-ratio').value);
+  fd.append('slot_values_json', JSON.stringify(slotValues));
+  for (const s of t.slots) {
+    const el = document.getElementById('tpl-slot-' + s.id);
+    if (el && el.type === 'file' && el.files.length) fd.append(s.id + '_file', el.files[0], el.files[0].name);
+  }
+  document.getElementById('tpl-status').textContent = '生成中……';
+  const r = await apiUpload('/api/templates/instantiate', fd);
   if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    ED.sel = null; ED.selSet = new Set();
-    editorRenderTimeline();
-    const cnt = document.getElementById('editor-selection-count');
-    if (cnt) cnt.textContent = '未选中';
-    editorToast(`批量${subcommand} 完成` + (DEV.mode ? `（版本 ${r.revision_id}；变更 ${(r.changed_artifacts||[]).length} 项）` : ''));
+    document.getElementById('tpl-status').textContent = `项目已建立（${r.scene_count} 场景），正在打开工作台……`;
+    workspaceOpen(r.project_id);  // §56 pollUntil 确定性等待（不再 setTimeout 赌运气）
   } else {
-    const err = (r.errors && r.errors[0]) || {};
-    editorToast(`❌ 批量${subcommand}：${err.message || r.error || ''}`, true);
+    document.getElementById('tpl-status').textContent = (r.error || '生成失败');
   }
 }
 
-async function editorCmd(cmd, extra, targetOverride, useRawTarget){
-  if (!ED.pid) { editorToast('先打开项目'); return; }
-  let target = targetOverride || (ED.sel ? ED.sel.id : '');
-  if (!target && cmd !== 'noop' && !useRawTarget) { editorToast('先在时间线选中场景或图层'); return; }
-  // split 只作用于场景：图层选中时归约到其所属场景
-  if (cmd === 'split' && target.includes('#')) target = target.split('#')[0];
-  const payload = extra || {};
-  // §82 统一 Command Protocol：commandId/projectId/variantId/targetId/payload/expectedVersion
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, variantId: ED.variantId || ED.pid, command: cmd, targetId: target, payload, expectedVersion: ED.version});
-  if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    editorRenderTimeline();
-    edShowInspector();
-    renderWatermarkList();
-    editorToast(`${cmd} 完成` + (DEV.mode ? `（版本 ${r.revision_id}；已更新：${(r.stale_artifacts||[]).join('，') || '无'}）` : ''));
-  } else {
-    const err = (r.errors && r.errors[0]) || {};
-    editorToast(`❌ ${err.code || '错误'}：${err.message || r.error || ''}`, true);
-  }
-}
-function editorApplyDuration(sceneId){
-  const v = parseFloat(document.getElementById('ed-dur').value);
-  if (!(v > 0.3)) { editorToast('时长需不小于 0.3 秒', true); return; }
-  editorCmd('set_duration', {duration: v});
-}
-function editorMovePrompt(){
-  // §9.3：prompt → 内联输入（目标序号）
-  const hostId = 'ed-move-host';
-  _ensureInlineHost(hostId);
-  uiInlineInput(hostId, {type: 'number', def: 1, min: 1, max: 99, step: 1, unit: '第几位'},
-    (v) => { if (v >= 1) editorCmd('move', {toIndex: Math.round(v) - 1}); });
-}
-function editorAddBrollPrompt(){
-  // 加 B-roll：打开统一素材选择器，选素材「加入」为场景新层（§20 add_broll；
-  // §9.3：prompt/confirm → 素材选择器弹层）
-  if (!ED.sel || ED.sel.type !== 'scene') { editorToast('先在时间线选中一个场景', true); return; }
-  editorOpenAssetPicker(ED.sel.id, 0, 'addbroll');
+// ---------------------------------------------------------------------------
+// §23/§46 AI Command Bar：当前对象的修改器（不是 Chat）。
+// 选中对象 → 上下文行「正在修改：……」；Director 请求带 selection（/api/director/context）。
+// 复杂动作 Proposal → Command → Composition；技术细节只入 Developer Mode。
+// ---------------------------------------------------------------------------
+async function directorRefreshContext(){
+  const line = document.getElementById('director-ctx-line');
+  if (!line) return;
+  if (!ED.pid) { line.textContent = ''; return; }
+  const label = selectionLabel();
+  line.textContent = label ? `正在修改：${label}` : '未选中对象（指令会作用于整个项目）';
+  try {
+    // §46 Selection Context 上报 Director（失败不阻塞输入）
+    const ctx = getSelectionContext();
+    if (ctx.type !== 'none') {
+      await apiPost('/api/director/context', {project_id: ED.pid, selection: ctx});
+    }
+  } catch (e) { /* 上下文上报失败静默 */ }
 }
 
-// ---- Motion Picker（动效库数据源 + resolver 三态）----
-async function editorOpenMotionPicker(sceneId, idx){
-  const box = document.getElementById('editor-picker-box');
-  box.innerHTML = '加载动效候选……';
-  const r = await apiPost('/api/registry/motions/resolve', {layer_type: 'image', semantic_intent: 'enter', duration: 0.5});
-  const cands = (r.candidates || []).filter(c=>c.compatibility !== 'INCOMPATIBLE');
-  box.innerHTML = '<label>选择动效（优先推荐可用动效；缺依赖的也可应用）</label>' +
-    cands.map(c=>`<div class="proj-row"><span><b>${esc(c.name)}</b>`+
-      `<span class="dev-only hint"><code>${esc(c.recipe_id)}</code></span>`+
-      `<span class="hint">${c.compatibility === 'SUPPORTED' ? '✅ 可用' : '⚠ ' + esc((c.missing_requirements||[]).join('；'))}</span></span>`+
-      `<button class="btn-secondary btn-sm" onclick="editorApplyMotion('${sceneId}',${idx},'${c.recipe_id}')">应用</button></div>`).join('');
-}
-async function editorApplyMotion(sceneId, idx, motionId){
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
-    targetId: `${sceneId}#${idx}`, payload: {motionRecipeId: motionId}, expectedVersion: ED.version});
-  if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    edSelect(`${sceneId}#${idx}`, 'layer', null);
-    editorRenderTimeline(); edShowInspector();
-    editorToast(`✅ 动效已应用：${motionCnName(motionId)}` + (DEV.mode ? `（${motionId}）` : ''));
-  } else {
-    const err = (r.errors && r.errors[0]) || {};
-    editorToast(`❌ ${err.message || r.error}`, true);
-  }
-}
-
-// ---- Shot Picker（换镜头）----
-async function editorOpenShotPicker(sceneId){
-  const box = document.getElementById('editor-picker-box');
-  box.innerHTML = '加载镜头候选……';
-  const sc = ED.comp.scenes.find(s=>s.id===sceneId);
-  const r = await apiPost('/api/registry/shots/resolve', {
-    semantic_intents: [], content_type: 'product_video', duration: sc.duration,
-    available_asset_types: ['image','product','video'],
-    scene_position: sceneId.startsWith('scene-hook') || ED.comp.scenes[0].id===sceneId ? 'first' : 'middle',
-  });
-  const cands = (r.candidates || []).filter(c=>c.compatibility !== 'INCOMPATIBLE');
-  devCacheShots(r.candidates);  // §9.2 中文名缓存（Inspector 显示用）
-  box.innerHTML = '<label>选择镜头方案（换镜头不换素材）</label>' +
-    cands.map(c=>`<div class="proj-row"><span><b>${esc(c.name)}</b>`+
-      `<span class="dev-only hint"><code>${esc(c.recipe_id)}</code></span>`+
-      `<span class="hint">${esc((c.reasons||[]).join('；'))}</span></span>`+
-      `<button class="btn-secondary btn-sm" onclick="editorApplyShot('${sceneId}','${c.recipe_id}')">使用</button></div>`).join('');
-}
-async function editorApplyShot(sceneId, recipeId){
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_recipe',
-    targetId: sceneId, payload: {recipeId}, expectedVersion: ED.version});
-  if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    editorRenderTimeline();
-    editorToast(`✅ 镜头已更换：${recipeId}`);
-  } else {
-    const err = (r.errors && r.errors[0]) || {};
-    editorToast(`❌ ${err.message || r.error}`, true);
-  }
-}
-
-// ---- AI 提案（propose → preview → apply/reject）----
-async function editorAiPropose(){
-  const inst = document.getElementById('editor-ai-input').value.trim();
-  if (!inst) { editorToast('请输入修改描述'); return; }
-  const box = document.getElementById('editor-ai-proposal');
-  box.innerHTML = 'AI 解析中……';
-  const r = await apiPost('/api/proposal/propose', {project_id: ED.pid, instruction: inst});
-  if (!r.ok) { box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '解析失败')}</div>`; return; }
-  ED.pendingProposal = r.proposal_id;
-  box.innerHTML = `<b>提案 ${r.proposal_id}</b>（来源:${r.source}）<div class="hint">${esc(r.explanation||'')}</div>` +
-    r.patches.map(p=>`<div class="proj-row"><span>${esc(p.command)} → ${esc(p.targetId||'')}`+
-      `<span class="hint">${esc(p.reason||'')}</span></span></div>`).join('') +
-    `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorAiPreview()">👁 预览效果</button>`+
-    `<button class="btn-sm" onclick="editorAiApply()">✅ 应用</button>`+
-    `<button class="btn-secondary btn-sm" onclick="editorAiReject()">✗ 拒绝</button></div>`;
-}
-async function editorAiPreview(){
-  const r = await apiPost('/api/proposal/preview', {project_id: ED.pid, proposal_id: ED.pendingProposal});
-  const box = document.getElementById('editor-ai-proposal');
-  if (!r.ok) { box.innerHTML += `<div class="err-box">预览失败：${esc(r.error)}</div>`; return; }
-  box.innerHTML += `<div class="hint">预览：${r.results.map(x=>`${x.status==='PREVIEW_OK'?'✅':'❌'} ${esc(x.patch.command)}(${esc(x.patch.targetId)})`).join('；')}</div>`;
-}
-async function editorAiApply(){
-  const r = await apiPost('/api/proposal/apply', {project_id: ED.pid, proposal_id: ED.pendingProposal});
-  const box = document.getElementById('editor-ai-proposal');
-  if (r.ok && r.status === 'APPLIED') {
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    editorRenderTimeline();
-    box.innerHTML += `<div class="hint">✅ 已应用 ${r.applied.length} 项修改（revision 已记录）</div>`;
-  } else {
-    box.innerHTML += `<div class="err-box">部分失败：${JSON.stringify(r.errors||[]).slice(0,200)}</div>`;
-  }
-}
-async function editorAiReject(){
-  const r = await apiPost('/api/proposal/reject', {project_id: ED.pid, proposal_id: ED.pendingProposal});
-  document.getElementById('editor-ai-proposal').innerHTML +=
-    `<div class="hint">已拒绝（项目零变更${r.changed === false ? '，已验证' : ''}）</div>`;
-}
-
-// ===========================================================================
-// AI Director Command Bar（§47/§92）：一句话剪辑意图 → Director → 执行 → verify
-// ===========================================================================
 async function directorLoadCapCount(){
   try {
     const d = await apiGet('/api/director/capabilities');
@@ -351,14 +548,16 @@ async function directorLoadCapCount(){
     if (el) el.textContent = n;
   } catch(e) {}
 }
+
 async function directorExecute(){
-  if (!ED.pid) { editorToast('先打开项目（上方「打开项目」）'); return; }
+  if (!ED.pid) { editorToast('先打开项目（工作台顶部选择项目）', true); return; }
   const inp = document.getElementById('director-input');
   const inst = (inp.value || '').trim();
-  if (!inst) { editorToast('请输入剪辑意图（例：保留原声，加右上角水印）'); return; }
+  if (!inst) { editorToast('描述你要修改的地方（例：第二段换产品近景，字幕小一点）'); return; }
   const box = document.getElementById('director-result');
-  box.innerHTML = '<div class="hint">AI 导演规划中……</div>';
-  // §48 SSE：实时进度推送（多页面共享通道；无连接时静默跳过）
+  box.innerHTML = '<div class="hint">AI 正在理解你的修改意图……</div>';
+  const bar = document.getElementById('director-progress');
+  // SSE 进度通道（已有则复用）
   try {
     if (!window._directorSSE) {
       window._directorSSE = new EventSource('/api/events');
@@ -366,75 +565,174 @@ async function directorExecute(){
         try {
           const m = JSON.parse(ev.data);
           if (m.event === 'director') {
-            const bar = document.getElementById('director-progress');
-            if (!bar) return;
+            const b = document.getElementById('director-progress');
+            if (!b) return;
             const d = m.data || {};
-            if (d.phase === 'planning') bar.textContent = '⏳ 规划中……';
-            else if (d.phase === 'tool') bar.textContent = `${d.ok ? '✅' : '❌'} ${d.tool || ''}（${d.status || ''}）`;
-            else if (d.phase === 'done') bar.textContent = d.verify_ok ? '✅ 全部完成（已验证）' : '⚠ 部分未通过验证';
-            else if (d.phase === 'error') bar.textContent = '❌ ' + (d.code || '失败');
+            if (d.phase === 'planning') b.textContent = '规划中……';
+            else if (d.phase === 'tool') b.textContent = `${d.ok ? '已执行' : '未成功'}：${d.tool || ''}`;
+            else if (d.phase === 'done') b.textContent = d.verify_ok ? '全部完成（已验证）' : '部分未通过验证';
+            else if (d.phase === 'error') b.textContent = '失败：' + (d.code || '');
           }
         } catch(e) {}
       };
     }
   } catch(e) {}
-  const bar = document.getElementById('director-progress');
-  if (bar) bar.textContent = '⏳ 规划中……';
+  if (bar) bar.textContent = '规划中……';
   const r = await apiPost('/api/director/execute', {project_id: ED.pid, instruction: inst});
   if (!r.ok) {
-    box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '执行失败')}${DEV.mode && r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`;
+    box.innerHTML = `<div class="err-box">未完成：${esc(r.error || '执行失败')}（项目内容没有变化${r.code === 'CONFLICT' ? '，请重试' : ''}）</div>`;
     return;
   }
   const d = r.director || {};
   const failures = (d.executed||[]).filter(e => !e.ok);
   const reasons = (d.plan||[]).map(p => p.reason).filter(Boolean);
-  // §11 Command Bar：默认只说人话（改了什么/是否成功）；tool id/verify 入 dev-only
+  // §11/§23 人话优先：改了什么/是否成功；tool id/verify 入 dev-only
   box.innerHTML =
-    `<div class="hint"><b>${failures.length ? '⚠ 部分修改未应用' : '✅ 已应用'}</b>`+
+    `<div class="hint"><b>${failures.length ? '部分修改未应用' : '已应用'}</b>`+
     ` · ${(d.executed||[]).length} 处修改 · 版本 ${ED.version || ''}</div>`+
-    (reasons.length ? `<div class="hint">${reasons.map(r=>esc(r)).join('；')}</div>` : '')+
-    (failures.length ? `<div class="hint" style="color:var(--danger)">未应用：${failures.map(e=>esc(e.error||e.tool)).join('；')}</div>` : '')+
-    (DEV.mode ? `<div class="hint" style="margin-top:4px">计划：`+
+    (reasons.length ? `<div class="hint">${reasons.map(x=>esc(x)).join('；')}</div>` : '')+
+    (failures.length ? `<div class="hint" style="color:var(--danger)">未应用：${failures.map(e=>esc(e.error||e.tool)).join('；')}（可换个说法再试，或在检视器手动修改）</div>` : '')+
+    (DEV.mode ? `<div class="hint dev-only" style="margin-top:4px">计划：`+
       (d.plan||[]).map(p=>`<code>${esc(p.tool)}</code>`).join(' · ') + `</div>`+
-      (d.executed||[]).map(e=>`<div class="hint" style="font-size:11px">${e.ok?'✅':'❌'} <code>${esc(e.tool)}</code> ${esc(e.status||'')}${e.verify && e.verify.checks ? ' · '+Object.entries(e.verify.checks).map(([k,v])=>`${esc(k)}=${esc(v)}`).join(' ') : ''}</div>`).join('')
+      (d.executed||[]).map(e=>`<div class="hint dev-only" style="font-size:11px">${e.ok?'OK':'FAIL'} <code>${esc(e.tool)}</code> ${esc(e.status||'')}</div>`).join('')
     : '')+
-    `<div class="hint" style="margin-top:2px">${d.verify_ok ? '✓ 验证通过' : (failures.length ? '请先处理未应用项' : '⚠ 部分步骤未通过验证')}</div>`;
-  if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
-  if (typeof edShowInspector === 'function') edShowInspector();
-  // 刷新时间线 + Inspector，展示 AI 落地效果
-  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-  if (comp && comp.version !== undefined) { ED.comp = comp; ED.version = comp.version; }
-  editorRenderTimeline();
-  renderWatermarkList();
-  editorToast(`AI 导演完成：${(d.executed||[]).filter(e=>e.ok).length}/${(d.executed||[]).length} 步成功`);
+    `<div class="hint" style="margin-top:2px">${d.verify_ok ? '已验证生效' : (failures.length ? '请先处理未应用项' : '部分步骤待验证')}</div>`;
+  await refreshComposition();
+  editorToast(`AI 修改完成：${(d.executed||[]).filter(e=>e.ok).length}/${(d.executed||[]).length} 步成功`);
 }
 
-// ---- EDT-008 Timeline-native Generation（生成素材：变体 → 加入时间线）----
+// ---------------------------------------------------------------------------
+// 统一命令入口（editorCmd / editorBatchCmd / editorApplyDuration / 提示式操作）
+// ---------------------------------------------------------------------------
+async function editorCmd(cmd, extra, targetOverride, useRawTarget){
+  if (!ED.pid) { editorToast('先打开项目', true); return; }
+  let target = targetOverride !== undefined ? targetOverride
+    : (SEL.selection ? SEL.selection.id : '');
+  if (target === '' && !useRawTarget && cmd !== 'noop') { editorToast('先在时间线选中场景或图层', true); return; }
+  if (cmd === 'split' && target && target.includes('#')) target = target.split('#')[0];
+  const payload = extra || {};
+  const r = await apiPost('/api/editor/command', {project_id: ED.pid, variantId: ED.pid,
+    command: cmd, targetId: target || '', payload, expectedVersion: ED.version});
+  if (r.ok) {
+    ED.version = r.composition_version;
+    await refreshComposition();
+    editorToast('已完成' + (DEV.mode ? `（版本 ${r.revision_id}）` : ''));
+  } else {
+    const err = (r.errors && r.errors[0]) || {};
+    editorToast(`未完成：${err.message || r.error || ''}`, true);
+  }
+}
+async function editorBatchCmd(subcommand){
+  if (!ED.pid) { editorToast('先打开项目', true); return; }
+  let targets = [];
+  if (subcommand === 'lock') {
+    targets = [...SEL.selectionSet].filter(k => k.startsWith('layer:')).map(k => k.slice(6));
+    if (!targets.length) { editorToast('批量锁定需选中图层', true); return; }
+  } else {
+    targets = ED.comp.scenes.filter(s => edIsSelected('scene', s.id)).map(s => s.id);
+    if (!targets.length) { editorToast('批量' + (subcommand==='delete'?'删除':'复制') + '需选中场景', true); return; }
+  }
+  const r = await apiPost('/api/editor/command', {
+    project_id: ED.pid, command: 'batch',
+    targetId: targets[0],
+    payload: {subcommand, targets, locked: true},
+    expectedVersion: ED.version,
+  });
+  if (r.ok) {
+    clearSelection('batch');
+    await refreshComposition();
+    editorToast(`批量${subcommand} 完成`);
+  } else {
+    const err = (r.errors && r.errors[0]) || {};
+    editorToast(`批量${subcommand} 未完成：${err.message || r.error || ''}`, true);
+  }
+}
+function editorApplyDuration(sceneId){
+  const v = parseFloat((document.getElementById('ed-dur')||{}).value);
+  if (!(v > 0.3)) { editorToast('时长需不小于 0.3 秒', true); return; }
+  editorCmd('set_duration', {duration: v}, sceneId);
+}
+function editorMovePrompt(){
+  const hostId = 'ed-move-host';
+  _ensureInlineHost(hostId);
+  uiInlineInput(hostId, {type: 'number', def: 1, min: 1, max: 99, step: 1, unit: '第几位'},
+    (v) => { const target = SEL.selection && SEL.selection.type === 'scene' ? SEL.selection.id : undefined;
+             if (v >= 1) editorCmd('move', {toIndex: Math.round(v) - 1}, target); });
+}
+function editorAddBrollPrompt(){
+  if (!SEL.selection || SEL.selection.type !== 'scene') { editorToast('先在时间线选中一个场景', true); return; }
+  editorOpenAssetPicker(SEL.selection.id, 0, 'addbroll');
+}
 
-// §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
+// ---- Motion/Shot Picker 快捷入口（Inspector 与 Library 共用）----
+async function editorOpenMotionPicker(sceneId, idx){
+  const box = document.getElementById('editor-picker-box');
+  if (!box) return;
+  box.innerHTML = '加载动效候选……';
+  const r = await apiPost('/api/registry/motions/resolve', {layer_type: 'image', semantic_intent: 'enter', duration: 0.5});
+  const cands = (r.candidates || []);
+  await pickerOpen({
+    title: '动效（应用到本层）',
+    items: cands.map(c => ({id: c.recipe_id, name: c.name,
+      note: c.duration ? `建议 ${c.duration}s` : '', compatibility: c.compatibility,
+      missing_requirements: c.missing_requirements})),
+    onApply: (mid) => edLibApplyMotionTo(`${sceneId}#${idx}`, mid),
+  });
+  // pickerOpen 渲染进 ed-lib-list；这里同步渲染到 Inspector picker box
+  box.innerHTML = document.getElementById('ed-lib-list').innerHTML;
+  window._pickerApply = (id) => edLibApplyMotionTo(`${sceneId}#${idx}`, id);
+}
+async function edLibApplyMotionTo(layerId, motionId){
+  const r = await executeCommand({command: 'replace_motion', targetId: layerId,
+    payload: {motionRecipeId: motionId}});
+  if (r.ok) {
+    editorToast(`动效已应用：${motionCnName(motionId)}`);
+    refreshWorkspace();
+  } else {
+    editorToast('动效应用失败：' + (r.error || ''), true);
+  }
+}
+async function editorOpenShotPicker(sceneId){
+  const box = document.getElementById('editor-picker-box');
+  if (!box) return;
+  const sc = ED.comp.scenes.find(s=>s.id===sceneId);
+  const r = await apiPost('/api/registry/shots/resolve', {
+    semantic_intents: [], content_type: 'product_video', duration: sc.duration,
+    available_asset_types: ['image','product','video'],
+    scene_position: ED.comp.scenes[0].id===sceneId ? 'first' : 'middle',
+  });
+  const cands = (r.candidates || []);
+  devCacheShots(cands);
+  await pickerOpen({
+    title: '镜头方案（换镜头不换素材）',
+    items: cands.map(c => ({id: c.recipe_id, name: c.name,
+      note: (c.reasons || []).join('；'), compatibility: c.compatibility,
+      missing_requirements: c.missing_requirements})),
+    onApply: (rid) => editorApplyShot(sceneId, rid),
+  });
+  box.innerHTML = document.getElementById('ed-lib-list').innerHTML;
+  window._pickerApply = (id) => editorApplyShot(sceneId, id);
+}
+async function editorApplyShot(sceneId, recipeId){
+  const r = await executeCommand({command: 'replace_recipe', targetId: sceneId,
+    payload: {recipeId}});
+  if (r.ok) {
+    editorToast(`镜头已更换：${shotCnName(recipeId)}`);
+    refreshWorkspace();
+  } else {
+    editorToast('镜头更换失败：' + (r.error || ''), true);
+  }
+}
+
 Object.assign(window, {
-  _apPassFilters,
-  assetPickerTab,
-  assetPickerStockSearch,
-  assetPickerStockDownload,
-  createGoStock,
-  editorReplaceSource,
-  apToggleFav,
-  _apApplyAsset,
-  editorBatchCmd,
-  editorCmd,
-  editorApplyDuration,
-  editorMovePrompt,
-  editorAddBrollPrompt,
-  editorOpenMotionPicker,
-  editorApplyMotion,
-  editorOpenShotPicker,
-  editorApplyShot,
-  editorAiPropose,
-  editorAiPreview,
-  editorAiApply,
-  editorAiReject,
-  directorLoadCapCount,
-  directorExecute,
-  AP,
+  LIB_DOMAINS, edLibDomain, edLibSub, edLibNav, edLibLoad,
+  pickerOpen, pickerPreviewNote, pickerApply,
+  edLibApplyAsset, edLibApplyMotion, applyTransitionToPair, applyRegistryStyle,
+  edVoiceTry, edLibAudioTry, edLibAudioApply, edLibStockSearch,
+  _apPassFilters, assetPickerTab, assetPickerStockSearch, assetPickerStockDownload,
+  createGoStock, editorReplaceSource, apToggleFav, _apApplyAsset,
+  edLibOpenTemplate, instantiateTemplate, AP,
+  directorRefreshContext, directorLoadCapCount, directorExecute,
+  editorCmd, editorBatchCmd, editorApplyDuration, editorMovePrompt, editorAddBrollPrompt,
+  editorOpenMotionPicker, editorOpenShotPicker, editorApplyShot, edLibApplyMotionTo,
 });

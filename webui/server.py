@@ -50,6 +50,8 @@ import queue as _queue_mod
 #: 全局 SSE 事件队列（多订阅者各持一个 Queue；无订阅者时事件即丢，不积压）
 _SSE_SUBSCRIBERS: list = []
 _SSE_LOCK = threading.Lock()
+# §23/§46 前端 Selection 上报（Command Bar 上下文；单机单用户内存态）
+_DIRECTOR_SELECTION: dict = {}
 
 
 def sse_publish(event: str, data: dict) -> None:
@@ -673,40 +675,20 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/projects":
-            # Project Runtime：项目索引（Portable Project 列表 + 状态 + 可续渲）
+            # §52 Project Index：服务端解释状态（status/editable/legacy/actions），
+            # 前端不猜。支持 q（搜索）/ filter（状态筛选）/ limit。
             try:
-                root = STORAGE / "composer"
-                projects = []
-                if root.is_dir():
-                    for d in sorted(root.iterdir(),
-                                    key=lambda p: p.stat().st_mtime, reverse=True):
-                        if not (d.name.startswith("web-") or d.name.startswith("tpl-")
-                                or d.name.startswith("gfx-")):
-                            continue
-                        run_json = d / "plans" / "run.json"
-                        final = d / "plans" / "storyboard.json"
-                        final_out = d / "output" / "final.mp4"
-                        sb = d / "plans" / "storyboard.json"
-                        draft = d / "output" / "draft.mp4"
-                        meta = {"project_id": d.name,
-                                "mtime": int(d.stat().st_mtime),
-                                "has_final": final_out.is_file(),
-                                "final_path": str(final_out) if final_out.is_file() else "",
-                                "draft_exists": draft.is_file(),
-                                "pending_confirm": (sb.is_file()
-                                                     and not final_out.is_file())}
-                        if run_json.is_file():
-                            try:
-                                rj = json.loads(run_json.read_text(encoding="utf-8"))
-                                meta["providers"] = rj.get("providers", {})
-                                meta["qc"] = (rj.get("verification", {})
-                                              .get("deterministic_qc"))
-                            except (OSError, json.JSONDecodeError):
-                                pass
-                        projects.append(meta)
-                    projects = projects[:30]  # 首页最近 30
-                self._send_json(projects)
+                qs_ = parse_qs(parsed.query)
+                from video_director import project_manager as vd_pm
+                q_ = qs_.get("q", [""])[0]
+                filter_ = qs_.get("filter", ["all"])[0]
+                limit_ = int(qs_.get("limit", ["200"])[0])
+                projects = vd_pm.list_index(q=q_, name_filter=filter_, limit=limit_)
+                self._send_json({"projects": projects, "total": len(projects)})
             except Exception as exc:
+                import traceback
+                print(f"[web] /api/projects 500: {exc}\n{traceback.format_exc()}",
+                      file=sys.stderr)
                 self._send_json({"error": str(exc)}, 500)
         elif route.startswith("/api/projects/") and route.endswith("/draft_info"):
             # §46 Preview：项目草稿存在性 + 路径（顶栏 Preview 按钮消费）
@@ -724,7 +706,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/project_detail":
-            # 项目详情（重开续用：产物清单 + 分镜 + IR 概览）
+            # 项目详情（重开续用：产物清单 + 分镜 + IR 概览 + §52 状态字段）
             qs = parse_qs(parsed.query)
             pid = qs.get("project_id", [""])[0]
             if not pid:
@@ -736,6 +718,13 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"error": "项目不存在"}, 404)
                     return
                 detail = {"project_id": pid}
+                # §52 增强：Project Manager 统一解释状态（name/status/editable/
+                # legacy/actions——前端详情页与列表同源，不两套推导）
+                try:
+                    from video_director import project_manager as vd_pm
+                    detail.update(vd_pm.inspect(pid))
+                except Exception as exc:  # noqa: BLE001 inspect 失败不阻断旧字段
+                    print(f"[web] project inspect({pid}) 失败: {exc}", file=sys.stderr)
                 sb_file = pdir / "plans" / "storyboard.json"
                 if sb_file.is_file():
                     sb = json.loads(sb_file.read_text(encoding="utf-8"))
@@ -1441,6 +1430,29 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Director：一句话剪辑意图 → 读 Manifest+Context → 规划能力序列 → 执行 + verify
+        if parsed.path == "/api/director/context":
+            # §23/§46 Command Bar 上下文：POST 上报前端 Selection（Director
+            # execute 时并入 project_context 快照）；GET 读快照。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            selection = payload.get("selection") or {}
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            _DIRECTOR_SELECTION[pid] = selection  # 内存态（单机单用户；重启即清）
+            try:
+                from video_director import project_context
+                self._send_json({"ok": True,
+                    "context": project_context.inspect_project_context(pid, selection)})
+            except Exception as exc:
+                self._send_json({"ok": True, "context": {}})  # 上报成功即可，快照失败不阻塞
+            return
+
         if parsed.path == "/api/director/execute":
             length = int(self.headers.get("Content-Length", 0))
             try:
@@ -1458,7 +1470,13 @@ class Handler(BaseHTTPRequestHandler):
                 # §48 SSE：Director 过程事件推送（规划开始 → 逐工具 → 完成）
                 sse_publish("director", {"phase": "planning", "project_id": pid,
                                          "instruction": instruction[:60]})
-                result = vd_director.direct(pid, instruction)
+                # §46 前端 Selection 并入指令（Command Bar 上下文：「正在修改 Scene 03」
+                # 时指令自动带目标对象，Director 可据此缩小作用域）
+                sel_ctx = _DIRECTOR_SELECTION.get(pid)
+                instruction_with_ctx = instruction
+                if sel_ctx and sel_ctx.get("type") not in (None, "", "none", "project"):
+                    instruction_with_ctx = f"[当前选中：{sel_ctx.get('type')} {sel_ctx.get('id')}] {instruction}"
+                result = vd_director.direct(pid, instruction_with_ctx)
                 for step in result.get("executed", []):
                     sse_publish("director", {
                         "phase": "tool", "project_id": pid, "tool": step.get("tool"),
@@ -1999,6 +2017,46 @@ class Handler(BaseHTTPRequestHandler):
                                  "duration": ir.project.duration})
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/project_action":
+            # §6.1/§61 Project Action 统一动作接口：rename/clone/archive/restore/
+            # delete/convert。全部实现收在 project_manager（server 不删文件系统）。
+            # REJECT 类（ACTIVE_JOB 等）不是服务器错误 → HTTP 200 + ok:false 分流。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            action = (payload.get("action") or "").strip()
+            if not pid or not action:
+                self._send_json({"ok": False, "error": "缺少 project_id 或 action"}, 400)
+                return
+            try:
+                from video_director import project_manager as vd_pm
+                from video_director.project_manager import ProjectActionError
+                if action == "rename":
+                    r = vd_pm.rename(pid, payload.get("new_name") or "")
+                elif action == "clone":
+                    r = vd_pm.clone(pid)
+                elif action == "archive":
+                    r = vd_pm.archive(pid)
+                elif action == "restore":
+                    r = vd_pm.restore(pid)
+                elif action == "delete":
+                    r = vd_pm.delete(pid)
+                elif action == "convert":
+                    r = vd_pm.legacy_convert(pid)
+                else:
+                    self._send_json({"ok": False, "error": f"未知操作：{action}"}, 400)
+                    return
+                self._send_json(r)
+            except ProjectActionError as exc:
+                self._send_json({"ok": False, "error": exc.message, "code": exc.code})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc), "code": "INTERNAL"}, 500)
             return
 
         if parsed.path == "/api/graphics/plan_to_project":

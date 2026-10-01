@@ -1,56 +1,275 @@
-async function editorLoadVersions(){
-  if (!ED.pid) { editorToast('先打开项目'); return; }
-  const revs = await apiGet('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid));
-  const box = document.getElementById('editor-versions');
-  if (!Array.isArray(revs) || !revs.length) {
-    box.innerHTML = '<div class="hint">尚无编辑版本（去动效库换动效、或时间线拆分/删场景，即生成版本）。</div>';
+// §24/§25/§45/§68 Review（方案《FRONTEND_DEEP_UNIFICATION》）：
+// 问题工作台三栏：问题列表 | 当前预览 | 修复。
+//   - ContinuityVerifier = Issue 一等来源（§25）
+//   - 每个 Issue：发生了什么 / 影响对象 / 为什么被拦截 / 定位 / 修复 / 重新检查
+//   - Locate → workspaceOpen(pid, target) 带定位跳转（§45 自动选对象+开 Inspector 分区）
+//   - §68 Issue 统一结构：code/message/project_id/scene_id/from/to/target/recoverable
+
+window.RV = {issues: [], selected: null, projects: []};
+
+const ISSUE_CODE_CN = {
+  // 连续性（§25）
+  CARRY_MISSING_SOURCE: '元素延续缺来源层', CARRY_MISSING_TARGET: '元素延续缺目标层',
+  CAMERA_PATH_MISSING: '镜头穿越缺路径', MORPH_PATH_MISSING: '形变缺路径',
+  STATIC_REPLACEMENT: '静态画面连续替换', ANCHOR_JUMP: '延续元素锚点跳变',
+  NO_CONTINUITY_DECLARED: '相邻镜头未声明关系',
+  // 商用预检（§68）
+  ASSET_LICENSE_UNKNOWN: '素材授权未知', ASSET_LICENSE_BLOCKED: '素材禁止商用',
+  COMPOSITION_INVALID: '时间线不完整', MEDIA_MISSING: '素材文件缺失',
+};
+
+/** 审阅页装载：项目三态待办 + 全项目 Issue 聚合。 */
+async function loadReview(){
+  const box = document.getElementById('review-list');
+  const issueBox = document.getElementById('review-issue-list');
+  if (box) box.innerHTML = '加载中……';
+  const r = await apiGet('/api/projects?filter=all&limit=100');
+  const projs = (r && !r.error && r.projects) || [];
+  RV.projects = projs;
+  // 三态待办（§24 底部确认区）
+  const pending = projs.filter(p => p.status === 'AWAITING_CONFIRM' && !p.archived);
+  const failed = projs.filter(p => p.status === 'FAILED' && !p.archived);
+  if (box) {
+    const row = (p, label, cls) => `<div class="proj-row"><span><b>${esc(p.name || p.project_id)}</b>`+
+      `<span class="hint">${p.scene_count ? p.scene_count + ' 场景 · ' : ''}${p.duration ? p.duration.toFixed(1) + 's · ' : ''}${label}</span></span>`+
+      `<span class="btn-row">`+
+      (p.editable ? `<button class="btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">继续确认</button>` : '')+
+      (p.has_final ? `<button class="btn-secondary btn-sm" onclick="pmPreviewFinal('${esc(p.project_id)}')">预览</button>` : '')+
+      `</span></div>`;
+    box.innerHTML = (pending.map(p => row(p, '等待确认分镜/草稿', 'cap-warn')).join('')
+      + failed.map(p => row(p, '生成失败（打开可看错误）', 'cap-off')).join(''))
+      || '<div class="hint">没有待确认项目（全部已完成或在生成中）。</div>';
+  }
+  // Issue 聚合（§25 Continuity + §68 预检）
+  if (issueBox) {
+    issueBox.innerHTML = '<div class="hint">检查中……</div>';
+    RV.issues = [];
+    const checkable = projs.filter(p => p.editable && !p.archived).slice(0, 30);
+    for (const p of checkable) {
+      // 连续性 Issue（§25 一等来源）
+      try {
+        const c = await apiGet('/api/continuity?project_id=' + encodeURIComponent(p.project_id));
+        if (c && !c.error) {
+          for (const i of (c.issues || [])) {
+            RV.issues.push({
+              code: i.issue_code, message: i.message,
+              project_id: p.project_id, project_name: p.name || p.project_id,
+              scene_id: i.scene_id || i.to_scene_id || '',
+              from_scene_id: i.from_scene_id || '', to_scene_id: i.to_scene_id || i.scene_id || '',
+              target: i.from_scene_id && i.to_scene_id ? {type: 'scene_pair', id: `${i.from_scene_id}->${i.to_scene_id}`}
+                    : (i.scene_id ? {type: 'scene', id: i.scene_id} : {type: 'project', id: p.project_id}),
+              kind: '连续性', recoverable: i.recoverable !== false,
+            });
+          }
+        }
+      } catch (e) { /* 单项目失败不阻塞聚合 */ }
+      // 商用预检 Issue（§68）
+      try {
+        const pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(p.project_id));
+        if (pf && !pf.error) {
+          for (const i of (pf.issues || [])) {
+            RV.issues.push({
+              code: i.code, message: i.message,
+              project_id: p.project_id, project_name: p.name || p.project_id,
+              scene_id: (i.targetId && i.targetId.includes('#')) ? i.targetId.split('#')[0] : '',
+              from_scene_id: '', to_scene_id: '',
+              target: (i.targetId && i.targetId.includes('#'))
+                ? {type: 'layer', id: i.targetId}
+                : (i.targetId ? {type: 'scene', id: i.targetId} : {type: 'project', id: p.project_id}),
+              kind: '商用预检', recoverable: i.recoverable !== false,
+            });
+          }
+        }
+      } catch (e) { /* 同上 */ }
+    }
+    renderIssueList();
+  }
+  loadPublish();
+}
+
+function renderIssueList(){
+  const box = document.getElementById('review-issue-list');
+  if (!box) return;
+  if (!RV.issues.length) {
+    box.innerHTML = '<div class="hint">全片检查完成：没有发现问题。</div>';
+    const prev = document.getElementById('review-preview');
+    const fix = document.getElementById('review-fix-panel');
+    if (prev) prev.textContent = '选中一个问题后在这里定位';
+    if (fix) fix.textContent = '选中问题后给出修复选项';
     return;
   }
-  box.innerHTML = revs.map((rv, i) => {
-    const when = new Date((rv.created_at || 0) * 1000).toLocaleString();
-    const target = rv.target_id || '';
-    return `<div class="proj-row"><input type="checkbox" class="ver-chk" data-i="${i}" style="width:auto">`+
-      `<b>v${rv.base_version + 1}</b><span>${esc(rv.command)} → ${esc(target)}</span>`+
-      `<span class="hint">${when}</span>`+
-      `<span class="hint">changed:${(rv.changed_artifacts||[]).length} reused:${(rv.reused_artifacts||[]).length}</span></div>`;
-  }).join('');
+  const counts = {};
+  for (const i of RV.issues) counts[i.kind] = (counts[i.kind] || 0) + 1;
+  box.innerHTML =
+    `<div class="hint" style="margin:2px 0 6px">${Object.entries(counts).map(([k, n]) => `${esc(k)} ${n}`).join(' · ')}</div>`+
+    RV.issues.map((i, n) => {
+      const selCls = RV.selected === n ? ' rv-sel' : '';
+      return `<div class="proj-row${selCls}" onclick="reviewSelectIssue(${n})">
+        <span><b class="${i.recoverable ? 'cap-warn' : 'cap-off'}">${esc(ISSUE_CODE_CN[i.code] || i.code)}</b>
+        <span class="hint">${esc(i.project_name)}${i.from_scene_id ? ' · ' + esc(i.from_scene_id) + ' → ' + esc(i.to_scene_id) : (i.scene_id ? ' · ' + esc(i.scene_id) : '')}</span>
+        <span class="hint">${esc((i.message || '').slice(0, 60))}</span></span>
+      </div>`;
+    }).join('');
 }
-async function editorCompareSelected(){
-  const chk = Array.from(document.querySelectorAll('.ver-chk:checked'));
-  if (chk.length < 2) { editorToast('勾选两个版本再对比'); return; }
-  const revs = await apiGet('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid));
-  const a = revs[parseInt(chk[0].dataset.i)], b = revs[parseInt(chk[1].dataset.i)];
-  const changed = [a, b].map(x => (x.changed_artifacts || []).join('、') || '无');
-  const reusedA = (a.reused_artifacts || []), reusedB = (b.reused_artifacts || []);
-  const com = reusedA.filter(x => reusedB.includes(x));
-  document.getElementById('editor-compare').innerHTML =
-    `<div class="card"><b>对比 v${a.base_version+1} vs v${b.base_version+1}</b>`+
-    `<div class="proj-row"><b>有改动</b><span>左侧：${changed[0]}</span></div>`+
-    `<div class="proj-row"><b>有改动</b><span>右侧：${changed[1]}</span></div>`+
-    `<div class="proj-row"><b>复用未动（两版相同）</b><span>${com.length} 项：${esc(com.slice(0,5).join('、'))}${com.length>5?'…':''}</span></div></div>`;
+
+/** 选中 Issue → 预览列（发生了什么/影响对象/为什么被拦截）+ 修复列。 */
+function reviewSelectIssue(n){
+  RV.selected = n;
+  const i = RV.issues[n];
+  if (!i) return;
+  renderIssueList();
+  const prev = document.getElementById('review-preview');
+  prev.innerHTML = `
+    <b>${esc(ISSUE_CODE_CN[i.code] || i.code)}</b>
+    <div class="hint">项目：${esc(i.project_name)}${i.scene_id || i.from_scene_id ? ' · 对象：' + esc(i.from_scene_id ? i.from_scene_id + ' → ' + i.to_scene_id : i.scene_id) : ' · 整个项目'}</div>
+    <div class="hint">发生了什么：${esc(i.message || '—')}</div>
+    <div class="hint">为什么被拦截：${esc(_issueWhy(i))}</div>
+    <div class="btn-row"><button class="btn-sm" onclick="reviewLocate(${n})">定位到工作台</button></div>`;
+  const fix = document.getElementById('review-fix-panel');
+  fix.innerHTML = `
+    <b>修复</b>
+    <div class="hint">${esc(i.project_name)}${i.from_scene_id ? ' · ' + esc(i.from_scene_id) + ' → ' + esc(i.to_scene_id) : ''}</div>
+    ${_fixOptions(n)}
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn-secondary btn-sm" onclick="reviewRecheck('${esc(i.project_id)}')">重新检查</button>
+      <button class="btn-secondary btn-sm" onclick="reviewAskAI('${esc(i.project_id)}','${esc((i.message || '').slice(0,40))}')">让 AI 修复</button>
+    </div>`;
 }
+
+function _issueWhy(i){
+  const why = {
+    CARRY_MISSING_SOURCE: '元素延续声明了来源，但来源层不存在——渲染时延续元素会凭空出现',
+    CARRY_MISSING_TARGET: '元素延续声明了目标，但目标层不存在——延续没有落点',
+    CAMERA_PATH_MISSING: '镜头穿越/俯冲需要明确的镜头路径，缺失会导致运动不成立',
+    MORPH_PATH_MISSING: '形变过渡需要形变路径（自有图形块间），缺失则形变无法执行',
+    STATIC_REPLACEMENT: '相邻画面连续静态替换（幻灯片式），观感断裂',
+    ANCHOR_JUMP: '延续元素的锚点位置在两镜间跳变，视觉上会突然位移',
+    NO_CONTINUITY_DECLARED: '相邻镜头未声明任何关系，系统无法保证画面衔接',
+    ASSET_LICENSE_UNKNOWN: '素材来源不明，商业发布存在授权风险',
+    ASSET_LICENSE_BLOCKED: '素材授权被标记为禁止商用',
+    COMPOSITION_INVALID: '时间线存在不完整字段，渲染会失败',
+    MEDIA_MISSING: '引用的素材文件已不存在',
+  };
+  return why[i.code] || '该问题会在渲染或发布时造成阻断/观感问题';
+}
+
+/** §25 修复选项：按 Issue 类型给「镜头关系」语义的修复建议（人话）。 */
+function _fixOptions(n){
+  const i = RV.issues[n];
+  if (i.kind === '连续性') {
+    return `<div class="hint">建议的修复方向：</div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        ${i.from_scene_id && i.to_scene_id ? `<button class="btn-secondary btn-sm" onclick="reviewFixRelation('${esc(i.project_id)}','${esc(i.from_scene_id)}','${esc(i.to_scene_id)}','carry')">改元素延续</button>
+        <button class="btn-secondary btn-sm" onclick="reviewFixRelation('${esc(i.project_id)}','${esc(i.from_scene_id)}','${esc(i.to_scene_id)}','morph')">改形变过渡</button>
+        <button class="btn-secondary btn-sm" onclick="reviewFixRelation('${esc(i.project_id)}','${esc(i.from_scene_id)}','${esc(i.to_scene_id)}','hard_cut')">改为硬切</button>` : ''}
+      </div>
+      <div class="hint">点任一方向会打开工作台、选中这一对镜头并显示「镜头关系」面板，确认后应用。</div>`;
+  }
+  return `<div class="hint">点「定位到工作台」查看问题对象；素材授权类问题需换用可商用素材（选中层 → 换素材）。</div>`;
+}
+
+/** §45 Locate：带定位跳转（open project + select target + 打开 Inspector 分区）。 */
+async function reviewLocate(n){
+  const i = RV.issues[n];
+  if (!i) return;
+  const r = await workspaceOpen(i.project_id, {
+    type: i.target.type, id: i.target.id,
+    openSection: i.kind === '连续性' ? 'relation' : 'source',
+  });
+  if (r && r.ok) editorToast(`已定位：${i.from_scene_id ? i.from_scene_id + ' → ' + i.to_scene_id : (i.scene_id || i.project_id)}`);
+}
+
+/** §25 修复方向：定位 + 预填镜头关系类型（应用仍在工作台确认）。 */
+async function reviewFixRelation(pid, fromId, toId, type){
+  const r = await workspaceOpen(pid, {type: 'scene_pair', id: `${fromId}->${toId}`, openSection: 'relation'});
+  if (!r || !r.ok) return;
+  // 预填关系类型（Inspector 里的下拉同步），用户点「应用」才落 Command
+  const sel = document.getElementById('ed-cont-type');
+  if (sel) { sel.value = type; edContTypeChanged(); }
+  editorToast(`已选中 ${fromId} → ${toId}：确认「${CONT_CN[type] || type}」后点「应用」`);
+}
+
+/** 重新检查（§24：修复后回到这里验证）。 */
+async function reviewRecheck(pid){
+  const fixBox = document.getElementById('review-fix-panel');
+  const st = document.createElement('div');
+  st.className = 'hint';
+  st.textContent = '重新检查中……';
+  fixBox.appendChild(st);
+  const c = await apiGet('/api/continuity?project_id=' + encodeURIComponent(pid));
+  const pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(pid));
+  const nCont = (c.issues || []).length;
+  const nPf = (pf.issues || []).length;
+  st.textContent = nCont + nPf === 0
+    ? '检查通过：连续性与商用预检均无问题'
+    : `仍有 ${nCont} 条连续性 + ${nPf} 条预检问题（刷新上方列表查看最新）`;
+}
+
+/** §23 Command Bar 承载自然语言修复。 */
+async function reviewAskAI(pid, issue){
+  const r = await workspaceOpen(pid);
+  if (!r || !r.ok) return;
+  const inp = document.getElementById('director-input');
+  if (inp) { inp.value = '修复以下问题：' + issue; inp.focus(); }
+  editorToast('已带问题描述进入工作台，按回车让 AI 执行');
+}
+
+// ---------------------------------------------------------------------------
+// 发布预检（审阅 → 预检 → 发布同一交付链 §28）
+// ---------------------------------------------------------------------------
+async function loadPublish(){
+  const box = document.getElementById('publish-list');
+  if (!box) return;
+  box.innerHTML = '加载中……';
+  const projs = RV.projects.length ? RV.projects : (async () => {
+    const r = await apiGet('/api/projects?filter=all&limit=100');
+    return (r && r.projects) || [];
+  })();
+  const list = await projs;
+  const finals = list.filter(p => p.has_final && !p.archived).slice(0, 20);
+  box.innerHTML = finals.length ? finals.map(p =>
+    `<div class="proj-row"><span><b>${esc(p.name || p.project_id)}</b>
+    <span class="hint">有成品 · ${p.duration ? p.duration.toFixed(1) + 's' : ''}</span></span>`+
+    `<span class="btn-row"><button class="btn-secondary btn-sm" onclick="publishDetail('${esc(p.project_id)}')">查看预检</button>`+
+    `<button class="btn-sm" onclick="publishVariants('${esc(p.project_id)}')">发布多平台</button></span></div>`).join('')
+    : '<div class="hint">暂无已完成项目。</div>';
+}
+async function publishDetail(pid){
+  const box = document.getElementById('publish-detail-box');
+  box.innerHTML = '预检中……';
+  const pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(pid));
+  const row = (i) => {
+    const block = i.recoverable === false && i.code && !i.code.startsWith('ASSET_');
+    return `<div class="${block ? 'err-box' : 'hint'}" style="margin:4px 0">${block ? '阻断' : '提示'} ${esc(ISSUE_CODE_CN[i.code] || i.code || '')} — ${esc(i.message||i.detail||'')}</div>`;
+  };
+  box.innerHTML = `<div class="panel" style="margin-top:8px;padding:12px"><b>发布预检：${esc(pid)}</b>
+    <div class="hint">状态：<b>${pf.status}</b>${pf.status==='PASS' ? '（可发布）' : '（有阻断，不能发布）'}</div>
+    ${(pf.issues||[]).map(row).join('') || '<div class="hint">无问题。</div>'}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Preflight / Render / Toast（工作台消费）
+// ---------------------------------------------------------------------------
 async function editorPreflight(){
   const box = document.getElementById('editor-preflight-box');
   const r = await apiGet('/api/preflight?project_id=' + encodeURIComponent(ED.pid));
   if (r.status === 'PASS') {
-    box.innerHTML = `<div class="card ok-box">🛡 商用预检通过（${r.issues.length} 项提示，无阻断）`+
-      (r.issues.length ? `<div>${r.issues.map(i=>`<div class="hint">⚠ ${esc(i.code)}: ${esc(i.message)}</div>`).join('')}</div>` : '') + `</div>`;
+    box.innerHTML = `<div class="panel ok-box">商用预检通过（${r.issues.length} 项提示，无阻断）`+
+      (r.issues.length ? `<div>${r.issues.map(i=>`<div class="hint">提示 ${esc(ISSUE_CODE_CN[i.code] || i.code)}：${esc(i.message)}</div>`).join('')}</div>` : '') + `</div>`;
   } else {
-    box.innerHTML = `<div class="card err-box">⛔ 商用预检未通过（${r.issues.filter(i=>!i.recoverable).length} 项阻断）：`+
-      r.issues.map(i=>`<div class="hint">${i.recoverable?'⚠':'⛔'} [${esc(i.code)}] ${esc(i.message)}（素材：${esc(i.targetId)}）</div>`).join('')+
-      `</div>`;
+    box.innerHTML = `<div class="panel err-box">商用预检未通过（${r.issues.filter(i=>!i.recoverable).length} 项阻断）：
+      ${r.issues.map(i=>`<div class="hint">${i.recoverable?'提示':'阻断'} ${esc(ISSUE_CODE_CN[i.code] || i.code)}：${esc(i.message)}${i.targetId ? '（对象 ' + esc(i.targetId) + '）' : ''}</div>`).join('')}</div>`;
   }
   return r;
 }
 async function editorRenderFinal(){
   const pf = await editorPreflight();
-  if (pf.status !== 'PASS') { editorToast('商用预检未通过，渲染中止（先处理阻断项）'); return; }
-  editorToast('预检通过，渲染已提交到队列……');
-  // 渲染走既有管线：confirm 接口渲染 AWAITING_CONFIRM 项目
+  if (pf.status !== 'PASS') { editorToast('商用预检未通过，渲染中止（先处理阻断项）', true); return; }
+  editorToast('预检通过，渲染已提交……');
   const r = await apiPost('/api/confirm', {project_id: ED.pid});
   if (r.ok) {
     document.getElementById('editor-preflight-box').innerHTML =
-      `<div class="card ok-box">🎬 成片完成：<a class="dl" href="/file?path=${encodeURIComponent(r.final_path)}" download="final.mp4">下载 final.mp4</a> QC: ${esc((r.qc||{}).verdict||'')}</div>`;
+      `<div class="panel ok-box">成片完成：<a class="dl" href="/file?path=${encodeURIComponent(r.final_path)}" download="final.mp4">下载 final.mp4</a> 质检：${esc((r.qc||{}).verdict||'')}</div>`;
   } else {
     document.getElementById('editor-preflight-box').innerHTML =
       `<div class="err-box">渲染失败：${esc(r.error||'')}</div>`;
@@ -58,415 +277,28 @@ async function editorRenderFinal(){
 }
 
 function editorToast(msg, isErr){
-  // §28 全局 Toast：优先顶栏 meta；不存在（创作页/分镜页）时降级右下角浮层
-  const meta = document.getElementById('editor-meta');
-  if (meta) {
-    meta.textContent = msg;
-    meta.style.color = isErr ? '#c0392b' : '#27ae60';
-    setTimeout(() => { meta.style.color = ''; }, 6000);
-    return;
-  }
-  let host = document.getElementById('global-toast-host');
-  if (!host) {
-    host = document.createElement('div');
-    host.id = 'global-toast-host';
-    host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;max-width:420px';
-    document.body.appendChild(host);
-  }
+  const host = document.getElementById('global-toast-host');
+  const h = host || (() => {
+    const el = document.createElement('div');
+    el.id = 'global-toast-host';
+    el.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;max-width:420px';
+    document.body.appendChild(el);
+    return el;
+  })();
   const t = document.createElement('div');
   t.textContent = msg;
-  t.style.cssText = 'background:' + (isErr ? '#3a1d1d' : '#1d2b22') + ';' +
-    'border:1px solid ' + (isErr ? '#c0392b' : '#2e5e3e') + ';color:' +
-    (isErr ? '#ff8f8f' : '#7fd49a') + ';padding:10px 14px;border-radius:8px;' +
+  t.style.cssText = 'background:' + (isErr ? 'var(--surface-3)' : 'var(--surface-2)') + ';' +
+    'border:1px solid ' + (isErr ? 'var(--danger)' : 'var(--success)') + ';color:' +
+    (isErr ? 'var(--danger)' : 'var(--success)') + ';padding:10px 14px;border-radius:8px;' +
     'font-size:13px;margin-top:6px;box-shadow:0 4px 16px rgba(0,0,0,.4)';
-  host.appendChild(t);
-  setTimeout(() => { t.remove(); }, 6000);
+  h.appendChild(t);
+  setTimeout(() => { t.remove(); }, 5000);
 }
 
-// ===========================================================================
-// §48 Library 八入口（Scenes/Script/Assets/Stock/Generate/Motions/Templates/References）
-// 只保留浏览入口；点击应用回 Timeline/Inspector。Blocks 并入 Assets 入口展示。
-// ===========================================================================
-let ED_LIB = {blocks: [], motions: [], loaded: false, nav: 'scenes'};
-
-function edLibNav(kind){
-  // §48 左栏入口切换：高亮当前入口并加载对应列表
-  ED_LIB.nav = kind;
-  document.querySelectorAll('#ed-lib-nav button').forEach(btn => {
-    btn.classList.toggle('active', btn.getAttribute('data-lib') === kind);
-  });
-  edLibLoad();
-}
-
-async function edLibLoad(){
-  const q = (document.getElementById('ed-lib-search').value || '').toLowerCase();
-  const box = document.getElementById('ed-lib-list');
-  box.innerHTML = '加载中……';
-  try {
-    if (ED_LIB.nav === 'blocks') {
-      if (!ED_LIB.blocks.length) ED_LIB.blocks = await apiGet('/api/catalog/blocks');
-      const list = ED_LIB.blocks.filter(b => !q || (b.id + b.name).toLowerCase().includes(q));
-      box.innerHTML = list.map(b => `<div class="proj-row"><span><b>${esc(b.name)}</b> <code>${esc(b.id)}</code>`+
-        `<span class="hint">${esc(b.category)} · ${b.slots.join('/')}</span></span>`+
-        `<button class="btn-secondary btn-sm" onclick="edLibApplyBlock('${esc(b.id)}')">应用</button></div>`).join('')
-        || '<div class="hint">无匹配</div>';
-    } else if (ED_LIB.nav === 'motions') {
-      const ms = await apiGet('/api/registry/motions');
-      window.MOTIONS = ms;
-      const zoneCard = (label, ids) => `<div style="margin:6px 0"><b style="color:#8ab4d8">${label}</b><div class="btn-row" style="flex-wrap:wrap">`+
-        ids.map(id => { const m = ms.find(x=>x.id===id); if(!m) return ''; return `<span class="motion-card" style="width:110px">`+
-          `<span class="motion-preview ${m.preview_only?'motion-preview-dim':''}" style="${motionCssPreview(m)}">${esc(m.name)}</span>`+
-          `<button class="btn-secondary btn-sm" onclick="edLibApplyMotion('${esc(m.id)}')">应用</button></span>`; }).join('')+'</div></div>';
-      const shown = [...new Set([...MOTION_ZONES.Entrance, ...MOTION_ZONES.Emphasis, ...MOTION_ZONES.Exit])];
-      const rest = ms.filter(m => !shown.includes(m.id) && (!q || (m.id + m.name).toLowerCase().includes(q)));
-      box.innerHTML = zoneCard('入场', MOTION_ZONES.Entrance) + zoneCard('强调', MOTION_ZONES.Emphasis) + zoneCard('出场', MOTION_ZONES.Exit) +
-        (rest.length ? `<div style="margin:6px 0"><b style="color:#8ab4d8">其他</b><div class="btn-row" style="flex-wrap:wrap">`+
-          rest.map(m => `<span class="motion-card" style="width:110px"><span class="motion-preview ${m.preview_only?'motion-preview-dim':''}" style="${motionCssPreview(m)}">${esc(m.name)}</span>`+
-          `<button class="btn-secondary btn-sm" onclick="edLibApplyMotion('${esc(m.id)}')">应用</button></span>`).join('')+'</div></div>' : '');
-    } else if (ED_LIB.nav === 'templates') {
-      const tpls = await apiGet('/api/registry/templates');
-      window.TPLS = tpls;
-      const list = tpls.filter(t => !q || (t.id + t.name).toLowerCase().includes(q));
-      box.innerHTML = list.map(t => `<div class="proj-row"><span><b>${esc(t.name)}</b> <code>${esc(t.id)}</code>`+
-        `<span class="hint">画幅 ${t.supported_ratios.join('/')} · ${t.scene_count} 场景</span></span>`+
-        `<button class="btn-sm" onclick="edLibOpenTemplate('${t.id}')">试用</button></div>`).join('') || '<div class="hint">无匹配</div>';
-    } else if (ED_LIB.nav === 'assets') {
-      const assets = await apiGet('/api/assets_library');
-      const list = assets.filter(a => !q || (a.asset_id + (a.description||'')).toLowerCase().includes(q));
-      box.innerHTML = list.slice(0, 50).map(a => `<div class="proj-row"><span><b>${esc(a.asset_id)}</b>`+
-        `<span class="hint">${esc(a.type)} · 用于 ${a.used_in.length} 项目</span></span>`+
-        `<button class="btn-secondary btn-sm" onclick="edLibApplyAsset('${esc(a.asset_id)}')">换到此层</button></div>`).join('')
-        || '<div class="hint">无素材</div>';
-    } else if (ED_LIB.nav === 'scenes') {
-      if (!ED.comp || !ED.comp.scenes) { box.innerHTML = '<div class="hint">先打开项目</div>'; return; }
-      const list = ED.comp.scenes.filter(s => !q || (s.id + s.text).toLowerCase().includes(q));
-      box.innerHTML = list.map(s => `<div class="proj-row" onclick="editorSelectScene('${esc(s.id)}', event)"><span><b>${esc(s.id)}</b>`+
-        `<span class="hint">${s.duration.toFixed(1)}s · ${esc((s.text||'').slice(0,20))}</span></span></div>`).join('');
-    } else if (ED_LIB.nav === 'script') {
-      // §48 Script 入口：项目分镜文案浏览（只读，编辑回 Inspector/时间线）
-      if (!ED.comp || !ED.comp.scenes) { box.innerHTML = '<div class="hint">先打开项目</div>'; return; }
-      const list = ED.comp.scenes.filter(s => !q || (s.text||'').toLowerCase().includes(q));
-      box.innerHTML = list.map((s, i) => `<div class="proj-row"><span><span class="hint">#${i+1} ${esc(s.id)} · ${s.duration.toFixed(1)}s</span><br>${esc(s.text||'')}</span></div>`).join('')
-        || '<div class="hint">无文案场景</div>';
-    } else if (ED_LIB.nav === 'stock') {
-      // §48 Stock 入口：三 Provider 统一搜索（缺 key 诚实提示 §25）
-      box.innerHTML = `<div class="btn-row"><input type="text" id="ed-stock-q" class="rev-input" style="flex:1" placeholder="搜索 Stock 素材（coffee）" onkeydown="if(event.key==='Enter')edLibStockSearch()">
-        <button class="btn-secondary btn-sm" onclick="edLibStockSearch()">搜索</button></div><div id="ed-stock-results" class="hint" style="margin-top:6px">Pexels / Pixabay / Coverr 统一入口</div>`;
-    } else if (ED_LIB.nav === 'generate') {
-      // §48 Generate 入口：跳到下方生成面板（入口非独立产品）
-      box.innerHTML = '<div class="hint">生成素材面板在时间线下方。<br>选中场景后填提示词 → 生成 A/B/C 变体 → 加入时间线。</div>';
-    } else if (ED_LIB.nav === 'references') {
-      // §48 References 入口：参考视频/素材引用列表（§68/§90 asset: 引用）
-      if (!ED.comp) { box.innerHTML = '<div class="hint">先打开项目</div>'; return; }
-      const refs = [];
-      for (const sc of ED.comp.scenes) for (const lay of (sc.layers||[])) {
-        if (lay.asset_id && !refs.includes(lay.asset_id)) refs.push(lay.asset_id);
-      }
-      box.innerHTML = refs.length ? refs.map(r => `<div class="proj-row"><span><b>${esc(r)}</b><span class="hint">可作生成引用</span></span></div>`).join('')
-        : '<div class="hint">项目暂无素材引用</div>';
-    }
-  } catch (e) {
-    box.innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
-  }
-}
-async function edLibStockSearch(){
-  const inp = document.getElementById('ed-stock-q');
-  const box = document.getElementById('ed-stock-results');
-  if (!inp || !box) return;
-  const q = inp.value.trim();
-  if (!q) { box.textContent = '请输入关键词'; return; }
-  box.textContent = '搜索中……';
-  const r = await apiPost('/api/stock/search', {query: q, ratio: 'any'});
-  if (!r.ok) {
-    box.innerHTML = `<div class="err-box">❌ ${esc(r.error || '搜索失败')}${r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`;
-    return;
-  }
-  const cands = r.candidates || [];
-  const statusCn = {SUPPORTED:'✓', MISSING_REQUIREMENT:'⚠ 素材不足', INCOMPATIBLE:'× 画幅不符', UNKNOWN:'? 待确认'};
-  box.innerHTML = cands.length ? cands.map(c =>
-    `<div class="proj-row"><span><b>${esc(c.provider)}</b> ${esc(c.visualDescription || c.sourceId)}`+
-    `<span class="hint">${c.width}x${c.height} · ${c.duration}s · ${statusCn[c.status] || c.status} · ${COMMERCIAL_CN[c.commercialStatus] || esc(c.commercialStatus)}</span></span></div>`).join('')
-    : '<div class="hint">无匹配素材</div>';
-}
-
-async function edLibApplyBlock(blockId){
-  // §36：Block 应用 = 给选中场景/层挂 graphic 层（layer.add 链，Block id 记 lineage）
-  if (!ED.pid || !ED.sel) { editorToast('先在时间线选中场景或图层'); return; }
-  const sceneId = ED.sel.type === 'layer' ? ED.sel.id.split('#')[0] : ED.sel.id;
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'add_broll',
-    targetId: sceneId, payload: {kind: 'graphic', blockId: blockId}, expectedVersion: ED.version});
-  if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    editorRenderTimeline();
-    editorToast(`✅ 图形块「${blockId}」已加入场景 ${sceneId}`);
-  } else {
-    editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error || '应用失败'), true);
-  }
-}
-async function edLibApplyMotion(motionId){
-  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { editorToast('先在时间线选中一个图层'); return; }
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
-    targetId: ED.sel.id, payload: {motionRecipeId: motionId}, expectedVersion: ED.version});
-  if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    editorRenderTimeline();
-    editorToast(`✅ ${motionId} 已应用（Creative Library）`);
-  } else { editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error), true); }
-}
-async function edLibApplyAsset(assetId){
-  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') { editorToast('先在时间线选中一个图层'); return; }
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_source',
-    targetId: ED.sel.id, payload: {assetId}, expectedVersion: ED.version});
-  if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    editorRenderTimeline();
-    editorToast(`✅ 素材已换为 ${assetId}`);
-  } else { editorToast('❌ ' + ((r.errors||[{}])[0].message || r.error), true); }
-}
-
-function edLibOpenTemplate(tid){
-  const t = TPLS.find(x=>x.id===tid);
-  if (!t) return;
-  const box = document.getElementById('ed-lib-list');
-  const ratioOpts = t.supported_ratios.map(r=>`<option value="${r}">${r}</option>`).join('');
-  const slotInputs = t.slots.map(s=>
-    `<label>${esc(s.label)}${s.required?'（必填）':''}</label>`+
-    (s.type === 'image' || s.type === 'video' || s.type === 'product' || s.type === 'person'
-      ? `<input type="file" id="tpl-slot-${s.id}" accept=".mp4,.jpg,.jpeg,.png,.webp,.mov">`
-      : `<input type="text" id="tpl-slot-${s.id}" placeholder="填入${esc(s.label)}">`)
-  ).join('');
-  box.innerHTML = `<div><b>试用模板：${esc(t.name)}</b>`+
-    `<label>画幅</label><select id="tpl-ratio">${ratioOpts}</select>`+slotInputs+
-    `<div class="btn-row"><button class="btn" onclick="instantiateTemplate('${t.id}')">🧩 生成可编辑项目</button>`+
-    `<button class="btn-secondary btn-sm" onclick="edLibNav('templates')">← 返回模板列表</button></div>`+
-    `<div class="hint" id="tpl-status"></div></div>`;
-}
-
-// ===========================================================================
-// 模板库（Template Gallery）
-// ===========================================================================
-let TPLS = [];
-async function loadTemplates(){
-  window.TPLS = await apiGet('/api/registry/templates');
-  renderTemplateGallery();
-}
-function renderTemplateGallery(){
-  if (!document.getElementById('templates-list')) return;  // 平铺页已收进 Library 左栏（历史兼容，防误调）
-  const q = ((document.getElementById('tpl-search')||{}).value || '').toLowerCase();
-  const cat = (document.getElementById('tpl-category')||{}).value || '';
-  const list = TPLS.filter(t =>
-    (!cat || t.category === cat) &&
-    (!q || (t.name + t.id).toLowerCase().includes(q))
-  );
-  document.getElementById('templates-list').innerHTML = list.map(t=>
-    `<div class="proj-row"><span><b>${esc(t.name)}</b> <code>${esc(t.id)}</code><br>`+
-    `<span class="hint">画幅 ${t.supported_ratios.join('/')} · 建议 ${t.duration_recommended}s · ${t.scene_count} 场景 · 授权 ${esc(t.commercial_status)}</span></span>`+
-    `<button class="btn-sm" onclick="openTemplateForm('${t.id}')">试用</button></div>`).join('')
-    || '<div class="hint">无匹配模板</div>';
-}
-function openTemplateForm(tid){
-  const t = TPLS.find(x=>x.id===tid);
-  const box = document.getElementById('template-form-box');
-  const ratioOpts = t.supported_ratios.map(r=>`<option value="${r}">${r}</option>`).join('');
-  const slotInputs = t.slots.map(s=>
-    `<label>${esc(s.label)}${s.required?'（必填）':''} [${s.type}]</label>`+
-    (s.type === 'image' || s.type === 'video' || s.type === 'product' || s.type === 'person'
-      ? `<input type="file" id="tpl-slot-${s.id}" accept=".mp4,.jpg,.jpeg,.png,.webp,.mov">`
-      : `<input type="text" id="tpl-slot-${s.id}" placeholder="填入${esc(s.label)}">`)
-  ).join('');
-  box.innerHTML = `<div class="card"><b>试用模板：${esc(t.name)}</b>`+
-    `<label>画幅</label><select id="tpl-ratio">${ratioOpts}</select>`+
-    slotInputs +
-    `<div class="btn-row"><button onclick="instantiateTemplate('${t.id}')">🧩 生成可编辑项目</button></div>`+
-    `<div class="hint" id="tpl-status"></div></div>`;
-  box.scrollIntoView({behavior:'smooth'});
-}
-async function instantiateTemplate(tid){
-  const t = TPLS.find(x=>x.id===tid);
-  const slotValues = {};
-  for (const s of t.slots) {
-    const el = document.getElementById('tpl-slot-' + s.id);
-    if (!el) continue;
-    if (el.type === 'file') continue;  // 文件槽只走 FormData 文件域，不进 JSON
-    if (el.value.trim()) { slotValues[s.id] = el.value.trim(); }
-  }
-  const fd = new FormData();
-  fd.append('template_id', tid);
-  fd.append('ratio', document.getElementById('tpl-ratio').value);
-  fd.append('slot_values_json', JSON.stringify(slotValues));
-  for (const s of t.slots) {
-    const el = document.getElementById('tpl-slot-' + s.id);
-    if (el && el.type === 'file' && el.files.length) fd.append(s.id + '_file', el.files[0], el.files[0].name);
-  }
-  document.getElementById('tpl-status').textContent = '生成中……';
-  const resp = await fetch('/api/templates/instantiate', {method:'POST', body: fd});
-  const r = await resp.json();
-  if (r.ok) {
-    document.getElementById('tpl-status').textContent =
-      `✅ 项目已建立：${r.project_id}（${r.scene_count} 场景 / ${r.duration}s）→ 正在打开编辑器…`;
-    setTimeout(async ()=>{
-      switchTab('editor');
-      await editorInit();  // 重新拉项目下拉（新项目刚建，旧列表没有）
-      document.getElementById('editor-project').value = r.project_id;
-      editorLoad();
-    }, 800);
-  } else {
-    document.getElementById('tpl-status').textContent = '❌ ' + (r.error || '生成失败');
-  }
-}
-
-// ===========================================================================
-// 动效库（Motion Gallery：搜索/筛选/CSS 循环预览/应用到项目/收藏/意图筛选）
-// ===========================================================================
-let MOTIONS = [];
-let MOTION_BEHAVIOR = {};  // §三十二 Style DNA：{id: {pinned: n, used: n, ...}}
-async function loadMotions(){
-  window.MOTIONS = await apiGet('/api/registry/motions');
-  // 意图筛选项动态填充（§25：Semantic Intent 过滤）
-  const intentSel = document.getElementById('motion-intent-filter');
-  if (intentSel) {
-    const intents = [...new Set(MOTIONS.flatMap(m => m.semantic_intents || []))].sort();
-    intentSel.innerHTML = '<option value="">全部意图</option>' +
-      intents.map(i=>`<option value="${esc(i)}">${esc(i)}</option>`).join('');
-  }
-  try {
-    const r = await apiGet('/api/style_dna/behaviors');
-    window.MOTION_BEHAVIOR = r.summary || {};
-  } catch(e) { MOTION_BEHAVIOR = {}; }
-  renderMotionGallery();
-  renderMotionZones();
-}
-// §37 Motion 三区：Entrance（入场：fade/slide/reveal/scale）/ Emphasis（强调：
-// pulse/highlight/underline 类）/ Exit（出场：fade/slide）按用途分组展示。
-const MOTION_ZONES = {
-  Entrance: ['motion.fade-in', 'motion.fade-slide', 'motion.rise-fade', 'motion.zoom-in-soft', 'motion.slide-left', 'motion.slide-right', 'motion.wipe-reveal', 'motion.ink-bleed', 'motion.card-assemble'],
-  Emphasis: ['motion.scale-punch', 'motion.pulse-emphasis', 'motion.shake-emphasis', 'motion.spotlight-focus', 'motion.word-relay', 'motion.ken-burns-soft'],
-  Exit: ['motion.fade-out', 'motion.scale-down-exit', 'motion.slide-down-exit', 'motion.blur-slide'],
-};
-function renderMotionZones(){
-  if (!document.getElementById('motion-zones')) return;
-  const box = document.getElementById('motion-zones');
-  if (!box) return;
-  const zoneHtml = (label, ids) => `<div style="margin:1.2vh 0"><b style="color:#8ab4d8">${label}</b><div>`+
-    ids.map(id => {
-      const m = MOTIONS.find(x => x.id === id);
-      if (!m) return '';
-      const kf = motionCssPreview(m);
-      return `<div class="motion-card" style="width:120px">`+
-        `<div class="motion-preview ${m.preview_only ? 'motion-preview-dim' : ''}" style="${kf}">${esc(m.name)}</div>`+
-        `<button class="btn-secondary btn-sm" style="margin-top:6px;width:100%" onclick="motionApplyToProject('${esc(m.id)}')">应用</button></div>`;
-    }).join('') + '</div></div>';
-  box.innerHTML = zoneHtml('入场', MOTION_ZONES.Entrance) +
-                   zoneHtml('强调', MOTION_ZONES.Emphasis) +
-                   zoneHtml('出场', MOTION_ZONES.Exit);
-}
-function renderMotionGallery(){
-  if (!document.getElementById('motions-list')) return;
-  const q = (document.getElementById('motion-search').value || '').toLowerCase();
-  const f = document.getElementById('motion-filter').value;
-  const intentSel = document.getElementById('motion-intent-filter');
-  const intent = intentSel ? intentSel.value : '';
-  const favChk = document.getElementById('motion-fav-only');
-  const favOnly = favChk ? favChk.checked : false;
-  const list = MOTIONS.filter(m =>
-    (!f || m.motion_type === f) &&
-    (!intent || (m.semantic_intents||[]).includes(intent)) &&
-    (!favOnly || (MOTION_BEHAVIOR[m.id]||{}).pinned) &&
-    (!q || (m.name + m.id).toLowerCase().includes(q))
-  );
-  document.getElementById('motions-list').innerHTML = list.map(m=>{
-    const kf = motionCssPreview(m);
-    const pinned = (MOTION_BEHAVIOR[m.id]||{}).pinned;
-    const usedN = (MOTION_BEHAVIOR[m.id]||{}).used || 0;
-    return `<div class="motion-card" data-mid="${esc(m.id)}">`+
-      `<div class="motion-preview ${m.preview_only ? 'motion-preview-dim' : ''}" style="${kf}">预览</div>`+
-      `<div class="motion-title">${esc(m.name)} <button class="fav-btn ${pinned?'pinned':''}" title="收藏（风格记忆）" onclick="toggleMotionPin('${esc(m.id)}', this)">${pinned?'★':'☆'}</button></div>`+
-      `<div class="hint">${esc(m.id)} · ${MOTION_TYPE_CN[m.motion_type]||m.motion_type} · ${m.duration_recommended}s${m.preview_only ? ' · 仅预览' : ''}${usedN ? ' · 用过'+usedN+'次' : ''}</div>`+
-      `<button class="btn-secondary btn-sm" onclick="motionApplyToProject('${esc(m.id)}')">应用到项目</button>`+
-      `</div>`;
-  }).join('') || '<div class="hint">无匹配动效</div>';
-}
-async function toggleMotionPin(mid, btn){
-  const has = (MOTION_BEHAVIOR[mid]||{}).pinned;
-  const r = await apiPost('/api/style_dna/record', {item_id: mid, behavior: has ? 'avoided' : 'pinned', item_kind: 'motion'});
-  if (r.ok) {
-    MOTION_BEHAVIOR[mid] = MOTION_BEHAVIOR[mid]||{};
-    if (has) { delete MOTION_BEHAVIOR[mid].pinned; btn.classList.remove('pinned'); btn.textContent='☆'; }
-    else { MOTION_BEHAVIOR[mid].pinned = 1; btn.classList.add('pinned'); btn.textContent='★'; }
-  }
-}
-function motionCssPreview(m){
-  // channels → CSS keyframes 循环（opacity/scale/x/y → transform+opacity）
-  const parts = [];
-  let from = {}, to = {};
-  for (const ch of m.channels) {
-    const v0 = ch.keyframes[0].value, v1 = ch.keyframes[ch.keyframes.length-1].value;
-    if (ch.property === 'opacity') { from.opacity = v0; to.opacity = v1; }
-    if (ch.property === 'scale') { from.scale = v0; to.scale = v1; }
-    if (ch.property === 'x') { from.tx = v0; to.tx = v1; }
-    if (ch.property === 'y') { from.ty = v0; to.ty = v1; }
-  }
-  const tf = (o) => `scale(${o.scale !== undefined ? o.scale : 1}) translate(${o.tx||0}px, ${o.ty||0}px)`;
-  const dur = Math.max(0.4, Math.min(2.5, m.duration_recommended));
-  const kfName = 'mp_' + m.id.replace(/[^a-z0-9_]/gi, '');
-  // 注入 keyframes（幂等：同 id 覆盖）
-  let styleEl = document.getElementById('kf_' + kfName);
-  if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'kf_' + kfName; document.head.appendChild(styleEl); }
-  styleEl.textContent = `@keyframes ${kfName}{0%{opacity:${from.opacity!==undefined?from.opacity:1};transform:${tf(from)}}100%{opacity:${to.opacity!==undefined?to.opacity:1};transform:${tf(to)}}}`;
-  return `animation:${kfName} ${dur}s ease-in-out infinite alternate`;
-}
-async function motionApplyToProject(mid){
-  if (!ED.pid || !ED.sel || ED.sel.type !== 'layer') {
-    editorToast('先在「编辑器」打开项目并选中一个图层，再回来应用动效'); switchTab('editor'); return;
-  }
-  const r = await apiPost('/api/editor/command', {project_id: ED.pid, command: 'replace_motion',
-    targetId: ED.sel.id, payload: {motionRecipeId: mid}, expectedVersion: ED.version});
-  if (r.ok) {
-    ED.version = r.composition_version;
-    const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-    ED.comp = comp; ED.version = comp.version;
-    editorToast(`✅ ${mid} 已应用到 ${ED.sel.id}`);
-    switchTab('editor'); editorRenderTimeline();
-  } else {
-    const err = (r.errors && r.errors[0]) || {};
-    editorToast('❌ ' + (err.message || r.error), true);
-  }
-}
-
-// ---- 通用 POST 助手（Editor/Proposal/Resolve 全走这里）----
-
-// §8 拆分导出：inline onclick/window 引用兼容（零行为改动）
 Object.assign(window, {
-  editorLoadVersions,
-  editorCompareSelected,
-  editorPreflight,
-  editorRenderFinal,
-  editorToast,
-  edLibNav,
-  edLibLoad,
-  edLibStockSearch,
-  edLibApplyBlock,
-  edLibApplyMotion,
-  edLibApplyAsset,
-  edLibOpenTemplate,
-  loadTemplates,
-  renderTemplateGallery,
-  openTemplateForm,
-  instantiateTemplate,
-  loadMotions,
-  renderMotionZones,
-  renderMotionGallery,
-  toggleMotionPin,
-  motionCssPreview,
-  motionApplyToProject,
-  ED_LIB,
-  TPLS,
-  MOTIONS,
-  MOTION_BEHAVIOR,
+  loadReview, renderIssueList, reviewSelectIssue, reviewLocate,
+  reviewFixRelation, reviewRecheck, reviewAskAI,
+  loadPublish, publishDetail,
+  editorPreflight, editorRenderFinal, editorToast,
+  ISSUE_CODE_CN, RV,
 });

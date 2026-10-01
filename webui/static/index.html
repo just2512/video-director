@@ -9,571 +9,355 @@
 <link rel="stylesheet" href="/static/css/workspace.css">
 <link rel="stylesheet" href="/static/css/timeline.css">
 <link rel="stylesheet" href="/static/css/components.css">
-
 </head>
 <body>
-<div class="wrap">
-  <h1>🎬 AI 视频创作系统</h1>
-  <div class="sub">理解创意 → 编排内容 → 程序化图形 + 媒体素材 → 可编辑时间线 → 人工确认 → AI 局部修改 → 确定性渲染 → 版本化复用</div>
-  <div class="tab-row">
-    <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">创作</button>
-    <button class="tab" id="tab-editor" onclick="switchTab('editor')">工作台</button>
-    <button class="tab" id="tab-review" onclick="switchTab('review')">审阅</button>
-    <button class="tab" id="tab-settings" onclick="switchTab('settings')">设置</button>
-  </div>
+<div class="app-shell">
+  <!-- §3 顶层导航：项目 / 工作台 / 审阅 / 设置（仅此四区） -->
+  <header class="topbar">
+    <span class="brand">创作中心</span>
+    <nav class="tab-row">
+      <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">项目</button>
+      <button class="tab" id="tab-editor" onclick="switchTab('editor')">工作台</button>
+      <button class="tab" id="tab-review" onclick="switchTab('review')">审阅</button>
+      <button class="tab" id="tab-settings" onclick="switchTab('settings')">设置</button>
+    </nav>
+    <span class="topbar-spacer"></span>
+    <!-- §27 收集箱：顶栏 + 收集 抽屉（不占首页主体） -->
+    <button class="btn-secondary btn-sm" onclick="captureDrawerToggle()">收集</button>
+    <!-- §3.1 新建项目 = Primary Action（顶部） -->
+    <button class="btn-sm" onclick="openCreate()">+ 新建项目</button>
+  </header>
 
-  <!-- ======== Tab 0: 首页（我现在该做什么）======== -->
-  <div id="pane-home">
+  <!-- ============ Tab 项目（§4 首页=项目页：待处理 + 最近项目）============ -->
+  <main id="pane-home" class="pane">
+    <div class="page-head">
+      <h2>项目</h2>
+      <span class="hint" id="pm-count"></span>
+    </div>
+    <div class="btn-row" style="align-items:center">
+      <input type="text" id="pm-search" class="rev-input" style="max-width:280px"
+             placeholder="搜索项目……" oninput="pmSearch(this)">
+      <div class="chip-row" id="pm-filters">
+        <button data-f="all" class="chip-on" onclick="pmSetFilter('all')">全部</button>
+        <button data-f="pending" onclick="pmSetFilter('pending')">待处理</button>
+        <button data-f="active" onclick="pmSetFilter('active')">进行中</button>
+        <button data-f="done" onclick="pmSetFilter('done')">已完成</button>
+        <button data-f="failed" onclick="pmSetFilter('failed')">失败</button>
+        <button data-f="legacy" onclick="pmSetFilter('legacy')">旧版</button>
+        <button data-f="archived" onclick="pmSetFilter('archived')">已归档</button>
+      </div>
+      <button class="btn-secondary btn-sm" onclick="loadProjects()">刷新</button>
+    </div>
+    <div class="pm-list-head">
+      <span>名称</span><span>状态</span><span>时长</span><span>最近修改</span><span>操作</span>
+    </div>
+    <div id="pm-list"></div>
+    <div id="pm-detail-box" class="panel" style="display:none"></div>
+    <div id="pm-preview-box" class="panel" style="display:none;margin-top:12px"></div>
 
-    <!-- §33 Frontend：新的 Create 入口（从文字开始 → 程序化视觉） -->
-    <div class="card">
-      <b>⚡ 快速创作</b>——只输入文案/创意，直接产出程序化动效视频（无需素材、无需配音，几分钟出片）
-      <div style="display:flex;gap:12px;align-items:flex-start;margin-top:10px">
-        <div style="flex:2">
-          <textarea id="gfx-script" style="min-height:96px" placeholder="例：介绍一下我的产品……"></textarea>
-        </div>
-        <div style="flex:1">
-          <label>内容类型</label>
-          <div class="btn-row" style="flex-wrap:wrap;gap:6px" id="gfx-types">
-            <button class="btn-secondary btn-sm gfx-type-btn on" onclick="gfxSetType('knowledge',this)">知识分享</button>
-            <button class="btn-secondary btn-sm gfx-type-btn" onclick="gfxSetType('product_video',this)">产品介绍</button>
-            <button class="btn-secondary btn-sm gfx-type-btn" onclick="gfxSetType('tutorial',this)">教程</button>
-            <button class="btn-secondary btn-sm gfx-type-btn" onclick="gfxSetType('freeform',this)">自由创作</button>
-          </div>
-          <label>画幅</label>
-          <select id="gfx-aspect">
-            <option value="1080x1920">9:16</option>
-            <option value="1920x1080">16:9</option>
-            <option value="1080x1080">1:1</option>
-          </select>
-          <label>风格</label>
-          <select id="gfx-style">
-            <option value="editorial">编辑风</option>
-            <option value="minimal">极简风</option>
-            <option value="warm">暖调</option>
-          </select>
-          <label>时长</label>
-          <select id="gfx-duration">
-            <option value="15">15s</option>
-            <option value="30" selected>30s</option>
-            <option value="60">60s</option>
-          </select>
-        </div>
-      </div>
-      <div class="btn-row">
-        <button onclick="gfxMakePlan()" id="gfx-plan-btn">📋 生成创作方案</button>
-        <button class="btn-secondary" onclick="gfxPreview()">👁 预览动效</button>
-      </div>
-      <div class="hint">生成方案后「确认进入工作台」，在那里统一预览、编辑、渲染成片（不再在首页直接出片）。</div>
-      <div class="hint">其他起点：<button class="btn-secondary btn-sm" style="margin:0 4px" onclick="promoTogglePanel()">🖥 从软件项目做宣传片</button><button class="btn-secondary btn-sm" style="margin:0 4px" onclick="referenceTogglePanel()">🎬 从参考视频学风格</button></div>
-      <div class="hint" id="gfx-status"></div>
-    </div>
-    <div id="gfx-plan-box"></div>
-    <div id="gfx-preview-box"></div>
-    <div id="gfx-result"></div>
-
-    <!-- §42 Block 开发体验：New Block → BlockDefinition → Creative Catalog -->
-    <div class="card dev-only">
-      <b>🧱 新建视觉块（开发者模式）</b> <span class="hint">——定义语义/意图/基件，保存进创作目录（刷新后仍在）</span>
-      <div class="btn-row" style="flex-wrap:wrap">
-        <input type="text" id="nb-id" class="rev-input" style="flex:1" placeholder="块 id（如 kb.mycard）">
-        <input type="text" id="nb-name" class="rev-input" style="flex:1" placeholder="块名（如 我的卡片）">
-      </div>
-      <div class="btn-row" style="flex-wrap:wrap">
-        <select id="nb-base" style="flex:1">
-          <option value="kb.title">基件：标题排版</option>
-          <option value="kb.statistic">基件：数字冲击</option>
-          <option value="kb.comparison">基件：双栏对比</option>
-          <option value="kb.process">基件：流程</option>
-          <option value="kb.quote">基件：引用</option>
-          <option value="pd.hero">基件：产品 Hero</option>
-        </select>
-        <input type="text" id="nb-intents" class="rev-input" style="flex:1" placeholder="语义意图（逗号分隔，如 mycard,custom）">
-        <button class="btn-secondary" onclick="gfxNewBlock()">💾 保存进创作目录</button>
-      </div>
-      <div class="hint" id="nb-status"></div>
-    </div>
-
-    <!-- §65 Repo Promo UI：发现项目 → 扫描 → 功能证据 → 创意 -->
-    <div class="card" id="promo-panel" style="display:none">
-      <b>🖥 软件宣传片</b>——从代码库发现可验证的卖点（证据链追溯，AI 不编造功能）
-      <div class="btn-row">
-        <input type="text" id="promo-root" class="rev-input" style="flex:2" placeholder="开发项目根目录（如 D:\\Projects）">
-        <button class="btn-secondary" onclick="promoDiscover()">🔍 发现项目</button>
-      </div>
-      <div id="promo-repos" class="hint">输入目录后「发现项目」，列出其中的开发项目（不扫全盘、跳过敏感文件）。</div>
-      <div id="promo-scan-result"></div>
-      <div id="promo-features"></div>
-    </div>
-    <!-- 参考视频分析：创作输入（从优秀视频提取风格/节奏/镜头结构，指导成片） -->
-    <div class="card" id="reference-panel" style="display:none">
-      <b>🎬 参考视频分析</b>——上传优秀视频，分析镜头结构 / 节奏 / 运动语言 / 转场语法，
-      报告会指导之后的创作（风格重构，不复制内容）。
-      <div class="btn-row">
-        <input type="file" id="reference_video" accept=".mp4,.mov,.mkv,.webm">
-        <button class="btn-secondary" onclick="analyzeReference()">🔍 开始分析</button>
-      </div>
-      <div id="reference-result"></div>
-    </div>
-    <div class="card">
-      <b>最近项目</b>（点击打开）
-      <div id="home-projects" class="home-grid">加载中……</div>
-    </div>
-    <div class="card">
-      <b>我现在该做什么？</b>
-      <div class="hint" id="home-todo-hint">—</div>
-      <div id="home-pending-storyboard">—</div>
-      <div id="home-pending-draft">—</div>
-      <div id="home-done-recent">—</div>
-    </div>
-  <div class="grid">
-    <div class="card">
-      <b>🎬 完整成片</b>——文案 + 素材 + 配音 + 字幕水印，精细控制每一步（可留空让 AI 自动决定）
-      <label>创作模式</label>
-      <select id="mode">
-        <option value="auto">文案 + 素材成片（主线）</option>
-        <option value="product">产品广告片（产品图 → 广告）</option>
-        <option value="script_only">纯文案成片（无需素材，文字卡+配音）</option>
-        <option value="image_shots">一图多镜头（单图 → 三镜头动效预览，无配音）</option>
-      </select>
-      <label>创作要求（可选：本次视频的整体意图，将进入创作简报供你确认）</label>
-      <textarea id="creative_brief" placeholder="例：30秒产品介绍，面向25-40岁白领，节奏轻快，突出卖点…（留空=AI 从文案自动理解）" style="min-height:64px"></textarea>
-      <div class="btn-row" style="gap:8px">
-        <div style="flex:1"><label>目标平台（自动选画幅）</label>
-          <select id="target_platform" onchange="platformAspectSync()">
-            <option value="">不指定</option>
-            <option value="douyin">抖音/视频号 9:16</option>
-            <option value="bilibili">B站 16:9</option>
-            <option value="xhs">小红书 3:4</option>
-            <option value="square">朋友圈 1:1</option>
-          </select>
-        </div>
-        <div style="flex:1"><label>目标时长（秒，可选）</label>
-          <input type="number" id="target_duration" placeholder="例：30" min="3" step="1">
-        </div>
-        <div style="flex:1"><label>受众（可选）</label>
-          <input type="text" id="audience" placeholder="例：25-40岁白领">
-        </div>
-      </div>
-      <label>文案</label>
-      <textarea id="script" placeholder="粘贴你的完整文案……"></textarea>
-      <div class="btn-row">
-        <button class="btn-secondary btn-sm" id="enhance-btn" onclick="enhanceScript()">✨ AI 润色文案</button>
-      </div>
-      <div id="enhance-result" style="display:none" class="enhance-box">
-        <div class="hint">AI 润色结果（原文保留，采用前可对比）：</div>
-        <textarea id="enhanced-text" class="enhanced-ta"></textarea>
-        <div class="btn-row">
-          <button class="btn-sm" onclick="acceptEnhanced()">✅ 采用</button>
-          <button class="btn-secondary btn-sm" onclick="discardEnhanced()">放弃</button>
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <label>视频素材（可多选，或 <button class="btn-sm" style="margin:0 4px" onclick="createGoStock()">🌐 联网搜图库</button>）</label>
-      <input type="file" id="videos" multiple accept=".mp4,.mov,.mkv,.webm">
-      <div class="hint">本地上传：文件名带语义（如「战场出征.mp4」）即可自动按内容匹配；也可点「联网搜图库」到编辑器搜索并下载采用 Pexels/Pixabay 素材</div>
-      <label>图片素材（可多选；产品模式下=产品图）</label>
-      <input type="file" id="images" multiple accept=".jpg,.jpeg,.png,.webp">
-      <label>配音</label>
-      <div class="preview-row">
-        <select id="narration_mode" onchange="narrationModeChange()">
-          <option value="auto">自动配音（TTS，推荐）</option>
-          <option value="upload">上传配音（免 TTS，ASR 对齐）</option>
-          <option value="silent">无配音（纯视觉/BGM/字幕）</option>
-        </select>
-      </div>
-      <div class="preview-row" id="voice-auto-row">
-        <select id="voice"></select>
-        <button class="btn-secondary btn-sm prev-btn" onclick="previewVoice()">▶ 试听</button>
-      </div>
-      <div class="preview-row" id="voice-upload-row" style="display:none">
-        <input type="file" id="voice_upload_file" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma">
-        <button class="btn-secondary btn-sm" onclick="uploadVoice()">⬆ 导入配音</button>
-        <span class="hint" id="voice-upload-status">选项目后上传（导入→检测→识别→词级时间轴，自动跳过配音）</span>
-      </div>
-      <div class="hint" id="voice-silent-note" style="display:none">无配音模式：不做配音不伪造声音；字幕/背景音乐/音效/视觉照常。</div>
-      <label>语速（可选，默认 1.0 倍）</label>
-      <select id="voice_rate">
-        <option value="0.8">0.8x 较慢</option>
-        <option value="0.9">0.9x 放慢</option>
-        <option value="1.0" selected>1.0x 正常</option>
-        <option value="1.1">1.1x 稍快</option>
-        <option value="1.3">1.3x 加快</option>
-        <option value="1.5">1.5x 很快</option>
-      </select>
-      <label>风格（可选，留空 AI 自动决定）</label>
-      <div class="btn-row" id="style-presets" style="flex-wrap:wrap;gap:6px;margin-top:6px;color:var(--muted);font-size:12px">加载风格……</div>
-      <input type="text" id="style_intent" placeholder="或自己描述：历史悬疑感 / 快节奏冲击 / 克制纪录片">
-      <label>片头标题（可选：成片自动加标题卡）</label>
-      <input type="text" id="title" placeholder="例：凌晨四点的城市（留空=不加片头）">
-      <label>人物条（可选：口播标注，片头后左下角显示主讲人）</label>
-      <input type="text" id="lower_third_name" placeholder="姓名（留空=不显示）">
-      <input type="text" id="lower_third_role" placeholder="头衔/机构（可选）">
-      <label>画幅</label>
-      <select id="aspect"></select>
-      <label>背景音乐（可选库音乐或上传本地文件）</label>
-      <div class="preview-row">
-        <select id="bgm"></select>
-        <button class="btn-secondary btn-sm prev-btn" onclick="previewAudio('bgm')">▶ 试听</button>
-      </div>
-      <input type="file" id="bgm_upload" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma" onchange="uploadAudio('bgm', this)">
-      <div class="hint" id="bgm-upload-status"></div>
-      <label>音效氛围（自动音效，关闭=无 SFX；可上传本地音效）</label>
-      <div class="preview-row">
-        <select id="sfx">
-          <option value="auto">自动（按镜头动作配音效，推荐）</option>
-          <option value="">关闭（不加音效）</option>
-        </select>
-        <button class="btn-secondary btn-sm prev-btn" onclick="previewSfx()">▶ 试听</button>
-      </div>
-      <input type="file" id="sfx_upload" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.wma" onchange="uploadAudio('sfx', this)">
-      <div class="hint" id="sfx-upload-status"></div>
-      <label>字幕样式</label>
-      <select id="subtitle_mode">
-        <option value="plain">普通字幕（逐句显示）</option>
-        <option value="karaoke">卡拉OK（逐词高亮跟读）</option>
-      </select>
-      <label>水印（可选，右下角；留空=不加水印）</label>
-      <input type="text" id="watermark" value="AI 创作" placeholder="水印文字（留空=不加水印）">
-      <label>成片前人工确认</label>
-      <select id="confirm_mode">
-        <option value="preview">先预览分镜再渲染（推荐）</option>
-        <option value="direct">直接一键到底</option>
-      </select>
-      <button id="go" onclick="compose()">🎬 自动制作</button>
-    </div>
-  </div>
-    <!-- §59 融合：项目/系列/收集箱/创作记忆 并入创作页工具区 -->
-    <div class="card">
-      <details>
-        <summary><b>📁 项目与工具</b>（项目列表 / 系列批量创作 / 收集箱 / 创作记忆）</summary>
-    <div class="card">
-      <b>我的项目</b>——点击任意项目可查看分镜/产物，未完成的可继续渲染
-      <div id="projects-list">加载中……</div>
-    </div>
-    <div id="project-detail-box"></div>
-    <div class="card">
-      <b>系列模板</b>——同一系列多集共用配音/画幅/字幕/风格/水印，一次配置批量成片
-      <div id="series-list">加载中……</div>
+    <!-- §27 系列：项目管理上下文（项目 → 系列），不再首页平铺表单 -->
+    <details class="panel" style="margin-top:20px">
+      <summary>系列（同一系列多集共用设置，一次配置批量成片）</summary>
+      <div id="series-list" style="margin-top:8px">加载中……</div>
       <div class="rev-console">
         <b>新建系列</b>
         <label>系列名</label>
         <input type="text" id="series-name" placeholder="例：历史悬疑系列">
         <label>每集文案分隔：每集之间用一行 <code>------------</code> 分隔</label>
-        <textarea id="series-scripts" placeholder="第一集文案……&#10;------------&#10;第二集文案……&#10;------------&#10;第三集文案……" style="min-height:140px"></textarea>
+        <textarea id="series-scripts" placeholder="第一集文案……&#10;------------&#10;第二集文案……" style="min-height:120px"></textarea>
         <label>共享素材（可选，系列内每集复用）</label>
         <input type="file" id="series-videos" multiple accept=".mp4,.mov,.mkv,.webm">
-        <label>画幅</label>
-        <select id="series-aspect"></select>
-        <label>配音</label>
-        <select id="series-voice"></select>
-        <label>字幕样式</label>
-        <select id="series-subtitle">
-          <option value="plain">普通字幕</option>
-          <option value="karaoke">卡拉OK</option>
-        </select>
-        <label>水印（留空不加）</label>
-        <input type="text" id="series-watermark" value="AI 创作">
-        <div class="btn-row">
-          <button onclick="createSeriesAndBatch()">🚀 创建系列并批量生成</button>
+        <div class="btn-row" style="gap:10px">
+          <div style="flex:1"><label>画幅</label><select id="series-aspect"></select></div>
+          <div style="flex:1"><label>配音</label><select id="series-voice"></select></div>
+          <div style="flex:1"><label>字幕样式</label>
+            <select id="series-subtitle">
+              <option value="plain">普通字幕</option>
+              <option value="karaoke">卡拉OK</option>
+            </select></div>
         </div>
+        <div class="btn-row"><button onclick="createSeriesAndBatch()">创建系列并批量生成</button></div>
         <div class="hint" id="series-status"></div>
       </div>
-    </div>
-    <div class="card">
-      <b>收集箱</b>——看到好的链接/想法先存这里，回头转创作（不必当场处理）
-      <div class="btn-row">
-        <input type="text" id="inbox-content" class="rev-input" placeholder="粘贴链接 / 记一个想法 / 一句选题……">
-        <button class="btn-secondary" onclick="inboxAdd('idea')">📥 存入</button>
-      </div>
-      <div class="hint" id="inbox-status"></div>
-      <div id="inbox-list">加载中……</div>
-    </div>
-    <div class="card">
-      <b>🧠 创作记忆</b>——你的每次成片与 👍👎 反馈都会沉淀为个人风格偏好，AI 越用越懂你。
-      <div class="btn-row"><button class="btn-secondary" onclick="loadMemoryView()">刷新</button></div>
-      <div id="memory-view"></div>
-    </div>
-      </details>
-    </div>
+    </details>
+  </main>
 
-  </div>
-  <div id="llm-badge" class="llm-badge" onclick="toggleLLMPanel()">🤖 AI 大模型：检测中…</div>
-  <div id="cap-badge" class="llm-badge" onclick="toggleCapPanel()">⚙ 系统能力：检测中…</div>
-  <div id="dev-badge" class="llm-badge" style="cursor:pointer" onclick="devToggleMode()" title="开发者模式：显示内部技术信息（默认关闭）">🔧 开发者模式</div>
-
-  <div id="cap-panel" class="card llm-panel" style="display:none">
-    <b>功能就绪状态</b>（就绪=可直接用；受限=部分能力暂缺，不影响其他功能）
-    <div id="cap-table"></div>
-    <div class="hint dev-only">技术细节（开发者模式）：视觉理解可配置 API 密钥启用（环境变量 COMPOSER_VISION_API_KEY）；未配置时用文件名语义匹配兜底。</div>
-  </div>
-
-  <div id="llm-panel" class="card llm-panel" style="display:none">
-    <b>🤖 大模型配置中心</b>——按创作角色分组，各自独立配置（OpenAI 协议兼容端点均可）
-    <div id="model-roles"></div>
-    <div class="btn-row">
-      <button class="btn-secondary" onclick="saveModelConfig()">💾 保存全部配置</button>
+  <!-- ============ Tab 工作台（§9 唯一正式创作编辑环境）============ -->
+  <main id="pane-editor" class="pane" style="display:none">
+    <!-- 项目切换行（始终可见：§9 工作台必须有打开的 Project；legacy 不入列） -->
+    <div class="btn-row" style="align-items:center;margin-top:0">
+      <select id="editor-project" style="max-width:320px" title="切换项目（只列可编辑项目）"
+              onchange="if(this.value)editorLoad()"></select>
+      <button class="btn-secondary btn-sm" onclick="editorLoad()">打开</button>
+      <span class="hint" id="editor-lib-hint">选中场景/图层后，Inspector 会给出对应的修改项</span>
     </div>
-    <div class="hint" id="llm-save-status"></div>
-    <div class="hint">未配置的角色自动走规则/内置路径兜底，功能不缺失；已保存配置立即生效。文本模型驱动导演/文案润色/改稿解析，视觉模型驱动素材画面理解，生图/生视频模型为生成类创作模式预留。</div>
-  </div>
-
-  <!-- ======== Tab 1: 创作 ======== -->
-  <!-- ======== Tab: 编辑器（Timeline + Inspector + AI 提案）======== -->
-  <div id="pane-editor" style="display:none">
-    <div class="card">
-      <b>🎛 创作编辑器</b>——打开项目后在时间线上选择场景/图层、换动效、调参数；顶栏提供撤销/重做/保存/预览/渲染。
-      <div class="btn-row">
-        <label>打开项目：</label>
-        <select id="editor-project"></select>
-        <button class="btn-secondary" onclick="editorLoad()">打开</button>
-        <span class="hint" id="editor-meta"></span>
+    <!-- 无项目态 -->
+    <div id="editor-empty" class="panel empty-state">
+      <div>还没有打开的项目</div>
+      <div class="hint">从「项目」页打开一个项目，或点右上角「+ 新建项目」开始。</div>
+      <div class="btn-row" style="justify-content:center">
+        <button class="btn-sm" onclick="switchTab('home')">去项目页</button>
       </div>
     </div>
     <div id="editor-body" style="display:none">
-      <!-- §46 顶栏：Project | V2 | Undo Redo | Save | Preview Render -->
+      <!-- §9 顶栏：项目操作抽屉 | V 版本 | Undo/Redo | Save | Preview/Render -->
       <div class="ed-topbar" id="editor-topbar">
-        <b id="tb-project" style="font-size:13px">—</b>
-        <span class="hint" id="tb-version">V?</span>
-        <button class="btn-secondary btn-sm" onclick="editorUndo()" title="撤销上一次编辑">↩ 撤销</button>
-        <button class="btn-secondary btn-sm" onclick="editorRedo()" title="恢复被撤销的编辑">↪ 重做</button>
+        <button class="btn-secondary btn-sm" id="tb-project" onclick="projectDrawerToggle()"
+                title="项目操作（重命名/复制/归档/删除/版本历史）">项目操作 ▾</button>
+        <span class="hint" id="tb-version" onclick="versionDrawerToggle()"
+              style="cursor:pointer" title="版本历史">V?</span>
+        <button class="btn-secondary btn-sm" onclick="editorUndo()" title="撤销上一次编辑">撤销</button>
+        <button class="btn-secondary btn-sm" onclick="editorRedo()" title="恢复被撤销的编辑">重做</button>
         <span class="tb-sep"></span>
-        <button class="btn-secondary btn-sm" onclick="editorSaveBar()" title="保存项目状态">💾 保存</button>
-        <button class="btn-secondary btn-sm" onclick="editorPreviewBar()" title="预览当前草稿">▶ 预览</button>
-        <button class="btn-secondary btn-sm" onclick="editorRenderFinal()" title="渲染成片">🎬 渲染</button>
+        <button class="btn-secondary btn-sm" onclick="editorSaveBar()" title="保存项目状态">保存</button>
+        <button class="btn-secondary btn-sm" onclick="editorPreviewBar()" title="预览当前草稿">预览</button>
+        <button class="btn-sm" onclick="editorRenderFinal()" title="渲染成片">渲染</button>
       </div>
-      <!-- §46 三栏工作区：Library | Preview | Inspector -->
+      <!-- §44 项目操作抽屉宿主 -->
+      <div id="project-drawer"></div>
+      <!-- §43 版本历史抽屉宿主 -->
+      <div id="version-drawer"></div>
+      <!-- §9 三栏：Library | Preview | Inspector -->
       <div class="ed-workspace" id="editor-workspace">
-        <!-- 左栏：§48 Library 八入口（只浏览，编辑回 Timeline/Inspector） -->
+        <!-- 左栏 §10：四领域（内容/设计/声音/参考） -->
         <div class="ws-col">
-          <div class="card" style="padding:8px">
-            <b style="font-size:13px">📚 资源库</b>
-            <div class="ed-lib-nav" id="ed-lib-nav" style="margin-top:6px">
-              <button data-lib="scenes" onclick="edLibNav('scenes')">🎬 场景</button>
-              <button data-lib="script" onclick="edLibNav('script')">📝 文案</button>
-              <button data-lib="assets" onclick="edLibNav('assets')">🖼 素材</button>
-              <button data-lib="stock" onclick="edLibNav('stock')">🌐 图库</button>
-              <button data-lib="generate" onclick="edLibNav('generate')">✨ 生成</button>
-              <button data-lib="motions" onclick="edLibNav('motions')">💫 动效</button>
-              <button data-lib="templates" onclick="edLibNav('templates')">🧩 模板</button>
-              <button data-lib="references" onclick="edLibNav('references')">🔗 引用</button>
+          <div class="panel" style="padding:8px">
+            <div class="ed-lib-nav" id="ed-lib-nav">
+              <button data-lib="content" onclick="edLibDomain('content')">内容</button>
+              <button data-lib="design" onclick="edLibDomain('design')">设计</button>
+              <button data-lib="sound" onclick="edLibDomain('sound')">声音</button>
+              <button data-lib="reference" onclick="edLibDomain('reference')">参考</button>
             </div>
-            <input type="text" id="ed-lib-search" class="rev-input" style="margin-top:6px" placeholder="搜索…" oninput="edLibLoad()">
-            <div id="ed-lib-list" style="max-height:180px;overflow:auto;margin-top:6px"></div>
-            <div class="hint" style="font-size:11px">入口仅浏览；点击应用回时间线/检视器。</div>
+            <div id="ed-lib-subnav" class="ed-lib-subnav"></div>
+            <input type="text" id="ed-lib-search" class="rev-input" style="margin-top:6px"
+                   placeholder="搜索……" oninput="edLibLoad()">
+            <div id="ed-lib-list"></div>
+            <div class="hint" style="font-size:11px">选中场景/图层后，点候选项「预览→应用」改到当前对象。</div>
           </div>
         </div>
-        <!-- 中栏：Preview（§46 中央预览区） -->
+        <!-- 中栏 Preview（§19 中央唯一视觉事实） -->
         <div class="ws-col">
           <div class="ed-preview-pane">
             <div class="btn-row" style="align-items:center">
               <b style="font-size:13px">预览</b>
-              <span class="hint" id="ed-preview-meta">打开项目后加载草稿预览</span>
+              <span class="hint" id="ed-preview-meta">打开项目后显示画面</span>
             </div>
             <div class="ed-preview-stage" id="ed-preview-stage">未加载预览</div>
           </div>
         </div>
-        <!-- 右栏：Inspector（§55 context-aware） -->
+        <!-- 右栏 Inspector（§12 上下文唯一） -->
         <div class="ws-col">
-          <div class="card" id="editor-inspector-card" style="display:none;padding:8px">
+          <div class="panel" id="editor-inspector-card" style="display:none;padding:8px">
             <b style="font-size:13px">检视器</b> <span class="hint" id="ed-inspector-ctx">—</span>
             <div id="editor-inspector" style="margin-top:6px"></div>
           </div>
-          <div class="card" id="editor-audio-card" style="padding:8px;margin-top:8px">
-        <b>🎚 音频 / 水印 / 字幕</b> <span class="hint">统一界面（全部对应时间线轨道）</span>
-        <div class="role-block" style="margin-top:6px">
-          <b>旁白 / 配音</b>
-          <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
-            <select id="ed-voice-sel" style="flex:1;min-width:120px"></select>
-            <button class="btn-secondary btn-sm" onclick="edVoicePreview()">▶ 试听</button>
-            <span class="hint" id="ed-voice-status"></span>
-          </div>
-          <div class="hint" style="font-size:11px">旁白方式（自动/上传/无配音）在创作页设定；此处可在编辑期试听音色。</div>
-        </div>
-        <div class="role-block" style="margin-top:8px">
-          <b>素材原声</b>
-          <div class="btn-row" style="margin-top:4px">
-            <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('preserve')">🔊 保留原声</button>
-            <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('mute')">🔇 静音原声</button>
-            <button class="btn-secondary btn-sm" onclick="editorOriginalAudioVolume()">🎚 原声音量</button>
-          </div>
-        </div>
-        <div class="role-block" style="margin-top:8px">
-          <b>水印</b>
-          <div class="btn-row" style="margin-top:4px">
-            <button class="btn-secondary btn-sm" onclick="editorWatermarkAdd()">➕ 文字水印</button>
-            <button class="btn-secondary btn-sm" onclick="editorWatermarkRemove()">🗑 移除水印</button>
-          </div>
-          <div id="editor-watermark-list" class="hint" style="margin-top:4px"></div>
-        </div>
-        <div class="role-block" style="margin-top:8px">
-          <b>字幕（字幕样式）</b>
-          <div class="btn-row" style="margin-top:4px">
-            <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('white_black')">白字黑边</button>
-            <button class="btn-secondary btn-sm" onclick="editorSubtitleStyle('position_bottom')">位置·底部</button>
-            <button class="btn-secondary btn-sm" onclick="editorBgmVolume()">🎚 BGM 音量</button>
-          </div>
-          <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
-            <label style="font-size:12px">模式</label>
-            <select id="sub-mode" style="width:90px">
-              <option value="sentence">句子</option>
-              <option value="word">逐词</option>
-            </select>
-            <label style="font-size:12px">字体</label>
-            <input type="text" id="sub-font" style="width:110px" placeholder="系统默认 CJK" title="字体名（空=系统默认）">
-            <label style="font-size:12px">字号</label>
-            <input type="number" id="sub-size" step="0.1" min="0.3" max="3" style="width:60px" placeholder="1.0">
-            <label style="font-size:12px">颜色</label>
-            <input type="color" id="sub-color" value="#ffffff" style="width:44px">
-            <label style="font-size:12px">描边</label>
-            <input type="color" id="sub-stroke" value="#000000" style="width:44px">
-            <label style="font-size:12px">描边宽</label>
-            <input type="number" id="sub-stroke-w" step="1" min="0" max="12" value="2" style="width:50px">
-            <label style="font-size:12px">位置</label>
-            <select id="sub-pos" style="width:80px">
-              <option value="bottom">底部</option>
-              <option value="center">居中</option>
-              <option value="top">顶部</option>
-            </select>
-            <label style="font-size:12px">动画</label>
-            <select id="sub-anim" style="width:100px">
-              <option value="none">无</option>
-              <option value="fade">淡入</option>
-              <option value="pop_spring">弹出</option>
-            </select>
-            <label style="font-size:12px">底色</label>
-            <input type="color" id="sub-bg" value="#000000" style="width:44px" title="底色（含底色=开启底色）">
-            <label style="font-size:12px">对齐</label>
-            <select id="sub-align" style="width:80px">
-              <option value="center">居中</option>
-              <option value="left">左</option>
-              <option value="right">右</option>
-            </select>
-            <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply()">应用样式</button>
-            <button class="btn-secondary btn-sm" onclick="editorSubtitleGenerate()">生成字幕轨</button>
+          <div class="panel" id="editor-audio-card" style="padding:8px;margin-top:8px">
+            <b>声音与字幕</b> <span class="hint">项目级设置（对应时间线轨道）</span>
+            <div class="role-block" style="margin-top:6px">
+              <b>配音</b>
+              <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
+                <select id="ed-voice-sel" style="flex:1;min-width:120px"></select>
+                <button class="btn-secondary btn-sm" onclick="edVoicePreview()">试听</button>
+                <span class="hint" id="ed-voice-status"></span>
+              </div>
+            </div>
+            <div class="role-block" style="margin-top:8px">
+              <b>素材原声</b>
+              <div class="btn-row" style="margin-top:4px">
+                <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('preserve')">保留原声</button>
+                <button class="btn-secondary btn-sm" onclick="editorOriginalAudio('mute')">静音原声</button>
+                <button class="btn-secondary btn-sm" onclick="editorOriginalAudioVolume()">原声音量</button>
+              </div>
+            </div>
+            <div class="role-block" style="margin-top:8px">
+              <b>音乐</b>
+              <div class="btn-row" style="margin-top:4px">
+                <button class="btn-secondary btn-sm" onclick="editorBgmVolume()">背景音乐音量</button>
+                <button class="btn-secondary btn-sm" onclick="editorAudioVolume('sfx')">音效音量</button>
+              </div>
+            </div>
+            <div class="role-block" style="margin-top:8px">
+              <b>水印</b>
+              <div class="btn-row" style="margin-top:4px">
+                <button class="btn-secondary btn-sm" onclick="editorWatermarkAdd()">加水印</button>
+                <button class="btn-secondary btn-sm" onclick="editorWatermarkRemove()">移除水印</button>
+              </div>
+              <div id="editor-watermark-list" class="hint" style="margin-top:4px"></div>
+            </div>
+            <div class="role-block" style="margin-top:8px">
+              <b>字幕样式</b>
+              <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
+                <label style="font-size:12px">模式</label>
+                <select id="sub-mode" style="width:80px">
+                  <option value="sentence">句子</option>
+                  <option value="word">逐词</option>
+                </select>
+                <label style="font-size:12px">字号</label>
+                <input type="number" id="sub-size" step="0.1" min="0.3" max="3" style="width:56px" placeholder="1.0">
+                <label style="font-size:12px">颜色</label>
+                <input type="color" id="sub-color" value="#ffffff" style="width:40px">
+                <label style="font-size:12px">位置</label>
+                <select id="sub-pos" style="width:72px">
+                  <option value="bottom">底部</option>
+                  <option value="center">居中</option>
+                  <option value="top">顶部</option>
+                </select>
+                <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply()">应用样式</button>
+                <button class="btn-secondary btn-sm" onclick="editorSubtitleGenerate()">生成字幕轨</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-
+      <!-- §23 Command Bar：当前对象的修改器（上下文行 + 输入 + 提案区） -->
+      <div class="panel" id="director-bar-card" style="padding:10px">
+        <div class="btn-row" style="align-items:center;margin-top:0">
+          <input type="text" id="director-input" class="rev-input" style="flex:1"
+                 placeholder="⌘K  描述你要修改的地方……"
+                 onkeydown="if(event.key==='Enter')directorExecute()">
+          <button class="btn-sm" onclick="directorExecute()">应用修改</button>
         </div>
+        <div class="hint" id="director-ctx-line"></div>
+        <div class="hint dev-only" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项能力</div>
+        <div id="director-result"></div>
       </div>
-      <!-- §46 AI Command Bar：工作区与时间线之间（中心位置 §47） -->
-      <div class="card" id="director-bar-card">
-        <b>修改</b> <span class="hint">描述你要修改的地方，例如「第二段换成产品近景，标题慢一点，字幕小一点」</span>
-        <div class="rev-console" style="margin-top:6px">
-          <div class="btn-row">
-            <input type="text" id="director-input" class="rev-input" style="flex:1"
-              placeholder="⌘K  描述你要修改的地方……"
-              onkeydown="if(event.key==='Enter')directorExecute()">
-            <button class="btn-sm btn-secondary" onclick="directorExecute()">应用修改</button>
-          </div>
-          <div class="hint dev-only" id="director-cap-note">已读取 <span id="director-cap-count">--</span> 项能力 · <span id="director-progress">进度通道就绪后实时推送</span></div>
-          <div id="director-result"></div>
+      <!-- §16 Timeline：四轨道组（可折叠） + 播放头 + 直接操作 -->
+      <div class="panel" style="padding:10px">
+        <div class="btn-row" style="align-items:center;margin-top:0">
+          <b>时间线</b>
+          <span class="hint">点击选中 · Ctrl 多选 · Shift 范围 · 拖动调整 · 空格播放</span>
+          <span class="tb-sep"></span>
+          <button class="btn-secondary btn-sm" id="tl-view-time" onclick="timelineView('time')">时间</button>
+          <button class="btn-secondary btn-sm" id="tl-view-semantic" onclick="timelineView('semantic')">语义</button>
         </div>
-      </div>
-      <div class="card">
-        <b>时间线</b> <span class="hint">点击选中（Ctrl=多选，Shift=范围）；十轨：旁白/对白/原声/主视觉/B-roll/图形/水印/字幕/背景音乐/音效</span>
-        <div class="btn-row" style="margin-bottom:4px">
-          <span style="font-size:12px;margin-right:6px">视图</span>
-          <button class="btn-secondary btn-sm" id="tl-view-time" onclick="timelineView('time')">⏱ 时间</button>
-          <button class="btn-secondary btn-sm" id="tl-view-semantic" onclick="timelineView('semantic')">🏷 语义</button>
-          <button class="btn-secondary btn-sm" id="tl-view-dual" onclick="timelineView('dual')">🔀 双视图</button>
-        </div>
-        <div id="editor-timeline"></div>
-        <div class="btn-row" style="flex-wrap:wrap;margin-top:6px">
-          <button class="btn-secondary btn-sm" onclick="editorCmd('split')">✂ 拆分</button>
-          <button class="btn-secondary btn-sm" onclick="editorCmd('duplicate')">⧉ 复制</button>
-          <button class="btn-secondary btn-sm" onclick="editorMovePrompt()">↔ 移动</button>
-          <button class="btn-secondary btn-sm" onclick="editorAddBrollPrompt()">➕ B-roll</button>
-          <button class="btn-secondary btn-sm" onclick="editorCmd('delete')">🗑 删除</button>
-          <button class="btn-secondary btn-sm" onclick="editorPreflight()">🛡 商用预检</button>
-          <button class="btn-secondary btn-sm" onclick="editorRenderFinal()">🎬 渲染成片</button>
-        </div>
-        <div class="btn-row" style="flex-wrap:wrap;margin-top:4px">
-          <label style="font-size:12px">缩放</label>
-          <input type="range" id="ed-zoom" min="0.5" max="2" step="0.1" value="1" style="width:110px" oninput="ED.zoom=parseFloat(this.value);editorRenderTimeline()">
-          <label style="font-size:12px;margin-left:8px"><input type="checkbox" id="ed-snap" checked onchange="ED.snap=this.checked"> 吸附</label>
+        <div class="btn-row" style="flex-wrap:wrap">
+          <button class="btn-secondary btn-sm" onclick="editorCmd('split')">拆分</button>
+          <button class="btn-secondary btn-sm" onclick="editorCmd('duplicate')">复制</button>
+          <button class="btn-secondary btn-sm" onclick="editorMovePrompt()">移动</button>
+          <button class="btn-secondary btn-sm" onclick="editorAddBrollPrompt()">加素材层</button>
+          <button class="btn-secondary btn-sm" onclick="editorCmd('delete')">删除</button>
+          <span class="tb-sep"></span>
+          <button class="btn-secondary btn-sm" onclick="editorPreflight()">商用预检</button>
+          <label style="font-size:12px;margin:0 0 0 8px">缩放</label>
+          <input type="range" id="ed-zoom" min="0.5" max="2" step="0.1" value="1"
+                 style="width:100px;margin:0" oninput="ED.zoom=parseFloat(this.value);editorRenderTimeline()">
+          <label style="font-size:12px;margin:0 0 0 8px"><input type="checkbox" id="ed-snap" checked onchange="ED.snap=this.checked"> 吸附</label>
           <span class="hint" id="editor-selection-count">未选中</span>
         </div>
-      </div>
-      <div class="card">
-        <b>📚 版本历史</b> <span class="hint">每次编辑记为一个版本，勾选两个可对比已变更/已复用</span>
-        <div class="btn-row">
-          <button class="btn-secondary btn-sm" onclick="editorLoadVersions()">刷新版本</button>
-          <button class="btn-secondary btn-sm" onclick="editorCompareSelected()">对比选中两版</button>
-        </div>
-        <div id="editor-versions"></div>
-        <div id="editor-compare"></div>
+        <div id="editor-timeline"></div>
       </div>
       <div id="editor-preflight-box"></div>
-    </div>
-
-  </div>
-
-  <!-- ======== Tab: 模板库（Template Gallery）======== -->
-  <!-- ======== Tab: 动效库（Motion Gallery）======== -->
-  <!-- ======== Tab 2: 项目（Portable Project 列表 + 重开续用）======== -->
-  <!-- ======== Tab 3: 素材库（§31 Asset Library 三栏 + §43 冻结台账）======== -->
-  <!-- ======== Tab 4: 系列（模板 + 多集批量）======== -->
-  <!-- ======== Tab 5: 收集箱（Capture Inbox）======== -->
-  <!-- ======== Tab 6: 参考视频分析 ======== -->
-  <!-- ======== Tab: 创作记忆 ======== -->
-  <!-- ======== Tab: 审核（Review §三十三）======== -->
-  <div id="pane-review" style="display:none">
-    <div class="card">
-      <b>✅ 审核</b>——待确认分镜 / 待确认草稿 / 生成完成三态待办，点开即进入确认流（高频工作台）
-      <div class="btn-row"><button class="btn-secondary" onclick="loadReview()">刷新</button></div>
-      <div id="review-list">加载中……</div>
-    </div>
-    <div id="review-detail-box"></div>
-    <!-- §59 融合：发布/自动化 并入审阅页（审核→发布→自动化 是同一交付链） -->
-    <div class="card">
-      <details>
-        <summary><b>🚀 发布与自动化</b>（多平台发布 / 自动化任务）</summary>
-    <div class="card">
-      <b>🚀 发布</b>——按项目看商用预检与成品状态；未知/禁止商用的素材会在这里被拦截，点「定位素材」可跳转
-      <div class="btn-row"><button class="btn-secondary" onclick="loadPublish()">刷新</button></div>
-      <div id="publish-list">加载中……</div>
-    </div>
-    <div id="publish-detail-box"></div>
-    <div class="card">
-      <b>🤖 自动化</b>——生产队列（系列/批量）+ 系列模板入口；任务状态可查、失败可定位
-      <div class="btn-row">
-        <button class="btn-secondary" onclick="loadQueue()">刷新队列</button>
-        <button class="btn-secondary" onclick="switchTab('series')">去系列模板 →</button>
+      <!-- §21 生成统一面板：当前场景生成（类型/提示词/参考 → 变体 → 加入当前场景） -->
+      <div class="panel" style="padding:10px" id="gen-panel">
+        <b>生成画面</b> <span class="hint">为当前选中的场景生成新画面（图片 / 图形 / 视频）</span>
+        <div class="btn-row" style="flex-wrap:wrap">
+          <select id="gen-type" style="width:96px" onchange="applyGenerationAvailability()">
+            <option value="image">图片</option>
+            <option value="graphic">图形（程序化，无需配置）</option>
+            <option value="video">视频</option>
+          </select>
+          <input type="text" id="gen-prompt" class="rev-input" style="flex:1"
+                 placeholder="画面描述（例：极简标题卡：效率提升80%）">
+          <button class="btn-secondary btn-sm" onclick="editorGenerate()">生成 3 变体</button>
+          <span class="hint" id="gen-status"></span>
+        </div>
+        <div id="gen-results"></div>
       </div>
-      <div id="queue-list">加载中……</div>
     </div>
-      </details>
-    </div>
+  </main>
 
-  </div>
-
-  <!-- ======== Tab: 发布（Publish §二十九/§34 Preflight）======== -->
-  <!-- ======== Tab: 自动化（Automation §四十二 队列 + 系列 + 批量）======== -->
-  <!-- ======== Tab: 设置（Settings §三十三）======== -->
-  <div id="pane-settings" style="display:none">
-    <div class="card">
-      <b>⚙️ 设置</b>——环境自检 + 大模型配置 + 系统能力状态（从这里打开配置中心与能力面板）
-      <div class="btn-row">
-        <button class="btn-secondary" onclick="toggleLLMPanel()">🤖 大模型配置中心</button>
-        <button class="btn-secondary" onclick="toggleCapPanel()">⚙ 系统能力状态</button>
-        <button class="btn-secondary" onclick="loadSettings()">🩺 环境自检</button>
-        <button class="btn-secondary" onclick="devToggleMode()">🔧 开发者模式（显示内部技术信息）</button>
+  <!-- ============ Tab 审阅（§24 问题工作台三栏）============ -->
+  <main id="pane-review" class="pane" style="display:none">
+    <div class="page-head"><h2>审阅</h2>
+      <button class="btn-secondary btn-sm" onclick="loadReview()">刷新</button></div>
+    <!-- §24 三栏：问题列表 | 当前预览 | 修复 -->
+    <div class="review-layout">
+      <div class="panel review-issues">
+        <b>问题</b>
+        <div id="review-issue-list" class="review-issue-list">加载中……</div>
       </div>
-      <div class="hint" id="settings-dev-note">开发者模式默认关闭：开启后界面会显示动效/镜头的技术编号、生成来源指纹等内部信息，供调试用；不影响任何功能。</div>
-      <div id="settings-env">点击「环境自检」查看视频引擎 / 字体 / 存储 / 渲染器状态。</div>
+      <div class="panel review-preview">
+        <b>当前预览</b>
+        <div id="review-preview" class="hint" style="margin-top:8px">选中一个问题后在这里定位</div>
+      </div>
+      <div class="panel review-fix">
+        <b>修复</b>
+        <div id="review-fix-panel" class="hint" style="margin-top:8px">选中问题后给出修复选项</div>
+      </div>
     </div>
+    <!-- 交付链：确认状态 + 商用预检（审阅 → 预检 → 发布同一链 §28） -->
+    <div class="panel" style="margin-top:14px">
+      <b>待确认</b> <span class="hint">分镜/草稿等待你确认后继续渲染</span>
+      <div id="review-list" style="margin-top:8px">加载中……</div>
+    </div>
+    <details class="panel" style="margin-top:12px">
+      <summary>发布预检（商用授权检查，通过才能发布）</summary>
+      <div id="publish-list" style="margin-top:8px">加载中……</div>
+      <div id="publish-detail-box"></div>
+    </details>
+  </main>
+
+  <!-- ============ Tab 设置（§28 只做系统配置）============ -->
+  <main id="pane-settings" class="pane" style="display:none">
+    <div class="page-head"><h2>设置</h2></div>
+    <div class="panel">
+      <b>模型</b> <span class="hint">四个创作角色各自配置（未配置的角色自动走内置兜底，功能不缺失）</span>
+      <div class="btn-row">
+        <button class="btn-secondary btn-sm" onclick="toggleLLMPanel()">大模型配置</button>
+        <span class="hint" id="llm-badge-inline"></span>
+      </div>
+      <div id="llm-panel" style="display:none;margin-top:10px">
+        <div id="model-roles"></div>
+        <div class="btn-row"><button class="btn-secondary" onclick="saveModelConfig()">保存全部配置</button></div>
+        <div class="hint" id="llm-save-status"></div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <b>配音来源</b> <span class="hint" id="voice-providers-line">检测中……</span>
+      <div class="hint">文本/视觉/生图模型在「模型」配置；这里显示当前实际可用的配音服务。</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <b>环境自检</b>
+      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="loadSettings()">开始自检</button></div>
+      <div id="settings-env" class="hint" style="margin-top:8px">检查视频引擎 / 字体 / 存储 / 渲染器状态。</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <b>开发者模式</b>
+      <div class="btn-row">
+        <button class="btn-secondary btn-sm" onclick="devToggleMode()">开启/关闭（显示内部技术信息）</button>
+      </div>
+      <div class="hint">默认关闭。开启后界面会显示动效/镜头的技术编号、生成来源指纹等内部信息，供调试用。</div>
+    </div>
+    <div class="panel dev-only" style="margin-top:12px">
+      <b>功能就绪状态</b>
+      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="toggleCapPanel()">展开能力面板</button></div>
+      <div id="cap-table"></div>
+    </div>
+  </main>
+
+  <!-- §27 收集箱抽屉 -->
+  <div id="capture-drawer" class="drawer" style="display:none">
+    <div class="drawer-head"><b>收集</b>
+      <button class="btn-secondary btn-sm" onclick="captureDrawerToggle()">关闭</button></div>
+    <div class="hint">看到好的链接/想法先存这里，回头在新建项目里使用。</div>
+    <div class="btn-row" style="align-items:center">
+      <input type="text" id="inbox-content" class="rev-input" style="flex:1"
+             placeholder="粘贴链接 / 记一个想法 / 一句选题……">
+      <button class="btn-secondary btn-sm" onclick="inboxAdd('idea')">存入</button>
+    </div>
+    <div class="hint" id="inbox-status"></div>
+    <div id="inbox-list"></div>
   </div>
-</div><!-- /wrap -->
 
   <div id="result"></div>
-
+</div>
 
 <script src="/static/js/state.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/commands.js"></script>
+<script src="/static/js/selection.js"></script>
+<script src="/static/js/preview.js"></script>
+<script src="/static/js/workspace.js"></script>
 <script src="/static/js/timeline.js"></script>
 <script src="/static/js/inspector.js"></script>
 <script src="/static/js/library.js"></script>
@@ -582,6 +366,8 @@
 <script src="/static/js/graphics.js"></script>
 <script src="/static/js/storyboard.js"></script>
 <script src="/static/js/workflow.js"></script>
+<script src="/static/js/project.js"></script>
+<script src="/static/js/create.js"></script>
 <script src="/static/js/mask-editor.js"></script>
 <script src="/static/js/developer.js"></script>
 <script src="/static/js/app.js"></script>

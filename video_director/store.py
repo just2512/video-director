@@ -95,6 +95,7 @@ class Stage(str, Enum):
     QC = "QC"
     DONE = "DONE"
     FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"  # 目录存在但 DB 无行（project_manager upsert 用，非管线阶段）
 
 
 #: 各阶段展示进度（V2 §66 生成期间显示"导演工作流"，非技术步骤堆砌）
@@ -109,6 +110,7 @@ _STAGE_PROGRESS = {
     Stage.QC: 90,
     Stage.DONE: 100,
     Stage.FAILED: 100,
+    Stage.UNKNOWN: 0,  # 占位（UNKNOWN 行不走 set_stage，防 KeyError）
 }
 
 
@@ -246,11 +248,124 @@ def list_projects(limit: int = 50) -> list:
     init_db()
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT project_id, stage, progress, final_path, narration_duration, "
-            "created_at, updated_at FROM projects ORDER BY created_at DESC LIMIT ?",
+            "SELECT project_id, script, params_json, stage, progress, final_path, "
+            "narration_duration, created_at, updated_at "
+            "FROM projects ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Project Management Contract（§51/§52，Project Manager 专用底层）。
+# 设计决策：name/archived 不加 SQLite 列，全部走 params_json——135 行存量
+# 数据零迁移风险；schema 不动，读写语义集中在以下函数。
+# ---------------------------------------------------------------------------
+
+def _read_params_json(conn: sqlite3.Connection, project_id: str) -> dict:
+    row = conn.execute("SELECT params_json FROM projects WHERE project_id=?",
+                       (project_id,)).fetchone()
+    if not row or not row["params_json"]:
+        return {}
+    try:
+        params = json.loads(row["params_json"])
+        return params if isinstance(params, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _write_params_json(conn: sqlite3.Connection, project_id: str, params: dict) -> None:
+    conn.execute("UPDATE projects SET params_json=?, updated_at=? WHERE project_id=?",
+                 (json.dumps(params, ensure_ascii=False), time.time(), project_id))
+
+
+def ensure_project_row(project_id: str, script: str = "", stage: str = "UNKNOWN") -> None:
+    """目录存在但 DB 无行的项目做动作前 upsert（不覆盖已有 stage）。"""
+    init_db()
+    now = time.time()
+    with DB_LOCK, _conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO projects "
+            "(project_id, script, params_json, stage, progress, created_at, updated_at) "
+            "VALUES (?, ?, '{}', ?, 0, ?, ?)",
+            (project_id, script, stage, now, now),
+        )
+
+
+def rename_project(project_id: str, name: str) -> bool:
+    """name 写 params_json['name']（行不存在返回 False）。"""
+    init_db()
+    with DB_LOCK, _conn() as conn:
+        if conn.execute("SELECT 1 FROM projects WHERE project_id=?",
+                         (project_id,)).fetchone() is None:
+            return False
+        params = _read_params_json(conn, project_id)
+        params["name"] = name
+        _write_params_json(conn, project_id, params)
+    return True
+
+
+def get_project_name(project_id: str) -> Optional[str]:
+    """params_json.name（无行/无名 → None）。"""
+    init_db()
+    with _conn() as conn:
+        params = _read_params_json(conn, project_id)
+    return params.get("name")
+
+
+def set_archived(project_id: str, archived: bool) -> bool:
+    """archived 标记写 params_json（归档不移动目录——绝对路径引用不破坏）。"""
+    init_db()
+    with DB_LOCK, _conn() as conn:
+        if conn.execute("SELECT 1 FROM projects WHERE project_id=?",
+                         (project_id,)).fetchone() is None:
+            return False
+        params = _read_params_json(conn, project_id)
+        params["archived"] = bool(archived)
+        params["archived_at"] = time.time() if archived else None
+        _write_params_json(conn, project_id, params)
+    return True
+
+
+def clone_project_row(src_pid: str, dst_pid: str, name_override: Optional[str] = None,
+                      extra_params: Optional[dict] = None) -> bool:
+    """复制 DB 行：script/params_json 拷贝，stage 固定 CREATED（副本是待编辑项目）。
+
+    extra_params：调用方追加键（cloned_from/origin 等 lineage 记录）。
+    """
+    init_db()
+    now = time.time()
+    with DB_LOCK, _conn() as conn:
+        row = conn.execute(
+            "SELECT script, params_json FROM projects WHERE project_id=?",
+            (src_pid,)).fetchone()
+        if row is None:
+            return False
+        try:
+            params = json.loads(row["params_json"]) if row["params_json"] else {}
+            if not isinstance(params, dict):
+                params = {}
+        except json.JSONDecodeError:
+            params = {}
+        if name_override:
+            params["name"] = name_override
+        if extra_params:
+            params.update(extra_params)
+        conn.execute(
+            "INSERT OR REPLACE INTO projects "
+            "(project_id, script, params_json, stage, progress, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'CREATED', 0, ?, ?)",
+            (dst_pid, row["script"], json.dumps(params, ensure_ascii=False), now, now),
+        )
+    return True
+
+
+def delete_project_row(project_id: str) -> bool:
+    """删除 DB 行（§6.3 步骤 3a；目录由 project_manager 负责）。"""
+    init_db()
+    with DB_LOCK, _conn() as conn:
+        cur = conn.execute("DELETE FROM projects WHERE project_id=?", (project_id,))
+    return cur.rowcount > 0
 
 
 # ---------------------------------------------------------------------------

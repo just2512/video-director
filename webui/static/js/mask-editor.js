@@ -197,10 +197,10 @@ async function maskEditorSave(){
   if (r.ok) {
     MASK_ED.open = false;
     maskEditorRender();
-    if (typeof editorToast === 'function') editorToast('✅ 蒙版路径已保存' + (DEV.mode ? `（版本 ${r.data.composition_version}）` : ''));
+    if (typeof editorToast === 'function') editorToast('蒙版路径已保存' + (DEV.mode ? `（版本 ${r.data.composition_version}）` : ''));
     if (typeof edShowInspector === 'function') edShowInspector();
   } else if (typeof editorToast === 'function') {
-    editorToast('❌ 保存失败：' + (r.error || '未知错误'), true);
+    editorToast('保存失败：' + (r.error || '未知错误'), true);
   }
 }
 

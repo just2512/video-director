@@ -46,7 +46,7 @@ function devToggleMode(on){
     el.style.display = DEV.mode ? '' : 'none';
   });
   const badge = document.getElementById('dev-badge');
-  if (badge) badge.textContent = DEV.mode ? '🔧 开发者模式：开' : '🔧 开发者模式';
+  if (badge) badge.textContent = DEV.mode ? '开发者模式：开' : '开发者模式';
   // 重渲染当前视图让条件显示生效
   if (typeof editorRenderTimeline === 'function' && window.ED && ED.pid) editorRenderTimeline();
   if (typeof edShowInspector === 'function' && window.ED && ED.sel) edShowInspector();

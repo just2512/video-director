@@ -1,0 +1,118 @@
+// §65 Workspace Service（方案《FRONTEND_DEEP_UNIFICATION》§65/§9）：
+// 工作台协调层。打开项目 → 装载 Composition → 各区域刷新全部事件驱动，
+// 不再依赖 switchTab + setTimeout + editorInit 拼接（§56 禁止固定等待猜测）。
+//
+// 职责：open(projectId) / loadComposition / setSelection / refreshInspector /
+//       refreshTimeline / refreshPreview
+//
+// pollUntil（§56）：所有「创建后打开」「刷新后选中」都等待明确状态而非 sleep。
+
+window.WS = {opening: false};
+
+/** §56 确定性等待：谓词为真即返回；超时返回 false（不再 sleep(400ms) 赌运气）。 */
+function pollUntil(predicate, timeoutMs = 5000, intervalMs = 100){
+  return new Promise(resolve => {
+    const t0 = Date.now();
+    const tick = () => {
+      let ok = false;
+      try { ok = !!predicate(); } catch (e) { ok = false; }
+      if (ok) { resolve(true); return; }
+      if (Date.now() - t0 >= timeoutMs) { resolve(false); return; }
+      setTimeout(tick, intervalMs);
+    };
+    tick();
+  });
+}
+
+/** 工作台打开项目（唯一入口：项目页/审阅页/GFX 确认/模板实例化全走这里）。
+ *  target 可选 {type:'scene'|'layer'|'scene_pair', id}——Review Locate 带定位跳转（§45）。 */
+async function workspaceOpen(pid, target){
+  if (!pid) { editorToast('缺少项目', true); return {ok: false}; }
+  WS.opening = true;
+  try {
+    switchTab('editor');
+    // 1. 项目下拉就绪（editable=true 才会出现在下拉——Project Index 过滤）
+    const selEl = document.getElementById('editor-project');
+    if (selEl) {
+      await editorInit();
+      const found = await pollUntil(() => {
+        for (const opt of selEl.options) if (opt.value === pid) return true;
+        return false;
+      }, 4000);
+      if (!found) {
+        editorToast('项目不在可编辑列表中（可能为旧版项目，去「项目」页转换后再编辑）', true);
+        return {ok: false};
+      }
+      selEl.value = pid;
+    }
+    // 2. 装载 Composition
+    const r = await editorLoad();
+    if (!r || !r.ok) return r || {ok: false};
+    // 3. 定位（§45 Review → Editor 带 Selection）
+    if (target) {
+      if (target.type === 'scene') {
+        selectScene(target.id, null, 'review-locate');
+        timelineScrollToScene(target.id);
+      } else if (target.type === 'layer') {
+        const [sceneId, idxS] = target.id.split('#');
+        selectLayer(sceneId, parseInt(idxS), null, 'review-locate');
+        timelineScrollToScene(sceneId);
+      } else if (target.type === 'scene_pair') {
+        const [f, t] = target.id.split('->');
+        selectScenePair(f, t, 'review-locate');
+        timelineScrollToScene(t);
+      }
+      // 定位后打开对应 Inspector 分区（§45：open relevant inspector section）
+      if (typeof edShowInspector === 'function') edShowInspector();
+      if (target.openSection && typeof inspectorOpenSection === 'function') {
+        inspectorOpenSection(target.openSection);
+      }
+    }
+    return {ok: true};
+  } finally {
+    WS.opening = false;
+  }
+}
+
+/** 装载 Composition（editorLoad 返回 {ok}）。 */
+async function loadComposition(pid){
+  if (!pid) return {ok: false, error: '无项目'};
+  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(pid));
+  if (!comp || !comp.scenes) {
+    return {ok: false, error: (comp && comp.error) || '项目无可编辑时间线'};
+  }
+  return {ok: true, comp};
+}
+
+/** 时间线滚动到场景（定位视觉可见）。 */
+function timelineScrollToScene(sceneId){
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`#editor-timeline .ed-scene[data-scene="${sceneId}"]`);
+    if (el) el.scrollIntoView({behavior: 'smooth', block: 'nearest', inline: 'center'});
+  });
+}
+
+/** 全区域刷新（Selection 或 Composition 变化后统一调度）。 */
+function refreshWorkspace(){
+  if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+  if (typeof edShowInspector === 'function') edShowInspector();
+  if (typeof renderWatermarkList === 'function') renderWatermarkList();
+  if (typeof previewShowSelectionOverlay === 'function') previewShowSelectionOverlay();
+  if (typeof directorRefreshContext === 'function') directorRefreshContext();
+}
+
+/** Composition 变化（命令应用后）：重读最新 + 全区域刷新（单一刷新语义）。 */
+async function refreshComposition(){
+  if (!ED.pid) return;
+  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
+  if (comp && comp.scenes) {
+    ED.comp = comp;
+    ED.version = comp.version ?? ED.version;
+  }
+  refreshWorkspace();
+}
+
+Object.assign(window, {
+  workspaceOpen, loadComposition, timelineScrollToScene,
+  refreshWorkspace, refreshComposition, pollUntil, WS,
+});
