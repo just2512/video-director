@@ -54,6 +54,7 @@
   margin-top: 6px; background: var(--surface-soft); font-size: 13px;
 }
 .pm-row:hover { border-color: var(--border-strong); }
+.pm-row-busy { opacity: .65; pointer-events: none; }  /* §54 操作中态：处理中行不可再点 */
 .pm-name { cursor: pointer; min-width: 0; }
 .pm-name b { color: var(--text); }
 .pm-name:hover b { color: var(--accent); }
@@ -134,13 +135,15 @@
 .ed-scene-title { color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 90px; }
 .ed-scene-dur { color: var(--muted); margin-left: auto; }
 .ed-scene-body { flex: 1; padding: 3px 4px; cursor: pointer; }
-/* §14 层窄带：明确 Layer hitbox（不再铺满场景） */
+/* §14 层窄带：明确 Layer hitbox（不再铺满场景）；§17 左右 8px=裁剪边 */
 .ed-layer {
   display: block; width: auto; margin-top: 3px;
   background: var(--surface-1); border: 1px solid var(--border);
   border-radius: 4px; font-size: 11px; color: var(--muted); padding: 1px 4px;
   cursor: grab; overflow: hidden; white-space: nowrap; text-align: left;
+  border-left: 3px solid var(--border-strong); border-right: 3px solid var(--border-strong);
 }
+.ed-layer:hover { border-color: var(--accent); }
 .ed-layer.ed-sel { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)); }
 .ed-layer:hover { border-color: var(--accent); }
 .ed-motion-tag { background: var(--accent); color: #fff; border-radius: 3px; padding: 0 3px; margin-left: 3px; font-size: 10px; }

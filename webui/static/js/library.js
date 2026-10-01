@@ -69,15 +69,28 @@ function _pickerStatusCn(c){
 }
 
 // ---------------------------------------------------------------------------
-// §67 统一 Picker：搜索 + 兼容态 + 预览 + 应用/取消
+// §67 统一 Picker：搜索 + 兼容态 + §11 预览→应用两步（不再点即改）
 // ---------------------------------------------------------------------------
+let _pickerStaged = null;  // §11 预览暂存：{id, label, note}——应用/取消前持续可见
+window._pickerStaged = null;  // 可观察（验收/调试用；setter 同步见下）
+function _setPickerStaged(v){
+  _pickerStaged = v;
+  window._pickerStaged = v;
+}
+
 async function pickerOpen({title, items, onApply, describe}) {
   // items: [{id, name, note, compatibility, reason}]；onApply(id)；describe 可选
   const q = ((document.getElementById('ed-lib-search')||{}).value || '').toLowerCase();
   const list = items.filter(it => !q || (it.name + ' ' + it.id).toLowerCase().includes(q));
   const box = document.getElementById('ed-lib-list');
   if (!list.length) { box.innerHTML = '<div class="hint">无匹配项</div>'; return; }
-  box.innerHTML = `<div class="hint" style="margin:2px 0 6px">${esc(title)}——点击「预览」看效果，满意后「应用」。</div>` +
+  box.innerHTML = `<div class="hint" style="margin:2px 0 6px">${esc(title)}——点「预览」选中看说明，再「应用」写入项目。</div>` +
+    (_pickerStaged ? `<div class="ok-box" style="padding:8px;margin:4px 0">已预览：<b>${esc(_pickerStaged.label)}</b>
+      <div class="hint">${esc(_pickerStaged.note)}</div>
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn-sm" onclick="pickerApply('${esc(_pickerStaged.id)}')">应用</button>
+        <button class="btn-secondary btn-sm" onclick="pickerCancel()">取消（不修改）</button>
+      </div></div>` : '') +
     list.map(it => {
       const st = _pickerStatusCn(it);
       const dis = st.cls === 'cap-off';
@@ -85,18 +98,34 @@ async function pickerOpen({title, items, onApply, describe}) {
         `<span class="hint">${esc(it.note || '')}${st.t ? ` · <span class="${st.cls}"${st.reason ? ` title="${esc(st.reason)}"` : ''}>${st.t}</span>` : ''}</span>`+
         (DEV.mode && it.id ? `<span class="dev-only hint"><code>${esc(it.id)}</code></span>` : '')+
         `</span><span class="btn-row">`+
-        `<button class="btn-secondary btn-sm" onclick="pickerPreviewNote(this, ${esc(JSON.stringify(describe ? describe(it) : it.note || it.name))})">预览</button>`+
-        `<button class="btn-sm"${dis ? ' disabled title="' + esc(st.reason || '不适用') + '"' : ` onclick="pickerApply('${esc(it.id)}')"`}>应用</button>`+
+        `<button class="btn-secondary btn-sm" onclick='pickerPreviewStage(${esc(JSON.stringify({id: it.id, label: it.name, note: describe ? describe(it) : (it.note || it.name)}))})'>预览</button>`+
+        `<button class="btn-sm"${dis ? ' disabled title="' + esc(st.reason || '不适用') + '"' : ` onclick="pickerApply('${esc(it.id)}')"`}>直接应用</button>`+
         `</span></div>`;
     }).join('');
   window._pickerApply = onApply;
 }
-function pickerPreviewNote(btn, note){
-  editorToast('预览：' + note + '（实际效果应用后体现在时间线与预览区）');
+/** §11 预览某候选：暂存 + 说明呈现（中央 Preview 区同步提示），应用前不入项目。 */
+function pickerPreviewStage(item){
+  _setPickerStaged(item);
+  editorToast(`已预览「${item.label}」：${item.note}——确认后「应用」，或「取消」不修改`);
+  const stage = document.getElementById('ed-preview-stage');
+  if (stage && !stage.querySelector('video')) {
+    stage.innerHTML = `<div class="hint">预览中：${esc(item.label)}<br>${esc(item.note)}<br>（应用后体现在时间线）</div>`;
+  }
+  edLibLoad();  // 重渲染出 [应用][取消] 两步区
+}
+/** §11 取消：清暂存，零修改离开。 */
+function pickerCancel(){
+  const label = _pickerStaged ? _pickerStaged.label : '';
+  _setPickerStaged(null);
+  edLibLoad();
+  editorToast(label ? `已取消：未应用「${label}」，项目无变化` : '已取消');
 }
 async function pickerApply(id){
   const fn = window._pickerApply;
-  if (typeof fn === 'function') await fn(id);
+  const staged = _pickerStaged;
+  _setPickerStaged(null);
+  if (typeof fn === 'function') await fn(id, staged);
 }
 
 // ---------------------------------------------------------------------------
@@ -726,7 +755,7 @@ async function editorApplyShot(sceneId, recipeId){
 
 Object.assign(window, {
   LIB_DOMAINS, edLibDomain, edLibSub, edLibNav, edLibLoad,
-  pickerOpen, pickerPreviewNote, pickerApply,
+  pickerOpen, pickerPreviewStage, pickerCancel, pickerApply,
   edLibApplyAsset, edLibApplyMotion, applyTransitionToPair, applyRegistryStyle,
   edVoiceTry, edLibAudioTry, edLibAudioApply, edLibStockSearch,
   _apPassFilters, assetPickerTab, assetPickerStockSearch, assetPickerStockDownload,

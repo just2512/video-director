@@ -40,7 +40,15 @@
   .btn-secondary { background: var(--surface-3); color: var(--text); }
   .btn-secondary:hover { background: var(--border-strong); }
   .btn-sm { padding: 7px 13px; font-size: 13px; width: auto; }
-  .role-block { background: var(--surface-soft); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-top: 10px; }
+  /* §30.1 Section 化：Inspector 分组用分隔线而非黑卡（panel 内不再卡套卡） */
+  .role-block {
+    background: transparent; border: none;
+    border-top: 1px solid var(--border);
+    border-radius: 0; padding: 10px 2px; margin-top: 4px;
+  }
+  .role-block:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+  .role-block > b { display: block; font-size: 13px; color: var(--text); margin-bottom: 2px; }
+  .role-block .hint { color: var(--muted); }
   .role-head { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
   .enhance-box { background: var(--surface-soft); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-top: 10px; }
   .enhanced-ta { min-height: 160px; margin-top: 8px; }

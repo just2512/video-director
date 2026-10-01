@@ -159,12 +159,16 @@ function setCreateSource(src){
     area.innerHTML = `
       <label>参考视频（从优秀视频提取风格/节奏/镜头结构，指导本次创作）</label>
       <input type="file" id="cf-reference" accept=".mp4,.mov,.mkv,.webm">
-      <div class="hint">上传后先分析，镜头语法会并入创作简报；不复制参考内容。</div>`;
+      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="cfAnalyzeReference()">分析参考视频</button>
+      <span class="hint" id="cf-reference-status">分析报告（镜头结构/节奏/运动语言）会并入创作简报，指导成片风格；不复制参考内容。</span></div>
+      <div id="cf-reference-result"></div>`;
   } else if (src === 'repo') {
     area.innerHTML = `
       <label>软件项目根目录（从代码库发现可验证的卖点，AI 不编造功能）</label>
       <input type="text" id="cf-repo-root" class="rev-input" placeholder="例：D:\\Projects\\my-app">
-      <div class="hint">会扫描 README/CHANGELOG 等证据文件，只采用可追溯的功能声明。</div>`;
+      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="cfScanRepo()">扫描软件项目</button>
+      <span class="hint" id="cf-repo-status">会扫描 README/CHANGELOG 等证据文件，可验证的卖点会并入创作简报。</span></div>
+      <div id="cf-repo-result"></div>`;
   } else if (src === 'assets') {
     area.innerHTML = `
       <div class="hint">素材起步：先在下方选素材，文案可留空让 AI 按素材描述生成。</div>`;
@@ -205,6 +209,46 @@ function createPlatformSync(){
   if (p && map[p]) window._cfAspect = map[p];
 }
 
+/** §37 参考视频 Source：分析 → 结果入简报（真实接线，非跳转提示）。 */
+async function cfAnalyzeReference(){
+  const f = document.getElementById('cf-reference');
+  const st = document.getElementById('cf-reference-status');
+  const out = document.getElementById('cf-reference-result');
+  if (!f || !f.files || !f.files.length) { if (st) st.textContent = '请先选择参考视频'; return; }
+  if (st) st.textContent = '分析中……（镜头检测 + 语法提取，约 10-40 秒）';
+  const fd = new FormData();
+  fd.append('reference', f.files[0], f.files[0].name);
+  const r = await apiUpload('/api/reference', fd);
+  if (!r.ok) { if (st) st.textContent = '分析失败：' + (r.error || '未知'); return; }
+  const rep = r.report || {};
+  const vl = rep.visual_language || {};
+  const sg = (rep.shot_grammar || []).slice(0, 8);
+  window._cfReferenceBrief = `参考视频风格：节奏 ${vl.pace || '—'} · 镜头密度 ${vl.density || '—'} · 运动语言 ${vl.motion || '—'} · 转场 ${vl.transition || '—'}${sg.length ? '；镜头结构参考 ' + sg.map(s => `${s.duration || 0}s`).join('/') : ''}`;
+  out.innerHTML = `<div class="ok-box">分析完成 · ${sg.length} 个镜头 · 节奏 ${esc(String(vl.pace||'—'))} · 运动语言 ${esc(String(vl.motion||'—'))}
+    <div class="hint">已并入创作简报——开始创作时会自动带上这段风格指导。</div></div>`;
+  if (st) st.textContent = '分析完成，风格已并入创作简报。';
+}
+/** §37 软件项目 Source：扫描 → 证据卖点入简报。 */
+async function cfScanRepo(){
+  const root = (document.getElementById('cf-repo-root') || {}).value || '';
+  const st = document.getElementById('cf-repo-status');
+  const out = document.getElementById('cf-repo-result');
+  if (!root.trim()) { if (st) st.textContent = '请填开发项目根目录'; return; }
+  if (st) st.textContent = '扫描中……';
+  const r = await apiPost('/api/promo/features', {root: root.trim()});
+  if (!r.ok) { if (st) st.textContent = '扫描失败：' + (r.error || '目录无效'); return; }
+  const claims = ((r.evidence_graph || {}).claims || []).filter(c => c.status === 'VERIFIED');
+  if (!claims.length) {
+    if (st) st.textContent = '未发现可验证的卖点（可补 README 后再扫，或切回文案起步）';
+    window._cfRepoBrief = '';
+    return;
+  }
+  window._cfRepoBrief = '产品卖点（已验证）：' + claims.slice(0, 6).map(c => c.text).join('；');
+  out.innerHTML = `<div class="ok-box">发现 ${claims.length} 条可验证卖点（前 6 条已并入创作简报）：
+    ${claims.slice(0, 6).map(c => `<div class="hint">· ${esc(c.text)}</div>`).join('')}</div>`;
+  if (st) st.textContent = '卖点已并入创作简报。';
+}
+
 /** §38 状态机：提交 → planning → awaiting_confirm → workspace。 */
 async function createProject(){
   const btn = document.getElementById('cf-go');
@@ -227,6 +271,11 @@ async function createProject(){
   if (st && st.value.trim()) briefParts.push('风格：' + st.value.trim());
   const fd = new FormData();
   fd.append('script', script);
+  // §37 Source 分析结果并入简报（参考视频风格 / 软件项目卖点）
+  const briefExtra = [];
+  if (window._cfReferenceBrief) briefExtra.push(window._cfReferenceBrief);
+  if (window._cfRepoBrief) briefExtra.push(window._cfRepoBrief);
+  if (briefExtra.length) briefParts.push(briefExtra.join('；'));
   fd.append('creative_brief', briefParts.length ? '【创作简报】' + briefParts.join('；') : '');
   fd.append('mode', hasFiles ? 'auto' : 'script_only');
   fd.append('voice', (document.getElementById('cf-voice') || {}).value || '');
@@ -314,5 +363,5 @@ function cfMakeGraphicPlan(){
 Object.assign(window, {
   openCreate, closeCreate, setCreateSource, createLoadDefaults,
   createPlatformSync, createProject, createEnhance, createAcceptEnhanced,
-  cfMakeGraphicPlan, CF,
+  cfMakeGraphicPlan, cfAnalyzeReference, cfScanRepo, CF,
 });

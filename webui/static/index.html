@@ -111,7 +111,8 @@
         <span class="tb-sep"></span>
         <button class="btn-secondary btn-sm" onclick="editorSaveBar()" title="保存项目状态">保存</button>
         <button class="btn-secondary btn-sm" onclick="editorPreviewBar()" title="预览当前草稿">预览</button>
-        <button class="btn-sm" onclick="editorRenderFinal()" title="渲染成片">渲染</button>
+        <button class="btn-secondary btn-sm" onclick="editorDraftRender()" title="快速渲染低清草稿（先看效果再渲成片）">渲染草稿</button>
+        <button class="btn-sm" onclick="editorRenderFinal()" title="渲染正式成片（先做商用预检）">渲染成片</button>
       </div>
       <!-- §44 项目操作抽屉宿主 -->
       <div id="project-drawer"></div>
@@ -235,7 +236,7 @@
           <button class="btn-secondary btn-sm" onclick="editorCmd('duplicate')">复制</button>
           <button class="btn-secondary btn-sm" onclick="editorMovePrompt()">移动</button>
           <button class="btn-secondary btn-sm" onclick="editorAddBrollPrompt()">加素材层</button>
-          <button class="btn-secondary btn-sm" onclick="editorCmd('delete')">删除</button>
+          <button class="btn-secondary btn-sm" onclick="editorCmd('delete')" title="删除选中的场景，或移除选中的图层">删除场景 / 移除图层</button>
           <span class="tb-sep"></span>
           <button class="btn-secondary btn-sm" onclick="editorPreflight()">商用预检</button>
           <label style="font-size:12px;margin:0 0 0 8px">缩放</label>

@@ -276,6 +276,23 @@ async function editorRenderFinal(){
   }
 }
 
+/** §40 Draft 级：低分辨率快速草稿（先看效果，满意再渲成片）。 */
+async function editorDraftRender(){
+  if (!ED.pid) { editorToast('先打开项目', true); return; }
+  editorToast('正在快速渲染草稿（低分辨率，速度优先）……');
+  const r = await apiPost('/api/draft', {project_id: ED.pid});
+  if (!r.ok) {
+    document.getElementById('editor-preflight-box').innerHTML =
+      `<div class="err-box">草稿渲染失败：${esc(r.error || '未知')}（项目内容没有变化，可重试）</div>`;
+    return;
+  }
+  // 草稿直接进中央 Preview（§19 唯一预览宿主）
+  previewShowVideo(r.draft_path, '草稿（低清快速版）');
+  document.getElementById('editor-preflight-box').innerHTML =
+    `<div class="panel ok-box">草稿已生成（预览区播放中）。满意后点「渲染成片」出正式版；
+      不满意继续在时间线改，改完重新渲染草稿。</div>`;
+}
+
 function editorToast(msg, isErr){
   const host = document.getElementById('global-toast-host');
   const h = host || (() => {
@@ -299,6 +316,6 @@ Object.assign(window, {
   loadReview, renderIssueList, reviewSelectIssue, reviewLocate,
   reviewFixRelation, reviewRecheck, reviewAskAI,
   loadPublish, publishDetail,
-  editorPreflight, editorRenderFinal, editorToast,
+  editorPreflight, editorRenderFinal, editorDraftRender, editorToast,
   ISSUE_CODE_CN, RV,
 });

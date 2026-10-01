@@ -368,6 +368,55 @@ def delete_project_row(project_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def jobs_of_project(project_id: str) -> list:
+    """按项目查自动化任务（jobs 在 studio.db，spec_json 里引用 project_id）。
+
+    §72 IG-PROJECT-MANAGEMENT Jobs 层：删除验证用（残留 job → 未删干净）。
+    任务表归 studio 管（studio.db），此处只读委托。
+    """
+    from video_director import studio as vd_studio
+    try:
+        vd_studio.init_db()
+    except Exception:  # noqa: BLE001 studio 库不可用时不阻断项目层
+        return []
+    import sqlite3 as _sq
+    db = config.composer_storage_root() / "studio.db"
+    conn = _sq.connect(str(db), timeout=15)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT job_id, kind, status, spec_json FROM jobs ORDER BY created_at DESC",
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []  # jobs 表不存在（老库）→ 无任务可查
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        try:
+            spec = json.loads(r["spec_json"]) if r["spec_json"] else {}
+        except json.JSONDecodeError:
+            spec = {}
+        refs = [spec.get("project_id"), spec.get("pid"),
+                (spec.get("episode") or {}).get("project_id") if isinstance(spec.get("episode"), dict) else None]
+        if project_id in [x for x in refs if x]:
+            out.append({"job_id": r["job_id"], "kind": r["kind"], "status": r["status"]})
+    return out
+
+
+def delete_jobs_of_project(project_id: str) -> int:
+    """删除项目关联的自动化任务行（§6.3 删除实现：logs/run state 随项目清理）。"""
+    targets = [j["job_id"] for j in jobs_of_project(project_id)]
+    if not targets:
+        return 0
+    import sqlite3 as _sq
+    db = config.composer_storage_root() / "studio.db"
+    with DB_LOCK, _sq.connect(str(db), timeout=15) as conn:
+        conn.executemany("DELETE FROM jobs WHERE job_id=?",
+                         [(jid,) for jid in targets])
+    return len(targets)
+
+
 # ---------------------------------------------------------------------------
 # ffprobe 结果缓存（SVF v1.2.2：大素材库 duration 获取/缓存优化）
 # ---------------------------------------------------------------------------

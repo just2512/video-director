@@ -219,11 +219,25 @@ class TestProjectActions:
 class TestDelete:
     def test_delete_five_layers_all_missing(self):
         pid = _mk_project("web-del-01")
+        # §72 Jobs 层：给项目造一个关联任务行，删除必须连带清掉
+        from video_director import studio as vd_studio
+        import sqlite3 as _sq
+        from video_director import config as vd_config
+        vd_studio.init_db()  # studio.db 建表（隔离 storage 后首用）
+        conn = _sq.connect(str(vd_config.composer_storage_root() / "studio.db"), timeout=15)
+        with conn:
+            conn.execute(
+                "INSERT INTO jobs (job_id, kind, status, spec_json, created_at, updated_at) "
+                "VALUES (?, 'variant', 'done', ?, ?, ?)",
+                ("job-del-test", json.dumps({"project_id": pid}), 1.0, 1.0))
+        conn.close()
+        assert store.jobs_of_project(pid) and store.jobs_of_project(pid)[0]["job_id"] == "job-del-test"
         r = pm.delete(pid)
         assert r["ok"] is True
         v = pm.delete_verify(pid)
-        # §69：DB / 目录 / composition / 产物 / 旧方案 全 MISSING
+        # §69/§72 六层：DB / 目录 / composition / 成片 / 旧方案 / Jobs 全 MISSING
         assert all(v.values()), f"删除后残留: {v}"
+        assert store.jobs_of_project(pid) == []
 
     def test_delete_active_job_rejected(self):
         _mk_project("web-del-run", stage="TTS")

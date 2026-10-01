@@ -205,6 +205,7 @@ function _inspectorLayer(layerId){
       </div>
       ${MASK_ED.open ? `<div class="btn-row">
         <button class="btn-sm" onclick="maskEditorSave()">保存路径</button>
+        <button class="btn-secondary btn-sm" onclick="maskEditorCancel()">取消（还原）</button>
         <button class="btn-secondary btn-sm" onclick="maskEditorUndo()">撤销点</button>
         <button class="btn-secondary btn-sm" onclick="maskEditorRedo()">重做点</button></div>` : ''}
     </div>

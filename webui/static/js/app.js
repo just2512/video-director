@@ -72,9 +72,9 @@ function renderModelRoles(){
         <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '已配置' : '未配置（走兜底）'}</span>
       </div>
       <div class="hint">${esc(r.hint)}</div>
-      <label>API 密钥</label>
+      <label>密钥（服务方提供的一串字符）</label>
       <input type="password" id="mc-${r.role}-key" placeholder="sk-…（留空=该角色走内置兜底）" value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">
-      <label>API 地址</label>
+      <label>服务地址（不填用默认）</label>
       <input type="text" id="mc-${r.role}-url" value="${esc(r.base_url || '')}" placeholder="${esc(r.default_base_url)}">
       <label>模型名</label>
       <input type="text" id="mc-${r.role}-model" value="${esc(r.model || '')}" placeholder="${esc(r.default_model)}">

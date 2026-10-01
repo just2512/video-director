@@ -59,9 +59,11 @@ function gfxRenderPlan(){
     `<option value="${l}"${(sel||'center')===l?' selected':''}>${{center:'居中',left:'左对齐',split:'分栏'}[l]}</option>`).join('');
   const cards = GFX.plan.scenes.map((s, i) => {
     const blk = GFX.blocks.find(b=>b.id===s.block_id) || {motion:'graphics.fade-up'};
+    const motionCn = {fade_up: '淡入上浮', scale_punch: '缩放强调', slide_left: '左滑入场',
+                      word_relay: '逐词接力', rise_soft: '轻柔升起'};
     const motionSel = '<select style="flex:1.4" onchange="GFX.plan.scenes['+i+'].motion_id=this.value;GFX.previewHtml=null">'+
       ['fade-up','scale-punch','slide-left','word-relay','rise-soft']
-        .map(m=>'<option value="graphics.'+m+'"'+((s.motion_id||blk.motion)==='graphics.'+m?' selected':'')+'>'+m+'</option>').join('')+'</select>';
+        .map(m=>'<option value="graphics.'+m+'"'+((s.motion_id||blk.motion)==='graphics.'+m?' selected':'')+'>'+(motionCn[m.replace(/-/g,'_')] || m)+'</option>').join('')+'</select>';
     const intentMap = {problem_title:'吸引注意', wrong_belief:'纠正常见误解', cause:'解释机制',
       contrast:'制造对比', process:'展示步骤', concept:'建立概念', statistic:'数字冲击',
       definition:'给出定义', timeline:'历史脉络', formula:'公式推理', code:'技术演示',

@@ -233,6 +233,7 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
         "project_id": pid,
         "name": _resolve_name(pid, row, params),
         "status": status,
+        "progress": (row and row.get("progress")) or 0,
         "editable": editable,
         "legacy": legacy,
         "archived": archived,
@@ -385,6 +386,8 @@ def delete(project_id: str) -> dict:
     # 3a. DB row 先删
     if row:
         store.delete_project_row(project_id)
+    # 3a2. 项目关联的自动化任务行（§6.3 logs/run state：jobs 表里引用本项目的行）
+    store.delete_jobs_of_project(project_id)
     # 3b. 项目目录（含 plans/output/assets/logs/render/qc）
     if d.is_dir():
         shutil.rmtree(d, ignore_errors=False)
@@ -400,7 +403,10 @@ def delete(project_id: str) -> dict:
 
 
 def delete_verify(project_id: str) -> dict:
-    """§69 五层删除验证（全部 True=MISSING 才算删除完成；供测试与验收）。"""
+    """§69/§72 删除验证（全部 True=MISSING 才算删除完成；供测试与验收）。
+
+    六层：DB row / 项目目录 / composition / 成片 / 旧方案 / 自动化任务。
+    """
     d = config.composer_storage_root() / project_id
     return {
         "db_row": store.get_project(project_id) is None,
@@ -408,6 +414,7 @@ def delete_verify(project_id: str) -> dict:
         "composition": not (d / "plans" / "composition.json").is_file(),
         "final_output": not (d / "output" / "final.mp4").is_file(),
         "graphic_plan": not (d / "plans" / "graphic_plan.json").is_file(),
+        "jobs": len(store.jobs_of_project(project_id)) == 0,
     }
 
 

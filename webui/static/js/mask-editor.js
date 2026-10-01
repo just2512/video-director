@@ -26,6 +26,10 @@ function maskEditorOpen(sceneId, idx){
   const lay = _maskEdLayer();
   const existing = lay && lay.mask && (lay.mask.shape === 'polygon' || lay.mask.shape === 'path');
   if (MASK_ED.open) {
+    // §20 取消基准：进入编辑器时的原始 geometry（取消=恢复到这里）
+    MASK_ED.entryGeometry = existing && Array.isArray(lay.mask.geometry)
+      ? lay.mask.geometry.map(g => ({x: g[0], y: g[1]}))
+      : [];
     // 已有 path/polygon 蒙版 → 载入其顶点；否则给默认四角形让用户直接拖
     if (existing && Array.isArray(lay.mask.geometry) && lay.mask.geometry.length >= 3) {
       MASK_ED.geometry = lay.mask.geometry.map(g => ({x: g[0], y: g[1]}));
@@ -35,7 +39,7 @@ function maskEditorOpen(sceneId, idx){
     }
     MASK_ED.feather = (lay && lay.mask && lay.mask.feather) || 0;
     MASK_ED.inverted = !!(lay && lay.mask && lay.mask.inverted);
-    if (typeof editorToast === 'function') editorToast('路径编辑已打开：拖动顶点；双击边加新点；右键点删点；空白处单击加点；完成后「保存路径」');
+    if (typeof editorToast === 'function') editorToast('路径编辑已打开：拖动顶点；双击边加新点；右键点删点；空白处单击加点；「保存路径」生效或「取消」还原');
   }
   maskEditorRender();
 }
@@ -204,6 +208,19 @@ async function maskEditorSave(){
   }
 }
 
+/** §20 取消：恢复到进入编辑器时的 geometry（零变更离开）。 */
+function maskEditorCancel(){
+  if (!MASK_ED.open) return;
+  MASK_ED.geometry = (MASK_ED.entryGeometry && MASK_ED.entryGeometry.length)
+    ? MASK_ED.entryGeometry.map(p => ({x: p.x, y: p.y}))
+    : [{x: 0.25, y: 0.25}, {x: 0.75, y: 0.25},
+       {x: 0.75, y: 0.75}, {x: 0.25, y: 0.75}];
+  MASK_ED.open = false;
+  maskEditorRender();  // open=false 分支移除 overlay
+  if (typeof editorToast === 'function') editorToast('已取消路径编辑，蒙版保持原样（未产生修改）');
+  if (typeof edShowInspector === 'function') edShowInspector();
+}
+
 Object.assign(window, {maskEditorOpen, maskEditorRender, maskEditorSave,
-                       maskEditorUndo, maskEditorRedo, maskEditorToggleClose,
-                       MASK_ED});
+                       maskEditorCancel, maskEditorUndo, maskEditorRedo,
+                       maskEditorToggleClose, MASK_ED});

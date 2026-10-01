@@ -328,14 +328,20 @@ function _tlBindPlayheadDrag(){
   document.addEventListener('pointerup', up);
 }
 
-/** §17 层拖动重排（Local 预览序号提示，释放 → move Command → Revision）。 */
+/** §17 层直接操作：拖动重排（跨场景）+ 边缘 Trim（层内裁剪）。
+ *  拖动全程 Local（DOM 类标记），释放才 Command → Revision。 */
 let _layerDrag = null;
 function _tlBindLayerDrag(){
   document.querySelectorAll('#editor-timeline .ed-layer').forEach(el => {
     el.addEventListener('pointerdown', ev => {
-      // 层内按下只记录拖动候选；移动超过阈值才算拖（避免误伤点击选择）
       _layerDrag = {el, sceneId: el.dataset.scene, idx: parseInt(el.dataset.idx),
-                    startX: ev.clientX, moved: false};
+                    startX: ev.clientX, moved: false, mode: null};
+      // §17 边缘 Trim：按下点在层带左/右 8px → trim 手势；中间 → move 手势
+      const r = el.getBoundingClientRect();
+      const edge = 8;
+      if (ev.clientX - r.left <= edge) _layerDrag.mode = 'trim-left';
+      else if (r.right - ev.clientX <= edge) _layerDrag.mode = 'trim-right';
+      else _layerDrag.mode = 'move';
     });
   });
   document.addEventListener('pointermove', ev => {
@@ -343,6 +349,23 @@ function _tlBindLayerDrag(){
     if (Math.abs(ev.clientX - _layerDrag.startX) > 8) {
       _layerDrag.moved = true;
       _layerDrag.el.classList.add('tl-dragging');
+      if (_layerDrag.mode.startsWith('trim')) {
+        // Trim Local Preview：层带宽度实时跟随（改 width%）；指示方向
+        const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === _layerDrag.sceneId);
+                             return sc && sc.layers[_layerDrag.idx]; })();
+        if (lay) {
+          const total = ED.comp.duration || 1;
+          const scStart = ED.comp.scenes.find(s => s.id === _layerDrag.sceneId).start;
+          const absDelta = (ev.clientX - _layerDrag.startX) / (document.querySelector('#editor-timeline .ed-tl-scroll').getBoundingClientRect().width * (ED.zoom || 1)) * total;
+          if (_layerDrag.mode === 'trim-left') {
+            const newIn = Math.max(0, (lay.start || 0) + absDelta);
+            _layerDrag.el.title = `裁剪起点 → 场景内 ${newIn.toFixed(1)}s`;
+          } else {
+            const newOut = Math.max(0.5, lay.duration - absDelta);
+            _layerDrag.el.title = `层时长 → ${newOut.toFixed(1)}s`;
+          }
+        }
+      }
     }
   });
   document.addEventListener('pointerup', ev => {
@@ -351,7 +374,37 @@ function _tlBindLayerDrag(){
     _layerDrag = null;
     if (!d.moved) return;  // 纯点击走 onclick
     d.el.classList.remove('tl-dragging');
-    // 找到松手位置落点的场景序号（横向命中）
+    const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === d.sceneId);
+                         return sc && sc.layers[d.idx]; })();
+    if (!lay) return;
+    const scrollW = document.querySelector('#editor-timeline .ed-tl-scroll').getBoundingClientRect().width * (ED.zoom || 1);
+    const total = ED.comp.duration || 1;
+    const absDelta = (ev.clientX - d.startX) / scrollW * total;
+    if (d.mode === 'trim-left' || d.mode === 'trim-right') {
+      // §17 Trim 释放 → trim Command（源区间）→ Revision
+      // 源区间：source_in 起；source_out 缺省时按层时长×速度推
+      const speed = lay.speed || 1;
+      const srcIn0 = lay.source_in || 0;
+      const srcOut0 = lay.source_out || (srcIn0 + lay.duration * speed);
+      let srcIn = srcIn0, srcOut = srcOut0;
+      if (d.mode === 'trim-left') {
+        srcIn = Math.max(0, Math.min(srcOut0 - 0.5, srcIn0 + absDelta * speed));
+      } else {
+        // 右缘向左 = 缩短（out 提前）；向右 = 加长（out 后延）
+        srcOut = Math.max(srcIn0 + 0.5, srcOut0 - absDelta * speed);
+      }
+      if (!(srcOut > srcIn)) { editorToast('裁剪区间无效，未修改', true); return; }
+      editorToast(`正在应用裁剪 ${srcIn.toFixed(1)}s–${srcOut.toFixed(1)}s……`);
+      executeCommand({command: 'trim', targetId: `${d.sceneId}#${d.idx}`,
+        payload: {sourceIn: +srcIn.toFixed(2), sourceOut: +srcOut.toFixed(2)}})
+        .then(r => {
+          editorToast(r.ok ? `已裁剪为源区间 ${srcIn.toFixed(1)}s–${srcOut.toFixed(1)}s`
+                           : '裁剪未完成：' + (r.error || ''), !r.ok);
+          if (r.ok) refreshWorkspace();
+        });
+      return;
+    }
+    // move：找松手落点场景
     const scenes = [...document.querySelectorAll('#editor-timeline .ed-scene')];
     const target = scenes.find(scEl => {
       const r = scEl.getBoundingClientRect();
@@ -360,7 +413,6 @@ function _tlBindLayerDrag(){
     if (!target || target.dataset.scene === d.sceneId) return;
     const toIdx = ED.comp.scenes.findIndex(s => s.id === target.dataset.scene);
     if (toIdx < 0) return;
-    const fromIdx = ED.comp.scenes.findIndex(s => s.id === d.sceneId);
     editorToast(`正在把场景 ${d.sceneId} 移到第 ${toIdx + 1} 位……`);
     editorCmd('move', {toIndex: toIdx}, d.sceneId, true);
   });
@@ -375,10 +427,23 @@ document.addEventListener('keydown', ev => {
   if (!ED.pid || document.getElementById('pane-editor').style.display === 'none') return;
   const mod = ev.ctrlKey || ev.metaKey;
   if (ev.code === 'Space') { ev.preventDefault(); previewPlay(); return; }
-  if (ev.key === 'Escape') { clearSelection('keyboard'); return; }
+  if (ev.key === 'Escape') {
+    // §20 Esc 优先级：蒙版编辑中=取消路径编辑；否则清选择
+    if (typeof MASK_ED !== 'undefined' && MASK_ED.open
+        && typeof maskEditorCancel === 'function') {
+      maskEditorCancel();
+      return;
+    }
+    clearSelection('keyboard');
+    return;
+  }
   if (ev.key === 'Delete' || ev.key === 'Backspace') {
     ev.preventDefault();
-    if (SEL.selection) editorCmd('delete');
+    // §42 删除语义随对象：场景=删除场景 / 图层=移除图层（同一命令通道）
+    if (SEL.selection) {
+      editorToast(SEL.selection.type === 'layer' ? '移除图层……' : '删除场景……');
+      editorCmd('delete');
+    }
     return;
   }
   if (mod && !ev.shiftKey && (ev.key === 'z' || ev.key === 'Z')) { ev.preventDefault(); editorUndo(); return; }
@@ -482,27 +547,57 @@ async function projectDrawerToggle(){
   }
 }
 
-// 版本历史渲染进 §43 抽屉
+// 版本历史渲染进 §43 抽屉（含 §43 对比）
+let _verSelection = [];
 async function editorLoadVersions(){
   if (!ED.pid) { editorToast('先打开项目'); return; }
   const revs = await apiGet('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid));
   const box = document.getElementById('version-drawer');
   if (!box) return;
+  _verSelection = [];
   if (!Array.isArray(revs) || !revs.length) {
     box.innerHTML = '<div class="hint">尚无编辑版本（每次修改自动记为一版，可回退）。</div>';
     return;
   }
+  const recent = revs.slice(-20).reverse();
   box.innerHTML = `<div class="drawer-inline"><b>版本历史</b>
     <div class="scene-list" style="max-height:240px">
-    ${revs.slice(-20).reverse().map(rv => {
+    ${recent.map((rv, i) => {
       const when = new Date((rv.created_at || 0) * 1000).toLocaleString();
-      return `<div class="proj-row"><b>v${rv.base_version + 1}</b>`+
+      return `<div class="proj-row"><input type="checkbox" class="ver-chk" data-i="${revs.indexOf(rv)}"
+        style="width:auto" onchange="verToggleCheck(this, ${revs.indexOf(rv)})">
+        <b>v${rv.base_version + 1}</b>`+
         `<span class="hint">${esc(rv.command)} → ${esc(rv.target_id || '')}</span>`+
         `<span class="hint">${when}</span></div>`;
     }).join('')}
     </div>
-    <div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorUndo()">撤销最新一版</button></div>
+    <div class="btn-row">
+      <button class="btn-secondary btn-sm" onclick="verCompareSelected()">对比勾选的两版</button>
+      <button class="btn-secondary btn-sm" onclick="editorUndo()">撤销最新一版</button>
+    </div>
+    <div id="version-compare"></div>
   </div>`;
+}
+function verToggleCheck(el, idx){
+  if (el.checked) { if (!_verSelection.includes(idx)) _verSelection.push(idx); }
+  else { _verSelection = _verSelection.filter(x => x !== idx); }
+}
+async function verCompareSelected(){
+  const box = document.getElementById('version-compare');
+  if (_verSelection.length !== 2) {
+    box.innerHTML = '<div class="hint">勾选两个版本再对比（各显示改了什么、复用什么）。</div>';
+    return;
+  }
+  const revs = await apiGet('/api/editor/revisions?project_id=' + encodeURIComponent(ED.pid));
+  const a = revs[Math.min(..._verSelection)], b = revs[Math.max(..._verSelection)];
+  const changed = [a, b].map(x => (x.changed_artifacts || []).join('、') || '无改动清单');
+  const reusedA = (a.reused_artifacts || []), reusedB = (b.reused_artifacts || []);
+  const common = reusedA.filter(x => reusedB.includes(x));
+  box.innerHTML = `<div class="hint">
+    <b>v${a.base_version + 1} → v${b.base_version + 1} 对比</b><br>
+    v${a.base_version + 1} 改动：${esc(changed[0])}<br>
+    v${b.base_version + 1} 改动：${esc(changed[1])}<br>
+    两版相同未动：${common.length} 项${common.length ? '（' + esc(common.slice(0, 4).join('、')) + '）' : ''}</div>`;
 }
 
 // §8 拆分导出：inline onclick/window 引用兼容
@@ -513,5 +608,6 @@ Object.assign(window, {
   editorRenderTimeline, tlToggleGroup,
   editorUndo, editorRedo, editorSaveBar, editorPreviewBar, editorTopbarRefresh,
   versionDrawerToggle, projectDrawerToggle, editorLoadVersions,
+  verToggleCheck, verCompareSelected,
   PLAYHEAD, TL_GROUPS,
 });

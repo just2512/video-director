@@ -7,7 +7,7 @@
 // Project Index（§52）由服务端解释状态：status/editable/legacy/archived/
 // scene_count/duration/has_draft/has_final/actions——前端不猜。
 
-window.PM = {index: [], filter: 'all', query: '', shown: 50};
+window.PM = {index: [], filter: 'all', query: '', shown: 50, busy: {}};
 
 const PM_PAGE = 50;  // §8 大量项目：列表分页渲染（默认 50，「显示更多」追加）
 
@@ -20,7 +20,10 @@ const PM_STATUS_CN = {
 function pmStatusCn(p){
   if (p.archived) return '已归档';
   if (p.legacy) return '旧版';
-  return PM_STATUS_CN[p.status] || '未知';
+  const s = p.status;
+  if (p.active_job && s !== 'AWAITING_CONFIRM')
+    return `生成中${p.progress ? ' · ' + p.progress + '%' : ''}`;  // §58 进行中带进度
+  return PM_STATUS_CN[s] || '未知';
 }
 function pmStatusCls(p){
   if (p.archived) return 'pm-st-muted';
@@ -87,13 +90,16 @@ function renderProjectList(){
     const dur = p.duration ? p.duration.toFixed(1) + 's' : '—';
     const when = p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : '—';
     const name = p.name || p.project_id;
-    return `<div class="pm-row">
+    const busyAct = PM.busy[p.project_id];
+    const busyCn = {rename: '重命名中……', clone: '复制中……', archive: '归档中……',
+                    restore: '恢复中……', delete: '删除中……', convert: '转换中……'};
+    return `<div class="pm-row${busyAct ? ' pm-row-busy' : ''}">
       <span class="pm-name" onclick="pmOpenDetail('${esc(p.project_id)}')"><b>${esc(name)}</b>
         <span class="hint">${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
-      <span class="pm-st ${pmStatusCls(p)}">${pmStatusCn(p)}</span>
+      <span class="pm-st ${pmStatusCls(p)}">${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
       <span class="pm-dur">${dur}</span>
       <span class="pm-when">${when}</span>
-      <span class="pm-ops">${primary} ${ops}</span>
+      <span class="pm-ops">${busyAct ? '<span class="hint">处理中……</span>' : `${primary} ${ops}`}</span>
     </div>`;
   }).join('');
   if (PM.index.length > PM.shown) {
@@ -117,17 +123,27 @@ function pmSearch(input){
   loadProjects();
 }
 
-/** 项目动作统一入口（§61）：POST /api/project_action → 重拉 Index。 */
+/** 项目动作统一入口（§61）：POST /api/project_action → 重拉 Index。
+ *  §54 操作中态：动作执行期间该行按钮全禁用 + 行显示「处理中」，防重复点击。 */
 async function projectAction(pid, action, args){
-  const r = await apiPost('/api/project_action',
-    Object.assign({project_id: pid, action}, args || {}));
-  if (!r.ok) {
-    // §55 操作反馈：发生了什么/数据有没有变化/接下来怎么办
-    editorToast(`未完成：${r.error || '操作失败'}${r.code === 'ACTIVE_JOB' ? '（请先等待任务结束）' : ''}`, true);
+  if (PM.busy[pid]) { editorToast('这个项目有操作正在进行中，请稍候', true); return {ok: false}; }
+  PM.busy[pid] = action;
+  const rowBtns = document.querySelectorAll(`.pm-row`);
+  renderProjectList();  // busy 态重渲染（按钮禁用）
+  try {
+    const r = await apiPost('/api/project_action',
+      Object.assign({project_id: pid, action}, args || {}));
+    if (!r.ok) {
+      // §55 操作反馈：发生了什么/数据有没有变化/接下来怎么办
+      editorToast(`未完成：${r.error || '操作失败'}${r.code === 'ACTIVE_JOB' ? '（请先等待任务结束）' : ''}`, true);
+      return r;
+    }
+    await loadProjects();  // §61 成功后重拉 Index，不在前端本地改列表
     return r;
+  } finally {
+    delete PM.busy[pid];
+    renderProjectList();
   }
-  await loadProjects();  // §61 成功后重拉 Index，不在前端本地改列表
-  return r;
 }
 
 // ---- 各动作 ----
