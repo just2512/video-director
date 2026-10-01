@@ -285,7 +285,10 @@ SUPPORTED_COMMANDS = (
     "set_opacity",               # 层透明度（折叠为 motion opacity 近似）
     "set_style",                 # 项目级风格（§20）
     "set_transform",             # 层静态变换（scale/opacity，§20）
-    "set_audio_volume",          # 音轨音量（§20）
+    "set_audio_volume",          # 音轨音量（§20 / §37 Audio Bus gain）
+    "set_audio_mute",            # §37 Audio Bus：轨级静音（mute 一等操作）
+    "set_audio_fade",            # §37 Audio Bus：轨级淡入/淡出秒数
+    "audio_mix",                 # §37 Audio Bus：一次多轨混音（「原声 20%、BGM 10%、旁白正常」）
     "add_broll",                 # 加 B-roll 层（§20）
     "remove_broll",              # 删 B-roll 层（§20）
     "generate_media",            # 生成素材落地为层（§20/EDT-008）
@@ -401,6 +404,12 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_transform(ir, target_id, payload)
         elif cmd_name == "set_audio_volume":
             changed, stale = _cmd_set_audio_volume(ir, target_id, payload)
+        elif cmd_name == "set_audio_mute":
+            changed, stale = _cmd_set_audio_mute(ir, target_id, payload)
+        elif cmd_name == "set_audio_fade":
+            changed, stale = _cmd_set_audio_fade(ir, target_id, payload)
+        elif cmd_name == "audio_mix":
+            changed, stale = _cmd_audio_mix(ir, target_id, payload)
         elif cmd_name == "add_broll":
             changed, stale = _cmd_add_broll(ir, target_id, payload)
         elif cmd_name == "remove_broll":
@@ -872,6 +881,104 @@ def _cmd_set_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> T
             start=0.0, duration=ir.project.duration, volume=volume,
         ))
     return [], [f"audio:{track_type}:render"]
+
+
+_VALID_AUDIO_TRACKS = ("narration", "dialogue", "bgm", "sfx", "ambient",
+                      "ambience", "original")
+
+
+def _cmd_set_audio_mute(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§37 Audio Bus：轨级静音（muted=True 一等操作，区别于 volume=0——
+    静音保留原 gain，取消静音即恢复；渲染层对 muted 轨整轨跳过）。"""
+    track_type = target_id or payload.get("track_type") or ""
+    if track_type not in _VALID_AUDIO_TRACKS:
+        raise EditorError("INVALID_TARGET", f"set_audio_mute 目标音轨 {track_type!r} 非法")
+    muted = bool(payload.get("muted", True))
+    changed = False
+    for i, t in enumerate(ir.audio):
+        if t.type.value == track_type:
+            ir.audio[i] = t.model_copy(update={"muted": muted})
+            changed = True
+    if not changed:
+        from video_director.models import AudioTrack, AudioTrackType
+        ir.audio.append(AudioTrack(
+            type=AudioTrackType(track_type), asset_id=None,
+            start=0.0, duration=ir.project.duration, muted=muted,
+        ))
+    return [], [f"audio:{track_type}:render"]
+
+
+def _cmd_set_audio_fade(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§37 Audio Bus：轨级淡入/淡出（fadeIn/fadeOut 秒）。"""
+    track_type = target_id or payload.get("track_type") or ""
+    if track_type not in _VALID_AUDIO_TRACKS:
+        raise EditorError("INVALID_TARGET", f"set_audio_fade 目标音轨 {track_type!r} 非法")
+    fade_in = float(payload.get("fadeIn", payload.get("fade_in", 0.0)) or 0.0)
+    fade_out = float(payload.get("fadeOut", payload.get("fade_out", 0.0)) or 0.0)
+    if fade_in < 0 or fade_out < 0:
+        raise EditorError("INVALID_PARAMETER", "淡入/淡出秒数不能为负")
+    changed = False
+    for i, t in enumerate(ir.audio):
+        if t.type.value == track_type:
+            ir.audio[i] = t.model_copy(update={"fadeIn": fade_in, "fadeOut": fade_out})
+            changed = True
+    if not changed:
+        from video_director.models import AudioTrack, AudioTrackType
+        ir.audio.append(AudioTrack(
+            type=AudioTrackType(track_type), asset_id=None,
+            start=0.0, duration=ir.project.duration,
+            fadeIn=fade_in, fadeOut=fade_out,
+        ))
+    return [], [f"audio:{track_type}:render"]
+
+
+def _cmd_audio_mix(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§37 Audio Bus：一次多轨混音。payload = {tracks: {narration: {volume, muted,
+    ducking, fadeIn, fadeOut}, bgm: {...}, original: {...}, sfx: {...}}}。
+
+    「原声 20%、BGM 10%、旁白正常」= {"tracks": {"original": {"volume": 0.2},
+    "bgm": {"volume": 0.1}, "narration": {"volume": 1.0}}}——一个标准 Audio
+    Mix 操作，AI 和 UI 调同一命令（§37：不再分别调四套 API）。
+    """
+    tracks = payload.get("tracks") or {}
+    if not isinstance(tracks, dict) or not tracks:
+        raise EditorError("INVALID_PAYLOAD", "audio_mix 需要 tracks 映射（如 {bgm: {volume: 0.1}}）")
+    stale: List[str] = []
+    for track_type, opts in tracks.items():
+        if track_type not in _VALID_AUDIO_TRACKS:
+            raise EditorError("INVALID_TARGET", f"audio_mix 音轨 {track_type!r} 非法")
+        if not isinstance(opts, dict):
+            raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} 参数须为对象")
+        update = {}
+        if "volume" in opts:
+            v = float(opts["volume"])
+            if not (0.0 <= v <= 2.0):
+                raise EditorError("INVALID_PARAMETER", f"{track_type} volume {v} 越界 [0,2]")
+            update["volume"] = v
+        if "muted" in opts:
+            update["muted"] = bool(opts["muted"])
+        if "ducking" in opts:
+            update["ducking"] = bool(opts["ducking"])
+        if "fadeIn" in opts:
+            update["fadeIn"] = float(opts["fadeIn"])
+        if "fadeOut" in opts:
+            update["fadeOut"] = float(opts["fadeOut"])
+        if not update:
+            continue
+        changed = False
+        for i, t in enumerate(ir.audio):
+            if t.type.value == track_type:
+                ir.audio[i] = t.model_copy(update=update)
+                changed = True
+        if not changed:
+            from video_director.models import AudioTrack, AudioTrackType
+            base = {"type": AudioTrackType(track_type), "asset_id": None,
+                    "start": 0.0, "duration": ir.project.duration}
+            ir.audio.append(AudioTrack(**base, **update))
+        stale.append(f"audio:{track_type}:render")
+    if not stale:
+        raise EditorError("INVALID_PAYLOAD", "audio_mix 没有任何有效参数")
+    return [], stale
 
 
 def _cmd_add_broll(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:

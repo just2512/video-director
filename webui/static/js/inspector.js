@@ -56,21 +56,75 @@ function inspectorOpenSection(name){
   if (sec) sec.scrollIntoView({behavior: 'smooth', block: 'center'});
 }
 
+/** §62/§16 Inspector 消费 /api/actions：当前上下文可执行动作 + Availability。
+ *  §63 不可用 → 按钮禁用但显示原因 + 下一步（不是哑灰）。 */
+async function inspectorActionsBox(){
+  if (!ED.pid) return '';
+  const sel = SEL.selection || {type: 'project'};
+  let layerType = '';
+  if (sel.type === 'layer') {
+    const [sceneId, idxS] = (sel.id || '').split('#');
+    const sc = (ED.comp.scenes || []).find(s => s.id === sceneId);
+    const lay = sc && sc.layers[parseInt(idxS)];
+    layerType = lay ? lay.type : '';
+  }
+  try {
+    const r = await apiGet(`/api/actions?project_id=${encodeURIComponent(ED.pid)}` +
+      `&selection_type=${encodeURIComponent(sel.type || 'project')}` +
+      `&selection_id=${encodeURIComponent(sel.id || '')}` +
+      `&layer_type=${encodeURIComponent(layerType)}`);
+    if (!r || !r.actions) return '';
+    const avail = r.actions.filter(a => a.available);
+    const blocked = r.actions.filter(a => !a.available);
+    return `<div class="hint" style="margin-top:4px">可执行 ${avail.length} 个动作`+
+      (blocked.length ? ` · 不可用 ${blocked.length} 个（原因见悬停）` : '') + '</div>';
+  } catch (e) { return ''; }
+}
+
 // ---------------------------------------------------------------------------
-// Project 上下文（§12 选择 Project）
+// §5/§6/§7 Project 上下文（叠加层=水印/Logo + 全局声音策略 + 字幕策略）
 // ---------------------------------------------------------------------------
 function _inspectorProject(){
   const box = document.getElementById('editor-inspector');
   const c = ED.comp;
   if (!c) { box.innerHTML = '<div class="hint">打开项目后显示项目属性。</div>'; return; }
+  const wms = c.watermarks || [];
+  const anchorCn = Object.fromEntries(_UI_CN_ANCHORS);
+  const sub = c.subtitle_style || {};
+  const narr = (c.audio || []).some(a => a.type === 'narration');
+  const orig = (c.audio || []).find(a => a.type === 'original');
   box.innerHTML = `
     <b>项目</b>
-    <div class="role-block" data-section="content"><b>内容</b>
+    <div class="role-block" data-section="overview"><b>概况</b>
       <div class="hint">${c.scenes.length} 场景 · 总长 ${c.duration.toFixed(1)}s · 画幅 ${c.width}×${c.height}</div></div>
-    <div class="role-block" data-section="style"><b>风格</b>
-      <div class="hint">${esc(c.origin_template_id ? '模板 ' + c.origin_template_id : '自由创作')}</div></div>
-    <div class="role-block" data-section="audio"><b>默认声音</b>
-      <div class="hint">配音/音乐/音效在右侧「声音与字幕」面板调整</div></div>
+    <div class="role-block" data-section="overlays"><b>叠加层（Logo / 水印）</b>
+      ${wms.length ? wms.map((w, i) => `
+        <div class="proj-row"><span><b>${esc(w.text || w.asset_id || '水印')}</b>
+          <span class="hint">${anchorCn[w.anchor] || esc(w.anchor || '')} · 透明 ${w.opacity ?? '—'}</span></span>
+          <span class="btn-row">
+            <button class="btn-secondary btn-sm" onclick="editorWatermarkMove(${i})">调整</button>
+            <button class="btn-secondary btn-sm" onclick="editorCmd('remove_watermark',{},'',true)">删除</button>
+          </span></div>`).join('') : '<div class="hint">还没有 Logo / 水印</div>'}
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn-secondary btn-sm" data-action="watermark.add" title="添加品牌 Logo / 文字水印">添加 Logo / 水印</button>
+        <button class="btn-secondary btn-sm" data-action="watermark.remove" ${wms.length ? '' : 'disabled title="当前没有水印"'}>移除水印</button>
+      </div>
+    </div>
+    <div class="role-block" data-section="audio"><b>声音策略</b>
+      <div class="hint">旁白：${narr ? '已生成' : '无'} · 原声：${orig ? (orig.muted ? '已静音' : (orig.volume * 100).toFixed(0) + '%') : '未启用'}</div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn-secondary btn-sm" onclick="editorVoiceOpen()">配音设置</button>
+        <button class="btn-secondary btn-sm" onclick="editorAudioBusOpen()">整体调音</button>
+      </div>
+    </div>
+    <div class="role-block" data-section="subtitle"><b>字幕策略</b>
+      <div class="hint">${c.subtitle_track && c.subtitle_track.cues.length
+        ? `字幕轨：${c.subtitle_track.cues.length} 条（${c.subtitle_track.mode === 'word' ? '逐词' : '句子'}）` : '无字幕轨'}${sub.color ? ' · 样式已设' : ''}</div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleOpen()">字幕样式</button>
+        <button class="btn-secondary btn-sm" onclick="editorSubtitleGenerate()">生成字幕轨</button>
+      </div>
+    </div>
     <div class="role-block" data-section="version"><b>版本</b>
       <div class="hint">当前 V${c.version} · 顶栏 V 号可看历史</div></div>
     <div class="btn-row">
@@ -88,8 +142,8 @@ function _inspectorScene(sceneId){
   if (!sc) { clearSelection('inspector'); box.innerHTML = '<div class="hint">场景已变化，请重新选择</div>'; return; }
   const si = ED.comp.scenes.indexOf(sc);
   const cont = sc.continuity_in;
-  const audioOf = ty => (ED.comp.audio || []).find(a => a.type === ty);
-  const narr = audioOf('narration');
+  const mainLayer = (sc.layers || []).find(l => l.type === 'video' || l.type === 'image');
+  const mainName = mainLayer ? (mainLayer.asset_id || '程序化画面') : '无主画面';
   box.innerHTML = `
     <b>场景 ${si + 1} · ${esc(sc.id)}</b>
     <div class="role-block" data-section="content"><b>内容</b>
@@ -99,12 +153,17 @@ function _inspectorScene(sceneId){
       <div class="hint">${sc.origin_recipe_id ? '镜头方案：' + esc(shotCnName(sc.origin_recipe_id)) : '自由镜头'}</div>
     </div>
     <div class="role-block" data-section="visual"><b>画面</b>
+      <div class="hint">当前素材：${esc(mainName)}</div>
       <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn-secondary btn-sm" onclick="editorOpenAssetPicker('${sc.id}',0)">换素材</button>
+        <button class="btn-secondary btn-sm" onclick="editorAutoFindAsset('${sc.id}')">自动找素材</button>
+        <button class="btn-secondary btn-sm" onclick="editorSceneGenerate('${sc.id}')">AI 生成</button>
         <button class="btn-secondary btn-sm" onclick="editorOpenShotPicker('${sc.id}')">换镜头</button>
         <button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','push_in')">镜头推进</button>
         <button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','pull_out')">镜头拉远</button>
       </div>
       <div id="editor-picker-box"></div>
+      ${_sceneGenBox(sc.id)}
     </div>
     ${si > 0 ? `
     <div class="role-block" data-section="relation"><b>镜头关系</b>
@@ -123,14 +182,56 @@ function _inspectorScene(sceneId){
       <div id="ed-cont-verify"></div>
     </div>` : ''}
     <div class="role-block" data-section="audio"><b>声音</b>
-      <div class="hint">${narr ? '旁白轨（音量在右侧「声音与字幕」调整）' : '无旁白轨'} · 本镜文案 ${sc.duration.toFixed(1)}s</div></div>
-    <div class="role-block" data-section="generate"><b>画面生成</b>
-      <div class="hint">在时间线下方「生成画面」面板，为这个场景生成新画面。</div></div>`;
+      <div class="hint">本镜文案时长 ${sc.duration.toFixed(1)}s${mainLayer && mainLayer.type === 'video' ? ' · 主素材含视频（可保留原声）' : ''}</div>
+      ${mainLayer && mainLayer.type === 'video' ? `
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn-secondary btn-sm" onclick="editorSceneOriginalAudio('${sc.id}','preserve')">保留本镜原声</button>
+        <button class="btn-secondary btn-sm" onclick="editorSceneOriginalAudio('${sc.id}','mute')">静音本镜原声</button>
+      </div>` : ''}
+    </div>`;
+}
+
+/** §8 生成入 Scene→画面：场景内联生成区（不再有页面底部「生成画面」面板）。 */
+function _sceneGenBox(sceneId){
+  return `
+    <div id="gen-inline-box" style="margin-top:6px">
+      <details>
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted)">AI 生成新画面（图片 / 图形 / 视频 → 3 变体）</summary>
+        <div class="btn-row" style="flex-wrap:wrap;margin-top:6px">
+          <select id="gen-type" style="width:96px" onchange="applyGenerationAvailability()">
+            <option value="image">图片</option>
+            <option value="graphic">图形（程序化）</option>
+            <option value="video">视频</option>
+          </select>
+          <input type="text" id="gen-prompt" class="rev-input" style="flex:1;min-width:120px"
+                 placeholder="画面描述（例：极简标题卡：效率提升80%）">
+          <button class="btn-sm" onclick="editorGenerate()">生成 3 变体</button>
+        </div>
+        <div class="hint" id="gen-status"></div>
+        <div id="gen-results"></div>
+      </details>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
 // Layer 上下文（§12 按层类型分区）
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// §61 配置驱动 Inspector：Selection → Object Schema → Section Schema → Renderer。
+// section 定义在 LAYER_SECTION_SCHEMA（类型过滤 + 内容工厂），渲染器只做组装，
+// 不再手写几十段 if(layer.type===video){...} HTML。
+// ---------------------------------------------------------------------------
+const LAYER_SECTION_SCHEMA = [
+  {id: 'source', label: '素材', types: null, factory: (ctx) => _secSource(ctx)},
+  {id: 'sound', label: '声音', types: ['video'], factory: (ctx) => _secSound(ctx)},
+  {id: 'transform', label: '变换', types: null, factory: (ctx) => _secTransform(ctx)},
+  {id: 'motion', label: '动效', types: null, factory: (ctx) => _secMotion(ctx)},
+  {id: 'pip', label: '画中画', types: ['video'], factory: (ctx) => _secPip(ctx)},
+  {id: 'matting', label: '抠像', types: ['video'], factory: (ctx) => _secMatting(ctx)},
+  {id: 'mask', label: '蒙版', types: null, factory: (ctx) => _secMask(ctx)},
+  {id: 'keyframes', label: '关键帧', types: null, factory: (ctx) => _secKeyframes(ctx)},
+];
+
 function _inspectorLayer(layerId){
   const box = document.getElementById('editor-inspector');
   const [sceneId, idxS] = layerId.split('#');
@@ -138,88 +239,110 @@ function _inspectorLayer(layerId){
   const sc = ED.comp.scenes.find(s => s.id === sceneId);
   const lay = sc && sc.layers[idx];
   if (!lay) { clearSelection('inspector'); box.innerHTML = '<div class="hint">图层已变化，请重新选择</div>'; return; }
-  box.innerHTML = `
-    <b>${layerTypeCn(lay.type)}</b> <span class="hint">${esc(layerId)}</span>
-    <div class="role-block" data-section="source"><b>素材</b>
-      <div class="hint">${esc(lay.asset_id || '程序化画面（无外部素材）')} · 层时长 ${lay.duration.toFixed(1)}s · 场景内起点 ${lay.start.toFixed(1)}s</div>
-      ${lay.type === 'video' ? `
-      <div class="hint">源区间 ${lay.source_in.toFixed(1)}s → ${lay.source_out ? lay.source_out.toFixed(1) + 's' : '结尾'} · 速度 ${lay.speed.toFixed(1)}x</div>
-      <div class="btn-row"><input type="number" id="ed-trim-in" placeholder="起点秒" step="0.5" min="0" style="width:76px">
-      <input type="number" id="ed-trim-out" placeholder="终点秒" step="0.5" min="0" style="width:76px">
-      <button class="btn-secondary btn-sm" onclick="editorApplyTrim('${sceneId}',${idx})">应用裁剪</button>
-      <select id="ed-speed" style="width:70px">${[0.5,1,1.5,2].map(s2=>`<option value="${s2}"${Math.abs(lay.speed-s2)<0.01?' selected':''}>${s2}x</option>`).join('')}</select>
-      <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>` : ''}
-      <div class="btn-row">
-        <button class="btn-secondary btn-sm" onclick="editorOpenAssetPicker('${sceneId}',${idx})">换素材</button>
-        <button class="btn-secondary btn-sm" onclick="editorToggleLock('${sceneId}',${idx})">${lay.locked ? '解锁' : '锁定'}</button>
-      </div>
-      <div id="ed-asset-inspector" class="hint"></div>
-    </div>
-    <div class="role-block" data-section="transform"><b>变换</b>
-      <div class="btn-row" style="flex-wrap:wrap">
-        <input type="number" id="ed-tf-x" placeholder="水平 0-1" step="0.05" min="0" max="1" style="width:72px" value="${lay.transform ? lay.transform.x : ''}">
-        <input type="number" id="ed-tf-y" placeholder="垂直 0-1" step="0.05" min="0" max="1" style="width:72px" value="${lay.transform ? lay.transform.y : ''}">
-        <input type="number" id="ed-tf-rot" placeholder="旋转°" step="5" style="width:60px" value="${lay.transform && lay.transform.rotation ? lay.transform.rotation : ''}">
-        <input type="number" id="ed-opacity" placeholder="透明度 0-1" step="0.1" min="0" max="1" style="width:84px" value="${lay.transform ? lay.transform.opacity : ''}">
-        <input type="number" id="ed-scale" placeholder="缩放 0.1-3" step="0.1" style="width:72px" value="${lay.transform ? lay.transform.scale : ''}">
-        <button class="btn-secondary btn-sm" onclick="editorSetVisualTransform('${sceneId}',${idx})">应用变换</button>
-      </div>
-      <div class="hint" style="font-size:11px">水平/垂直为画幅归一坐标（0.5=居中）。</div>
-    </div>
-    <div class="role-block" data-section="motion"><b>动效</b>
-      <div class="hint">当前：${lay.motion_recipe_id ? esc(motionCnName(lay.motion_recipe_id)) : '无'}</div>
-      <div class="btn-row">
-        <button class="btn-secondary btn-sm" onclick="editorOpenMotionPicker('${sceneId}',${idx})">换动效</button>
-        <button class="btn-secondary btn-sm" onclick="editorPreviewMotionParam('${sceneId}',${idx})">预览参数</button>
-      </div>
-      <label>动效时长（秒）</label>
-      <div class="btn-row"><input type="number" id="ed-mot-dur" value="0.5" step="0.1" min="0.1" style="width:80px">
-      <select id="ed-mot-easing" style="width:110px"><option value="">缓动（默认）</option>
-      ${['linear','quad','cubic','quart','expo','back','sine'].map(e=>`<option value="${e}">${e}</option>`).join('')}</select>
-      <button class="btn-sm" onclick="editorApplyMotionParam('${sceneId}',${idx})">应用参数</button></div>
-      <div id="ed-motion-preview" style="margin-top:6px"></div>
-    </div>
-    ${lay.type === 'video' ? `
-    <div class="role-block" data-section="pip"><b>画中画</b>
-      ${((lay.motion_instance||{}).parameters||{}).pip
-        ? `<div class="hint">已配置画中画（可在「变换」继续调整位置大小）</div>
-           <div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorRemovePip('${sceneId}',${idx})">取消画中画</button></div>`
-        : `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorApplyPip('${sceneId}',${idx})">设为画中画（右上角小窗）</button></div>`}
-    </div>
-    <div class="role-block" data-section="matting"><b>抠像</b>
-      <div class="btn-row">
-        <select id="ed-mat-color" style="width:100px"><option value="0x00FF00">绿幕</option><option value="0x0000FF">蓝幕</option></select>
-        <button class="btn-secondary btn-sm" onclick="editorRunMatting('${sceneId}',${idx})">生成抠像</button>
-      </div>
-      <div class="hint" id="ed-mat-status">绿幕/蓝幕抠底，产物入素材库并替换本层。</div>
-    </div>` : ''}
-    <div class="role-block" data-section="mask"><b>蒙版</b>
-      ${lay.mask ? `<div class="hint">当前：${maskShapeCn(lay.mask.shape)}${lay.mask.feather ? ' · 羽化 ' + lay.mask.feather : ''}${lay.mask.inverted ? ' · 反转' : ''}</div>` : ''}
-      <div class="btn-row" style="flex-wrap:wrap">
-        <select id="ed-mask-shape" style="width:100px"><option value="">形状…</option><option value="rectangle">矩形</option><option value="rounded_rect">圆角矩形</option><option value="ellipse">椭圆</option></select>
-        <input type="number" id="ed-mask-feather" placeholder="羽化px" min="0" style="width:72px">
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;margin:0"><input type="checkbox" id="ed-mask-invert"> 反转</label>
-        <button class="btn-secondary btn-sm" onclick="editorApplyMask('${sceneId}',${idx})">应用蒙版</button>
-        <button class="btn-secondary btn-sm" onclick="maskEditorOpen('${sceneId}',${idx})">编辑路径</button>
-        ${lay.mask ? `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_mask', {}, '${layerId}')">移除蒙版</button>` : ''}
-      </div>
-      ${MASK_ED.open ? `<div class="btn-row">
-        <button class="btn-sm" onclick="maskEditorSave()">保存路径</button>
-        <button class="btn-secondary btn-sm" onclick="maskEditorCancel()">取消（还原）</button>
-        <button class="btn-secondary btn-sm" onclick="maskEditorUndo()">撤销点</button>
-        <button class="btn-secondary btn-sm" onclick="maskEditorRedo()">重做点</button></div>` : ''}
-    </div>
-    <div class="role-block" data-section="keyframes"><b>关键帧</b>
-      <div id="ed-kf-list">${renderKeyframeList(lay, sceneId, idx)}</div>
-      <div class="btn-row" style="flex-wrap:wrap">
-        <select id="ed-kf-prop" style="width:96px"><option value="opacity">透明度</option><option value="scale">缩放</option><option value="x">水平</option><option value="y">垂直</option><option value="rotation">旋转</option></select>
-        <input type="number" id="ed-kf-at" placeholder="时间秒" step="0.1" min="0" style="width:72px">
-        <input type="number" id="ed-kf-val" placeholder="数值" step="0.1" style="width:64px">
-        <button class="btn-secondary btn-sm" onclick="editorAddKeyframe('${sceneId}',${idx})">打关键帧</button>
-      </div>
-    </div>
-    <div id="editor-picker-box"></div>`;
+  const ctx = {sceneId, idx, layerId, lay};
+  // §61 Renderer：schema 过滤 + 组装
+  const sections = LAYER_SECTION_SCHEMA
+    .filter(s => !s.types || s.types.includes(lay.type))
+    .map(s => `<div class="role-block" data-section="${s.id}">${s.factory(ctx)}</div>`)
+    .join('');
+  box.innerHTML = `<b>${layerTypeCn(lay.type)}</b> <span class="hint">${esc(layerId)}</span>${sections}`+
+    '<div id="editor-picker-box"></div>';
   if (lay.asset_id) loadAssetInspector(lay.asset_id);
+}
+
+// ---- section 内容工厂（§61：每 section 一个纯函数，ctx = {sceneId, idx, layerId, lay}）----
+function _secSource({sceneId, idx, lay}){
+  return `<b>素材</b>
+    <div class="hint">${esc(lay.asset_id || '程序化画面（无外部素材）')} · 层时长 ${lay.duration.toFixed(1)}s · 场景内起点 ${lay.start.toFixed(1)}s</div>
+    ${lay.type === 'video' ? `
+    <div class="hint">源区间 ${lay.source_in.toFixed(1)}s → ${lay.source_out ? lay.source_out.toFixed(1) + 's' : '结尾'} · 速度 ${lay.speed.toFixed(1)}x</div>
+    <div class="btn-row"><input type="number" id="ed-trim-in" placeholder="起点秒" step="0.5" min="0" style="width:76px">
+    <input type="number" id="ed-trim-out" placeholder="终点秒" step="0.5" min="0" style="width:76px">
+    <button class="btn-secondary btn-sm" onclick="editorApplyTrim('${sceneId}',${idx})">应用裁剪</button>
+    <select id="ed-speed" style="width:70px">${[0.5,1,1.5,2].map(s2=>`<option value="${s2}"${Math.abs(lay.speed-s2)<0.01?' selected':''}>${s2}x</option>`).join('')}</select>
+    <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>` : ''}
+    <div class="btn-row">
+      <button class="btn-secondary btn-sm" onclick="editorOpenAssetPicker('${sceneId}',${idx})">换素材</button>
+      <button class="btn-secondary btn-sm" onclick="editorToggleLock('${sceneId}',${idx})">${lay.locked ? '解锁' : '锁定'}</button>
+    </div>
+    <div id="ed-asset-inspector" class="hint"></div>`;
+}
+function _secSound({layerId}){
+  return `<b>声音</b>
+    ${_layerOriginalAudioState()}
+    <div class="btn-row" style="flex-wrap:wrap">
+      <button class="btn-secondary btn-sm" onclick="editorLayerOriginalAudio('${layerId}','preserve')">保留原声</button>
+      <button class="btn-secondary btn-sm" onclick="editorLayerOriginalAudio('${layerId}','mute')">静音原声</button>
+      <button class="btn-secondary btn-sm" onclick="editorLayerOriginalVolume('${layerId}')">原声音量</button>
+    </div>`;
+}
+function _secTransform({sceneId, idx, lay}){
+  return `<b>变换</b>
+    <div class="btn-row" style="flex-wrap:wrap">
+      <input type="number" id="ed-tf-x" placeholder="水平 0-1" step="0.05" min="0" max="1" style="width:72px" value="${lay.transform ? lay.transform.x : ''}">
+      <input type="number" id="ed-tf-y" placeholder="垂直 0-1" step="0.05" min="0" max="1" style="width:72px" value="${lay.transform ? lay.transform.y : ''}">
+      <input type="number" id="ed-tf-rot" placeholder="旋转°" step="5" style="width:60px" value="${lay.transform && lay.transform.rotation ? lay.transform.rotation : ''}">
+      <input type="number" id="ed-opacity" placeholder="透明度 0-1" step="0.1" min="0" max="1" style="width:84px" value="${lay.transform ? lay.transform.opacity : ''}">
+      <input type="number" id="ed-scale" placeholder="缩放 0.1-3" step="0.1" style="width:72px" value="${lay.transform ? lay.transform.scale : ''}">
+      <button class="btn-secondary btn-sm" onclick="editorSetVisualTransform('${sceneId}',${idx})">应用变换</button>
+    </div>
+    <div class="hint" style="font-size:11px">水平/垂直为画幅归一坐标（0.5=居中）。</div>`;
+}
+function _secMotion({sceneId, idx, lay}){
+  return `<b>动效</b>
+    <div class="hint">当前：${lay.motion_recipe_id ? esc(motionCnName(lay.motion_recipe_id)) : '无'}</div>
+    <div class="btn-row">
+      <button class="btn-secondary btn-sm" onclick="editorOpenMotionPicker('${sceneId}',${idx})">换动效</button>
+      <button class="btn-secondary btn-sm" onclick="editorPreviewMotionParam('${sceneId}',${idx})">预览参数</button>
+    </div>
+    <label>动效时长（秒）</label>
+    <div class="btn-row"><input type="number" id="ed-mot-dur" value="0.5" step="0.1" min="0.1" style="width:80px">
+    <select id="ed-mot-easing" style="width:110px"><option value="">缓动（默认）</option>
+    ${['linear','quad','cubic','quart','expo','back','sine'].map(e=>`<option value="${e}">${e}</option>`).join('')}</select>
+    <button class="btn-sm" onclick="editorApplyMotionParam('${sceneId}',${idx})">应用参数</button></div>
+    <div id="ed-motion-preview" style="margin-top:6px"></div>`;
+}
+function _secPip({sceneId, idx, lay}){
+  return `<b>画中画</b>
+    ${((lay.motion_instance||{}).parameters||{}).pip
+      ? `<div class="hint">已配置画中画（可在「变换」继续调整位置大小）</div>
+         <div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorRemovePip('${sceneId}',${idx})">取消画中画</button></div>`
+      : `<div class="btn-row"><button class="btn-secondary btn-sm" onclick="editorApplyPip('${sceneId}',${idx})">设为画中画（右上角小窗）</button></div>`}`;
+}
+function _secMatting({sceneId, idx}){
+  return `<b>抠像</b>
+    <div class="btn-row">
+      <select id="ed-mat-color" style="width:100px"><option value="0x00FF00">绿幕</option><option value="0x0000FF">蓝幕</option></select>
+      <button class="btn-secondary btn-sm" onclick="editorRunMatting('${sceneId}',${idx})">生成抠像</button>
+    </div>
+    <div class="hint" id="ed-mat-status">绿幕/蓝幕抠底，产物入素材库并替换本层。</div>`;
+}
+function _secMask({sceneId, idx, lay, layerId}){
+  return `<b>蒙版</b>
+    ${lay.mask ? `<div class="hint">当前：${maskShapeCn(lay.mask.shape)}${lay.mask.feather ? ' · 羽化 ' + lay.mask.feather : ''}${lay.mask.inverted ? ' · 反转' : ''}</div>` : ''}
+    <div class="btn-row" style="flex-wrap:wrap">
+      <select id="ed-mask-shape" style="width:100px"><option value="">形状…</option><option value="rectangle">矩形</option><option value="rounded_rect">圆角矩形</option><option value="ellipse">椭圆</option></select>
+      <input type="number" id="ed-mask-feather" placeholder="羽化px" min="0" style="width:72px">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;margin:0"><input type="checkbox" id="ed-mask-invert"> 反转</label>
+      <button class="btn-secondary btn-sm" onclick="editorApplyMask('${sceneId}',${idx})">应用蒙版</button>
+      <button class="btn-secondary btn-sm" onclick="maskEditorOpen('${sceneId}',${idx})">编辑路径</button>
+      ${lay.mask ? `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_mask', {}, '${layerId}')">移除蒙版</button>` : ''}
+    </div>
+    ${MASK_ED.open ? `<div class="btn-row">
+      <button class="btn-sm" onclick="maskEditorSave()">保存路径</button>
+      <button class="btn-secondary btn-sm" onclick="maskEditorCancel()">取消（还原）</button>
+      <button class="btn-secondary btn-sm" onclick="maskEditorUndo()">撤销点</button>
+      <button class="btn-secondary btn-sm" onclick="maskEditorRedo()">重做点</button></div>` : ''}`;
+}
+function _secKeyframes({sceneId, idx, lay}){
+  return `<b>关键帧</b>
+    <div id="ed-kf-list">${renderKeyframeList(lay, sceneId, idx)}</div>
+    <div class="btn-row" style="flex-wrap:wrap">
+      <select id="ed-kf-prop" style="width:96px"><option value="opacity">透明度</option><option value="scale">缩放</option><option value="x">水平</option><option value="y">垂直</option><option value="rotation">旋转</option></select>
+      <input type="number" id="ed-kf-at" placeholder="时间秒" step="0.1" min="0" style="width:72px">
+      <input type="number" id="ed-kf-val" placeholder="数值" step="0.1" style="width:64px">
+      <button class="btn-secondary btn-sm" onclick="editorAddKeyframe('${sceneId}',${idx})">打关键帧</button>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,13 +382,40 @@ function _inspectorMulti(){
   const box = document.getElementById('editor-inspector');
   const sceneIds = ED.comp.scenes.filter(s => edIsSelected('scene', s.id)).map(s => s.id);
   const layerIds = [...SEL.selectionSet].filter(k => k.startsWith('layer:')).map(k => k.slice(6));
+  const videoLayers = layerIds.filter(lid => {
+    const [sceneId, idxS] = lid.split('#');
+    const sc = ED.comp.scenes.find(s => s.id === sceneId);
+    const lay = sc && sc.layers[parseInt(idxS)];
+    return lay && lay.type === 'video';
+  });
   box.innerHTML = `<b>已选 ${edSelectedCount()} 项</b>`+
-    `<div class="hint">场景：${sceneIds.length} 个 · 图层：${layerIds.length} 个</div>`+
+    `<div class="hint">场景：${sceneIds.length} 个 · 图层：${layerIds.length} 个（视频 ${videoLayers.length}）</div>`+
+    `<div class="role-block"><b>声音（§5.3 多选视频批量）</b>
+      ${videoLayers.length ? `
+      <div class="hint">对选中的 ${videoLayers.length} 个视频素材统一设置原声：</div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn-secondary btn-sm" onclick="editorMultiOriginal('preserve')">全部保留原声</button>
+        <button class="btn-secondary btn-sm" onclick="editorMultiOriginal('mute')">全部静音原声</button>
+        <button class="btn-secondary btn-sm" onclick="editorMultiOriginalVolume()">统一音量</button>
+      </div>` : '<div class="hint">选中视频素材后可批量设置原声。</div>'}
+    </div>`+
     `<div class="btn-row">`+
     `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('duplicate')">批量复制场景</button>`+
     `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('delete')">批量删除场景</button>`+
     `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('lock')">批量锁定图层</button>`+
     `<button class="btn-secondary btn-sm" onclick="clearSelection()">取消选择</button></div>`;
+}
+
+/** §5.3 多选视频层批量原声（AI 与 UI 走同一 set_original_audio 语义）。 */
+function editorMultiOriginal(mode){
+  editorCmd('set_original_audio', {mode, volume: mode === 'preserve' ? 0.8 : 0.0,
+                                   duckAgainst: 'narration'}, '', true);
+}
+function editorMultiOriginalVolume(){
+  const hostId = 'ed-multivol-host';
+  _ensureInlineHost(hostId);
+  uiInlineInput(hostId, {type: 'number', def: 0.2, min: 0, max: 2, step: 0.1, unit: '倍'},
+    (v) => { if (!isNaN(v)) editorCmd('set_original_audio_volume', {volume: v}, '', true); });
 }
 
 // selection:changed → Inspector 自动同步（§18 双向契约）
@@ -278,8 +428,146 @@ document.addEventListener('selection:changed', ev => {
 });
 
 // ---------------------------------------------------------------------------
-// 场景/镜头操作（走 Selection Service 定位，全部 Command Bus 落 Revision）
+// §5 声音入对象上下文：视频层 / 场景 / 原声轨的统一实现
+// （原 editorOriginalAudio/editorOriginalAudioVolume 从项目级面板迁移而来）
 // ---------------------------------------------------------------------------
+
+/** §5.1 选中视频层：原声状态行（与「这个视频素材」明确关联）。 */
+function _layerOriginalAudioState(){
+  const orig = (ED.comp.audio || []).find(a => a.type === 'original');
+  if (!orig) return '<div class="hint">原声：未启用（点「保留原声」建立此素材的原声轨）</div>';
+  return `<div class="hint">原声：${orig.muted ? '已静音' : '保留'} · 音量 ${(orig.volume * 100).toFixed(0)}%`+
+    `${orig.ducking ? ' · 旁白时自动压低' : ''}${orig.fadeIn ? ' · 淡入 ' + orig.fadeIn + 's' : ''}</div>`;
+}
+
+/** §5.1 视频层「保留原声 / 静音原声」（走 Action 语义 = set_original_audio）。 */
+function editorLayerOriginalAudio(layerId, mode){
+  const vol = mode === 'preserve' ? 0.8 : 0.0;
+  editorCmd('set_original_audio', {mode, volume: vol, duckAgainst: 'narration'}, '', true);
+}
+/** §5.1 视频层原声音量（含本层定位语义提示）。 */
+function editorLayerOriginalVolume(layerId){
+  const hostId = 'ed-origvol-host';
+  _ensureInlineHost(hostId);
+  uiInlineInput(hostId, {type: 'number', def: 0.8, min: 0, max: 2, step: 0.1, unit: '倍'},
+    (v) => { if (!isNaN(v)) editorCmd('set_original_audio_volume', {volume: v}, '', true); });
+}
+/** §5 场景级原声（Scene Inspector 的本镜操作）。 */
+function editorSceneOriginalAudio(sceneId, mode){
+  editorLayerOriginalAudio(sceneId, mode);
+}
+
+/** §8 Scene→画面「自动找素材」：打开 Asset Picker 的图库 tab（搜索入口）。 */
+function editorAutoFindAsset(sceneId){
+  editorOpenAssetPicker(sceneId, 0, 'autoFind');
+}
+
+/** §8 Scene→画面「AI 生成」：滚动展开内联生成区并聚焦输入。 */
+function editorSceneGenerate(sceneId){
+  const det = document.querySelector('#gen-inline-box details');
+  if (det) { det.open = true; det.scrollIntoView({behavior: 'smooth', block: 'center'}); }
+  const inp = document.getElementById('gen-prompt');
+  if (inp) inp.focus();
+  const sc = ED.comp.scenes.find(s => s.id === sceneId);
+  if (inp && sc && !inp.value) inp.value = (sc.text || '').slice(0, 40);
+}
+
+/** §5.2/§7 配音设置（原声音与字幕面板的配音区迁移到项目上下文）。 */
+function editorVoiceOpen(){
+  const box = document.getElementById('editor-inspector');
+  const voicesHtml = `<div id="ed-voice-sel-host" style="margin-top:6px"></div>`;
+  box.insertAdjacentHTML('beforeend', `<div class="role-block" data-section="voice" id="ed-voice-panel">
+    <b>配音</b>${voicesHtml}<span class="hint" id="ed-voice-status"></span></div>`);
+  edVoiceLoadOptions();
+  const host = document.getElementById('ed-voice-sel-host');
+  if (host && !host.querySelector('select')) {
+    host.innerHTML = `<div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
+      <select id="ed-voice-sel" style="flex:1;min-width:120px"></select>
+      <button class="btn-secondary btn-sm" onclick="edVoicePreview()">试听</button>
+      <button class="btn-secondary btn-sm" onclick="edVoiceFullPreview()">完整旁白试听</button>
+    </div>`;
+    edVoiceLoadOptions();
+  }
+  document.getElementById('ed-voice-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+/** §37 整体调音（Audio Bus）：原声/BGM/SFX/旁白 一屏多轨调整 → audio_mix。 */
+function editorAudioBusOpen(){
+  const box = document.getElementById('editor-inspector');
+  const audioOf = ty => (ED.comp.audio || []).find(a => a.type === ty);
+  const row = (ty, label) => {
+    const t = audioOf(ty);
+    return `<div class="btn-row" style="margin-top:4px;align-items:center">
+      <span class="hint" style="flex:0 0 64px">${label}</span>
+      <input type="number" id="bus-${ty}-vol" value="${t ? t.volume : ''}" placeholder="音量0-2" step="0.1" min="0" max="2" style="width:82px">
+      <label style="font-size:12px;margin:0"><input type="checkbox" id="bus-${ty}-mute"${t && t.muted ? ' checked' : ''}> 静音</label>
+      <label style="font-size:12px;margin:0"><input type="checkbox" id="bus-${ty}-duck"${t && t.ducking ? ' checked' : ''}> 旁白时压低</label>
+    </div>`;
+  };
+  box.insertAdjacentHTML('beforeend', `<div class="role-block" data-section="audiobus" id="ed-audiobus-panel">
+    <b>整体调音（Audio Bus）</b>
+    <div class="hint">一次调整多轨（原声/BGM/音效/旁白），空值轨不动。</div>
+    ${row('original', '原声')}${row('bgm', '背景音乐')}${row('sfx', '音效')}${row('narration', '旁白')}
+    <div class="btn-row"><button class="btn-sm" onclick="editorAudioBusApply()">应用混音</button></div>
+  </div>`);
+  document.getElementById('ed-audiobus-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+/** §37 audio_mix 提交：只收集有输入的轨。 */
+function editorAudioBusApply(){
+  const tracks = {};
+  for (const ty of ['original', 'bgm', 'sfx', 'narration']) {
+    const volEl = document.getElementById('bus-' + ty + '-vol');
+    const muteEl = document.getElementById('bus-' + ty + '-mute');
+    const duckEl = document.getElementById('bus-' + ty + '-duck');
+    const opts = {};
+    if (volEl && volEl.value !== '') opts.volume = parseFloat(volEl.value);
+    if (muteEl && muteEl.checked) opts.muted = true;
+    if (duckEl && duckEl.checked) opts.ducking = true;
+    if (Object.keys(opts).length) tracks[ty] = opts;
+  }
+  if (!Object.keys(tracks).length) { editorToast('至少填一个轨的音量/静音/压低'); return; }
+  executeCommand({command: 'audio_mix', targetId: '', payload: {tracks}})
+    .then(r => {
+      editorToast(r.ok ? '混音已应用' : '混音未完成：' + (r.error || ''), !r.ok);
+      if (r.ok) refreshWorkspace();
+    });
+}
+
+/** §7 字幕样式（对象上下文版：不再有独立面板字段）。 */
+function editorSubtitleStyleOpen(){
+  const box = document.getElementById('editor-inspector');
+  const st = ED.comp.subtitle_style || {};
+  box.insertAdjacentHTML('beforeend', `<div class="role-block" data-section="subtitlestyle" id="ed-substyle-panel">
+    <b>字幕样式</b>
+    <div class="btn-row" style="flex-wrap:wrap;margin-top:4px">
+      <select id="sub-mode" style="width:76px">
+        <option value="sentence"${st.mode === 'sentence' ? ' selected' : ''}>句子</option>
+        <option value="word"${st.mode === 'word' ? ' selected' : ''}>逐词</option>
+      </select>
+      <input type="number" id="sub-size" step="0.1" min="0.3" max="3" style="width:56px" placeholder="字号" value="${st.size ?? ''}">
+      <input type="color" id="sub-color" value="${st.color || '#ffffff'}" style="width:40px" title="字幕颜色">
+      <select id="sub-pos" style="width:72px">
+        <option value="bottom"${st.position === 'bottom' || !st.position ? ' selected' : ''}>底部</option>
+        <option value="center"${st.position === 'center' ? ' selected' : ''}>居中</option>
+        <option value="top"${st.position === 'top' ? ' selected' : ''}>顶部</option>
+      </select>
+      <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply()">应用样式</button>
+    </div>
+    <div class="hint">白字黑边：颜色 #ffffff + 黑描边可在下方输入。</div>
+    <div class="btn-row" style="margin-top:4px">
+      <input type="text" id="sub-stroke" placeholder="描边色（例：#000000）" style="width:110px">
+      <button class="btn-secondary btn-sm" onclick="editorSubtitleWhiteOnBlack()">白字黑边一键</button>
+    </div>
+  </div>`);
+  document.getElementById('ed-substyle-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+function editorSubtitleWhiteOnBlack(){
+  const c = document.getElementById('sub-color');
+  if (c) c.value = '#ffffff';
+  const s = document.getElementById('sub-stroke');
+  if (s) s.value = '#000000';
+  editorToast('已填入白字黑边，点「应用样式」生效');
+}
 async function loadAssetInspector(assetId){
   const el = document.getElementById('ed-asset-inspector');
   if (!el) return;
@@ -405,16 +693,28 @@ function editorAudioVolume(trackType){
     (v) => { if (!isNaN(v)) editorCmd('set_audio_volume', {volume: v}, trackType, true); });
 }
 
-// 项目级：声音与字幕面板
+// §11 下拉三态：READY（可选项）/ EMPTY（暂无数据+原因）/ UNAVAILABLE（服务不可用+去设置）
+// 不再出现空 <select> 让用户猜是没数据、没配置还是接口挂了。
 async function edVoiceLoadOptions(){
   const sel = document.getElementById('ed-voice-sel');
   if (!sel || sel.options.length) return;
+  sel.innerHTML = '<option value="">加载音色……</option>';
   try {
-    const voices = await apiGet('/api/voices');
-    const list = Array.isArray(voices) ? voices : (voices.voices || []);
-    sel.innerHTML = list.slice(0, 20).map(v =>
-      `<option value="${esc(v.voice_id || v.id || v)}">${esc(v.name || v.label || v.voice_id || v)}</option>`).join('');
-  } catch (e) { /* 下拉空态保留 */ }
+    const r = await apiGet('/api/voices');
+    const list = Array.isArray(r) ? r : (r.voices || r && []) || [];
+    if (list.length) {
+      sel.innerHTML = list.slice(0, 30).map(v =>
+        `<option value="${esc(v.voice_id || v.id || v)}">${esc(v.name || v.label || v.voice_id || v)}</option>`).join('');
+    } else {
+      sel.innerHTML = '<option value="">（暂无可用音色）</option>';
+      const st = document.getElementById('ed-voice-status');
+      if (st) st.innerHTML = '没有配置可用的配音服务 <a href="#" onclick="switchTab(\'settings\');return false" style="color:var(--accent)">去设置</a>';
+    }
+  } catch (e) {
+    sel.innerHTML = '<option value="">（配音服务不可用）</option>';
+    const st = document.getElementById('ed-voice-status');
+    if (st) st.innerHTML = '配音服务读取失败：' + esc(String(e).slice(0, 60)) + ' <a href="#" onclick="switchTab(\'settings\');return false" style="color:var(--accent)">去设置</a>';
+  }
 }
 async function edVoicePreview(){
   const sel = document.getElementById('ed-voice-sel');
@@ -427,6 +727,26 @@ async function edVoicePreview(){
     if (st) st.textContent = '试听播放中';
   } catch (e) {
     if (st) st.textContent = '试听失败：' + e;
+  }
+}
+/** §35 完整旁白试听：整段文案合成试听（全项目文案一次听完）。 */
+async function edVoiceFullPreview(){
+  const sel = document.getElementById('ed-voice-sel');
+  const st = document.getElementById('ed-voice-status');
+  if (!sel || !sel.value) { if (st) st.textContent = '先选音色'; return; }
+  const texts = (ED.comp.scenes || []).map(s => s.text || '').filter(Boolean).join('。');
+  if (!texts) { if (st) st.textContent = '项目没有旁白文案'; return; }
+  if (st) st.textContent = '完整旁白试听合成中……（整段文案，约需数秒）';
+  try {
+    const r = await apiPost('/api/voice_preview_full', {voice: sel.value, text: texts});
+    if (r && r.ok && r.audio_url) {
+      new Audio(r.audio_url).play();
+      if (st) st.textContent = '完整旁白试听播放中';
+    } else {
+      if (st) st.textContent = '完整试听失败：' + (r.error || '未知');
+    }
+  } catch (e) {
+    if (st) st.textContent = '完整试听失败：' + (e.message || e);
   }
 }
 function editorOriginalAudio(mode){
@@ -502,10 +822,12 @@ async function editorSubtitleStyleApply(){
   const size = document.getElementById('sub-size');
   const color = document.getElementById('sub-color');
   const pos = document.getElementById('sub-pos');
+  const stroke = document.getElementById('sub-stroke');
   if (mode && mode.value) payload.mode = mode.value;
   if (size && size.value) payload.size = parseFloat(size.value);
   if (color && color.value) payload.color = color.value;
   if (pos && pos.value) payload.position = pos.value;
+  if (stroke && stroke.value.trim()) payload.strokeColor = stroke.value.trim();
   if (!Object.keys(payload).length) { editorToast('先调整样式字段'); return; }
   editorCmd('set_subtitle_style', payload, '', true);
 }
@@ -748,7 +1070,7 @@ async function editorApplySpeed(sceneId, idx){
 // §8 拆分导出：inline onclick/window 引用兼容
 Object.assign(window, {
   layerTypeCn, edShowInspector, resolveInspector, inspectorOpenSection,
-  loadAssetInspector, editorSetVisualTransform,
+  inspectorActionsBox, loadAssetInspector, editorSetVisualTransform,
   editorApplyCamera, editorApplyContinuity, edContTypeChanged,
   edMorphFromChanged, editorApplyMorph, editorVerifyContinuity,
   editorApplyPip, editorRemovePip, editorApplyTrim, editorApplySpeed,
@@ -761,4 +1083,10 @@ Object.assign(window, {
   editorSubtitleStyleApply, editorSubtitleGenerate, editorBgmVolume,
   editorPreviewMotionParam, editorApplyMotionParam, editorOpenAssetPicker,
   CONT_CN, MORPH_BLOCKS,
+  // §5/§7/§8 对象化声音/字幕/生成（inspector.js 本轮新增）
+  _layerOriginalAudioState, editorLayerOriginalAudio, editorLayerOriginalVolume,
+  editorSceneOriginalAudio, editorAutoFindAsset, editorSceneGenerate,
+  editorVoiceOpen, edVoiceFullPreview, editorAudioBusOpen, editorAudioBusApply,
+  editorSubtitleStyleOpen, editorSubtitleWhiteOnBlack,
+  editorMultiOriginal, editorMultiOriginalVolume, _sceneGenBox,
 });

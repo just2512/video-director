@@ -23,7 +23,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote as urllib_quote, urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -759,10 +759,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/assets_library":
-            # Asset Library：全项目素材索引 + 使用历史（Asset Graph UI）
+            # §26 Asset Library：storage/assets 全局台账 + 各项目 manifest 合并视图
             try:
+                from video_director import asset_catalog as vd_acat
+                qs = parse_qs(parsed.query)
+                lib_entries = vd_acat.list_assets(
+                    kind=qs.get("type", [""])[0] or None,
+                    source=qs.get("source", [""])[0] or None,
+                    q=qs.get("q", [""])[0],
+                    only_clear=qs.get("only_clear", [""])[0] == "1")
+                lib = {e["asset_id"]: dict(e, used_in=[]) for e in lib_entries}
+                # 项目 manifest 合并（老项目素材照常出现，含 used_in）
                 root = STORAGE / "composer"
-                lib = {}
                 if root.is_dir():
                     for d in root.iterdir():
                         man = d / "assets" / "manifest.json"
@@ -785,12 +793,23 @@ class Handler(BaseHTTPRequestHandler):
                             })
                             if a.get("description"):
                                 ent["description"] = a["description"]
-                            # source 取最新（越新的项目 source 越可信；缺省 user）
                             if a.get("source"):
                                 ent["source"] = a["source"]
                             if d.name not in ent["used_in"]:
                                 ent["used_in"].append(d.name)
                 self._send_json(list(lib.values()))
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/assets/catalog":
+            # §25 Asset Graph 台账（Library 级；含 hash/commercial/溯源字段）
+            try:
+                from video_director import asset_catalog as vd_acat
+                qs = parse_qs(parsed.query)
+                self._send_json(vd_acat.list_assets(
+                    kind=qs.get("type", [""])[0] or None,
+                    source=qs.get("source", [""])[0] or None,
+                    q=qs.get("q", [""])[0],
+                    only_clear=qs.get("only_clear", [""])[0] == "1"))
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/inbox":
@@ -899,6 +918,15 @@ class Handler(BaseHTTPRequestHandler):
                                     "motion_recipe_id": lay.motion_recipe_id,
                                     "motion_version": lay.motion_version,
                                     "locked": bool(getattr(lay, "locked", None) or False) or None,
+                                    # video 层源区间/速度（§5.1 Inspector 裁剪与速度 UI 必需）
+                                    "source_in": getattr(lay, "source_in", None),
+                                    "source_out": getattr(lay, "source_out", None),
+                                    "speed": getattr(lay, "speed", None),
+                                    # 变换/动效实例/蒙版/关键帧（§5.1 变换、§6 蒙版、§7 关键帧 UI）
+                                    "transform": (lay.transform and lay.transform.model_dump()) or None,
+                                    "motion_instance": (lay.motion_instance and getattr(lay.motion_instance, "model_dump", lambda: lay.motion_instance)()) or None,
+                                    "mask": (lay.mask and lay.mask.model_dump()) or None,
+                                    "keyframes": [t.model_dump() for t in (lay.keyframes or [])],
                                 } for i, lay in enumerate(sc.layers)
                             ],
                         } for sc in ir.scenes
@@ -906,7 +934,10 @@ class Handler(BaseHTTPRequestHandler):
                     # §18/§19/§32：音频轨/水印/字幕样式回传（Inspector/时间线可视化）
                     "audio": [
                         {"type": t.type.value, "asset_id": t.asset_id, "start": t.start,
-                         "duration": t.duration, "volume": t.volume, "ducking": t.ducking}
+                         "duration": t.duration, "volume": t.volume, "ducking": t.ducking,
+                         # §37 Audio Bus：muted/fade 前端可显（轨道 badge + Inspector）
+                         "muted": bool(getattr(t, "muted", False)),
+                         "fadeIn": getattr(t, "fadeIn", 0.0), "fadeOut": getattr(t, "fadeOut", 0.0)}
                         for t in ir.audio
                     ],
                     "watermarks": [
@@ -955,6 +986,57 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"capabilities": list_capabilities()})
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/actions":
+            # §62 Action Manifest API：按上下文返回可执行动作 + Availability。
+            #   无 selection → 全上下文分组 manifest（UI 渲染按钮 / Director 读面）
+            #   有 selection → 当前上下文动作组（每个动作带 available/reason/next_actions）
+            # §42 build_id：源码契约与运行态一致性（Developer Mode 显示）。
+            try:
+                from video_director import action_registry as vd_actions
+                qs = parse_qs(parsed.query)
+                pid = qs.get("project_id", [""])[0]
+                sel_type = qs.get("selection_type", [""])[0]
+                layer_type = qs.get("layer_type", [""])[0]
+                context = None
+                if pid:
+                    from video_director import project_context as vd_pctx
+                    selection = ({"type": sel_type, "id": qs.get("selection_id", [""])[0],
+                                  "layer_type": layer_type} if sel_type else None)
+                    context = vd_pctx.inspect_project_context(pid, selection)
+                if sel_type:
+                    self._send_json(vd_actions.actions_for_context(
+                        {"type": sel_type, "id": qs.get("selection_id", [""])[0],
+                         "layer_type": layer_type or None},
+                        project_id=pid or None, context=context))
+                else:
+                    self._send_json({
+                        "build_id": vd_actions.BUILD_ID,
+                        "system": vd_actions.system_context(),
+                        "groups": vd_actions.manifest_for_project(pid or None),
+                    })
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/workflows":
+            # §52 GET /api/workflows：run 列表（可选 project_id 过滤）
+            try:
+                from video_director import workflow_run as vd_wf
+                qs = parse_qs(parsed.query)
+                pid = qs.get("project_id", [""])[0]
+                self._send_json({"runs": vd_wf.list_runs(project_id=pid or None)})
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
+        elif route.startswith("/api/workflows/"):
+            # §52 GET /api/workflows/{run_id}：run 详情 + steps[]（持久化状态）
+            try:
+                from video_director import workflow_run as vd_wf
+                run_id = route[len("/api/workflows/"):].strip("/")
+                run = vd_wf.get_run(run_id)
+                if run is None:
+                    self._send_json({"error": f"run 不存在: {run_id}"}, 404)
+                    return
+                self._send_json(run)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
         elif route == "/api/director/context":
             # §6：Project Context 快照（Director 读当前状态用）
             qs = parse_qs(parsed.query)
@@ -990,8 +1072,74 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
-        # 音频本地上传（参考 MPT BgmUpload 设计）：白名单扩展名 + 30MB 上限 +
-        # ffprobe 音频流校验 + 安全文件名 → audio_library/uploads/ → 出现在下拉
+        # §52 POST /api/workflows：发起 WorkflowRun → 立即返回 run_id（不阻塞）。
+        #   kind: compose（spec 同 /api/compose 字段）| render_draft | render_final
+        #   前端轮询 GET /api/workflows/{run_id} 或走 SSE workflow.* 事件。
+        if parsed.path == "/api/workflows":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            try:
+                from video_director import workflow_run as vd_wf
+                kind = payload.get("kind", "")
+                if kind == "compose":
+                    spec = payload.get("spec") or {}
+                    if not (spec.get("script") or "").strip():
+                        self._send_json({"error": "请先粘贴文案"}, 400)
+                        return
+                    run_id = vd_wf.run_compose_async(spec)
+                elif kind in ("render_draft", "render_final"):
+                    pid = payload.get("project_id", "")
+                    if not pid:
+                        self._send_json({"error": "缺少 project_id"}, 400)
+                        return
+                    run_id = vd_wf.run_render_async(
+                        pid, "draft" if kind == "render_draft" else "final")
+                else:
+                    self._send_json({"error": f"未知工作流类型: {kind}"}, 400)
+                    return
+                self._send_json({"ok": True, "run_id": run_id})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/voice_preview_full":
+            # §35 完整旁白试听：POST {voice, text} → edge-tts 合成整段（支持回放）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            voice = (payload.get("voice") or "").strip()
+            text = (payload.get("text") or "").strip()
+            if not voice or not text:
+                self._send_json({"error": "缺少 voice 或 text"}, 400)
+                return
+            if len(text) > 1200:
+                text = text[:1200]  # 试听上限（防超长阻塞）
+            try:
+                import asyncio
+                import edge_tts
+                import hashlib as _hl
+                cache_dir = STORAGE / "composer" / "voice_previews"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                key = _hl.sha1(f"{voice}:{text}".encode("utf-8")).hexdigest()[:16]
+                cache_file = cache_dir / f"full-{key}.mp3"
+                if not (cache_file.is_file() and cache_file.stat().st_size > 0):
+                    async def _syn():
+                        com = edge_tts.Communicate(text, voice)
+                        await com.save(str(cache_file))
+                    asyncio.run(_syn())
+                self._send_json({"ok": True,
+                                  "audio_url": "/file?path=" + urllib_quote(str(cache_file))})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"完整试听合成失败: {exc}"}, 502)
+            return
+
         if parsed.path == "/api/inbox_add":
             length = int(self.headers.get("Content-Length", 0))
             try:
@@ -1191,6 +1339,75 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # §24/§50 AssetPicker 本地导入 tab：multipart 文件 → 项目 assets manifest
+        # §26 Asset Library 上传：文件 → 安检 → probe → hash → Library（项目无关，
+        # 同一素材多项目复用）。项目引用由 /api/assets_import 或 project_reference 建。
+        # §26/§52 素材暂存：WorkflowRun spec 走 JSON（不能嵌文件），上传文件
+        # 先落 storage/staging → 返回路径列表供 spec.video_paths/image_paths 引用。
+        if parsed.path == "/api/assets/stage":
+            mp = _parse_multipart(self)
+            files = [f for f in mp["files"] if f["name"] == "files"]
+            if not files:
+                self._send_json({"ok": False, "error": "请选择文件"}, 400)
+                return
+            from video_director import assets as vd_assets_mod
+            stage_dir = STORAGE / "staging"
+            stage_dir.mkdir(parents=True, exist_ok=True)
+            videos, images, errs = [], [], []
+            for f in files:
+                name = Path(f["filename"]).name
+                dst = stage_dir / name
+                dst.write_bytes(f["data"])
+                try:
+                    kind = vd_assets_mod.classify(str(dst))
+                    (videos if kind == "video" else images).append(str(dst))
+                except vd_assets_mod.AssetError:
+                    dst.unlink(missing_ok=True)
+                    errs.append(f"{name}: 不支持的类型")
+            self._send_json({"ok": bool(videos or images),
+                             "videos": videos, "images": images, "errors": errs})
+            return
+
+        if parsed.path == "/api/assets/upload":
+            mp = _parse_multipart(self)
+            fields, files = mp["fields"], mp["files"]
+            srcs = [f for f in files if f["name"] == "files"]
+            if not srcs:
+                self._send_json({"error": "请选择文件"}, 400)
+                return
+            from video_director import asset_catalog as vd_acat
+            import tempfile as _tempfile
+            imported, errors = [], []
+            for f in srcs:
+                # 先落临时文件（import_asset 需要 path 做 magic/probe/hash）
+                suffix = Path(f["filename"]).suffix.lower()
+                with _tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+                    tf.write(f["data"])
+                    tmp_path = tf.name
+                try:
+                    tags = [t.strip() for t in (fields.get("tags") or "").split(",") if t.strip()]
+                    entry = vd_acat.import_asset(
+                        tmp_path, source=fields.get("source") or "user",
+                        tags=tags, description=fields.get("description") or "")
+                    imported.append({
+                        "asset_id": entry["asset_id"], "type": entry["type"],
+                        "width": entry.get("width"), "height": entry.get("height"),
+                        "duration": entry.get("duration"), "codec": entry.get("codec"),
+                        "has_audio": entry.get("has_audio"),
+                        "orientation": entry.get("orientation"),
+                        "commercial_status": entry.get("commercial_status"),
+                    })
+                except vd_acat.AssetLibraryError as exc:
+                    errors.append(f"{Path(f['filename']).name}: {exc}")
+                except Exception as exc:  # noqa: BLE001 单文件失败不阻断整批
+                    errors.append(f"{Path(f['filename']).name}: 导入失败 {exc}")
+                finally:
+                    Path(tmp_path).unlink(missing_ok=True)
+            sse_publish("asset", {"phase": "library_uploaded", "count": len(imported)})
+            self._send_json({"ok": bool(imported), "imported": imported,
+                             "errors": errors,
+                             "error": "" if imported else (errors[0] if errors else "无文件")})
+            return
+
         if parsed.path == "/api/assets_import":
             mp = _parse_multipart(self)
             fields, files = mp["fields"], mp["files"]
@@ -1506,11 +1723,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director import stock as vd_stock
+                from video_director import asset_catalog as vd_acat
+                # §10 ratio 由当前 Project Context 决定（不硬编码 9:16）：
+                # payload.ratio > project_id 推导 > any
+                ratio = payload.get("ratio")
+                pid_for_ratio = payload.get("project_id") or ""
+                orientation = payload.get("orientation")
+                if not ratio and pid_for_ratio:
+                    sp = vd_acat.stock_search_params(pid_for_ratio)
+                    ratio = sp["ratio"]
+                    if not orientation:
+                        orientation = sp["orientation"]
                 hits = vd_stock.search_stock(
                     query, provider=payload.get("provider"),
-                    orientation=payload.get("orientation"))
+                    orientation=orientation)
                 cands = vd_stock.resolve_candidates(
-                    hits, target_ratio=payload.get("ratio") or "9:16",
+                    hits, target_ratio=ratio or "any",
                     target_duration=payload.get("targetDuration"))
                 self._send_json({"ok": True,
                                  "candidates": [c.to_dict() for c in cands]})
@@ -1572,6 +1800,16 @@ class Handler(BaseHTTPRequestHandler):
                         json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
                     if local_id:
                         out["asset_id"] = local_id
+                    # §31/§39 Stock 素材入 Asset Registry（Library 级台账：
+                    # provider/creator/attribution 可追溯，多项目复用）
+                    try:
+                        from video_director import asset_catalog as vd_acat2
+                        vd_acat2.register_stock(
+                            out["file"], provider=asset.provider,
+                            source_id=asset.source_id, source_page=asset.source_page,
+                            creator=asset.creator)
+                    except Exception:  # noqa: BLE001 台账失败不阻断下载链
+                        pass
                 except Exception as exc:
                     print(f"[web] stock download 注册 manifest 失败（不阻塞下载）: {exc}",
                           file=sys.stderr)

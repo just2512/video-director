@@ -474,6 +474,7 @@ class AudioTrack(BaseModel):
     source_in: float = 0.0
     source_out: Optional[float] = None
     volume: float = 1.0
+    muted: bool = False        # §37 Audio Bus：mute 一等操作（区别于 volume=0）
     fadeIn: float = 0.0        # §18/§35：淡入秒数
     fadeOut: float = 0.0       # §18/§35：淡出秒数
     ducking: bool = False  # BGM 在 narration 下自动压低
@@ -513,6 +514,9 @@ class SubtitleTrack(BaseModel):
     def _check_cues(self):
         if self.mode not in ("sentence", "word"):
             raise ValueError(f"subtitle track mode {self.mode!r} 非法")
+        # §38 时间轴三源契约：TTS word boundary / 上传配音 ASR / 手动
+        if self.source not in ("tts_word_boundary", "asr", "manual"):
+            raise ValueError(f"subtitle track source {self.source!r} 非法（tts_word_boundary|asr|manual）")
         for c in self.cues:
             if c.end <= c.start:
                 raise ValueError(f"subtitle cue ({c.start}-{c.end}) end <= start")

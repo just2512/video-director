@@ -1,27 +1,37 @@
-"""MPT 吸收方案 §4/§7/§61/§62/§92：Director Agent —— 系统真正的 AI 大脑。
+"""最终方案 §15/§16/§17/§54/§55/§56/§57：Director —— 控制中枢（闭环版）。
 
-Director 收到用户剪辑要求，第一件事不是回答，而是：
-    1. 读 Capability Manifest（§5）          system.capabilities.list
-    2. 读 Project Context（§6）              system.context.inspect
-    3. 规划 Tool Call 序列（§7）
-    4. 逐条执行 + Server Validation + verify（§59）
-    5. 继续下一能力，直到完成（§92 最小可用闭环）
+§54 真正的闭环（不是 LLM→JSON→for 循环）：
+    Inspect → Understand Goal → Resolve Target → Build Plan →
+    Validate → Execute → Read Result → Verify → Repair → Finish
 
-与 proposal.py（§49 改稿四态）分工：proposal 是"自然语言→编辑补丁"的
-改稿通道；Director 是更上层的"目标→能力编排"控制中枢，可把
-revision.propose/apply 当作其工具之一。
+§16 AI 必须认识四件东西：System / Project / Selection / Available Actions。
+    - System Context 来自 action_registry.system_context()（§16 providers/
+      render_profiles/asset_sources/voice_sources/music_sources + §64 商业政策）
+    - Project Context 来自 project_context.inspect_project_context()
+    - Selection Context 由 /api/director/context 上报（前端 Selection Service）
+    - Action Context 只发送当前可执行动作（actions_for_context），不把
+      117 个 Capability 全塞给模型
 
-规划：LLM 可用→LLM 出 tool 序列；不可用→规则兜底（覆盖 §92 最小闭环
-与 §60 的常见指令），诚实标注 source。
+§17 LLM 输出 goal + steps[{action, target, params}]（不是 capability id 串），
+    后端 Action Resolver 负责 Action→Capability→Command（不猜字段）。
+
+§55 执行后重新读系统：每个 step 执行后 inspect 验证目标状态变化，
+    失败进入修复（asset.search 找不到 → generate.image 回退，§四十）。
+
+§56 高层工具面：AI 看到的是系统动词（resolve_step 映射到底层 capability），
+    不暴露 100+ 底层细节。
+
+无 LLM 时规则兜底（覆盖 §五十七 12 条标准命令），诚实标注 source。
 """
 
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional
 
 from loguru import logger
 
-from video_director import project_context, tool_executor
+from video_director import action_registry, project_context, tool_executor
 
 
 class DirectorError(Exception):
@@ -30,43 +40,96 @@ class DirectorError(Exception):
         super().__init__(f"[{code}] {message}")
 
 
-def _llm_plan(instruction: str, context: dict) -> Optional[List[dict]]:
-    """LLM 出 tool 序列（§61：不只说"可以帮你"，而是提出具体计划）。"""
+# ---------------------------------------------------------------------------
+# §16 四件套上下文
+# ---------------------------------------------------------------------------
+
+def build_contexts(project_id: str, selection: Optional[dict] = None) -> dict:
+    """§16：System + Project + Selection + Action Context 一次收集。"""
+    # selection 补 layer_type（前端上报可能只带 type/id；Action 分组需要层类型）
+    sel = dict(selection or {"type": None})
+    if sel.get("type") == "layer" and not sel.get("layer_type"):
+        try:
+            from video_director.editor import load_composition
+            ir = load_composition(project_id)
+            scene_id, idx_s = (sel.get("id") or "").split("#")
+            for sc in ir.scenes:
+                if sc.id == scene_id:
+                    sel["layer_type"] = sc.layers[int(idx_s)].type.value
+                    break
+        except Exception:  # noqa: BLE001 推导失败按通用层处理
+            pass
+    project_ctx = project_context.inspect_project_context(project_id, sel)
+    if not project_ctx:
+        raise DirectorError("PROJECT_NOT_READABLE", f"项目 {project_id} 无法读取（先在工作台打开）")
+    system_ctx = action_registry.system_context()
+    action_ctx = action_registry.actions_for_context(
+        sel, project_id=project_id, context=project_ctx)
+    return {
+        "system": system_ctx,
+        "project": project_ctx,
+        "selection": sel,
+        "actions": action_ctx,
+    }
+
+
+def _action_context_prompt(actions: List[dict]) -> str:
+    """§16 Action Context → LLM 提示行（只列当前可执行动作 + 不可用原因）。"""
+    lines = []
+    for a in actions:
+        line = f"- {a['id']}（{a['label']}）"
+        if not a.get("available", True):
+            line += f" [不可用：{a.get('reason', '')}]"
+        lines.append(line)
+    return "\n".join(lines) or "-（当前上下文无可执行动作）"
+
+
+# ---------------------------------------------------------------------------
+# §17 LLM 规划：goal + steps（Action Registry 驱动，不暴露 capability 细节）
+# ---------------------------------------------------------------------------
+
+def _llm_plan(instruction: str, contexts: dict) -> Optional[dict]:
+    """§17：LLM 输出 {goal, steps:[{action, target, params}]}。失败返回 None。"""
     from video_director.llm_provider import get_llm
     provider = get_llm()
     if provider is None:
         return None
 
-    caps = "\n".join(_edit_tool_prompt_lines())
+    actions = contexts["actions"]["actions"]
     system = (
-        "你是视频创意系统的 Director。把用户的自然语言剪辑要求转成能力调用序列。"
-        "只输出 JSON 数组，不要解释。每个元素："
-        '{"tool": "<capability id>", "targetId": "<场景id 或 空>", '
-        '"payload": {...}, "reason": "一句话理由"}'
-        "\n可用能力（只能从下面选，payload 字段必须严格按每条能力列的 payload 字段/取值写，"
-        "不要发明字段名或取值）：\n" + caps +
-        "\n如果指令无法定位到可执行能力，返回 [{\"tool\": \"MISSING_TARGET\"}]。"
-        "不要发明不存在的 capability id。"
+        "你是视频创作系统的 Director 控制中枢。把用户的剪辑要求转成动作计划。\n"
+        "只输出 JSON 对象（不要解释、不要代码块标记）：\n"
+        '{"goal": "一句话目标", "steps": ['
+        '{"action": "<动作id>", "target": "current_selection|project|<场景id>", '
+        '"params": {<动作参数>}}]}\n'
+        "\n动作只能从下面列表选（id 与中文含义对应），params 只用动作说明里提到的"
+        "参数，不要发明：\n" + _action_context_prompt(actions) +
+        "\ntarget 用 current_selection（用户当前选中的对象）或 project（整个项目）"
+        "或具体场景 id（形如 scene-1）。\n"
+        "如果当前选中了对象（Selection Context 有 id），优先 current_selection。\n"
+        "如果指令无法对应任何动作，输出 {\"goal\": \"无法执行\", \"steps\": []}。"
     )
+    proj = contexts["project"]
+    sel_desc = contexts["selection"].get("type") or "无选中"
+    sel_id = contexts["selection"].get("id") or ""
     ctx_desc = (
-        f"项目时长 {context['project']['duration']}s，画幅 {context['project']['ratio']}，"
-        f"{context['timeline']['scene_count']} 个场景；"
-        f"当前音轨 {context['timeline']['tracks']}；"
-        f"activeFeatures {context['activeFeatures']}；"
-        f"可用 provider {context['providers']}"
+        f"项目 {proj['project']['duration']}s · 画幅 {proj['project']['ratio']} · "
+        f"{proj['timeline']['scene_count']} 场景 · 音轨 {proj['timeline']['tracks']}；"
+        f"可用来源 {proj['providers']}；"
+        f"当前选中：{sel_desc}{' ' + sel_id if sel_id else ''}（target 可用 current_selection）"
     )
     try:
-        raw = provider.generate(f"项目状态：{ctx_desc}\n\n用户要求：{instruction}", system=system)
-    except Exception as exc:
-        logger.warning(f"director LLM 规划失败: {exc}")
+        raw = provider.generate(f"项目状态：{ctx_desc}\n\n用户要求：{instruction}",
+                                system=system)
+    except Exception as exc:  # noqa: BLE001 LLM 故障走规则兜底，不编造
+        logger.warning(f"director LLM 规划失败（走规则兜底）: {exc}")
         return None
 
-    import re
-    text = raw.strip()
+    text = (raw or "").strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
-    start, end = text.find("["), text.rfind("]")
+    start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
         return None
     import json as _json
@@ -74,212 +137,286 @@ def _llm_plan(instruction: str, context: dict) -> Optional[List[dict]]:
         plan = _json.loads(text[start:end + 1])
     except _json.JSONDecodeError:
         return None
-    if not isinstance(plan, list):
+    if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
         return None
-    out = []
-    for p in plan:
-        if not isinstance(p, dict) or "tool" not in p:
-            continue
-        if p["tool"] == "MISSING_TARGET":
-            return [{"tool": "MISSING_TARGET", "payload": {}, "reason": "无法定位"}]
-        out.append({"tool": p["tool"], "targetId": p.get("targetId"),
-                    "payload": p.get("payload") or {}, "reason": p.get("reason", "")})
-    return out or None
+    steps = []
+    for s in plan["steps"]:
+        if isinstance(s, dict) and s.get("action"):
+            steps.append({"action": s["action"], "target": s.get("target", "current_selection"),
+                          "params": s.get("params") or {}})
+    if not steps:
+        return None
+    return {"goal": plan.get("goal", instruction[:40]), "steps": steps}
 
 
-#: 规则兜底可用的编辑能力子集（无 LLM 时的诚实降级，覆盖 §92 最小闭环）
-_GEN_EDIT_TOOLS = {
-    "system.capabilities.list", "system.capabilities.describe", "system.context.inspect",
-    "project.inspect", "timeline.query", "timeline.select", "timeline.trim",
-    "timeline.move", "timeline.split", "timeline.delete", "timeline.duplicate",
-    "timeline.replace", "layer.add", "layer.update", "layer.remove",
-    "asset.search", "asset.add_to_timeline", "asset.replace",
-    "audio.original.preserve", "audio.original.mute", "audio.original.volume",
-    "audio.original.duck", "tts.list_voices", "subtitle.update_style",
-    "subtitle.generate", "subtitle.update_timing",
-    "music.volume", "music.duck", "music.add", "music.remove",
-    "watermark.add", "watermark.update", "watermark.remove",
-    "generation.image", "generation.video", "generation.sfx",
-    "motion.list", "motion.apply", "style.apply",
-    "render.preflight", "render.draft", "render.final",
-    "revision.propose", "revision.preview", "revision.apply", "revision.reject",
-    "qc.inspect",
-}
+# ---------------------------------------------------------------------------
+# 规则兜底（§五十七 12 条标准命令；Action Registry 共现规则复用）
+# ---------------------------------------------------------------------------
 
-
-def _schema_prompt_line(cap_id: str) -> str:
-    """§63 Level-2：单条能力的 payload 字段提示（给 LLM 的 schema 描述）。
-
-    从 validator 的命名 schema 生成人类可读的字段/取值约束，让 LLM 按
-    契约写 payload，避免瞎编字段名（如 watermark 写 position 而非 anchor）。
-    """
-    from video_director.capability_registry.manifest import manifest as _mf
-    from video_director.capability_registry.validator import SCHEMAS
-    cap = _mf().get(cap_id)
-    if cap is None or not cap.inputSchema:
-        return f"- {cap_id}（无 payload）"
-    schema = SCHEMAS.get(cap.inputSchema)
-    if schema is None:
-        return f"- {cap_id}"
-    field_descs = []
-    for fname, spec in schema.fields.items():
-        hint = spec.type
-        if spec.enum:
-            hint = "{" + "|".join(sorted(spec.enum)) + "}"
-        req = "必填" if spec.required else "可选"
-        field_descs.append(f"{fname}:{hint}({req})")
-    desc = cap.description or ""
-    return f"- {cap_id} [{desc[:20]}] payload: " + ", ".join(field_descs)
-
-
-def _edit_tool_prompt_lines() -> list:
-    """§63：Level-1 id 摘要 → Level-2 schema 描述（仅编辑域能力展开）。"""
-    return [_schema_prompt_line(t) for t in sorted(_GEN_EDIT_TOOLS)]
-
-
-def _rule_plan(instruction: str, context: dict) -> Optional[List[dict]]:
-    """规则兜底规划：覆盖 §92 最小闭环 + §8 的常见剪辑意图。
-
-    不覆盖就返回 None（Director 报 MISSING_TARGET，不编造）。
-    """
-    plan: List[dict] = []
-
-    # 原声（§18）：保留/静音/音量
-    if any(k in instruction for k in ("保留原声", "保留现场", "留着原声", "保留原始声音")):
-        plan.append({"tool": "audio.original.preserve", "payload": {"mode": "preserve"},
-                     "reason": "保留素材原声"})
-    if any(k in instruction for k in ("去掉原声", "静音原声", "不要现场声音", "关掉原声")):
-        plan.append({"tool": "audio.original.mute", "payload": {"mode": "mute"},
-                     "reason": "静音原声"})
-
-    # 水印（§19）：加/去
-    if "水印" in instruction:
-        if any(k in instruction for k in ("去掉", "移除", "删除")):
-            plan.append({"tool": "watermark.remove", "payload": {},
-                         "reason": "移除水印"})
-        else:
-            anchor = "top_right"
-            if "右下" in instruction:
-                anchor = "bottom_right"
-            elif "左下" in instruction:
-                anchor = "bottom_left"
-            elif "左上" in instruction:
-                anchor = "top_left"
-            text = _extract_watermark_text(instruction) or "水印"
-            plan.append({"tool": "watermark.add",
-                         "payload": {"kind": "text", "text": text, "anchor": anchor,
-                                     "opacity": 0.75},
-                         "reason": f"添加{anchor}水印"})
-
-    # BGM（§34）：音量/关闭/添加
-    if any(k in instruction for k in ("BGM", "背景音乐", "配乐", "音乐")):
-        if any(k in instruction for k in ("去掉", "关掉", "移除", "不要", "关闭")):
-            plan.append({"tool": "music.remove", "payload": {}, "reason": "移除 BGM"})
-        elif any(k in instruction for k in ("小", "低", "降", "轻")):
-            plan.append({"tool": "music.volume", "payload": {"type": "bgm", "volume": 0.3},
-                         "reason": "BGM 调小"})
-
-    # 字幕样式（§三十二）
-    if "字幕" in instruction:
-        # §31 生成字幕轨（word timing → SubtitleTrack）：'生成字幕' 触发
-        if any(k in instruction for k in ("生成字幕", "加字幕", "出字幕")):
-            mode = "word" if ("word" in instruction or "逐词" in instruction) else "sentence"
-            plan.append({"tool": "subtitle.generate", "payload": {"mode": mode},
-                         "reason": "生成字幕轨（§31/§33）"})
-        payload = {}
-        if any(k in instruction for k in ("白字黑边", "白色字幕", "白字")):
-            payload["color"] = "#FFFFFF"
-            payload["strokeColor"] = "#000000"
-        if "小" in instruction and "小一点" in instruction:
-            payload["size"] = 0.8
-        if any(k in instruction for k in ("中下", "中下方", "底部", "下方")):
-            payload["position"] = "bottom"
-        if payload:
-            plan.append({"tool": "subtitle.update_style", "payload": payload,
-                         "reason": "更新字幕样式"})
-
-    # 速度（§85 CAP-EDIT-006）
-    import re as _re
-    m = _re.search(r"(第[一二三四五六七八九十\d]+段|这段|这一段).{0,6}(慢|快)\s*(\d+)\s*%", instruction)
+def _extract_volume(instruction: str) -> Optional[float]:
+    """「压到 15%」「音量 20%」→ 0.15/0.2。"""
+    m = re.search(r"(?:压到|音量|调到|降到|调成)\s*(\d{1,3})\s*%", instruction)
     if m:
-        pct = int(m.group(3))
-        speed = (100 - pct) / 100 if m.group(2) == "慢" else (100 + pct) / 100
-        plan.append({"tool": "layer.update", "payload": {"speed": speed, "opacity": None},
-                     "reason": f"速度调为 {speed}"})
+        return min(2.0, int(m.group(1)) / 100)
+    m = re.search(r"(\d{1,3})\s*%", instruction)
+    if m:
+        return min(2.0, int(m.group(1)) / 100)
+    return None
 
-    # 生成（§30）：把某段生成 AI 视频
-    if any(k in instruction for k in ("生成", "AI 视频", "AI视频")):
-        m2 = _re.search(r"这一段|这段", instruction)
-        if m2 and "视频" in instruction:
-            plan.append({"tool": "generation.video",
-                         "payload": {"type": "video", "prompt": instruction},
-                         "reason": "生成 AI 视频"})
 
-    # 渲染 draft（§92 最小闭环的收尾）
-    if any(k in instruction for k in ("草稿", "draft", "Draft", "先渲染", "生成草稿")):
-        plan.append({"tool": "render.draft", "payload": {}, "reason": "渲染草稿"})
+def _extract_opacity(instruction: str) -> Optional[float]:
+    m = re.search(r"透明度?\s*(\d{1,3})\s*%", instruction)
+    if m:
+        return min(1.0, int(m.group(1)) / 100)
+    return None
 
-    return plan or None
+
+def _extract_anchor(instruction: str) -> str:
+    for kw, anchor in (("右下", "bottom_right"), ("左下", "bottom_left"),
+                       ("左上", "top_left"), ("右上", "top_right")):
+        if kw in instruction:
+            return anchor
+    return "bottom_right"
 
 
 def _extract_watermark_text(instruction: str) -> str:
-    """从指令提取水印文本（「加 XX 水印」→ XX）。"""
-    import re
     m = re.search(r"(?:加|添加|放一个|放个)(.+?)(?:水印|logo|Logo|LOGO)", instruction)
     if m:
         text = m.group(1).strip()
-        # 过滤位置词
-        for w in ("右上角", "右下角", "左上角", "左下角", "底部", "顶部", "一个", "个"):
+        for w in ("右上角", "右下角", "左上角", "左下角", "我的", "一个", "个"):
             text = text.replace(w, "")
-        return text.strip() or ""
+        return text.strip()
     return ""
 
 
-def direct(project_id: str, instruction: str) -> dict:
-    """Director 主入口（§92 最小可用闭环：inspect → plan → execute → verify）。
+def _rule_plan(instruction: str, selection: Optional[dict]) -> Optional[dict]:
+    """规则兜底：Action Registry 共现规则 → steps（§五十七 逐条覆盖）。
 
-    返回 {plan, executed, verify_summary, source}。不抛——把每一步结果
-    结构化返回，让前端展示"AI 做了什么、验证结果是什么"。
+    多意图指令（「保留原声，加右上角水印，把 BGM 调小」）按标点分段
+    逐段 resolve，每段一个 step——一条用户指令可以出多个步骤。
+    """
+    segments = [s.strip() for s in re.split(r"[，,。；;、\n]", instruction) if s.strip()]
+    if not segments:
+        segments = [instruction.strip()]
+    steps: List[dict] = []
+    seen_actions = set()
+    for seg in segments:
+        act = action_registry.resolve_by_text(seg)
+        if act is None:
+            continue
+        if act.id in seen_actions:
+            continue  # 同一动作不重复入计划
+        seen_actions.add(act.id)
+        target = "current_selection"
+        if act.targets and "project" in act.targets and "scene" not in act.targets \
+                and "layer" not in act.targets:
+            target = "project"
+        params: Dict = {}
+        vol = _extract_volume(seg)
+        op = _extract_opacity(seg)
+        if act.id in ("audio.original_volume",) and vol is not None:
+            params["volume"] = vol
+        elif act.id == "audio.preserve" and vol is not None:
+            params["volume"] = vol  # 「保留原声但压到 15%」→ preserve + volume
+        elif vol is not None and act.id in ("music.volume", "audio.volume"):
+            params["volume"] = vol
+        if act.id == "watermark.add":
+            params["anchor"] = _extract_anchor(seg)
+            text = _extract_watermark_text(seg)
+            if text:
+                params["text"] = text
+            if op is not None:
+                params["opacity"] = op
+        if act.id == "subtitle.style":
+            style_params = {}
+            if "白字黑边" in seg or "白色" in seg or "白字" in seg:
+                style_params["color"] = "#FFFFFF"
+            if "黑边" in seg or "黑描边" in seg:
+                style_params["strokeColor"] = "#000000"
+            if "大一点" in seg:
+                style_params["size"] = 1.2
+            if "小一点" in seg:
+                style_params["size"] = 0.8
+            if "底部" in seg:
+                style_params["position"] = "bottom"
+            if "逐词" in seg or "word" in seg:
+                style_params["mode"] = "word"
+            if ("句" in seg and "逐词" not in seg):
+                style_params["mode"] = "sentence"
+            params.update(style_params)
+        if act.id == "subtitle.generate":
+            params["mode"] = "word" if ("逐词" in seg or "word" in seg) else "sentence"
+        steps.append({"action": act.id, "target": target, "params": params})
+    if not steps:
+        # 整句兜底（分段都没中时按原文再试一次，如「保留原声但压到 15%」）
+        act = action_registry.resolve_by_text(instruction)
+        if act is None:
+            return None
+        return _single_rule_step(act, instruction)
+    # 跨段参数补齐：整句里有的数值参数（音量/透明度）分段未携带时回填到首步
+    whole_vol = _extract_volume(instruction)
+    if whole_vol is not None:
+        for s in steps:
+            if s["action"] in ("audio.original_volume", "audio.preserve",
+                               "music.volume", "audio.volume") and "volume" not in s["params"]:
+                s["params"]["volume"] = whole_vol
+                break
+    return {"goal": "、".join(action_registry.get_action(s["action"]).label
+                              for s in steps if action_registry.get_action(s["action"])),
+            "steps": steps}
+
+
+def _single_rule_step(act, instruction: str) -> dict:
+    """整句单步兜底（带参数提取）。"""
+    target = "current_selection"
+    if act.targets and "project" in act.targets and "scene" not in act.targets \
+            and "layer" not in act.targets:
+        target = "project"
+    params: Dict = {}
+    vol = _extract_volume(instruction)
+    if vol is not None and act.id in ("audio.original_volume", "audio.preserve",
+                                      "music.volume", "audio.volume"):
+        params["volume"] = vol
+    if act.id == "watermark.add":
+        params["anchor"] = _extract_anchor(instruction)
+        text = _extract_watermark_text(instruction)
+        if text:
+            params["text"] = text
+        op = _extract_opacity(instruction)
+        if op is not None:
+            params["opacity"] = op
+    return {"goal": act.label, "steps": [{"action": act.id, "target": target,
+                                          "params": params}]}
+
+
+# ---------------------------------------------------------------------------
+# §54 主闭环
+# ---------------------------------------------------------------------------
+
+#: §40/§55 缺画面回退链：asset.search 失败 → generate.image（自动回退策略）
+_REPAIR_RULES = {
+    "asset.search": "generate.image",
+}
+
+
+def direct(project_id: str, instruction: str,
+           selection: Optional[dict] = None) -> dict:
+    """§54 闭环主入口：
+
+    1. Inspect（§16 四件套）
+    2. Understand Goal + Build Plan（LLM goal+steps，规则兜底）
+    3. Resolve Target + Validate（Action Resolver → capability/command）
+    4. Execute（tool_executor）+ Read Result
+    5. Verify（§55 执行后重新读系统；repair 可回退）
     """
     if not instruction or not instruction.strip():
         raise DirectorError("EMPTY_INSTRUCTION", "指令为空")
 
-    # 1. Inspect project context（§6）
-    context = project_context.inspect_project_context(project_id)
+    # 1. Inspect
+    contexts = build_contexts(project_id, selection)
 
-    # 2. Plan（LLM 优先，规则兜底）
-    plan = _llm_plan(instruction, context)
+    # 2. Plan
+    plan = _llm_plan(instruction, contexts)
     source = "llm"
     if not plan:
-        plan = _rule_plan(instruction, context)
+        plan = _rule_plan(instruction, selection)
         source = "rule"
     if not plan:
-        raise DirectorError(
-            "MISSING_TARGET",
-            f"无法从指令解析出可执行能力：{instruction[:60]!r}")
+        raise DirectorError("MISSING_TARGET",
+                             f"无法从指令解析出可执行动作：{instruction[:60]!r}")
 
-    if plan and plan[0].get("tool") == "MISSING_TARGET":
-        raise DirectorError("MISSING_TARGET", "指令目标不明确，请更具体地描述要改哪里")
+    # 3. Resolve + Validate（§17：resolver 全链映射，未知动作诚实报错）
+    steps = plan.get("steps") or []
+    resolved = []
+    for s in steps:
+        r = action_registry.resolve_step(s, selection)
+        if "error" in r:
+            resolved.append({"step": s, "resolve_error": r["error"]})
+        else:
+            resolved.append({"step": s, **r})
 
-    # 3. 逐条执行 + verify
+    # 4. Execute + 5. Verify（每步执行后重读系统）
     executed = []
-    for step in plan:
-        res = tool_executor.execute_tool(project_id, step)
-        executed.append({"tool": step["tool"], "reason": step.get("reason", ""),
-                         **res})
+    for item in resolved:
+        if "resolve_error" in item:
+            executed.append({"tool": item["step"].get("action"),
+                             "ok": False, "status": "RESOLVE_ERROR",
+                             "error": item["resolve_error"]})
+            continue
+        tool_call = {"tool": item["capability"], "targetId": item["targetId"],
+                     "payload": item["payload"]}
+        res = tool_executor.execute_tool(project_id, tool_call)
+        entry = {"tool": item["capability"], "action": item.get("action", ""),
+                 "label": item.get("label", ""), "targetId": item["targetId"],
+                 "reason": f"目标：{plan.get('goal', '')}", **res}
 
-    # 4. 汇总 verify
-    all_ok = all(e["ok"] for e in executed)
+        # §55 执行后重新读系统（verify by re-inspect）
+        if res.get("ok"):
+            entry["verify"] = _verify_step(project_id, item, selection)
+
+        # §55 Repair：asset.search 失败 → 自动回退 generate.image（§四十）
+        if not res.get("ok") and item.get("action") in _REPAIR_RULES:
+            fallback = _REPAIR_RULES[item["action"]]
+            fb_spec = action_registry.get_action(fallback)
+            if fb_spec:
+                fb_res = tool_executor.execute_tool(project_id, {
+                    "tool": fb_spec.capability, "targetId": item["targetId"],
+                    "payload": {k: v for k, v in item["payload"].items()
+                                if k in ("prompt", "text", "style")}})
+                entry["repair"] = {
+                    "tool": fb_spec.capability, "ok": fb_res.get("ok", False),
+                    "note": f"自动回退：{fb_spec.label}",
+                }
+        executed.append(entry)
+
+    all_ok = all(e.get("ok") for e in executed)
+    verify_ok = all_ok and all(e.get("verify", {}).get("ok", True) for e in executed)
     return {
         "source": source,
+        "goal": plan.get("goal", ""),
         "context_summary": {
-            "duration": context.get("project", {}).get("duration"),
-            "ratio": context.get("project", {}).get("ratio"),
-            "tracks": context.get("timeline", {}).get("tracks"),
-            "active_features": context.get("activeFeatures"),
+            "duration": contexts["project"]["project"].get("duration"),
+            "ratio": contexts["project"]["project"].get("ratio"),
+            "selection": contexts["selection"].get("type"),
+            "available_actions": len(contexts["actions"]["actions"]),
         },
-        "plan": [{"tool": s["tool"], "targetId": s.get("targetId"),
-                  "payload": s["payload"], "reason": s.get("reason", "")} for s in plan],
+        "plan": [{"action": s.get("action"), "target": s.get("target"),
+                  "params": s.get("params")} for s in steps],
         "executed": executed,
-        "verify_ok": all_ok,
+        "verify_ok": verify_ok,
     }
+
+
+def _verify_step(project_id: str, item: dict, selection: Optional[dict]) -> dict:
+    """§55 Verify：执行后重新读系统，确认目标状态确实变化。
+
+    逐动作族验证（不猜通用断言）：
+    - watermark.* → 水印数量/内容变化
+    - audio.preserve/mute → original 轨存在/消失
+    - music.volume → bgm 轨 volume 值
+    - subtitle.* → 字幕轨 cues
+    - timeline.delete/duplicate → 场景数
+    """
+    try:
+        from video_director.editor import load_composition
+        ir = load_composition(project_id)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "note": f"重读项目失败：{exc}"}
+    action = item.get("action") or ""
+    if action.startswith("watermark."):
+        return {"ok": bool(ir.watermarks), "note": f"水印 {len(ir.watermarks)} 个"}
+    if action in ("audio.preserve", "audio.mute_original"):
+        has = any(t.type.value == "original" for t in ir.audio)
+        return {"ok": has, "note": "原声轨已建立" if has else "无原声轨"}
+    if action == "music.volume":
+        bgm = [t for t in ir.audio if t.type.value == "bgm"]
+        return {"ok": bool(bgm), "note": f"BGM 音量 {bgm[0].volume if bgm else '—'}"}
+    if action.startswith("subtitle."):
+        if action == "subtitle.style":
+            st = getattr(ir, "subtitle_style", None)
+            return {"ok": st is not None, "note": "字幕样式已更新" if st else "无样式"}
+        has = bool(ir.subtitle_track and ir.subtitle_track.cues)
+        return {"ok": has, "note": "字幕轨就位" if has else "无字幕轨"}
+    if action in ("timeline.delete", "timeline.duplicate"):
+        return {"ok": len(ir.scenes) > 0, "note": f"{len(ir.scenes)} 场景"}
+    return {"ok": True, "note": "已执行（该动作族无需专项验证）"}

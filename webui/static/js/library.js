@@ -249,7 +249,7 @@ async function edLibLoad(){
       const provs = (r && r.providers) || [];
       const voices = (r && r.voices) || [];
       box.innerHTML = `<div class="hint">配音来源：${provs.map(p => esc(p.name || p.id) + (p.available ? '' : '（不可用）')).join('、') || '无'}</div>`+
-        `<div class="hint">音色选择在右侧「声音与字幕」面板；此处试听。</div>`+
+        `<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>`+
         voices.slice(0, 12).map(v =>
           `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
           `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}')">试听</button></div>`).join('');
@@ -336,7 +336,7 @@ function edLibAudioTry(assetId){
 async function edLibAudioApply(kind, assetId){
   const r = await executeCommand({command: 'set_audio_volume',
     targetId: kind === 'bgm' ? 'bgm' : 'sfx', payload: {assetId, volume: 0.3}});
-  editorToast(r.ok ? '已应用（音量 0.3，可在右侧「声音与字幕」调整）' : '应用失败：' + (r.error || ''), !r.ok);
+  editorToast(r.ok ? '已应用（音量 0.3，可在项目「整体调音」调整）' : '应用失败：' + (r.error || ''), !r.ok);
 }
 
 async function edLibStockSearch(){
@@ -465,7 +465,9 @@ async function assetPickerStockSearch(){
   if (!box) return;
   if (!q) { box.innerHTML = '<div class="hint">请输入关键词</div>'; return; }
   box.textContent = '搜索中……';
-  const r = await apiPost('/api/stock/search', {query: q, ratio: '9:16'});
+  // §10 ratio 由当前项目画幅决定（不硬编码 9:16：16:9/1:1/3:4 项目不再搜错方向）
+  const r = await apiPost('/api/stock/search',
+    {query: q, project_id: ED.pid || '', ratio: ''});
   if (!r.ok) { box.innerHTML = `<div class="err-box">搜索失败：${esc(r.error||'')}${DEV.mode && r.code ? ` <code>${esc(r.code)}</code>` : ''}</div>`; return; }
   const cands = r.candidates || [];
   const stCn = {SUPPORTED:'可用', MISSING_REQUIREMENT:'素材不足', INCOMPATIBLE:'画幅不符', UNKNOWN:'待确认'};

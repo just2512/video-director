@@ -97,8 +97,15 @@ def synth_narration(
 
     - word_timeline: 全局秒 [{text,start,end}]
     - narration_scenes: [{id,text,start,duration}] 无缝衔接
+    - §34/§17 无配音模式（voice 为空/silent）：不合成假旁白——
+      每场景按估算阅读时长生成静音轨（scene timing），word_timeline 为空
+      （字幕按场景时间轴而非词级）；返回路径指向静音文件（下游混音兼容）。
     """
     from video_director import renderer
+
+    # §34 silent：Narration Track absent 语义（禁 fake voice）
+    if not voice or voice == "silent":
+        return _silent_narration(scene_texts, work_dir)
 
     scene_audios = []
     word_timeline = []
@@ -137,6 +144,30 @@ def synth_narration(
         audio_out,
     ])
     return audio_out, word_timeline, narration_scenes
+
+
+def _silent_narration(scene_texts: List[str], work_dir: Path) -> Tuple[str, List[dict], List[dict]]:
+    """§34 无配音模式：静音旁白轨（scene timing 估时；无词级时间轴，字幕按场景）。
+
+    场景时长估算：中文 ~4 字/秒（与 estimate 语义一致）；最少 2s 保底。
+    """
+    from video_director import renderer
+    narration_scenes = []
+    cursor = 0.0
+    for i, text in enumerate(scene_texts):
+        dur = max(2.0, len(text or "") / 4.0)
+        narration_scenes.append({"id": f"S{i+1:02d}", "text": text,
+                                  "start": round(cursor, 3), "duration": round(dur, 3)})
+        cursor += dur
+    total = max(cursor, 1.0)
+    audio_out = str(work_dir / "narration.mp3")
+    renderer._run([
+        renderer._ffmpeg(), "-y", "-loglevel", "error",
+        "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=mono",
+        "-t", f"{total:.3f}", "-c:a", "libmp3lame", "-b:a", "128k", audio_out,
+    ])
+    logger.info(f"narration silent mode: {len(scene_texts)} 场景 {total:.1f}s 静音轨（无假旁白）")
+    return audio_out, [], narration_scenes
 
 
 def _write_concat_list(audio_paths: List[str], work_dir: Path) -> str:

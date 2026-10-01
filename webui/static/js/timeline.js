@@ -71,6 +71,39 @@ async function editorLoad(){
 }
 
 // ---------------------------------------------------------------------------
+// §46/§5.2/§6/§36 轨道对象点击 → Inspector 上下文（不再跳「声音与字幕」面板）
+// ---------------------------------------------------------------------------
+
+/** §46 Narration Clip：点旁白段 → 旁白设置上下文（音色/语速/试听/重生成）。 */
+function selectNarration(sceneIdx){
+  select('scene', (ED.comp.scenes[sceneIdx] || {}).id, null, 'timeline-narration');
+  if (typeof editorVoiceOpen === 'function') editorVoiceOpen();
+  editorToast('已选中旁白段（场景 ' + (sceneIdx + 1) + '）——配音设置在右侧「配音」分区');
+}
+
+/** §6 水印轨 → 项目叠加层分区。 */
+function projectOverlayOpen(){
+  selectProject();
+  const sec = document.querySelector('#editor-inspector [data-section="overlays"]');
+  if (sec) sec.scrollIntoView({behavior: 'smooth', block: 'center'});
+  else if (typeof edShowInspector === 'function') edShowInspector();
+}
+
+/** §5.2 原声轨 → 原声 Inspector（来源/音量/闪避/淡入淡出）。 */
+function originalTrackOpen(){
+  selectProject();
+  if (typeof editorAudioBusOpen === 'function') editorAudioBusOpen();
+  const orig = (ED.comp.audio || []).find(a => a.type === 'original');
+  editorToast(orig ? '原声轨：音量/静音在「整体调音」面板' : '原声未启用（选中视频层后「保留原声」）');
+}
+
+/** §36 BGM 轨 → 音乐上下文。 */
+function bgmTrackOpen(){
+  selectProject();
+  if (typeof editorAudioBusOpen === 'function') editorAudioBusOpen();
+}
+
+// ---------------------------------------------------------------------------
 // §16 轨道组状态（画面/语言展开，声音/时间关系收起）
 // ---------------------------------------------------------------------------
 window.TL_GROUPS = {
@@ -170,11 +203,12 @@ function renderPhysicalTimeline(){
   const tracks = {
     picture: [], language: [], sound: [], temporal: [],
   };
-  // 轨 1 旁白（§15 只读信息轨）
+  // 轨 1 旁白（§46 Narration Clip = 可操作对象：点击 → 旁白 Inspector）
   const narration = (c.scenes || []).map(sc =>
     ({pct: sc.duration / total * 100, title: sc.text, text: (sc.text || '').slice(0, 10)}));
-  tracks.language.push({id: 'narration', label: '旁白 · 只读', readOnly: true,
-    clips: narration.map(n => ({pct: n.pct, text: n.text, title: n.title}))});
+  tracks.language.push({id: 'narration', label: '旁白', readOnly: false,
+    clips: narration.map((n, i) => ({pct: n.pct, text: n.text, title: n.title,
+      onclick: `selectNarration(${i})`}))});
   const dialogue = audioOf('dialogue');
   tracks.language.push({id: 'dialogue', label: '对白', readOnly: true,
     clips: dialogue.length ? [{pct: 100, text: '对白', title: '对白轨'}] : []});
@@ -182,8 +216,8 @@ function renderPhysicalTimeline(){
   tracks.language.push({id: 'subtitle', label: '字幕', readOnly: false,
     clips: hasSub ? [{pct: 100,
       text: `${c.subtitle_track.mode === 'word' ? '逐词' : '句子'} ${c.subtitle_track.cues.length} 条`,
-      title: '字幕轨（样式在右侧「声音与字幕」面板）',
-      onclick: "document.getElementById('editor-audio-card').scrollIntoView({behavior:'smooth'})"}] : []});
+      title: '字幕轨（点开字幕设置）',
+      onclick: "editorSubtitleStyleOpen()"}] : []});
   // 画面组：主视觉（场景块 §14 hitbox 分离）
   tracks.picture.push({id: 'main', label: '主视觉', isSceneTrack: true});
   const brollLayers = [], graphicLayers = [];
@@ -201,18 +235,18 @@ function renderPhysicalTimeline(){
       onclick: `editorSelectLayer('${sc.id}',${sc.layers.indexOf(lay)}, event)`}))});
   const wmCount = (c.watermarks || []).length;
   tracks.picture.push({id: 'watermark', label: '水印',
-    clips: wmCount ? [{pct: 100, text: '水印 ×' + wmCount, title: '项目级水印',
-      onclick: "document.getElementById('editor-audio-card').scrollIntoView({behavior:'smooth'})"}] : []});
+    clips: wmCount ? [{pct: 100, text: '水印 ×' + wmCount, title: '项目叠加层（点开 Logo/水印设置）',
+      onclick: "projectOverlayOpen()"}] : []});
   // 声音组
   const original = audioOf('original');
   tracks.sound.push({id: 'original', label: '原声',
     clips: original.length ? [{pct: 100,
-      text: `原声${original[0].volume !== undefined ? ' · ' + original[0].volume.toFixed(2) : ''}`,
-      title: '素材原声轨', onclick: "editorAudioVolume('original')"}] : []});
+      text: `原声${original[0].muted ? ' · 已静音' : original[0].volume !== undefined ? ' · ' + (original[0].volume * 100).toFixed(0) + '%' : ''}`,
+      title: '素材原声轨（点开原声设置）', onclick: "originalTrackOpen()"}] : []});
   const bgms = audioOf('bgm');
   tracks.sound.push({id: 'bgm', label: '背景音乐',
-    clips: bgms.length ? [{pct: 100, text: '背景音乐', title: '背景音乐轨',
-      onclick: "editorBgmVolume()"}] : []});
+    clips: bgms.length ? [{pct: 100, text: '背景音乐' + (bgms[0].muted ? ' · 已静音' : ''),
+      title: '背景音乐轨', onclick: "bgmTrackOpen()"}] : []});
   const sfxs = audioOf('sfx');
   tracks.sound.push({id: 'sfx', label: '音效',
     clips: sfxs.length ? [{pct: 100, text: '音效', title: '音效轨',
@@ -606,6 +640,7 @@ Object.assign(window, {
   edClearSelection, edSelectedCount,
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
   editorRenderTimeline, tlToggleGroup,
+  selectNarration, projectOverlayOpen, originalTrackOpen, bgmTrackOpen,
   editorUndo, editorRedo, editorSaveBar, editorPreviewBar, editorTopbarRefresh,
   versionDrawerToggle, projectDrawerToggle, editorLoadVersions,
   verToggleCheck, verCompareSelected,

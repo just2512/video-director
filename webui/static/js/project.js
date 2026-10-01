@@ -65,18 +65,15 @@ function renderProjectList(){
   const shown = PM.index.slice(0, PM.shown);
   box.innerHTML = shown.map(p => {
     const actions = p.actions || {};
-    // 主行动作（§58）：状态决定第一按钮
+    // 主行动作（§43 第一按钮：状态决定；其余进「···」菜单）
     let primary = '';
     if (p.legacy) primary = `<button class="btn-sm" onclick="convertLegacyProject('${esc(p.project_id)}')">转换为可编辑项目</button>`;
     else if (actions.continue_) primary = `<button class="btn-sm" onclick="continueProject('${esc(p.project_id)}')">继续确认</button>`;
     else if (p.status === 'FAILED') primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">查看问题</button>`;
     else if (actions.open) primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">继续编辑</button>`;
     if (p.status === 'FAILED') primary += ` <button class="btn-secondary btn-sm" onclick="pmReopenFailed('${esc(p.project_id)}')">重新执行</button>`;
-    // 删除禁用态（§5：RUNNING 时 Disabled + 明确原因，不让用户点了才报错）
-    const delBtn = actions.delete
-      ? `<button class="btn-secondary btn-sm pm-act-danger" onclick="pmAskDelete('${esc(p.project_id)}')">删除</button>`
-      : `<button class="btn-secondary btn-sm" disabled title="项目正在执行任务，当前不能删除">删除</button>`;
-    const ops = [
+    // 「···」菜单项（§43：预览/重命名/复制/归档/删除——动作存在性由 Index actions 决定）
+    const menuItems = [
       p.legacy
         ? `<button class="btn-secondary btn-sm" onclick="pmPreviewLegacy('${esc(p.project_id)}')">预览旧成品</button>`
         : (actions.preview && p.has_final ? `<button class="btn-secondary btn-sm" onclick="pmPreviewFinal('${esc(p.project_id)}')">预览</button>` : ''),
@@ -85,21 +82,24 @@ function renderProjectList(){
       p.archived
         ? `<button class="btn-secondary btn-sm" onclick="pmRestore('${esc(p.project_id)}')">恢复</button>`
         : (actions.archive ? `<button class="btn-secondary btn-sm" onclick="pmArchive('${esc(p.project_id)}')">归档</button>` : ''),
-      delBtn,
-    ].filter(Boolean).join(' ');
+      actions.delete
+        ? `<button class="btn-secondary btn-sm pm-act-danger" onclick="pmAskDelete('${esc(p.project_id)}')">删除</button>`
+        : `<button class="btn-secondary btn-sm" disabled title="项目正在执行任务，当前不能删除">删除</button>`,
+    ].filter(Boolean);
     const dur = p.duration ? p.duration.toFixed(1) + 's' : '—';
     const when = p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : '—';
     const name = p.name || p.project_id;
     const busyAct = PM.busy[p.project_id];
     const busyCn = {rename: '重命名中……', clone: '复制中……', archive: '归档中……',
                     restore: '恢复中……', delete: '删除中……', convert: '转换中……'};
-    return `<div class="pm-row${busyAct ? ' pm-row-busy' : ''}">
+    return `<div class="pm-row${busyAct ? ' pm-row-busy' : ''}" data-pid="${esc(p.project_id)}">
       <span class="pm-name" onclick="pmOpenDetail('${esc(p.project_id)}')"><b>${esc(name)}</b>
         <span class="hint">${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
       <span class="pm-st ${pmStatusCls(p)}">${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
       <span class="pm-dur">${dur}</span>
       <span class="pm-when">${when}</span>
-      <span class="pm-ops">${busyAct ? '<span class="hint">处理中……</span>' : `${primary} ${ops}`}</span>
+      <span class="pm-ops">${busyAct ? '<span class="hint">处理中……</span>'
+        : `${primary} <button class="btn-secondary btn-sm pm-more-btn" onclick="pmRowMenu(event,'${esc(p.project_id)}')" title="更多操作">···</button>`}</span>
     </div>`;
   }).join('');
   if (PM.index.length > PM.shown) {
@@ -222,10 +222,10 @@ function pmAskDelete(pid){
     <div class="pm-modal-name">「${esc(name)}」</div>
     <div class="pm-modal-body">此操作会删除：
       <ul>
-        <li>项目配置</li>
-        <li>时间线</li>
-        <li>草稿与成片</li>
-        <li>项目内生成产物</li>
+        <li>Composition（时间线与所有编辑版本）</li>
+        <li>素材引用</li>
+        <li>生成结果（草稿与成片）</li>
+        <li>日志与任务记录</li>
       </ul>
       <div class="hint">删除不可撤销。如只是想收起来，用「归档」。</div>
     </div>

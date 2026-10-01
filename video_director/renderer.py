@@ -500,6 +500,8 @@ def mix_audio(
         if t.type == AudioTrackType.original and assets.get(t.asset_id or ""):
             original_track = t
             break
+    if original_track is not None and getattr(original_track, "muted", False):
+        original_track = None  # §37 Audio Bus mute：静音轨不进混音
     if original_track is not None:
         # 只有 video 素材才有可抽的原声；image/audio 源不匹配 original 语义
         src = assets[original_track.asset_id]
@@ -529,6 +531,8 @@ def mix_audio(
         if t.type == AudioTrackType.bgm and assets.get(t.asset_id or ""):
             bgm_track = t
             break
+    if bgm_track is not None and getattr(bgm_track, "muted", False):
+        bgm_track = None  # §37 Audio Bus mute
     if bgm_track is not None:
         duck_db = config.DUCKING_DB if narration_file else 0.0
         total_db = duck_db + 20 * math.log10(max(bgm_track.volume, 0.01))
@@ -552,6 +556,8 @@ def mix_audio(
     for t in ir.audio:
         if t.type != AudioTrackType.sfx:
             continue
+        if getattr(t, "muted", False):
+            continue  # §37 Audio Bus mute
         a = assets.get(t.asset_id or "")
         if a is None:
             continue

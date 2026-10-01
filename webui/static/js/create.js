@@ -105,8 +105,19 @@ function _createPanelHtml(){
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">更多设置（配音 / 字幕 / 音乐 / 水印 / 人物条）</summary>
     <div id="cf-more-settings">
       <div class="btn-row" style="gap:10px;margin-top:10px">
-        <div style="flex:1"><label>配音</label>
+        <div style="flex:1"><label>配音方式（§34 三模式）</label>
+          <select id="cf-voice-mode" onchange="cfVoiceModeSync()">
+            <option value="auto">自动配音（选音色）</option>
+            <option value="upload">上传配音（mp3/wav/m4a）</option>
+            <option value="silent">无配音（纯画面 + 字幕 + 音乐）</option>
+          </select></div>
+        <div style="flex:1" id="cf-voice-wrap"><label>音色（自动配音时）</label>
           <select id="cf-voice"></select></div>
+      <div class="btn-row" style="gap:10px;margin-top:8px">
+        <div style="flex:1" id="cf-voice-upload-wrap" style="display:none">
+          <label>上传配音文件</label>
+          <input type="file" id="cf-voice-file" accept=".mp3,.wav,.m4a,.aac">
+        </div>
         <div style="flex:1"><label>语速</label>
           <select id="cf-voice-rate">
             <option value="0.9">0.9x 放慢</option>
@@ -209,6 +220,21 @@ function createPlatformSync(){
   if (p && map[p]) window._cfAspect = map[p];
 }
 
+/** §34 配音三模式联动：auto 显示音色下拉；upload 显示上传；silent 隐藏两者。 */
+function cfVoiceModeSync(){
+  const mode = (document.getElementById('cf-voice-mode') || {}).value || 'auto';
+  const voiceWrap = document.getElementById('cf-voice-wrap');
+  const uploadWrap = document.getElementById('cf-voice-upload-wrap');
+  const rateWrap = document.getElementById('cf-voice-rate')?.parentElement;
+  if (voiceWrap) voiceWrap.style.display = mode === 'auto' ? '' : 'none';
+  if (uploadWrap) uploadWrap.style.display = mode === 'upload' ? '' : 'none';
+  if (rateWrap) rateWrap.style.display = mode === 'auto' ? '' : 'none';
+  if (mode === 'silent') {
+    const st = document.getElementById('cf-status');
+    if (st) st.textContent = '无配音模式：成片为纯画面 + 字幕 + 音乐（不会合成假旁白）';
+  }
+}
+
 /** §37 参考视频 Source：分析 → 结果入简报（真实接线，非跳转提示）。 */
 async function cfAnalyzeReference(){
   const f = document.getElementById('cf-reference');
@@ -249,7 +275,7 @@ async function cfScanRepo(){
   if (st) st.textContent = '卖点已并入创作简报。';
 }
 
-/** §38 状态机：提交 → planning → awaiting_confirm → workspace。 */
+/** §38 状态机：提交 → WorkflowRun（§52 run_id + §53 真实步骤事件轮询）→ 工作台。 */
 async function createProject(){
   const btn = document.getElementById('cf-go');
   const status = document.getElementById('cf-status');
@@ -260,8 +286,8 @@ async function createProject(){
   if (!script.trim() && !hasFiles) { status.textContent = '请先填文案，或选择素材'; return; }
   CF.state = 'submitting';
   btn.disabled = true;
-  status.textContent = '正在理解文案……';
-  // 创作简报（§十一）：平台/时长/风格并入
+  status.textContent = '正在提交创作任务……';
+  // 创作简报：平台/时长/风格并入
   const briefParts = [];
   const tp = document.getElementById('cf-platform');
   if (tp && tp.value) briefParts.push('目标平台：' + tp.options[tp.selectedIndex].text);
@@ -269,58 +295,116 @@ async function createProject(){
   if (td && td.value) briefParts.push(`目标时长：约 ${td.value} 秒`);
   const st = document.getElementById('cf-style');
   if (st && st.value.trim()) briefParts.push('风格：' + st.value.trim());
-  const fd = new FormData();
-  fd.append('script', script);
-  // §37 Source 分析结果并入简报（参考视频风格 / 软件项目卖点）
+  // 参考视频/软件项目 Source 分析结果并入简报
   const briefExtra = [];
   if (window._cfReferenceBrief) briefExtra.push(window._cfReferenceBrief);
   if (window._cfRepoBrief) briefExtra.push(window._cfRepoBrief);
   if (briefExtra.length) briefParts.push(briefExtra.join('；'));
-  fd.append('creative_brief', briefParts.length ? '【创作简报】' + briefParts.join('；') : '');
-  fd.append('mode', hasFiles ? 'auto' : 'script_only');
-  fd.append('voice', (document.getElementById('cf-voice') || {}).value || '');
-  fd.append('voice_rate', (document.getElementById('cf-voice-rate') || {}).value || '1.0');
-  fd.append('style_intent', (st || {}).value || '');
-  fd.append('aspect', window._cfAspect || '1080x1920');
-  fd.append('bgm', (document.getElementById('cf-bgm') || {}).value || 'auto');
-  fd.append('sfx', (document.getElementById('cf-sfx') || {}).value || 'auto');
-  fd.append('subtitle_mode', (document.getElementById('cf-subtitle') || {}).value || 'plain');
-  fd.append('watermark', (document.getElementById('cf-watermark') || {}).value || '');
-  fd.append('lower_third_name', (document.getElementById('cf-lower-name') || {}).value || '');
-  fd.append('lower_third_role', (document.getElementById('cf-lower-role') || {}).value || '');
-  fd.append('confirm_mode', (document.getElementById('cf-confirm') || {}).value || 'preview');
-  if (videos) for (const f of videos.files) fd.append('videos', f, f.name);
-  if (images) for (const f of images.files) fd.append('images', f, f.name);
-  // §39 创作状态人话（非技术步骤）
-  const phrases = ['正在理解文案……', '正在设计镜头……', '正在匹配画面……', '正在生成草稿……'];
-  let pi = 0;
-  const phraseTimer = setInterval(() => {
-    pi = (pi + 1) % phrases.length;
-    if (CF.state === 'submitting' || CF.state === 'planning') status.textContent = phrases[pi];
-  }, 3500);
+
+  // 素材先落盘（WorkflowRun spec 走 JSON，文件经既有 /api/compose 的 multipart
+  // 路径暂存后传路径——这里直接上传到项目暂存目录再引用）
+  let videoNames = [], imageNames = [];
   try {
-    const ctrl = new AbortController();
-    const tm = setTimeout(() => ctrl.abort(), 300000);
-    const r = await apiUpload('/api/compose', fd, {signal: ctrl.signal});
-    clearTimeout(tm);
-    if (!r.ok && r.error) throw new Error(r.error);
-    CF.state = r.pending_confirm ? 'awaiting_confirm' : 'editing';
-    clearInterval(phraseTimer);
-    closeCreate();
-    if (r.pending_confirm) {
-      editorToast('方案已生成，正在打开工作台……');
-      workspaceOpen(r.project_id);
-    } else {
-      renderResult(r);
+    if (hasFiles) {
+      const fd = new FormData();
+      if (videos) for (const f of videos.files) fd.append('files', f, f.name);
+      if (images) for (const f of images.files) fd.append('files', f, f.name);
+      const stage = await apiUpload('/api/assets/stage', fd);
+      if (stage && stage.ok) {
+        videoNames = stage.videos || [];
+        imageNames = stage.images || [];
+      }
     }
-    // 刷新项目页 Index（新项目立即可见）
-    loadProjects();
-  } catch (e) {
+  } catch (e) { /* 素材暂存失败继续走纯文案链 */ }
+
+  // §52 POST /api/workflows → run_id（不阻塞 HTTP；服务端后台执行）
+  const aspect = (window._cfAspect || '1080x1920').split('x');
+  // §34 三模式：auto=选音色；upload=上传配音文件；silent=无配音
+  const voiceMode = (document.getElementById('cf-voice-mode') || {}).value || 'auto';
+  const voiceFileEl = document.getElementById('cf-voice-file');
+  if (voiceMode === 'upload' && (!voiceFileEl || !voiceFileEl.files.length)) {
     CF.state = 'failed';
-    clearInterval(phraseTimer);
-    status.textContent = '生成失败：' + e.message + '（内容未保存，可调整后重试）';
+    status.textContent = '上传配音模式请先选择配音文件（mp3/wav/m4a）';
     btn.disabled = false;
+    return;
   }
+  let uploadedNarration = '';
+  if (voiceMode === 'upload' && voiceFileEl && voiceFileEl.files.length) {
+    // 上传配音：先经 /api/voice_upload 挂到项目（需要 project_id——先建空项目）
+    // 简化链：compose spec 带 narration_mode=upload + 文件走 stage
+    const fd2 = new FormData();
+    fd2.append('files', voiceFileEl.files[0], voiceFileEl.files[0].name);
+    try {
+      const st2 = await apiUpload('/api/assets/stage', fd2);
+      if (st2 && st2.ok && (st2.videos || []).length) uploadedNarration = st2.videos[0];
+      else if (st2 && st2.ok && (st2.images || []).length) uploadedNarration = st2.images[0];
+    } catch (e) { /* 上传失败继续，后端按 auto 兜底 */ }
+    if (!uploadedNarration) {
+      CF.state = 'failed';
+      status.textContent = '配音文件上传失败，可重试或切换自动配音';
+      btn.disabled = false;
+      return;
+    }
+  }
+  const wfResp = await apiPost('/api/workflows', {kind: 'compose', spec: {
+    script,
+    creative_brief: briefParts.length ? '【创作简报】' + briefParts.join('；') : '',
+    mode: hasFiles ? 'auto' : 'script_only',
+    voice: voiceMode === 'auto' ? ((document.getElementById('cf-voice') || {}).value || 'zh-CN-XiaoxiaoNeural') : '',
+    voice_mode: voiceMode,
+    narration_upload: uploadedNarration,
+    voice_rate: (document.getElementById('cf-voice-rate') || {}).value || '1.0',
+    style_intent: (st || {}).value || '',
+    width: parseInt(aspect[0]), height: parseInt(aspect[1]),
+    bgm: (document.getElementById('cf-bgm') || {}).value || 'auto',
+    sfx_plan: null,
+    subtitle_mode: (document.getElementById('cf-subtitle') || {}).value || 'plain',
+    watermark: (document.getElementById('cf-watermark') || {}).value || '',
+    lower_third_name: (document.getElementById('cf-lower-name') || {}).value || '',
+    lower_third_role: (document.getElementById('cf-lower-role') || {}).value || '',
+    confirm_mode: (document.getElementById('cf-confirm') || {}).value || 'preview',
+    video_paths: videoNames, image_paths: imageNames,
+  }});
+  if (!wfResp.ok || !wfResp.run_id) {
+    CF.state = 'failed';
+    status.textContent = '任务提交失败：' + (wfResp.error || '未知') + '（内容未保存，可重试）';
+    btn.disabled = false;
+    return;
+  }
+  // §53 真实事件流：轮询 WorkflowRun 步骤（持久化状态，不是动画短语）
+  const runId = wfResp.run_id;
+  const pollTimer = setInterval(async () => {
+    try {
+      const run = await apiGet('/api/workflows/' + encodeURIComponent(runId));
+      if (!run || run.error) return;
+      const labels = run.labels || {};
+      const cur = run.current ? (labels[run.current] || run.current) : '';
+      const doneSteps = (run.steps || []).filter(s => s.status === 'DONE').length;
+      const totalSteps = (run.steps || []).length;
+      status.textContent = run.status === 'RUNNING' || run.status === 'WAITING_CONFIRMATION'
+        ? `${cur ? cur + '……' : '处理中……'}（${doneSteps}/${totalSteps} 步）`
+        : status.textContent;
+      if (run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION') {
+        clearInterval(pollTimer);
+        const result = run.result || {};
+        CF.state = run.status === 'WAITING_CONFIRMATION' ? 'awaiting_confirm' : 'editing';
+        closeCreate();
+        if (run.status === 'WAITING_CONFIRMATION' && result.project_id) {
+          editorToast('方案已生成，正在打开工作台……');
+          workspaceOpen(result.project_id);
+        } else if (result.project_id) {
+          workspaceOpen(result.project_id);
+          editorToast('创作完成，已打开工作台');
+        }
+        loadProjects();
+      } else if (run.status === 'FAILED') {
+        clearInterval(pollTimer);
+        CF.state = 'failed';
+        status.textContent = '生成失败：' + (run.error || '未知') + '（内容未保存，可调整后重试）';
+        btn.disabled = false;
+      }
+    } catch (e) { /* 轮询失败下次再试 */ }
+  }, 1500);
 }
 
 /** 润色（走原 enhance API，面板内联呈现）。 */
@@ -363,5 +447,5 @@ function cfMakeGraphicPlan(){
 Object.assign(window, {
   openCreate, closeCreate, setCreateSource, createLoadDefaults,
   createPlatformSync, createProject, createEnhance, createAcceptEnhanced,
-  cfMakeGraphicPlan, cfAnalyzeReference, cfScanRepo, CF,
+  cfMakeGraphicPlan, cfAnalyzeReference, cfScanRepo, cfVoiceModeSync, CF,
 });

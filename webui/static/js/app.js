@@ -14,22 +14,30 @@ function _rebuildSelect(id, opts){
 }
 
 // ===========================================================================
-// App Shell（§3/§49）：四区路由（项目/工作台/审阅/设置）。
-// 旧假一级页面别名（create/projects/series/capture/memory/templates/motions/
-// assets/reference/publish/automation）全部删除——它们已是四区内的上下文。
+// 顶层三空间路由（方案§3）：项目 / 工作台 / 设置。
+// 「审阅」不再是独立空间——它是工作台的问题模式（reviewModeToggle）。
 // ===========================================================================
 function switchTab(tab){
   window.UI.route = tab;
-  for (const p of ['home','editor','review','settings']) {
+  for (const p of ['home','editor','settings']) {
     const el = document.getElementById('pane-' + p);
     if (el) el.style.display = (tab === p) ? '' : 'none';
     const tb = document.getElementById('tab-' + p);
     if (tb) tb.classList.toggle('tab-active', tab === p);
   }
   if (tab === 'home') { loadProjects(); loadSeries(); loadInbox(); }
-  if (tab === 'editor') { editorInit(); }
-  if (tab === 'review') { loadReview(); loadPublish(); }
-  if (tab === 'settings') loadSettings();
+  if (tab === 'editor') { editorInit(); devShowBuildId(); }
+  if (tab === 'settings') { loadSettings(); devShowBuildId(); }
+}
+
+/** §42 build_id 显示（Developer Mode）：源码契约与运行态一致性。 */
+async function devShowBuildId(){
+  const el = document.getElementById('dev-build-id');
+  if (!el) return;
+  try {
+    const r = await apiGet('/api/actions');
+    if (r && r.build_id) el.textContent = '动作注册表：' + r.build_id;
+  } catch (e) { el.textContent = '读取失败（/api/actions）'; }
 }
 
 // §27 收集箱抽屉（顶栏「收集」→ 浮层，不占页面主体）
@@ -178,6 +186,7 @@ Object.assign(window, {
   loadVoiceProviders,
   loadSettings,
   toggleCapPanel,
+  devShowBuildId,
   switchTab,
   captureDrawerToggle,
   esc,

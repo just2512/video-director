@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 #: §14 VoiceProfile：provider 明确记录（统一 AudioTrack/VoiceArtifact 溯源）
+#: §35 Voice Registry 指纹：supports_preview / supports_full_preview（能力声明，
+#: UI 据此显示「试听/完整试听」，不先允许点击再报错）。
 @dataclass(frozen=True)
 class VoiceProfile:
     provider: str
@@ -28,12 +30,16 @@ class VoiceProfile:
     gender: str = "unknown"
     style: str = ""
     sampleArtifact: Optional[str] = None  # §15 试听后回填 preview 产物 id
+    supports_preview: bool = True         # §35 单句试听（edge-tts 全支持）
+    supports_full_preview: bool = False   # §35 完整旁白试听（生成整段旁白）
 
     def to_dict(self) -> dict:
         return {
             "provider": self.provider, "voiceId": self.voice_id, "name": self.name,
             "language": self.language, "gender": self.gender, "style": self.style,
             "sampleArtifact": self.sampleArtifact,
+            "supports_preview": self.supports_preview,
+            "supports_full_preview": self.supports_full_preview,
         }
 
 

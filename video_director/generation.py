@@ -294,6 +294,15 @@ def generate(
             prompt, width, height, variants, assets_dir, input_fp, manifest)
 
     _save_manifest(project_id, manifest)
+    # §39 生成产物入 Asset Registry（AI 图片/视频 = 普通 Asset：Library 全局可复用，
+    # 与本地/Stock 无差别；失败不阻断生成主链——项目 manifest 已有）。
+    try:
+        from video_director import asset_catalog as _acat
+        for r in results:
+            if r.file and Path(r.file).is_file():
+                _acat.register_generated(r.file, prompt=prompt[:120])
+    except Exception as exc:  # noqa: BLE001 Library 登记失败不阻断生成
+        logger.warning(f"generation: Library 登记失败（不阻断）: {exc}")
     logger.info(
         f"generation: {gen_type} x{len(results)} prompt={prompt[:30]!r} → {project_id}"
     )
