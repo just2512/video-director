@@ -1145,11 +1145,16 @@ def compose_auto(
                     per_scene=1, providers=["pexels", "pixabay"],
                     scene_ids=[str(sc.get("id") or "") for sc in target_scenes],
                 )
-                video_files = list(local_video_files) + [
-                    f for f in stock_result["files"]
-                    if f not in local_video_files and f not in local_image_files
-                ]
-                image_files = list(local_image_files)
+                stock_files = list(stock_result["files"])
+                if visual_source == "online":
+                    video_files = stock_files
+                    image_files = []
+                else:
+                    video_files = list(local_video_files) + [
+                        f for f in stock_files
+                        if f not in local_video_files and f not in local_image_files
+                    ]
+                    image_files = list(local_image_files)
                 stock_metadata.update(stock_result["metadata"])
                 stock_warnings.extend(stock_result["warnings"])
                 logger.info(
