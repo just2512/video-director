@@ -387,17 +387,17 @@ async function createProject(){
     if (hasFiles) {
       const fd = new FormData();
       for (const f of assets.files) fd.append('files', f, f.name);
-      const stage = await apiUpload('/api/assets/stage', fd);
-      if (stage && stage.ok) {
-        videoNames = stage.videos || [];
-        imageNames = stage.images || [];
-        if (stage.errors && stage.errors.length) {
+      const imported = await apiUpload('/api/assets/upload', fd);
+      if (imported && imported.ok) {
+        videoNames = (imported.imported || []).filter(a => a.type === 'video' && a.file).map(a => a.file);
+        imageNames = (imported.imported || []).filter(a => a.type === 'image' && a.file).map(a => a.file);
+        if (imported.errors && imported.errors.length) {
           const warn = document.getElementById('cf-status');
-          if (warn) warn.textContent = '部分素材未导入：' + stage.errors.join('；');
+          if (warn) warn.textContent = '部分素材未导入：' + imported.errors.join('；');
         }
       } else {
         CF.state = 'failed';
-        status.textContent = '本地素材上传失败：' + ((stage && stage.error) || '无法暂存素材');
+        status.textContent = '本地素材入库失败：' + ((imported && imported.error) || '无法写入素材库');
         btn.disabled = false;
         return;
       }
