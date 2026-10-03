@@ -47,13 +47,17 @@ async function loadStockStatusLine(){
   const el = document.getElementById('settings-stock-line');
   if (!el) return;
   try {
-    const r = await apiGet('/api/actions');
-    const sys = (r && r.system) || {};
-    const commercial = sys.commercial || [];
-    const parts = commercial.map(c => `${c.provider}${c.available ? ' 已配置' : ' 未配置'}`);
-    el.textContent = parts.length ? '图库：' + parts.join(' · ') : '图库：未检测到配置';
+    const roles = await apiGet('/api/model_config');
+    const stock = Array.isArray(roles)
+      ? roles.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'))
+      : [];
+    STOCK_ROLES = stock;
+    window.STOCK_ROLES = STOCK_ROLES;
+    const parts = stock.map(r => r.label + (r.enabled ? ' 已配置' : ' 未配置'));
+    el.textContent = parts.length ? '图库：' + parts.join(' · ') : '图库：未配置';
+    renderStockRoles();
   } catch (e) {
-    el.textContent = '图库状态读取失败（/api/actions）';
+    el.textContent = '图库状态读取失败：' + (e.message || e);
   }
 }
 
