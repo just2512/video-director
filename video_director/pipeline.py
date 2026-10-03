@@ -1076,68 +1076,107 @@ def compose_auto(
         )
     sub_entries = subtitle_mod.srt_entries(narration_scenes)
 
-    # 2.5 MPT 画面来源：网络素材在统一匹配前加入；auto 用本地素材数量做保守补足。
-    # 真正的场景级“缺口”仍由第 3 步 matcher 决定；网络素材只作为候选补充，
-    # 不在这里强行把某个 stock asset 绑定到某个 scene，避免绕过现有匹配器。
-    visual_source = visual_source if visual_source in ("auto", "local", "online", "mixed") else "auto"
+    # 3. 素材语义理解 + 内容匹配 + MPT 网络素材补足
+    store.set_stage(project_id, store.Stage.MATCHING)
+    active_planner = planner
     stock_metadata: Dict[str, dict] = {}
     stock_warnings: List[str] = []
-    local_count = len(video_files) + len(image_files)
-    scene_count = len(narration_scenes)
-    if visual_source in ("online", "mixed"):
-        stock_scene_cap = None
-    elif visual_source == "auto":
-        stock_scene_cap = max(0, scene_count - local_count)
-    else:
-        stock_scene_cap = 0
-    if stock_scene_cap is None or stock_scene_cap > 0:
-        try:
-            from video_director import stock as vd_stock
-            target_ratio = f"{width or config.DEFAULT_RESOLUTION[0]}x{height or config.DEFAULT_RESOLUTION[1]}"
-            stock_result = vd_stock.auto_download_for_scenes(
-                [str(sc.get("text", "")) for sc in narration_scenes],
-                base, target_ratio=target_ratio, llm_call=llm_call,
-                per_scene=1, providers=["pexels", "pixabay"],
-                max_scenes=stock_scene_cap,
-            )
-            video_files = list(video_files) + [f for f in stock_result["files"]
-                                               if f not in video_files and f not in image_files]
-            stock_metadata.update(stock_result["metadata"])
-            stock_warnings.extend(stock_result["warnings"])
-            logger.info(f"MPT stock：visual_source={visual_source}，自动下载 {len(stock_result['files'])} 个网络素材")
-        except Exception as exc:
-            stock_warnings.append(f"网络素材链异常：{exc}")
-            logger.warning(f"MPT stock 自动素材链异常（本地链继续）：{exc}")
-    style_warnings.extend(stock_warnings)
-    # 3. 素材语义理解（六级优先链）+ 内容匹配
-    store.set_stage(project_id, store.Stage.MATCHING)    active_planner = planner
+
     if active_planner is None:
+        # 先建立本地 Asset Model；Create 页上传的文件已经进入统一 Asset Library。
+        local_video_files = list(video_files)
+        local_image_files = list(image_files)
         video_assets, video_order = assets_mod.build_manifest(
-            video_files, [], asset_metadata=stock_metadata
+            local_video_files, [], asset_metadata=stock_metadata
         )
         image_assets, image_order = (
-            assets_mod.build_manifest([], image_files, asset_metadata=stock_metadata) if image_files else ({}, [])
+            assets_mod.build_manifest([], local_image_files, asset_metadata=stock_metadata)
+            if local_image_files else ({}, [])
         )
-        # P5 自动探测：素材同目录的 assets_semantic.json（手工标注 fallback，
-        # 与 CLI/WebUI/Skill 全入口一致生效）
         resolved_manual = manual_manifest
-        if resolved_manual is None and video_files:
-            sibling = Path(video_files[0]).parent / "assets_semantic.json"
+        if resolved_manual is None and local_video_files:
+            sibling = Path(local_video_files[0]).parent / "assets_semantic.json"
             if sibling.is_file():
                 resolved_manual = str(sibling)
                 logger.info(f"auto-detected manual manifest: {sibling}")
         enhanced = vision_mod.analyze_assets(
             video_assets, dirs["assets"], resolved_manual, vision_provider
         )
+        local_assets = {**enhanced, **image_assets}
+        local_has_semantics = any(a.description or a.keywords for a in enhanced.values())
+
+        # 第一次只用本地素材匹配：拿到真实的 scene → asset 缺口。
+        local_assignments = {}
+        can_match_local = (
+            visual_source != "online"
+            and match_materials_to_script
+            and (local_has_semantics or llm_call is not None)
+            and bool(local_assets)
+        )
+        if can_match_local:
+            try:
+                local_assignments = matcher_mod.match_assets(
+                    narration_scenes, local_assets, llm_call
+                ) or {}
+            except Exception as exc:
+                stock_warnings.append(f"本地素材预匹配失败：{exc}")
+                logger.warning(f"本地素材预匹配失败，网络补足改走全场景：{exc}")
+
+        if visual_source == "local":
+            target_scenes = []
+        elif visual_source == "online":
+            target_scenes = list(narration_scenes)
+        elif local_assignments:
+            target_scenes = [
+                sc for sc in narration_scenes
+                if sc.get("id") not in local_assignments
+            ]
+        else:
+            # 无法形成可信的本地匹配时，全部场景交给网络素材候选，最终再统一匹配。
+            target_scenes = list(narration_scenes)
+
+        if target_scenes:
+            try:
+                from video_director import stock as vd_stock
+                target_ratio = f"{width or config.DEFAULT_RESOLUTION[0]}x{height or config.DEFAULT_RESOLUTION[1]}"
+                stock_result = vd_stock.auto_download_for_scenes(
+                    [str(sc.get("text", "")) for sc in target_scenes],
+                    base, target_ratio=target_ratio, llm_call=llm_call,
+                    per_scene=1, providers=["pexels", "pixabay"],
+                    scene_ids=[str(sc.get("id") or "") for sc in target_scenes],
+                )
+                video_files = list(local_video_files) + [
+                    f for f in stock_result["files"]
+                    if f not in local_video_files and f not in local_image_files
+                ]
+                image_files = list(local_image_files)
+                stock_metadata.update(stock_result["metadata"])
+                stock_warnings.extend(stock_result["warnings"])
+                logger.info(
+                    f"MPT stock：visual_source={visual_source}，补充 {len(stock_result['files'])} 个网络素材"
+                )
+            except Exception as exc:
+                stock_warnings.append(f"网络素材链异常：{exc}")
+                logger.warning(f"MPT stock 自动素材链异常（本地链继续）：{exc}")
+        else:
+            video_files = local_video_files
+            image_files = local_image_files
+
+        # 网络补足后重新建立统一 Asset Model，再做一次最终场景匹配。
+        video_assets, video_order = assets_mod.build_manifest(
+            video_files, [], asset_metadata=stock_metadata
+        )
+        image_assets, image_order = (
+            assets_mod.build_manifest([], image_files, asset_metadata=stock_metadata)
+            if image_files else ({}, [])
+        )
+        enhanced = vision_mod.analyze_assets(
+            video_assets, dirs["assets"], resolved_manual, vision_provider
+        )
         merged_assets = {**enhanced, **image_assets}
         has_semantics = any(a.description or a.keywords for a in enhanced.values())
-        # 匹配规划：有语义走 LLM 语义匹配；语义空也走 matcher（LLM 用文件名/
-        # 文案对应，match_assets 内部三层兜底）——只有完全无 LLM 才 RulePlanner。
-        # （诊断 2026-09-24：语义空时直接 RulePlanner 导致 LLM 永不触发。）
         if match_materials_to_script and (has_semantics or llm_call is not None):
-            assignments = matcher_mod.match_assets(
-                narration_scenes, merged_assets, llm_call
-            )
+            assignments = matcher_mod.match_assets(narration_scenes, merged_assets, llm_call)
             with open(dirs["assets"] / "match_assignments.json", "w", encoding="utf-8") as f:
                 json.dump(assignments, f, ensure_ascii=False, indent=2)
             active_planner = planner_mod.ContentMatchPlanner(assignments)
@@ -1146,8 +1185,8 @@ def compose_auto(
             active_planner = planner_mod.RulePlanner()
             logger.info("planner: 按用户设置关闭脚本匹配，使用素材顺序规划")
         merged_order = video_order + image_order
-        # Style Contract 应用（转场预算/图片动效强度；IR style_id 写入在 plan 后）
-        style_mod.apply_to_ir(None, style_contract, config)  # config 层预算先行
+        style_mod.apply_to_ir(None, style_contract, config)
+        style_warnings.extend(stock_warnings)
     else:
         merged_assets = None
         merged_order = None
