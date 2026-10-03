@@ -528,11 +528,12 @@ class Handler(BaseHTTPRequestHandler):
                 roles = vd_model_config.status_for_frontend()
                 safe_roles = [{k: v for k, v in r.items() if k != "api_key"}
                               for r in roles]
-                import os as _os
-                stock_state = {name: bool(_os.environ.get(env))
-                               for name, env in (("pexels", "PEXELS_API_KEY"),
-                                                 ("pixabay", "PIXABAY_API_KEY"),
-                                                 ("coverr", "COVERR_API_KEY"))}
+                roles = vd_model_config.status_for_frontend()
+                stock_state = {
+                    name: any(r.get("enabled") for r in roles
+                               if r.get("role") == f"stock_{name}")
+                    for name in ("pexels", "pixabay", "coverr")
+                }
                 self._send_json({
                     "ok": True, "version": 1, "exported_at": time.time(),
                     "models": safe_roles, "stock_configured": stock_state,
