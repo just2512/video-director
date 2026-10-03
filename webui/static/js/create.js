@@ -97,7 +97,7 @@ function _createPanelHtml(){
           <option value="local">仅使用我的素材</option>
         </select>
       </div>
-      <span class="hint" id="cf-visual-source-hint">有本地素材就优先使用；不足的场景自动搜索 Pexels / Pixabay。</span>
+      <span class="hint" id="cf-visual-source-hint">本地素材与网络素材共同参与匹配；需要时自动搜索 Pexels / Pixabay 补足画面。</span>
     </div>
     <div class="panel" style="margin-top:10px;padding:10px">
       <b style="font-size:13px">画面与时间线</b>
