@@ -491,6 +491,7 @@ def auto_download_for_scenes(
     per_scene: int = 1,
     providers: Optional[List[str]] = None,
     max_scenes: Optional[int] = None,
+    scene_ids: Optional[List[str]] = None,
 ) -> dict:
     """为指定场景自动搜索并下载视觉素材；只采用 SUPPORTED 候选。"""
     providers = providers or ["pexels", "pixabay"]
@@ -505,11 +506,12 @@ def auto_download_for_scenes(
     for idx, scene_text in enumerate(scene_texts or []):
         if max_scenes is not None and idx >= max_scenes:
             break
+        scene_id = scene_ids[idx] if scene_ids and idx < len(scene_ids) else f"S{idx + 1:02d}"
         query = build_scene_search_query(scene_text, llm_call)
         if not query:
-            warnings.append(f"S{idx + 1:02d}：场景没有可用检索词")
+            warnings.append(f"{scene_id}：场景没有可用检索词")
             continue
-        queries.append({"scene_id": f"S{idx + 1:02d}", "query": query})
+        queries.append({"scene_id": scene_id, "query": query})
         hits: List[StockAsset] = []
         provider_errors = []
         for provider in providers:
@@ -520,7 +522,7 @@ def auto_download_for_scenes(
             except StockError as exc:
                 provider_errors.append(f"{provider}:{exc.code}")
         if not hits and provider_errors:
-            warnings.append(f"S{idx + 1:02d}：图库搜索失败（{'；'.join(provider_errors)}）")
+            warnings.append(f"{scene_id}：图库搜索失败（{'；'.join(provider_errors)}）")
             continue
         selected = 0
         for candidate in resolve_candidates(hits, target_ratio=target_ratio or "any",
@@ -532,7 +534,7 @@ def auto_download_for_scenes(
             try:
                 out = download_asset(a, project_base)
             except StockError as exc:
-                warnings.append(f"S{idx + 1:02d}：{a.provider} 下载失败（{exc.code}）")
+                warnings.append(f"{scene_id}：{a.provider} 下载失败（{exc.code}）")
                 continue
             used_sources.add(key)
             files.append(out["file"])
@@ -542,13 +544,13 @@ def auto_download_for_scenes(
                 "provenance": {"provider": a.provider, "sourceId": a.source_id,
                                "sourcePage": a.source_page, "creator": a.creator},
                 "rights_status": a.commercial_status,
-                "scene_id": f"S{idx + 1:02d}",
+                "scene_id": scene_id,
                 "query": query,
             }
             selected += 1
             if selected >= wanted:
                 break
         if selected == 0:
-            warnings.append(f"S{idx + 1:02d}：没有满足画幅/授权条件的网络素材")
+            warnings.append(f"{scene_id}：没有满足画幅/授权条件的网络素材")
     return {"files": files, "metadata": metadata,
             "warnings": warnings, "queries": queries}
