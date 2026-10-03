@@ -864,24 +864,48 @@ def _cmd_set_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
 
 
 def _cmd_set_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """音轨音量（§20）：targetId = narration|bgm|sfx|ambient，payload.volume ∈ [0,2]。"""
+    """音轨音量（§20/§37）：targetId = narration|bgm|sfx|ambient，payload.volume ∈ [0,2]。
+
+    可选 payload.assetId（曲目选择：music.add 应用时把 bgm 轨源指向选中资产）
+    与 payload.ducking（§37 旁白闪避开关——volume 调整同时可开/关闪避）。
+    """
     track_type = target_id or payload.get("track_type") or ""
     if track_type not in ("narration", "dialogue", "bgm", "sfx", "ambient", "ambience"):
         raise EditorError("INVALID_TARGET", f"set_audio_volume 目标音轨 {track_type!r} 非法")
-    volume = float(payload.get("volume", 1.0))
-    if not (0.0 <= volume <= 2.0):
+    # §37 duck 语义：volume 不传（None）= 保留当前音量，只更新其他字段
+    volume_raw = payload.get("volume")
+    volume = float(volume_raw) if volume_raw is not None else None
+    if volume is not None and not (0.0 <= volume <= 2.0):
         raise EditorError("INVALID_PARAMETER", f"volume {volume} 越界 [0,2]")
+    asset_id = payload.get("assetId")
+    has_duck = "ducking" in payload
     changed = False
     for i, t in enumerate(ir.audio):
         if t.type.value == track_type:
-            ir.audio[i] = t.model_copy(update={"volume": volume})
-            changed = True
+            update = {}
+            if volume is not None:
+                update["volume"] = volume
+            if asset_id is not None:
+                update["asset_id"] = asset_id
+            if has_duck:
+                update["ducking"] = bool(payload["ducking"])
+            if update:
+                ir.audio[i] = t.model_copy(update=update)
+                changed = True
+            else:
+                changed = True  # 命中但无需更新（幂等）
     if not changed:
-        # 允许为尚不存在的音轨预置音量（下次加轨沿用），但诚实提示
+        # 允许为尚不存在的音轨预置音量（下次加轨沿用）
         from video_director.models import AudioTrack, AudioTrackType
+        kwargs = {}
+        if asset_id is not None:
+            kwargs["asset_id"] = asset_id
+        if has_duck:
+            kwargs["ducking"] = bool(payload["ducking"])
         ir.audio.append(AudioTrack(
-            type=AudioTrackType(track_type), asset_id=None,
-            start=0.0, duration=ir.project.duration, volume=volume,
+            type=AudioTrackType(track_type), start=0.0,
+            duration=ir.project.duration, volume=volume if volume is not None else 1.0,
+            **kwargs,
         ))
     return [], [f"audio:{track_type}:render"]
 

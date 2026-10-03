@@ -100,9 +100,9 @@ function reviewModeSelect(n){
     <div class="hint">${esc(_issueWhy(i))}</div>
     ${i.kind === '连续性' && i.from_scene_id && i.to_scene_id ? `
     <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
-      <button class="btn-secondary btn-sm" onclick="reviewFixRelation('${esc(ED.pid)}','${esc(i.from_scene_id)}','${esc(i.to_scene_id)}','carry')">改元素延续</button>
-      <button class="btn-secondary btn-sm" onclick="reviewFixRelation('${esc(ED.pid)}','${esc(i.from_scene_id)}','${esc(i.to_scene_id)}','morph')">改形变过渡</button>
-      <button class="btn-secondary btn-sm" onclick="reviewFixRelation('${esc(ED.pid)}','${esc(i.from_scene_id)}','${esc(i.to_scene_id)}','hard_cut')">改为硬切</button>
+      <button class="btn-secondary btn-sm" data-action="relation.set" data-params='{"type":"carry"}'>改元素延续</button>
+      <button class="btn-secondary btn-sm" data-action="relation.set" data-params='{"type":"morph"}'>改形变过渡</button>
+      <button class="btn-secondary btn-sm" data-action="relation.set" data-params='{"type":"hard_cut"}'>改为硬切</button>
     </div>` : ''}
     <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
       <button class="btn-secondary btn-sm" onclick="reviewModeScan()">重新检查</button>

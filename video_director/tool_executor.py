@@ -194,15 +194,24 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
              "fadeIn": p.get("fadeIn"), "fadeOut": p.get("fadeOut")}
     elif tool == "set_original_audio" or tool == "audio.original.volume":
         p = {"volume": p.get("volume")}
-    elif tool in ("music.volume", "music.duck"):
+    elif tool == "music.volume":
         p = {"track_type": p.get("type") or "bgm", "volume": p.get("volume", 1.0)}
+    elif tool == "music.duck":
+        # §37 duck 语义：只开关闪避（volume 不传 → _cmd_set_audio_volume
+        # 用 payload.get(volume, None) 语义保留当前音量）
+        p = {"track_type": p.get("type") or "bgm", "ducking": bool(p.get("ducking", True))}
+        if p.get("volume") is not None:
+            p["volume"] = p["volume"]
     elif tool == "music.disable":
         # §35 music.disable：BGM 关闭（volume=0，不删轨，可再开回）
         p = {"track_type": "bgm", "volume": 0.0}
     elif tool in ("music.add", "music.replace"):
-        # §35 music.add/replace：当前链=音量/ducking 通道；曲目选择经 music.search→local_selected
+        # §35/§66 music.add：曲目 + 音量一起进 AudioTrack（asset_id 指向选中
+        # 音乐资产——修复丢 assetId 导致 bgm 轨无源可渲的断层）
         p = {"track_type": p.get("type") or "bgm",
              "volume": p.get("volume", 0.3), "ducking": p.get("ducking", True)}
+        if p.get("assetId") or payload.get("assetId"):
+            p["assetId"] = p.get("assetId") or payload.get("assetId")
     elif tool == "music.match_video":
         raise ToolExecutorError(
             "MUSIC_MATCH_UNAVAILABLE",

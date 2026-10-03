@@ -607,7 +607,7 @@ async function editorLoadVersions(){
     </div>
     <div class="btn-row">
       <button class="btn-secondary btn-sm" onclick="verCompareSelected()">对比勾选的两版</button>
-      <button class="btn-secondary btn-sm" onclick="editorUndo()">撤销最新一版</button>
+      <button class="btn-secondary btn-sm" data-action="ui.undo">撤销最新一版</button>
     </div>
     <div id="version-compare"></div>
   </div>`;

@@ -9,9 +9,10 @@ function edLibAudioTry(assetId){
   catch (e) { editorToast('试听失败：' + e, true); }
 }
 async function edLibAudioApply(kind, assetId){
-  const r = await executeCommand({command: 'set_audio_volume',
-    targetId: kind === 'bgm' ? 'bgm' : 'sfx', payload: {assetId, volume: 0.3}});
-  editorToast(r.ok ? '已应用（音量 0.3，可在项目「整体调音」调整）' : '应用失败：' + (r.error || ''), !r.ok);
+  // §82：音频应用 → executeAction（music.add 建 BGM 轨 / sfx.add 建音效轨）
+  const action = kind === 'bgm' ? 'music.add' : 'sfx.add';
+  const r = await executeAction(action, {assetId, volume: 0.3}, 'project');
+  if (r && r.ok) editorToast('已应用（音量 0.3，可在「整体调音」调整）');
 }
 
 Object.assign(window, {

@@ -522,6 +522,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(_scan_sfx())
         elif route == "/api/llm_status":
             self._send_json(vd_llm.get_llm_config())
+        elif route == "/api/settings/export":
+            # §52 配置导出：角色/模型/地址结构——api_key 剥离（密钥不落导出文件）
+            try:
+                roles = vd_model_config.status_for_frontend()
+                safe_roles = [{k: v for k, v in r.items() if k != "api_key"}
+                              for r in roles]
+                import os as _os
+                stock_state = {name: bool(_os.environ.get(env))
+                               for name, env in (("pexels", "PEXELS_API_KEY"),
+                                                 ("pixabay", "PIXABAY_API_KEY"),
+                                                 ("coverr", "COVERR_API_KEY"))}
+                self._send_json({
+                    "ok": True, "version": 1, "exported_at": time.time(),
+                    "models": safe_roles, "stock_configured": stock_state,
+                    "note": "密钥不包含在导出文件中；导入后需在本机重新填写。",
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/model_config":
             # 多模型配置中心状态（四角色：llm/image/video/vision）
             try:
@@ -1522,6 +1540,40 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # 多模型配置中心（四角色独立配置，整体保存）
+        if parsed.path == "/api/settings/import":
+            # §52 配置导入：结构与模型名——不动本机已有密钥（角色保存时 __KEEP__）
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "导入文件不是合法 JSON"}, 400)
+                return
+            models = payload.get("models")
+            if not isinstance(models, list):
+                self._send_json({"error": "导入文件缺 models 列表"}, 400)
+                return
+            try:
+                existing = vd_model_config.load_all()
+                configs = {}
+                for m in models:
+                    if not isinstance(m, dict) or not m.get("role"):
+                        continue
+                    old = existing.get(m["role"]) or {}
+                    configs[m["role"]] = {
+                        "api_key": "__KEEP__",  # 导入不覆盖密钥（§52 安全边界）
+                        "base_url": m.get("base_url") or old.get("base_url", ""),
+                        "model": m.get("model") or old.get("model", ""),
+                    }
+                if configs:
+                    vd_model_config.save_all(configs)
+                    vd_model_config.sync_llm_provider()
+                self._send_json({"ok": True,
+                                 "imported_roles": sorted(configs.keys()),
+                                 "roles": vd_model_config.status_for_frontend()})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         if parsed.path == "/api/model_config":
             length = int(self.headers.get("Content-Length", 0))
             try:

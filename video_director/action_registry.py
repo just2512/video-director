@@ -24,11 +24,18 @@ from loguru import logger
 
 
 class ActionSpec:
-    """§13 单条 Action 契约。"""
+    """§13 单条 Action 契约。
+
+    ui 字段（方案 §58/§56）：非空 = UI 交互型动作（打开 Picker/Modal、
+    试听播放、切换视图）——前端 dispatcher 在本地执行 UI 行为，不进后端
+    /api/action/execute。这类动作的业务效果（若产生）仍由打开的 UI 组件
+    内的 data-action 按钮走后端执行链。ui 为空 = 业务动作，唯一通路
+    /api/action/execute → Resolver → Capability → Command。
+    """
 
     __slots__ = ("id", "label", "aliases", "targets", "allowed_layer_types",
                  "capability", "command", "payload_defaults", "preconditions",
-                 "effects", "undo", "preview")
+                 "effects", "undo", "preview", "ui")
 
     def __init__(self, id: str, label: str, capability: str, command: str,
                  targets: List[str], aliases: Optional[List[str]] = None,
@@ -36,7 +43,8 @@ class ActionSpec:
                  payload_defaults: Optional[dict] = None,
                  preconditions: Optional[List[str]] = None,
                  effects: Optional[List[str]] = None,
-                 undo: bool = True, preview: bool = False):
+                 undo: bool = True, preview: bool = False,
+                 ui: str = ""):
         self.id = id
         self.label = label
         self.aliases = aliases or []
@@ -49,6 +57,7 @@ class ActionSpec:
         self.effects = effects or []
         self.undo = undo
         self.preview = preview
+        self.ui = ui
 
     def to_dict(self) -> dict:
         return {
@@ -57,6 +66,7 @@ class ActionSpec:
             "capability": self.capability, "command": self.command,
             "payload_defaults": self.payload_defaults, "preconditions": self.preconditions,
             "effects": self.effects, "undo": self.undo, "preview": self.preview,
+            "ui": self.ui,
         }
 
 
@@ -199,6 +209,19 @@ _ACTIONS: List[ActionSpec] = [
     ActionSpec("visual.mask", "加蒙版", "mask.apply", "apply_mask",
                targets=["layer"],
                aliases=["蒙版", "遮罩", "只留中间"]),
+    ActionSpec("visual.mask.remove", "移除蒙版", "mask.apply", "remove_mask",
+               targets=["layer"],
+               aliases=["去掉蒙版"],
+               preconditions=["has_mask"]),
+    ActionSpec("visual.keyframe_add", "打关键帧", "keyframe.add", "add_keyframe",
+               targets=["layer"],
+               aliases=["加关键帧", "打关键帧"]),
+    ActionSpec("visual.lock", "锁定图层", "layer.update", "lock",
+               targets=["layer"],
+               aliases=["锁定", "批量锁定"]),
+    ActionSpec("visual.keyframe_remove", "删关键帧", "keyframe.add", "remove_keyframe",
+               targets=["layer"],
+               aliases=["删除关键帧", "删帧"]),
     # ---- 时间线编辑 ----
     ActionSpec("timeline.trim", "裁剪", "timeline.trim", "trim",
                targets=["layer"], allowed_layer_types=["video"],
@@ -237,6 +260,96 @@ _ACTIONS: List[ActionSpec] = [
     ActionSpec("verify.run", "检查", "composition.verify", "noop",
                targets=["project"], undo=False,
                aliases=["检查一下", "预检", "验证"]),
+    # ---- §66 MPT 级 Action：内容 ----
+    ActionSpec("content.generate_script", "主题生成脚本", "system.capabilities.list",
+               "noop", targets=["project"], undo=False,
+               aliases=["按主题写脚本", "生成文案"]),
+    ActionSpec("content.rewrite_script", "改写脚本", "system.capabilities.list",
+               "noop", targets=["project"], undo=False,
+               aliases=["润色文案", "改写"]),
+    # ---- §66 素材扩展 ----
+    ActionSpec("asset.import_local", "导入本地素材", "asset.import_local", "noop",
+               targets=["project", "scene"], undo=False,
+               aliases=["上传素材", "导入素材"], ui="open_local_import"),
+    ActionSpec("asset.search_stock", "搜图库", "stock.search", "noop",
+               targets=["scene", "layer", "project"], undo=False,
+               aliases=["搜 Pexels", "搜图库素材"], ui="open_stock_search"),
+    ActionSpec("asset.download", "下载素材", "asset.resolve", "noop",
+               targets=["scene", "layer"], undo=False,
+               aliases=["下载采用"]),
+    # ---- §66 配音扩展（§37 试听=UI 播放型）----
+    ActionSpec("voice.preview_full", "完整旁白试听", "tts.preview_narration",
+               "noop", targets=["project"], undo=False, preview=True,
+               aliases=["完整试听"], ui="play_full_preview"),
+    ActionSpec("voice.upload", "上传配音", "system.capabilities.list", "noop",
+               targets=["project"], undo=False,
+               aliases=["上传配音文件"], ui="open_voice_upload"),
+    # ---- §66 字幕位置 ----
+    ActionSpec("subtitle.position", "字幕位置", "subtitle.update_style",
+               "set_subtitle_style",
+               targets=["project"],
+               aliases=["字幕放底部", "字幕放顶部", "字幕居中"],
+               payload_defaults={}),
+    # ---- §66 音乐扩展 ----
+    ActionSpec("music.auto_match", "自动配乐", "music.match_video", "noop",
+               targets=["project"], undo=False,
+               aliases=["自动匹配 BGM", "配点音乐"]),
+    ActionSpec("music.preview", "试听音乐", "music.preview", "noop",
+               targets=["project"], undo=False, preview=True,
+               aliases=["听一下音乐"], ui="play_music_preview"),
+    # ---- §66 SFX ----
+    ActionSpec("sfx.add", "加音效", "music.add", "set_audio_volume",
+               targets=["scene"],
+               aliases=["加音效", "来点音效"],
+               payload_defaults={"track_type": "sfx", "volume": 0.6}),
+    # ---- §66 工作流控制 ----
+    ActionSpec("workflow.start", "开始创作", "system.capabilities.list", "noop",
+               targets=["project"], undo=False,
+               aliases=["开始生成", "开始创作"]),
+    ActionSpec("workflow.resume", "继续流程", "system.capabilities.list", "noop",
+               targets=["project"], undo=False,
+               aliases=["继续渲染", "确认分镜"]),
+    ActionSpec("workflow.retry", "重试流程", "system.capabilities.list", "noop",
+               targets=["project"], undo=False,
+               aliases=["重新执行", "再来一次"]),
+    # ---- §66 批量 ----
+    ActionSpec("batch.create", "批量创作", "system.capabilities.list", "noop",
+               targets=["project"], undo=False,
+               aliases=["多条视频", "批量生成"]),
+    # ---- §66 交付元数据 ----
+    ActionSpec("delivery.generate_metadata", "生成发布文案", "system.capabilities.list",
+               "noop", targets=["project"], undo=False,
+               aliases=["写标题", "生成描述", "生成标签"]),
+    # ---- UI 交互型（§58：本地 UI 行为，无后端执行）----
+    ActionSpec("ui.open_asset_picker", "换素材（打开选择器）", "asset.replace", "noop",
+               targets=["scene", "layer"], undo=False,
+               aliases=["换素材"], ui="open_asset_picker"),
+    ActionSpec("ui.open_shot_picker", "换镜头（打开选择器）", "camera.apply", "noop",
+               targets=["scene"], undo=False, ui="open_shot_picker"),
+    ActionSpec("ui.open_motion_picker", "换动效（打开选择器）", "motion.apply", "noop",
+               targets=["layer"], undo=False, ui="open_motion_picker"),
+    ActionSpec("ui.open_voice_settings", "配音设置", "tts.list_voices", "noop",
+               targets=["project"], undo=False, ui="open_voice_settings"),
+    ActionSpec("ui.open_audio_bus", "整体调音", "music.volume", "noop",
+               targets=["project"], undo=False, ui="open_audio_bus"),
+    ActionSpec("ui.open_subtitle_style", "字幕样式", "subtitle.update_style", "noop",
+               targets=["project"], undo=False, ui="open_subtitle_style"),
+    ActionSpec("ui.generate_scene_visual", "AI 生成画面", "generation.image", "noop",
+               targets=["scene"], undo=False, ui="generate_scene_visual"),
+    ActionSpec("ui.edit_mask", "编辑蒙版", "mask.apply", "noop",
+               targets=["layer"], undo=False, ui="edit_mask"),
+    ActionSpec("ui.preview_draft", "预览草稿", "render.draft", "noop",
+               targets=["project"], undo=False, ui="preview_draft"),
+    ActionSpec("ui.undo", "撤销", "system.capabilities.list", "noop",
+               targets=["project"], undo=False, ui="undo"),
+    ActionSpec("ui.redo", "重做", "system.capabilities.list", "noop",
+               targets=["project"], undo=False, ui="redo"),
+    ActionSpec("ui.save", "保存", "system.capabilities.list", "noop",
+               targets=["project"], undo=False, ui="save"),
+    ActionSpec("ui.move_prompt", "移动场景（输入位置）", "timeline.move", "noop",
+               targets=["scene"], undo=False, ui="move_prompt"),
+    ActionSpec("ui.add_broll_prompt", "加素材层（选择素材）", "asset.add_to_timeline",
+               "noop", targets=["scene"], undo=False, ui="add_broll_prompt"),
 ]
 
 _BY_ID = {a.id: a for a in _ACTIONS}
@@ -323,6 +436,17 @@ def resolve_by_text(text: str) -> Optional[ActionSpec]:
 def _check_precondition(project_id: str, cond: str, context: Optional[dict]) -> Optional[str]:
     """返回不满足原因；None = 通过。context 为 project_context.inspect_project_context 结果。"""
     ctx = context or {}
+    if cond == "has_mask":
+        ir = _load_ir(project_id)
+        if ir is None:
+            return "项目读取失败"
+        sel = ((ctx or {}).get("selection") or {})
+        if sel.get("type") == "layer":
+            lay = _layer_of_ir(ir, sel.get("id", ""))
+            if lay is None or not getattr(lay, "mask", None):
+                return "当前图层没有蒙版可移除"
+            return None
+        return "先选中一个带蒙版的图层"
     if cond == "has_watermark":
         ir = _load_ir(project_id)
         if ir is None:
@@ -413,6 +537,12 @@ _CONTEXT_KEYS = {
         "music.add", "music.remove", "music.volume", "music.duck",
         "watermark.add", "watermark.update", "watermark.remove",
         "voice.change", "voice.preview",
+        # §58 UI 交互动作（dispatcher 本地执行；group 暴露 ui 字段）
+        "ui.undo", "ui.redo", "ui.save", "ui.preview_draft",
+        "ui.open_voice_settings", "ui.open_audio_bus", "ui.open_subtitle_style",
+        "voice.preview_full", "voice.upload", "content.generate_script",
+        "content.rewrite_script", "music.auto_match", "music.preview",
+        "delivery.generate_metadata", "workflow.start", "workflow.resume",
         "asset.search", "generate.image", "generate.video", "generate.sfx",
         "render.draft", "render.final", "verify.run",
     ],
@@ -422,6 +552,9 @@ _CONTEXT_KEYS = {
         "asset.replace", "asset.search", "asset.add_broll",
         "generate.image", "generate.video",
         "audio.preserve", "audio.mute_original",
+        "ui.open_asset_picker", "ui.open_shot_picker", "ui.generate_scene_visual",
+        "ui.move_prompt", "ui.add_broll_prompt", "sfx.add",
+        "asset.import_local", "asset.search_stock",
     ],
     ("layer", "video"): [
         "asset.replace", "asset.search",
@@ -429,12 +562,16 @@ _CONTEXT_KEYS = {
         "visual.transform", "visual.motion", "visual.pip", "visual.mask",
         "audio.preserve", "audio.mute_original", "audio.original_volume",
         "generate.image", "generate.video",
+        "ui.open_asset_picker", "ui.open_motion_picker", "ui.edit_mask",
+        "visual.keyframe_add", "visual.keyframe_remove", "visual.mask.remove",
     ],
     ("layer", "image"): [
         "asset.replace", "asset.search",
         "timeline.delete", "timeline.duplicate",
         "visual.transform", "visual.motion", "visual.mask",
         "generate.image",
+        "ui.open_asset_picker", "ui.open_motion_picker", "ui.edit_mask",
+        "visual.keyframe_add", "visual.keyframe_remove", "visual.mask.remove",
     ],
     ("layer", "subtitle"): [
         "subtitle.style", "timeline.delete",
@@ -485,6 +622,7 @@ def actions_for_context(selection: Optional[dict], project_id: Optional[str] = N
         out.append({
             "id": a.id, "label": a.label, "aliases": a.aliases,
             "targets": a.targets, "undo": a.undo, "preview": a.preview,
+            "ui": a.ui,
             **{k: avail[k] for k in ("available", "reason", "next_actions")},
         })
     return {"context": ctx_name, "actions": out}
@@ -560,6 +698,11 @@ def resolve_step(step: dict, selection: Optional[dict] = None) -> dict:
             payload["sourceIn"] = params["source_in"]
         if params.get("source_out"):
             payload["sourceOut"] = params["source_out"]
+    if a.id in ("visual.keyframe_add", "visual.keyframe_remove"):
+        # keyframe Command 契约：property/at/value（params 字段名一致直传）
+        for k in ("property", "at", "value"):
+            if params.get(k) is not None:
+                payload[k] = params[k]
     if a.id == "audio.mix":
         # §37 Audio Bus：tracks 映射直接透传（{original:{volume:0.2}, bgm:{volume:0.1}}）
         if params.get("tracks"):
@@ -612,6 +755,105 @@ def commercial_context() -> List[dict]:
 BUILD_ID = "vd-actions-v1"
 
 
+# ---------------------------------------------------------------------------
+# §67 Workflow Registry：高层工作流（AI/用户的"真正大动作"，映射到 WorkflowRun kind）
+# ---------------------------------------------------------------------------
+
+#: §47/§67 WorkflowRun 通用步骤（与 workflow_run.DEFAULT_STEPS 对齐）
+DEFAULT_RUN_STEPS = ["script", "scene_plan", "narration", "material_match",
+                     "subtitle", "music", "watermark", "composition",
+                     "preview", "verify"]
+
+#: WorkflowSpec：高层工作流 → WorkflowRun kind + 步骤序（§47 任务中心事实源）
+WORKFLOW_SPECS = {
+    "create_video": {
+        "label": "创作视频", "run_kind": "compose",
+        "steps": DEFAULT_RUN_STEPS,
+        "desc": "主题/文案/素材 → 脚本 → 镜头 → 配音 → 素材 → 字幕 → 音乐 → 成片",
+    },
+    "create_video_from_topic": {
+        "label": "主题成片", "run_kind": "compose",
+        "steps": DEFAULT_RUN_STEPS,
+        "desc": "一句话主题 → 全链自动成片（LLM 生成脚本后同 create_video）",
+    },
+    "create_video_from_script": {
+        "label": "文案成片", "run_kind": "compose",
+        "steps": DEFAULT_RUN_STEPS,
+        "desc": "完整文案 → 全链自动成片",
+    },
+    "create_video_from_assets": {
+        "label": "素材成片", "run_kind": "compose",
+        "steps": DEFAULT_RUN_STEPS,
+        "desc": "上传素材 → 按素材生成文案/镜头 → 成片",
+    },
+    "replace_scene_visual": {
+        "label": "换场景画面", "run_kind": "compose",
+        "steps": ["material_match", "composition", "preview"],
+        "desc": "单场景重找/重生成画面（asset.search → replace → verify 回退链）",
+    },
+    "rebuild_audio": {
+        "label": "重建声音", "run_kind": "render_draft",
+        "steps": ["narration", "render", "verify"],
+        "desc": "换音色/换配音后重生成旁白与草稿",
+    },
+    "rebuild_subtitles": {
+        "label": "重建字幕", "run_kind": "render_draft",
+        "steps": ["subtitle", "render", "verify"],
+        "desc": "字幕模式/样式变更后重出字幕轨",
+    },
+    "batch_create": {
+        "label": "批量成片", "run_kind": "series_episode",
+        "steps": ["script", "narration", "material_match", "composition", "verify", "render"],
+        "desc": "多份文案共享设置，逐集成片（MPT 批量）",
+    },
+    "render_draft": {
+        "label": "渲染草稿", "run_kind": "render_draft",
+        "steps": ["render", "verify"],
+        "desc": "低清快速草稿",
+    },
+    "render_final": {
+        "label": "渲染成片", "run_kind": "render_final",
+        "steps": ["render", "verify"],
+        "desc": "商用预检通过后正式成片",
+    },
+}
+
+def workflow_specs() -> dict:
+    """§67 /api/actions.system.workflows（AI 高层工具面 + 任务中心分类）。"""
+    return {k: dict(v) for k, v in WORKFLOW_SPECS.items()}
+
+
+#: §68 AI 最终工具面：16 动词 → Action id（高层语义，AI 只见动词不见底层）
+AI_TOOL_SURFACE = {
+    "create_video": "workflow.start",
+    "edit_script": "content.rewrite_script",
+    "find_assets": "asset.search",
+    "replace_asset": "asset.replace",
+    "generate_visual": "generate.image",
+    "set_voice": "voice.change",
+    "set_subtitles": "subtitle.generate",
+    "set_music": "music.add",
+    "edit_scene": "timeline.duration",
+    "edit_layer": "visual.transform",
+    "edit_audio": "audio.mix",
+    "set_brand": "watermark.add",
+    "set_scene_relation": "relation.set",
+    "preview": "render.draft",
+    "verify": "verify.run",
+    "render": "render.final",
+}
+
+
+def ai_tool_surface() -> dict:
+    """§68 /api/actions.system.ai_tools：动词 → Action → （内部）Capability。"""
+    out = {}
+    for verb, aid in AI_TOOL_SURFACE.items():
+        a = _BY_ID.get(aid)
+        if a:
+            out[verb] = {"action": a.id, "label": a.label}
+    return out
+
+
 def system_context() -> dict:
     """§16 System Context：actions/providers/render_profiles/asset_sources/voice_sources/music_sources。"""
     from video_director.capability_registry.manifest import manifest as _mf
@@ -620,6 +862,8 @@ def system_context() -> dict:
         "build_id": BUILD_ID,
         "actions": [a.id for a in _ACTIONS],
         "capabilities_count": len(caps),
+        "workflows": workflow_specs(),       # §67 Workflow Registry
+        "ai_tools": ai_tool_surface(),       # §68 AI 高层工具面
         "providers": _provider_summary(),
         "render_profiles": [
             {"id": "draft", "label": "草稿（低清快速）", "scale": 0.5},

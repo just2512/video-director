@@ -1,8 +1,15 @@
-// §12/§13 Action Dispatcher：业务按钮只声明 data-action，不再维护一份前端 Action 映射表。
+// §56/§57/§58/§82 Action Dispatcher：业务按钮只声明 data-action，前端不维护
+// Action→Command 映射表（Registry/Resolver 全在后端）。
 //
-// 唯一执行链：UI [data-action] → POST /api/action/execute
-// → Action Registry → Capability → Command Bus → Composition/Workflow → 回读状态。
-// UI-only 行为（打开抽屉、切换 Tab、播放）不应使用 data-action。
+// 两条通路（§58 契约）：
+//   业务动作（ui 字段为空）  → POST /api/action/execute → Registry →
+//                             Capability → Command → Composition/Workflow → 回读刷新
+//   UI 交互动作（ui 字段非空）→ 本地 UI 行为（打开 Picker/Modal、播放、撤销）——
+//                             由 UI_BEHAVIORS 表执行（§58「保留下来的函数只能是
+//                             UI renderer/UI state/Picker/Modal/Preview」）
+//
+// §77 机械规则：每个业务按钮必须有 data-action 或属纯 UI 白名单（Tab 切换/
+// 抽屉开关/筛选 chips 等不进 dispatcher——它们没有业务语义）。
 
 function _dispatchSelection(){
   if (typeof SEL === 'undefined' || !SEL.selection) return {type:'project'};
@@ -20,6 +27,88 @@ function _dispatchParams(el){
   } catch (e) {
     editorToast('按钮参数不是合法 JSON，操作未发送。', true);
     return null;
+  }
+}
+
+// §58 UI 交互动作本地行为表（key = ActionSpec.ui 字段值；不是业务映射，
+// 是纯 UI renderer 调度——业务效果仍由打开的 UI 内的 data-action 走后端链）
+const UI_BEHAVIORS = {
+  undo: () => (typeof editorUndo === 'function' && editorUndo()),
+  redo: () => (typeof editorRedo === 'function' && editorRedo()),
+  save: () => (typeof editorSaveBar === 'function' && editorSaveBar()),
+  preview_draft: () => (typeof editorPreviewBar === 'function' && editorPreviewBar()),
+  move_prompt: () => (typeof editorMovePrompt === 'function' && editorMovePrompt()),
+  add_broll_prompt: () => (typeof editorAddBrollPrompt === 'function' && editorAddBrollPrompt()),
+  open_asset_picker: () => {
+    const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
+    const id = (sel && sel.id) || '';
+    const [sceneId, idxS] = id.includes('#') ? id.split('#') : [id, '0'];
+    if (typeof editorOpenAssetPicker === 'function')
+      editorOpenAssetPicker(sceneId, parseInt(idxS) || 0);
+  },
+  open_shot_picker: () => {
+    const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
+    if (sel && sel.type === 'scene' && typeof editorOpenShotPicker === 'function')
+      editorOpenShotPicker(sel.id);
+    else if (typeof editorToast === 'function')
+      editorToast('先选中一个场景，再换镜头', true);
+  },
+  open_motion_picker: () => {
+    const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
+    if (sel && sel.type === 'layer' && typeof editorOpenMotionPicker === 'function') {
+      const [sceneId, idxS] = (sel.id || '').split('#');
+      editorOpenMotionPicker(sceneId, parseInt(idxS) || 0);
+    } else if (typeof editorToast === 'function') {
+      editorToast('先选中一个图层，再换动效', true);
+    }
+  },
+  open_voice_settings: () => (typeof editorVoiceOpen === 'function' && editorVoiceOpen()),
+  open_audio_bus: () => (typeof editorAudioBusOpen === 'function' && editorAudioBusOpen()),
+  open_subtitle_style: () => (typeof editorSubtitleStyleOpen === 'function' && editorSubtitleStyleOpen()),
+  generate_scene_visual: () => {
+    const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
+    const sceneId = (sel && (sel.type === 'scene' ? sel.id : (sel.id || '').split('#')[0])) || '';
+    if (typeof editorSceneGenerate === 'function') editorSceneGenerate(sceneId);
+  },
+  edit_mask: () => {
+    const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
+    if (sel && sel.type === 'layer' && typeof maskEditorOpen === 'function') {
+      const [sceneId, idxS] = (sel.id || '').split('#');
+      maskEditorOpen(sceneId, parseInt(idxS) || 0);
+    } else if (typeof editorToast === 'function') {
+      editorToast('先选中一个图层，再编辑蒙版', true);
+    }
+  },
+  open_local_import: () => (typeof editorOpenAssetPicker === 'function'
+    && editorOpenAssetPicker((SEL.selection && SEL.selection.id || '').split('#')[0] || '', 0, 'import')),
+  open_stock_search: () => {
+    if (typeof edLibDomain === 'function') edLibDomain('content', 'stock');
+  },
+  play_full_preview: () => (typeof edVoiceFullPreview === 'function' && edVoiceFullPreview()),
+  play_music_preview: () => (typeof edLibAudioTry === 'function' && edLibAudioTry('bgm-demo')),
+  open_voice_upload: () => (typeof edVoiceReplaceUpload === 'function' && edVoiceReplaceUpload()),
+};
+
+/** §58 UI 动作缓存：/api/actions 声明 ui 字段的 Action → 本地行为键。 */
+window._UI_ACTION_CACHE = null;
+async function _loadUiActions(){
+  if (window._UI_ACTION_CACHE) return window._UI_ACTION_CACHE;
+  try {
+    const r = await fetch('/api/actions');
+    const d = await r.json();
+    const sys = (d && d.system && d.system.actions) || [];
+    // system.actions 只是 id 列表；ui 声明要逐个取——直接拉 manifest groups
+    const uiMap = {};
+    for (const group of Object.values((d && d.groups) || {})) {
+      for (const a of group) {
+        if (a.ui) uiMap[a.id] = a.ui;
+      }
+    }
+    window._UI_ACTION_CACHE = uiMap;
+    return uiMap;
+  } catch (e) {
+    window._UI_ACTION_CACHE = {};
+    return {};
   }
 }
 
@@ -72,6 +161,19 @@ async function actionDispatch(el, ev){
     return false;
   }
   const target = el.getAttribute('data-target') || null;
+  // §58 分流：ui 型动作（Registry 声明 ui 字段）本地执行，不进后端
+  const uiMap = await _loadUiActions();
+  const uiKey = uiMap[actionId];
+  if (uiKey && typeof UI_BEHAVIORS[uiKey] === 'function') {
+    UI_BEHAVIORS[uiKey](params);
+    if (ev) ev.preventDefault();
+    return false;
+  }
+  if (uiKey) {
+    editorToast(`界面动作 ${actionId} 未接线（已诚实报告）`, true);
+    if (ev) ev.preventDefault();
+    return false;
+  }
   await executeAction(actionId, params, target, _dispatchSelection());
   if (ev) ev.preventDefault();
   return false;
@@ -83,4 +185,4 @@ document.addEventListener('click', (ev) => {
   actionDispatch(el, ev);
 });
 
-Object.assign(window, {actionDispatch, executeAction});
+Object.assign(window, {actionDispatch, executeAction, UI_BEHAVIORS});

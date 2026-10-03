@@ -94,7 +94,7 @@ async function editorGenerate(){
     `<span class="hint">${layerTypeCn(res.type)} · 来源：${res.provider_id === 'image-llm' ? '图片生成' : esc(res.provider_id || '生成')}</span>`+
     (DEV.mode ? `<span class="hint" style="font-size:11px">指纹 ${esc(res.input_fingerprint || '')}</span>` : '')+`</span>`+
     `<span class="btn-row">`+
-    `<button class="btn-sm" onclick="addGenToTimeline('${esc(res.asset_id)}')">加入时间线</button>`+
+    `<button class="btn-sm" data-action="asset.add_broll" data-params='{"assetId":"${esc(res.asset_id)}"}'>加入时间线</button>`+
     `<button class="btn-secondary btn-sm" onclick="edLibDomain('content','assets')">已存项目素材</button>`+
     `</span></div>`).join('');
 }

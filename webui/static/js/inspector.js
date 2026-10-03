@@ -103,7 +103,7 @@ function _inspectorProject(){
           <span class="hint">${anchorCn[w.anchor] || esc(w.anchor || '')} · 透明 ${w.opacity ?? '—'}</span></span>
           <span class="btn-row">
             <button class="btn-secondary btn-sm" onclick="editorWatermarkMove(${i})">调整</button>
-            <button class="btn-secondary btn-sm" onclick="editorCmd('remove_watermark',{},'',true)">删除</button>
+            <button class="btn-secondary btn-sm" data-action="watermark.remove" data-target="project">删除</button>
           </span></div>`).join('') : '<div class="hint">还没有 Logo / 水印</div>'}
       <div class="btn-row" style="flex-wrap:wrap">
         <button class="btn-secondary btn-sm" data-action="watermark.add" data-target="project" title="添加品牌 Logo / 文字水印">添加 Logo / 水印</button>
@@ -113,23 +113,23 @@ function _inspectorProject(){
     <div class="role-block" data-section="audio"><b>声音策略</b>
       <div class="hint">旁白：${narr ? '已生成' : '无'} · 原声：${orig ? (orig.muted ? '已静音' : (orig.volume * 100).toFixed(0) + '%') : '未启用'}</div>
       <div class="btn-row" style="flex-wrap:wrap">
-        <button class="btn-secondary btn-sm" onclick="editorVoiceOpen()">配音设置</button>
-        <button class="btn-secondary btn-sm" onclick="editorAudioBusOpen()">整体调音</button>
+        <button class="btn-secondary btn-sm" data-action="ui.open_voice_settings">配音设置</button>
+        <button class="btn-secondary btn-sm" data-action="ui.open_audio_bus">整体调音</button>
       </div>
     </div>
     <div class="role-block" data-section="subtitle"><b>字幕策略</b>
       <div class="hint">${c.subtitle_track && c.subtitle_track.cues.length
         ? `字幕轨：${c.subtitle_track.cues.length} 条（${c.subtitle_track.mode === 'word' ? '逐词' : '句子'}）` : '无字幕轨'}${sub.color ? ' · 样式已设' : ''}</div>
       <div class="btn-row" style="flex-wrap:wrap">
-        <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleOpen()">字幕样式</button>
-        <button class="btn-secondary btn-sm" onclick="editorSubtitleGenerate()">生成字幕轨</button>
+        <button class="btn-secondary btn-sm" data-action="ui.open_subtitle_style">字幕样式</button>
+        <button class="btn-secondary btn-sm" data-action="subtitle.generate" data-target="project">生成字幕轨</button>
       </div>
     </div>
     <div class="role-block" data-section="version"><b>版本</b>
       <div class="hint">当前 V${c.version} · 顶栏 V 号可看历史</div></div>
     <div class="btn-row">
-      <button class="btn-secondary btn-sm" onclick="editorPreviewBar()">预览</button>
-      <button class="btn-secondary btn-sm" onclick="editorPreflight()">发布预检</button>
+      <button class="btn-secondary btn-sm" data-action="ui.preview_draft">预览</button>
+      <button class="btn-secondary btn-sm" data-action="verify.run" data-target="project">发布预检</button>
     </div>`;
 }
 
@@ -155,12 +155,12 @@ function _inspectorScene(sceneId){
     <div class="role-block" data-section="visual"><b>画面</b>
       <div class="hint">当前素材：${esc(mainName)}</div>
       <div class="btn-row" style="flex-wrap:wrap">
-        <button class="btn-secondary btn-sm" onclick="editorOpenAssetPicker('${sc.id}',0)">换素材</button>
-        <button class="btn-secondary btn-sm" onclick="editorAutoFindAsset('${sc.id}')">自动找素材</button>
-        <button class="btn-secondary btn-sm" onclick="editorSceneGenerate('${sc.id}')">AI 生成</button>
-        <button class="btn-secondary btn-sm" onclick="editorOpenShotPicker('${sc.id}')">换镜头</button>
-        <button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','push_in')">镜头推进</button>
-        <button class="btn-secondary btn-sm" onclick="editorApplyCamera('${sc.id}','pull_out')">镜头拉远</button>
+        <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>
+        <button class="btn-secondary btn-sm" data-action="asset.search" data-target="project">自动找素材</button>
+        <button class="btn-secondary btn-sm" data-action="ui.generate_scene_visual">AI 生成</button>
+        <button class="btn-secondary btn-sm" data-action="ui.open_shot_picker">换镜头</button>
+        <button class="btn-secondary btn-sm" data-action="visual.camera" data-params='{"preset":"push_in"}'>镜头推进</button>
+        <button class="btn-secondary btn-sm" data-action="visual.camera" data-params='{"preset":"pull_out"}'>镜头拉远</button>
       </div>
       <div id="editor-picker-box"></div>
       ${_sceneGenBox(sc.id)}
@@ -185,8 +185,8 @@ function _inspectorScene(sceneId){
       <div class="hint">本镜文案时长 ${sc.duration.toFixed(1)}s${mainLayer && mainLayer.type === 'video' ? ' · 主素材含视频（可保留原声）' : ''}</div>
       ${mainLayer && mainLayer.type === 'video' ? `
       <div class="btn-row" style="flex-wrap:wrap">
-        <button class="btn-secondary btn-sm" onclick="editorSceneOriginalAudio('${sc.id}','preserve')">保留本镜原声</button>
-        <button class="btn-secondary btn-sm" onclick="editorSceneOriginalAudio('${sc.id}','mute')">静音本镜原声</button>
+        <button class="btn-secondary btn-sm" data-action="audio.preserve">保留本镜原声</button>
+        <button class="btn-secondary btn-sm" data-action="audio.mute_original">静音本镜原声</button>
       </div>` : ''}
     </div>`;
 }
@@ -262,7 +262,7 @@ function _secSource({sceneId, idx, lay}){
     <select id="ed-speed" style="width:70px">${[0.5,1,1.5,2].map(s2=>`<option value="${s2}"${Math.abs(lay.speed-s2)<0.01?' selected':''}>${s2}x</option>`).join('')}</select>
     <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>` : ''}
     <div class="btn-row">
-      <button class="btn-secondary btn-sm" onclick="editorOpenAssetPicker('${sceneId}',${idx})">换素材</button>
+      <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>
       <button class="btn-secondary btn-sm" onclick="editorToggleLock('${sceneId}',${idx})">${lay.locked ? '解锁' : '锁定'}</button>
     </div>
     <div id="ed-asset-inspector" class="hint"></div>`;
@@ -271,8 +271,8 @@ function _secSound({layerId}){
   return `<b>声音</b>
     ${_layerOriginalAudioState()}
     <div class="btn-row" style="flex-wrap:wrap">
-      <button class="btn-secondary btn-sm" onclick="editorLayerOriginalAudio('${layerId}','preserve')">保留原声</button>
-      <button class="btn-secondary btn-sm" onclick="editorLayerOriginalAudio('${layerId}','mute')">静音原声</button>
+      <button class="btn-secondary btn-sm" data-action="audio.preserve">保留原声</button>
+      <button class="btn-secondary btn-sm" data-action="audio.mute_original">静音原声</button>
       <button class="btn-secondary btn-sm" onclick="editorLayerOriginalVolume('${layerId}')">原声音量</button>
     </div>`;
 }
@@ -292,7 +292,7 @@ function _secMotion({sceneId, idx, lay}){
   return `<b>动效</b>
     <div class="hint">当前：${lay.motion_recipe_id ? esc(motionCnName(lay.motion_recipe_id)) : '无'}</div>
     <div class="btn-row">
-      <button class="btn-secondary btn-sm" onclick="editorOpenMotionPicker('${sceneId}',${idx})">换动效</button>
+      <button class="btn-secondary btn-sm" data-action="ui.open_motion_picker">换动效</button>
       <button class="btn-secondary btn-sm" onclick="editorPreviewMotionParam('${sceneId}',${idx})">预览参数</button>
     </div>
     <label>动效时长（秒）</label>
@@ -325,8 +325,8 @@ function _secMask({sceneId, idx, lay, layerId}){
       <input type="number" id="ed-mask-feather" placeholder="羽化px" min="0" style="width:72px">
       <label style="display:flex;align-items:center;gap:4px;font-size:12px;margin:0"><input type="checkbox" id="ed-mask-invert"> 反转</label>
       <button class="btn-secondary btn-sm" onclick="editorApplyMask('${sceneId}',${idx})">应用蒙版</button>
-      <button class="btn-secondary btn-sm" onclick="maskEditorOpen('${sceneId}',${idx})">编辑路径</button>
-      ${lay.mask ? `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_mask', {}, '${layerId}')">移除蒙版</button>` : ''}
+      <button class="btn-secondary btn-sm" data-action="ui.edit_mask">编辑路径</button>
+      ${lay.mask ? `<button class="btn-secondary btn-sm" data-action="visual.mask.remove">移除蒙版</button>` : ''}
     </div>
     ${MASK_ED.open ? `<div class="btn-row">
       <button class="btn-sm" onclick="maskEditorSave()">保存路径</button>
@@ -394,28 +394,28 @@ function _inspectorMulti(){
       ${videoLayers.length ? `
       <div class="hint">对选中的 ${videoLayers.length} 个视频素材统一设置原声：</div>
       <div class="btn-row" style="flex-wrap:wrap">
-        <button class="btn-secondary btn-sm" onclick="editorMultiOriginal('preserve')">全部保留原声</button>
-        <button class="btn-secondary btn-sm" onclick="editorMultiOriginal('mute')">全部静音原声</button>
+        <button class="btn-secondary btn-sm" data-action="audio.preserve">全部保留原声</button>
+        <button class="btn-secondary btn-sm" data-action="audio.mute_original">全部静音原声</button>
         <button class="btn-secondary btn-sm" onclick="editorMultiOriginalVolume()">统一音量</button>
       </div>` : '<div class="hint">选中视频素材后可批量设置原声。</div>'}
     </div>`+
     `<div class="btn-row">`+
-    `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('duplicate')">批量复制场景</button>`+
-    `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('delete')">批量删除场景</button>`+
-    `<button class="btn-secondary btn-sm" onclick="editorBatchCmd('lock')">批量锁定图层</button>`+
+    `<button class="btn-secondary btn-sm" data-action="timeline.duplicate">批量复制场景</button>`+
+    `<button class="btn-secondary btn-sm" data-action="timeline.delete">批量删除场景</button>`+
+    `<button class="btn-secondary btn-sm" data-action="visual.lock">批量锁定图层</button>`+
     `<button class="btn-secondary btn-sm" onclick="clearSelection()">取消选择</button></div>`;
 }
 
 /** §5.3 多选视频层批量原声（AI 与 UI 走同一 set_original_audio 语义）。 */
 function editorMultiOriginal(mode){
-  editorCmd('set_original_audio', {mode, volume: mode === 'preserve' ? 0.8 : 0.0,
-                                   duckAgainst: 'narration'}, '', true);
+  return executeAction(mode === 'preserve' ? 'audio.preserve' : 'audio.mute_original',
+                       {volume: mode === 'preserve' ? 0.8 : 0.0}, 'project');
 }
 function editorMultiOriginalVolume(){
   const hostId = 'ed-multivol-host';
   _ensureInlineHost(hostId);
   uiInlineInput(hostId, {type: 'number', def: 0.2, min: 0, max: 2, step: 0.1, unit: '倍'},
-    (v) => { if (!isNaN(v)) editorCmd('set_original_audio_volume', {volume: v}, '', true); });
+    (v) => { if (!isNaN(v)) executeAction('audio.original_volume', {volume: v}, 'project'); });
 }
 
 // selection:changed → Inspector 自动同步（§18 双向契约）
@@ -450,7 +450,7 @@ function editorLayerOriginalVolume(layerId){
   const hostId = 'ed-origvol-host';
   _ensureInlineHost(hostId);
   uiInlineInput(hostId, {type: 'number', def: 0.8, min: 0, max: 2, step: 0.1, unit: '倍'},
-    (v) => { if (!isNaN(v)) editorCmd('set_original_audio_volume', {volume: v}, '', true); });
+    (v) => { if (!isNaN(v)) executeAction('audio.original_volume', {volume: v}, 'project'); });
 }
 /** §5 场景级原声（Scene Inspector 的本镜操作）。 */
 function editorSceneOriginalAudio(sceneId, mode){
@@ -650,7 +650,7 @@ function editorSetVisualTransform(sceneId, idx){
     if (el && el.value !== '') payload[key] = parseFloat(el.value);
   }
   if (!Object.keys(payload).length) { editorToast('至少填一项（水平/垂直/旋转/透明度/缩放）'); return; }
-  editorCmd('set_visual_transform', payload, `${sceneId}#${idx}`);
+  return executeAction('visual.transform', payload, 'current_selection');
 }
 
 function renderKeyframeList(lay, sceneId, idx){
@@ -668,10 +668,10 @@ function editorAddKeyframe(sceneId, idx){
   const at = document.getElementById('ed-kf-at').value;
   const val = document.getElementById('ed-kf-val').value;
   if (at === '' || val === '') { editorToast('填时间（秒）和数值'); return; }
-  editorCmd('add_keyframe', {property: prop, at: parseFloat(at), value: parseFloat(val)}, `${sceneId}#${idx}`);
+  return executeAction('visual.keyframe_add', {property: prop, at: parseFloat(at), value: parseFloat(val)}, 'current_selection');
 }
 function editorRemoveKeyframe(sceneId, idx, prop, at){
-  editorCmd('remove_keyframe', {property: prop, at: at}, `${sceneId}#${idx}`);
+  return executeAction('visual.keyframe_remove', {property: prop, at: at}, 'current_selection');
 }
 
 function maskShapeCn(shape){
@@ -686,7 +686,7 @@ function editorApplyMask(sceneId, idx){
   if (f && f.value !== '') payload.feather = parseFloat(f.value);
   const inv = document.getElementById('ed-mask-invert');
   if (inv && inv.checked) payload.inverted = true;
-  editorCmd('apply_mask', payload, `${sceneId}#${idx}`);
+  return executeAction('visual.mask', payload, 'current_selection');
 }
 
 async function editorRunMatting(sceneId, idx){
@@ -817,7 +817,7 @@ function editorOriginalAudioVolume(){
   const hostId = 'ed-origvol-host';
   _ensureInlineHost(hostId);
   uiInlineInput(hostId, {type: 'number', def: 0.8, min: 0, max: 2, step: 0.1, unit: '倍'},
-    (v) => { if (!isNaN(v)) editorCmd('set_original_audio_volume', {volume: v}, '', true); });
+    (v) => { if (!isNaN(v)) executeAction('audio.original_volume', {volume: v}, 'project'); });
 }
 async function editorWatermarkAdd(){
   const hostId = 'editor-watermark-list';
@@ -846,7 +846,7 @@ async function editorWatermarkAdd(){
   row.querySelector('#' + id + '-text').focus();
 }
 async function editorWatermarkRemove(){
-  editorCmd('remove_watermark', {}, '', true);
+  return executeAction('watermark.remove', {}, 'project');
 }
 function renderWatermarkList(){
   const box = document.getElementById('editor-watermark-list');
@@ -860,7 +860,7 @@ function renderWatermarkList(){
     `<span class="btn-row">`+
     `<button class="btn-secondary btn-sm" onclick="editorWatermarkMove(${i})">移位</button>`+
     `<button class="btn-secondary btn-sm" onclick="editorWatermarkOpacity(${i})">透明度</button>`+
-    `<button class="btn-secondary btn-sm" onclick="editorCmd('remove_watermark',{},'',true)">删</button></span></div>`).join('');
+    `<button class="btn-secondary btn-sm" data-action="watermark.remove" data-target="project">删</button></span></div>`).join('');
 }
 function editorWatermarkMove(i){
   const hostId = 'editor-watermark-list';

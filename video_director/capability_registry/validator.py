@@ -61,6 +61,13 @@ SCHEMAS: Dict[str, InputSchema] = {
         "type": FieldSpec("enum:str", enum=frozenset({"bgm", "sfx", "ambient", "ambience", "dialogue", "original", "narration"})),
         "volume": FieldSpec("float", minimum=0.0, maximum=2.0, required=True),
     }),
+    # §37 duck 语义：闪避开关（volume 可选——不传=保留当前音量）
+    "DuckRequest": InputSchema("DuckRequest", {
+        "targetId": FieldSpec("str"),
+        "type": FieldSpec("enum:str", enum=frozenset({"bgm", "sfx", "original"})),
+        "ducking": FieldSpec("bool"),
+        "volume": FieldSpec("float", minimum=0.0, maximum=2.0),
+    }),
     "WatermarkRequest": InputSchema("WatermarkRequest", {
         "kind": FieldSpec("enum:str", enum=frozenset({"text", "image", "logo", "svg"})),
         "text": FieldSpec("str"),

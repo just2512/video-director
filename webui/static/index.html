@@ -48,6 +48,18 @@
         <button data-f="archived" onclick="pmSetFilter('archived')">已归档</button>
       </div>
       <button class="btn-secondary btn-sm" onclick="loadProjects()">刷新</button>
+      <!-- §46 任务中心抽屉（WorkflowRun 事实源；不新增第四个顶层 Tab） -->
+      <button class="btn-secondary btn-sm" id="pm-task-btn" onclick="taskDrawerToggle()">任务</button>
+    </div>
+    <!-- §46 任务抽屉宿主：正在处理 / 等待确认 / 失败 / 已完成（真实 run 状态） -->
+    <div id="task-drawer" class="panel" style="display:none;padding:12px;margin-top:10px">
+      <div class="btn-row" style="align-items:center;margin-top:0">
+        <b>任务</b> <span class="hint">创作与渲染的真实进度（WorkflowRun）——不新增顶层页</span>
+        <span class="tb-sep"></span>
+        <button class="btn-secondary btn-sm" onclick="taskRefresh()">刷新</button>
+        <button class="btn-secondary btn-sm" onclick="taskDrawerToggle()">关闭</button>
+      </div>
+      <div id="task-drawer-list"></div>
     </div>
     <div class="pm-list-head">
       <span>名称</span><span>状态</span><span>时长</span><span>最近修改</span><span>操作</span>
@@ -109,11 +121,11 @@
                 title="检查当前项目的问题并定位修复（审阅=工作台问题模式）">问题</button>
         <span class="hint" id="tb-version" onclick="versionDrawerToggle()"
               style="cursor:pointer" title="版本历史">V?</span>
-        <button class="btn-secondary btn-sm" onclick="editorUndo()" title="撤销上一次编辑">撤销</button>
-        <button class="btn-secondary btn-sm" onclick="editorRedo()" title="恢复被撤销的编辑">重做</button>
+        <button class="btn-secondary btn-sm" data-action="ui.undo" title="撤销上一次编辑">撤销</button>
+        <button class="btn-secondary btn-sm" data-action="ui.redo" title="恢复被撤销的编辑">重做</button>
         <span class="tb-sep"></span>
-        <button class="btn-secondary btn-sm" onclick="editorSaveBar()" title="保存项目状态">保存</button>
-        <button class="btn-secondary btn-sm" onclick="editorPreviewBar()" title="预览当前草稿">预览</button>
+        <button class="btn-secondary btn-sm" data-action="ui.save" title="保存项目状态">保存</button>
+        <button class="btn-secondary btn-sm" data-action="ui.preview_draft" title="预览当前草稿">预览</button>
         <button class="btn-secondary btn-sm" data-action="render.draft" data-target="project" title="快速渲染低清草稿">渲染草稿</button>
         <button class="btn-sm" data-action="render.final" data-target="project" title="商用预检通过后渲染正式成片">渲染成片</button>
       </div>
@@ -203,8 +215,8 @@
         <div class="btn-row" style="flex-wrap:wrap">
           <button class="btn-secondary btn-sm" data-action="timeline.split" title="拆分当前场景">拆分</button>
           <button class="btn-secondary btn-sm" data-action="timeline.duplicate" title="复制当前场景或图层">复制</button>
-          <button class="btn-secondary btn-sm" onclick="editorMovePrompt()">移动</button>
-          <button class="btn-secondary btn-sm" onclick="editorAddBrollPrompt()">加素材层</button>
+          <button class="btn-secondary btn-sm" data-action="ui.move_prompt">移动</button>
+          <button class="btn-secondary btn-sm" data-action="ui.add_broll_prompt">加素材层</button>
           <button class="btn-secondary btn-sm" data-action="timeline.delete" title="删除选中的场景，或移除选中的图层">删除场景 / 移除图层</button>
           <span class="tb-sep"></span>
           <button class="btn-secondary btn-sm" data-action="verify.run" data-target="project">商用预检</button>
@@ -238,6 +250,27 @@
     <div class="panel" style="margin-top:12px">
       <b>配音来源</b> <span class="hint" id="voice-providers-line">检测中……</span>
       <div class="hint">文本/视觉/生图模型在「模型」配置；这里显示当前实际可用的配音服务。</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <b>素材（图库）</b>
+      <div id="settings-stock-line" class="hint">检测中……</div>
+      <div class="hint">图库搜索走官方 API；本地素材在创作与工作台中上传（入统一素材库）。</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <b>输出</b>
+      <div class="hint">默认在「新建项目」里按次选择：画幅（9:16 / 16:9 / 1:1）· 分辨率（1080p / 4K）· 帧率（24 / 30 / 60）。</div>
+      <div class="hint" id="settings-output-defaults">—</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <b>配置管理</b>
+      <div class="hint">导出模型/图库等配置到文件，或从文件导入。<b>密钥不会写入导出文件</b>（只导出角色/模型/地址结构；密钥留在本机）。</div>
+      <div class="btn-row">
+        <button class="btn-secondary btn-sm" onclick="settingsExport()">导出设置</button>
+        <label class="btn-secondary btn-sm" style="cursor:pointer">导入设置
+          <input type="file" id="settings-import-file" accept=".json" style="display:none"
+                 onchange="settingsImport(this)"></label>
+        <span class="hint" id="settings-config-status"></span>
+      </div>
     </div>
     <div class="panel" style="margin-top:12px">
       <b>环境自检</b>

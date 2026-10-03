@@ -156,7 +156,7 @@ def _build_manifest() -> List[Capability]:
         "调整 BGM 音量", input_schema="VolumeRequest", outputs=("AudioTrack",),
         examples=("BGM 小一点", "背景音乐拉高")))
     caps.append(_cap("music.duck", "music",
-        "BGM 在旁白下自动闪避", input_schema="VolumeRequest", outputs=("AudioTrack",),
+        "BGM 在旁白下自动闪避", input_schema="DuckRequest", outputs=("AudioTrack",),
         examples=("BGM 不要盖住原声",)))
 
     # ---- CAP-SUB（§31/§32/§88）----

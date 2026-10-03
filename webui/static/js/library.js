@@ -227,6 +227,14 @@ async function edLibLoad(){
         onApply: (tid) => applyTransitionToPair(f, t, tid),
       });
     } else if (sub === 'titles' || sub === 'lower_thirds' || sub === 'subtitle_styles' || sub === 'graphics') {
+      // §43/§71 四层证据：无真实 Command 的类型普通用户不显示（NOT_IMPLEMENTED
+      // 只在 Developer Mode 可见——不允许「看起来能点，点了没效果」）。
+      // subtitle_styles 有 set_subtitle_style 执行链 → 正常显示。
+      const IMPLEMENTED = new Set(['subtitle_styles']);
+      if (!IMPLEMENTED.has(sub) && !(window.DEV && DEV.mode)) {
+        box.innerHTML = '<div class="hint">该样式类型暂未开放（无完整执行链）。</div>';
+        return;
+      }
       // §26/§46 Title/LowerThird/Subtitle/Graphic Registry → 统一 Picker
       const apiMap = {titles: '/api/registry/titles', lower_thirds: '/api/registry/lower_thirds',
                       subtitle_styles: '/api/registry/subtitles', graphics: '/api/registry/graphics'};
@@ -235,10 +243,11 @@ async function edLibLoad(){
       const what = {titles: '标题样式', lower_thirds: '人物条样式',
                     subtitle_styles: '字幕样式', graphics: '图形'}[sub];
       await pickerOpen({
-        title: `${what}（应用到当前项目）`,
+        title: `${what}（${IMPLEMENTED.has(sub) ? '应用到当前项目' : 'Developer 预览：未接线'}）`,
         items: list.map(x => ({id: x.id, name: x.name,
           note: (x.description || (x.tags || []).slice(0, 2).join('·') || ''),
-          compatibility: x.commercial_status === 'BLOCKED' ? 'INCOMPATIBLE' : 'SUPPORTED'})),
+          compatibility: x.commercial_status === 'BLOCKED' ? 'INCOMPATIBLE'
+            : (IMPLEMENTED.has(sub) ? 'SUPPORTED' : 'INCOMPATIBLE')})),
         onApply: (id) => applyRegistryStyle(sub, id),
       });
     }
@@ -287,30 +296,24 @@ async function edLibLoad(){
 
 // ---- Picker apply 实现（全部 Command → Revision）----
 function edLibApplyAsset(assetId){
+  // §82 唯一通路：Asset Picker「应用到选中层」→ executeAction(asset.replace)
   if (!SEL.selection || SEL.selection.type !== 'layer') {
     editorToast('先在时间线选中一个图层，再应用素材', true); return;
   }
-  const [sceneId, idxS] = SEL.selection.id.split('#');
-  editorReplaceSource(sceneId, parseInt(idxS), assetId);
+  executeAction('asset.replace', {assetId}, 'current_selection');
 }
 async function edLibApplyMotion(motionId){
   if (!SEL.selection || SEL.selection.type !== 'layer') { editorToast('先选中一个图层', true); return; }
-  const r = await executeCommand({command: 'replace_motion', targetId: SEL.selection.id,
-    payload: {motionRecipeId: motionId}});
-  if (r.ok) {
-    editorToast(`动效已应用：${motionCnName(motionId)}`);
-    refreshWorkspace();
-  } else {
-    editorToast('动效应用失败：' + (r.error || ''), true);
-  }
+  const r = await executeAction('visual.motion', {motionRecipeId: motionId}, 'current_selection');
+  if (r && r.ok) editorToast(`动效已应用：${motionCnName(motionId)}`);
 }
 /** §26 转场 → Scene Pair continuity（transition 类型并入镜头关系语义）。 */
 async function applyTransitionToPair(fromId, toId, transitionId){
-  const r = await executeCommand({command: 'set_scene_continuity', targetId: toId,
-    payload: {type: 'carry', sourceLayerId: fromId + '#0', targetLayerId: toId + '#0',
-              transition: transitionId}});
-  if (r.ok) { editorToast(`转场已应用到 ${fromId} → ${toId}`); refreshWorkspace(); }
-  else editorToast('转场应用失败：' + (r.error || ''), true);
+  // §82：转场（Scene Pair 语义）→ executeAction(relation.set)
+  const r = await executeAction('relation.set',
+    {type: 'carry', sourceLayerId: fromId + '#0', targetLayerId: toId + '#0',
+     transition: transitionId}, 'current_selection');
+  if (r && r.ok) editorToast(`转场已应用到 ${fromId} → ${toId}`);
 }
 /** §26 样式 Registry 应用（title/lower_third/subtitle/graphic → 对应命令）。 */
 async function applyRegistryStyle(sub, id){
@@ -555,14 +558,8 @@ async function editorOpenMotionPicker(sceneId, idx){
   window._pickerApply = (id) => edLibApplyMotionTo(`${sceneId}#${idx}`, id);
 }
 async function edLibApplyMotionTo(layerId, motionId){
-  const r = await executeCommand({command: 'replace_motion', targetId: layerId,
-    payload: {motionRecipeId: motionId}});
-  if (r.ok) {
-    editorToast(`动效已应用：${motionCnName(motionId)}`);
-    refreshWorkspace();
-  } else {
-    editorToast('动效应用失败：' + (r.error || ''), true);
-  }
+  const r = await executeAction('visual.motion', {motionRecipeId: motionId}, 'current_selection');
+  if (r && r.ok) editorToast(`动效已应用：${motionCnName(motionId)}`);
 }
 async function editorOpenShotPicker(sceneId){
   const box = document.getElementById('editor-picker-box');
@@ -586,14 +583,8 @@ async function editorOpenShotPicker(sceneId){
   window._pickerApply = (id) => editorApplyShot(sceneId, id);
 }
 async function editorApplyShot(sceneId, recipeId){
-  const r = await executeCommand({command: 'replace_recipe', targetId: sceneId,
-    payload: {recipeId}});
-  if (r.ok) {
-    editorToast(`镜头已更换：${shotCnName(recipeId)}`);
-    refreshWorkspace();
-  } else {
-    editorToast('镜头更换失败：' + (r.error || ''), true);
-  }
+  const r = await executeAction('visual.camera', {recipeId}, 'current_selection');
+  if (r && r.ok) editorToast(`镜头已更换：${shotCnName(recipeId)}`);
 }
 
 Object.assign(window, {

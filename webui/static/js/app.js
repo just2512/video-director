@@ -27,7 +27,7 @@ function switchTab(tab){
   }
   if (tab === 'home') { loadProjects(); loadSeries(); loadInbox(); }
   if (tab === 'editor') { editorInit(); devShowBuildId(); }
-  if (tab === 'settings') { loadSettings(); devShowBuildId(); }
+  if (tab === 'settings') { loadSettings(); devShowBuildId(); loadStockStatusLine(); }
 }
 
 /** §42 build_id 显示（Developer Mode）：源码契约与运行态一致性。 */
@@ -38,6 +38,59 @@ async function devShowBuildId(){
     const r = await apiGet('/api/actions');
     if (r && r.build_id) el.textContent = '动作注册表：' + r.build_id;
   } catch (e) { el.textContent = '读取失败（/api/actions）'; }
+}
+
+// ===========================================================================
+// §51/§52 设置页：素材状态行 + 配置导入导出（密钥不导出/导入不覆盖）
+// ===========================================================================
+async function loadStockStatusLine(){
+  const el = document.getElementById('settings-stock-line');
+  if (!el) return;
+  try {
+    const r = await apiGet('/api/actions');
+    const sys = (r && r.system) || {};
+    const commercial = sys.commercial || [];
+    const parts = commercial.map(c => `${c.provider}${c.available ? ' 已配置' : ' 未配置'}`);
+    el.textContent = parts.length ? '图库：' + parts.join(' · ') : '图库：未检测到配置';
+  } catch (e) {
+    el.textContent = '图库状态读取失败（/api/actions）';
+  }
+}
+
+async function settingsExport(){
+  const st = document.getElementById('settings-config-status');
+  try {
+    const r = await apiGet('/api/settings/export');
+    if (!r.ok) throw new Error(r.error || '导出失败');
+    const blob = new Blob([JSON.stringify(r, null, 2)], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'video-director-settings.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    if (st) st.textContent = '已导出（密钥不含在内；导入后需重新填 key）';
+  } catch (e) {
+    if (st) st.textContent = '导出失败：' + (e.message || e);
+  }
+}
+
+async function settingsImport(input){
+  const st = document.getElementById('settings-config-status');
+  const file = input.files && input.files[0];
+  if (!file) { if (st) st.textContent = '先选择导出文件'; return; }
+  try {
+    const data = JSON.parse(await file.text());
+    const r = await apiPost('/api/settings/import', data);
+    if (r.ok) {
+      if (st) st.textContent = `已导入 ${r.imported_roles.length} 个角色（密钥保留本机原值）`;
+      refreshLLMBadge();
+    } else {
+      if (st) st.textContent = '导入失败：' + (r.error || '文件格式不对');
+    }
+  } catch (e) {
+    if (st) st.textContent = '导入失败：' + (e.message || e);
+  }
+  input.value = '';
 }
 
 // §27 收集箱抽屉（顶栏「收集」→ 浮层，不占页面主体）
@@ -186,7 +239,7 @@ Object.assign(window, {
   loadVoiceProviders,
   loadSettings,
   toggleCapPanel,
-  devShowBuildId,
+  devShowBuildId, loadStockStatusLine, settingsExport, settingsImport,
   switchTab,
   captureDrawerToggle,
   esc,
