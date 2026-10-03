@@ -85,9 +85,20 @@ function _createPanelHtml(){
         <input type="text" id="cf-style" placeholder="例：纪录片沉稳"></div>
     </div>
     <div id="cf-style-presets" class="btn-row" style="flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted)"></div>
-    <label>素材（可多选：视频/图片；没有素材可跳过）</label>
-    <input type="file" id="cf-videos" multiple accept=".mp4,.mov,.mkv,.webm">
-    <input type="file" id="cf-images" multiple accept=".jpg,.jpeg,.png,.webp" style="margin-top:6px">
+    <label>本地素材（视频 / 图片，可多选）</label>
+    <input type="file" id="cf-assets" multiple accept=".mp4,.mov,.mkv,.webm,.m4v,.jpg,.jpeg,.png,.webp,.bmp">
+    <div class="hint" id="cf-assets-summary">未添加本地素材</div>
+    <div class="btn-row" style="align-items:center;gap:10px;margin-top:8px">
+      <div style="flex:1"><label>画面来源</label>
+        <select id="cf-visual-source" onchange="cfVisualSourceSync()">
+          <option value="auto" selected>自动匹配（本地优先，缺画面再联网）</option>
+          <option value="mixed">混合素材（本地 + 网络）</option>
+          <option value="online">网络素材（按文案自动搜索）</option>
+          <option value="local">仅使用我的素材</option>
+        </select>
+      </div>
+      <span class="hint" id="cf-visual-source-hint">有本地素材就优先使用；不足的场景自动搜索 Pexels / Pixabay。</span>
+    </div>
     <div class="panel" style="margin-top:10px;padding:10px">
       <b style="font-size:13px">画面与时间线</b>
       <div class="btn-row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
@@ -212,7 +223,7 @@ function setCreateSource(src){
       <div id="cf-repo-result"></div>`;
   } else if (src === 'assets') {
     area.innerHTML = `
-      <div class="hint">素材起步：先在下方选素材，文案可留空让 AI 按素材描述生成。</div>`;
+      <div class="hint">素材起步：先添加素材；文案请至少写一句创作说明，系统才能按场景匹配画面。</div>`;
   } else {
     area.innerHTML = '';
   }
@@ -220,6 +231,12 @@ function setCreateSource(src){
 
 /** 下拉/风格预设填充（单一数据源：与设置页同 API）。 */
 async function createLoadDefaults(){
+  const assetInput = document.getElementById('cf-assets');
+  if (assetInput) {
+    assetInput.onchange = cfRefreshAssetSummary;
+    cfRefreshAssetSummary();
+  }
+  cfVisualSourceSync();
   try {
     const voices = await apiGet('/api/voices');
     _rebuildSelect('cf-voice', voices.map(v => [v.id, v.label]));
@@ -242,6 +259,34 @@ async function createLoadDefaults(){
   document.querySelectorAll('.cf-src').forEach(b => {
     b.onclick = () => setCreateSource(b.dataset.src);
   });
+}
+
+function cfRefreshAssetSummary(){
+  const el = document.getElementById('cf-assets-summary');
+  const input = document.getElementById('cf-assets');
+  if (!el || !input) return;
+  const files = Array.from(input.files || []);
+  if (!files.length) { el.textContent = '未添加本地素材'; return; }
+  const videos = files.filter(f => /\.(mp4|mov|mkv|webm|m4v)$/i.test(f.name)).length;
+  const images = files.filter(f => /\.(jpg|jpeg|png|webp|bmp)$/i.test(f.name)).length;
+  el.textContent = `已添加 ${files.length} 个：视频 ${videos} · 图片 ${images}`;
+}
+
+function cfVisualSourceSync(){
+  const source = document.getElementById('cf-visual-source');
+  const hint = document.getElementById('cf-visual-source-hint');
+  const input = document.getElementById('cf-assets');
+  const v = source ? source.value : 'auto';
+  if (v === 'online') {
+    if (hint) hint.textContent = '仅按文案联网搜索画面；本地素材不会进入本次自动匹配。';
+  } else if (v === 'mixed') {
+    if (hint) hint.textContent = '本地素材与网络素材一起参与匹配；网络素材用于补足场景。';
+  } else if (v === 'local') {
+    if (hint) hint.textContent = '只使用本地素材；缺少素材的场景会直接保留缺口。';
+  } else {
+    if (hint) hint.textContent = '有本地素材就优先使用；不足的场景自动搜索 Pexels / Pixabay。';
+  }
+  if (input) input.style.opacity = v === 'online' ? '0.55' : '1';
 }
 
 function createPlatformSync(){
@@ -314,9 +359,9 @@ async function createProject(){
   const btn = document.getElementById('cf-go');
   const status = document.getElementById('cf-status');
   const script = (document.getElementById('cf-script') || {}).value || '';
-  const videos = document.getElementById('cf-videos');
-  const images = document.getElementById('cf-images');
-  const hasFiles = (videos && videos.files.length) || (images && images.files.length);
+  const assets = document.getElementById('cf-assets');
+  const hasFiles = !!(assets && assets.files.length);
+  const visualSource = (document.getElementById('cf-visual-source') || {}).value || 'auto';
   if (!script.trim() && !hasFiles) { status.textContent = '请先填文案，或选择素材'; return; }
   CF.state = 'submitting';
   btn.disabled = true;
@@ -341,8 +386,7 @@ async function createProject(){
   try {
     if (hasFiles) {
       const fd = new FormData();
-      if (videos) for (const f of videos.files) fd.append('files', f, f.name);
-      if (images) for (const f of images.files) fd.append('files', f, f.name);
+      for (const f of assets.files) fd.append('files', f, f.name);
       const stage = await apiUpload('/api/assets/stage', fd);
       if (stage && stage.ok) {
         videoNames = stage.videos || [];
@@ -382,7 +426,7 @@ async function createProject(){
   const wfResp = await apiPost('/api/workflows', {kind: 'compose', spec: {
     script,
     creative_brief: briefParts.length ? '【创作简报】' + briefParts.join('；') : '',
-    mode: hasFiles ? 'auto' : 'script_only',
+    mode: 'auto',
     voice: voiceMode === 'auto' ? ((document.getElementById('cf-voice') || {}).value || 'zh-CN-XiaoxiaoNeural') : '',
     voice_mode: voiceMode,
     narration_upload: uploadedNarration,
@@ -404,6 +448,8 @@ async function createProject(){
     lower_third_name: (document.getElementById('cf-lower-name') || {}).value || '',
     lower_third_role: (document.getElementById('cf-lower-role') || {}).value || '',
     confirm_mode: (document.getElementById('cf-confirm') || {}).value || 'preview',
+    visual_source: visualSource,
+    auto_confirm: ((document.getElementById('cf-confirm') || {}).value || 'preview') === 'direct',
     video_paths: videoNames, image_paths: imageNames,
   }});
   if (!wfResp.ok || !wfResp.run_id) {
