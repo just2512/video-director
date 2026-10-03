@@ -391,9 +391,23 @@ async function createProject(){
       if (stage && stage.ok) {
         videoNames = stage.videos || [];
         imageNames = stage.images || [];
+        if (stage.errors && stage.errors.length) {
+          const warn = document.getElementById('cf-status');
+          if (warn) warn.textContent = '部分素材未导入：' + stage.errors.join('；');
+        }
+      } else {
+        CF.state = 'failed';
+        status.textContent = '本地素材上传失败：' + ((stage && stage.error) || '无法暂存素材');
+        btn.disabled = false;
+        return;
       }
     }
-  } catch (e) { /* 素材暂存失败继续走纯文案链 */ }
+  } catch (e) {
+    CF.state = 'failed';
+    status.textContent = '本地素材上传失败：' + (e.message || e);
+    btn.disabled = false;
+    return;
+  }
 
   // §52 POST /api/workflows → run_id（不阻塞 HTTP；服务端后台执行）
   const resolution = (document.getElementById('cf-resolution') || {}).value || (window._cfAspect || '1080x1920');
