@@ -1604,6 +1604,31 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        # 主题 → Script：创建页生成文案
+        if parsed.path == "/api/script/generate":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON"}, 400)
+                return
+            topic = (payload.get("topic") or "").strip()
+            if not topic:
+                self._send_json({"error": "主题不能为空"}, 400)
+                return
+            try:
+                from video_director import llm_provider as _lp
+                script = _lp.generate_script(
+                    topic,
+                    platform=(payload.get("platform") or "").strip(),
+                    duration=str(payload.get("duration") or "").strip(),
+                    style=(payload.get("style") or "").strip(),
+                )
+                self._send_json({"ok": True, "script": script})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 503)
+            return
+
         # LLM 文案润色（无 provider 时诚实降级原样返回）
         if parsed.path == "/api/enhance":
             length = int(self.headers.get("Content-Length", 0))
