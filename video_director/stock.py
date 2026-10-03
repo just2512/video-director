@@ -490,9 +490,11 @@ def auto_download_for_scenes(
     llm_call=None,
     per_scene: int = 1,
     providers: Optional[List[str]] = None,
+    max_scenes: Optional[int] = None,
 ) -> dict:
     """为指定场景自动搜索并下载视觉素材；只采用 SUPPORTED 候选。"""
     providers = providers or ["pexels", "pixabay"]
+    providers = [p for p in providers if p in PROVIDER_POLICY] or ["pexels", "pixabay"]
     orientation = _stock_orientation(target_ratio)
     files: List[str] = []
     metadata = {}
@@ -501,16 +503,24 @@ def auto_download_for_scenes(
     used_sources = set()
     wanted = max(0, int(per_scene or 1))
     for idx, scene_text in enumerate(scene_texts or []):
+        if max_scenes is not None and idx >= max_scenes:
+            break
         query = build_scene_search_query(scene_text, llm_call)
         if not query:
             warnings.append(f"S{idx + 1:02d}：场景没有可用检索词")
             continue
         queries.append({"scene_id": f"S{idx + 1:02d}", "query": query})
-        try:
-            hits = search_stock(query, provider=None, orientation=orientation,
-                                per_page=max(4, wanted * 4))
-        except StockError as exc:
-            warnings.append(f"S{idx + 1:02d}：图库搜索失败（{exc.code}）")
+        hits: List[StockAsset] = []
+        provider_errors = []
+        for provider in providers:
+            try:
+                hits.extend(search_stock(
+                    query, provider=provider, orientation=orientation,
+                    per_page=max(4, wanted * 4)))
+            except StockError as exc:
+                provider_errors.append(f"{provider}:{exc.code}")
+        if not hits and provider_errors:
+            warnings.append(f"S{idx + 1:02d}：图库搜索失败（{'；'.join(provider_errors)}）")
             continue
         selected = 0
         for candidate in resolve_candidates(hits, target_ratio=target_ratio or "any",
