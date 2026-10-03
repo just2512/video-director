@@ -72,8 +72,7 @@ function renderProjectList(){
     else if (p.status === 'FAILED') primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">查看问题</button>`;
     else if (actions.open) primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">继续编辑</button>`;
     if (p.status === 'FAILED') primary += ` <button class="btn-secondary btn-sm" onclick="pmReopenFailed('${esc(p.project_id)}')">重新执行</button>`;
-    // 「···」菜单项（§43：预览/重命名/复制/归档/删除——动作存在性由 Index actions 决定）
-    const menuItems = _pmMenuItems(p);
+    // 「···」菜单由 pmRowMenu 动态展开；动作存在性由 Index actions 决定。
     const dur = p.duration ? p.duration.toFixed(1) + 's' : '—';
     const when = p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : '—';
     const name = p.name || p.project_id;
