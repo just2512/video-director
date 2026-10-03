@@ -88,6 +88,22 @@ function _createPanelHtml(){
     <label>素材（可多选：视频/图片；没有素材可跳过）</label>
     <input type="file" id="cf-videos" multiple accept=".mp4,.mov,.mkv,.webm">
     <input type="file" id="cf-images" multiple accept=".jpg,.jpeg,.png,.webp" style="margin-top:6px">
+    <div class="panel" style="margin-top:10px;padding:10px">
+      <b style="font-size:13px">画面与时间线</b>
+      <div class="btn-row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+        <div><label>画面适配</label>
+          <select id="cf-fit-mode"><option value="cover">铺满裁切</option><option value="contain">完整保留</option></select></div>
+        <div><label>单段画面时长</label>
+          <select id="cf-clip-duration"><option value="">自动</option><option value="3">3 秒</option><option value="5" selected>5 秒</option><option value="8">8 秒</option></select></div>
+        <div><label>视频播放速度</label>
+          <select id="cf-clip-speed"><option value="">自动</option><option value="0.9">0.9x</option><option value="1">1.0x</option><option value="1.2">1.2x</option><option value="1.5">1.5x</option></select></div>
+        <div><label>素材顺序</label>
+          <select id="cf-concat-mode"><option value="sequential">按素材顺序</option><option value="random">确定性随机</option></select></div>
+        <div><label>场景转场</label>
+          <select id="cf-transition-mode"><option value="cut">硬切</option><option value="crossfade">溶解</option></select></div>
+        <label style="display:flex;align-items:flex-end;gap:6px;padding-bottom:5px"><input type="checkbox" id="cf-match-materials" checked> 按文案匹配画面</label>
+      </div>
+    </div>
   </div>
   <!-- §22 GFX = 方案生成入口：图形方案预览区（proposal——确认后进工作台，无第二编辑器） -->
   <div id="cf-gfx-area" style="display:none">
@@ -114,7 +130,7 @@ function _createPanelHtml(){
         <div style="flex:1" id="cf-voice-wrap"><label>音色（自动配音时）</label>
           <select id="cf-voice"></select></div>
       <div class="btn-row" style="gap:10px;margin-top:8px">
-        <div style="flex:1" id="cf-voice-upload-wrap" style="display:none">
+        <div style="flex:1;display:none" id="cf-voice-upload-wrap">
           <label>上传配音文件</label>
           <input type="file" id="cf-voice-file" accept=".mp3,.wav,.m4a,.aac">
         </div>
@@ -133,6 +149,8 @@ function _createPanelHtml(){
       <div class="btn-row" style="gap:10px;margin-top:8px">
         <div style="flex:1"><label>背景音乐</label>
           <select id="cf-bgm"></select></div>
+        <div style="width:120px"><label>BGM 音量</label>
+          <input type="number" id="cf-bgm-volume" value="0.3" min="0" max="2" step="0.05"></div>
         <div style="flex:1"><label>音效</label>
           <select id="cf-sfx"></select></div>
       </div>
@@ -143,6 +161,18 @@ function _createPanelHtml(){
           <input type="text" id="cf-lower-name" placeholder="留空=不显示"></div>
         <div style="flex:1"><label>人物条·头衔（可选）</label>
           <input type="text" id="cf-lower-role" placeholder="例：创始人"></div>
+      </div>
+      <div class="btn-row" style="gap:10px;margin-top:8px;flex-wrap:wrap">
+        <div><label>输出帧率</label>
+          <select id="cf-fps"><option value="24">24 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option></select></div>
+        <div style="flex:1"><label>输出分辨率</label>
+          <select id="cf-resolution">
+            <option value="1080x1920" selected>1080×1920</option>
+            <option value="2160x3840">4K 竖屏 2160×3840</option>
+            <option value="1920x1080">1920×1080</option>
+            <option value="3840x2160">4K 横屏 3840×2160</option>
+            <option value="1080x1080">1080×1080</option>
+          </select></div>
       </div>
       <div class="btn-row" style="margin-top:8px">
         <div style="flex:1"><label>成片前人工确认</label>
@@ -217,7 +247,11 @@ async function createLoadDefaults(){
 function createPlatformSync(){
   const map = {douyin: '1080x1920', bilibili: '1920x1080', xhs: '1080x1440', square: '1080x1080'};
   const p = (document.getElementById('cf-platform') || {}).value;
-  if (p && map[p]) window._cfAspect = map[p];
+  if (p && map[p]) {
+    window._cfAspect = map[p];
+    const res = document.getElementById('cf-resolution');
+    if (res && [...res.options].some(o => o.value === map[p])) res.value = map[p];
+  }
 }
 
 /** §34 配音三模式联动：auto 显示音色下拉；upload 显示上传；silent 隐藏两者。 */
@@ -318,7 +352,8 @@ async function createProject(){
   } catch (e) { /* 素材暂存失败继续走纯文案链 */ }
 
   // §52 POST /api/workflows → run_id（不阻塞 HTTP；服务端后台执行）
-  const aspect = (window._cfAspect || '1080x1920').split('x');
+  const resolution = (document.getElementById('cf-resolution') || {}).value || (window._cfAspect || '1080x1920');
+  const aspect = resolution.split('x');
   // §34 三模式：auto=选音色；upload=上传配音文件；silent=无配音
   const voiceMode = (document.getElementById('cf-voice-mode') || {}).value || 'auto';
   const voiceFileEl = document.getElementById('cf-voice-file');
@@ -330,15 +365,13 @@ async function createProject(){
   }
   let uploadedNarration = '';
   if (voiceMode === 'upload' && voiceFileEl && voiceFileEl.files.length) {
-    // 上传配音：先经 /api/voice_upload 挂到项目（需要 project_id——先建空项目）
-    // 简化链：compose spec 带 narration_mode=upload + 文件走 stage
+    // 上传配音先进入统一 stage；WorkflowRun 会在项目初始化后执行 Probe→ASR/估算→Word Timing。
     const fd2 = new FormData();
     fd2.append('files', voiceFileEl.files[0], voiceFileEl.files[0].name);
     try {
       const st2 = await apiUpload('/api/assets/stage', fd2);
-      if (st2 && st2.ok && (st2.videos || []).length) uploadedNarration = st2.videos[0];
-      else if (st2 && st2.ok && (st2.images || []).length) uploadedNarration = st2.images[0];
-    } catch (e) { /* 上传失败继续，后端按 auto 兜底 */ }
+      if (st2 && st2.ok && (st2.audio || []).length) uploadedNarration = st2.audio[0];
+    } catch (e) { /* 状态保留为失败，不静默改成自动配音 */ }
     if (!uploadedNarration) {
       CF.state = 'failed';
       status.textContent = '配音文件上传失败，可重试或切换自动配音';
@@ -357,8 +390,16 @@ async function createProject(){
     style_intent: (st || {}).value || '',
     width: parseInt(aspect[0]), height: parseInt(aspect[1]),
     bgm: (document.getElementById('cf-bgm') || {}).value || 'auto',
+    bgm_volume: parseFloat((document.getElementById('cf-bgm-volume') || {}).value || '0.3'),
     sfx_plan: null,
     subtitle_mode: (document.getElementById('cf-subtitle') || {}).value || 'plain',
+    fit_mode: (document.getElementById('cf-fit-mode') || {}).value || 'cover',
+    clip_duration: (() => { const v = (document.getElementById('cf-clip-duration') || {}).value; return v ? parseFloat(v) : null; })(),
+    clip_speed: (() => { const v = (document.getElementById('cf-clip-speed') || {}).value; return v ? parseFloat(v) : null; })(),
+    concat_mode: (document.getElementById('cf-concat-mode') || {}).value || 'sequential',
+    transition_mode: (document.getElementById('cf-transition-mode') || {}).value || 'cut',
+    match_materials_to_script: !!(document.getElementById('cf-match-materials') || {}).checked,
+    fps: parseInt((document.getElementById('cf-fps') || {}).value || '30'),
     watermark: (document.getElementById('cf-watermark') || {}).value || '',
     lower_third_name: (document.getElementById('cf-lower-name') || {}).value || '',
     lower_third_role: (document.getElementById('cf-lower-role') || {}).value || '',

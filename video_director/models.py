@@ -268,6 +268,8 @@ class Layer(BaseModel):
     speed: float = 1.0
     source_in: float = 0.0
     source_out: Optional[float] = None
+    # 画面适配：cover=铺满裁切，contain=完整保留并留边（MPT fit mode 语义）。
+    fit_mode: str = "cover"
     motion: Optional[str] = None  # slow_zoom_in / slow_zoom_out / pan_left / pan_right
     # text 层预留字段（第一阶段不渲染）
     text: Optional[str] = None

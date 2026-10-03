@@ -322,7 +322,9 @@ async function applyRegistryStyle(sub, id){
     else editorToast('样式应用失败：' + (r.error || '') + '（该样式类型暂不支持一键应用，可参考描述手动设置）', true);
     return;
   }
-  editorToast('已记录选择：' + id + '（该类型样式将在此场景渲染时生效；正式命令通道待后端接线）');
+  // Registry 中存在 ≠ 当前 Composition 有可执行 Command。没有命令就明确显示 MISSING，
+  // 不再把“记录选择”伪装成已经生效。
+  editorToast('MISSING：' + sub + ' 的样式目前没有对应的可执行 Action/Command，项目未改变。', true);
 }
 async function edLibStockSearch(){
   const inp = document.getElementById('ed-stock-q');
@@ -331,7 +333,7 @@ async function edLibStockSearch(){
   const q = inp.value.trim();
   if (!q) { box.textContent = '请输入关键词'; return; }
   box.textContent = '搜索中……';
-  const r = await apiPost('/api/stock/search', {query: q, ratio: 'any'});
+  const r = await apiPost('/api/stock/search', {query: q, project_id: (typeof ED !== 'undefined' ? ED.pid : ''), ratio: ''});
   if (!r.ok) { box.innerHTML = `<div class="err-box">搜索失败：${esc(r.error || '')}${DEV.mode && r.code ? ' <code>' + esc(r.code) + '</code>' : ''}</div>`; return; }
   const cands = r.candidates || [];
   const stCn = {SUPPORTED:'可用', MISSING_REQUIREMENT:'素材不足', INCOMPATIBLE:'画幅不符', UNKNOWN:'待确认'};

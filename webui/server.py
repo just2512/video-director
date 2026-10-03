@@ -1352,19 +1352,22 @@ class Handler(BaseHTTPRequestHandler):
             from video_director import assets as vd_assets_mod
             stage_dir = STORAGE / "staging"
             stage_dir.mkdir(parents=True, exist_ok=True)
-            videos, images, errs = [], [], []
+            videos, images, audio, errs = [], [], [], []
             for f in files:
                 name = Path(f["filename"]).name
                 dst = stage_dir / name
                 dst.write_bytes(f["data"])
                 try:
                     kind = vd_assets_mod.classify(str(dst))
-                    (videos if kind == "video" else images).append(str(dst))
+                    if kind == "audio":
+                        audio.append(str(dst))
+                    else:
+                        (videos if kind == "video" else images).append(str(dst))
                 except vd_assets_mod.AssetError:
                     dst.unlink(missing_ok=True)
                     errs.append(f"{name}: 不支持的类型")
-            self._send_json({"ok": bool(videos or images),
-                             "videos": videos, "images": images, "errors": errs})
+            self._send_json({"ok": bool(videos or images or audio),
+                             "videos": videos, "images": images, "audio": audio, "errors": errs})
             return
 
         if parsed.path == "/api/assets/upload":
@@ -1670,6 +1673,56 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "context": {}})  # 上报成功即可，快照失败不阻塞
             return
 
+        # §12 UI/AI 共用唯一动作入口：Action → Capability → Command Bus。
+        # UI 只提交用户语义 action；Director 也使用同一 Registry。
+        if parsed.path == "/api/action/execute":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "status": "REJECTED", "code": "INVALID_JSON", "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            action_id = (payload.get("action") or "").strip()
+            target = payload.get("target") or "current_selection"
+            params = payload.get("params") or {}
+            selection = payload.get("selection")
+            if not selection:
+                selection = _DIRECTOR_SELECTION.get(pid) or {"type": "project"}
+            if not pid or not action_id:
+                self._send_json({"ok": False, "status": "REJECTED", "code": "MISSING_REQUIREMENT", "error": "缺少 project_id 或 action"}, 400)
+                return
+            try:
+                from video_director import action_registry as vd_actions
+                from video_director import project_context as vd_pctx
+                from video_director import tool_executor as vd_tools
+                context = vd_pctx.inspect_project_context(pid, selection)
+                availability = vd_actions.action_availability(action_id, pid, context=context)
+                if not availability.get("available"):
+                    self._send_json({"ok": False, "status": "REJECTED", "code": "ACTION_UNAVAILABLE", "action": action_id, "reason": availability.get("reason") or "当前对象不可执行该操作", "next_actions": availability.get("next_actions") or []}, 409)
+                    return
+                resolved = vd_actions.resolve_step({"action": action_id, "target": target, "params": params}, selection=selection)
+                if resolved.get("error"):
+                    self._send_json({"ok": False, "status": "REJECTED", "code": "ACTION_RESOLVE_FAILED", "action": action_id, "error": resolved["error"]}, 400)
+                    return
+                spec = vd_actions.get_action(resolved["action"])
+                sel_type = (selection or {}).get("type") or "project"
+                target_type = "project" if target == "project" or not resolved.get("targetId") else sel_type
+                if spec and spec.targets and target_type not in spec.targets:
+                    self._send_json({"ok": False, "status": "REJECTED", "code": "TARGET_NOT_ALLOWED", "action": resolved["action"], "error": "动作 %s 不允许目标 %s" % (resolved["action"], target_type)}, 409)
+                    return
+                if resolved["action"] == "render.final":
+                    from video_director import preflight as vd_preflight
+                    preflight = vd_preflight.run_preflight(pid, for_publish=True)
+                    if preflight.status != "PASS":
+                        self._send_json({"ok": False, "status": "REJECTED", "code": "PREFLIGHT_REJECT", "action": resolved["action"], "reason": "商用预检未通过", "preflight": preflight.to_dict()}, 409)
+                        return
+                result = vd_tools.execute_tool(pid, {"tool": resolved["capability"], "targetId": resolved.get("targetId") or "", "payload": resolved.get("payload") or {}})
+                ok = bool(result.get("ok"))
+                self._send_json({"ok": ok, "status": result.get("status") or ("APPLIED" if ok else "REJECTED"), "action": resolved["action"], "capability": resolved["capability"], "command": resolved["command"], "revision_id": result.get("revision_id"), "composition_version": result.get("composition_version"), "result": result.get("result") or {}, "verify": result.get("verify") or {}, "next_actions": [] if ok else (availability.get("next_actions") or []), "error": result.get("error"), "message": spec.label if ok and spec else ""}, 200)
+            except Exception as exc:
+                self._send_json({"ok": False, "status": "ERROR", "code": "ACTION_EXECUTE_FAILED", "action": action_id, "error": str(exc)}, 500)
+            return
         if parsed.path == "/api/director/execute":
             length = int(self.headers.get("Content-Length", 0))
             try:

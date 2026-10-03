@@ -86,6 +86,13 @@ def _cover_filter(src_w: int, src_h: int, dst_w: int, dst_h: int) -> str:
         f"crop={dst_w}:{dst_h}"
     )
 
+def _contain_filter(src_w: int, src_h: int, dst_w: int, dst_h: int) -> str:
+    """完整保留素材比例并用 pad 填充画布（contain 语义）。"""
+    return (
+        f"scale={dst_w}:{dst_h}:force_original_aspect_ratio=decrease,"
+        f"pad={dst_w}:{dst_h}:(ow-iw)/2:(oh-ih)/2"
+    )
+
 
 def _static_transform(layer: Layer) -> Optional[dict]:
     """读取 set_transform 写入的静态变换 {scale, opacity}（常值，无动画）。
@@ -153,7 +160,9 @@ def render_layer_segment(
         if abs(layer.speed - 1.0) > 0.001:
             factor = 1.0 / layer.speed
             vf_parts.append(f"setpts={factor:.6f}*PTS")
-        vf_parts.append(_cover_filter(asset.width or dst[0], asset.height or dst[1], *dst))
+        fit_mode = getattr(layer, "fit_mode", "cover") or "cover"
+        fit_filter = _contain_filter if fit_mode == "contain" else _cover_filter
+        vf_parts.append(fit_filter(asset.width or dst[0], asset.height or dst[1], *dst))
         if motion_comp:
             # video 层仅支持 opacity（geq alpha 折叠进 YUV 会丢动画，需黑底合成）
             if motion_comp["opacity_expr"] != "1.0":

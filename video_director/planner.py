@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Callable, Dict, List, Optional
+import random
 
 from loguru import logger
 
@@ -63,6 +64,10 @@ class ContentMatchPlanner:
         height: int = config.DEFAULT_RESOLUTION[1],
         fps: int = config.DEFAULT_FPS,
         image_motion: bool = True,
+        fit_mode: str = "cover",
+        clip_duration: Optional[float] = None,
+        clip_speed: Optional[float] = None,
+        concat_mode: str = "sequential",
     ) -> CompositionIR:
         rule = RulePlanner()
         # 按匹配结果重排 asset_order：每个场景的主素材 = 匹配的素材。
@@ -86,7 +91,9 @@ class ContentMatchPlanner:
             assets=assets,
             asset_order=matched_order + rest,
             width=width, height=height, fps=fps,
-            image_motion=image_motion,
+            image_motion=image_motion, fit_mode=fit_mode,
+            clip_duration=clip_duration, clip_speed=clip_speed,
+            concat_mode=concat_mode,
         )
 
 
@@ -102,14 +109,23 @@ class RulePlanner:
         height: int = config.DEFAULT_RESOLUTION[1],
         fps: int = config.DEFAULT_FPS,
         image_motion: bool = True,
+        fit_mode: str = "cover",
+        clip_duration: Optional[float] = None,
+        clip_speed: Optional[float] = None,
+        concat_mode: str = "sequential",
     ) -> CompositionIR:
         pool = {aid: 0.0 for aid in asset_order}  # 视频已消费源时长
+        if fit_mode not in ("cover", "contain"):
+            fit_mode = "cover"
+        if concat_mode == "random":
+            asset_order = list(asset_order)
+            random.Random(len(asset_order) * 1009 + len(scenes) * 917).shuffle(asset_order)
         scene_irs: List[SceneIR] = []
 
         # 素材全利用（用户诉求：上传 N 个素材全部进时间线）：
         # 视频素材数 > 场景数时，场景内用多镜头均分，让每个素材至少出场一次。
         video_ids = [aid for aid in asset_order if aid in assets and assets[aid].type == "video"]
-        _use_cover_all = len(video_ids) > len(scenes) and len(scenes) > 0
+        _use_cover_all = len(video_ids) > len(scenes) and len(scenes) > 0 and not clip_duration
         _used_videos: set = set()
         _next_video = 0
 
@@ -154,6 +170,9 @@ class RulePlanner:
                     scene_index=si,
                     image_motion=image_motion,
                     has_image_fallback=has_image,
+                    fit_mode=fit_mode,
+                    clip_duration=clip_duration,
+                    clip_speed=clip_speed,
                 )
             scene_irs.append(SceneIR(
                 id=scene["id"],
@@ -193,6 +212,9 @@ class RulePlanner:
         scene_index: int,
         image_motion: bool,
         has_image_fallback: bool = False,
+        fit_mode: str = "cover",
+        clip_duration: Optional[float] = None,
+        clip_speed: Optional[float] = None,
     ) -> List[Layer]:
         layers: List[Layer] = []
         remaining = target_duration
@@ -201,12 +223,14 @@ class RulePlanner:
             if remaining <= config.ITEM_DURATION_TOLERANCE:
                 break
             asset = assets[aid]
+            segment_target = min(remaining, float(clip_duration)) if clip_duration and clip_duration > 0 else remaining
             if asset.type == "video":
                 available = (asset.duration or 0.0) - pool[aid]
                 if available <= 0.2:  # 残段太短不用
                     continue
                 take, speed, out_dur = self._fit_video(
-                    available, remaining, image_fallback=has_image_fallback
+                    available, segment_target, image_fallback=has_image_fallback,
+                    forced_speed=clip_speed
                 )
                 layers.append(Layer(
                     type=LayerType.video,
@@ -216,6 +240,7 @@ class RulePlanner:
                     speed=speed,
                     source_in=round(pool[aid], 3),
                     source_out=round(pool[aid] + take, 3),
+                    fit_mode=fit_mode,
                 ))
                 pool[aid] += take
                 remaining = round(remaining - out_dur, 3)
@@ -231,6 +256,7 @@ class RulePlanner:
                     start=round(target_duration - remaining, 3),
                     duration=round(remaining, 3),
                     motion=motion,
+                    fit_mode=fit_mode,
                 ))
                 remaining = 0.0
                 break
@@ -347,7 +373,8 @@ class RulePlanner:
         return layers
 
 
-    def _fit_video(self, available: float, target: float, image_fallback: bool = False) -> tuple:
+    def _fit_video(self, available: float, target: float, image_fallback: bool = False,
+                   forced_speed: Optional[float] = None) -> tuple:
         """返回 (take_source_seconds, speed, output_duration)。
 
         V2 §12 双层策略：
@@ -358,6 +385,15 @@ class RulePlanner:
                                       无图片兜底则允许慢放覆盖（absolute 内合法）
         - 0.80 < required 不可达     → 0.90x 播完，剩余交补时/MISSING
         """
+        if forced_speed is not None:
+            try:
+                speed = float(forced_speed)
+            except (TypeError, ValueError):
+                speed = 1.0
+            speed = max(config.SPEED_ABSOLUTE_MIN, min(config.SPEED_ABSOLUTE_MAX, speed))
+            take = min(available, max(0.0, target) * speed)
+            return take, round(speed, 3), round(take / speed, 3) if speed > 0 else 0.0
+
         required = available / target if target > 0 else float("inf")
 
         if required > config.SPEED_ABSOLUTE_MAX:

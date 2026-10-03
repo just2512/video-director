@@ -106,8 +106,8 @@ function _inspectorProject(){
             <button class="btn-secondary btn-sm" onclick="editorCmd('remove_watermark',{},'',true)">删除</button>
           </span></div>`).join('') : '<div class="hint">还没有 Logo / 水印</div>'}
       <div class="btn-row" style="flex-wrap:wrap">
-        <button class="btn-secondary btn-sm" data-action="watermark.add" title="添加品牌 Logo / 文字水印">添加 Logo / 水印</button>
-        <button class="btn-secondary btn-sm" data-action="watermark.remove" ${wms.length ? '' : 'disabled title="当前没有水印"'}>移除水印</button>
+        <button class="btn-secondary btn-sm" data-action="watermark.add" data-target="project" title="添加品牌 Logo / 文字水印">添加 Logo / 水印</button>
+        <button class="btn-secondary btn-sm" data-action="watermark.remove" data-target="project" ${wms.length ? '' : 'disabled title="当前没有水印"'}>移除水印</button>
       </div>
     </div>
     <div class="role-block" data-section="audio"><b>声音策略</b>

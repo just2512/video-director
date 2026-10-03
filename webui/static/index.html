@@ -114,8 +114,8 @@
         <span class="tb-sep"></span>
         <button class="btn-secondary btn-sm" onclick="editorSaveBar()" title="保存项目状态">保存</button>
         <button class="btn-secondary btn-sm" onclick="editorPreviewBar()" title="预览当前草稿">预览</button>
-        <button class="btn-secondary btn-sm" onclick="editorDraftRender()" title="快速渲染低清草稿（先看效果再渲成片）">渲染草稿</button>
-        <button class="btn-sm" onclick="editorRenderFinal()" title="渲染正式成片（先做商用预检）">渲染成片</button>
+        <button class="btn-secondary btn-sm" data-action="render.draft" data-target="project" title="快速渲染低清草稿">渲染草稿</button>
+        <button class="btn-sm" data-action="render.final" data-target="project" title="商用预检通过后渲染正式成片">渲染成片</button>
       </div>
       <!-- 项目操作抽屉宿主 -->
       <div id="project-drawer"></div>
@@ -201,13 +201,13 @@
           <button class="btn-secondary btn-sm" id="tl-view-semantic" onclick="timelineView('semantic')">语义</button>
         </div>
         <div class="btn-row" style="flex-wrap:wrap">
-          <button class="btn-secondary btn-sm" onclick="editorCmd('split')">拆分</button>
-          <button class="btn-secondary btn-sm" onclick="editorCmd('duplicate')">复制</button>
+          <button class="btn-secondary btn-sm" data-action="timeline.split" title="拆分当前场景">拆分</button>
+          <button class="btn-secondary btn-sm" data-action="timeline.duplicate" title="复制当前场景或图层">复制</button>
           <button class="btn-secondary btn-sm" onclick="editorMovePrompt()">移动</button>
           <button class="btn-secondary btn-sm" onclick="editorAddBrollPrompt()">加素材层</button>
-          <button class="btn-secondary btn-sm" onclick="editorCmd('delete')" title="删除选中的场景，或移除选中的图层">删除场景 / 移除图层</button>
+          <button class="btn-secondary btn-sm" data-action="timeline.delete" title="删除选中的场景，或移除选中的图层">删除场景 / 移除图层</button>
           <span class="tb-sep"></span>
-          <button class="btn-secondary btn-sm" onclick="editorPreflight()">商用预检</button>
+          <button class="btn-secondary btn-sm" data-action="verify.run" data-target="project">商用预检</button>
           <label style="font-size:12px;margin:0 0 0 8px">缩放</label>
           <input type="range" id="ed-zoom" min="0.5" max="2" step="0.1" value="1"
                  style="width:100px;margin:0" oninput="ED.zoom=parseFloat(this.value);editorRenderTimeline()">

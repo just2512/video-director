@@ -160,8 +160,15 @@ def _recompose_with_size(project_id: str, width: int, height: int):
         lower_third_role=params.get("lower_third_role"),
         watermark=params.get("watermark"),
         transition_budget=style_data.get("contract", {}).get("transition_budget", 1),
+        transition_mode=params.get("transition_mode", "cut"),
         width=width,
         height=height,
+        fps=fps,
+        fit_mode=params.get("fit_mode", "cover"),
+        clip_duration=params.get("clip_duration"),
+        clip_speed=params.get("clip_speed"),
+        concat_mode=params.get("concat_mode", "sequential"),
+        match_materials_to_script=match_materials_to_script,
         repair_enabled=False,
     )
     try:
@@ -282,9 +289,15 @@ def compose_project(
     lower_third_role: Optional[str] = None,
     watermark: Optional[str] = None,
     transition_budget: int = 0,
+    transition_mode: str = "cut",
     width: int = None,
     height: int = None,
     fps: int = None,
+    fit_mode: str = "cover",
+    clip_duration: Optional[float] = None,
+    clip_speed: Optional[float] = None,
+    concat_mode: str = "sequential",
+    match_materials_to_script: bool = True,
     repair_enabled: bool = True,
 ) -> PipelineResult:
     """完整编排入口（CLI/WebUI/Skill 共用同一引擎）。
@@ -348,13 +361,15 @@ def compose_project(
             width=width or config.DEFAULT_RESOLUTION[0],
             height=height or config.DEFAULT_RESOLUTION[1],
             fps=fps or config.DEFAULT_FPS,
+            fit_mode=fit_mode, clip_duration=clip_duration,
+            clip_speed=clip_speed, concat_mode=concat_mode,
         )
     except MissingAssetError as exc:
         _save_error(dirs, "MISSING_ASSET", str(exc), scene_id=exc.scene_id)
         _fail(f"MISSING_ASSET: {exc}")
         raise
-    # 转场自动插入（方案 §22：默认 cut，效果转场按风格 budget 克制使用）
-    if transition_budget > 0:
+    # 转场显式语义：默认 cut；只有选择 crossfade/fade 才注入效果。
+    if transition_mode in ("crossfade", "fade") and transition_budget > 0:
         _inject_transitions(ir, transition_budget)
 
     # 4. 音频计划（BGM/SFX 一等公民，V2 §30）
@@ -544,6 +559,10 @@ def _compose_to_pending(
     width,
     height,
     fps,
+    fit_mode,
+    clip_duration,
+    clip_speed,
+    concat_mode,
     bgm_asset_id,
     bgm_volume,
     sfx_plan,
@@ -578,6 +597,8 @@ def _compose_to_pending(
         width=width or config.DEFAULT_RESOLUTION[0],
         height=height or config.DEFAULT_RESOLUTION[1],
         fps=fps or config.DEFAULT_FPS,
+        fit_mode=fit_mode, clip_duration=clip_duration,
+        clip_speed=clip_speed, concat_mode=concat_mode,
     )
     style_mod.apply_to_ir(ir, style_contract, config)
 
@@ -733,6 +754,12 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile:
         prof = output_profile.resolve_profile(profile, width or 1080, height or 1920)
         width, height = prof.width, prof.height
     fps = params.get("fps")
+    fit_mode = params.get("fit_mode", "cover")
+    clip_duration = params.get("clip_duration")
+    clip_speed = params.get("clip_speed")
+    concat_mode = params.get("concat_mode", "sequential")
+    transition_mode = params.get("transition_mode", "cut")
+    match_materials_to_script = bool(params.get("match_materials_to_script", True))
     bgm_asset_id = params.get("bgm")
     manual_manifest = params.get("manual_manifest")
     style_id = params.get("style_id") or style_data.get("style_id")
@@ -909,6 +936,12 @@ def compose_auto(
     creative_brief: Optional[str] = None,
     watermark: Optional[str] = None,
     narration_upload: Optional[str] = None,
+    fit_mode: str = "cover",
+    clip_duration: Optional[float] = None,
+    clip_speed: Optional[float] = None,
+    concat_mode: str = "sequential",
+    transition_mode: str = "cut",
+    match_materials_to_script: bool = True,
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -977,6 +1010,10 @@ def compose_auto(
             "style_id": style_contract.style_id,
             "subtitle_mode": subtitle_mode,
             "creative_brief": creative_brief,
+            "fit_mode": fit_mode, "clip_duration": clip_duration,
+            "clip_speed": clip_speed, "concat_mode": concat_mode,
+            "transition_mode": transition_mode,
+            "match_materials_to_script": match_materials_to_script,
         })
     except Exception as exc:
         logger.warning(f"store.create_project 失败（不阻塞主流程）: {exc}")
@@ -1059,7 +1096,7 @@ def compose_auto(
         # 匹配规划：有语义走 LLM 语义匹配；语义空也走 matcher（LLM 用文件名/
         # 文案对应，match_assets 内部三层兜底）——只有完全无 LLM 才 RulePlanner。
         # （诊断 2026-09-24：语义空时直接 RulePlanner 导致 LLM 永不触发。）
-        if has_semantics or llm_call is not None:
+        if match_materials_to_script and (has_semantics or llm_call is not None):
             assignments = matcher_mod.match_assets(
                 narration_scenes, merged_assets, llm_call
             )
@@ -1069,7 +1106,7 @@ def compose_auto(
             logger.info(f"planner: ContentMatchPlanner（匹配 {len(assignments)} 场景，语义={has_semantics}）")
         else:
             active_planner = planner_mod.RulePlanner()
-            logger.warning("planner: 无 LLM 且素材无语义，RulePlanner 顺序分配（降级）")
+            logger.info("planner: 按用户设置关闭脚本匹配，使用素材顺序规划")
         merged_order = video_order + image_order
         # Style Contract 应用（转场预算/图片动效强度；IR style_id 写入在 plan 后）
         style_mod.apply_to_ir(None, style_contract, config)  # config 层预算先行
@@ -1109,6 +1146,8 @@ def compose_auto(
             doctor_results=doctor_results,
             video_files=video_files,
             image_files=image_files,
+            fit_mode=fit_mode, clip_duration=clip_duration,
+            clip_speed=clip_speed, concat_mode=concat_mode,
         )
 
     result = compose_project(
@@ -1129,9 +1168,13 @@ def compose_auto(
         lower_third_role=lower_third_role,
         watermark=watermark,
         transition_budget=style_contract.transition_budget,
+        transition_mode=transition_mode,
         width=width,
         height=height,
         fps=fps,
+        fit_mode=fit_mode, clip_duration=clip_duration,
+        clip_speed=clip_speed, concat_mode=concat_mode,
+        match_materials_to_script=match_materials_to_script,
     )
     result.warnings.extend(style_warnings)
     # Style 生效断言材料：把风格选择理由附到产物
