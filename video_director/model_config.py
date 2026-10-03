@@ -1,11 +1,16 @@
 """多模型配置中心（方案 §8 Provider Registry：模型配置按角色分组）。
 
 每个创作角色一组独立配置（api_key/base_url/model），互不共享：
-    roles:
-        llm      导演/文案/解析等文本智能（现 llm_provider 通用组的正式归宿）
-        image    生图模型（Image Generation Capability）
-        video    生视频模型（Video Generation Capability）
-        vision   视觉理解（FrameVision，替代散落的 COMPOSER_VISION_API_KEY）
+    AI 角色：
+        llm      导演/文案/解析等文本智能
+        image    生图模型
+        video    生视频模型
+        vision   视觉理解
+        hyperframes 云端动效渲染
+    素材来源：
+        stock_pexels
+        stock_pixabay
+        stock_coverr
 
 设计：
 - 与 llm_provider 兼容：get_llm() 的运行时配置由 roles["llm"] 驱动
@@ -57,6 +62,30 @@ ROLE_DEFS = {
         "default_base_url": "https://api.hyperframes.dev/v1",
         "default_model": "hyper-1",
     },
+    "stock_pexels": {
+        "label": "Pexels 图库",
+        "hint": "官方 API Key；用于自动搜索和下载网络视频素材",
+        "default_base_url": "https://api.pexels.com",
+        "default_model": "videos/search",
+        "key_env": "PEXELS_API_KEY",
+        "kind": "stock",
+    },
+    "stock_pixabay": {
+        "label": "Pixabay 图库",
+        "hint": "官方 API Key；作为 Pexels 的补充来源",
+        "default_base_url": "https://pixabay.com/api",
+        "default_model": "videos",
+        "key_env": "PIXABAY_API_KEY",
+        "kind": "stock",
+    },
+    "stock_coverr": {
+        "label": "Coverr 图库",
+        "hint": "当前商业条款未确认，配置后仅用于手动检索，不自动进入商用成片",
+        "default_base_url": "https://coverr.co",
+        "default_model": "",
+        "key_env": "COVERR_API_KEY",
+        "kind": "stock",
+    },
 }
 
 _lock = threading.Lock()
@@ -72,6 +101,17 @@ def _config_path() -> Path:
 def _env_fallback(role: str) -> dict:
     """角色未配置时的环境变量回退（保持向后兼容）。"""
     import os
+    env_key = ROLE_DEFS.get(role, {}).get("key_env")
+    if env_key and os.environ.get(env_key):
+        d = ROLE_DEFS[role]
+        return {
+            "api_key": os.environ[env_key],
+            "base_url": os.environ.get(f"{role.upper()}_BASE_URL")
+                        or d.get("default_base_url", ""),
+            "model": os.environ.get(f"{role.upper()}_MODEL")
+                     or d.get("default_model", ""),
+            "source": "env",
+        }
     if role == "llm":
         if os.environ.get("VD_LLM_API_KEY"):
             return {
