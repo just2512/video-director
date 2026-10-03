@@ -7,7 +7,7 @@ Mode A/B：文件名排序即场景对应顺序（scene-001 ↔ S01），
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -46,6 +46,7 @@ def build_manifest(
     video_files: List[str],
     image_files: List[str],
     license_note: str = "user-provided",
+    asset_metadata: Optional[Dict[str, dict]] = None,
 ) -> Tuple[Dict[str, AssetRef], List[str]]:
     """探测全部素材，返回 (assets dict, 使用顺序 list)。
 
@@ -55,6 +56,7 @@ def build_manifest(
     assets: Dict[str, AssetRef] = {}
     order: List[str] = []
     used_ids: set = set()
+    metadata = asset_metadata or {}
 
     for path in list(video_files) + list(image_files):
         if not os.path.isfile(path):
@@ -69,18 +71,26 @@ def build_manifest(
                     raise AssetError(f"视频文件无视频流: {path}")
                 if probe.duration is None or probe.duration <= 0:
                     raise AssetError(f"视频时长无效: {path}")
+                meta = metadata.get(path) or {}
                 assets[asset_id] = AssetRef(
                     id=asset_id, type="video", file=path,
                     duration=probe.duration, width=probe.width,
                     height=probe.height, fps=probe.fps,
-                    source="user", license_note=license_note,
+                    source=meta.get("source", "user"),
+                    license_note=meta.get("license_note", license_note),
+                    provenance=meta.get("provenance"),
+                    rights_status=meta.get("rights_status"),
                 )
             else:
                 probe = prober.probe_image(path)
+                meta = metadata.get(path) or {}
                 assets[asset_id] = AssetRef(
                     id=asset_id, type="image", file=path,
                     width=probe.width, height=probe.height,
-                    source="user", license_note=license_note,
+                    source=meta.get("source", "user"),
+                    license_note=meta.get("license_note", license_note),
+                    provenance=meta.get("provenance"),
+                    rights_status=meta.get("rights_status"),
                 )
         except prober.ProbeError as exc:
             logger.error(f"素材探测失败 {path}: {exc}")
