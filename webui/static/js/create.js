@@ -52,8 +52,14 @@ function _createPanelHtml(){
   </div>
   <div id="cf-source-area"></div>
   <div id="cf-essentials">
+    <label>主题（可选，交给 AI 写文案）</label>
+    <div class="btn-row" style="align-items:center">
+      <input type="text" id="cf-topic" class="rev-input" style="flex:1" placeholder="例：为什么很多人越忙越没有钱">
+      <button class="btn-secondary btn-sm" onclick="cfGenerateScript()">AI 生成文案</button>
+    </div>
+    <div class="hint" id="cf-script-gen-status"></div>
     <label>文案</label>
-    <textarea id="cf-script" style="min-height:110px" placeholder="粘贴你的文案或创意……（素材起步可留空，AI 按素材生成）"></textarea>
+    <textarea id="cf-script" style="min-height:110px" placeholder="粘贴你的文案；也可以先填主题，再让 AI 生成。"></textarea>
     <div class="btn-row" style="align-items:center;flex-wrap:wrap">
       <button class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button>
       <span class="hint" id="cf-enhance-status"></span>
@@ -509,6 +515,29 @@ async function createProject(){
 }
 
 /** 润色（走原 enhance API，面板内联呈现）。 */
+async function cfGenerateScript(){
+  const topic = (document.getElementById('cf-topic') || {}).value || '';
+  const status = document.getElementById('cf-script-gen-status');
+  if (!topic.trim()) { if (status) status.textContent = '请先填写主题'; return; }
+  const btn = document.querySelector('#cf-topic + button');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = '正在生成文案……';
+  try {
+    const platform = (document.getElementById('cf-platform') || {}).value || '';
+    const duration = (document.getElementById('cf-duration') || {}).value || '';
+    const style = (document.getElementById('cf-style') || {}).value || '';
+    const r = await apiPost('/api/script/generate', {topic: topic.trim(), platform, duration, style});
+    if (!r.ok) throw new Error(r.error || '生成失败');
+    const ta = document.getElementById('cf-script');
+    if (ta) ta.value = r.script || '';
+    if (status) status.textContent = '文案已生成，可直接修改后创作。';
+  } catch (e) {
+    if (status) status.textContent = '生成失败：' + (e.message || e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function createEnhance(){
   const script = (document.getElementById('cf-script') || {}).value;
   const status = document.getElementById('cf-enhance-status');
