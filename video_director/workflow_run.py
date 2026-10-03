@@ -359,6 +359,7 @@ def _execute_compose(spec: dict, run_id: str) -> dict:
                 concat_mode=spec.get("concat_mode", "sequential"),
                 transition_mode=spec.get("transition_mode", "cut"),
                 match_materials_to_script=bool(spec.get("match_materials_to_script", True)),
+                visual_source=spec.get("visual_source", "auto"),
                 # §34 上传配音：文件路径 → pipeline TTS 旁路（import_uploaded_voice）
                 narration_upload=narration_upload or None)
             payload = {"ok": True, "project_id": pid, "mode": mode,
