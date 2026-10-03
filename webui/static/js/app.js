@@ -106,6 +106,7 @@ function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>
 // 设置页（§28）：模型 / 配音来源 / 环境自检 / 开发者模式
 // ===========================================================================
 let MODEL_ROLES = [];
+let STOCK_ROLES = [];
 async function refreshLLMBadge(){
   // 徽章内联进设置页（§28：不再漂浮在主工作区）
   const cfg = await apiGet('/api/llm_status');
@@ -116,10 +117,14 @@ async function refreshLLMBadge(){
       : '未配置（未配置的角色走内置兜底，功能不缺失）';
   }
   try {
-    window.MODEL_ROLES = await apiGet('/api/model_config');
-    if (Array.isArray(MODEL_ROLES) && document.getElementById('llm-panel').style.display !== 'none') {
-      renderModelRoles();
-    }
+    MODEL_ROLES = await apiGet('/api/model_config');
+    if (!Array.isArray(MODEL_ROLES)) MODEL_ROLES = [];
+    STOCK_ROLES = MODEL_ROLES.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'));
+    MODEL_ROLES = MODEL_ROLES.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_'));
+    window.MODEL_ROLES = MODEL_ROLES;
+    window.STOCK_ROLES = STOCK_ROLES;
+    if (document.getElementById('llm-panel')?.style.display !== 'none') renderModelRoles();
+    if (document.getElementById('stock-roles')) renderStockRoles();
   } catch (e) { /* 面板未开时静默 */ }
 }
 
@@ -161,12 +166,35 @@ async function saveModelConfig(){
   }
   const r2 = await apiPost('/api/model_config', {configs});
   if (!r2.ok) { status.textContent = '保存失败：' + (r2.error || '未知'); return; }
-  window.MODEL_ROLES = r2.roles || MODEL_ROLES;
+  const allRoles = Array.isArray(r2.roles) ? r2.roles : [...MODEL_ROLES, ...STOCK_ROLES];
+  STOCK_ROLES = allRoles.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'));
+  MODEL_ROLES = allRoles.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_'));
+  window.MODEL_ROLES = MODEL_ROLES;
+  window.STOCK_ROLES = STOCK_ROLES;
   renderModelRoles();
+  renderStockRoles();
   status.textContent = '已保存并立即生效';
   refreshLLMBadge();
 }
 
+function renderStockRoles(){
+  const box = document.getElementById('stock-roles');
+  if (!box) return;
+  box.innerHTML = STOCK_ROLES.map(r => `
+    <div class="role-block">
+      <div class="role-head">
+        <b>${esc(r.label)}</b>
+        <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '已配置' : '未配置'}</span>
+      </div>
+      <div class="hint">${esc(r.hint)}</div>
+      <label>API Key</label>
+      <input type="password" id="mc-${r.role}-key" placeholder="留空=未配置"
+        value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">
+      <label>服务地址（通常无需修改）</label>
+      <input type="text" id="mc-${r.role}-url" value="${esc(r.base_url || '')}" placeholder="${esc(r.default_base_url)}">
+    </div>`).join('');
+}
+  
 function toggleLLMPanel(){
   const p = document.getElementById('llm-panel');
   if (p.style.display === 'none') renderModelRoles();
@@ -245,4 +273,5 @@ Object.assign(window, {
   esc,
   BGMLIST,
   MODEL_ROLES,
+  STOCK_ROLES,
 });
