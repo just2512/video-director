@@ -1412,6 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
                         tags=tags, description=fields.get("description") or "")
                     imported.append({
                         "asset_id": entry["asset_id"], "type": entry["type"],
+                        "file": entry["file"],
                         "width": entry.get("width"), "height": entry.get("height"),
                         "duration": entry.get("duration"), "codec": entry.get("codec"),
                         "has_audio": entry.get("has_audio"),
