@@ -298,6 +298,7 @@ def compose_project(
     clip_speed: Optional[float] = None,
     concat_mode: str = "sequential",
     match_materials_to_script: bool = True,
+    asset_metadata: Optional[Dict[str, dict]] = None,
     repair_enabled: bool = True,
 ) -> PipelineResult:
     """完整编排入口（CLI/WebUI/Skill 共用同一引擎）。
@@ -331,7 +332,9 @@ def compose_project(
         _fail("无任何视觉素材（SCRIPT_ONLY 模式第二阶段支持）")
         raise PipelineError("无任何视觉素材（SCRIPT_ONLY 模式第二阶段支持）")
     if video_files or image_files:
-        asset_map, order = assets_mod.build_manifest(video_files, image_files)
+        asset_map, order = assets_mod.build_manifest(
+            video_files, image_files, asset_metadata=asset_metadata
+        )
         with open(dirs["assets"] / "manifest.json", "w", encoding="utf-8") as f:
             json.dump(
                 [a.model_dump() for a in asset_map.values()], f, ensure_ascii=False, indent=2
@@ -942,6 +945,7 @@ def compose_auto(
     concat_mode: str = "sequential",
     transition_mode: str = "cut",
     match_materials_to_script: bool = True,
+    visual_source: str = "auto",
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -1072,13 +1076,46 @@ def compose_auto(
         )
     sub_entries = subtitle_mod.srt_entries(narration_scenes)
 
+    # 2.5 MPT 画面来源：本地优先/联网补足/纯联网/仅本地
+    visual_source = visual_source if visual_source in ("auto", "local", "online", "mixed") else "auto"
+    stock_metadata: Dict[str, dict] = {}
+    stock_warnings: List[str] = []
+    local_count = len(video_files) + len(image_files)
+    scene_count = len(narration_scenes)
+    if visual_source in ("online", "mixed"):
+        stock_scene_cap = None
+    elif visual_source == "auto":
+        stock_scene_cap = max(0, scene_count - local_count)
+    else:
+        stock_scene_cap = 0
+    if stock_scene_cap is None or stock_scene_cap > 0:
+        try:
+            from video_director import stock as vd_stock
+            target_ratio = f"{width or config.DEFAULT_RESOLUTION[0]}x{height or config.DEFAULT_RESOLUTION[1]}"
+            stock_result = vd_stock.auto_download_for_scenes(
+                [str(sc.get("text", "")) for sc in narration_scenes],
+                base, target_ratio=target_ratio, llm_call=llm_call,
+                per_scene=1, providers=["pexels", "pixabay"],
+                max_scenes=stock_scene_cap,
+            )
+            video_files = list(video_files) + [f for f in stock_result["files"]
+                                               if f not in video_files and f not in image_files]
+            stock_metadata.update(stock_result["metadata"])
+            stock_warnings.extend(stock_result["warnings"])
+            logger.info(f"MPT stock：visual_source={visual_source}，自动下载 {len(stock_result['files'])} 个网络素材")
+        except Exception as exc:
+            stock_warnings.append(f"网络素材链异常：{exc}")
+            logger.warning(f"MPT stock 自动素材链异常（本地链继续）：{exc}")
+    style_warnings.extend(stock_warnings)
+
     # 3. 素材语义理解（六级优先链）+ 内容匹配
-    store.set_stage(project_id, store.Stage.MATCHING)
-    active_planner = planner
+    store.set_stage(project_id, store.Stage.MATCHING)    active_planner = planner
     if active_planner is None:
-        video_assets, video_order = assets_mod.build_manifest(video_files, [])
+        video_assets, video_order = assets_mod.build_manifest(
+            video_files, [], asset_metadata=stock_metadata
+        )
         image_assets, image_order = (
-            assets_mod.build_manifest([], image_files) if image_files else ({}, [])
+            assets_mod.build_manifest([], image_files, asset_metadata=stock_metadata) if image_files else ({}, [])
         )
         # P5 自动探测：素材同目录的 assets_semantic.json（手工标注 fallback，
         # 与 CLI/WebUI/Skill 全入口一致生效）
@@ -1175,6 +1212,7 @@ def compose_auto(
         fit_mode=fit_mode, clip_duration=clip_duration,
         clip_speed=clip_speed, concat_mode=concat_mode,
         match_materials_to_script=match_materials_to_script,
+        asset_metadata=stock_metadata,
     )
     result.warnings.extend(style_warnings)
     # Style 生效断言材料：把风格选择理由附到产物
