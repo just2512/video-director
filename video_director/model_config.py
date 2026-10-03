@@ -215,6 +215,7 @@ def status_for_frontend() -> list:
         cfg = get_role_config(role)
         out.append({
             "role": role,
+            "kind": d.get("kind", "model"),
             "label": d["label"],
             "hint": d["hint"],
             "default_base_url": d.get("default_base_url", ""),
