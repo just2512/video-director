@@ -140,7 +140,14 @@ class AssetCandidate:
 
 
 def _api_key(provider: str) -> Optional[str]:
-    """§25：key 从环境变量读。无 key → None（调用方诚实报 STOCK_UNAVAILABLE）。"""
+    """§25：设置中心优先，环境变量向后兼容。"""
+    try:
+        from video_director import model_config as _mc
+        cfg = _mc.get_role_config(f"stock_{provider}")
+        if cfg.get("api_key"):
+            return cfg["api_key"]
+    except Exception:
+        pass
     env = PROVIDER_POLICY[provider]["key_env"]
     return os.environ.get(env) or None
 
@@ -443,3 +450,95 @@ def download_asset(asset: StockAsset, project_base) -> dict:
         "provider": asset.provider, "source_page": asset.source_page,
         "creator": asset.creator, "commercial_status": asset.commercial_status,
     }
+# ---------------------------------------------------------------------------
+# §MPT：文案 → 网络素材自动检索/下载
+# ---------------------------------------------------------------------------
+
+def _stock_orientation(target_ratio: str) -> str:
+    ratio = _norm_ratio(target_ratio or "")
+    if ratio == "16:9":
+        return "landscape"
+    if ratio == "1:1":
+        return "square"
+    return "portrait"
+
+def build_scene_search_query(scene_text: str, llm_call=None) -> str:
+    """把一个场景转成图库检索词；无 LLM 时直接回退场景文本。"""
+    text = " ".join(str(scene_text or "").split()).strip()
+    if not text:
+        return ""
+    if llm_call:
+        prompt = (
+            "把下面的视频旁白场景改写成图库检索词。只返回一条短语，"
+            "优先描述可拍摄的主体、动作、环境，使用英文短语，"
+            "不要解释、不要引号、不要编号、不要标点。\n"
+            f"场景：{text[:500]}"
+        )
+        try:
+            q = str(llm_call(prompt) or "").strip()
+            q = q.strip("`\\\"\' .，。；;：:!?！？")
+            if q:
+                return " ".join(q.split())[:120]
+        except Exception as exc:
+            logger.info(f"stock query LLM 失败，回退场景文本：{exc}")
+    return text[:120]
+
+def auto_download_for_scenes(
+    scene_texts: List[str],
+    project_base: Path,
+    target_ratio: str = "9:16",
+    llm_call=None,
+    per_scene: int = 1,
+    providers: Optional[List[str]] = None,
+) -> dict:
+    """为指定场景自动搜索并下载视觉素材；只采用 SUPPORTED 候选。"""
+    providers = providers or ["pexels", "pixabay"]
+    orientation = _stock_orientation(target_ratio)
+    files: List[str] = []
+    metadata = {}
+    warnings: List[str] = []
+    queries = []
+    used_sources = set()
+    wanted = max(0, int(per_scene or 1))
+    for idx, scene_text in enumerate(scene_texts or []):
+        query = build_scene_search_query(scene_text, llm_call)
+        if not query:
+            warnings.append(f"S{idx + 1:02d}：场景没有可用检索词")
+            continue
+        queries.append({"scene_id": f"S{idx + 1:02d}", "query": query})
+        try:
+            hits = search_stock(query, provider=None, orientation=orientation,
+                                per_page=max(4, wanted * 4))
+        except StockError as exc:
+            warnings.append(f"S{idx + 1:02d}：图库搜索失败（{exc.code}）")
+            continue
+        selected = 0
+        for candidate in resolve_candidates(hits, target_ratio=target_ratio or "any",
+                                             target_duration=None):
+            a = candidate.asset
+            key = f"{a.provider}:{a.source_id}"
+            if candidate.status != SUPPORTED or key in used_sources:
+                continue
+            try:
+                out = download_asset(a, project_base)
+            except StockError as exc:
+                warnings.append(f"S{idx + 1:02d}：{a.provider} 下载失败（{exc.code}）")
+                continue
+            used_sources.add(key)
+            files.append(out["file"])
+            metadata[out["file"]] = {
+                "source": "stock",
+                "license_note": f"{a.provider}·{a.source_page}",
+                "provenance": {"provider": a.provider, "sourceId": a.source_id,
+                               "sourcePage": a.source_page, "creator": a.creator},
+                "rights_status": a.commercial_status,
+                "scene_id": f"S{idx + 1:02d}",
+                "query": query,
+            }
+            selected += 1
+            if selected >= wanted:
+                break
+        if selected == 0:
+            warnings.append(f"S{idx + 1:02d}：没有满足画幅/授权条件的网络素材")
+    return {"files": files, "metadata": metadata,
+            "warnings": warnings, "queries": queries}
