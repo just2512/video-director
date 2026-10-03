@@ -723,23 +723,35 @@ def commercial_context() -> List[dict]:
     """§64 Stock provider 商业政策（系统声明，Director 只选择不判断）。"""
     import os
     out = []
+    try:
+        from video_director import model_config as _mc
+        configured = {
+            name: _mc.is_role_enabled(f"stock_{name}")
+            for name in ("pexels", "pixabay", "coverr")
+        }
+    except Exception:
+        configured = {
+            "pexels": bool(os.environ.get("PEXELS_API_KEY")),
+            "pixabay": bool(os.environ.get("PIXABAY_API_KEY")),
+            "coverr": bool(os.environ.get("COVERR_API_KEY")),
+        }
     policies = {
         "pexels": {
-            "available": bool(os.environ.get("PEXELS_API_KEY")),
+            "available": configured["pexels"],
             "commercial_policy": "allowed_with_attribution",
             "api_limit": "200/hour · 20000/month（官方默认）",
             "bulk_query": False,
             "note": "禁止用 API 复制图库平台功能/建数据集；需正确归属",
         },
         "pixabay": {
-            "available": bool(os.environ.get("PIXABAY_API_KEY")),
+            "available": configured["pixabay"],
             "commercial_policy": "allowed",
             "api_limit": "100/60s（官方默认）",
             "bulk_query": False,
             "note": "响应须缓存 24h；禁止系统性批量下载；图片先落服务器再使用",
         },
         "coverr": {
-            "available": bool(os.environ.get("COVERR_API_KEY")),
+            "available": configured["coverr"],
             "commercial_policy": "allowed_with_attribution",
             "api_limit": "50/hour 免费层 · 2000/hour 生产层",
             "bulk_query": False,
