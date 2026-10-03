@@ -299,6 +299,40 @@ _REPAIR_RULES = {
 }
 
 
+def _search_fallback_queries(project_id: str, target_id: str) -> List[str]:
+    """§23/§四十：回退搜索用 VisualSearchIntent 多组词（非单关键词）。
+
+    target 为场景时取场景文案；否则用项目整体首场景文案兜底。
+    """
+    try:
+        from video_director.editor import load_composition
+        from video_director.visual_search_intent import build_intent, search_queries
+        ir = load_composition(project_id)
+        script = ""
+        scene_type = ""
+        if target_id and not target_id.startswith("scene"):
+            # layer target（scene-1#0）→ 所属场景文案
+            scene_id = target_id.split("#")[0]
+            sc = next((s for s in ir.scenes if s.id == scene_id), None)
+            script = (sc.text if sc else "") or ""
+        else:
+            sc = next((s for s in ir.scenes if s.id == target_id), None)
+            if sc is None and ir.scenes:
+                sc = ir.scenes[0]
+            script = (sc.text if sc else "") or ""
+        if not script and ir.scenes:
+            script = ir.scenes[0].text or ""
+        from video_director import asset_catalog as vd_acat
+        sp = vd_acat.stock_search_params(project_id)
+        intent = build_intent(target_id or "scene", script,
+                              required_duration=4.0,
+                              ratio=sp.get("ratio") or "9:16")
+        return search_queries(intent)
+    except Exception as exc:  # noqa: BLE001 回退词生成失败不阻断 repair
+        logger.info(f"director: 回退检索词生成失败: {exc}")
+        return []
+
+
 def direct(project_id: str, instruction: str,
            selection: Optional[dict] = None) -> dict:
     """§54 闭环主入口：
@@ -355,17 +389,32 @@ def direct(project_id: str, instruction: str,
             entry["verify"] = _verify_step(project_id, item, selection)
 
         # §55 Repair：asset.search 失败 → 自动回退 generate.image（§四十）
+        # §55/§四十 Repair：asset.search 失败 → VisualSearchIntent 多组检索词
+        # 逐组重试 → 仍无 → generate.image（§40 自动回退链 Local→Stock→AI Image）
         if not res.get("ok") and item.get("action") in _REPAIR_RULES:
             fallback = _REPAIR_RULES[item["action"]]
             fb_spec = action_registry.get_action(fallback)
-            if fb_spec:
+            queries = _search_fallback_queries(project_id, item.get("targetId") or "")
+            repair_note = f"自动回退：{fb_spec.label if fb_spec else fallback}"
+            repaired = False
+            for q in queries[:3]:  # §23 多组词逐组重试（不无限尝试，§四十预算）
+                retry = tool_executor.execute_tool(project_id, {
+                    "tool": "stock.search", "targetId": item["targetId"],
+                    "payload": {"query": q}})
+                if retry.get("ok") and (retry.get("result", {}).get("candidates") or []):
+                    entry["repair"] = {"tool": "stock.search", "ok": True,
+                                       "note": f"{repair_note}：检索词「{q}」找到候选"}
+                    repaired = True
+                    break
+            if not repaired and fb_spec:
                 fb_res = tool_executor.execute_tool(project_id, {
                     "tool": fb_spec.capability, "targetId": item["targetId"],
-                    "payload": {k: v for k, v in item["payload"].items()
-                                if k in ("prompt", "text", "style")}})
+                    "payload": {"prompt": queries[0] if queries else (item["payload"].get("prompt") or ""),
+                                **{k: v for k, v in item["payload"].items()
+                                   if k in ("text", "style")}}})
                 entry["repair"] = {
                     "tool": fb_spec.capability, "ok": fb_res.get("ok", False),
-                    "note": f"自动回退：{fb_spec.label}",
+                    "note": f"{repair_note}：多组检索无果，转 AI 生成",
                 }
         executed.append(entry)
 

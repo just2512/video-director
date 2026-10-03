@@ -420,11 +420,14 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
     if tool == "stock.search":
         from video_director import stock as stock_mod
         try:
+            # §10 ratio 由项目画幅推导（不硬编码 9:16）
+            from video_director import asset_catalog as vd_acat
+            sp = vd_acat.stock_search_params(project_id) if project_id else {"ratio": "", "orientation": "any"}
             hits = stock_mod.search_stock(
                 payload.get("query", ""), provider=payload.get("provider"),
-                orientation=payload.get("orientation"))
+                orientation=payload.get("orientation") or sp.get("orientation"))
             cands = stock_mod.resolve_candidates(
-                hits, target_ratio=payload.get("ratio") or "9:16",
+                hits, target_ratio=payload.get("ratio") or sp.get("ratio") or "",
                 target_duration=payload.get("targetDuration"))
             return _result(tool, True, "OK",
                            result={"candidates": [c.to_dict() for c in cands]})
@@ -529,9 +532,18 @@ def _timeline_summary(project_id: str) -> dict:
     ir = editor.load_composition(project_id)
     return {
         "scenes": [{"id": sc.id, "start": sc.start, "duration": sc.duration,
-                    "text": sc.text, "layers": len(sc.layers)} for sc in ir.scenes],
+                    "text": sc.text,
+                    # §55 inspect 粒度：层明细（type/asset_id/时长）——Director
+                    # 「给第二段换个画面」需发现 Scene 02 / Layer 0 / 当前素材 id
+                    "layers": [{"index": i, "type": lay.type.value,
+                                "asset_id": lay.asset_id,
+                                "duration": lay.duration}
+                               for i, lay in enumerate(sc.layers)]}
+                   for sc in ir.scenes],
         "audio": [{"type": t.type.value, "volume": t.volume, "start": t.start,
-                   "duration": t.duration} for t in ir.audio],
+                   "duration": t.duration,
+                   "asset_id": t.asset_id, "muted": bool(getattr(t, "muted", False)),
+                   "ducking": t.ducking} for t in ir.audio],
         "watermarks": [w.text or w.asset_id or w.kind for w in ir.watermarks],
         "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
     }

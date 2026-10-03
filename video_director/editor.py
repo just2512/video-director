@@ -289,6 +289,7 @@ SUPPORTED_COMMANDS = (
     "set_audio_mute",            # §37 Audio Bus：轨级静音（mute 一等操作）
     "set_audio_fade",            # §37 Audio Bus：轨级淡入/淡出秒数
     "audio_mix",                 # §37 Audio Bus：一次多轨混音（「原声 20%、BGM 10%、旁白正常」）
+    "add_audio_keyframe",        # §37 Audio Bus：音轨关键帧（volume 渐变）
     "add_broll",                 # 加 B-roll 层（§20）
     "remove_broll",              # 删 B-roll 层（§20）
     "generate_media",            # 生成素材落地为层（§20/EDT-008）
@@ -410,6 +411,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_audio_fade(ir, target_id, payload)
         elif cmd_name == "audio_mix":
             changed, stale = _cmd_audio_mix(ir, target_id, payload)
+        elif cmd_name == "add_audio_keyframe":
+            changed, stale = _cmd_add_audio_keyframe(ir, target_id, payload)
         elif cmd_name == "add_broll":
             changed, stale = _cmd_add_broll(ir, target_id, payload)
         elif cmd_name == "remove_broll":
@@ -979,6 +982,50 @@ def _cmd_audio_mix(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[Li
     if not stale:
         raise EditorError("INVALID_PAYLOAD", "audio_mix 没有任何有效参数")
     return [], stale
+
+
+def _cmd_add_audio_keyframe(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """§37 Audio Bus：音轨关键帧（targetId=narration|dialogue|bgm|sfx|original|ambient）。
+
+    payload={at, volume} → 该轨在 at 秒把音量渐变到 volume（KeyframeTrack
+    property=volume，渲染层按时间插值消费）。§37 原文：每轨都有
+    gain/mute/fade/ducking/keyframe——keyframe 即此命令。
+    """
+    track_type = target_id or payload.get("track_type") or ""
+    if track_type not in _VALID_AUDIO_TRACKS:
+        raise EditorError("INVALID_TARGET",
+                          f"add_audio_keyframe 目标音轨 {track_type!r} 非法")
+    at = float(payload.get("at", -1))
+    value = payload.get("volume", payload.get("value"))
+    if at < 0 or value is None:
+        raise EditorError("INVALID_PAYLOAD", "add_audio_keyframe 需 payload.at / payload.volume")
+    value = float(value)
+    if not (0.0 <= value <= 2.0):
+        raise EditorError("INVALID_PARAMETER", f"volume {value} 越界 [0,2]")
+    from video_director.models import AudioTrack, AudioTrackType
+    from video_director.visual_semantics import Keyframe, KeyframeTrack
+    kf = Keyframe(at=at, value=value)
+    changed = False
+    for i, t in enumerate(ir.audio):
+        if t.type.value == track_type:
+            tracks = [kt for kt in (t.keyframes or [])
+                      if kt.property != "volume" or True]  # 保留其他 property
+            vol_tracks = [kt for kt in tracks if kt.property == "volume"]
+            if vol_tracks:
+                new_kfs = sorted([*vol_tracks[0].keyframes, kf], key=lambda k: k.at)
+                merged = vol_tracks[0].model_copy(update={"keyframes": new_kfs})
+                tracks = [merged if kt.property == "volume" else kt for kt in tracks]
+            else:
+                tracks.append(KeyframeTrack(property="volume", keyframes=[kf]))
+            ir.audio[i] = t.model_copy(update={"keyframes": tracks})
+            changed = True
+    if not changed:
+        from video_director.models import AudioTrack, AudioTrackType
+        ir.audio.append(AudioTrack(
+            type=AudioTrackType(track_type), asset_id=None,
+            start=0.0, duration=ir.project.duration,
+            keyframes=[KeyframeTrack(property="volume", keyframes=[kf])]))
+    return [], [f"audio:{track_type}:render"]
 
 
 def _cmd_add_broll(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:

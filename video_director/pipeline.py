@@ -908,6 +908,7 @@ def compose_auto(
     lower_third_role: Optional[str] = None,
     creative_brief: Optional[str] = None,
     watermark: Optional[str] = None,
+    narration_upload: Optional[str] = None,
 ) -> PipelineResult:
     """全自动成片（V1 §45）：文案→场景→TTS→词级对齐→素材理解→匹配→字幕→规划→渲染→QC。
 
@@ -993,10 +994,22 @@ def compose_auto(
         raise PipelineError(f"CAPABILITY_MISSING（环境自检未过，禁止盲目继续）: {fail_detail}")
 
     # 1. TTS + 词级对齐（TTSTimestampProvider 主路径，零额外模型）
+    #    §34 上传配音旁路：narration_upload 指向上传音频 → Import→Probe→ASR/估算
+    #    → Word Timing（voice_upload.import_uploaded_voice），TTS 段跳过。
     store.set_stage(project_id, store.Stage.TTS)
-    narration_audio, word_timeline, narration_scenes = narration_mod.synth_narration(
-        scene_texts, voice, dirs["audio"], rate=voice_rate
-    )
+    if narration_upload:
+        from video_director import voice_upload as vd_voice_upload
+        up = vd_voice_upload.import_uploaded_voice(project_id, narration_upload,
+                                                  scene_texts=scene_texts)
+        narration_audio = up["narration_file"]
+        word_timeline = up.get("word_timeline") or []
+        narration_scenes = up.get("narration_scenes") or []
+        logger.info(f"§34 上传配音：{Path(narration_upload).name} {up['duration']:.1f}s"
+                    f"（ASR={up['source']}），TTS 跳过")
+    else:
+        narration_audio, word_timeline, narration_scenes = narration_mod.synth_narration(
+            scene_texts, voice, dirs["audio"], rate=voice_rate
+        )
     with open(dirs["alignment"] / "words.json", "w", encoding="utf-8") as f:
         json.dump(word_timeline, f, ensure_ascii=False, indent=2)
     store.set_stage(project_id, store.Stage.ALIGNMENT)

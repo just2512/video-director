@@ -478,17 +478,78 @@ function editorVoiceOpen(){
   const voicesHtml = `<div id="ed-voice-sel-host" style="margin-top:6px"></div>`;
   box.insertAdjacentHTML('beforeend', `<div class="role-block" data-section="voice" id="ed-voice-panel">
     <b>配音</b>${voicesHtml}<span class="hint" id="ed-voice-status"></span></div>`);
-  edVoiceLoadOptions();
   const host = document.getElementById('ed-voice-sel-host');
   if (host && !host.querySelector('select')) {
+    // §46 旁白操作面四按钮：试听 / 完整试听 / 重新生成 / 替换音频
     host.innerHTML = `<div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
       <select id="ed-voice-sel" style="flex:1;min-width:120px"></select>
-      <button class="btn-secondary btn-sm" onclick="edVoicePreview()">试听</button>
-      <button class="btn-secondary btn-sm" onclick="edVoiceFullPreview()">完整旁白试听</button>
+      <button class="btn-secondary btn-sm" onclick="edVoicePreview()" title="单句试听当前音色">试听</button>
+      <button class="btn-secondary btn-sm" onclick="edVoiceFullPreview()" title="整段旁白合成试听">完整试听</button>
+    </div>
+    <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
+      <button class="btn-secondary btn-sm" onclick="edVoiceRegenerate()" title="按当前音色重新生成全部旁白（渲染草稿后生效）">重新生成旁白</button>
+      <button class="btn-secondary btn-sm" onclick="edVoiceReplaceUpload()" title="上传配音文件替换 AI 旁白（mp3/wav/m4a）">替换音频</button>
+    </div>
+    <div id="ed-voice-upload-row" style="display:none;margin-top:6px">
+      <input type="file" id="ed-voice-file" accept=".mp3,.wav,.m4a,.aac">
+      <div class="btn-row" style="margin-top:4px">
+        <button class="btn-sm" onclick="edVoiceReplaceApply()">确认替换</button>
+        <button class="btn-secondary btn-sm" onclick="document.getElementById('ed-voice-upload-row').style.display='none'">取消</button>
+      </div>
+      <div class="hint" id="ed-voice-upload-status"></div>
     </div>`;
     edVoiceLoadOptions();
   }
   document.getElementById('ed-voice-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+/** §46 重新生成旁白：换音色后点此 → WorkflowRun 重渲（真链路，非静默）。 */
+async function edVoiceRegenerate(){
+  const sel = document.getElementById('ed-voice-sel');
+  const st = document.getElementById('ed-voice-status');
+  if (!ED.pid) { editorToast('先打开项目', true); return; }
+  if (!sel || !sel.value) { if (st) st.textContent = '先选音色'; return; }
+  if (st) st.textContent = '重新生成旁白已提交（按当前音色渲染新草稿）……';
+  try {
+    const r = await apiPost('/api/workflows', {kind: 'render_draft',
+                                                 project_id: ED.pid});
+    if (r.ok) {
+      if (st) st.textContent = '旁白重新生成中（完成后预览区可见新草稿）';
+      editorToast('已提交重新生成（草稿渲染完成后自动预览）');
+    } else {
+      if (st) st.textContent = '提交失败：' + (r.error || '');
+    }
+  } catch (e) {
+    if (st) st.textContent = '提交失败：' + (e.message || e);
+  }
+}
+
+/** §46 替换音频：上传配音 → /api/voice_upload（Probe→ASR→Word Timing→Narration 轨）。 */
+function edVoiceReplaceUpload(){
+  const row = document.getElementById('ed-voice-upload-row');
+  if (row) row.style.display = '';
+}
+async function edVoiceReplaceApply(){
+  const fi = document.getElementById('ed-voice-file');
+  const st = document.getElementById('ed-voice-upload-status');
+  if (!fi || !fi.files || !fi.files.length) { if (st) st.textContent = '先选择配音文件'; return; }
+  if (!ED.pid) { if (st) st.textContent = '先打开项目'; return; }
+  if (st) st.textContent = '上传并解析配音中（探测 → 语音识别 → 词级时间轴）……';
+  try {
+    const fd = new FormData();
+    fd.append('file', fi.files[0], fi.files[0].name);
+    fd.append('project_id', ED.pid);
+    const r = await apiUpload('/api/voice_upload', fd);
+    if (r.ok) {
+      if (st) st.textContent = `已替换：旁白 ${r.duration || ''}s（来源 ${r.source || '已解析'}）`;
+      editorToast('配音已替换（TTS 跳过；渲染草稿后生效）');
+      document.getElementById('ed-voice-upload-row').style.display = 'none';
+    } else {
+      if (st) st.textContent = '替换失败：' + (r.error || '未知');
+    }
+  } catch (e) {
+    if (st) st.textContent = '替换失败：' + (e.message || e);
+  }
 }
 
 /** §37 整体调音（Audio Bus）：原声/BGM/SFX/旁白 一屏多轨调整 → audio_mix。 */
@@ -1089,4 +1150,5 @@ Object.assign(window, {
   editorVoiceOpen, edVoiceFullPreview, editorAudioBusOpen, editorAudioBusApply,
   editorSubtitleStyleOpen, editorSubtitleWhiteOnBlack,
   editorMultiOriginal, editorMultiOriginalVolume, _sceneGenBox,
+  edVoiceRegenerate, edVoiceReplaceUpload, edVoiceReplaceApply,
 });

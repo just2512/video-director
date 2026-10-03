@@ -150,6 +150,28 @@ class TestAudioBus:
             "command": "audio_mix", "payload": {"tracks": {"vocals": {}}}})
         assert r.status == "REJECTED"
 
+    def test_audio_track_keyframe_37(self, pid):
+        """§37 Audio Bus 每轨 keyframe：add_audio_keyframe → 轨上 volume 渐变帧。"""
+        r = editor.execute_command(pid, {
+            "command": "add_audio_keyframe", "targetId": "bgm",
+            "payload": {"at": 2.0, "volume": 0.05}})
+        assert r.status == "APPLIED"
+        r2 = editor.execute_command(pid, {
+            "command": "add_audio_keyframe", "targetId": "bgm",
+            "payload": {"at": 4.0, "volume": 0.3}})
+        assert r2.status == "APPLIED"
+        ir = editor.load_composition(pid)
+        bgm = [t for t in ir.audio if t.type.value == "bgm"][0]
+        vol_kfs = [kt for kt in bgm.keyframes if kt.property == "volume"]
+        assert vol_kfs and len(vol_kfs[0].keyframes) == 2
+        assert [k.at for k in vol_kfs[0].keyframes] == [2.0, 4.0], "时间排序"
+
+    def test_audio_keyframe_rejects_bad_payload(self, pid):
+        r = editor.execute_command(pid, {
+            "command": "add_audio_keyframe", "targetId": "bgm",
+            "payload": {"volume": 0.3}})  # 缺 at
+        assert r.status == "REJECTED"
+
     def test_muted_consumed_at_render(self, pid):
         """渲染层消费 muted：静音轨不进混音图。"""
         editor.execute_command(pid, {"command": "set_audio_mute", "targetId": "bgm",

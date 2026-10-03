@@ -478,6 +478,7 @@ class AudioTrack(BaseModel):
     fadeIn: float = 0.0        # §18/§35：淡入秒数
     fadeOut: float = 0.0       # §18/§35：淡出秒数
     ducking: bool = False  # BGM 在 narration 下自动压低
+    keyframes: List["KeyframeTrack"] = Field(default_factory=list)  # §37 音轨关键帧
 
     @model_validator(mode="after")
     def _check_track(self):

@@ -293,6 +293,9 @@ def _worker_loop():
             time.sleep(1.5)
             continue
         spec = json.loads(job["spec_json"] or "{}")
+        # §五十八/§70-4 任务统一：studio job 同步登记 WorkflowRun
+        # （variant/series 也是"一个自动化流程"，查询面统一 /api/workflows）
+        run_id = _mirror_to_workflow_run(job["job_id"], job["kind"], spec)
         try:
             if job["kind"] == "variant":
                 result = _run_variant(spec)
@@ -301,10 +304,30 @@ def _worker_loop():
             else:
                 raise ValueError(f"未知任务类型 {job['kind']}")
             _set_job(job["job_id"], "done", result=result)
+            if run_id:
+                from video_director import workflow_run as vd_wf
+                vd_wf.finish_run(run_id, vd_wf.COMPLETED, result=result)
             logger.info(f"queue: 完成 {job['job_id']} → {result.get('final_path') or result.get('project_id')}")
         except Exception as exc:
             _set_job(job["job_id"], "failed", error=str(exc)[:1000])
+            if run_id:
+                try:
+                    from video_director import workflow_run as vd_wf
+                    vd_wf.finish_run(run_id, vd_wf.FAILED, error=str(exc)[:800])
+                except Exception:  # noqa: BLE001 run 登记失败不阻断队列本体
+                    pass
             logger.warning(f"queue: 失败 {job['job_id']}: {exc}")
+
+
+def _mirror_to_workflow_run(job_id: str, kind: str, spec: dict) -> Optional[str]:
+    """§五十八：studio job → WorkflowRun 镜像（查询面统一；失败不阻断队列）。"""
+    try:
+        from video_director import workflow_run as vd_wf
+        steps = ["script", "narration", "material_match", "composition",
+                 "verify", "render"] if kind == "series_episode" else ["render", "verify"]
+        return vd_wf.start_run(kind, project_id=spec.get("project_id"), steps=steps)
+    except Exception:  # noqa: BLE001 无 workflow_runs 表环境（测试隔离）跳过
+        return None
 
 
 def _kick_worker():

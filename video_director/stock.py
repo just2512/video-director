@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import List, Optional
+from pathlib import Path
 
 from loguru import logger
 
@@ -240,23 +241,82 @@ def _coverr_videos(query: str, orientation: str, per_page: int) -> List[StockAss
 # 统一搜索入口（§24：用户只看到"素材"，不关心是哪个 provider）
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# §三十/§三十一 API 限流契约：normalize query → 24h 响应缓存
+# Pixabay 官方要求 API 响应缓存 24 小时；Pexels 200/hour——重复查询走缓存，
+# 不能「LLM 无限循环搜索」（方案§三十 原文 normalize query → cache → search）。
+# ---------------------------------------------------------------------------
+STOCK_CACHE_TTL_S = 24 * 3600  # §三十 官方要求的 24 小时
+
+
+def _normalize_query(query: str) -> str:
+    """normalize query：小写 + 压空白（「Coffee  Shop 」与「coffee shop」同缓存键）。"""
+    return " ".join((query or "").lower().split())
+
+
+def _stock_cache_path(provider: str, norm_query: str, orientation: Optional[str]) -> "Path":
+    """缓存文件：storage/stock_cache/<provider>-<hash>.json（键=归一化查询+方向）。"""
+    import hashlib as _hl
+    from video_director import config as _config
+    d = _config.composer_storage_root() / "stock_cache"
+    d.mkdir(parents=True, exist_ok=True)
+    key = _hl.sha1(f"{provider}:{norm_query}:{orientation or 'any'}".encode("utf-8")).hexdigest()[:16]
+    return d / f"{provider}-{key}.json"
+
+
+def _cache_get(path: "Path", ttl_s: int = STOCK_CACHE_TTL_S):
+    """命中（存在且未过期）→ 返回数据；否则 None。损坏 JSON 视为未命中。"""
+    import time as _t
+    if not path.is_file():
+        return None
+    try:
+        if _t.time() - path.stat().st_mtime > ttl_s:
+            return None  # 过期（Pexels/Pixabay 政策 TTL）
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _cache_put(path: "Path", results: List["StockAsset"]) -> None:
+    """结果写缓存（StockAsset dataclass 序列化；失败不阻断搜索主链）。"""
+    try:
+        from dataclasses import asdict
+        path.write_text(json.dumps([asdict(a) for a in results], ensure_ascii=False),
+                        encoding="utf-8")
+    except (OSError, ValueError, TypeError):
+        pass
+
+
 def search_stock(query: str, provider: Optional[str] = None,
                  orientation: Optional[str] = None, per_page: int = 10) -> List[StockAsset]:
     """§24 统一 Stock 搜索。provider=None → 遍历有 key 的 provider。
 
+    §三十 限流契约：查询先归一化再查 24h 缓存，命中不进 provider（省配额）。
     全部缺 key → StockError(STOCK_UNAVAILABLE)。
     """
+    norm = _normalize_query(query)
     providers = [provider] if provider else list(PROVIDER_POLICY.keys())
     results: List[StockAsset] = []
     last_error = None
     for p in providers:
+        # §三十 24h 缓存：命中直接用（零 API 消耗）
+        cache_file = _stock_cache_path(p, norm, orientation)
+        cached = _cache_get(cache_file)
+        if cached is not None:
+            results.extend(StockAsset(**c) for c in cached)
+            logger.info(f"stock.{p}: 缓存命中（24h 内同查询不再消耗 API 配额）")
+            continue
         try:
+            fresh: List[StockAsset] = []
             if p == "pexels":
-                results.extend(_pexels_videos(query, orientation, per_page))
+                fresh = _pexels_videos(query, orientation, per_page)
             elif p == "pixabay":
-                results.extend(_pixabay_videos(query, orientation, per_page))
+                fresh = _pixabay_videos(query, orientation, per_page)
             elif p == "coverr":
-                results.extend(_coverr_videos(query, orientation, per_page))
+                fresh = _coverr_videos(query, orientation, per_page)
+            results.extend(fresh)
+            _cache_put(cache_file, fresh)  # §三十 响应缓存 24h
         except StockError as exc:
             last_error = exc
             logger.info(f"stock.{p}: {exc.code}")

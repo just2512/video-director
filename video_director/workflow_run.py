@@ -350,7 +350,9 @@ def _execute_compose(spec: dict, run_id: str) -> dict:
                 title=spec.get("title"), lower_third_name=spec.get("lower_third_name"),
                 lower_third_role=spec.get("lower_third_role"),
                 creative_brief=spec.get("creative_brief"),
-                watermark=spec.get("watermark"))
+                watermark=spec.get("watermark"),
+                # §34 上传配音：文件路径 → pipeline TTS 旁路（import_uploaded_voice）
+                narration_upload=narration_upload or None)
             payload = {"ok": True, "project_id": pid, "mode": mode,
                        "final_path": result.final_path,
                        "narration_duration": result.narration_duration,
