@@ -1076,7 +1076,9 @@ def compose_auto(
         )
     sub_entries = subtitle_mod.srt_entries(narration_scenes)
 
-    # 2.5 MPT 画面来源：本地优先/联网补足/纯联网/仅本地
+    # 2.5 MPT 画面来源：网络素材在统一匹配前加入；auto 用本地素材数量做保守补足。
+    # 真正的场景级“缺口”仍由第 3 步 matcher 决定；网络素材只作为候选补充，
+    # 不在这里强行把某个 stock asset 绑定到某个 scene，避免绕过现有匹配器。
     visual_source = visual_source if visual_source in ("auto", "local", "online", "mixed") else "auto"
     stock_metadata: Dict[str, dict] = {}
     stock_warnings: List[str] = []
@@ -1107,7 +1109,6 @@ def compose_auto(
             stock_warnings.append(f"网络素材链异常：{exc}")
             logger.warning(f"MPT stock 自动素材链异常（本地链继续）：{exc}")
     style_warnings.extend(stock_warnings)
-
     # 3. 素材语义理解（六级优先链）+ 内容匹配
     store.set_stage(project_id, store.Stage.MATCHING)    active_planner = planner
     if active_planner is None:
