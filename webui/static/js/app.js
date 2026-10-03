@@ -155,7 +155,7 @@ async function saveModelConfig(){
   const status = document.getElementById('llm-save-status');
   status.textContent = '保存中……';
   const configs = {};
-  for (const r of MODEL_ROLES) {
+  for (const r of [...MODEL_ROLES, ...STOCK_ROLES]) {
     const keyEl = document.getElementById(`mc-${r.role}-key`);
     const urlEl = document.getElementById(`mc-${r.role}-url`);
     const modelEl = document.getElementById(`mc-${r.role}-model`);
@@ -178,6 +178,8 @@ async function saveModelConfig(){
   renderModelRoles();
   renderStockRoles();
   status.textContent = '已保存并立即生效';
+  const stockStatus = document.getElementById('stock-save-status');
+  if (stockStatus) stockStatus.textContent = '已保存并立即生效';
   refreshLLMBadge();
 }
 
