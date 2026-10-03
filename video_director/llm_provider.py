@@ -290,6 +290,38 @@ def enhance_script(script: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 消费点 1.5：主题 → 脚本
+# ---------------------------------------------------------------------------
+SCRIPT_GENERATE_SYSTEM = """你是短视频编导。根据用户主题写一份可直接配音的中文短视频文案。
+规则：
+1. 保持事实克制，不编造具体数据、人物经历或新闻事实。
+2. 开头直接进入主题，句子适合口语配音。
+3. 默认 30-60 秒；按用户指定时长调整。
+4. 不要标题、不要分镜说明、不要镜头编号，只输出正文。
+5. 每段尽量短，便于自动切成场景。"""
+
+def generate_script(topic: str, platform: str = "", duration: str = "", style: str = "") -> str:
+    """主题 → 可直接进入 compose_auto 的脚本文案；无 LLM 时抛明确错误。"""
+    topic = (topic or "").strip()
+    if not topic:
+        raise ValueError("主题不能为空")
+    provider = get_llm()
+    if provider is None:
+        raise RuntimeError("未配置文本大模型，请先到「设置 → 模型」配置文本模型")
+    context = []
+    if platform:
+        context.append("目标平台：" + platform)
+    if duration:
+        context.append("目标时长：" + duration + " 秒")
+    if style:
+        context.append("风格：" + style)
+    prompt = "主题：" + topic + ("\n" + "\n".join(context) if context else "")
+    result = provider.generate(prompt, system=SCRIPT_GENERATE_SYSTEM).strip()
+    if not result:
+        raise RuntimeError("大模型返回空文案")
+    return result
+
+# ---------------------------------------------------------------------------
 # 消费点 2：分镜视觉提示
 # ---------------------------------------------------------------------------
 STORYBOARD_SYSTEM = """你是视频分镜师。给定若干文案句子，为每句生成视觉提示。
