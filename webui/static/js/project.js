@@ -73,19 +73,7 @@ function renderProjectList(){
     else if (actions.open) primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">继续编辑</button>`;
     if (p.status === 'FAILED') primary += ` <button class="btn-secondary btn-sm" onclick="pmReopenFailed('${esc(p.project_id)}')">重新执行</button>`;
     // 「···」菜单项（§43：预览/重命名/复制/归档/删除——动作存在性由 Index actions 决定）
-    const menuItems = [
-      p.legacy
-        ? `<button class="btn-secondary btn-sm" onclick="pmPreviewLegacy('${esc(p.project_id)}')">预览旧成品</button>`
-        : (actions.preview && p.has_final ? `<button class="btn-secondary btn-sm" onclick="pmPreviewFinal('${esc(p.project_id)}')">预览</button>` : ''),
-      actions.rename ? `<button class="btn-secondary btn-sm" onclick="pmAskRename('${esc(p.project_id)}')">重命名</button>` : '',
-      actions.duplicate ? `<button class="btn-secondary btn-sm" onclick="pmClone('${esc(p.project_id)}')">复制项目</button>` : '',
-      p.archived
-        ? `<button class="btn-secondary btn-sm" onclick="pmRestore('${esc(p.project_id)}')">恢复</button>`
-        : (actions.archive ? `<button class="btn-secondary btn-sm" onclick="pmArchive('${esc(p.project_id)}')">归档</button>` : ''),
-      actions.delete
-        ? `<button class="btn-secondary btn-sm pm-act-danger" onclick="pmAskDelete('${esc(p.project_id)}')">删除</button>`
-        : `<button class="btn-secondary btn-sm" disabled title="项目正在执行任务，当前不能删除">删除</button>`,
-    ].filter(Boolean);
+    const menuItems = _pmMenuItems(p);
     const dur = p.duration ? p.duration.toFixed(1) + 's' : '—';
     const when = p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : '—';
     const name = p.name || p.project_id;
@@ -144,6 +132,24 @@ async function projectAction(pid, action, args){
     delete PM.busy[pid];
     renderProjectList();
   }
+}
+
+// ---- 项目行更多菜单 ----
+function _pmMenuItems(p){
+  const actions = p.actions || {};
+  return [
+    p.legacy
+      ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmPreviewLegacy('${esc(p.project_id)}')">预览旧成品</button>`
+      : (actions.preview && p.has_final ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmPreviewFinal('${esc(p.project_id)}')">预览</button>` : ''),
+    actions.rename ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmAskRename('${esc(p.project_id)}')">重命名</button>` : '',
+    actions.duplicate ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmClone('${esc(p.project_id)}')">复制项目</button>` : '',
+    p.archived
+      ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmRestore('${esc(p.project_id)}')">恢复</button>`
+      : (actions.archive ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmArchive('${esc(p.project_id)}')">归档</button>` : ''),
+    actions.delete
+      ? `<button class="btn-secondary btn-sm pm-act-danger" onclick="pmCloseRowMenu();pmAskDelete('${esc(p.project_id)}')">删除</button>`
+      : `<button class="btn-secondary btn-sm" disabled title="项目正在执行任务，当前不能删除">删除</button>`,
+  ].filter(Boolean);
 }
 
 // ---- 各动作 ----
@@ -260,6 +266,41 @@ function pmAskRename(pid){
   if (input) { input.focus(); input.select(); }
 }
 
+// ---- 项目行更多菜单浮层 ----
+function pmCloseRowMenu(){
+  const menu = document.getElementById('pm-row-menu');
+  if (menu) menu.remove();
+  document.removeEventListener('pointerdown', pmRowMenuOutside);
+}
+function pmRowMenuOutside(event){
+  const menu = document.getElementById('pm-row-menu');
+  if (menu && !menu.contains(event.target)) pmCloseRowMenu();
+}
+function pmRowMenu(event, pid){
+  event.stopPropagation();
+  pmCloseRowMenu();
+  const p = PM.index.find(x => x.project_id === pid);
+  if (!p) return;
+  const btn = event.currentTarget;
+  const menu = document.createElement('div');
+  menu.id = 'pm-row-menu';
+  menu.className = 'card';
+  menu.style.cssText = 'position:fixed;z-index:1100;min-width:150px;padding:6px;display:flex;flex-direction:column;gap:4px;box-shadow:0 10px 28px rgba(0,0,0,.25)';
+  menu.innerHTML = _pmMenuItems(p).join('');
+  document.body.appendChild(menu);
+  const rect = btn.getBoundingClientRect();
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+  let left = rect.right - mw;
+  let top = rect.bottom + 6;
+  if (left < 8) left = 8;
+  if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+  if (top + mh > window.innerHeight - 8) top = rect.top - mh - 6;
+  menu.style.left = left + 'px';
+  menu.style.top = Math.max(8, top) + 'px';
+  setTimeout(() => document.addEventListener('pointerdown', pmRowMenuOutside), 0);
+}
+
 // ---- 通用 Modal（§32 Modal 组件：全系统同一种弹窗）----
 function pmShowModal(inner){
   pmCloseModal();
@@ -313,5 +354,5 @@ Object.assign(window, {
   projectAction, renameProject, continueProject, pmClone, pmArchive, pmRestore,
   convertLegacyProject, pmReopenFailed, pmPreviewFinal, pmPreviewLegacy,
   pmAskDelete, deleteProject, pmAskRename, pmShowModal, pmCloseModal,
-  pmShowMore, pmOpenDetail, PM, PM_STATUS_CN, PM_PAGE,
+  pmShowMore, pmOpenDetail, pmRowMenu, pmCloseRowMenu, PM, PM_STATUS_CN, PM_PAGE,
 });
