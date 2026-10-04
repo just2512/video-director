@@ -246,3 +246,69 @@ def test_agent_next_decision_reads_previous_tool_result(monkeypatch):
     assert "narration.synthesize" in seen["prompt"]
     assert "/tmp/narration.mp3" in seen["prompt"]
     assert "根据上一节点结果继续" in reason
+
+
+def test_agent_preserves_existing_narration_upload_mode(monkeypatch, tmp_path):
+    from video_director import director_agent as agent
+
+    calls = {}
+
+    def fake_import(project_id, path, scene_texts=None):
+        calls["args"] = (project_id, path, scene_texts)
+        p = tmp_path / "uploaded.mp3"
+        p.write_bytes(b"audio")
+        return {
+            "narration_file": str(p),
+            "word_timeline": [{"text": "测试", "start": 0.0, "end": 0.5}],
+            "narration_scenes": [{"id": "S01", "text": "测试", "start": 0.0, "duration": 0.5}],
+        }
+
+    import video_director.voice_upload as vu
+    monkeypatch.setattr(vu, "import_uploaded_voice", fake_import)
+    state = {"project_id": "p", "scene_texts": ["测试"]}
+    out = agent._tool_narration(
+        {"voice_mode": "upload", "narration_upload": "/tmp/staged.mp3"},
+        state,
+    )
+    assert out["ok"] is True
+    assert out["tool"] == "narration.upload"
+    assert calls["args"][1] == "/tmp/staged.mp3"
+    assert state["narration_file"].endswith("uploaded.mp3")
+
+
+def test_agent_preserves_online_visual_source(monkeypatch, tmp_path):
+    from video_director import director_agent as agent
+    from video_director.models import AssetRef
+
+    local_video = tmp_path / "local.mp4"
+    local_video.write_bytes(b"local")
+    stock_video = tmp_path / "stock.mp4"
+    stock_video.write_bytes(b"stock")
+
+    monkeypatch.setattr(agent.assets_mod, "build_manifest", lambda videos, images, asset_metadata=None: (
+        {"v": AssetRef(id="v", type="video", file=str(videos[0]), duration=1.0,
+                       width=100, height=100)} if videos else {},
+        ["v"] if videos else [],
+    ))
+    monkeypatch.setattr(agent.matcher, "match_assets", lambda *args, **kwargs:
+                        {"S01": "v"})
+    class StockResult:
+        def get(self, key, default=None):
+            return {
+                "files": [str(stock_video)],
+                "metadata": {},
+                "warnings": [],
+            }.get(key, default)
+    import video_director.stock as stock
+    monkeypatch.setattr(stock, "auto_download_for_scenes", lambda *args, **kwargs: StockResult())
+
+    state = {
+        "project_id": "p",
+        "video_files": [str(local_video)],
+        "image_files": [],
+        "constraints": {"visual_source": "online", "allow_stock": True},
+        "narration_scenes": [{"id": "S01", "text": "测试", "start": 0.0, "duration": 1.0}],
+    }
+    out = agent._tool_material({"match_materials_to_script": True, "width": 100, "height": 100}, state)
+    assert out["ok"] is True
+    assert state["video_files"] == [str(stock_video)]
