@@ -66,6 +66,8 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
             return _execute_render(project_id, tool, payload, target_id)
         if _is_project_mgmt(tool):
             return _execute_project_mgmt(project_id, tool, payload, target_id)
+        if tool == "music.match_video":
+            return _execute_music_match(project_id)
         if _is_content(tool):
             return _execute_content(project_id, tool, payload, target_id)
         return _execute_editor_command(project_id, tool, payload, target_id)
@@ -280,6 +282,42 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
     resp["revision_id"] = result.revision_id
     resp["composition_version"] = result.composition_version
     return resp
+
+
+def _execute_music_match(project_id: str) -> dict:
+    """自动配乐：用项目风格契约选择本地 BGM，并通过同一 Command Bus 入轨。"""
+    try:
+        from video_director import audio as audio_mod, editor as editor_mod
+        from video_director import style as style_mod
+        import json as _json
+        style_id = "knowledge-explainer"
+        style_path = __import__("video_director").config.project_dir(project_id) / "plans" / "style.json"
+        if style_path.is_file():
+            try:
+                data = _json.loads(style_path.read_text(encoding="utf-8"))
+                style_id = data.get("contract", {}).get("style_id") or style_id
+            except Exception:
+                pass
+        asset_id = audio_mod.resolve_auto_bgm(style_id)
+        if not asset_id:
+            return _result("music.match_video", False, "MUSIC_UNAVAILABLE",
+                           error="音乐库为空，无法自动配乐")
+        result = editor_mod.execute_command(project_id, {
+            "command": "set_audio_track",
+            "targetId": "",
+            "payload": {"track_type": "bgm", "assetId": asset_id,
+                        "volume": 0.3, "ducking": True},
+            "author": "ai-director",
+        })
+        if result.status != "APPLIED":
+            return _result("music.match_video", False, result.status,
+                           error=_fmt_errors(result.errors) or "自动配乐未应用")
+        return _result("music.match_video", True, "APPLIED",
+                       result={"asset_id": asset_id, "style_id": style_id},
+                       verify={"ok": True, "note": f"BGM 已加入：{asset_id}"},
+                       )
+    except Exception as exc:
+        return _result("music.match_video", False, "MUSIC_MATCH_FAILED", error=str(exc)[:250])
 
 
 def _execute_content(project_id: str, tool: str, payload: dict, target_id) -> dict:
