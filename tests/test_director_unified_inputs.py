@@ -155,3 +155,94 @@ def test_create_ui_accepts_reference_or_software_project_without_script_or_asset
     assert "const hasReference = !!window._cfReference;" in text
     assert "const hasSoftwareProject = !!window._cfRepo;" in text
     assert "const hasDirectorSource = !!(brief.trim() || script.trim() || hasFiles || hasReference || hasSoftwareProject);" in text
+
+
+def test_agent_loop_never_calls_compose_auto(monkeypatch, tmp_path):
+    from video_director import director_agent as agent, director_inputs as di
+
+    monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path / "composer")
+    monkeypatch.setattr(di, "attach_library_assets", lambda project_id, bundle: ([], []))
+    monkeypatch.setattr(di, "materialize_reference", lambda project_id, bundle: [])
+    monkeypatch.setattr(di, "materialize_software_project_artifacts", lambda project_id, bundle: [])
+    monkeypatch.setattr(agent, "_choose_next", lambda plan, current, result, retries:
+                        ((next(n["id"] for n in plan["nodes"] if n["status"] == "PENDING"
+                               and all(next(x for x in plan["nodes"] if x["id"] == d)["status"] in ("DONE", "SKIPPED")
+                                       for d in n.get("dependencies", []))),
+                          "deterministic test decision")))
+
+    def fail_compose(*args, **kwargs):
+        raise AssertionError("Director creation must not call pipeline.compose_auto/_execute_compose")
+
+    monkeypatch.setattr(workflow_run, "_execute_compose", fail_compose)
+
+    def fake_tool(spec, state):
+        if state["bundle"]["script"].get("text") == "":
+            state["bundle"]["script"]["text"] = "测试文案"
+        return {
+            "ok": True, "tool": "test.tool", "status": "APPLIED",
+            "result": {}, "verify": {"ok": True, "checks": []},
+        }
+
+    for node_id in ("script", "scene_plan", "narration", "material_match",
+                    "subtitle", "music", "composition", "watermark",
+                    "preview", "verify", "render"):
+        monkeypatch.setitem(agent._TOOLS, node_id, fake_tool)
+
+    bundle = {
+        "version": di.VERSION,
+        "brief": "测试 Director",
+        "script": {"text": "测试文案", "source": "user", "authority": "authoritative"},
+        "assets": {"asset_refs": []},
+        "references": [],
+        "software_project": {},
+        "constraints": {"visual_source": "auto", "allow_stock": False},
+        "creative_settings": {},
+    }
+    plan = di.build_plan(bundle, "测试 Director")
+    out = agent.execute(
+        {"project_id": "agent-loop-test", "director_inputs": bundle,
+         "script": "测试文案", "confirm_mode": "direct"},
+        "run-test",
+        plan,
+        update_node=workflow_run._director_update_node,
+        emit=lambda *args, **kwargs: None,
+    )
+
+    assert out["director_verify_ok"] is True
+    assert [n["id"] for n in plan["nodes"] if n["status"] == "DONE"] == [
+        "understand", "script", "scene_plan", "narration", "material_match",
+        "subtitle", "music", "composition", "watermark", "preview",
+        "verify", "render",
+    ]
+
+
+def test_agent_next_decision_reads_previous_tool_result(monkeypatch):
+    from video_director import director_agent as agent
+    seen = {}
+
+    class Provider:
+        def generate(self, prompt, system=None):
+            seen["prompt"] = prompt
+            return '{"next":"subtitle","reason":"根据上一节点结果继续"}'
+
+    import video_director.llm_provider as lp
+    monkeypatch.setattr(lp, "get_llm", lambda: Provider())
+
+    plan = {
+        "nodes": [
+            {"id": "narration", "status": "DONE", "dependencies": []},
+            {"id": "subtitle", "status": "PENDING", "dependencies": ["narration"]},
+            {"id": "music", "status": "PENDING", "dependencies": ["narration"]},
+        ]
+    }
+    choice, reason = agent._choose_next(
+        plan,
+        "narration",
+        {"ok": True, "tool": "narration.synthesize",
+         "status": "APPLIED", "result": {"audio": "/tmp/narration.mp3"}},
+        0,
+    )
+    assert choice == "subtitle"
+    assert "narration.synthesize" in seen["prompt"]
+    assert "/tmp/narration.mp3" in seen["prompt"]
+    assert "根据上一节点结果继续" in reason
