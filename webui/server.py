@@ -1752,33 +1752,83 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "context": {}})  # 上报成功即可，快照失败不阻塞
             return
 
-        # AI Director：自然语言创作入口（无需先建项目）
+        # AI Director：所有创作来源统一进入 DirectorInputBundle（无需先建项目）。
         if parsed.path == "/api/director/create":
             length = int(self.headers.get("Content-Length", 0))
             try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
             except json.JSONDecodeError:
                 self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
                 return
-            brief = (payload.get("brief") or "").strip()
-            script = (payload.get("script") or "").strip()
-            if not brief and not script:
-                self._send_json({"ok": False, "error": "请用一句话告诉 AI 想做什么"}, 400)
+
+            inputs = payload.get("director_inputs") or {}
+            brief = (
+                (inputs.get("brief") if isinstance(inputs, dict) else "")
+                or payload.get("brief")
+                or payload.get("creative_brief")
+                or ""
+            ).strip()
+            script = (
+                (inputs.get("script", {}).get("text")
+                 if isinstance(inputs.get("script"), dict) else inputs.get("script"))
+                or payload.get("script")
+                or ""
+            ).strip()
+            assets = (inputs.get("assets") or {}) if isinstance(inputs, dict) else {}
+            has_sources = bool(
+                script
+                or (assets.get("asset_refs") if isinstance(assets, dict) else [])
+                or (inputs.get("references") if isinstance(inputs, dict) else [])
+                or (inputs.get("software_project") if isinstance(inputs, dict) else {})
+            )
+            if not brief and not script and not has_sources:
+                self._send_json({
+                    "ok": False,
+                    "error": "请告诉 AI 想做什么，并可同时附加文案、素材、参考视频或软件项目",
+                }, 400)
                 return
+
             try:
-                from video_director import llm_provider as _lp
+                from video_director import director_inputs as _di
                 from video_director import workflow_run as _wf
                 from video_director import config as _cfg
-                pid = (payload.get("project_id") or "").strip() or f"web-{uuid.uuid4().hex[:8]}"
-                platform = (payload.get("platform") or "").strip()
-                duration = str(payload.get("duration") or "").strip()
-                style = (payload.get("style") or "").strip()
-                if not script:
-                    script = _lp.generate_script(
-                        brief, platform=platform, duration=duration, style=style)
-                if not script.strip():
-                    raise RuntimeError("AI 没有返回可执行文案")
-                resolution = (payload.get("resolution") or "").strip()
+
+                pid = (
+                    payload.get("project_id") or
+                    (inputs.get("project_id") if isinstance(inputs, dict) else "") or
+                    f"web-{uuid.uuid4().hex[:8]}"
+                )
+                merged = dict(payload)
+                merged["project_id"] = pid
+                merged["brief"] = brief
+                merged["script"] = script
+                merged["director_inputs"] = dict(inputs)
+                merged["director_inputs"]["brief"] = brief
+                merged["director_inputs"]["script"] = {
+                    "text": script,
+                    "source": "user" if script else "director",
+                    "authority": "authoritative" if script else "generated",
+                    "editable": True,
+                }
+
+                # Settings belong to the same input bundle, not a separate creation mode.
+                merged["director_inputs"]["platform"] = (
+                    inputs.get("platform") if isinstance(inputs, dict) else ""
+                ) or payload.get("platform") or ""
+                merged["director_inputs"]["duration"] = (
+                    inputs.get("duration") if isinstance(inputs, dict) else ""
+                ) or payload.get("duration") or ""
+                merged["director_inputs"]["style"] = (
+                    inputs.get("style") if isinstance(inputs, dict) else ""
+                ) or payload.get("style") or payload.get("style_intent") or ""
+
+                bundle = _di.build_bundle(merged)
+                plan = _di.build_plan(bundle, brief or script or "AI Director 创作")
+
+                resolution = str(payload.get("resolution") or "").strip()
+                platform = str(payload.get("platform") or "").strip()
                 platform_dims = {
                     "douyin": (1080, 1920), "video_channel": (1080, 1920),
                     "bilibili": (1920, 1080), "xhs": (1080, 1440),
@@ -1788,42 +1838,23 @@ class Handler(BaseHTTPRequestHandler):
                     rw, rh = [int(x) for x in resolution.split("x", 1)]
                 else:
                     rw, rh = platform_dims.get(platform, _cfg.DEFAULT_RESOLUTION)
+
                 confirm_mode = (payload.get("confirm_mode") or "preview").strip()
-                plan_steps = [
-                    ("understand", "理解创作要求", "读取简报、目标平台、画幅与素材约束"),
-                    ("script", "文案", "生成/确认可配音文案"),
-                    ("scene_plan", "分镜", "按文案拆场景并规划画面"),
-                    ("narration", "配音", "生成旁白并建立词级时间轴"),
-                    ("material_match", "画面", "本地优先，缺口自动搜索 Stock，必要时生成画面"),
-                    ("subtitle", "字幕", "生成字幕轨并应用样式"),
-                    ("music", "音乐", "按内容/风格自动配乐"),
-                    ("watermark", "品牌", "按要求加入水印/人物条"),
-                    ("composition", "时间线", "统一合成并更新 Composition"),
-                    ("preview", "预览", "生成可审片草稿"),
-                    ("verify", "预检", "重新读取项目并做确定性检查"),
-                    ("render", "成片", "确认后输出最终视频"),
-                ]
-                plan = {
-                    "version": "director-create-v1",
-                    "goal": brief or "按用户提供文案完成成片",
-                    "brief": brief,
-                    "script_source": "user" if payload.get("script") else "ai",
-                    "nodes": [{"id": sid, "label": label, "description": desc}
-                              for sid, label, desc in plan_steps],
-                }
                 spec = {
                     "project_id": pid,
                     "script": script,
                     "creative_brief": brief,
-                    "mode": "auto",
+                    "brief": brief,
+                    "mode": payload.get("mode") or "auto",
                     "voice": payload.get("voice") or "zh-CN-XiaoxiaoNeural",
                     "voice_mode": payload.get("voice_mode") or "auto",
                     "voice_rate": payload.get("voice_rate") or "1.0",
-                    "style_intent": style,
+                    "style_intent": payload.get("style_intent") or "",
                     "width": rw, "height": rh,
                     "fps": int(payload.get("fps") or 30),
                     "bgm": payload.get("bgm") or "auto",
                     "bgm_volume": float(payload.get("bgm_volume") or 0.3),
+                    "narration_volume": float(payload.get("narration_volume") or 1.0),
                     "sfx_plan": payload.get("sfx_plan"),
                     "subtitle_mode": payload.get("subtitle_mode") or "plain",
                     "fit_mode": payload.get("fit_mode") or "cover",
@@ -1841,11 +1872,16 @@ class Handler(BaseHTTPRequestHandler):
                     "video_paths": payload.get("video_paths") or [],
                     "image_paths": payload.get("image_paths") or [],
                     "narration_upload": payload.get("narration_upload") or "",
+                    "director_inputs": bundle,
                 }
                 run_id = _wf.run_director_create_async(spec, plan=plan)
                 self._send_json({
-                    "ok": True, "run_id": run_id, "project_id": pid,
-                    "script": script, "director_plan": plan,
+                    "ok": True,
+                    "run_id": run_id,
+                    "project_id": pid,
+                    "script": script,
+                    "director_plan": plan,
+                    "director_inputs": bundle,
                 })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 503)
