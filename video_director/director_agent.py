@@ -298,3 +298,289 @@ def _tool_material(spec: dict, state: dict) -> dict:
         "result": {"asset_count": len(all_assets), "assignments": assignments, "warnings": warnings},
         "verify": {"ok": all(x["ok"] for x in checks), "checks": checks},
     }
+
+
+def _tool_subtitle(spec: dict, state: dict) -> dict:
+    width = int(spec.get("width") or config.DEFAULT_RESOLUTION[0])
+    height = int(spec.get("height") or config.DEFAULT_RESOLUTION[1])
+    font_size = int(round(state["style_contract"].subtitle_font_size * width / 1080))
+    path = config.project_dir(state["project_id"]) / "render" / "master.ass"
+    mode = spec.get("subtitle_mode") or "plain"
+    if mode == "karaoke":
+        body = subtitle_mod.build_ass_karaoke(
+            state["narration_scenes"], state["word_timeline"],
+            width=width, height=height, font_size=font_size)
+    else:
+        body = subtitle_mod.build_ass_plain(
+            state["narration_scenes"], width=width, height=height, font_size=font_size)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    state["subtitle_file"] = str(path)
+    state["subtitle_entries"] = subtitle_mod.srt_entries(state["narration_scenes"])
+    ok = _file_ok(str(path)) and bool(state["subtitle_entries"])
+    return {
+        "ok": ok, "tool": "subtitle.generate", "status": "APPLIED" if ok else "FAILED",
+        "result": {"file": str(path), "cue_count": len(state["subtitle_entries"])},
+        "verify": {"ok": ok, "checks": [{"id": "subtitle_file", "ok": _file_ok(str(path))},
+                                         {"id": "cue_count", "ok": bool(state["subtitle_entries"])}]},
+    }
+
+
+def _tool_music(spec: dict, state: dict) -> dict:
+    requested = spec.get("bgm") or "auto"
+    if requested in ("none", "off", "disabled"):
+        state["bgm_asset_id"] = None
+        return {"ok": True, "tool": "music.select", "status": "SKIPPED",
+                "result": {"reason": "用户未要求 BGM"}, "verify": {"ok": True}}
+    aid = audio.resolve_auto_bgm(state["style_contract"].style_id) if requested == "auto" else requested
+    if not aid:
+        state["bgm_asset_id"] = None
+        return {"ok": True, "tool": "music.select", "status": "SKIPPED",
+                "result": {"reason": "音乐库为空，未随机替代"}, "verify": {"ok": True}}
+    if aid not in audio.scan_library():
+        return {"ok": False, "tool": "music.select", "status": "MISSING_REQUIREMENT",
+                "error": "BGM 资产不存在：" + str(aid), "verify": {"ok": False}}
+    state["bgm_asset_id"] = aid
+    state["bgm_volume"] = float(spec.get("bgm_volume") or state["style_contract"].bgm_volume)
+    return {"ok": True, "tool": "music.select", "status": "APPLIED",
+            "result": {"asset_id": aid, "volume": state["bgm_volume"]},
+            "verify": {"ok": True, "checks": [{"id": "bgm_source", "ok": True}]}}
+
+
+def _tool_composition(spec: dict, state: dict) -> dict:
+    pid = state["project_id"]
+    dirs = config.init_project_dirs(config.project_dir(pid))
+    scenes = state["narration_scenes"]
+    all_assets = state["assets"]
+    order = state["asset_order"]
+    if not scenes:
+        raise RuntimeError("composition 节点没有 narration_scenes")
+    if not all_assets:
+        raise RuntimeError("composition 节点没有素材池")
+
+    active = (
+        planner_mod.ContentMatchPlanner(state["assignments"])
+        if state.get("assignments") else planner_mod.RulePlanner()
+    )
+    ir = active.plan(
+        scenes=scenes, assets=all_assets, asset_order=order,
+        width=int(spec.get("width") or config.DEFAULT_RESOLUTION[0]),
+        height=int(spec.get("height") or config.DEFAULT_RESOLUTION[1]),
+        fps=int(spec.get("fps") or config.DEFAULT_FPS),
+        fit_mode=spec.get("fit_mode") or "cover",
+        clip_duration=spec.get("clip_duration"),
+        clip_speed=spec.get("clip_speed"),
+        concat_mode=spec.get("concat_mode") or "sequential",
+    )
+    style_mod.apply_to_ir(ir, state["style_contract"], config)
+    from video_director.models import AudioTrack, AudioTrackType
+
+    duration = scenes[-1]["start"] + scenes[-1]["duration"]
+    tracks = [
+        AudioTrack(
+            type=AudioTrackType.narration, start=0.0, duration=duration,
+            volume=float(spec.get("narration_volume") or 1.0),
+        )
+    ]
+    audio_assets = {}
+    if state.get("bgm_asset_id"):
+        lib = audio.scan_library()
+        aid = state["bgm_asset_id"]
+        if aid in lib:
+            audio_assets[aid] = lib[aid]
+            tracks.append(audio.build_bgm_track(
+                aid, duration, state.get("bgm_volume") or config.BGM_DEFAULT_VOLUME
+            ))
+    if spec.get("sfx_plan"):
+        lib = audio.scan_library()
+        for ev in audio.normalize_sfx_events(spec.get("sfx_plan") or []):
+            aid = ev.get("asset_id") or audio.resolve_action_sfx(ev, lib)
+            if not aid:
+                continue
+            audio_assets[aid] = lib[aid]
+            tracks.append(audio.build_sfx_track(
+                aid, ev["at"], ev.get("duration", 0.7), ev.get("volume")
+            ))
+    ir.audio = tracks
+    render_assets = audio.append_audio_assets(all_assets, audio_assets)
+
+    check = validator.validate_composition(
+        ir, render_assets, duration, state.get("subtitle_entries")
+    )
+    if not check.ok:
+        return {
+            "ok": False, "tool": "composition.build", "status": "INVALID_COMPOSITION",
+            "error": json.dumps(check.to_dict(), ensure_ascii=False),
+            "verify": {"ok": False, "checks": check.to_dict().get("checks", [])},
+        }
+
+    cpath = _json_file(
+        dirs["plans"] / "composition.json",
+        json.loads(ir.model_dump_json()),
+    )
+    mpath = _json_file(
+        dirs["assets"] / "manifest.json",
+        [a.model_dump() if hasattr(a, "model_dump") else a for a in render_assets.values()],
+    )
+    spath = _json_file(
+        dirs["plans"] / "style.json",
+        {
+            "style_id": state["style_contract"].style_id,
+            "reason": state["style_contract"].reason,
+            "contract": {
+                "subtitle_font_size": state["style_contract"].subtitle_font_size,
+                "transition_budget": state["style_contract"].transition_budget,
+                "bgm_volume": state["style_contract"].bgm_volume,
+            },
+        },
+    )
+    state.update({
+        "ir": ir,
+        "render_assets": render_assets,
+        "narration_duration": duration,
+        "composition_path": cpath,
+        "manifest_path": mpath,
+        "style_path": spath,
+    })
+    checks = [
+        {"id": "composition_file", "ok": _file_ok(cpath)},
+        {"id": "manifest_file", "ok": _file_ok(mpath)},
+    ]
+    return {
+        "ok": all(x["ok"] for x in checks),
+        "tool": "composition.build",
+        "status": "APPLIED",
+        "result": {"composition": cpath, "manifest": mpath, "style": spath},
+        "verify": {"ok": all(x["ok"] for x in checks), "checks": checks},
+    }
+
+
+def _tool_watermark(spec: dict, state: dict) -> dict:
+    text = (spec.get("watermark") or "").strip()
+    if not text:
+        return {
+            "ok": True, "tool": "watermark.add", "status": "SKIPPED",
+            "result": {"reason": "未指定水印"}, "verify": {"ok": True},
+        }
+    from video_director import tool_executor
+    res = tool_executor.execute_tool(state["project_id"], {
+        "tool": "watermark.add",
+        "targetId": "project",
+        "payload": {
+            "kind": "text", "text": text, "anchor": "bottom_right",
+            "opacity": 0.75, "scale": 1.0,
+        },
+    })
+    ok = bool(res.get("ok")) and bool((res.get("verify") or {}).get("ok", True))
+    return {
+        "ok": ok, "tool": "watermark.add",
+        "status": res.get("status") or "FAILED",
+        "result": res.get("result") or {},
+        "verify": res.get("verify") or {"ok": ok},
+        "error": res.get("error"),
+    }
+
+
+def _tool_preview(spec: dict, state: dict) -> dict:
+    from video_director import confirm
+    try:
+        path = confirm.render_draft(
+            state["project_id"], profile=spec.get("profile") or None
+        )
+    except Exception as exc:
+        return {
+            "ok": False, "tool": "render.draft", "status": "FAILED",
+            "error": str(exc), "verify": {"ok": False},
+        }
+    state["draft_path"] = path
+    ok = _file_ok(path)
+    return {
+        "ok": ok, "tool": "render.draft", "status": "APPLIED",
+        "result": {"draft": path}, "verify": {"ok": ok, "checks": [_file_ok(path)]},
+    }
+
+
+def _tool_verify(spec: dict, state: dict) -> dict:
+    checks = []
+    try:
+        from video_director.editor import load_composition
+        ir = load_composition(state["project_id"])
+        checks.append({
+            "id": "composition_readable",
+            "ok": bool(ir and ir.scenes),
+            "detail": str(len(ir.scenes) if ir else 0),
+        })
+    except Exception as exc:
+        checks.append({"id": "composition_readable", "ok": False, "detail": str(exc)})
+    checks.extend([
+        {"id": "composition_file", "ok": _file_ok(state.get("composition_path", ""))},
+        {"id": "subtitle_file", "ok": _file_ok(state.get("subtitle_file", ""))},
+        {"id": "manifest", "ok": _file_ok(state.get("manifest_path", ""))},
+    ])
+    if state.get("draft_path"):
+        checks.append({"id": "draft", "ok": _file_ok(state["draft_path"])})
+    ok = all(x["ok"] for x in checks)
+    return {
+        "ok": ok, "tool": "composition.verify",
+        "status": "PASS" if ok else "FAILED",
+        "result": {"checks": checks},
+        "verify": {"ok": ok, "checks": checks},
+    }
+
+
+def _tool_render(spec: dict, state: dict) -> dict:
+    if (spec.get("confirm_mode") or "preview") != "direct":
+        return {
+            "ok": True, "tool": "render.final", "status": "SKIPPED",
+            "result": {"reason": "等待用户确认"}, "verify": {"ok": True},
+        }
+    pid = state["project_id"]
+    work = config.project_dir(pid) / "render" / "final_agent"
+    work.mkdir(parents=True, exist_ok=True)
+    title_card = None
+    title = (spec.get("title") or "").strip()
+    if title:
+        from video_director import title_engine
+        title_card = title_engine.render_title_card(
+            title, str(work / "title_card.mp4"),
+            width=int(spec.get("width") or config.DEFAULT_RESOLUTION[0]),
+            height=int(spec.get("height") or config.DEFAULT_RESOLUTION[1]),
+            fps=int(spec.get("fps") or config.DEFAULT_FPS),
+        )
+    out = renderer.render_composition(
+        state["ir"], state["render_assets"], work,
+        narration_file=state.get("narration_file"),
+        subtitle_file=state.get("subtitle_file"),
+        title_card=title_card,
+        lower_third_name=(spec.get("lower_third_name") or "").strip() or None,
+        lower_third_role=(spec.get("lower_third_role") or "").strip() or None,
+    )
+    final_path = config.project_dir(pid) / "output" / "final.mp4"
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    if Path(out.final_path) != final_path:
+        shutil.copyfile(out.final_path, final_path)
+    report = qc_mod.run_qc(
+        state["ir"], str(final_path), state["render_assets"],
+        state["narration_duration"], expect_audio=bool(state["ir"].audio),
+    )
+    report_path = _json_file(
+        config.project_dir(pid) / "qc" / "deterministic.json",
+        report.to_dict(),
+    )
+    state["final_path"] = str(final_path)
+    state["qc_report"] = report.to_dict()
+    ok = bool(report.ok and final_path.is_file())
+    return {
+        "ok": ok, "tool": "render.final",
+        "status": "APPLIED" if ok else "FAILED",
+        "result": {
+            "final_path": str(final_path),
+            "qc": report.to_dict(),
+            "qc_report": report_path,
+        },
+        "verify": {
+            "ok": ok,
+            "checks": report.to_dict().get("checks", []),
+        },
+        "error": None if ok else "最终成片 QC 未通过",
+    }
