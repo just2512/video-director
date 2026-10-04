@@ -358,6 +358,7 @@ def _execute_compose(spec: dict, run_id: str) -> dict:
                 bgm_asset_id=spec.get("bgm") or spec.get("bgm_asset_id"),
                 sfx_plan=sfx_plan,
                 bgm_volume=spec.get("bgm_volume"),
+                narration_volume=float(spec.get("narration_volume", 1.0) or 1.0),
                 width=spec.get("width", 1080), height=spec.get("height", 1920),
                 fps=spec.get("fps", 30),
                 auto_confirm=spec.get("auto_confirm", False),
