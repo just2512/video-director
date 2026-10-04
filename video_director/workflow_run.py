@@ -369,192 +369,24 @@ def _director_verify_creation(project_id: str, payload: dict, confirm_mode: str)
 
 
 def _execute_director_create(spec: dict, run_id: str) -> dict:
-    """真正的 AI Director 创建闭环：
-    Inspect inputs → Decide script → Plan scenes → Execute composer →
-    Read artifacts → Verify → return structured plan.
-    """
+    """AI Director 创建唯一执行入口：交给独立 Agent Loop，禁止 compose_auto 一把梭。"""
+    from video_director import director_agent
     from video_director import director_inputs as di
 
-    pid = spec.get("project_id") or f"web-{uuid.uuid4().hex[:8]}"
+    pid = spec.get("project_id") or ("web-" + str(uuid.uuid4().hex[:8]))
     bundle = di.build_bundle(spec)
+    plan = spec.get("director_plan") or di.build_plan(
+        bundle, bundle.get("brief") or spec.get("brief") or "AI Director 创作"
+    )
     di.persist_bundle(pid, bundle)
-    plan = di.build_plan(bundle, bundle.get("brief") or spec.get("brief") or "AI Director 创作")
     di.persist_plan(pid, plan)
-
-    _emit(run_id, "director", {"phase": "planning", "project_id": pid,
-                               "sources": plan.get("source_refs", [])})
-    _director_update_node(
-        run_id, pid, plan, "understand", "DONE",
-        outputs=["director:context"],
-        decision={
-            "source_refs": plan.get("source_refs", []),
-            "asset_policy": bundle.get("assets", {}).get("policy"),
-            "reference_count": len(bundle.get("references") or []),
-            "software_project": bool(bundle.get("software_project")),
-        },
+    return director_agent.execute(
+        spec,
+        run_id,
+        plan,
+        update_node=_director_update_node,
+        emit=_emit,
     )
-
-    # Script decision: user script is authoritative; otherwise generate with all sources visible.
-    script = (bundle.get("script") or {}).get("text") or ""
-    script_source = "user"
-    if not script:
-        from video_director import llm_provider
-        provider = llm_provider.get_llm()
-        if provider is None:
-            raise RuntimeError("AI Director 需要文案，但当前没有可用 LLM")
-        context = di.build_agent_scene_context(bundle, "")
-        prompt = (
-            "你是视频 Director 的文案节点。请根据用户目标与全部结构化来源写一版可直接配音的中文视频文案。"
-            "不要编造软件功能；软件项目只可使用 VERIFIED claims；参考视频只作为风格约束。\n"
-            + json.dumps(context, ensure_ascii=False, indent=2)
-        )
-        script = (provider.generate(prompt) or "").strip()
-        if not script:
-            raise RuntimeError("Director 文案节点没有返回内容")
-        fence = chr(96) + chr(96) + chr(96)
-        if script.startswith(fence):
-            script = script.split("\n", 1)[1] if "\n" in script else script
-            script = script.rsplit(fence, 1)[0].strip()
-        script_source = "director"
-        bundle["script"]["text"] = script
-        bundle["script"]["source"] = "director"
-        bundle["script"]["authority"] = "generated"
-        di.persist_bundle(pid, bundle)
-    _director_update_node(
-        run_id, pid, plan, "script", "DONE",
-        outputs=["script:main"],
-        decision={"source": script_source, "authority": bundle["script"]["authority"]},
-    )
-
-    # Scene planning is a real Director step before the composer executes.
-    try:
-        scene_plan = _director_scene_plan(bundle, script)
-    except Exception as exc:
-        scene_plan = {"source": "rule_fallback", "scenes": []}
-        logger.warning(f"Director scene planning failed, fallback to composer planner: {exc}")
-    plan["scene_plan"] = scene_plan
-    _director_update_node(
-        run_id, pid, plan, "scene_plan", "DONE",
-        outputs=["scene_plan:main"],
-        decision={"source": scene_plan.get("source"),
-                  "scene_count": len(scene_plan.get("scenes") or [])},
-    )
-
-    # Resolve all actual user assets into the target Asset Pool.
-    video_files, image_files = di.attach_library_assets(pid, bundle)
-    reference_files = di.materialize_reference(pid, bundle)
-    software_files = di.materialize_software_project_artifacts(pid, bundle)
-    bundle["materialized"] = {
-        "reference_files": reference_files,
-        "software_evidence_files": software_files,
-    }
-    di.persist_bundle(pid, bundle)
-
-    ref_style = di.reference_style_intent(bundle)
-    execution_brief = di.build_execution_brief(
-        bundle, bundle.get("brief") or spec.get("brief") or "")
-    user_style = (bundle.get("creative_settings") or {}).get("style") or ""
-    style_intent = "；".join(x for x in (user_style, ref_style) if x).strip()
-
-    exec_spec = dict(spec)
-    exec_spec["project_id"] = pid
-    exec_spec["script"] = script
-    exec_spec["video_paths"] = video_files
-    exec_spec["image_paths"] = image_files
-    exec_spec["creative_brief"] = execution_brief
-    exec_spec["style_intent"] = style_intent or spec.get("style_intent")
-    for f in software_files:
-        if Path(f).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and f not in exec_spec["image_paths"]:
-            exec_spec["image_paths"].append(f)
-
-    plan["execution"] = {
-        "engine": "pipeline.compose_auto",
-        "inputs": {
-            "script_ref": "script:main",
-            "asset_refs": [
-                a.get("asset_id") or a.get("file")
-                for a in bundle.get("assets", {}).get("asset_refs") or []
-            ],
-            "reference_refs": [r.get("id") for r in bundle.get("references") or []],
-            "software_project_ref": (bundle.get("software_project") or {}).get("id") or "",
-        },
-    }
-    di.persist_plan(pid, plan)
-
-    # Existing MPT composer is the execution engine; Director owns its lifecycle/status.
-    for node_id in ("narration", "material_match", "subtitle", "music", "watermark", "composition"):
-        _director_update_node(
-            run_id, pid, plan, node_id, "RUNNING",
-            decision={"executor": "pipeline.compose_auto"}
-        )
-    result = _execute_compose(exec_spec, run_id, track_steps=False)
-    result = dict(result or {})
-    plan["execution_result"] = {
-        "final_path": result.get("final_path") or "",
-        "pending_confirm": bool(result.get("pending_confirm")),
-        "qc": result.get("qc") or {},
-    }
-
-    match_file = config.project_dir(pid) / "assets" / "match_assignments.json"
-    match_outputs = []
-    if match_file.is_file():
-        try:
-            assignments = json.loads(match_file.read_text(encoding="utf-8"))
-            for scene_id, asset_id in (assignments or {}).items():
-                match_outputs.append(f"{scene_id}:{asset_id}")
-        except Exception:
-            pass
-
-    for node_id, outputs in {
-        "narration": ["narration:timeline"],
-        "material_match": [f"asset_match:{x}" for x in match_outputs],
-        "subtitle": ["subtitle:track"],
-        "music": ["music:track"],
-        "watermark": ["watermark:applied"] if spec.get("watermark") else [],
-        "composition": ["composition:main"],
-    }.items():
-        _director_update_node(
-            run_id, pid, plan, node_id, "DONE",
-            outputs=outputs,
-            tool_calls=[{"tool": "pipeline.compose_auto", "phase": node_id}],
-        )
-
-    if result.get("pending_confirm"):
-        _director_update_node(
-            run_id, pid, plan, "preview", "DONE",
-            outputs=["preview:storyboard"],
-            artifacts=[str(config.project_dir(pid) / "plans" / "storyboard.json")],
-        )
-        _director_update_node(
-            run_id, pid, plan, "render", "SKIPPED",
-            decision={"reason": "等待人工确认"},
-        )
-    else:
-        _director_update_node(
-            run_id, pid, plan, "preview", "SKIPPED",
-            decision={"reason": "direct 模式不另建草稿"},
-        )
-        _director_update_node(
-            run_id, pid, plan, "render", "DONE" if result.get("final_path") else "FAILED",
-            outputs=["render:final"] if result.get("final_path") else [],
-            artifacts=[result.get("final_path")] if result.get("final_path") else [],
-        )
-
-    verify = _director_verify_creation(
-        pid, result, "preview" if result.get("pending_confirm") else "direct")
-    _director_update_node(
-        run_id, pid, plan, "verify", "DONE" if verify["ok"] else "FAILED",
-        outputs=["verify:report"], verify=verify,
-        error="" if verify["ok"] else "创建链验证未通过",
-    )
-    result["director_plan"] = plan
-    result["director_inputs"] = di.load_bundle(pid)
-    result["director_verify_ok"] = verify["ok"]
-    di.persist_plan(pid, plan)
-    _emit(run_id, "director", {"phase": "done", "project_id": pid,
-                               "verify_ok": verify["ok"],
-                               "source_refs": plan.get("source_refs", [])})
-    return result
 
 
 def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> dict:

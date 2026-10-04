@@ -612,6 +612,8 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[
     object.__setattr__(draft_ir.project, "height", dh)
 
     narration_audio_path = dirs["audio"] / "narration.wav"
+    if not narration_audio_path.is_file():
+        narration_audio_path = dirs["audio"] / "narration.mp3"
     narration = str(narration_audio_path) if narration_audio_path.is_file() else None
 
     render_out = renderer.render_composition(
