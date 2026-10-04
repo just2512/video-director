@@ -140,3 +140,18 @@ def test_generate_script_empty_topic():
     from video_director import llm_provider as lp
     with pytest.raises(ValueError):
         lp.generate_script("  ")
+
+
+# ---------------------------------------------------------------------------
+# §46 任务抽屉列表层：失败原因必须在列表可见（Visible→Understandable）
+# ---------------------------------------------------------------------------
+
+def test_list_runs_includes_error(tmp_path, monkeypatch):
+    """《用户操作路径.md》§18：列表层能看到失败原因，不能只显示「查看原因」占位。"""
+    from video_director import workflow_run as wr
+    monkeypatch.setattr(wr, "_db_path", lambda: __import__("pathlib").Path(tmp_path / "wf.db"))
+    rid = wr.start_run("compose", spec={"script": "x"})
+    wr.finish_run(rid, "FAILED", error="scene S01: 素材不足")
+    runs = wr.list_runs(limit=5)
+    hit = [r for r in runs if r["run_id"] == rid]
+    assert hit and hit[0].get("error") == "scene S01: 素材不足"

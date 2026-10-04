@@ -195,12 +195,12 @@ def list_runs(project_id: Optional[str] = None, limit: int = 20) -> List[dict]:
         _ensure_table(conn)
         if project_id:
             rows = conn.execute(
-                "SELECT run_id, kind, project_id, status, current, created_at, updated_at "
+                "SELECT run_id, kind, project_id, status, current, error, created_at, updated_at "
                 "FROM workflow_runs WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
                 (project_id, limit)).fetchall()
         else:
             rows = conn.execute(
-                "SELECT run_id, kind, project_id, status, current, created_at, updated_at "
+                "SELECT run_id, kind, project_id, status, current, error, created_at, updated_at "
                 "FROM workflow_runs ORDER BY created_at DESC LIMIT ?",
                 (limit,)).fetchall()
     return [dict(r) for r in rows]
