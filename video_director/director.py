@@ -173,7 +173,7 @@ def _target_layer_for_scene(project_id: str, target_id: str) -> str:
 
 def _execute_asset_search_apply(project_id: str, item: dict) -> dict:
     """找素材的完整链：Library 查询 → Stock 搜索 → 下载 → Library 引用 → 时间线采用。"""
-    from video_director import asset_catalog, stock
+    from video_director import asset_catalog, stock, config as vd_config
     target_id = item.get("targetId") or ""
     payload = item.get("payload") or {}
     query = (payload.get("query") or "").strip()
@@ -222,7 +222,7 @@ def _execute_asset_search_apply(project_id: str, item: dict) -> dict:
         if candidate.status != "SUPPORTED":
             continue
         try:
-            downloaded = stock.download_asset(candidate.asset, __import__("video_director").config.project_dir(project_id))
+            downloaded = stock.download_asset(candidate.asset, vd_config.project_dir(project_id))
             entry = asset_catalog.import_asset(
                 downloaded["file"],
                 source=candidate.asset.provider,
@@ -635,7 +635,9 @@ def _verify_step(project_id: str, item: dict, selection: Optional[dict]) -> dict
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "note": f"重读项目失败：{exc}"}
     action = item.get("action") or ""
-    if action.startswith("watermark."):
+    if action == "watermark.remove":
+        return {"ok": not ir.watermarks, "note": "水印已移除" if not ir.watermarks else f"仍有 {len(ir.watermarks)} 个水印"}
+    if action in ("watermark.add", "watermark.update"):
         return {"ok": bool(ir.watermarks), "note": f"水印 {len(ir.watermarks)} 个"}
     if action in ("audio.preserve", "audio.mute_original"):
         has = any(t.type.value == "original" for t in ir.audio)
