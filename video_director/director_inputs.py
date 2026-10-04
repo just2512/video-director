@@ -25,8 +25,8 @@ NODE_DEFS = [
     ("material_match", "画面", "优先采用用户素材，必要时补充可用素材"),
     ("subtitle", "字幕", "根据旁白时间轴生成字幕"),
     ("music", "音乐", "按内容与参考风格选择音乐"),
-    ("watermark", "品牌", "应用水印/人物条等品牌约束"),
     ("composition", "时间线", "把脚本、画面、音频、字幕组合为 Composition"),
+    ("watermark", "品牌", "应用水印/人物条等品牌约束"),
     ("preview", "预览", "生成可审片草稿或分镜产物"),
     ("verify", "预检", "重新读取项目并检查实际产物"),
     ("render", "成片", "在确认条件满足后输出最终视频"),
@@ -313,18 +313,19 @@ def build_plan(bundle: dict, brief: str) -> dict:
         "material_match": ["scene_plan"] + [x for x in sources if x.startswith(("asset_pool", "reference:", "software_project:"))],
         "subtitle": ["narration:timeline"],
         "music": ["scene_plan", "reference:style"],
-        "watermark": ["director:constraints"],
         "composition": ["scene_plan", "narration:timeline", "material_match:assets", "subtitle:track", "music:track", "director:constraints"],
-        "preview": ["composition:main"],
+        "watermark": ["composition:main", "director:constraints"],
+        "preview": ["composition:main", "watermark:applied"],
         "verify": ["composition:main", "preview:draft"],
         "render": ["verify:report"],
     }
     dependencies = {
         "script": ["understand"], "scene_plan": ["script"], "narration": ["script"],
         "material_match": ["scene_plan"], "subtitle": ["narration"],
-        "music": ["scene_plan"], "watermark": ["scene_plan"], "composition": [
-            "scene_plan", "narration", "material_match", "subtitle", "music", "watermark"
-        ], "preview": ["composition"], "verify": ["composition", "preview"], "render": ["verify"],
+        "music": ["scene_plan"], "composition": [
+            "scene_plan", "narration", "material_match", "subtitle", "music"
+        ], "watermark": ["composition"], "preview": ["composition", "watermark"],
+        "verify": ["composition", "preview"], "render": ["verify"],
     }
     node_outputs = {
         "understand": ["director:context"],
