@@ -325,6 +325,20 @@ def build_plan(bundle: dict, brief: str) -> dict:
             "scene_plan", "narration", "material_match", "subtitle", "music", "watermark"
         ], "preview": ["composition"], "verify": ["composition", "preview"], "render": ["verify"],
     }
+    node_outputs = {
+        "understand": ["director:context"],
+        "script": ["script:main"],
+        "scene_plan": ["scene_plan:main"],
+        "narration": ["narration:timeline"],
+        "material_match": ["material_match:assets"],
+        "subtitle": ["subtitle:track"],
+        "music": ["music:track"],
+        "watermark": ["watermark:applied"],
+        "composition": ["composition:main"],
+        "preview": ["preview:draft_or_storyboard"],
+        "verify": ["verify:report"],
+        "render": ["render:final"],
+    }
     nodes = []
     for node_id, label, description in NODE_DEFS:
         nodes.append({
@@ -333,7 +347,7 @@ def build_plan(bundle: dict, brief: str) -> dict:
             "description": description,
             "status": "PENDING",
             "inputs": node_inputs.get(node_id, []),
-            "outputs": [],
+            "outputs": node_outputs.get(node_id, []),
             "tool_calls": [],
             "dependencies": dependencies.get(node_id, []),
             "decision": {},
