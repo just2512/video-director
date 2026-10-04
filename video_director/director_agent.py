@@ -349,7 +349,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
     path = _json_file(base / "assets" / "match_assignments.json", assignments)
     coverage_ok = (
         all(s["id"] in assignments for s in state["narration_scenes"])
-        if match_enabled and any(a.type == "video" for a in all_assets.values())
+        if match_enabled and visual_source != "online"
+        and any(a.type == "video" for a in all_assets.values())
         else True
     )
     checks = [
