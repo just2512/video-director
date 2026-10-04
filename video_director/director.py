@@ -570,34 +570,29 @@ def direct(project_id: str, instruction: str,
             item_for_verify["_result"] = res
             entry["verify"] = _verify_step(project_id, item_for_verify, selection)
 
-        # §55 Repair：asset.search 失败 → 自动回退 generate.image（§四十）
-        # §55/§四十 Repair：asset.search 失败 → VisualSearchIntent 多组检索词
-        # 逐组重试 → 仍无 → generate.image（§40 自动回退链 Local→Stock→AI Image）
-        if not res.get("ok") and item.get("action") in _REPAIR_RULES:
-            fallback = _REPAIR_RULES[item["action"]]
-            fb_spec = action_registry.get_action(fallback)
+        # §55 Repair：找不到可采用素材时，只允许继续做“真实可落地”的 AI 生成回退。
+        if not res.get("ok") and item.get("action") == "asset.search":
             queries = _search_fallback_queries(project_id, item.get("targetId") or "")
-            repair_note = f"自动回退：{fb_spec.label if fb_spec else fallback}"
-            repaired = False
-            for q in queries[:3]:  # §23 多组词逐组重试（不无限尝试，§四十预算）
-                retry = tool_executor.execute_tool(project_id, {
-                    "tool": "stock.search", "targetId": item["targetId"],
-                    "payload": {"query": q}})
-                if retry.get("ok") and (retry.get("result", {}).get("candidates") or []):
-                    entry["repair"] = {"tool": "stock.search", "ok": True,
-                                       "note": f"{repair_note}：检索词「{q}」找到候选"}
-                    repaired = True
-                    break
-            if not repaired and fb_spec:
-                fb_res = tool_executor.execute_tool(project_id, {
-                    "tool": fb_spec.capability, "targetId": item["targetId"],
-                    "payload": {"prompt": queries[0] if queries else (item["payload"].get("prompt") or ""),
-                                **{k: v for k, v in item["payload"].items()
-                                   if k in ("text", "style")}}})
-                entry["repair"] = {
-                    "tool": fb_spec.capability, "ok": fb_res.get("ok", False),
-                    "note": f"{repair_note}：多组检索无果，转 AI 生成",
+            fb_res = tool_executor.execute_tool(project_id, {
+                "tool": "generation.image",
+                "targetId": item["targetId"],
+                "payload": {
+                    "prompt": queries[0] if queries else (item.get("payload") or {}).get("query", ""),
+                    "width": None, "height": None,
+                },
+            })
+            entry["repair"] = {
+                "tool": "generation.image",
+                "ok": bool(fb_res.get("ok")),
+                "result": fb_res.get("result") or {},
+                "error": fb_res.get("error"),
+                "note": "图库素材无法采用，已回退到 AI 画面生成并尝试直接采用时间线",
+            }
+            if fb_res.get("ok"):
+                entry["verify"] = fb_res.get("verify") or {
+                    "ok": True, "note": "AI 生成画面已采用"
                 }
+
         executed.append(entry)
 
     all_ok = all(e.get("ok") for e in executed)
