@@ -188,6 +188,8 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
     """编辑域能力：映射到 editor.execute_command（Command Bus，§82）。"""
     cmd_name = _COMMAND_MAP[tool]
     p = dict(payload)
+    if tool == "layer.update" and p.get("duration") is not None:
+        cmd_name = "set_duration"
     # 语义 payload 字段对齐 editor 命令的字段名
     if tool == "timeline.replace":
         p = {"recipeId": p.get("recipeId") or p.get("recipe_id") or ""}
