@@ -450,7 +450,23 @@ function directorRenderPlan(run, detail){
     btn.onclick = () => {
       const n = plan.nodes.find(x => x.id === btn.dataset.directorNode);
       if (!n) return;
-      if (detailBox) detailBox.innerHTML = `<b>${esc(n.label || n.id)}</b>：${esc(n.description || '')}`;
+      if (detailBox) {
+        const inputs = Array.isArray(n.inputs) ? n.inputs : [];
+        const outputs = Array.isArray(n.outputs) ? n.outputs : [];
+        const verify = n.verify || {};
+        const decision = n.decision || {};
+        detailBox.innerHTML =
+          `<b>${esc(n.label || n.id)}</b>：${esc(n.description || '')}` +
+          `<div class="hint" style="margin-top:5px">输入：${inputs.length ? inputs.map(x => esc(String(x))).join('、') : '—'}</div>` +
+          `<div class="hint">输出：${outputs.length ? outputs.map(x => esc(String(x))).join('、') : '—'}</div>` +
+          `<div class="hint">验证：${esc(String(verify.status || (verify.ok === true ? 'PASS' : verify.ok === false ? 'FAIL' : 'PENDING')))}</div>` +
+          (decision && Object.keys(decision).length
+            ? `<div class="hint">决策：${esc(JSON.stringify(decision).slice(0, 360))}</div>`
+            : '') +
+          (Array.isArray(n.artifacts) && n.artifacts.length
+            ? `<div class="hint">产物：${n.artifacts.map(x => esc(String(x))).join('、')}</div>`
+            : '');
+      }
       const input = document.getElementById('director-input');
       if (input && n.id !== 'understand') input.placeholder = `继续告诉 AI 如何处理“${n.label || n.id}”`;
     };
