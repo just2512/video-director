@@ -51,6 +51,21 @@ function _createPanelHtml(){
     <button class="btn-secondary btn-sm cf-src${CF.source === 'repo' ? ' chip-on' : ''}" data-src="repo">软件项目</button>
   </div>
   <div id="cf-source-area"></div>
+  <div class="panel" style="margin-top:12px;padding:14px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <b style="font-size:15px">AI 导演</b>
+      <span class="hint">你只需要描述想做什么，其他步骤由 AI 自动编排</span>
+    </div>
+    <textarea id="cf-director-brief" style="min-height:82px;margin-top:8px"
+      placeholder="例如：做一条 45 秒的视频，讲清楚为什么很多人越忙越没钱，口吻克制，画面以真实生活为主，适合抖音。"></textarea>
+    <div class="btn-row" style="margin-top:8px;align-items:center">
+      <button id="cf-ai-go" class="btn-sm" onclick="createProject()">AI 开始创作</button>
+      <span class="hint">可以不写文案；AI 会自己完成文案、分镜、配音、找画面、字幕、音乐、预览与预检。</span>
+    </div>
+    <div id="cf-director-plan-preview" class="hint" style="margin-top:8px"></div>
+  </div>
+  <details id="cf-manual-options" style="margin-top:12px">
+    <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
   <div id="cf-essentials">
     <label>主题（可选，交给 AI 写文案）</label>
     <div class="btn-row" style="align-items:center">
@@ -122,6 +137,8 @@ function _createPanelHtml(){
       </div>
     </div>
   </div>
+  </div>
+  </details>
   <!-- §22 GFX = 方案生成入口：图形方案预览区（proposal——确认后进工作台，无第二编辑器） -->
   <div id="cf-gfx-area" style="display:none">
     <div class="btn-row" style="align-items:center;flex-wrap:wrap">
@@ -201,7 +218,7 @@ function _createPanelHtml(){
     </div>
   </details>
   <div class="btn-row" style="margin-top:18px">
-    <button id="cf-go" onclick="createProject()">开始创作</button>
+    <button id="cf-go" onclick="createProject()">AI 开始创作</button>
     <span class="hint" id="cf-status"></span>
   </div>`;
 }
@@ -365,10 +382,18 @@ async function createProject(){
   const btn = document.getElementById('cf-go');
   const status = document.getElementById('cf-status');
   const script = (document.getElementById('cf-script') || {}).value || '';
+  const brief = (document.getElementById('cf-director-brief') || {}).value || '';
   const assets = document.getElementById('cf-assets');
   const hasFiles = !!(assets && assets.files.length);
   const visualSource = (document.getElementById('cf-visual-source') || {}).value || 'auto';
-  if (!script.trim() && !hasFiles) { status.textContent = '请先填文案，或选择素材'; return; }
+  if (!brief.trim() && !script.trim() && !hasFiles) {
+    status.textContent = '请告诉 AI 想做什么，或填写文案 / 添加素材';
+    return;
+  }
+  if (!brief.trim() && !script.trim() && hasFiles) {
+    status.textContent = '已添加素材，但还缺少创作意图：请在 AI 导演里用一句话说明怎么剪';
+    return;
+  }
   CF.state = 'submitting';
   btn.disabled = true;
   status.textContent = '正在提交创作任务……';
@@ -443,8 +468,10 @@ async function createProject(){
       return;
     }
   }
-  const wfResp = await apiPost('/api/workflows', {kind: 'compose', spec: {
-    script,
+  const directorBrief = brief.trim();
+  const requestOptions = {
+    brief: directorBrief,
+    script: script.trim(),
     creative_brief: briefParts.length ? '【创作简报】' + briefParts.join('；') : '',
     mode: 'auto',
     voice: voiceMode === 'auto' ? ((document.getElementById('cf-voice') || {}).value || 'zh-CN-XiaoxiaoNeural') : '',
@@ -471,7 +498,16 @@ async function createProject(){
     visual_source: visualSource,
     auto_confirm: ((document.getElementById('cf-confirm') || {}).value || 'preview') === 'direct',
     video_paths: videoNames, image_paths: imageNames,
-  }});
+  };
+  const wfResp = directorBrief
+    ? await apiPost('/api/director/create', {
+        ...requestOptions,
+        brief: directorBrief,
+        platform: (document.getElementById('cf-platform') || {}).value || '',
+        duration: (document.getElementById('cf-duration') || {}).value || '',
+        style: (document.getElementById('cf-style') || {}).value || '',
+      })
+    : await apiPost('/api/workflows', {kind: 'compose', spec: requestOptions});
   if (!wfResp.ok || !wfResp.run_id) {
     CF.state = 'failed';
     status.textContent = '任务提交失败：' + (wfResp.error || '未知') + '（内容未保存，可重试）';
