@@ -303,8 +303,8 @@ def _execute_music_match(project_id: str) -> dict:
             return _result("music.match_video", False, "MUSIC_UNAVAILABLE",
                            error="音乐库为空，无法自动配乐")
         result = editor_mod.execute_command(project_id, {
-            "command": "set_audio_track",
-            "targetId": "",
+            "command": "set_audio_volume",
+            "targetId": "bgm",
             "payload": {"track_type": "bgm", "assetId": asset_id,
                         "volume": 0.3, "ducking": True},
             "author": "ai-director",
