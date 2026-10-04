@@ -542,7 +542,6 @@ _CONTEXT_KEYS = {
         "ui.open_voice_settings", "ui.open_audio_bus", "ui.open_subtitle_style",
         "voice.preview_full", "voice.upload", "content.generate_script",
         "content.rewrite_script", "music.auto_match", "music.preview",
-        "delivery.generate_metadata", "workflow.start", "workflow.resume",
         "asset.search", "generate.image", "generate.video", "generate.sfx",
         "render.draft", "render.final", "verify.run",
     ],
