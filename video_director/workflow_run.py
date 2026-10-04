@@ -244,11 +244,21 @@ def run_compose_async(spec: dict) -> str:
 
 
 def run_director_create_async(spec: dict, plan: Optional[dict] = None) -> str:
-    """AI Director 统一创作入口：输入上下文与计划一并进入 WorkflowRun。"""
+    """AI Director 统一创作入口：输入上下文与 12 个 Director 节点一并进入 WorkflowRun。"""
     payload = dict(spec or {})
     payload["_run_kind"] = "director_create"
     payload["director_plan"] = plan or {}
-    return run_compose_async(payload)
+    try:
+        from video_director.director_inputs import NODE_DEFS
+        steps = [node_id for node_id, _, _ in NODE_DEFS]
+    except Exception:
+        steps = ["understand", "script", "scene_plan", "narration", "material_match",
+                 "subtitle", "music", "watermark", "composition", "preview", "verify", "render"]
+    run_id = start_run("director_create", project_id=payload.get("project_id") or None,
+                       steps=steps, spec=payload)
+    t = threading.Thread(target=_compose_worker, args=(run_id, payload), daemon=True)
+    t.start()
+    return run_id
 
 
 def _compose_worker(run_id: str, spec: dict) -> None:
