@@ -68,6 +68,8 @@ UI_ONLY_PREFIXES = (
     "edLibApplyAsset(", "edLibAudioApply(",
     # 项目域 ··· 菜单/发布变体/版本对比（UI 状态，无 Composition 业务）
     "pmRowMenu(", "publishVariants(", "verCompareSelected(",
+    # ··· 菜单项 = pmCloseRowMenu() + 已白名单项目域动作（关闭浮层 + 委托）
+    "pmCloseRowMenu(", "cfGenerateScript(",
     # 轨道点击 → 打开对象上下文（§5.2/§6/§46 纯 UI 导航）
     "projectOverlayOpen(", "originalTrackOpen(", "bgmTrackOpen(",
     "editorAudioVolume(", "editorSubtitleStyleOpen(",
