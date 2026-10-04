@@ -634,14 +634,11 @@ function editorSubtitleStyleOpen(){
       <input type="number" id="sub-max-width" min="0.3" max="1" step="0.05" style="width:64px" placeholder="最大宽度" value="${st.max_width ?? 0.9}">
       <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply()">应用样式</button>
       <button class="btn-secondary btn-sm" onclick="editorSubtitleWhiteOnBlack()">白字黑边</button>
-      <button class="btn-secondary btn-sm" onclick="editorSubtitleNoBackground()">无背景</button>
+      <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply('no-background')">无背景</button>
     </div>
     <div class="hint">字幕样式直接写入 Composition：字体、字号、颜色、描边、背景、位置、对齐、宽度与动画均可由 AI 和人工共同修改。</div>
   </div>`);
   document.getElementById('ed-substyle-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
-}
-function editorSubtitleNoBackground(){
-  editorCmd('set_subtitle_style', {background: null, backgroundOpacity: 0}, '', true);
 }
 function editorSubtitleWhiteOnBlack(){
   const c = document.getElementById('sub-color');
@@ -898,8 +895,12 @@ function editorWatermarkOpacity(i){
       {kind: w.kind || 'text', text: w.text || '水印',
        anchor: w.anchor || 'top_right', opacity: v}, '', true); });
 }
-async function editorSubtitleStyleApply(){
+async function editorSubtitleStyleApply(mode){
   const payload = {};
+  if (mode === 'no-background') {
+    editorCmd('set_subtitle_style', {background: null, backgroundOpacity: 0}, '', true);
+    return;
+  }
   const fields = [
     ['sub-mode','mode','raw'], ['sub-font','font','raw'], ['sub-size','size','num'],
     ['sub-color','color','raw'], ['sub-stroke','strokeColor','raw'],
