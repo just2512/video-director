@@ -605,22 +605,43 @@ function editorSubtitleStyleOpen(){
         <option value="sentence"${st.mode === 'sentence' ? ' selected' : ''}>句子</option>
         <option value="word"${st.mode === 'word' ? ' selected' : ''}>逐词</option>
       </select>
-      <input type="number" id="sub-size" step="0.1" min="0.3" max="3" style="width:56px" placeholder="字号" value="${st.size ?? ''}">
+      <input type="text" id="sub-font" style="width:120px" placeholder="字体（可选）" value="${esc(st.font || '')}">
+      <input type="number" id="sub-size" step="0.1" min="0.3" max="3" style="width:64px" placeholder="字号" value="${st.size ?? ''}">
       <input type="color" id="sub-color" value="${st.color || '#ffffff'}" style="width:40px" title="字幕颜色">
+      <input type="color" id="sub-background" value="${st.background || '#000000'}" style="width:40px" title="字幕背景颜色">
+    </div>
+    <div class="btn-row" style="flex-wrap:wrap;margin-top:4px">
       <select id="sub-pos" style="width:72px">
         <option value="bottom"${st.position === 'bottom' || !st.position ? ' selected' : ''}>底部</option>
         <option value="center"${st.position === 'center' ? ' selected' : ''}>居中</option>
         <option value="top"${st.position === 'top' ? ' selected' : ''}>顶部</option>
       </select>
+      <select id="sub-align" style="width:72px">
+        <option value="left"${st.alignment === 'left' ? ' selected' : ''}>左对齐</option>
+        <option value="center"${st.alignment === 'center' || !st.alignment ? ' selected' : ''}>居中</option>
+        <option value="right"${st.alignment === 'right' ? ' selected' : ''}>右对齐</option>
+      </select>
+      <select id="sub-animation" style="width:92px">
+        <option value="none"${st.animation === 'none' || !st.animation ? ' selected' : ''}>无动画</option>
+        <option value="fade"${st.animation === 'fade' ? ' selected' : ''}>淡入</option>
+        <option value="pop_spring"${st.animation === 'pop_spring' ? ' selected' : ''}>弹簧高亮</option>
+      </select>
+      <input type="number" id="sub-stroke-width" min="0" max="12" step="1" style="width:56px" placeholder="描边宽" value="${st.stroke_width ?? 2}">
+      <input type="number" id="sub-bg-opacity" min="0" max="1" step="0.05" style="width:64px" placeholder="背景透明" value="${st.background_opacity ?? 0.5}">
+    </div>
+    <div class="btn-row" style="flex-wrap:wrap;margin-top:4px">
+      <input type="text" id="sub-stroke" placeholder="描边色（例：#000000）" style="width:110px" value="${esc(st.stroke_color || '')}">
+      <input type="number" id="sub-max-width" min="0.3" max="1" step="0.05" style="width:64px" placeholder="最大宽度" value="${st.max_width ?? 0.9}">
       <button class="btn-secondary btn-sm" onclick="editorSubtitleStyleApply()">应用样式</button>
+      <button class="btn-secondary btn-sm" onclick="editorSubtitleWhiteOnBlack()">白字黑边</button>
+      <button class="btn-secondary btn-sm" onclick="editorSubtitleNoBackground()">无背景</button>
     </div>
-    <div class="hint">白字黑边：颜色 #ffffff + 黑描边可在下方输入。</div>
-    <div class="btn-row" style="margin-top:4px">
-      <input type="text" id="sub-stroke" placeholder="描边色（例：#000000）" style="width:110px">
-      <button class="btn-secondary btn-sm" onclick="editorSubtitleWhiteOnBlack()">白字黑边一键</button>
-    </div>
+    <div class="hint">字幕样式直接写入 Composition：字体、字号、颜色、描边、背景、位置、对齐、宽度与动画均可由 AI 和人工共同修改。</div>
   </div>`);
   document.getElementById('ed-substyle-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+function editorSubtitleNoBackground(){
+  editorCmd('set_subtitle_style', {background: null, backgroundOpacity: 0}, '', true);
 }
 function editorSubtitleWhiteOnBlack(){
   const c = document.getElementById('sub-color');
@@ -879,16 +900,20 @@ function editorWatermarkOpacity(i){
 }
 async function editorSubtitleStyleApply(){
   const payload = {};
-  const mode = document.getElementById('sub-mode');
-  const size = document.getElementById('sub-size');
-  const color = document.getElementById('sub-color');
-  const pos = document.getElementById('sub-pos');
-  const stroke = document.getElementById('sub-stroke');
-  if (mode && mode.value) payload.mode = mode.value;
-  if (size && size.value) payload.size = parseFloat(size.value);
-  if (color && color.value) payload.color = color.value;
-  if (pos && pos.value) payload.position = pos.value;
-  if (stroke && stroke.value.trim()) payload.strokeColor = stroke.value.trim();
+  const fields = [
+    ['sub-mode','mode','raw'], ['sub-font','font','raw'], ['sub-size','size','num'],
+    ['sub-color','color','raw'], ['sub-stroke','strokeColor','raw'],
+    ['sub-stroke-width','strokeWidth','num'], ['sub-background','background','raw'],
+    ['sub-bg-opacity','backgroundOpacity','num'], ['sub-pos','position','raw'],
+    ['sub-align','alignment','raw'], ['sub-max-width','maxWidth','num'],
+    ['sub-animation','animation','raw'],
+  ];
+  for (const [id,key,kind] of fields) {
+    const el = document.getElementById(id);
+    if (!el || el.value === '') continue;
+    payload[key] = kind === 'num' ? parseFloat(el.value) : el.value;
+  }
+  if (payload.background) payload.background = payload.background;
   if (!Object.keys(payload).length) { editorToast('先调整样式字段'); return; }
   editorCmd('set_subtitle_style', payload, '', true);
 }
