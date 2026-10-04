@@ -191,13 +191,24 @@
           </div>
         </div>
       </div>
+      <!-- AI Director Plan：持久化创作节点（WorkflowRun），可逐节点查看状态与输出 -->
+      <div class="panel" id="director-plan-card" style="display:none;padding:10px">
+        <div class="btn-row" style="align-items:center;margin-top:0">
+          <b>AI 导演流程</b>
+          <span class="hint" id="director-plan-goal"></span>
+          <span class="tb-sep"></span>
+          <span class="hint" id="director-plan-status"></span>
+        </div>
+        <div id="director-plan-nodes" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0 2px"></div>
+        <div id="director-plan-detail" class="hint"></div>
+      </div>
       <!-- AI Command Bar：当前对象的修改器（上下文行 + 输入 + 结果区） -->
       <div class="panel" id="director-bar-card" style="padding:10px">
         <div class="btn-row" style="align-items:center;margin-top:0">
           <input type="text" id="director-input" class="rev-input" style="flex:1"
-                 placeholder="⌘K  描述你要修改的地方……"
+                 placeholder="⌘K  描述你想改什么，例如：第二段换一个真实生活画面，字幕小一点……"
                  onkeydown="if(event.key==='Enter')directorExecute()">
-          <button class="btn-sm" onclick="directorExecute()">应用修改</button>
+          <button class="btn-sm" onclick="directorExecute()">AI 执行</button>
         </div>
         <div class="hint" id="director-ctx-line"></div>
         <div class="hint dev-only" id="director-cap-note">动作注册表 <span id="director-cap-count">--</span> 项（UI 与 AI 同源）</div>
