@@ -142,6 +142,7 @@ _RENDER = {"render.draft", "render.final"}
 #: §37/§57 项目管理能力（Variant 快照 / 重开 / 保存）
 _PROJECT_MGMT = {"version.create", "project.reopen", "project.save", "project.create"}
 
+_CONTENT = {"content.generate_script", "content.rewrite_script"}
 
 _VERIFY = {"timeline.verify", "audio.verify", "asset.verify", "render.verify", "composition.verify"}
 
