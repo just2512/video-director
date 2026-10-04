@@ -66,6 +66,8 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
             return _execute_render(project_id, tool, payload, target_id)
         if _is_project_mgmt(tool):
             return _execute_project_mgmt(project_id, tool, payload, target_id)
+        if _is_content(tool):
+            return _execute_content(project_id, tool, payload, target_id)
         return _execute_editor_command(project_id, tool, payload, target_id)
     except ToolExecutorError as exc:
         return _result(tool, False, exc.code, error=str(exc))
@@ -164,6 +166,10 @@ def _is_render(tool: str) -> bool:
 
 def _is_project_mgmt(tool: str) -> bool:
     return tool in _PROJECT_MGMT
+
+
+def _is_content(tool: str) -> bool:
+    return tool in _CONTENT
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +282,27 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
     return resp
 
 
+def _execute_content(project_id: str, tool: str, payload: dict, target_id) -> dict:
+    """内容域：Director 可直接生成/润色脚本，返回 ScriptArtifact，不修改 Composition。"""
+    from video_director import llm_provider
+    try:
+        if tool == "content.generate_script":
+            script = llm_provider.generate_script(
+                payload.get("topic", ""),
+                platform=payload.get("platform", ""),
+                duration=payload.get("duration", ""),
+                style=payload.get("style", ""),
+            )
+        else:
+            script = llm_provider.enhance_script(payload.get("script", ""))
+        return _result(tool, True, "OK", result={
+            "artifactType": "ScriptArtifact",
+            "script": script,
+        })
+    except Exception as exc:
+        return _result(tool, False, "CONTENT_GENERATION_FAILED", error=str(exc)[:300])
+
+
 def _execute_generation(project_id: str, tool: str, payload: dict, target_id) -> dict:
     """生成域能力：统一走 generation.generate（§28 单一 Generation Provider）。"""
     from video_director import generation as gen
@@ -292,9 +319,43 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
         )
     except gen.GenerationError as exc:
         return _result(tool, False, exc.code, error=str(exc))
+
+    records = [r.model_dump() if hasattr(r, "model_dump") else r for r in results]
+    adopted = []
+    # Director 生成画面后立即采用：scene → 首个视觉层，layer → 当前层。
+    # 这样“生成画面”不再停在孤立资产库里，而是形成 Generate → Apply → Verify 闭环。
+    if gen_type in ("image", "video") and results and target_id:
+        first = results[0]
+        try:
+            ir = editor.load_composition(project_id)
+            target_layer = target_id
+            if "#" not in str(target_id):
+                scene = next((s for s in ir.scenes if s.id == target_id), None)
+                if scene and scene.layers:
+                    target_layer = f"{scene.id}#0"
+            if target_layer and "#" in str(target_layer):
+                result = editor.execute_command(project_id, {
+                    "command": "replace_source",
+                    "targetId": target_layer,
+                    "payload": {"assetId": first.asset_id},
+                    "author": "ai-director",
+                })
+                if result.status == "APPLIED":
+                    adopted.append({
+                        "asset_id": first.asset_id,
+                        "targetId": target_layer,
+                        "revision_id": result.revision_id,
+                    })
+                else:
+                    return _result(tool, False, result.status,
+                                   result={"results": records},
+                                   error=_fmt_errors(result.errors) or "生成成功但未能应用到时间线")
+        except Exception as exc:
+            return _result(tool, False, "ADOPTION_FAILED",
+                           result={"results": records},
+                           error=f"生成成功，但采用到时间线失败：{exc}")
     return _result(tool, True, "APPLIED",
-                   result={"results": [r.model_dump() if hasattr(r, "model_dump") else r
-                                       for r in results]})
+                   result={"results": records, "adopted": adopted})
 
 
 def _execute_render(project_id: str, tool: str, payload: dict, target_id) -> dict:
