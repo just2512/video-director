@@ -280,6 +280,7 @@ def compose_project(
     planner: Optional[object] = None,
     narration_file: Optional[str] = None,
     narration_scenes: Optional[List[dict]] = None,
+    narration_volume: float = 1.0,
     bgm_asset_id: Optional[str] = None,
     bgm_volume: float = None,
     sfx_plan: Optional[List[dict]] = None,
