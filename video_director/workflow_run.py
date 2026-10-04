@@ -263,7 +263,10 @@ def _compose_worker(run_id: str, spec: dict) -> None:
                    result=result)
     except Exception as exc:  # noqa: BLE001 失败落 run，前端能看到失败阶段
         logger.exception(f"workflow compose {run_id} failed")
-        finish_run(run_id, FAILED, error=str(exc)[:800])
+        finish_run(run_id, FAILED,
+                   result={"director_plan": spec.get("director_plan", {})}
+                   if spec.get("director_plan") else {},
+                   error=str(exc)[:800])
 
 
 def _execute_compose(spec: dict, run_id: str) -> dict:
