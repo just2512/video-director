@@ -50,6 +50,7 @@ SCHEMAS: Dict[str, InputSchema] = {
         "speed": FieldSpec("float", minimum=0.1),
         "opacity": FieldSpec("float", minimum=0.0, maximum=1.0),
         "scale": FieldSpec("float", minimum=0.1, maximum=3.0),
+        "duration": FieldSpec("float", minimum=0.3),
     }),
     "OriginalAudioPolicy": InputSchema("OriginalAudioPolicy", {
         "mode": FieldSpec("enum:str", enum=frozenset({"preserve", "mute"}), required=True),
