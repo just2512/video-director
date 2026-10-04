@@ -533,9 +533,11 @@ async function createProject(){
         closeCreate();
         if (run.status === 'WAITING_CONFIRMATION' && result.project_id) {
           editorToast('方案已生成，正在打开工作台……');
-          workspaceOpen(result.project_id);
+          await workspaceOpen(result.project_id);
+          await directorLoadRun(runId);
         } else if (result.project_id) {
-          workspaceOpen(result.project_id);
+          await workspaceOpen(result.project_id);
+          await directorLoadRun(runId);
           editorToast('创作完成，已打开工作台');
         }
         loadProjects();
