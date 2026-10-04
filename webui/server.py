@@ -1752,6 +1752,105 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "context": {}})  # 上报成功即可，快照失败不阻塞
             return
 
+        # AI Director：自然语言创作入口（无需先建项目）
+        if parsed.path == "/api/director/create":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            brief = (payload.get("brief") or "").strip()
+            script = (payload.get("script") or "").strip()
+            if not brief and not script:
+                self._send_json({"ok": False, "error": "请用一句话告诉 AI 想做什么"}, 400)
+                return
+            try:
+                from video_director import llm_provider as _lp
+                from video_director import workflow_run as _wf
+                from video_director import config as _cfg
+                pid = (payload.get("project_id") or "").strip() or f"web-{uuid.uuid4().hex[:8]}"
+                platform = (payload.get("platform") or "").strip()
+                duration = str(payload.get("duration") or "").strip()
+                style = (payload.get("style") or "").strip()
+                if not script:
+                    script = _lp.generate_script(
+                        brief, platform=platform, duration=duration, style=style)
+                if not script.strip():
+                    raise RuntimeError("AI 没有返回可执行文案")
+                resolution = (payload.get("resolution") or "").strip()
+                platform_dims = {
+                    "douyin": (1080, 1920), "video_channel": (1080, 1920),
+                    "bilibili": (1920, 1080), "xhs": (1080, 1440),
+                    "square": (1080, 1080),
+                }
+                if resolution and "x" in resolution:
+                    rw, rh = [int(x) for x in resolution.split("x", 1)]
+                else:
+                    rw, rh = platform_dims.get(platform, _cfg.DEFAULT_RESOLUTION)
+                confirm_mode = (payload.get("confirm_mode") or "preview").strip()
+                plan_steps = [
+                    ("understand", "理解创作要求", "读取简报、目标平台、画幅与素材约束"),
+                    ("script", "文案", "生成/确认可配音文案"),
+                    ("scene_plan", "分镜", "按文案拆场景并规划画面"),
+                    ("narration", "配音", "生成旁白并建立词级时间轴"),
+                    ("material_match", "画面", "本地优先，缺口自动搜索 Stock，必要时生成画面"),
+                    ("subtitle", "字幕", "生成字幕轨并应用样式"),
+                    ("music", "音乐", "按内容/风格自动配乐"),
+                    ("watermark", "品牌", "按要求加入水印/人物条"),
+                    ("composition", "时间线", "统一合成并更新 Composition"),
+                    ("preview", "预览", "生成可审片草稿"),
+                    ("verify", "预检", "重新读取项目并做确定性检查"),
+                    ("render", "成片", "确认后输出最终视频"),
+                ]
+                plan = {
+                    "version": "director-create-v1",
+                    "goal": brief or "按用户提供文案完成成片",
+                    "brief": brief,
+                    "script_source": "user" if payload.get("script") else "ai",
+                    "nodes": [{"id": sid, "label": label, "description": desc}
+                              for sid, label, desc in plan_steps],
+                }
+                spec = {
+                    "project_id": pid,
+                    "script": script,
+                    "creative_brief": brief,
+                    "mode": "auto",
+                    "voice": payload.get("voice") or "zh-CN-XiaoxiaoNeural",
+                    "voice_mode": payload.get("voice_mode") or "auto",
+                    "voice_rate": payload.get("voice_rate") or "1.0",
+                    "style_intent": style,
+                    "width": rw, "height": rh,
+                    "fps": int(payload.get("fps") or 30),
+                    "bgm": payload.get("bgm") or "auto",
+                    "bgm_volume": float(payload.get("bgm_volume") or 0.3),
+                    "sfx_plan": payload.get("sfx_plan"),
+                    "subtitle_mode": payload.get("subtitle_mode") or "plain",
+                    "fit_mode": payload.get("fit_mode") or "cover",
+                    "clip_duration": payload.get("clip_duration"),
+                    "clip_speed": payload.get("clip_speed"),
+                    "concat_mode": payload.get("concat_mode") or "sequential",
+                    "transition_mode": payload.get("transition_mode") or "cut",
+                    "match_materials_to_script": bool(payload.get("match_materials_to_script", True)),
+                    "watermark": payload.get("watermark") or "",
+                    "lower_third_name": payload.get("lower_third_name") or "",
+                    "lower_third_role": payload.get("lower_third_role") or "",
+                    "confirm_mode": confirm_mode,
+                    "auto_confirm": confirm_mode == "direct",
+                    "visual_source": payload.get("visual_source") or "auto",
+                    "video_paths": payload.get("video_paths") or [],
+                    "image_paths": payload.get("image_paths") or [],
+                    "narration_upload": payload.get("narration_upload") or "",
+                }
+                run_id = _wf.run_director_create_async(spec, plan=plan)
+                self._send_json({
+                    "ok": True, "run_id": run_id, "project_id": pid,
+                    "script": script, "director_plan": plan,
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 503)
+            return
+
         # §12 UI/AI 共用唯一动作入口：Action → Capability → Command Bus。
         # UI 只提交用户语义 action；Director 也使用同一 Registry。
         if parsed.path == "/api/action/execute":
