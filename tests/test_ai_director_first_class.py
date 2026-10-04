@@ -191,3 +191,11 @@ def test_mpt_ui_surface_is_real_not_only_backend():
     assert 'id="sub-font"' in inspector
     assert 'id="sub-animation"' in inspector
     assert 'id="director-plan-card"' in index
+
+
+def test_bgm_semantics_do_not_claim_ai_generation():
+    """§十一：BGM「自动匹配」必须表达「选现有音乐」，不能误导为 AI 生成音乐。"""
+    root = Path(__file__).parents[1]
+    create = (root / "webui" / "static" / "js" / "create.js").read_text(encoding="utf-8")
+    assert "AI 自动匹配" not in create
+    assert "匹配现有音乐" in create

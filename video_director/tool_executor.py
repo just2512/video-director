@@ -48,7 +48,13 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
     from video_director.capability_registry.manifest import manifest as _mf
     if tool not in _mf():
         return _result(tool, False, "UNKNOWN_CAPABILITY", error=f"未知能力 {tool!r}")
-    ok, errors = validate_tool_call(tool, payload)
+    # targetId 是 tool_call 顶层字段，但部分 inputSchema（TargetRequest/
+    # LayerUpdateRequest/…）把 targetId 声明为 required——校验时须并入 payload，
+    # 否则 targetId-required 能力永远报「缺必填字段 targetId」。
+    _valid_payload = dict(payload)
+    if target_id is not None:
+        _valid_payload.setdefault("targetId", target_id)
+    ok, errors = validate_tool_call(tool, _valid_payload)
     if not ok:
         return _result(tool, False, "INVALID_PAYLOAD", error="；".join(errors))
 
@@ -198,7 +204,8 @@ def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id
              "assetType": p.get("assetType") or p.get("asset_type") or "image",
              "sourceOut": p.get("sourceOut") or p.get("source_out")}
     elif tool == "layer.update":
-        p = {k: v for k, v in p.items() if k in ("scale", "opacity")}
+        keep = ("duration",) if cmd_name == "set_duration" else ("scale", "opacity")
+        p = {k: v for k, v in p.items() if k in keep}
     elif tool in ("audio.original.preserve", "audio.original.mute"):
         p = {"mode": "preserve" if tool.endswith("preserve") else "mute",
              "volume": p.get("volume"), "duckAgainst": p.get("duckAgainst"),

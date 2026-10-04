@@ -269,7 +269,7 @@ async function createLoadDefaults(){
     const voices = await apiGet('/api/voices');
     _rebuildSelect('cf-voice', voices.map(v => [v.id, v.label]));
     const bgms = await apiGet('/api/bgm');
-    _rebuildSelect('cf-bgm', [['auto', 'AI 自动匹配'], ['', '（不配乐）'],
+    _rebuildSelect('cf-bgm', [['auto', '自动按内容与风格匹配现有音乐'], ['', '（不配乐）'],
                               ...bgms.map(b => [b.id, b.label])]);
     const sfxs = await apiGet('/api/sfx');
     _rebuildSelect('cf-sfx', [['auto', '自动（按镜头配音效，推荐）'], ['', '关闭'],
