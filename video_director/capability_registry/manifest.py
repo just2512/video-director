@@ -90,6 +90,13 @@ def _build_manifest() -> List[Capability]:
     caps.append(_cap("project.save", "ai",
         "保存项目（project.save 落盘）", outputs=("Project",), side_effect="composition",
         examples=("保存项目",)))
+    # ---- CAP-AI 内容能力：Director 可直接生成/改写文案，不再暴露 noop Action ----
+    caps.append(_cap("content.generate_script", "ai",
+        "根据自然语言创作简报生成可配音文案", input_schema="ScriptGenerateRequest",
+        outputs=("Script",), side_effect="", examples=("根据这个主题写短视频文案",)))
+    caps.append(_cap("content.rewrite_script", "ai",
+        "在保持事实与原意的前提下润色文案", input_schema="ScriptRewriteRequest",
+        outputs=("Script",), side_effect="", examples=("把文案口语化一点",)))
 
     # ---- CAP-EDIT（§85/§18/§19/§34：AI 最基本的"手"）----
     caps.append(_cap("timeline.query", "edit",
