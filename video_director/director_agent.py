@@ -119,6 +119,11 @@ def _tool_script(spec: dict, state: dict) -> dict:
         _json_file(config.project_dir(state["project_id"]) / "plans" / "director_inputs.json", bundle)
     state["script"] = s
     state["scene_texts"] = _scene_texts(s)
+    try:
+        from video_director import store
+        store.update_script(state["project_id"], s)
+    except Exception as exc:
+        logger.warning("Director script store update failed: %s", exc)
     path = config.project_dir(state["project_id"]) / "input" / "script.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(s, encoding="utf-8")
