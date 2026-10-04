@@ -176,6 +176,15 @@ SCHEMAS: Dict[str, InputSchema] = {
     "ProjectReopenRequest": InputSchema("ProjectReopenRequest", {
         "projectId": FieldSpec("str", required=True),
     }),
+    "ScriptGenerateRequest": InputSchema("ScriptGenerateRequest", {
+        "topic": FieldSpec("str", required=True),
+        "platform": FieldSpec("str"),
+        "duration": FieldSpec("str"),
+        "style": FieldSpec("str"),
+    }),
+    "ScriptRewriteRequest": InputSchema("ScriptRewriteRequest", {
+        "script": FieldSpec("str", required=True),
+    }),
     "ReviewRequest": InputSchema("ReviewRequest", {
         "projectId": FieldSpec("str", required=True),
         "issue": FieldSpec("str", required=True),
