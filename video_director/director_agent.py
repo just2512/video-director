@@ -270,9 +270,10 @@ def _tool_material(spec: dict, state: dict) -> dict:
     all_assets = {**vv, **ii}
     order = vo + io
 
+    visual_source = state.get("constraints", {}).get("visual_source") or "auto"
     assignments = {}
     match_enabled = bool(spec.get("match_materials_to_script", True))
-    if match_enabled and all_assets and state.get("narration_scenes"):
+    if visual_source != "online" and match_enabled and all_assets and state.get("narration_scenes"):
         try:
             assignments = matcher.match_assets(
                 state["narration_scenes"], all_assets, llm_call
@@ -286,7 +287,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
         s["id"] for s in state.get("narration_scenes") or []
         if s["id"] not in assignments
     ]
-    local_only = state.get("constraints", {}).get("visual_source") == "local"
+    local_only = visual_source == "local"
     allow_stock = bool(state.get("constraints", {}).get("allow_stock", True))
 
     if missing and allow_stock and not local_only:
@@ -307,13 +308,17 @@ def _tool_material(spec: dict, state: dict) -> dict:
             stock_files = list(sr.get("files") or [])
             metadata.update(sr.get("metadata") or {})
             warnings.extend(sr.get("warnings") or [])
-            videos.extend([x for x in stock_files if x not in videos and x not in images])
+            if visual_source == "online":
+                videos = list(stock_files)
+                images = []
+            else:
+                videos.extend([x for x in stock_files if x not in videos and x not in images])
             vv, vo = assets_mod.build_manifest(videos, [], asset_metadata=metadata) if videos else ({}, [])
             ii, io = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
             all_assets, order = {**vv, **ii}, vo + io
             assignments = (
                 matcher.match_assets(state["narration_scenes"], all_assets, llm_call)
-                if match_enabled else {}
+                if match_enabled and visual_source != "online" else {}
             )
         except Exception as exc:
             warnings.append("网络素材补足失败：" + str(exc))
