@@ -137,7 +137,6 @@ function _createPanelHtml(){
       </div>
     </div>
   </div>
-  </div>
   </details>
   <!-- §22 GFX = 方案生成入口：图形方案预览区（proposal——确认后进工作台，无第二编辑器） -->
   <div id="cf-gfx-area" style="display:none">
