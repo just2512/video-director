@@ -291,7 +291,7 @@ _ACTIONS: List[ActionSpec] = [
                aliases=["字幕放底部", "字幕放顶部", "字幕居中"],
                payload_defaults={}),
     # ---- §66 音乐扩展 ----
-    ActionSpec("music.auto_match", "自动配乐", "music.add", "set_audio_track",
+    ActionSpec("music.auto_match", "自动配乐", "music.match_video", "auto_match",
                targets=["project"], undo=False,
                aliases=["自动匹配 BGM", "配点音乐"]),
     ActionSpec("music.preview", "试听音乐", "music.preview", "noop",
