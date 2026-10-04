@@ -173,33 +173,59 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
 
 
 def _tool_narration(spec: dict, state: dict) -> dict:
-    out_dir = config.project_dir(state["project_id"]) / "audio"
+    pid = state["project_id"]
+    out_dir = config.project_dir(pid) / "audio"
     out_dir.mkdir(parents=True, exist_ok=True)
-    audio_path, words, scenes = narration.synth_narration(
-        state["scene_texts"],
-        spec.get("voice") or "zh-CN-XiaoxiaoNeural",
-        out_dir,
-        rate=spec.get("voice_rate") or "+0%",
-    )
+    scene_texts = state["scene_texts"]
+    voice_mode = spec.get("voice_mode") or "auto"
+    uploaded = spec.get("narration_upload") or ""
+
+    if uploaded:
+        from video_director import voice_upload
+        up = voice_upload.import_uploaded_voice(
+            pid, uploaded, scene_texts=scene_texts
+        )
+        audio_path = up["narration_file"]
+        words = up.get("word_timeline") or []
+        scenes = up.get("narration_scenes") or []
+        tool_name = "narration.upload"
+    else:
+        voice = "silent" if voice_mode == "silent" else (
+            spec.get("voice") or "zh-CN-XiaoxiaoNeural"
+        )
+        audio_path, words, scenes = narration.synth_narration(
+            scene_texts, voice, out_dir,
+            rate=spec.get("voice_rate") or "+0%",
+        )
+        tool_name = "narration.synthesize"
+
     state["narration_file"] = audio_path
     state["word_timeline"] = words
     state["narration_scenes"] = scenes
-    p1 = _json_file(config.project_dir(state["project_id"]) / "plans" / "alignment" / "words.json", words)
-    p2 = _json_file(config.project_dir(state["project_id"]) / "plans" / "scenes.json", scenes)
-    voice = spec.get("voice") or "zh-CN-XiaoxiaoNeural"
+    p1 = _json_file(
+        config.project_dir(pid) / "plans" / "alignment" / "words.json",
+        words,
+    )
+    p2 = _json_file(
+        config.project_dir(pid) / "plans" / "scenes.json",
+        scenes,
+    )
+    silent_ok = voice_mode == "silent" and not uploaded
     checks = [
         {"id": "audio", "ok": _file_ok(audio_path)},
         {"id": "scenes", "ok": bool(scenes)},
-        {"id": "words", "ok": bool(words) or voice in ("", "silent")},
+        {"id": "words", "ok": bool(words) or silent_ok},
         {"id": "alignment_file", "ok": _file_ok(p1)},
         {"id": "scene_file", "ok": _file_ok(p2)},
     ]
+    ok = all(x["ok"] for x in checks)
     return {
-        "ok": all(x["ok"] for x in checks),
-        "tool": "narration.synthesize",
-        "status": "APPLIED",
-        "result": {"audio": audio_path, "words": p1, "scenes": p2},
-        "verify": {"ok": all(x["ok"] for x in checks), "checks": checks},
+        "ok": ok,
+        "tool": tool_name,
+        "status": "APPLIED" if ok else "FAILED",
+        "result": {"audio": audio_path, "words": p1, "scenes": p2,
+                   "source": "upload" if uploaded else voice_mode},
+        "verify": {"ok": ok, "checks": checks},
     }
 
 
@@ -221,17 +247,40 @@ def _tool_material(spec: dict, state: dict) -> dict:
 
     vv, vo = assets_mod.build_manifest(videos, [], asset_metadata=metadata) if videos else ({}, [])
     ii, io = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
+    vision_provider = None
+    try:
+        vision_provider = vision_mod.FrameVisionProvider()
+    except Exception:
+        vision_provider = None
+    manual_manifest = spec.get("manual_manifest") or ""
+    if not manual_manifest and videos:
+        sibling = Path(videos[0]).parent / "assets_semantic.json"
+        if sibling.is_file():
+            manual_manifest = str(sibling)
+    if vv:
+        vv = vision_mod.analyze_assets(
+            vv, base / "assets", manual_manifest=manual_manifest,
+            vision_provider=vision_provider,
+        )
     all_assets = {**vv, **ii}
     order = vo + io
 
     assignments = {}
-    if all_assets and state.get("narration_scenes"):
+    match_enabled = bool(spec.get("match_materials_to_script", True))
+    if match_enabled and all_assets and state.get("narration_scenes"):
         try:
-            assignments = matcher.match_assets(state["narration_scenes"], all_assets, llm_call) or {}
+            assignments = matcher.match_assets(
+                state["narration_scenes"], all_assets, llm_call
+            ) or {}
         except Exception as exc:
             warnings.append("本地素材匹配失败：" + str(exc))
+    elif all_assets and state.get("narration_scenes"):
+        warnings.append("用户关闭脚本语义匹配：按素材顺序规划")
 
-    missing = [s["id"] for s in state.get("narration_scenes") or [] if s["id"] not in assignments]
+    missing = [
+        s["id"] for s in state.get("narration_scenes") or []
+        if s["id"] not in assignments
+    ]
     local_only = state.get("constraints", {}).get("visual_source") == "local"
     allow_stock = bool(state.get("constraints", {}).get("allow_stock", True))
 
@@ -257,7 +306,10 @@ def _tool_material(spec: dict, state: dict) -> dict:
             vv, vo = assets_mod.build_manifest(videos, [], asset_metadata=metadata) if videos else ({}, [])
             ii, io = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
             all_assets, order = {**vv, **ii}, vo + io
-            assignments = matcher.match_assets(state["narration_scenes"], all_assets, llm_call)
+            assignments = (
+                matcher.match_assets(state["narration_scenes"], all_assets, llm_call)
+                if match_enabled else {}
+            )
         except Exception as exc:
             warnings.append("网络素材补足失败：" + str(exc))
 
