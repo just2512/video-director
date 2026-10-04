@@ -232,22 +232,32 @@ def _tracking_hook(run_id: str) -> Callable[[str, str], None]:
 
 
 def run_compose_async(spec: dict) -> str:
-    """§52 主入口：compose 参数 → run_id（后台线程执行既有同步链）。
-
-    spec 见 server /api/compose 字段：mode/script/voice/aspect/…
-    返回 run_id；结果与进度都经 GET /api/workflows/{run_id} 查询。
-    """
-    run_id = start_run("compose", project_id=spec.get("project_id") or None,
-                       spec=spec)
+    """§52 主入口：compose 参数 → run_id（后台线程执行既有同步链）。"""
+    run_id = start_run(
+        spec.get("_run_kind", "compose"),
+        project_id=spec.get("project_id") or None,
+        spec=spec,
+    )
     t = threading.Thread(target=_compose_worker, args=(run_id, spec), daemon=True)
     t.start()
     return run_id
 
 
+def run_director_create_async(spec: dict, plan: Optional[dict] = None) -> str:
+    """AI Director 一句话创作：持久化计划节点，再复用既有 compose 管线执行。"""
+    payload = dict(spec or {})
+    payload["_run_kind"] = "director_create"
+    payload["director_plan"] = plan or {}
+    return run_compose_async(payload)
+
+
 def _compose_worker(run_id: str, spec: dict) -> None:
-    """compose 工作线程：执行既有同步管线，stage → WorkflowRun step。"""
+    """compose/director 工作线程：执行同步管线，同时保留 Director 计划节点。"""
     try:
         result = _execute_compose(spec, run_id)
+        if spec.get("director_plan"):
+            result = dict(result or {})
+            result["director_plan"] = spec["director_plan"]
         pending = bool(result.get("pending_confirm"))
         finish_run(run_id, WAITING_CONFIRMATION if pending else COMPLETED,
                    result=result)
