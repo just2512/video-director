@@ -424,11 +424,65 @@ async function directorLoadCapCount(){
   } catch(e) {}
 }
 
+function directorRenderPlan(run, detail){
+  const card = document.getElementById('director-plan-card');
+  const nodesBox = document.getElementById('director-plan-nodes');
+  const goal = document.getElementById('director-plan-goal');
+  const status = document.getElementById('director-plan-status');
+  const detailBox = document.getElementById('director-plan-detail');
+  if (!card || !nodesBox) return;
+  const plan = (detail && detail.result && detail.result.director_plan) || (run && run.result && run.result.director_plan) || null;
+  if (!plan || !Array.isArray(plan.nodes)) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  if (goal) goal.textContent = plan.goal ? '· ' + String(plan.goal).slice(0, 90) : '';
+  if (status) status.textContent = run.status === 'COMPLETED' ? '已完成' : run.status === 'WAITING_CONFIRMATION' ? '等待确认' : run.status === 'FAILED' ? '失败' : '进行中';
+  const stepState = {};
+  (detail && detail.steps || []).forEach(s => { stepState[s.id] = s.status; });
+  const labelFor = {understand:'理解', script:'文案', scene_plan:'分镜', narration:'配音', material_match:'画面', subtitle:'字幕', music:'音乐', watermark:'品牌', composition:'时间线', preview:'预览', verify:'预检', render:'成片'};
+  const stateText = s => s === 'DONE' ? '完成' : s === 'RUNNING' ? '执行中' : s === 'FAILED' ? '失败' : '待处理';
+  nodesBox.innerHTML = plan.nodes.map(n => {
+    let st = stepState[n.id] || 'PENDING';
+    if (n.id === 'understand') st = detail ? 'DONE' : 'PENDING';
+    if (n.id === 'render' && run.status === 'COMPLETED') st = 'DONE';
+    return `<button class="btn-secondary btn-sm" data-director-node="${esc(n.id)}" style="min-width:78px;text-align:left;white-space:nowrap"><b>${esc(labelFor[n.id] || n.label || n.id)}</b><br><span class="hint">${stateText(st)}</span></button>`;
+  }).join('<span style="align-self:center;color:var(--muted)">→</span>');
+  nodesBox.querySelectorAll('[data-director-node]').forEach(btn => {
+    btn.onclick = () => {
+      const n = plan.nodes.find(x => x.id === btn.dataset.directorNode);
+      if (!n) return;
+      if (detailBox) detailBox.innerHTML = `<b>${esc(n.label || n.id)}</b>：${esc(n.description || '')}`;
+      const input = document.getElementById('director-input');
+      if (input && n.id !== 'understand') input.placeholder = `继续告诉 AI 如何处理“${n.label || n.id}”`;
+    };
+  });
+  if (detailBox && !detailBox.innerHTML) {
+    const current = (detail && detail.current) || '';
+    detailBox.textContent = current ? `当前节点：${labelFor[current] || current}` : '点击任意节点查看该阶段';
+  }
+}
+
+async function directorLoadRun(runId){
+  if (!runId) return;
+  try { const d = await apiGet('/api/workflows/' + encodeURIComponent(runId)); if (d && !d.error) directorRenderPlan(d, d); } catch (e) {}
+}
+
+async function directorLoadLatestRun(projectId){
+  if (!projectId) return;
+  try {
+    const list = await apiGet('/api/workflows?project_id=' + encodeURIComponent(projectId));
+    const runs = (list && list.runs) || [];
+    for (const item of runs) {
+      const d = await apiGet('/api/workflows/' + encodeURIComponent(item.run_id));
+      if (d && d.result && d.result.director_plan) { directorRenderPlan(d, d); return d; }
+    }
+    const card = document.getElementById('director-plan-card'); if (card) card.style.display = 'none';
+  } catch (e) {}
+}
 async function directorExecute(){
-  if (!ED.pid) { editorToast('先打开项目（工作台顶部选择项目）', true); return; }
+  if (!ED.pid) { editorToast('请先用“新建项目 → AI 导演”创建视频，或打开已有项目', true); return; }
   const inp = document.getElementById('director-input');
   const inst = (inp.value || '').trim();
-  if (!inst) { editorToast('描述你要修改的地方（例：第二段换产品近景，字幕小一点）'); return; }
+  if (!inst) { editorToast('告诉 AI 想做什么，例如：第二段换真实生活画面，字幕小一点'); return; }
   const box = document.getElementById('director-result');
   box.innerHTML = '<div class="hint">AI 正在理解你的修改意图……</div>';
   const bar = document.getElementById('director-progress');
@@ -473,7 +527,8 @@ async function directorExecute(){
     : '')+
     `<div class="hint" style="margin-top:2px">${d.verify_ok ? '已验证生效' : (failures.length ? '请先处理未应用项' : '部分步骤待验证')}</div>`;
   await refreshComposition();
-  editorToast(`AI 修改完成：${(d.executed||[]).filter(e=>e.ok).length}/${(d.executed||[]).length} 步成功`);
+  await directorLoadLatestRun(ED.pid);
+  editorToast(failures.length ? 'AI 修改部分完成，请检查未应用节点' : 'AI 修改完成');
 }
 
 // ---------------------------------------------------------------------------
