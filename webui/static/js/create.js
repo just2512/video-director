@@ -379,8 +379,15 @@ async function cfScanRepo(){
   if (!r.ok) { if (st) st.textContent = '扫描失败：' + (r.error || '目录无效'); return; }
   const claims = ((r.evidence_graph || {}).claims || []).filter(c => c.status === 'VERIFIED');
   if (!claims.length) {
-    if (st) st.textContent = '未发现可验证的卖点（可补 README 后再扫）';
-    window._cfRepo = null;
+    window._cfRepo = {
+      id: `repo-${Date.now()}`,
+      root: root.trim(),
+      evidence_graph: r.evidence_graph || {},
+      claims: [],
+      usage: ['claims', 'evidence', 'software_promotion']
+    };
+    out.innerHTML = '<div class="hint">项目已加入 AI 导演输入，但当前没有 VERIFIED 卖点；Director 不会编造功能。</div>';
+    if (st) st.textContent = '项目已加入，但没有可验证卖点。';
     return;
   }
   window._cfRepo = {
@@ -402,13 +409,12 @@ async function createProject(){
   const brief = (document.getElementById('cf-director-brief') || {}).value || '';
   const assets = document.getElementById('cf-assets');
   const hasFiles = !!(assets && assets.files.length);
+  const hasReference = !!window._cfReference;
+  const hasSoftwareProject = !!window._cfRepo;
   const visualSource = (document.getElementById('cf-visual-source') || {}).value || 'auto';
-  if (!brief.trim() && !script.trim() && !hasFiles) {
-    status.textContent = '请告诉 AI 想做什么，或填写文案 / 添加素材';
-    return;
-  }
-  if (!brief.trim() && !script.trim() && hasFiles) {
-    status.textContent = '已添加素材，但还缺少创作意图：请在 AI 导演里用一句话说明怎么剪';
+  const hasDirectorSource = !!(brief.trim() || script.trim() || hasFiles || hasReference || hasSoftwareProject);
+  if (!hasDirectorSource) {
+    status.textContent = '请告诉 AI 想做什么，或添加文案、素材、参考视频、软件项目';
     return;
   }
   CF.state = 'submitting';
