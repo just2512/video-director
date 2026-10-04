@@ -288,10 +288,10 @@ def _execute_music_match(project_id: str) -> dict:
     """自动配乐：用项目风格契约选择本地 BGM，并通过同一 Command Bus 入轨。"""
     try:
         from video_director import audio as audio_mod, editor as editor_mod
-        from video_director import style as style_mod
+        from video_director import config as vd_config
         import json as _json
         style_id = "knowledge-explainer"
-        style_path = __import__("video_director").config.project_dir(project_id) / "plans" / "style.json"
+        style_path = vd_config.project_dir(project_id) / "plans" / "style.json"
         if style_path.is_file():
             try:
                 data = _json.loads(style_path.read_text(encoding="utf-8"))
