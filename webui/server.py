@@ -1924,7 +1924,7 @@ class Handler(BaseHTTPRequestHandler):
                 instruction_with_ctx = instruction
                 if sel_ctx and sel_ctx.get("type") not in (None, "", "none", "project"):
                     instruction_with_ctx = f"[当前选中：{sel_ctx.get('type')} {sel_ctx.get('id')}] {instruction}"
-                result = vd_director.direct(pid, instruction_with_ctx)
+                result = vd_director.direct(pid, instruction, selection=sel_ctx)
                 for step in result.get("executed", []):
                     sse_publish("director", {
                         "phase": "tool", "project_id": pid, "tool": step.get("tool"),
