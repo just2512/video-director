@@ -173,6 +173,11 @@ def build_bundle(spec: dict) -> dict:
     if not raw_script:
         raw_script = _string(spec.get("script"))
     script_source = "user" if raw_script else "director"
+    script_input = src.get("script") if isinstance(src.get("script"), dict) else {}
+    script_authority = (
+        "authoritative" if raw_script and script_input.get("authority") != "generated"
+        else "generated"
+    )
     bundle = {
         "version": VERSION,
         "created_at": time.time(),
@@ -180,11 +185,7 @@ def build_bundle(spec: dict) -> dict:
         "script": {
             "text": raw_script,
             "source": script_source,
-            "authority": "authoritative" if raw_script and (
-                isinstance(src.get("script"), dict) and
-                src["script"].get("authority") == "authoritative"
-                or not isinstance(src.get("script"), dict)
-            ) else "authoritative" if raw_script else "generated",
+            "authority": script_authority,
             "editable": True,
         },
         "assets": _normalize_assets(spec, src.get("assets") or {}),
