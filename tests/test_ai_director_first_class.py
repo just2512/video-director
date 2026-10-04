@@ -161,10 +161,16 @@ def test_director_plan_is_persisted(monkeypatch, tmp_path):
     pid = "ai-dir-run"
     config.init_project_dirs(config.project_dir(pid))
 
-    def fake_execute(spec, run_id):
-        return {"ok": True, "project_id": pid, "pending_confirm": True}
+    def fake_director_create(spec, run_id):
+        return {
+            "ok": True,
+            "project_id": pid,
+            "pending_confirm": True,
+            "director_plan": plan,
+            "director_verify_ok": True,
+        }
 
-    monkeypatch.setattr(workflow_run, "_execute_compose", fake_execute)
+    monkeypatch.setattr(workflow_run, "_execute_director_create", fake_director_create)
     plan = {"version": "director-create-v1", "goal": "做一条短视频",
             "nodes": [{"id": "script", "label": "文案", "description": "生成文案"}]}
     run_id = workflow_run.run_director_create_async(
