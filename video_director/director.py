@@ -123,9 +123,12 @@ def _timeline_for_director(project_id: str) -> dict:
 
 def _resolve_natural_target(project_id: str, target, selection: Optional[dict] = None) -> object:
     """把“第二段/第2段/开头/最后一段/Scene 02”解析为真实 scene id。"""
-    if not isinstance(target, str):
+    if isinstance(target, int) or (isinstance(target, str) and target.strip().isdigit()):
+        raw = str(target).strip()
+    elif isinstance(target, str):
+        raw = target.strip()
+    else:
         return target
-    raw = target.strip()
     if not raw:
         return target
     if raw in ("当前选中", "当前对象", "current_selection"):
