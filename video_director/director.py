@@ -657,8 +657,18 @@ def direct(project_id: str, instruction: str,
                                            'ok': all(x.get('ok') for x in repaired_entries)}
         executed.append(entry)
 
-    all_ok = all(e.get("ok") for e in executed)
-    verify_ok = all_ok and all(e.get("verify", {}).get("ok", True) for e in executed)
+    def _entry_ok(e):
+        if e.get("ok"):
+            return True
+        if e.get("repair", {}).get("ok"):
+            return True
+        return bool(e.get("dynamic_repair", {}).get("ok"))
+    all_ok = all(_entry_ok(e) for e in executed)
+    verify_ok = all_ok and all(
+        e.get("verify", {}).get("ok", True)
+        and all(x.get("verify", {}).get("ok", True) for x in e.get("dynamic_repair", {}).get("steps", []))
+        for e in executed
+    )
     return {
         "source": source,
         "goal": plan.get("goal", ""),
