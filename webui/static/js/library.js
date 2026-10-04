@@ -648,7 +648,7 @@ Object.assign(window, {
   edLibApplyAsset, edLibApplyMotion, applyTransitionToPair, applyRegistryStyle,
   edLibStockSearch,
   edLibOpenTemplate, instantiateTemplate, AP,
-  directorRefreshContext, directorLoadCapCount, directorExecute,
+  directorRefreshContext, directorLoadCapCount, directorRenderPlan, directorLoadRun, directorLoadLatestRun, directorExecute,
   editorCmd, editorBatchCmd, editorApplyDuration, editorMovePrompt, editorAddBrollPrompt,
   editorOpenMotionPicker, editorOpenShotPicker, editorApplyShot, edLibApplyMotionTo,
 });
