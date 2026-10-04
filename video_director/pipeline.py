@@ -1011,6 +1011,7 @@ def compose_auto(
     try:
         store.create_project(project_id, script, {
             "voice": voice, "voice_rate": voice_rate,
+            "narration_volume": narration_volume,
             "width": width, "height": height, "fps": fps,
             "bgm": bgm_asset_id, "manual_manifest": manual_manifest,
             "style_id": style_contract.style_id,
@@ -1242,6 +1243,7 @@ def compose_auto(
         planner=active_planner,
         narration_file=narration_audio,
         narration_scenes=narration_scenes,
+        narration_volume=narration_volume,
         bgm_asset_id=bgm_asset_id,
         bgm_volume=(bgm_volume if bgm_volume is not None else style_contract.bgm_volume),
         sfx_plan=sfx_plan,
