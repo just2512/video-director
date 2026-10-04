@@ -323,6 +323,45 @@ def _llm_plan(instruction: str, contexts: dict) -> Optional[dict]:
             "timeline_context": contexts.get("timeline") or {}}
 
 
+def _llm_repair(instruction: str, failed_item: dict, failure: dict, contexts: dict) -> Optional[dict]:
+    """Tool Result → 下一步工具的动态修复；最多返回 2 个替代动作。"""
+    try:
+        from video_director import llm_provider
+        provider = llm_provider.get_llm()
+        if provider is None:
+            return None
+        prompt = (
+            '你是视频编辑 Agent。某一步执行失败。根据当前项目上下文和失败结果，'
+            '给出最多 2 个可执行的替代动作；只输出 JSON：'
+            '{"goal":"...","steps":[{"action":"...","target":"...","params":{}}]}。'
+            '不要编造不存在的 action；target 可以使用第二段/开头/最后/当前选中。\n'
+            f'原指令：{instruction[:500]}\n'
+            f'失败动作：{failed_item.get("action")} / {failed_item.get("targetId")}\n'
+            f'失败结果：{failure}\n'
+            f'当前时间线：{contexts.get("timeline") or {}}\n'
+            f'可执行动作：{contexts.get("actions") or {}}'
+        )
+        raw = provider.generate(prompt).strip()
+        if raw.startswith('```'):
+            raw = re.sub(r'^```[a-zA-Z]*\s*', '', raw)
+            raw = re.sub(r'\s*```$', '', raw)
+        start, end = raw.find('{'), raw.rfind('}')
+        if start < 0 or end <= start:
+            return None
+        import json as _json
+        data = _json.loads(raw[start:end + 1])
+        if not isinstance(data, dict) or not isinstance(data.get('steps'), list):
+            return None
+        steps = []
+        for s in data['steps'][:2]:
+            if isinstance(s, dict) and s.get('action'):
+                steps.append({'action': s['action'], 'target': s.get('target', 'current_selection'),
+                              'params': s.get('params') or {}})
+        return {'goal': data.get('goal', '修复失败步骤'), 'steps': steps} if steps else None
+    except Exception as exc:
+        logger.info(f'director repair replan unavailable: {exc}')
+        return None
+
 # ---------------------------------------------------------------------------
 # 规则兜底（§五十七 12 条标准命令；Action Registry 共现规则复用）
 # ---------------------------------------------------------------------------
@@ -554,51 +593,68 @@ def direct(project_id: str, instruction: str,
 
     # 4. Execute + 5. Verify（每步执行后重读系统）
     executed = []
+    repair_used = False
     for item in resolved:
-        if "resolve_error" in item:
-            executed.append({"tool": item["step"].get("action"),
-                             "ok": False, "status": "RESOLVE_ERROR",
-                             "error": item["resolve_error"]})
+        if 'resolve_error' in item:
+            executed.append({'tool': item['step'].get('action'), 'ok': False,
+                             'status': 'RESOLVE_ERROR', 'error': item['resolve_error']})
             continue
-        if item.get("action") == "asset.search":
+        try:
+            contexts = build_contexts(project_id, selection)
+        except DirectorError:
+            pass
+        if item.get('action') == 'asset.search':
             res = _execute_asset_search_apply(project_id, item)
         else:
-            tool_call = {"tool": item["capability"], "targetId": item["targetId"],
-                         "payload": item["payload"]}
+            tool_call = {'tool': item['capability'], 'targetId': item['targetId'],
+                         'payload': item['payload']}
             res = tool_executor.execute_tool(project_id, tool_call)
-        entry = {"tool": item["capability"], "action": item.get("action", ""),
-                 "label": item.get("label", ""), "targetId": item["targetId"],
-                 "reason": f"目标：{plan.get('goal', '')}", **res}
-
-        # §55 执行后重新读系统（verify by re-inspect）
-        if res.get("ok"):
+        entry = {'tool': item['capability'], 'action': item.get('action', ''),
+                 'label': item.get('label', ''), 'targetId': item['targetId'],
+                 'reason': f"目标：{plan.get('goal', '')}", **res}
+        if res.get('ok'):
             item_for_verify = dict(item)
-            item_for_verify["_result"] = res
-            entry["verify"] = _verify_step(project_id, item_for_verify, selection)
-
-        # §55 Repair：找不到可采用素材时，只允许继续做“真实可落地”的 AI 生成回退。
-        if not res.get("ok") and item.get("action") == "asset.search":
-            queries = _search_fallback_queries(project_id, item.get("targetId") or "")
+            item_for_verify['_result'] = res
+            entry['verify'] = _verify_step(project_id, item_for_verify, selection)
+        if not res.get('ok') and item.get('action') == 'asset.search':
+            queries = _search_fallback_queries(project_id, item.get('targetId') or '')
             fb_res = tool_executor.execute_tool(project_id, {
-                "tool": "generation.image",
-                "targetId": item["targetId"],
-                "payload": {
-                    "prompt": queries[0] if queries else (item.get("payload") or {}).get("query", ""),
-                    "width": None, "height": None,
-                },
+                'tool': 'generation.image', 'targetId': item['targetId'],
+                'payload': {'prompt': queries[0] if queries else (item.get('payload') or {}).get('query', ''),
+                            'width': None, 'height': None},
             })
-            entry["repair"] = {
-                "tool": "generation.image",
-                "ok": bool(fb_res.get("ok")),
-                "result": fb_res.get("result") or {},
-                "error": fb_res.get("error"),
-                "note": "图库素材无法采用，已回退到 AI 画面生成并尝试直接采用时间线",
-            }
-            if fb_res.get("ok"):
-                entry["verify"] = fb_res.get("verify") or {
-                    "ok": True, "note": "AI 生成画面已采用"
-                }
-
+            entry['repair'] = {'tool': 'generation.image', 'ok': bool(fb_res.get('ok')),
+                               'result': fb_res.get('result') or {}, 'error': fb_res.get('error'),
+                               'note': '图库素材无法采用，已回退到 AI 画面生成并尝试直接采用时间线'}
+            if fb_res.get('ok'):
+                entry['verify'] = fb_res.get('verify') or {'ok': True, 'note': 'AI 生成画面已采用'}
+        if not res.get('ok') and not repair_used and item.get('action') != 'asset.search':
+            repair_plan = _llm_repair(instruction, item, res, contexts)
+            if repair_plan:
+                repair_used = True
+                repaired_entries = []
+                for rs in repair_plan['steps']:
+                    normalized = dict(rs)
+                    normalized['target'] = _resolve_natural_target(project_id, rs.get('target'), selection=selection)
+                    spec = action_registry.get_action(rs.get('action') or '')
+                    if spec and normalized['target'] and '#' not in str(normalized['target']) and 'layer' in (spec.targets or []) and 'scene' not in (spec.targets or []):
+                        normalized['target'] = _target_layer_for_scene(project_id, normalized['target'])
+                    rr = action_registry.resolve_step(normalized, selection)
+                    if 'error' in rr:
+                        repaired_entries.append({'ok': False, 'status': 'REPAIR_RESOLVE_ERROR',
+                                                 'error': rr['error'], 'action': rs.get('action')})
+                        continue
+                    rr2 = tool_executor.execute_tool(project_id, {
+                        'tool': rr['capability'], 'targetId': rr['targetId'], 'payload': rr['payload']})
+                    repaired_entry = {'ok': rr2.get('ok'), 'status': 'REPAIRED',
+                                      'action': rs.get('action'), 'targetId': rr['targetId'],
+                                      'tool': rr['capability'], **rr2}
+                    if rr2.get('ok'):
+                        repaired_entry['verify'] = _verify_step(project_id, {**rr, '_result': rr2}, selection)
+                    repaired_entries.append(repaired_entry)
+                entry['dynamic_repair'] = {'goal': repair_plan.get('goal', ''),
+                                           'steps': repaired_entries,
+                                           'ok': all(x.get('ok') for x in repaired_entries)}
         executed.append(entry)
 
     all_ok = all(e.get("ok") for e in executed)
