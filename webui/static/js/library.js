@@ -522,7 +522,7 @@ async function directorExecute(){
     (reasons.length ? `<div class="hint">${reasons.map(x=>esc(x)).join('；')}</div>` : '')+
     (failures.length ? `<div class="hint" style="color:var(--danger)">未应用：${failures.map(e=>esc(e.error||e.tool)).join('；')}（可换个说法再试，或在检视器手动修改）</div>` : '')+
     (DEV.mode ? `<div class="hint dev-only" style="margin-top:4px">计划：`+
-      (d.plan||[]).map(p=>`<code>${esc(p.tool)}</code>`).join(' · ') + `</div>`+
+      (d.plan||[]).map(p=>`<code>${esc(p.action || p.tool || '')}</code>`).join(' · ') + `</div>`+
       (d.executed||[]).map(e=>`<div class="hint dev-only" style="font-size:11px">${e.ok?'OK':'FAIL'} <code>${esc(e.tool)}</code> ${esc(e.status||'')}</div>`).join('')
     : '')+
     `<div class="hint" style="margin-top:2px">${d.verify_ok ? '已验证生效' : (failures.length ? '请先处理未应用项' : '部分步骤待验证')}</div>`;
