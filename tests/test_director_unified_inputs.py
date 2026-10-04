@@ -214,6 +214,46 @@ def test_agent_loop_never_calls_compose_auto(monkeypatch, tmp_path):
         "subtitle", "music", "composition", "watermark", "preview",
         "verify", "render",
     ]
+    for node in plan["nodes"]:
+        assert node["tool_calls"], node["id"]
+        assert node["verify"], node["id"]
+
+
+def test_workflow_director_wrapper_never_falls_back_to_compose(monkeypatch, tmp_path):
+    from video_director import workflow_run, director_agent, director_inputs as di
+
+    monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path / "composer")
+    pid = "wrapper-agent-test"
+    bundle = {
+        "version": di.VERSION,
+        "brief": "测试",
+        "script": {"text": "测试文案", "source": "user", "authority": "authoritative"},
+        "assets": {"asset_refs": []},
+        "references": [],
+        "software_project": {},
+        "constraints": {},
+        "creative_settings": {},
+    }
+    plan = di.build_plan(bundle, "测试")
+
+    def fail_compose(*args, **kwargs):
+        raise AssertionError("_execute_compose must not run for Director creation")
+
+    seen = {}
+    monkeypatch.setattr(workflow_run, "_execute_compose", fail_compose)
+
+    def fake_agent(spec, run_id, plan, update_node, emit):
+        seen["plan"] = plan
+        return {"ok": True, "project_id": pid, "pending_confirm": True,
+                "director_plan": plan, "director_verify_ok": True}
+
+    monkeypatch.setattr(director_agent, "execute", fake_agent)
+    out = workflow_run._execute_director_create(
+        {"project_id": pid, "director_inputs": bundle, "script": "测试文案"},
+        "run-wrapper",
+    )
+    assert out["project_id"] == pid
+    assert seen["plan"]["source_refs"] == ["director:brief", "script:user"]
 
 
 def test_agent_next_decision_reads_previous_tool_result(monkeypatch):
