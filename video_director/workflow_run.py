@@ -481,8 +481,13 @@ def _execute_director_create(spec: dict, run_id: str) -> dict:
     }
     di.persist_plan(pid, plan)
 
-    # Existing MPT composer is the execution engine; Director owns and records its inputs.
-    result = _execute_compose(exec_spec, run_id)
+    # Existing MPT composer is the execution engine; Director owns its lifecycle/status.
+    for node_id in ("narration", "material_match", "subtitle", "music", "watermark", "composition"):
+        _director_update_node(
+            run_id, pid, plan, node_id, "RUNNING",
+            decision={"executor": "pipeline.compose_auto"}
+        )
+    result = _execute_compose(exec_spec, run_id, track_steps=False)
     result = dict(result or {})
     plan["execution_result"] = {
         "final_path": result.get("final_path") or "",
@@ -552,7 +557,7 @@ def _execute_director_create(spec: dict, run_id: str) -> dict:
     return result
 
 
-def _execute_compose(spec: dict, run_id: str) -> dict:
+def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> dict:
     """同步执行 compose（与 server /api/compose 同参数语义），带步骤打点。
 
     spec 兼容两种来源：
@@ -564,7 +569,7 @@ def _execute_compose(spec: dict, run_id: str) -> dict:
 
     pid = spec.get("project_id") or f"web-{uuid.uuid4().hex[:8]}"
     mode = spec.get("mode", "auto")
-    hook = _tracking_hook(run_id)
+    hook = _tracking_hook(run_id) if track_steps else (lambda stage, state: None)
     _emit(run_id, "workflow.start", {"project_id": pid, "mode": mode})
 
     # voice_rate 归一：倍数（'1.0'/'1.3'）→ edge-tts 相对百分比（'+0%'）
@@ -666,11 +671,12 @@ def _execute_compose(spec: dict, run_id: str) -> dict:
                        "pending_confirm": bool(
                            spec.get("confirm_mode", "preview") == "preview"),
                        "elapsed_s": 0}
-        # 补打收尾步骤（pipeline 未逐段触发的：subtitle/music/composition/preview）
-        for s in ("subtitle", "music", "composition", "preview", "verify"):
-            step_update(run_id, s, "DONE")
-        if payload.get("pending_confirm"):
-            step_update(run_id, "render", "SKIPPED")
+        if track_steps:
+            # 旧 compose 运行保留兼容进度；Director 创建由 Director 节点自己管理状态。
+            for s in ("subtitle", "music", "composition", "preview", "verify"):
+                step_update(run_id, s, "DONE")
+            if payload.get("pending_confirm"):
+                step_update(run_id, "render", "SKIPPED")
         return payload
     finally:
         vd_store.set_stage = orig_set_stage
