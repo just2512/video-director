@@ -584,3 +584,240 @@ def _tool_render(spec: dict, state: dict) -> dict:
         },
         "error": None if ok else "最终成片 QC 未通过",
     }
+
+
+def _tool_understand(spec: dict, state: dict) -> dict:
+    refs = state["source_refs"]
+    return {
+        "ok": True,
+        "tool": "director.inspect",
+        "status": "INSPECTED",
+        "result": {"source_refs": refs},
+        "verify": {"ok": bool(refs), "checks": [{"id": "input_context", "ok": bool(refs)}]},
+    }
+
+
+def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
+    """Adaptive creation loop: every node has a Tool Call, Result, Verify and next-node decision."""
+    from video_director import director_inputs as di
+
+    pid = spec.get("project_id") or ("web-" + str(time.time_ns()))
+    bundle = di.build_bundle(spec)
+    di.persist_bundle(pid, bundle)
+
+    user_style = (bundle.get("creative_settings") or {}).get("style") or ""
+    ref_style = di.reference_style_intent(bundle)
+    seeded_style = "；".join(x for x in (user_style, ref_style) if x).strip()
+    initial_script = (bundle.get("script") or {}).get("text") or ""
+    style_contract, style_warnings = style_mod.select_style(
+        initial_script, seeded_style or None
+    )
+
+    state = {
+        "project_id": pid,
+        "bundle": bundle,
+        "source_refs": plan.get("source_refs") or [],
+        "constraints": bundle.get("constraints") or {},
+        "style_contract": style_contract,
+        "style_warnings": style_warnings,
+        "video_files": [],
+        "image_files": [],
+        "assets": {},
+        "asset_order": [],
+        "assignments": {},
+    }
+
+    videos, images = di.attach_library_assets(pid, bundle)
+    refs = di.materialize_reference(pid, bundle)
+    repo_files = di.materialize_software_project_artifacts(pid, bundle)
+    state["video_files"], state["image_files"] = videos, images
+    bundle["materialized"] = {
+        "reference_files": refs,
+        "software_evidence_files": repo_files,
+    }
+    di.persist_bundle(pid, bundle)
+
+    if initial_script:
+        state["script"] = initial_script
+        state["scene_texts"] = _scene_texts(initial_script)
+
+    _TOOLS_WITH_UNDERSTAND = dict(_TOOLS)
+    _TOOLS_WITH_UNDERSTAND["understand"] = _tool_understand
+
+    retries: Dict[str, int] = {}
+    current = "start"
+    last_result = {"ok": True, "status": "START"}
+    guard = max(24, len(plan.get("nodes") or []) * 3)
+
+    emit(run_id, "director", {
+        "phase": "planning",
+        "project_id": pid,
+        "source_refs": plan.get("source_refs", []),
+    })
+
+    for _ in range(guard):
+        ready = _ready_nodes(plan)
+        all_done = all(n.get("status") in ("DONE", "SKIPPED")
+                       for n in plan.get("nodes", []))
+        if all_done:
+            break
+        if not ready:
+            raise DirectorAgentError("Director 没有满足依赖的可执行节点")
+
+        choice, reason = _choose_next(plan, current, last_result, retries.get(current, 0))
+        if choice == "STOP":
+            raise DirectorAgentError("Director 停止：" + reason)
+
+        if choice == "retry":
+            retries[current] = retries.get(current, 0) + 1
+            if retries[current] > 2:
+                raise DirectorAgentError("节点重试次数超过上限：" + current)
+            node_id = current
+            node = next(n for n in plan["nodes"] if n["id"] == node_id)
+            node["status"] = "PENDING"
+        else:
+            node_id = choice
+
+        if node_id not in ready and node_id != current:
+            raise DirectorAgentError("Director 选择了不可执行节点：" + node_id)
+
+        node = next(n for n in plan["nodes"] if n["id"] == node_id)
+        update_node(
+            run_id, pid, plan, node_id, "RUNNING",
+            decision={"reason": reason, "ready": ready},
+        )
+        emit(run_id, "director", {
+            "phase": "tool",
+            "node": node_id,
+            "project_id": pid,
+        })
+
+        fn = _TOOLS_WITH_UNDERSTAND.get(node_id)
+        if fn is None:
+            raise DirectorAgentError("节点没有 Tool：" + node_id)
+
+        try:
+            tool_result = fn(spec, state)
+        except Exception as exc:
+            tool_result = {
+                "ok": False,
+                "tool": "node." + node_id,
+                "status": "EXECUTION_ERROR",
+                "error": str(exc)[:1200],
+                "result": {},
+                "verify": {"ok": False},
+            }
+
+        verify = tool_result.get("verify") or {"ok": bool(tool_result.get("ok"))}
+        node_ok = bool(tool_result.get("ok")) and bool(verify.get("ok", True))
+
+        if node_ok:
+            status = "SKIPPED" if tool_result.get("status") == "SKIPPED" else "DONE"
+            result_values = tool_result.get("result") or {}
+            artifacts = [
+                str(v) for v in result_values.values()
+                if isinstance(v, str) and Path(v).is_file()
+            ]
+            update_node(
+                run_id, pid, plan, node_id, status,
+                outputs=list(node.get("outputs") or []),
+                tool_calls=[{
+                    "tool": tool_result.get("tool"),
+                    "status": tool_result.get("status"),
+                    "result": result_values,
+                }],
+                decision={"reason": reason},
+                verify=verify,
+                artifacts=artifacts,
+            )
+            last_result = {"ok": True, **tool_result}
+        else:
+            retries[node_id] = retries.get(node_id, 0)
+            update_node(
+                run_id, pid, plan, node_id, "FAILED",
+                outputs=[],
+                tool_calls=[{
+                    "tool": tool_result.get("tool"),
+                    "status": tool_result.get("status"),
+                    "result": tool_result.get("result") or {},
+                    "error": tool_result.get("error"),
+                }],
+                decision={"reason": reason},
+                verify=verify,
+                error=tool_result.get("error") or "节点验证未通过",
+            )
+            last_result = {"ok": False, **tool_result}
+            if retries[node_id] >= 2:
+                raise DirectorAgentError(
+                    "节点执行失败且无法恢复：" + node_id
+                )
+
+        current = node_id
+
+        # Tool Result is fed into the next decision point through refreshed persisted context.
+        state["bundle"] = di.load_bundle(pid) or state["bundle"]
+        if node_id == "script" and state.get("script"):
+            style_contract, style_warnings = style_mod.select_style(
+                state["script"],
+                seeded_style or None,
+            )
+            state["style_contract"] = style_contract
+            state["style_warnings"] = style_warnings
+
+        # Watermark changes composition through Command Bus; reload the actual IR for all later nodes.
+        if node_id == "watermark":
+            try:
+                from video_director.editor import load_composition
+                state["ir"] = load_composition(pid)
+            except Exception:
+                pass
+
+        plan["runtime"] = {
+            "last_node": current,
+            "last_tool_result": {
+                "tool": last_result.get("tool"),
+                "status": last_result.get("status"),
+                "ok": last_result.get("ok"),
+            },
+            "retries": dict(retries),
+            "decision_reason": reason,
+        }
+        di.persist_plan(pid, plan)
+
+        if not node_ok:
+            # The next Director decision sees the failure; retry is the only allowed recovery here.
+            continue
+
+    else:
+        raise DirectorAgentError("Director Agent loop 超过安全迭代上限")
+
+    if any(n.get("status") == "FAILED" for n in plan.get("nodes", [])):
+        raise DirectorAgentError("Director 存在未恢复失败节点")
+
+    verify_node = next(n for n in plan["nodes"] if n["id"] == "verify")
+    verify_ok = (
+        verify_node.get("status") == "DONE"
+        and bool(verify_node.get("verify", {}).get("ok"))
+    )
+    pending = (spec.get("confirm_mode") or "preview") != "direct"
+
+    if pending and verify_ok is not True:
+        raise DirectorAgentError("预览模式必须先完成真实 Verify")
+
+    result = {
+        "ok": True,
+        "project_id": pid,
+        "final_path": state.get("final_path", ""),
+        "qc": state.get("qc_report", {}),
+        "pending_confirm": pending,
+        "director_inputs": di.load_bundle(pid),
+        "director_plan": plan,
+        "director_verify_ok": verify_ok,
+    }
+    emit(run_id, "director", {
+        "phase": "done",
+        "project_id": pid,
+        "verify_ok": verify_ok,
+        "source_refs": plan.get("source_refs", []),
+    })
+    return result
