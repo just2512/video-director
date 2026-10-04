@@ -484,19 +484,41 @@ def _tool_watermark(spec: dict, state: dict) -> dict:
 def _tool_preview(spec: dict, state: dict) -> dict:
     from video_director import confirm
     try:
+        storyboard = confirm.build_storyboard(
+            ir=state["ir"],
+            scenes=state["narration_scenes"],
+            assignments=state.get("assignments") or {},
+            style=state["style_contract"],
+            assets=state["assets"],
+        )
+        sb_path = config.project_dir(state["project_id"]) / "plans" / "storyboard.json"
+        confirm.save_storyboard(storyboard, sb_path)
         path = confirm.render_draft(
             state["project_id"], profile=spec.get("profile") or None
         )
     except Exception as exc:
         return {
-            "ok": False, "tool": "render.draft", "status": "FAILED",
-            "error": str(exc), "verify": {"ok": False},
+            "ok": False,
+            "tool": "render.draft",
+            "status": "FAILED",
+            "error": str(exc),
+            "verify": {"ok": False},
         }
     state["draft_path"] = path
-    ok = _file_ok(path)
+    state["storyboard_path"] = str(sb_path)
+    ok = _file_ok(path) and _file_ok(str(sb_path))
     return {
-        "ok": ok, "tool": "render.draft", "status": "APPLIED",
-        "result": {"draft": path}, "verify": {"ok": ok, "checks": [_file_ok(path)]},
+        "ok": ok,
+        "tool": "render.draft",
+        "status": "APPLIED" if ok else "FAILED",
+        "result": {"draft": path, "storyboard": str(sb_path)},
+        "verify": {
+            "ok": ok,
+            "checks": [
+                {"id": "draft", "ok": _file_ok(path)},
+                {"id": "storyboard", "ok": _file_ok(str(sb_path))},
+            ],
+        },
     }
 
 
@@ -519,6 +541,8 @@ def _tool_verify(spec: dict, state: dict) -> dict:
     ])
     if state.get("draft_path"):
         checks.append({"id": "draft", "ok": _file_ok(state["draft_path"])})
+    if state.get("storyboard_path"):
+        checks.append({"id": "storyboard", "ok": _file_ok(state["storyboard_path"])})
     ok = all(x["ok"] for x in checks)
     return {
         "ok": ok, "tool": "composition.verify",
