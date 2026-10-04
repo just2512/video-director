@@ -346,9 +346,9 @@ def _build_manifest() -> List[Capability]:
         "关闭 BGM（§35 music.disable；volume=0 非删轨）", input_schema="TargetRequest",
         outputs=("AudioTrack",), examples=("不要背景音乐了")))
     caps.append(_cap("music.match_video", "music",
-        "按参考视频风格匹配 BGM（§35/§68；匹配通道未开时诚实不可用）",
-        input_schema="TargetRequest", outputs=("AudioTrack",), provider_required=True,
-        examples=("配乐风格参考这条视频",)))
+        "按当前项目风格自动选择本地 BGM 并加入时间线",
+        outputs=("AudioTrack",), provider_required=False,
+        examples=("自动配乐", "按视频风格配一首音乐")))
 
     # ---- 视觉语义归一 CAP-VIS-001~009（§71：Concept/Storyboard/Continuity/
     #      Camera/Keyframe/Mask/Matting/PiP/Morph）----
