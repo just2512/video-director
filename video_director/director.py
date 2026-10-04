@@ -70,18 +70,189 @@ def build_contexts(project_id: str, selection: Optional[dict] = None) -> dict:
         "project": project_ctx,
         "selection": sel,
         "actions": action_ctx,
+        "timeline": _timeline_for_director(project_id),
     }
 
 
 def _action_context_prompt(actions: List[dict]) -> str:
-    """§16 Action Context → LLM 提示行（只列当前可执行动作 + 不可用原因）。"""
+    """Action Context → LLM 提示：动作 + 目标 + 已知参数，避免只知道按钮却不会调用。"""
     lines = []
     for a in actions:
-        line = f"- {a['id']}（{a['label']}）"
+        line = f"- {a['id']}（{a['label']}） targets={a.get('targets') or []}"
+        params = a.get("parameters") or {}
+        if params:
+            line += f" params={params}"
         if not a.get("available", True):
             line += f" [不可用：{a.get('reason', '')}]"
         lines.append(line)
     return "\n".join(lines) or "-（当前上下文无可执行动作）"
+
+
+def _timeline_for_director(project_id: str) -> dict:
+    """给 Director 的紧凑时间线上下文：人类序号 + 稳定 scene id + 层/素材。"""
+    try:
+        summary = tool_executor._timeline_summary(project_id)
+        scenes = []
+        for idx, sc in enumerate(summary.get("scenes") or [], 1):
+            scenes.append({
+                "number": idx,
+                "id": sc.get("id"),
+                "text": (sc.get("text") or "")[:220],
+                "duration": sc.get("duration"),
+                "layers": [
+                    {
+                        "index": layer.get("index"),
+                        "id": f"{sc.get('id')}#{layer.get('index')}",
+                        "type": layer.get("type"),
+                        "asset_id": layer.get("asset_id"),
+                        "duration": layer.get("duration"),
+                    }
+                    for layer in (sc.get("layers") or [])
+                ],
+            })
+        return {
+            "scenes": scenes,
+            "audio": summary.get("audio") or [],
+            "subtitle_style": summary.get("subtitle_style"),
+            "watermarks": summary.get("watermarks") or [],
+        }
+    except Exception as exc:
+        logger.info(f"director timeline context unavailable: {exc}")
+        return {"scenes": [], "audio": [], "subtitle_style": None, "watermarks": []}
+
+
+def _resolve_natural_target(project_id: str, target, selection: Optional[dict] = None) -> object:
+    """把“第二段/第2段/开头/最后一段/Scene 02”解析为真实 scene id。"""
+    if not isinstance(target, str):
+        return target
+    raw = target.strip()
+    if not raw:
+        return target
+    if raw in ("当前选中", "当前对象", "current_selection"):
+        return "current_selection"
+    try:
+        scenes = tool_executor._timeline_summary(project_id).get("scenes") or []
+    except Exception:
+        scenes = []
+    if not scenes:
+        return target
+    # 稳定 ID 直接通过。
+    if any(sc.get("id") == raw for sc in scenes):
+        return raw
+    low = raw.lower().replace(" ", "")
+    m = re.fullmatch(r"(?:scene[-_]?|s[-_]?)?0*(\d+)", low)
+    num = int(m.group(1)) if m else None
+    if num is None:
+        m = re.search(r"(?:第|no\.?|segment|场景|镜头)\s*0*(\d+)\s*(?:段|个|号|号镜头)?", raw, re.I)
+        if m:
+            num = int(m.group(1))
+    if "最后" in raw:
+        num = len(scenes)
+    if "开头" in raw or "第一段" in raw:
+        num = 1
+    if num is not None and 1 <= num <= len(scenes):
+        return scenes[num - 1].get("id") or raw
+    if selection and raw in ("这个", "这里", "这段", "此处"):
+        return selection.get("id") or "current_selection"
+    return target
+
+
+def _target_layer_for_scene(project_id: str, target_id: str) -> str:
+    """scene target → 首个视觉层；layer target 原样返回。"""
+    if not target_id or "#" in str(target_id):
+        return target_id
+    try:
+        ir = tool_executor.editor.load_composition(project_id)
+        scene = next((s for s in ir.scenes if s.id == target_id), None)
+        if scene and scene.layers:
+            return f"{scene.id}#0"
+    except Exception:
+        pass
+    return target_id
+
+
+def _execute_asset_search_apply(project_id: str, item: dict) -> dict:
+    """找素材的完整链：Library 查询 → Stock 搜索 → 下载 → Library 引用 → 时间线采用。"""
+    from video_director import asset_catalog, stock
+    target_id = item.get("targetId") or ""
+    payload = item.get("payload") or {}
+    query = (payload.get("query") or "").strip()
+    if not query:
+        # 从目标场景文本取检索词，避免要求用户额外提供搜索词。
+        try:
+            timeline = _timeline_for_director(project_id).get("scenes") or []
+            for sc in timeline:
+                if sc.get("id") == target_id or f"{sc.get('id')}#0" == target_id:
+                    query = sc.get("text") or ""
+                    break
+        except Exception:
+            pass
+    if not query:
+        return {"tool": "asset.search", "ok": False, "status": "MISSING_QUERY", "error": "无法从当前场景推导素材检索词"}
+
+    # 先搜已有 Asset Library，命中直接采用。
+    local = asset_catalog.list_assets(q=query)[:5]
+    for asset in local:
+        if asset.get("commercial_status") in ("BLOCKED",):
+            continue
+        asset_catalog.project_reference(project_id, asset["asset_id"])
+        layer_target = _target_layer_for_scene(project_id, target_id)
+        if layer_target and "#" in str(layer_target):
+            r = tool_executor.execute_tool(project_id, {
+                "tool": "asset.replace",
+                "targetId": layer_target,
+                "payload": {"assetId": asset["asset_id"]},
+            })
+            if r.get("ok"):
+                return {"tool": "asset.search", "ok": True, "status": "APPLIED",
+                        "result": {"query": query, "source": "library",
+                                   "asset_id": asset["asset_id"], "targetId": layer_target},
+                        "verify": {"ok": True, "note": "已有素材已采用"}}
+    # Library 没找到再查 Stock。
+    ratio = ""
+    orientation = None
+    try:
+        sp = asset_catalog.stock_search_params(project_id)
+        ratio, orientation = sp.get("ratio") or "", sp.get("orientation")
+    except Exception:
+        pass
+    hits = stock.search_stock(query, orientation=orientation)
+    candidates = stock.resolve_candidates(hits, target_ratio=ratio or "9:16")
+    for candidate in candidates:
+        if candidate.status != "SUPPORTED":
+            continue
+        try:
+            downloaded = stock.download_asset(candidate.asset, __import__("video_director").config.project_dir(project_id))
+            entry = asset_catalog.import_asset(
+                downloaded["file"],
+                source=candidate.asset.provider,
+                source_id=candidate.asset.source_id,
+                source_page=candidate.asset.source_page,
+                creator=candidate.asset.creator,
+                commercial_status=candidate.asset.commercial_status,
+            )
+            asset_catalog.project_reference(project_id, entry["asset_id"])
+            layer_target = _target_layer_for_scene(project_id, target_id)
+            if not layer_target or "#" not in str(layer_target):
+                return {"tool": "asset.search", "ok": True, "status": "FOUND",
+                        "result": {"query": query, "source": "stock",
+                                   "asset_id": entry["asset_id"], "file": entry["file"]},
+                        "verify": {"ok": True, "note": "找到并入库素材，但当前没有可替换图层"}}
+            r = tool_executor.execute_tool(project_id, {
+                "tool": "asset.replace",
+                "targetId": layer_target,
+                "payload": {"assetId": entry["asset_id"]},
+            })
+            if r.get("ok"):
+                return {"tool": "asset.search", "ok": True, "status": "APPLIED",
+                        "result": {"query": query, "source": "stock",
+                                   "asset_id": entry["asset_id"], "targetId": layer_target},
+                        "verify": {"ok": True, "note": "搜索→下载→采用完成"}}
+        except Exception as exc:
+            logger.info(f"director asset adopt failed: {exc}")
+            continue
+    return {"tool": "asset.search", "ok": False, "status": "NOT_FOUND",
+            "error": f"未找到可直接采用的素材：{query[:100]}"}
 
 
 # ---------------------------------------------------------------------------
@@ -112,11 +283,13 @@ def _llm_plan(instruction: str, contexts: dict) -> Optional[dict]:
     proj = contexts["project"]
     sel_desc = contexts["selection"].get("type") or "无选中"
     sel_id = contexts["selection"].get("id") or ""
+    timeline = contexts.get("timeline") or {}
     ctx_desc = (
         f"项目 {proj['project']['duration']}s · 画幅 {proj['project']['ratio']} · "
         f"{proj['timeline']['scene_count']} 场景 · 音轨 {proj['timeline']['tracks']}；"
-        f"可用来源 {proj['providers']}；"
-        f"当前选中：{sel_desc}{' ' + sel_id if sel_id else ''}（target 可用 current_selection）"
+        f"当前选中：{sel_desc}{' ' + sel_id if sel_id else ''}\n"
+        f"时间线：{timeline}\n"
+        f"可用来源：{proj['providers']}"
     )
     try:
         raw = provider.generate(f"项目状态：{ctx_desc}\n\n用户要求：{instruction}",
@@ -146,7 +319,8 @@ def _llm_plan(instruction: str, contexts: dict) -> Optional[dict]:
                           "params": s.get("params") or {}})
     if not steps:
         return None
-    return {"goal": plan.get("goal", instruction[:40]), "steps": steps}
+    return {"goal": plan.get("goal", instruction[:80]), "steps": steps,
+            "timeline_context": contexts.get("timeline") or {}}
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +537,10 @@ def direct(project_id: str, instruction: str,
     steps = plan.get("steps") or []
     resolved = []
     for s in steps:
-        r = action_registry.resolve_step(s, selection)
+        normalized = dict(s)
+        normalized["target"] = _resolve_natural_target(
+            project_id, s.get("target"), selection=selection)
+        r = action_registry.resolve_step(normalized, selection)
         if "error" in r:
             resolved.append({"step": s, "resolve_error": r["error"]})
         else:
@@ -377,16 +554,21 @@ def direct(project_id: str, instruction: str,
                              "ok": False, "status": "RESOLVE_ERROR",
                              "error": item["resolve_error"]})
             continue
-        tool_call = {"tool": item["capability"], "targetId": item["targetId"],
-                     "payload": item["payload"]}
-        res = tool_executor.execute_tool(project_id, tool_call)
+        if item.get("action") == "asset.search":
+            res = _execute_asset_search_apply(project_id, item)
+        else:
+            tool_call = {"tool": item["capability"], "targetId": item["targetId"],
+                         "payload": item["payload"]}
+            res = tool_executor.execute_tool(project_id, tool_call)
         entry = {"tool": item["capability"], "action": item.get("action", ""),
                  "label": item.get("label", ""), "targetId": item["targetId"],
                  "reason": f"目标：{plan.get('goal', '')}", **res}
 
         # §55 执行后重新读系统（verify by re-inspect）
         if res.get("ok"):
-            entry["verify"] = _verify_step(project_id, item, selection)
+            item_for_verify = dict(item)
+            item_for_verify["_result"] = res
+            entry["verify"] = _verify_step(project_id, item_for_verify, selection)
 
         # §55 Repair：asset.search 失败 → 自动回退 generate.image（§四十）
         # §55/§四十 Repair：asset.search 失败 → VisualSearchIntent 多组检索词
@@ -468,4 +650,30 @@ def _verify_step(project_id: str, item: dict, selection: Optional[dict]) -> dict
         return {"ok": has, "note": "字幕轨就位" if has else "无字幕轨"}
     if action in ("timeline.delete", "timeline.duplicate"):
         return {"ok": len(ir.scenes) > 0, "note": f"{len(ir.scenes)} 场景"}
-    return {"ok": True, "note": "已执行（该动作族无需专项验证）"}
+    if action == "content.generate_script" or action == "content.rewrite_script":
+        return {"ok": True, "note": "脚本产物已由内容能力返回"}
+    if action in ("asset.search", "asset.replace", "generate.image", "generate.video"):
+        target = item.get("targetId") or ""
+        asset_expected = ((item.get("payload") or {}).get("assetId") or "")
+        if asset_expected and "#" in str(target):
+            try:
+                scene_id, idx_s = str(target).split("#", 1)
+                layer = next(s for s in ir.scenes if s.id == scene_id).layers[int(idx_s)]
+                ok = layer.asset_id == asset_expected
+                return {"ok": ok, "note": f"目标素材 {'已替换' if ok else '未替换'}"}
+            except Exception as exc:
+                return {"ok": False, "note": f"目标层读回失败：{exc}"}
+        return {"ok": bool(ir.scenes), "note": "项目仍可读取"}
+    if action == "timeline.duration":
+        target = item.get("targetId") or ""
+        scene = next((s for s in ir.scenes if s.id == target), None)
+        expected = (item.get("payload") or {}).get("duration")
+        ok = scene is not None and (expected is None or abs(scene.duration - float(expected)) < 0.05)
+        return {"ok": ok, "note": f"目标时长={scene.duration if scene else '—'}"}
+    if action == "render.draft":
+        p = __import__("video_director").config.project_dir(project_id) / "output" / "draft.mp4"
+        return {"ok": p.is_file(), "note": "草稿产物已生成" if p.is_file() else "草稿产物不存在"}
+    if action == "render.final":
+        return {"ok": bool(item.get("_result", {}).get("result", {}).get("final")),
+                "note": "终稿接口已返回产物" if item.get("_result", {}).get("result", {}).get("final") else "终稿产物返回缺失"}
+    return {"ok": True, "note": "已执行（该动作没有独立 IR 断言）"}
