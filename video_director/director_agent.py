@@ -720,9 +720,8 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
             raise DirectorAgentError("Director 停止：" + reason)
 
         if choice == "retry":
-            retries[current] = retries.get(current, 0) + 1
-            if retries[current] > 2:
-                raise DirectorAgentError("节点重试次数超过上限：" + current)
+            if current == "start":
+                raise DirectorAgentError("Director 要求 retry，但没有当前节点")
             node_id = current
             node = next(n for n in plan["nodes"] if n["id"] == node_id)
             node["status"] = "PENDING"
@@ -783,7 +782,6 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
             )
             last_result = {"ok": True, **tool_result}
         else:
-            retries[node_id] = retries.get(node_id, 0)
             update_node(
                 run_id, pid, plan, node_id, "FAILED",
                 outputs=[],
@@ -797,8 +795,12 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 verify=verify,
                 error=tool_result.get("error") or "节点验证未通过",
             )
+            retries[node_id] = retries.get(node_id, 0) + 1
             last_result = {"ok": False, **tool_result}
-            if retries[node_id] >= 2:
+            if retries[node_id] < 2:
+                # 保留失败结果，但重新开放该节点；下一轮由 Director 决定是否重试。
+                node["status"] = "PENDING"
+            else:
                 raise DirectorAgentError(
                     "节点执行失败且无法恢复：" + node_id
                 )
