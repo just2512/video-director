@@ -425,6 +425,10 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         concat_mode=spec.get("concat_mode") or "sequential",
     )
     style_mod.apply_to_ir(ir, state["style_contract"], config)
+    transition_mode = spec.get("transition_mode") or "cut"
+    if transition_mode in ("crossfade", "fade") and state["style_contract"].transition_budget > 0:
+        from video_director import pipeline
+        pipeline._inject_transitions(ir, state["style_contract"].transition_budget)
     from video_director.models import AudioTrack, AudioTrackType
 
     duration = scenes[-1]["start"] + scenes[-1]["duration"]
@@ -498,10 +502,11 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         {"id": "composition_file", "ok": _file_ok(cpath)},
         {"id": "manifest_file", "ok": _file_ok(mpath)},
     ]
+    ok = all(x["ok"] for x in checks)
     return {
-        "ok": all(x["ok"] for x in checks),
+        "ok": ok,
         "tool": "composition.build",
-        "status": "APPLIED",
+        "status": "APPLIED" if ok else "FAILED",
         "result": {"composition": cpath, "manifest": mpath, "style": spath},
         "verify": {"ok": all(x["ok"] for x in checks), "checks": checks},
     }
