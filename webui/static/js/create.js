@@ -356,10 +356,17 @@ async function cfAnalyzeReference(){
   const rep = r.report || {};
   const vl = rep.visual_language || {};
   const sg = (rep.shot_grammar || []).slice(0, 8);
-  window._cfReferenceBrief = `参考视频风格：节奏 ${vl.pace || '—'} · 镜头密度 ${vl.density || '—'} · 运动语言 ${vl.motion || '—'} · 转场 ${vl.transition || '—'}${sg.length ? '；镜头结构参考 ' + sg.map(s => `${s.duration || 0}s`).join('/') : ''}`;
+  window._cfReference = {
+    id: `ref-${r.project_id || Date.now()}`,
+    project_id: r.project_id || '',
+    video: rep.video || '',
+    report_path: rep.report_path || '',
+    report: rep,
+    apply: ['pace', 'density', 'motion', 'transition', 'shot_grammar']
+  };
   out.innerHTML = `<div class="ok-box">分析完成 · ${sg.length} 个镜头 · 节奏 ${esc(String(vl.pace||'—'))} · 运动语言 ${esc(String(vl.motion||'—'))}
-    <div class="hint">已并入创作简报——开始创作时会自动带上这段风格指导。</div></div>`;
-  if (st) st.textContent = '分析完成，风格已并入创作简报。';
+    <div class="hint">参考视频已作为结构化风格输入保存，AI 导演创作时与文案、素材、软件项目一起使用；不会复制参考内容。</div></div>`;
+  if (st) st.textContent = '分析完成，已加入 AI 导演输入。';
 }
 /** §37 软件项目输入：保存完整 Evidence Graph，Director 只消费 VERIFIED 事实。 */
 async function cfScanRepo(){
@@ -372,7 +379,7 @@ async function cfScanRepo(){
   if (!r.ok) { if (st) st.textContent = '扫描失败：' + (r.error || '目录无效'); return; }
   const claims = ((r.evidence_graph || {}).claims || []).filter(c => c.status === 'VERIFIED');
   if (!claims.length) {
-    if (st) st.textContent = '未发现可验证的卖点（可补 README 后再扫，或切回文案起步）';
+    if (st) st.textContent = '未发现可验证的卖点（可补 README 后再扫）';
     window._cfRepo = null;
     return;
   }
@@ -387,7 +394,6 @@ async function cfScanRepo(){
     ${claims.slice(0, 6).map(c => `<div class="hint">· ${esc(c.text)}</div>`).join('')}${claims.length > 6 ? '<div class="hint">· 其余 VERIFIED 卖点已保留，交给 Director 按场景选择。</div>' : ''}</div>`;
   if (st) st.textContent = '软件项目证据已加入 AI 导演输入。';
 }
-
 /** §38 状态机：提交 → WorkflowRun（§52 run_id + §53 真实步骤事件轮询）→ 工作台。 */
 async function createProject(){
   const btn = document.getElementById('cf-go');
