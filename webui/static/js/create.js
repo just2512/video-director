@@ -373,7 +373,7 @@ async function cfScanRepo(){
   const claims = ((r.evidence_graph || {}).claims || []).filter(c => c.status === 'VERIFIED');
   if (!claims.length) {
     if (st) st.textContent = '未发现可验证的卖点（可补 README 后再扫，或切回文案起步）';
-    window._cfRepoBrief = '';
+    window._cfRepo = null;
     return;
   }
   window._cfRepo = {
@@ -510,7 +510,7 @@ async function createProject(){
   const requestOptions = {
     brief: directorBrief,
     script: script.trim(),
-    creative_brief: briefParts.length ? '【创作简报】' + briefParts.join('；') : '',
+    creative_brief: directorBrief,
     mode: 'auto',
     voice: voiceMode === 'auto' ? ((document.getElementById('cf-voice') || {}).value || 'zh-CN-XiaoxiaoNeural') : '',
     voice_mode: voiceMode,
