@@ -173,6 +173,9 @@ function _createPanelHtml(){
             <option value="1.0" selected>1.0x 正常</option>
             <option value="1.3">1.3x 加快</option>
           </select></div>
+        <div style="flex:1"><label>旁白音量</label>
+          <input type="number" id="cf-voice-volume" value="1.0" min="0" max="2" step="0.05">
+        </div>
         <div style="flex:1"><label>字幕</label>
           <select id="cf-subtitle">
             <option value="plain">普通字幕</option>
@@ -477,8 +480,10 @@ async function createProject(){
     voice_mode: voiceMode,
     narration_upload: uploadedNarration,
     voice_rate: (document.getElementById('cf-voice-rate') || {}).value || '1.0',
+    narration_volume: parseFloat((document.getElementById('cf-voice-volume') || {}).value || '1.0'),
     style_intent: (st || {}).value || '',
     width: parseInt(aspect[0]), height: parseInt(aspect[1]),
+    resolution: (document.getElementById('cf-resolution') || {}).value || `${aspect[0]}x${aspect[1]}`,
     bgm: (document.getElementById('cf-bgm') || {}).value || 'auto',
     bgm_volume: parseFloat((document.getElementById('cf-bgm-volume') || {}).value || '0.3'),
     sfx_plan: null,
