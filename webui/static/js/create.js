@@ -43,14 +43,6 @@ function _createPanelHtml(){
     <span style="flex:1"></span>
     <button class="btn-secondary btn-sm" onclick="closeCreate()">关闭</button>
   </div>
-  <label>从哪里开始？</label>
-  <div class="btn-row cf-sources">
-    <button class="btn-secondary btn-sm cf-src${CF.source === 'script' ? ' chip-on' : ''}" data-src="script">文案</button>
-    <button class="btn-secondary btn-sm cf-src${CF.source === 'assets' ? ' chip-on' : ''}" data-src="assets">素材</button>
-    <button class="btn-secondary btn-sm cf-src${CF.source === 'reference' ? ' chip-on' : ''}" data-src="reference">参考视频</button>
-    <button class="btn-secondary btn-sm cf-src${CF.source === 'repo' ? ' chip-on' : ''}" data-src="repo">软件项目</button>
-  </div>
-  <div id="cf-source-area"></div>
   <div class="panel" style="margin-top:12px;padding:14px">
     <div style="display:flex;align-items:center;gap:8px">
       <b style="font-size:15px">AI 导演</b>
@@ -64,6 +56,17 @@ function _createPanelHtml(){
     </div>
     <div id="cf-director-plan-preview" class="hint" style="margin-top:8px"></div>
   </div>
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;color:var(--muted);font-size:13px">其他创作入口（文案 / 素材 / 参考视频 / 软件项目）</summary>
+    <label>从哪里开始？</label>
+    <div class="btn-row cf-sources">
+      <button class="btn-secondary btn-sm cf-src${CF.source === 'script' ? ' chip-on' : ''}" data-src="script">文案</button>
+      <button class="btn-secondary btn-sm cf-src${CF.source === 'assets' ? ' chip-on' : ''}" data-src="assets">素材</button>
+      <button class="btn-secondary btn-sm cf-src${CF.source === 'reference' ? ' chip-on' : ''}" data-src="reference">参考视频</button>
+      <button class="btn-secondary btn-sm cf-src${CF.source === 'repo' ? ' chip-on' : ''}" data-src="repo">软件项目</button>
+    </div>
+    <div id="cf-source-area"></div>
+  </details>
   <details id="cf-manual-options" style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
   <div id="cf-essentials">
