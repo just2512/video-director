@@ -147,3 +147,11 @@ def test_create_ui_no_longer_splits_creation_into_parallel_modes():
     assert "briefParts" not in text
     # There must be no fallback from Create to the old generic workflow endpoint.
     assert "await apiPost('/api/workflows', {kind: 'compose'" not in text
+
+
+def test_create_ui_accepts_reference_or_software_project_without_script_or_asset():
+    path = Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "create.js"
+    text = path.read_text(encoding="utf-8")
+    assert "const hasReference = !!window._cfReference;" in text
+    assert "const hasSoftwareProject = !!window._cfRepo;" in text
+    assert "const hasDirectorSource = !!(brief.trim() || script.trim() || hasFiles || hasReference || hasSoftwareProject);" in text
