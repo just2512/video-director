@@ -637,6 +637,33 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
         initial_script, seeded_style or None
     )
 
+    try:
+        from video_director import store
+        store.create_project(
+            pid,
+            (bundle.get("script") or {}).get("text") or bundle.get("brief") or "AI Director",
+            {
+                "voice": spec.get("voice") or "zh-CN-XiaoxiaoNeural",
+                "voice_rate": spec.get("voice_rate") or "+0%",
+                "narration_volume": spec.get("narration_volume") or 1.0,
+                "width": spec.get("width"),
+                "height": spec.get("height"),
+                "fps": spec.get("fps"),
+                "bgm": spec.get("bgm") or "auto",
+                "subtitle_mode": spec.get("subtitle_mode") or "plain",
+                "creative_brief": bundle.get("brief") or "",
+                "style_id": style_contract.style_id,
+                "fit_mode": spec.get("fit_mode") or "cover",
+                "clip_duration": spec.get("clip_duration"),
+                "clip_speed": spec.get("clip_speed"),
+                "concat_mode": spec.get("concat_mode") or "sequential",
+                "transition_mode": spec.get("transition_mode") or "cut",
+                "match_materials_to_script": bool(spec.get("match_materials_to_script", True)),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Director project row creation failed: %s", exc)
+
     state = {
         "project_id": pid,
         "bundle": bundle,
@@ -827,6 +854,21 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
 
     if pending and verify_ok is not True:
         raise DirectorAgentError("预览模式必须先完成真实 Verify")
+
+    if pending:
+        from video_director import store
+        store.set_stage(pid, store.Stage.AWAITING_CONFIRM)
+        try:
+            if state.get("storyboard_path"):
+                sb = json.loads(Path(state["storyboard_path"]).read_text(encoding="utf-8"))
+                store.save_storyboard_snapshot(pid, sb)
+        except Exception as exc:
+            logger.warning("Director storyboard snapshot failed: %s", exc)
+    elif state.get("final_path") and state.get("qc_report"):
+        from video_director import store
+        store.finish_project(
+            pid, state["final_path"], state["narration_duration"], state["qc_report"]
+        )
 
     result = {
         "ok": True,
