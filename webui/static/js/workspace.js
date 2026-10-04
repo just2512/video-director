@@ -48,6 +48,9 @@ async function workspaceOpen(pid, target){
     // 2. 装载 Composition
     const r = await editorLoad();
     if (!r || !r.ok) return r || {ok: false};
+    if (typeof directorLoadLatestRun === 'function') {
+      await directorLoadLatestRun(pid);
+    }
     // 3. 定位（§45 Review → Editor 带 Selection）
     if (target) {
       if (target.type === 'scene') {
