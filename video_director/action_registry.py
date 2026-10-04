@@ -173,7 +173,7 @@ _ACTIONS: List[ActionSpec] = [
                targets=["scene", "layer"],
                aliases=["换画面", "换个素材", "换镜头画面"],
                preconditions=["has_selection"]),
-    ActionSpec("asset.search", "自动找素材", "asset.search", "noop",
+    ActionSpec("asset.search", "自动找素材", "asset.search", "search_and_adopt",
                targets=["scene", "layer", "project"],
                aliases=["自动匹配素材", "找素材", "帮我找画面"],
                undo=False),
@@ -261,11 +261,11 @@ _ACTIONS: List[ActionSpec] = [
                targets=["project"], undo=False,
                aliases=["检查一下", "预检", "验证"]),
     # ---- §66 MPT 级 Action：内容 ----
-    ActionSpec("content.generate_script", "主题生成脚本", "system.capabilities.list",
-               "noop", targets=["project"], undo=False,
+    ActionSpec("content.generate_script", "主题生成脚本", "content.generate_script",
+               "generate_script", targets=["project"], undo=False,
                aliases=["按主题写脚本", "生成文案"]),
-    ActionSpec("content.rewrite_script", "改写脚本", "system.capabilities.list",
-               "noop", targets=["project"], undo=False,
+    ActionSpec("content.rewrite_script", "改写脚本", "content.rewrite_script",
+               "rewrite_script", targets=["project"], undo=False,
                aliases=["润色文案", "改写"]),
     # ---- §66 素材扩展 ----
     ActionSpec("asset.import_local", "导入本地素材", "asset.import_local", "noop",
@@ -291,7 +291,7 @@ _ACTIONS: List[ActionSpec] = [
                aliases=["字幕放底部", "字幕放顶部", "字幕居中"],
                payload_defaults={}),
     # ---- §66 音乐扩展 ----
-    ActionSpec("music.auto_match", "自动配乐", "music.match_video", "noop",
+    ActionSpec("music.auto_match", "自动配乐", "music.add", "set_audio_track",
                targets=["project"], undo=False,
                aliases=["自动匹配 BGM", "配点音乐"]),
     ActionSpec("music.preview", "试听音乐", "music.preview", "noop",
@@ -622,7 +622,7 @@ def actions_for_context(selection: Optional[dict], project_id: Optional[str] = N
         out.append({
             "id": a.id, "label": a.label, "aliases": a.aliases,
             "targets": a.targets, "undo": a.undo, "preview": a.preview,
-            "ui": a.ui,
+            "ui": a.ui, "parameters": dict(a.payload_defaults),
             **{k: avail[k] for k in ("available", "reason", "next_actions")},
         })
     return {"context": ctx_name, "actions": out}
@@ -837,7 +837,8 @@ def workflow_specs() -> dict:
 
 #: §68 AI 最终工具面：16 动词 → Action id（高层语义，AI 只见动词不见底层）
 AI_TOOL_SURFACE = {
-    "create_video": "workflow.start",
+    # 创作由 /api/director/create 直接进入 Director Workflow，不再伪装成 noop Action。
+    "create_video": None,
     "edit_script": "content.rewrite_script",
     "find_assets": "asset.search",
     "replace_asset": "asset.replace",
@@ -860,6 +861,14 @@ def ai_tool_surface() -> dict:
     """§68 /api/actions.system.ai_tools：动词 → Action → （内部）Capability。"""
     out = {}
     for verb, aid in AI_TOOL_SURFACE.items():
+        if aid is None:
+            out[verb] = {
+                "workflow": "director_create",
+                "label": "AI 导演创作",
+                "requires_project": False,
+                "description": "自然语言简报 → 脚本 → 分镜 → 配音 → 素材 → 字幕 → 音乐 → 预览 → 预检 → 成片",
+            }
+            continue
         a = _BY_ID.get(aid)
         if a:
             out[verb] = {"action": a.id, "label": a.label}
