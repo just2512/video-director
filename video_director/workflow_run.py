@@ -22,6 +22,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Callable, List, Optional
 
 from loguru import logger
@@ -269,6 +270,11 @@ def _compose_worker(run_id: str, spec: dict) -> None:
         else:
             result = _execute_compose(spec, run_id)
         pending = bool(result.get("pending_confirm"))
+        director_verify_ok = result.get("director_verify_ok", True)
+        if spec.get("_run_kind") == "director_create" and not director_verify_ok:
+            finish_run(run_id, FAILED, result=result,
+                       error="AI Director 创建链验证未通过")
+            return
         finish_run(run_id, WAITING_CONFIRMATION if pending else COMPLETED,
                    result=result)
     except Exception as exc:  # noqa: BLE001 失败落 run，前端能看到失败阶段
@@ -538,6 +544,7 @@ def _execute_director_create(spec: dict, run_id: str) -> dict:
     )
     result["director_plan"] = plan
     result["director_inputs"] = di.load_bundle(pid)
+    result["director_verify_ok"] = verify["ok"]
     di.persist_plan(pid, plan)
     _emit(run_id, "director", {"phase": "done", "project_id": pid,
                                "verify_ok": verify["ok"],
