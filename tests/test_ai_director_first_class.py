@@ -145,8 +145,10 @@ def test_music_match_uses_real_audio_command(monkeypatch, pid):
         errors = []
         revision_id = "rev-music"
 
-    monkeypatch.setattr(editor, "execute_command",
-                        lambda project_id, command: called.setdefault("command", command) or R())
+    def fake_execute(project_id, command):
+        called["command"] = command
+        return R()
+    monkeypatch.setattr(editor, "execute_command", fake_execute)
     r = tool_executor.execute_tool(pid, {"tool": "music.match_video", "payload": {}})
     assert r["ok"] is True
     assert called["command"]["command"] == "set_audio_volume"
