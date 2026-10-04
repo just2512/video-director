@@ -320,7 +320,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
             "verify": {"ok": False, "checks": [{"id": "asset_pool", "ok": False}]},
         }
 
-    if local_only and any(s["id"] not in assignments for s in state["narration_scenes"]):
+    if match_enabled and local_only and any(
+        s["id"] not in assignments for s in state["narration_scenes"]
+    ):
         return {
             "ok": False, "tool": "material.match", "status": "MISSING_REQUIREMENT",
             "error": "仅本地素材模式下存在未匹配场景",
@@ -335,9 +337,11 @@ def _tool_material(spec: dict, state: dict) -> dict:
         "assignments": assignments,
     })
     path = _json_file(base / "assets" / "match_assignments.json", assignments)
-    coverage_ok = all(s["id"] in assignments for s in state["narration_scenes"]) if any(
-        a.type == "video" for a in all_assets.values()
-    ) else True
+    coverage_ok = (
+        all(s["id"] in assignments for s in state["narration_scenes"])
+        if match_enabled and any(a.type == "video" for a in all_assets.values())
+        else True
+    )
     checks = [
         {"id": "asset_pool", "ok": bool(all_assets)},
         {"id": "assignment_file", "ok": Path(path).is_file()},
