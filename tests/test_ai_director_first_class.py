@@ -179,3 +179,15 @@ def test_director_plan_is_persisted(monkeypatch, tmp_path):
     assert run is not None
     assert run["status"] == "WAITING_CONFIRMATION"
     assert run["result"]["director_plan"]["nodes"][0]["id"] == "script"
+
+
+def test_mpt_ui_surface_is_real_not_only_backend():
+    root = Path(__file__).parents[1]
+    create = (root / "webui" / "static" / "js" / "create.js").read_text(encoding="utf-8")
+    inspector = (root / "webui" / "static" / "js" / "inspector.js").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="cf-director-brief"' in create
+    assert 'id="cf-voice-volume"' in create
+    assert 'id="sub-font"' in inspector
+    assert 'id="sub-animation"' in inspector
+    assert 'id="director-plan-card"' in index
