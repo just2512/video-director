@@ -8,7 +8,7 @@
 
 window.CF = {
   state: 'idle',          // idle|editing|submitting|planning|awaiting_confirm|failed
-  source: 'script',       // script|assets|reference|repo
+  source: 'script',       // UI picker only; never changes the Director workflow
 };
 
 /** 打开创建面板（顶栏「+ 新建项目」唯一入口 §3.1）。 */
@@ -57,8 +57,8 @@ function _createPanelHtml(){
     <div id="cf-director-plan-preview" class="hint" style="margin-top:8px"></div>
   </div>
   <details style="margin-top:10px">
-    <summary style="cursor:pointer;color:var(--muted);font-size:13px">其他创作入口（文案 / 素材 / 参考视频 / 软件项目）</summary>
-    <label>从哪里开始？</label>
+    <summary style="cursor:pointer;color:var(--muted);font-size:13px">为 AI 导演添加输入（文案 / 素材 / 参考视频 / 软件项目，可同时添加）</summary>
+    <label>添加输入：</label>
     <div class="btn-row cf-sources">
       <button class="btn-secondary btn-sm cf-src${CF.source === 'script' ? ' chip-on' : ''}" data-src="script">文案</button>
       <button class="btn-secondary btn-sm cf-src${CF.source === 'assets' ? ' chip-on' : ''}" data-src="assets">素材</button>
@@ -342,7 +342,7 @@ function cfVoiceModeSync(){
   }
 }
 
-/** §37 参考视频 Source：分析 → 结果入简报（真实接线，非跳转提示）。 */
+/** §37 参考视频输入：分析结果保留为结构化 Director Input，不再压扁成简报字符串。 */
 async function cfAnalyzeReference(){
   const f = document.getElementById('cf-reference');
   const st = document.getElementById('cf-reference-status');
@@ -361,7 +361,7 @@ async function cfAnalyzeReference(){
     <div class="hint">已并入创作简报——开始创作时会自动带上这段风格指导。</div></div>`;
   if (st) st.textContent = '分析完成，风格已并入创作简报。';
 }
-/** §37 软件项目 Source：扫描 → 证据卖点入简报。 */
+/** §37 软件项目输入：保存完整 Evidence Graph，Director 只消费 VERIFIED 事实。 */
 async function cfScanRepo(){
   const root = (document.getElementById('cf-repo-root') || {}).value || '';
   const st = document.getElementById('cf-repo-status');
@@ -376,10 +376,16 @@ async function cfScanRepo(){
     window._cfRepoBrief = '';
     return;
   }
-  window._cfRepoBrief = '产品卖点（已验证）：' + claims.slice(0, 6).map(c => c.text).join('；');
-  out.innerHTML = `<div class="ok-box">发现 ${claims.length} 条可验证卖点（前 6 条已并入创作简报）：
-    ${claims.slice(0, 6).map(c => `<div class="hint">· ${esc(c.text)}</div>`).join('')}</div>`;
-  if (st) st.textContent = '卖点已并入创作简报。';
+  window._cfRepo = {
+    id: `repo-${Date.now()}`,
+    root: root.trim(),
+    evidence_graph: r.evidence_graph || {},
+    claims: claims,
+    usage: ['claims', 'evidence', 'software_promotion']
+  };
+  out.innerHTML = `<div class="ok-box">发现 ${claims.length} 条可验证卖点（全部 VERIFIED 证据会随 AI 导演请求一起发送）：
+    ${claims.slice(0, 6).map(c => `<div class="hint">· ${esc(c.text)}</div>`).join('')}${claims.length > 6 ? '<div class="hint">· 其余 VERIFIED 卖点已保留，交给 Director 按场景选择。</div>' : ''}</div>`;
+  if (st) st.textContent = '软件项目证据已加入 AI 导演输入。';
 }
 
 /** §38 状态机：提交 → WorkflowRun（§52 run_id + §53 真实步骤事件轮询）→ 工作台。 */
@@ -402,31 +408,32 @@ async function createProject(){
   CF.state = 'submitting';
   btn.disabled = true;
   status.textContent = '正在提交创作任务……';
-  // 创作简报：平台/时长/风格并入
-  const briefParts = [];
+  // 所有来源进入同一个 DirectorInputBundle；creative_brief 仅作为兼容字段，不再承担来源存储职责。
   const tp = document.getElementById('cf-platform');
-  if (tp && tp.value) briefParts.push('目标平台：' + tp.options[tp.selectedIndex].text);
   const td = document.getElementById('cf-duration');
-  if (td && td.value) briefParts.push(`目标时长：约 ${td.value} 秒`);
   const st = document.getElementById('cf-style');
-  if (st && st.value.trim()) briefParts.push('风格：' + st.value.trim());
-  // 参考视频/软件项目 Source 分析结果并入简报
-  const briefExtra = [];
-  if (window._cfReferenceBrief) briefExtra.push(window._cfReferenceBrief);
-  if (window._cfRepoBrief) briefExtra.push(window._cfRepoBrief);
-  if (briefExtra.length) briefParts.push(briefExtra.join('；'));
 
-  // 素材先落盘（WorkflowRun spec 走 JSON，文件经既有 /api/compose 的 multipart
+  // 素材先进入统一 Asset Library；随后把 asset_id/file 作为 Director 的 Asset Pool 引用。
   // 路径暂存后传路径——这里直接上传到项目暂存目录再引用）
-  let videoNames = [], imageNames = [];
+  let videoNames = [], imageNames = [], assetRefs = [];
   try {
     if (hasFiles) {
       const fd = new FormData();
       for (const f of assets.files) fd.append('files', f, f.name);
       const imported = await apiUpload('/api/assets/upload', fd);
       if (imported && imported.ok) {
-        videoNames = (imported.imported || []).filter(a => a.type === 'video' && a.file).map(a => a.file);
-        imageNames = (imported.imported || []).filter(a => a.type === 'image' && a.file).map(a => a.file);
+        const importedAssets = imported.imported || [];
+        assetRefs = importedAssets.map(a => ({
+          asset_id: a.asset_id,
+          type: a.type,
+          file: a.file,
+          width: a.width,
+          height: a.height,
+          duration: a.duration,
+          commercial_status: a.commercial_status
+        }));
+        videoNames = importedAssets.filter(a => a.type === 'video' && a.file).map(a => a.file);
+        imageNames = importedAssets.filter(a => a.type === 'image' && a.file).map(a => a.file);
         if (imported.errors && imported.errors.length) {
           const warn = document.getElementById('cf-status');
           if (warn) warn.textContent = '部分素材未导入：' + imported.errors.join('；');
@@ -474,6 +481,32 @@ async function createProject(){
     }
   }
   const directorBrief = brief.trim();
+  const referenceInput = window._cfReference ? [window._cfReference] : [];
+  const softwareProjectInput = window._cfRepo ? window._cfRepo : {};
+  const directorInputs = {
+    brief: directorBrief,
+    script: {
+      text: script.trim(),
+      source: script.trim() ? 'user' : 'director',
+      authority: script.trim() ? 'authoritative' : 'generated',
+      editable: true
+    },
+    assets: {
+      asset_refs: assetRefs,
+      policy: visualSource === 'local' ? 'user_only' : 'user_first',
+      required: visualSource === 'local'
+    },
+    references: referenceInput,
+    software_project: softwareProjectInput,
+    constraints: {
+      visual_source: visualSource,
+      allow_stock: visualSource !== 'local',
+      allow_generation: true
+    },
+    platform: (tp || {}).value || '',
+    duration: (td || {}).value || '',
+    style: (st || {}).value || ''
+  };
   const requestOptions = {
     brief: directorBrief,
     script: script.trim(),
@@ -506,15 +539,15 @@ async function createProject(){
     auto_confirm: ((document.getElementById('cf-confirm') || {}).value || 'preview') === 'direct',
     video_paths: videoNames, image_paths: imageNames,
   };
-  const wfResp = directorBrief
-    ? await apiPost('/api/director/create', {
-        ...requestOptions,
-        brief: directorBrief,
-        platform: (document.getElementById('cf-platform') || {}).value || '',
-        duration: (document.getElementById('cf-duration') || {}).value || '',
-        style: (document.getElementById('cf-style') || {}).value || '',
-      })
-    : await apiPost('/api/workflows', {kind: 'compose', spec: requestOptions});
+  // 所有创建请求统一进入 AI Director；没有“文案模式 / 素材模式 / 参考模式 / 项目模式”。
+  const wfResp = await apiPost('/api/director/create', {
+    ...requestOptions,
+    brief: directorBrief,
+    platform: (tp || {}).value || '',
+    duration: (td || {}).value || '',
+    style: (st || {}).value || '',
+    director_inputs: directorInputs
+  });
   if (!wfResp.ok || !wfResp.run_id) {
     CF.state = 'failed';
     status.textContent = '任务提交失败：' + (wfResp.error || '未知') + '（内容未保存，可重试）';
