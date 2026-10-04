@@ -47,7 +47,10 @@ class DirectorError(Exception):
 def build_contexts(project_id: str, selection: Optional[dict] = None) -> dict:
     """§16：System + Project + Selection + Action Context 一次收集。"""
     # selection 补 layer_type（前端上报可能只带 type/id；Action 分组需要层类型）
-    sel = dict(selection or {"type": None})
+    # Director 无显式选中对象时，创作/项目级操作应以 project context 为默认。
+    sel = dict(selection or {"type": "project", "id": ""})
+    if sel.get("type") in (None, "none"):
+        sel["type"] = "project"
     if sel.get("type") == "layer" and not sel.get("layer_type"):
         try:
             from video_director.editor import load_composition
