@@ -538,8 +538,14 @@ def direct(project_id: str, instruction: str,
     resolved = []
     for s in steps:
         normalized = dict(s)
-        normalized["target"] = _resolve_natural_target(
+        resolved_target = _resolve_natural_target(
             project_id, s.get("target"), selection=selection)
+        spec = action_registry.get_action(s.get("action") or "")
+        if spec and resolved_target and "#" not in str(resolved_target):
+            # 仅允许 layer-only 动作用真实图层 id；“第二段”先落到 scene，再取首个视觉层。
+            if "layer" in (spec.targets or []) and "scene" not in (spec.targets or []):
+                resolved_target = _target_layer_for_scene(project_id, str(resolved_target))
+        normalized["target"] = resolved_target
         r = action_registry.resolve_step(normalized, selection)
         if "error" in r:
             resolved.append({"step": s, "resolve_error": r["error"]})
