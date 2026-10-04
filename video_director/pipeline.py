@@ -387,6 +387,7 @@ def compose_project(
             type=AudioTrackType.narration,
             start=0.0,
             duration=narration_duration,
+            volume=max(0.0, min(2.0, float(narration_volume))),
         ))
     if bgm_asset_id:
         lib = audio_mod.scan_library()
