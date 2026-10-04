@@ -153,6 +153,22 @@ def _resolve_natural_target(project_id: str, target, selection: Optional[dict] =
         num = len(scenes)
     if "开头" in raw or "第一段" in raw:
         num = 1
+    # 中文序数：第二段 / 第十二个 / 第三镜头。
+    if num is None:
+        chinese = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+                   "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+        m = re.search(r"第([一二三四五六七八九十百零两]+)(?:段|个|号|镜头|场景)", raw)
+        if m:
+            token = m.group(1)
+            if token == "十":
+                num = 10
+            elif token.startswith("十"):
+                num = 10 + chinese.get(token[1:], 0)
+            elif "十" in token:
+                a, b = token.split("十", 1)
+                num = chinese.get(a, 1) * 10 + chinese.get(b, 0)
+            else:
+                num = chinese.get(token)
     if num is not None and 1 <= num <= len(scenes):
         return scenes[num - 1].get("id") or raw
     if selection and raw in ("这个", "这里", "这段", "此处"):
