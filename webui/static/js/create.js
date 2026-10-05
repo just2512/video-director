@@ -56,17 +56,50 @@ function _createPanelHtml(){
     </div>
     <div id="cf-director-plan-preview" class="hint" style="margin-top:8px"></div>
   </div>
-  <details style="margin-top:10px">
-    <summary style="cursor:pointer;color:var(--muted);font-size:13px">为 AI 导演添加输入（文案 / 素材 / 参考视频 / 软件项目，可同时添加）</summary>
-    <label>添加输入：</label>
-    <div class="btn-row cf-sources">
-      <button class="btn-secondary btn-sm cf-src${CF.source === 'script' ? ' chip-on' : ''}" data-src="script">文案</button>
-      <button class="btn-secondary btn-sm cf-src${CF.source === 'assets' ? ' chip-on' : ''}" data-src="assets">素材</button>
-      <button class="btn-secondary btn-sm cf-src${CF.source === 'reference' ? ' chip-on' : ''}" data-src="reference">参考视频</button>
-      <button class="btn-secondary btn-sm cf-src${CF.source === 'repo' ? ' chip-on' : ''}" data-src="repo">软件项目</button>
+  <div class="panel" style="margin-top:10px;padding:12px">
+    <div class="btn-row" style="align-items:center">
+      <b>输入上下文</b><span class="hint">文案、素材、参考视频、软件项目可以同时提供，也可以只提供其中一部分。</span>
     </div>
-    <div id="cf-source-area"></div>
-  </details>
+    <div class="panel" style="margin-top:8px;padding:10px">
+      <b>文案</b><span class="hint"> 可选；填写后作为权威文案</span>
+      <textarea id="cf-script" style="min-height:110px;margin-top:6px" placeholder="粘贴你已经写好的文案；没有文案也可以留空，让 AI 根据目标和其他输入生成。"></textarea>
+    </div>
+    <div class="panel" style="margin-top:8px;padding:10px">
+      <b>我的素材</b><span class="hint"> 可选；图片 / 视频可多选</span>
+      <input type="file" id="cf-assets" multiple accept=".mp4,.mov,.mkv,.webm,.m4v,.jpg,.jpeg,.png,.webp,.bmp" style="margin-top:6px">
+      <div class="hint" id="cf-assets-summary">未添加本地素材</div>
+    </div>
+    <div class="panel" style="margin-top:8px;padding:10px">
+      <b>参考视频</b><span class="hint"> 可选；只用于分析节奏、镜头语言和风格</span>
+      <input type="file" id="cf-reference" accept=".mp4,.mov,.mkv,.webm" style="margin-top:6px">
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn-secondary btn-sm" onclick="cfAnalyzeReference()">分析参考视频</button>
+        <span class="hint" id="cf-reference-status">分析完成后加入导演上下文。</span>
+      </div>
+      <div id="cf-reference-result"></div>
+    </div>
+    <div class="panel" style="margin-top:8px;padding:10px">
+      <b>软件项目</b><span class="hint"> 可选；AI 只使用已验证的功能事实</span>
+      <input type="text" id="cf-repo-root" class="rev-input" placeholder="例：D:\\Projects\\my-app" style="margin-top:6px">
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn-secondary btn-sm" onclick="cfScanRepo()">扫描软件项目</button>
+        <span class="hint" id="cf-repo-status">扫描 README / CHANGELOG 等证据文件。</span>
+      </div>
+      <div id="cf-repo-result"></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:10px;padding:12px">
+    <div class="btn-row" style="align-items:center">
+      <b>创作范围</b>
+      <label style="margin:0"><input type="radio" name="cf-scope" value="single" checked onchange="cfSeriesSync()"> 单条视频</label>
+      <label style="margin:0"><input type="radio" name="cf-scope" value="series" onchange="cfSeriesSync()"> 系列视频</label>
+    </div>
+    <div id="cf-series-options" style="display:none;margin-top:8px">
+      <label>系列名称</label>
+      <input type="text" id="cf-series-name" placeholder="例：AI 工具实测系列">
+      <div class="hint" style="margin-top:4px">每集文案用一行 <code>------------</code> 分隔；上面的素材、参考视频和软件项目可作为共享上下文。</div>
+    </div>
+  </div>
   <details id="cf-manual-options" style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
   <div id="cf-essentials">
@@ -76,8 +109,7 @@ function _createPanelHtml(){
       <button class="btn-secondary btn-sm" onclick="cfGenerateScript()">AI 生成文案</button>
     </div>
     <div class="hint" id="cf-script-gen-status"></div>
-    <label>文案</label>
-    <textarea id="cf-script" style="min-height:110px" placeholder="粘贴你的文案；也可以先填主题，再让 AI 生成。"></textarea>
+    <div class="hint">文案已移到上面的「输入上下文」区。</div>
     <div class="btn-row" style="align-items:center;flex-wrap:wrap">
       <button class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button>
       <span class="hint" id="cf-enhance-status"></span>
@@ -109,9 +141,7 @@ function _createPanelHtml(){
         <input type="text" id="cf-style" placeholder="例：纪录片沉稳"></div>
     </div>
     <div id="cf-style-presets" class="btn-row" style="flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted)"></div>
-    <label>本地素材（视频 / 图片，可多选）</label>
-    <input type="file" id="cf-assets" multiple accept=".mp4,.mov,.mkv,.webm,.m4v,.jpg,.jpeg,.png,.webp,.bmp">
-    <div class="hint" id="cf-assets-summary">未添加本地素材</div>
+    <div class="hint">素材已移到上面的「输入上下文」区。</div>
     <div class="btn-row" style="align-items:center;gap:10px;margin-top:8px">
       <div style="flex:1"><label>画面来源</label>
         <select id="cf-visual-source" onchange="cfVisualSourceSync()">
@@ -404,6 +434,8 @@ async function cfScanRepo(){
 /** §38 状态机：提交 → WorkflowRun（§52 run_id + §53 真实步骤事件轮询）→ 工作台。 */
 async function createProject(){
   const btn = document.getElementById('cf-go');
+  const scope = (document.querySelector('input[name="cf-scope"]:checked') || {}).value || 'single';
+  if (scope === 'series') return createSeriesFromCreatePanel();
   const status = document.getElementById('cf-status');
   const script = (document.getElementById('cf-script') || {}).value || '';
   const brief = (document.getElementById('cf-director-brief') || {}).value || '';
@@ -604,6 +636,44 @@ async function createProject(){
   }, 1500);
 }
 
+function cfSeriesSync(){
+  const scope=(document.querySelector('input[name="cf-scope"]:checked')||{}).value||'single';
+  const box=document.getElementById('cf-series-options');
+  if(box)box.style.display=scope==='series'?'':'none';
+  ['cf-ai-go','cf-go'].map(id=>document.getElementById(id)).filter(Boolean).forEach(b=>b.textContent=scope==='series'?'AI 开始批量创作':'AI 开始创作');
+}
+async function createSeriesFromCreatePanel(){
+  const status=document.getElementById('cf-status');
+  const name=(document.getElementById('cf-series-name')||{}).value||'';
+  const scripts=(document.getElementById('cf-script')||{}).value||'';
+  const files=Array.from((document.getElementById('cf-assets')||{}).files||[]);
+  const parts=scripts.split('------------').map(x=>x.trim()).filter(Boolean);
+  if(!name.trim()){status.textContent='系列模式请填写系列名称';return;}
+  if(!parts.length){status.textContent='系列模式请至少输入一集文案，并用 ------------ 分隔多集';return;}
+  CF.state='submitting';
+  const bs=['cf-ai-go','cf-go'].map(id=>document.getElementById(id)).filter(Boolean);bs.forEach(b=>b.disabled=true);
+  status.textContent='正在建立系列并提交批量任务……';
+  try{
+    const res=(document.getElementById('cf-resolution')||{}).value||'1080x1920';
+    const [width,height]=res.split('x').map(Number);
+    const r1=await apiPost('/api/series_create',{name:name.trim(),spec:{
+      voice:(document.getElementById('cf-voice')||{}).value||'zh-CN-XiaoxiaoNeural',
+      subtitle_mode:(document.getElementById('cf-subtitle')||{}).value||'plain',
+      bgm:(document.getElementById('cf-bgm')||{}).value||'auto',
+      bgm_volume:parseFloat((document.getElementById('cf-bgm-volume')||{}).value||'0.3'),
+      watermark:(document.getElementById('cf-watermark')||{}).value||'',
+      style_intent:(document.getElementById('cf-style')||{}).value||'',
+      width,height,visual_source:(document.getElementById('cf-visual-source')||{}).value||'auto'
+    }});
+    if(!r1.ok)throw new Error(r1.error||'系列创建失败');
+    const fd=new FormData();fd.append('series_id',r1.series_id);fd.append('scripts',parts.join('\n------------\n'));
+    for(const f of files){const v=/\.(mp4|mov|mkv|webm|m4v)$/i.test(f.name);fd.append(v?'videos':'images',f,f.name);}
+    const r2=await apiUpload('/api/series_batch',fd);
+    if(!r2.ok)throw new Error(r2.error||'批量任务提交失败');
+    closeCreate();loadProjects();loadSeries();editorToast('已建立「'+name.trim()+'」，提交 '+r2.episodes+' 集批量任务');
+  }catch(e){CF.state='failed';status.textContent='系列提交失败：'+(e.message||e);bs.forEach(b=>b.disabled=false);}
+}
+
 /** 润色（走原 enhance API，面板内联呈现）。 */
 async function cfGenerateScript(){
   const topic = (document.getElementById('cf-topic') || {}).value || '';
@@ -667,5 +737,5 @@ function cfMakeGraphicPlan(){
 Object.assign(window, {
   openCreate, closeCreate, setCreateSource, createLoadDefaults,
   createPlatformSync, createProject, createEnhance, createAcceptEnhanced,
-  cfMakeGraphicPlan, cfAnalyzeReference, cfScanRepo, cfVoiceModeSync, CF,
+  cfMakeGraphicPlan, cfAnalyzeReference, cfScanRepo, cfVoiceModeSync, cfSeriesSync, createSeriesFromCreatePanel, CF,
 });
