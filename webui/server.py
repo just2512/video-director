@@ -1246,20 +1246,21 @@ class Handler(BaseHTTPRequestHandler):
                 from video_director import studio as vd_studio
                 series = {s["series_id"]: s for s in vd_studio.series_list()}
                 spec = series.get(series_id, {}).get("spec", {})
-                vids = [f["filename"] for f in files if f["name"] == "videos"]
-                # 素材落盘（系列共享素材目录）
-                video_paths = []
-                if vids:
-                    shared_dir = STORAGE / "composer" / f"series-{series_id[:12]}" / "input" / "videos"
-                    shared_dir.mkdir(parents=True, exist_ok=True)
-                    for f in files:
-                        if f["name"] != "videos":
-                            continue
-                        dst = shared_dir / Path(f["filename"]).name
-                        dst.write_bytes(f["data"])
+                # 素材落盘（系列共享素材目录；视频/图片均可作为共享输入）
+                video_paths, image_paths = [], []
+                shared_dir = STORAGE / "composer" / f"series-{series_id[:12]}" / "input" / "shared"
+                shared_dir.mkdir(parents=True, exist_ok=True)
+                for f in files:
+                    if f["name"] not in ("videos", "images"):
+                        continue
+                    dst = shared_dir / Path(f["filename"]).name
+                    dst.write_bytes(f["data"])
+                    if f["name"] == "videos":
                         video_paths.append(str(dst))
+                    else:
+                        image_paths.append(str(dst))
                 job_ids = vd_studio.enqueue_series_batch(
-                    series_id, spec, episodes, video_paths)
+                    series_id, spec, episodes, video_paths, image_paths)
                 self._send_json({"ok": True, "job_ids": job_ids,
                                  "episodes": len(episodes)})
             except Exception as exc:
