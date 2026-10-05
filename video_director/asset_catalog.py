@@ -312,6 +312,75 @@ def list_assets(kind: Optional[str] = None, source: Optional[str] = None,
     return out
 
 
+def asset_usage(asset_id: str) -> List[str]:
+    """扫描项目 manifest，返回实际引用该 Asset 的项目 ID。"""
+    used = []
+    root = config.composer_storage_root()
+    if not root.is_dir():
+        return used
+    for d in root.iterdir():
+        if not d.is_dir():
+            continue
+        manifest = d / "assets" / "manifest.json"
+        if not manifest.is_file():
+            continue
+        try:
+            rows = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if any(isinstance(a, dict) and a.get("id") == asset_id for a in rows):
+            used.append(d.name)
+    return used
+
+
+def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
+    """删除全局 Library Asset；被项目引用时硬拒绝。"""
+    catalog = _load_catalog()
+    entry = catalog.get(asset_id)
+    if entry is None:
+        return {"ok": False, "code": "NOT_FOUND", "error": f"素材不存在：{asset_id}"}
+    used_in = asset_usage(asset_id) if require_unused else []
+    if used_in:
+        return {"ok": False, "code": "ASSET_IN_USE", "error": f"素材正在被项目引用：{', '.join(used_in)}", "used_in": used_in}
+    try:
+        file_path = entry.get("file") or ""
+        if file_path and Path(file_path).is_file():
+            Path(file_path).unlink()
+        (library_root() / "thumbnails" / f"{asset_id}.jpg").unlink(missing_ok=True)
+    except OSError as exc:
+        return {"ok": False, "code": "DELETE_FAILED", "error": f"素材文件删除失败：{exc}"}
+    catalog.pop(asset_id, None)
+    _save_catalog(catalog)
+    return {"ok": True, "asset_id": asset_id}
+
+
+def delete_assets(asset_ids: List[str]) -> dict:
+    """批量删除未被项目引用的 Library Asset；先全量预检，任一引用则整批拒绝。"""
+    ids = list(dict.fromkeys(str(x).strip() for x in (asset_ids or []) if str(x).strip()))
+    if not ids:
+        return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择素材"}
+    catalog = _load_catalog()
+    missing = [x for x in ids if x not in catalog]
+    usage = {}
+    for aid in ids:
+        if aid in catalog:
+            refs = asset_usage(aid)
+            if refs:
+                usage[aid] = refs
+    if missing:
+        return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的素材：" + ",".join(missing)}
+    if usage:
+        detail = "；".join(f"{aid} → {','.join(refs)}" for aid, refs in usage.items())
+        return {"ok": False, "code": "ASSET_IN_USE", "error": "所选素材仍被项目引用：" + detail}
+    deleted = []
+    for aid in ids:
+        result = delete_asset(aid, require_unused=False)
+        if not result.get("ok"):
+            return {"ok": False, "code": result.get("code") or "DELETE_FAILED", "error": result.get("error") or "删除失败", "deleted": deleted}
+        deleted.append(aid)
+    return {"ok": True, "deleted": deleted}
+
+
 def project_reference(project_id: str, asset_id: str) -> bool:
     """§26 项目只保存 Asset Reference：把 Library 资产引用写进项目 manifest。
 
