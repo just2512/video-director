@@ -17,6 +17,7 @@ from video_director import audio, assets as assets_mod, config, matcher, narrati
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
+from video_director import vision as vision_mod
 
 
 def _json_file(path: Path, value) -> str:
@@ -41,8 +42,7 @@ def _strip_code_fence(text: str) -> str:
 
 def _scene_texts(script: str) -> List[str]:
     import re
-    parts = [x.strip() for x in re.split(r"[。！？!?
-]+", script or "") if x.strip()]
+    parts = [x.strip() for x in re.split(r"[。！？!?\n]+", script or "") if x.strip()]
     return [x + ("。" if not x.endswith(("。", "！", "？", "!", "?")) else "") for x in parts]
 
 
@@ -691,6 +691,22 @@ def _tool_understand(spec: dict, state: dict) -> dict:
         "result": {"source_refs": refs},
         "verify": {"ok": bool(refs), "checks": [{"id": "input_context", "ok": bool(refs)}]},
     }
+
+
+#: node_id → 真实 Tool 执行器；understand 在 execute 内额外并入（不参与 _ready_nodes 调度）。
+_TOOLS = {
+    "script": _tool_script,
+    "scene_plan": _tool_scene_plan,
+    "narration": _tool_narration,
+    "material_match": _tool_material,
+    "subtitle": _tool_subtitle,
+    "music": _tool_music,
+    "composition": _tool_composition,
+    "watermark": _tool_watermark,
+    "preview": _tool_preview,
+    "verify": _tool_verify,
+    "render": _tool_render,
+}
 
 
 def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:

@@ -126,7 +126,15 @@ def create_project(project_id: str, script: str, params: dict) -> None:
         )
 
 
-def update_script(project_id: str, script: str) -> None:\n    """Update persisted project script after Director generates or accepts copy."""\n    init_db()\n    with DB_LOCK, _conn() as conn:\n        conn.execute("UPDATE projects SET script=?, updated_at=? WHERE project_id=?",\n                     (script, time.time(), project_id))\n\ndef set_stage(project_id: str, stage: Stage, error: Optional[str] = None) -> None:
+def update_script(project_id: str, script: str) -> None:
+    """Update persisted project script after Director generates or accepts copy."""
+    init_db()
+    with DB_LOCK, _conn() as conn:
+        conn.execute("UPDATE projects SET script=?, updated_at=? WHERE project_id=?",
+                     (script, time.time(), project_id))
+
+
+def set_stage(project_id: str, stage: Stage, error: Optional[str] = None) -> None:
     init_db()
     progress = _STAGE_PROGRESS[stage]
     now = time.time()
