@@ -318,7 +318,7 @@ async function loadInbox(){
       <div class="btn-row" style="align-items:center;margin-bottom:6px">
         <label style="margin:0"><input type="checkbox" ${allSelected?'checked':''} onchange='inboxToggleAll(this.checked, ${JSON.stringify(ids)})'> 全选</label>
         <span class="hint">${INBOX_UI.selected.size?'已选择 '+INBOX_UI.selected.size+' 条':''}</span>
-        ${INBOX_UI.selected.size?'<button class="btn-secondary btn-sm" onclick="inboxBulkAction(\\'delete\\')">删除所选</button><button class="btn-secondary btn-sm" onclick="inboxBulkAction(\\'dismissed\\')">丢弃所选</button>':''}
+        ${INBOX_UI.selected.size?'<button class="btn-secondary btn-sm" onclick="inboxBulkAction('delete')">删除所选</button><button class="btn-secondary btn-sm" onclick="inboxBulkAction('dismissed')">丢弃所选</button>':''}
       </div>`+(list.map(it=>`
       <div class="proj-row">
         <span style="width:28px"><input type="checkbox" ${INBOX_UI.selected.has(it.item_id)?'checked':''} onchange="inboxToggle('${esc(it.item_id)}',this.checked)" onclick="event.stopPropagation()"></span>
