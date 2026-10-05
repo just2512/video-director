@@ -79,7 +79,7 @@ UI_ONLY_PREFIXES = (
     "settingsExport(", "settingsImport(",
     "pmToggleSelected(", "pmToggleAll(", "pmAskBulkDelete(", "pmBulkAction(", "pmClearSelection(",
     "seriesToggle(", "seriesToggleAll(", "seriesBulkDelete(",
-    "inboxToggle(", "inboxToggleAll(", "inboxBulkAction(",
+    "inboxToggle(", "inboxToggleAll(", "inboxBulkAction(", "inboxBulkDeleteSelected(", "inboxBulkDismissSelected(",
     "taskToggleSelected(", "taskToggleAllTerminal(", "taskBulkCleanup(",
     "edLibToggleAsset(", "edLibToggleUnusedAll(", "edLibBulkDeleteAssets(",
     "event.stopPropagation()",
