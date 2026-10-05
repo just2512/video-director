@@ -37,6 +37,7 @@ WAITING_CONFIRMATION = "WAITING_CONFIRMATION"
 FAILED = "FAILED"
 COMPLETED = "COMPLETED"
 CANCELLED = "CANCELLED"
+INTERRUPTED = "INTERRUPTED"
 
 #: §53 步骤事件 → 前端人话（真实事件，不是轮播短语）
 STEP_LABEL_CN = {
@@ -209,6 +210,92 @@ def list_runs(project_id: Optional[str] = None, limit: int = 20) -> List[dict]:
 
 def runs_of_project(project_id: str) -> List[dict]:
     return list_runs(project_id=project_id, limit=50)
+
+
+def delete_run(run_id: str, *, allow_waiting: bool = False) -> dict:
+    """删除单条 WorkflowRun；活动任务默认拒绝，项目删除时可放宽 waiting。"""
+    with _DB_LOCK, _conn() as conn:
+        _ensure_table(conn)
+        row = conn.execute(
+            "SELECT run_id, project_id, status FROM workflow_runs WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return {"ok": False, "code": "NOT_FOUND", "error": "任务不存在"}
+        safe = row["status"] in (COMPLETED, FAILED, CANCELLED, INTERRUPTED) or (
+            allow_waiting and row["status"] == WAITING_CONFIRMATION
+        )
+        if not safe:
+            return {"ok": False, "code": "ACTIVE_RUN", "error": "任务正在执行或等待确认，不能删除"}
+        conn.execute("DELETE FROM workflow_runs WHERE run_id=?", (run_id,))
+    return {"ok": True, "run_id": run_id, "project_id": row["project_id"]}
+
+
+def delete_runs(run_ids: List[str], *, allow_waiting: bool = False) -> dict:
+    """批量删除 WorkflowRun：先全量预检，任一活动任务存在则整批拒绝。"""
+    ids = list(dict.fromkeys(str(x).strip() for x in (run_ids or []) if str(x).strip()))
+    if not ids:
+        return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择任务"}
+    with _DB_LOCK, _conn() as conn:
+        _ensure_table(conn)
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT run_id, project_id, status FROM workflow_runs WHERE run_id IN ({marks})", ids
+        ).fetchall()
+        found = {r["run_id"]: r for r in rows}
+        missing = [x for x in ids if x not in found]
+        unsafe = [
+            r["run_id"] for r in rows
+            if not (r["status"] in (COMPLETED, FAILED, CANCELLED, INTERRUPTED)
+                    or (allow_waiting and r["status"] == WAITING_CONFIRMATION))
+        ]
+        if missing:
+            return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的任务：" + ",".join(missing)}
+        if unsafe:
+            return {"ok": False, "code": "ACTIVE_RUN",
+                    "error": "所选任务中仍有运行中/待确认任务：" + ",".join(unsafe)}
+        conn.execute(f"DELETE FROM workflow_runs WHERE run_id IN ({marks})", ids)
+    return {"ok": True, "deleted": ids}
+
+
+def delete_runs_of_project(project_id: str) -> int:
+    """项目删除后的 WorkflowRun 全清理；调用方须先完成活动任务硬门槛。"""
+    with _DB_LOCK, _conn() as conn:
+        _ensure_table(conn)
+        cur = conn.execute("DELETE FROM workflow_runs WHERE project_id=?", (project_id,))
+    return cur.rowcount
+
+
+def reconcile_runs(reason: str = "服务重启，上一任务已中断") -> dict:
+    """启动时收敛残留 RUNNING：单机进程重启后不能留下永久“生成中”。"""
+    with _DB_LOCK, _conn() as conn:
+        _ensure_table(conn)
+        rows = conn.execute(
+            "SELECT run_id, project_id FROM workflow_runs WHERE status=?", (RUNNING,)
+        ).fetchall()
+        now = time.time()
+        conn.execute(
+            "UPDATE workflow_runs SET status=?, error=?, updated_at=? WHERE status=?",
+            (INTERRUPTED, reason, now, RUNNING),
+        )
+    projects = []
+    for row in rows:
+        pid = row["project_id"]
+        if pid:
+            try:
+                from video_director import store
+                p = store.get_project(pid)
+                if p and p.get("stage") in {
+                    store.Stage.TTS.value, store.Stage.ALIGNMENT.value,
+                    store.Stage.MATCHING.value, store.Stage.PLANNING.value,
+                    store.Stage.RENDERING.value, store.Stage.QC.value,
+                }:
+                    store.set_stage(pid, store.Stage.FAILED, reason)
+                    projects.append(pid)
+            except Exception as exc:
+                logger.warning("workflow reconcile project %s failed: %s", pid, exc)
+        _emit(row["run_id"], "workflow.done", {"status": INTERRUPTED})
+    return {"interrupted_runs": [r["run_id"] for r in rows], "projects": projects}
 
 
 # ---------------------------------------------------------------------------
