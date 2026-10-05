@@ -96,6 +96,7 @@ function renderProjectList(){
   }
 }
 // ---- 批量项目管理（同一后端 /api/bulk_action） ----
+function pmClearSelection(){ PM.selected.clear(); renderProjectList(); }
 function pmToggleSelected(pid, checked){
   if (checked) PM.selected.add(pid); else PM.selected.delete(pid);
   pmRefreshBulkBar();
