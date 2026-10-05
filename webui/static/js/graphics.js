@@ -237,17 +237,36 @@ async function loadHome(){
 }
 
 // ---- 系列 ----
+window.SERIES_UI = window.SERIES_UI || {selected: new Set()};
+window.INBOX_UI = window.INBOX_UI || {selected: new Set()};
+
+function seriesToggle(id, checked){ if (checked) SERIES_UI.selected.add(id); else SERIES_UI.selected.delete(id); loadSeries(); }
+function seriesToggleAll(checked, ids){ for (const id of ids || []) { if (checked) SERIES_UI.selected.add(id); else SERIES_UI.selected.delete(id); } loadSeries(); }
+async function seriesBulkDelete(){
+  const ids=[...SERIES_UI.selected]; if(!ids.length) return;
+  const r=await apiPost('/api/bulk_action',{resource:'series',action:'delete',ids});
+  if(!r.ok){ editorToast('系列批量删除未完成：'+(r.error||''),true); return; }
+  SERIES_UI.selected.clear(); loadSeries(); editorToast('已删除所选系列配置（不会删除已生成项目）');
+}
+
 async function loadSeries(){
   const box = document.getElementById('series-list');
   if (!box) return;
   try {
     const list = await apiGet('/api/series');
     if (!Array.isArray(list)) throw new Error(list.error || '读取失败');
-    box.innerHTML = list.map(s => `
+    const ids=list.map(s=>s.series_id);
+    SERIES_UI.selected.forEach(id=>{if(!ids.includes(id)) SERIES_UI.selected.delete(id);});
+    box.innerHTML=`
+      <div class="btn-row" style="align-items:center;margin-bottom:6px">
+        <label style="margin:0"><input type="checkbox" onchange='seriesToggleAll(this.checked, ${JSON.stringify(ids)})'> 全选</label>
+        <span class="hint">${SERIES_UI.selected.size ? '已选择 '+SERIES_UI.selected.size+' 个' : ''}</span>
+        ${SERIES_UI.selected.size ? '<button class="btn-secondary btn-sm" onclick="seriesBulkDelete()">删除所选系列</button>' : ''}
+      </div>`+(list.map(s=>`
       <div class="proj-row">
-        <b>${esc(s.name)}</b>
-        <span class="hint">${esc(s.series_id)} · 配音 ${esc(s.spec.voice||'默认')}</span>
-      </div>`).join('') || '<div class="hint">还没有系列。</div>';
+        <span style="width:28px"><input type="checkbox" ${SERIES_UI.selected.has(s.series_id)?'checked':''} onchange="seriesToggle('${esc(s.series_id)}',this.checked)" onclick="event.stopPropagation()"></span>
+        <span style="flex:1"><b>${esc(s.name)}</b><span class="hint">${esc(s.series_id)} · 配音 ${esc(s.spec.voice||'默认')}</span></span>
+      </div>`).join('')||'<div class="hint">还没有系列。</div>');
   } catch (e) {
     box.innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
   }
@@ -292,16 +311,33 @@ async function loadInbox(){
   try {
     const list = await apiGet('/api/inbox');
     if (!Array.isArray(list)) throw new Error(list.error || '读取失败');
-    box.innerHTML = list.map(it => `
+    const ids=list.map(it=>it.item_id);
+    INBOX_UI.selected.forEach(id=>{if(!ids.includes(id)) INBOX_UI.selected.delete(id);});
+    const allSelected=ids.length>0&&ids.every(id=>INBOX_UI.selected.has(id));
+    box.innerHTML=`
+      <div class="btn-row" style="align-items:center;margin-bottom:6px">
+        <label style="margin:0"><input type="checkbox" ${allSelected?'checked':''} onchange='inboxToggleAll(this.checked, ${JSON.stringify(ids)})'> 全选</label>
+        <span class="hint">${INBOX_UI.selected.size?'已选择 '+INBOX_UI.selected.size+' 条':''}</span>
+        ${INBOX_UI.selected.size?'<button class="btn-secondary btn-sm" onclick="inboxBulkAction(\\'delete\\')">删除所选</button><button class="btn-secondary btn-sm" onclick="inboxBulkAction(\\'dismissed\\')">丢弃所选</button>':''}
+      </div>`+(list.map(it=>`
       <div class="proj-row">
+        <span style="width:28px"><input type="checkbox" ${INBOX_UI.selected.has(it.item_id)?'checked':''} onchange="inboxToggle('${esc(it.item_id)}',this.checked)" onclick="event.stopPropagation()"></span>
         <span style="flex:1">${esc(it.content.slice(0,120))}</span>
         <span class="hint">${it.created_at ? new Date(it.created_at*1000).toLocaleDateString() : ''}</span>
         <button class="btn-secondary btn-sm" onclick="inboxToCreate('${esc(it.item_id)}')">转创作</button>
         <button class="btn-secondary btn-sm" onclick="inboxAction('${esc(it.item_id)}','delete')">删</button>
-      </div>`).join('') || '<div class="hint">收集箱为空。</div>';
+      </div>`).join('')||'<div class="hint">收集箱为空。</div>');
   } catch (e) {
     box.innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
   }
+}
+function inboxToggle(id, checked){ if(checked) INBOX_UI.selected.add(id); else INBOX_UI.selected.delete(id); loadInbox(); }
+function inboxToggleAll(checked, ids){ for(const id of ids||[]){ if(checked) INBOX_UI.selected.add(id); else INBOX_UI.selected.delete(id); } loadInbox(); }
+async function inboxBulkAction(action){
+  const ids=[...INBOX_UI.selected]; if(!ids.length)return;
+  const r=await apiPost('/api/bulk_action',{resource:'inbox',action,ids});
+  if(!r.ok){editorToast('收集箱批量操作未完成：'+(r.error||''),true);return;}
+  INBOX_UI.selected.clear();loadInbox();editorToast(action==='delete'?'已删除所选收集内容':'已丢弃所选收集内容');
 }
 function inboxToCreate(itemId){
   const row = [...document.querySelectorAll('#inbox-list .proj-row')]
@@ -351,6 +387,6 @@ Object.assign(window, {
   gfxEnsureBlocks, gfxSetType, gfxMakePlan, gfxRenderPlan, gfxApplyToWorkspace,
   gfxGenAsset, gfxPreview, gfxPlay, gfxPause, gfxSeekTo, gfxRender, gfxRemoveScene,
   loadHome, loadSeries, createSeriesAndBatch,
-  inboxAdd, loadInbox, inboxToCreate, inboxAction,
-  loadQueue, publishVariants, GFX,
+  inboxAdd, loadInbox, inboxToCreate, inboxAction, inboxToggle, inboxToggleAll, inboxBulkAction,
+  loadQueue, publishVariants, GFX, SERIES_UI, INBOX_UI, seriesToggle, seriesToggleAll, seriesBulkDelete,
 });
