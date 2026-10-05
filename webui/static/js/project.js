@@ -81,7 +81,13 @@ function renderProjectList(){
     const busyAct = PM.busy[p.project_id];
     const busyCn = {rename: '重命名中……', clone: '复制中……', archive: '归档中……',
                     restore: '恢复中……', delete: '删除中……', convert: '转换中……'};
+    const selectable = !p.active_job;
+    const selected = selectable && PM.selected.has(p.project_id);
     return `<div class="pm-row${busyAct ? ' pm-row-busy' : ''}" data-pid="${esc(p.project_id)}">
+      <span style="width:28px;display:flex;align-items:center;justify-content:center">
+        <input type="checkbox" aria-label="选择项目 ${esc(name)}" ${selected ? 'checked' : ''}${selectable ? '' : ' disabled title="项目正在执行，暂不可批量操作"'}
+          onclick="event.stopPropagation()" onchange="pmToggleSelected('${esc(p.project_id)}',this.checked)">
+      </span>
       <span class="pm-name" onclick="pmOpenDetail('${esc(p.project_id)}')"><b>${esc(name)}</b>
         <span class="hint">${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
       <span class="pm-st ${pmStatusCls(p)}">${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
@@ -91,6 +97,7 @@ function renderProjectList(){
         : `${primary} <button class="btn-secondary btn-sm pm-more-btn" onclick="pmRowMenu(event,'${esc(p.project_id)}')" title="更多操作">···</button>`}</span>
     </div>`;
   }).join('');
+  pmRefreshBulkBar();
   if (PM.index.length > PM.shown) {
     box.innerHTML += `<div class="pm-empty"><button class="btn-secondary btn-sm" onclick="pmShowMore()">显示更多（还有 ${PM.index.length - PM.shown} 个）</button></div>`;
   }
