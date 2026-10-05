@@ -2524,6 +2524,71 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        if parsed.path == "/api/bulk_action":
+            # 统一批量治理入口：projects/inbox/workflow_runs/jobs/series/assets。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "code": "INVALID_JSON", "error": "请求体不是合法 JSON"}, 400)
+                return
+            resource = (payload.get("resource") or "").strip()
+            action = (payload.get("action") or "").strip()
+            ids = payload.get("ids") or []
+            if not isinstance(ids, list) or not resource or not action:
+                self._send_json({"ok": False, "code": "INVALID_PAYLOAD", "error": "缺少 resource/action/ids"}, 400)
+                return
+            try:
+                if resource == "projects":
+                    from video_director import project_manager as vd_pm
+                    if action == "delete":
+                        result = vd_pm.bulk_delete(ids)
+                    elif action == "archive":
+                        result = vd_pm.bulk_archive(ids)
+                    else:
+                        self._send_json({"ok": False, "code": "UNSUPPORTED_ACTION", "error": "项目批量仅支持删除/归档"}, 400)
+                        return
+                elif resource == "inbox":
+                    from video_director import studio as vd_studio
+                    if action == "delete":
+                        result = vd_studio.inbox_bulk_delete(ids)
+                    elif action == "dismissed":
+                        result = vd_studio.inbox_bulk_status(ids, "dismissed")
+                    else:
+                        self._send_json({"ok": False, "code": "UNSUPPORTED_ACTION", "error": "收集箱批量仅支持删除/丢弃"}, 400)
+                        return
+                elif resource == "workflow_runs":
+                    from video_director import workflow_run as vd_wf
+                    if action != "delete":
+                        self._send_json({"ok": False, "code": "UNSUPPORTED_ACTION", "error": "任务批量仅支持清理"}, 400)
+                        return
+                    result = vd_wf.delete_runs(ids)
+                elif resource == "jobs":
+                    from video_director import studio as vd_studio
+                    if action != "delete":
+                        self._send_json({"ok": False, "code": "UNSUPPORTED_ACTION", "error": "队列批量仅支持清理"}, 400)
+                        return
+                    result = vd_studio.job_bulk_delete(ids)
+                elif resource == "series":
+                    from video_director import studio as vd_studio
+                    if action != "delete":
+                        self._send_json({"ok": False, "code": "UNSUPPORTED_ACTION", "error": "系列批量仅支持删除"}, 400)
+                        return
+                    result = vd_studio.series_bulk_delete(ids)
+                elif resource == "assets":
+                    from video_director import asset_catalog as vd_acat
+                    if action != "delete":
+                        self._send_json({"ok": False, "code": "UNSUPPORTED_ACTION", "error": "素材批量仅支持删除未使用素材"}, 400)
+                        return
+                    result = vd_acat.delete_assets(ids)
+                else:
+                    self._send_json({"ok": False, "code": "UNKNOWN_RESOURCE", "error": f"未知资源类型：{resource}"}, 400)
+                    return
+                self._send_json(result, 200 if result.get("ok") else 409)
+            except Exception as exc:
+                self._send_json({"ok": False, "code": "BULK_ACTION_FAILED", "error": str(exc)}, 500)
+            return
+
         if parsed.path == "/api/project_action":
             # §6.1/§61 Project Action 统一动作接口：rename/clone/archive/restore/
             # delete/convert。全部实现收在 project_manager（server 不删文件系统）。
@@ -3113,6 +3178,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main(port: int = 8501):
     _load_llm_config()
+    try:
+        from video_director import workflow_run as _vd_wf
+        rec = _vd_wf.reconcile_runs()
+        if rec.get("interrupted_runs"):
+            print(f"[web] 已收敛 {len(rec['interrupted_runs'])} 个中断任务", file=sys.stderr)
+    except Exception as exc:
+        print(f"[web] WorkflowRun 恢复检查失败（不阻塞启动）: {exc}", file=sys.stderr)
     try:
         vd_audio.ensure_audio_library()
         # 扩库：风格化 BGM（ffmpeg 合成免费，中文标签），幂等
