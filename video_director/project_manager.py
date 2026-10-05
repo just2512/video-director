@@ -219,25 +219,65 @@ def list_index(q: str = "", name_filter: str = "all", limit: int = 200) -> list:
     return out[:min(limit, 500)]
 
 
+def _workflow_snapshot(pid: str) -> dict:
+    try:
+        from video_director import workflow_run as vd_wf
+        runs = vd_wf.list_runs(project_id=pid, limit=1)
+        if runs:
+            return vd_wf.get_run(runs[0]["run_id"]) or runs[0]
+    except Exception:
+        pass
+    return {}
+
+
+def _studio_active(pid: str) -> bool:
+    try:
+        return any(j.get("status") in ("waiting", "running") for j in store.jobs_of_project(pid))
+    except Exception:
+        return False
+
+
 def _entry(pid: str, row: Optional[dict]) -> dict:
-    """单项目索引条目（§52 字段逐项）。"""
+    """单项目索引条目；WorkflowRun 是运行态事实源，Project stage 仅作持久化快照。"""
     params = _read_params(row)
     meta = _dir_meta(pid)
-    status = (row and row.get("stage")) or "UNKNOWN"
+    stage = (row and row.get("stage")) or "UNKNOWN"
     legacy = (not meta["has_composition"]) and meta["has_graphic_plan"]
     editable = meta["has_composition"]
     archived = bool(params.get("archived"))
-    active_job = status in ACTIVE_STAGES
+    wf = _workflow_snapshot(pid)
+    wf_status = wf.get("status") or ""
+    studio_active = _studio_active(pid)
+    active_job = wf_status == "RUNNING" or studio_active
+    interrupted = stage in ACTIVE_STAGES and not active_job and wf_status not in ("WAITING_CONFIRMATION",)
+    if wf_status == "WAITING_CONFIRMATION":
+        status = "AWAITING_CONFIRM"
+    elif wf_status == "FAILED":
+        status = "FAILED"
+    elif wf_status == "COMPLETED" and stage in ACTIVE_STAGES:
+        status = "DONE"
+    elif interrupted:
+        status = "FAILED"
+    else:
+        status = stage
+    progress = (row and row.get("progress")) or 0
+    if wf_status == "RUNNING":
+        steps = wf.get("steps") or []
+        done = sum(1 for s in steps if s.get("status") in ("DONE", "SKIPPED"))
+        progress = int(round(done * 100 / len(steps))) if steps else progress
     scene_count, duration = _scene_count_duration(pid, meta)
     return {
         "project_id": pid,
         "name": _resolve_name(pid, row, params),
         "status": status,
-        "progress": (row and row.get("progress")) or 0,
+        "progress": progress,
         "editable": editable,
         "legacy": legacy,
         "archived": archived,
         "active_job": active_job,
+        "interrupted": interrupted,
+        "workflow_status": wf_status,
+        "workflow_current": wf.get("current") or "",
         "scene_count": scene_count,
         "duration": round(duration, 2),
         "has_draft": meta["has_draft"],
@@ -248,6 +288,7 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
                        if meta["has_final"] else ""),
         "actions": _actions_for(status, editable, legacy, archived, active_job),
     }
+
 
 
 def filter_index(index: list, q: str, name_filter: str) -> list:
@@ -350,7 +391,9 @@ def archive(project_id: str) -> dict:
     _safe_dir(project_id)
     store.ensure_project_row(project_id, stage="UNKNOWN")
     row = store.get_project(project_id)
-    if row and row.get("stage") in ACTIVE_STAGES:
+    if _studio_active(project_id):
+        raise ProjectActionError("ACTIVE_JOB", "项目正在排队或执行任务，等任务结束后再归档")
+    if _workflow_snapshot(project_id).get("status") == "RUNNING":
         raise ProjectActionError("ACTIVE_JOB", "项目正在执行任务，等任务结束后再归档")
     if not store.set_archived(project_id, True):
         raise ProjectActionError("NOT_FOUND", "项目不存在")
@@ -378,7 +421,10 @@ def delete(project_id: str) -> dict:
     """
     d = _safe_dir(project_id)
     row = store.get_project(project_id)
-    if row and row.get("stage") in ACTIVE_STAGES:
+    if _studio_active(project_id):
+        raise ProjectActionError(
+            "ACTIVE_JOB", "项目正在排队或执行任务，当前不能删除（请先等待任务结束）")
+    if _workflow_snapshot(project_id).get("status") == "RUNNING":
         raise ProjectActionError(
             "ACTIVE_JOB", "项目正在执行任务，当前不能删除（请先等待任务结束）")
     if not d.is_dir() and not row:
@@ -388,6 +434,11 @@ def delete(project_id: str) -> dict:
         store.delete_project_row(project_id)
     # 3a2. 项目关联的自动化任务行（§6.3 logs/run state：jobs 表里引用本项目的行）
     store.delete_jobs_of_project(project_id)
+    try:
+        from video_director import workflow_run as vd_wf
+        vd_wf.delete_runs_of_project(project_id)
+    except Exception:
+        pass
     # 3b. 项目目录（含 plans/output/assets/logs/render/qc）
     if d.is_dir():
         shutil.rmtree(d, ignore_errors=False)
@@ -400,6 +451,14 @@ def delete(project_id: str) -> dict:
             f"删除后仍残留：{', '.join(leftovers)}（{project_id}），未完成")
     logger.info(f"project {project_id} deleted (verified MISSING on all layers)")
     return {"ok": True, "project_id": project_id}
+
+
+def _workflow_runs_missing(project_id: str) -> bool:
+    try:
+        from video_director import workflow_run as vd_wf
+        return len(vd_wf.runs_of_project(project_id)) == 0
+    except Exception:
+        return True
 
 
 def delete_verify(project_id: str) -> dict:
@@ -415,12 +474,60 @@ def delete_verify(project_id: str) -> dict:
         "final_output": not (d / "output" / "final.mp4").is_file(),
         "graphic_plan": not (d / "plans" / "graphic_plan.json").is_file(),
         "jobs": len(store.jobs_of_project(project_id)) == 0,
+        "workflow_runs": _workflow_runs_missing(project_id),
     }
 
 
 # ---------------------------------------------------------------------------
 # Legacy（§36/§53）
 # ---------------------------------------------------------------------------
+
+def bulk_delete(project_ids: list[str]) -> dict:
+    """批量删除项目：先全量验证，任一项目活动则整批拒绝。"""
+    ids = list(dict.fromkeys(str(x).strip() for x in (project_ids or []) if str(x).strip()))
+    if not ids:
+        raise ProjectActionError("EMPTY_SELECTION", "未选择项目")
+    blocked = []
+    for pid in ids:
+        _safe_dir(pid)
+        row = store.get_project(pid)
+        if row is None and not (config.composer_storage_root() / pid).is_dir():
+            raise ProjectActionError("NOT_FOUND", f"项目不存在：{pid}")
+        if _studio_active(pid) or _workflow_snapshot(pid).get("status") == "RUNNING":
+            blocked.append(pid)
+    if blocked:
+        raise ProjectActionError("ACTIVE_JOB", "以下项目仍在执行，整批未删除：" + ",".join(blocked))
+    deleted=[]
+    for pid in ids:
+        r=delete(pid)
+        if not r.get("ok"):
+            return {"ok": False, "code": "PARTIAL_FAILURE", "error": r.get("error") or "批量删除失败", "deleted": deleted}
+        deleted.append(pid)
+    return {"ok": True, "deleted": deleted}
+
+
+def bulk_archive(project_ids: list[str]) -> dict:
+    """批量归档项目：先全量验证活动任务，任一活动则整批拒绝。"""
+    ids = list(dict.fromkeys(str(x).strip() for x in (project_ids or []) if str(x).strip()))
+    if not ids:
+        raise ProjectActionError("EMPTY_SELECTION", "未选择项目")
+    blocked=[]
+    for pid in ids:
+        _safe_dir(pid)
+        if _studio_active(pid) or _workflow_snapshot(pid).get("status") == "RUNNING":
+            blocked.append(pid)
+    if blocked:
+        raise ProjectActionError("ACTIVE_JOB", "以下项目仍在执行，整批未归档：" + ",".join(blocked))
+    for pid in ids:
+        row=store.get_project(pid)
+        if _read_params(row).get("archived"):
+            raise ProjectActionError("ALREADY_ARCHIVED", f"项目已归档：{pid}")
+    for pid in ids:
+        r=archive(pid)
+        if not r.get("ok"):
+            return {"ok": False, "code": "PARTIAL_FAILURE", "error": r.get("error") or "批量归档失败"}
+    return {"ok": True, "archived": ids}
+
 
 def legacy_detect(project_id: str) -> dict:
     """旧版项目识别：有 graphic_plan.json 且无 composition.json → legacy。"""

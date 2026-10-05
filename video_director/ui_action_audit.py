@@ -77,6 +77,12 @@ UI_ONLY_PREFIXES = (
     "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(",
     # §52 配置导入导出（设置表单）
     "settingsExport(", "settingsImport(",
+    "pmToggleSelected(", "pmToggleAll(", "pmAskBulkDelete(", "pmBulkAction(", "pmClearSelection(",
+    "seriesToggle(", "seriesToggleAll(", "seriesBulkDelete(",
+    "inboxToggle(", "inboxToggleAll(", "inboxBulkAction(", "inboxBulkDeleteSelected(", "inboxBulkDismissSelected(",
+    "taskToggleSelected(", "taskToggleAllTerminal(", "taskBulkCleanup(",
+    "edLibToggleAsset(", "edLibToggleUnusedAll(", "edLibBulkDeleteAssets(",
+    "event.stopPropagation()",
 )
 
 #: data-action 白名单外的检查表（Registry 必须 know）

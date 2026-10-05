@@ -151,13 +151,27 @@ async function edLibLoad(){
         `<div class="proj-row"><span><span class="hint">#${i + 1} · ${s.duration.toFixed(1)}s</span><br>${esc(s.text || '')}</span></div>`).join('');
     } else if (sub === 'assets') {
       const assets = await apiGet('/api/assets_library');
-      const list = (Array.isArray(assets) ? assets : []).slice(0, 80);
-      // §11 应用绑定 Selection：选中图层 → 替换；否则提示
-      box.innerHTML = list.length ? list.map(a =>
-        `<div class="proj-row"><span><b>${esc(a.asset_id)}</b>`+
-        `<span class="hint">${esc(a.type)} · 用于 ${a.used_in.length} 项目</span></span>`+
-        `<button class="btn-secondary btn-sm" onclick="edLibApplyAsset('${esc(a.asset_id)}')">应用到选中层</button></div>`).join('')
-        : '<div class="hint">项目素材库为空</div>';
+      const list = (Array.isArray(assets) ? assets : []).slice(0, 200);
+      const selectedAssets = ED_LIB.selectedAssets || new Set();
+      ED_LIB.selectedAssets = selectedAssets;
+      const unused = list.filter(a => !(a.used_in || []).length);
+      const allUnusedSelected = unused.length > 0 && unused.every(a => selectedAssets.has(a.asset_id));
+      const controls = unused.length ? `
+        <div class="btn-row" style="align-items:center;margin-bottom:6px">
+          <label style="margin:0"><input type="checkbox" ${allUnusedSelected?'checked':''} onchange="edLibToggleUnusedAll(this.checked)"> 全选未使用素材</label>
+          <span class="hint">${selectedAssets.size ? '已选择 '+selectedAssets.size+' 个' : ''}</span>
+          ${selectedAssets.size ? '<button class="btn-secondary btn-sm pm-act-danger" onclick="edLibBulkDeleteAssets()">删除所选未使用素材</button>' : ''}
+        </div>` : '';
+      box.innerHTML = controls + (list.length ? list.map(a => `
+        <div class="proj-row">
+          <span style="width:28px"><input type="checkbox" ${selectedAssets.has(a.asset_id)?'checked':''}
+            ${(a.used_in||[]).length?'disabled title="素材仍被项目使用，不能删除"':''}
+            onchange="edLibToggleAsset('${esc(a.asset_id)}',this.checked)" onclick="event.stopPropagation()"></span>
+          <span style="flex:1"><b>${esc(a.asset_id)}</b>
+            <span class="hint">${esc(a.type)} · 用于 ${(a.used_in||[]).length} 项目${(a.used_in||[]).length?' · 已使用，不能删除':' · 未使用，可删除'}</span>
+          </span>
+          <button class="btn-secondary btn-sm" onclick="edLibApplyAsset('${esc(a.asset_id)}')">应用到选中层</button>
+        </div>`).join('') : '<div class="hint">项目素材库为空</div>');
     } else if (sub === 'stock') {
       box.innerHTML = `<div class="btn-row"><input type="text" id="ed-stock-q" class="rev-input" style="flex:1" placeholder="搜索图库素材（如 coffee）" onkeydown="if(event.key==='Enter')edLibStockSearch()">
         <button class="btn-secondary btn-sm" onclick="edLibStockSearch()">搜索</button></div>
@@ -295,6 +309,28 @@ async function edLibLoad(){
 }
 
 // ---- Picker apply 实现（全部 Command → Revision）----
+function edLibToggleAsset(assetId, checked){
+  ED_LIB.selectedAssets=ED_LIB.selectedAssets||new Set();
+  if(checked)ED_LIB.selectedAssets.add(assetId);else ED_LIB.selectedAssets.delete(assetId);
+  edLibLoad();
+}
+function edLibToggleUnusedAll(checked){
+  apiGet('/api/assets_library').then(list=>{
+    const unused=(Array.isArray(list)?list:[]).filter(a=>!(a.used_in||[]).length);
+    ED_LIB.selectedAssets=ED_LIB.selectedAssets||new Set();
+    for(const a of unused){if(checked)ED_LIB.selectedAssets.add(a.asset_id);else ED_LIB.selectedAssets.delete(a.asset_id);}
+    edLibLoad();
+  });
+}
+async function edLibBulkDeleteAssets(){
+  const ids=[...(ED_LIB.selectedAssets||[])];
+  if(!ids.length)return;
+  const r=await apiPost('/api/bulk_action',{resource:'assets',action:'delete',ids});
+  if(!r.ok){editorToast('素材批量删除未完成：'+(r.error||''),true);return;}
+  ED_LIB.selectedAssets.clear();edLibLoad();
+  editorToast('已删除 '+(r.deleted||ids).length+' 个未使用素材');
+}
+
 function edLibApplyAsset(assetId){
   // §82 唯一通路：Asset Picker「应用到选中层」→ executeAction(asset.replace)
   if (!SEL.selection || SEL.selection.type !== 'layer') {

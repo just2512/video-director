@@ -115,6 +115,38 @@ def inbox_delete(item_id: str) -> None:
         conn.execute("DELETE FROM inbox WHERE item_id=?", (item_id,))
 
 
+def inbox_bulk_delete(item_ids: List[str]) -> dict:
+    ids = list(dict.fromkeys(str(x).strip() for x in (item_ids or []) if str(x).strip()))
+    if not ids:
+        return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择收集箱条目"}
+    with _DB_LOCK, _conn() as conn:
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(f"SELECT item_id FROM inbox WHERE item_id IN ({marks})", ids).fetchall()
+        found = {r["item_id"] for r in rows}
+        missing = [x for x in ids if x not in found]
+        if missing:
+            return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的收集箱条目：" + ",".join(missing)}
+        conn.execute(f"DELETE FROM inbox WHERE item_id IN ({marks})", ids)
+    return {"ok": True, "deleted": ids}
+
+
+def inbox_bulk_status(item_ids: List[str], status: str) -> dict:
+    if status not in ("converted", "dismissed", "new"):
+        return {"ok": False, "code": "INVALID_STATUS", "error": "不支持的收集箱状态"}
+    ids = list(dict.fromkeys(str(x).strip() for x in (item_ids or []) if str(x).strip()))
+    if not ids:
+        return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择收集箱条目"}
+    with _DB_LOCK, _conn() as conn:
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(f"SELECT item_id FROM inbox WHERE item_id IN ({marks})", ids).fetchall()
+        found = {r["item_id"] for r in rows}
+        missing = [x for x in ids if x not in found]
+        if missing:
+            return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的收集箱条目：" + ",".join(missing)}
+        conn.execute(f"UPDATE inbox SET status=? WHERE item_id IN ({marks})", [status, *ids])
+    return {"ok": True, "updated": ids, "status": status}
+
+
 # ---------------------------------------------------------------------------
 # 2. 系列模板（§5 Series/Episode）
 # ---------------------------------------------------------------------------
@@ -142,6 +174,37 @@ def series_list() -> List[dict]:
         d["spec"] = json.loads(d.pop("spec_json") or "{}")
         out.append(d)
     return out
+
+
+def series_bulk_delete(series_ids: List[str]) -> dict:
+    """删除系列配置，不删除已生成的单集项目；有排队/运行任务时整批拒绝。"""
+    ids = list(dict.fromkeys(str(x).strip() for x in (series_ids or []) if str(x).strip()))
+    if not ids:
+        return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择系列"}
+    with _DB_LOCK, _conn() as conn:
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(f"SELECT series_id FROM series WHERE series_id IN ({marks})", ids).fetchall()
+        found = {r["series_id"] for r in rows}
+        missing = [x for x in ids if x not in found]
+        if missing:
+            return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的系列：" + ",".join(missing)}
+        job_rows = conn.execute(
+            "SELECT job_id, status, spec_json FROM jobs WHERE status IN ('waiting','running')"
+        ).fetchall()
+        active_series = set()
+        for row in job_rows:
+            try:
+                spec = json.loads(row["spec_json"] or "{}")
+            except json.JSONDecodeError:
+                spec = {}
+            sid = spec.get("series_id")
+            if sid in ids:
+                active_series.add(sid)
+        if active_series:
+            return {"ok": False, "code": "ACTIVE_JOB",
+                    "error": "以下系列仍有排队/执行任务：" + ",".join(sorted(active_series))}
+        conn.execute(f"DELETE FROM series WHERE series_id IN ({marks})", ids)
+    return {"ok": True, "deleted": ids}
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +255,28 @@ def job_get(job_id: str) -> Optional[dict]:
     if d.get("result_json"):
         d["result"] = json.loads(d["result_json"])
     return d
+
+
+def job_bulk_delete(job_ids: List[str]) -> dict:
+    """只允许清理已结束任务；waiting/running 必须先停止或完成。"""
+    ids = list(dict.fromkeys(str(x).strip() for x in (job_ids or []) if str(x).strip()))
+    if not ids:
+        return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择队列任务"}
+    with _DB_LOCK, _conn() as conn:
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT job_id, status FROM jobs WHERE job_id IN ({marks})", ids
+        ).fetchall()
+        found = {r["job_id"]: r for r in rows}
+        missing = [x for x in ids if x not in found]
+        unsafe = [r["job_id"] for r in rows if r["status"] in ("waiting", "running")]
+        if missing:
+            return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的队列任务：" + ",".join(missing)}
+        if unsafe:
+            return {"ok": False, "code": "ACTIVE_JOB",
+                    "error": "所选任务仍在排队/执行：" + ",".join(unsafe)}
+        conn.execute(f"DELETE FROM jobs WHERE job_id IN ({marks})", ids)
+    return {"ok": True, "deleted": ids}
 
 
 def _set_job(job_id: str, status: str, result: dict = None, error: str = None):
@@ -357,6 +442,7 @@ def enqueue_series_batch(series_id: str, spec: dict, episodes: List[dict],
             "episode": ep.get("episode", 0),
             "script": ep.get("script", ""),
             "video_files": video_files or [],
+            "image_files": image_files or [],
             "spec": spec,
         }))
     return job_ids

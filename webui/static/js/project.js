@@ -7,7 +7,7 @@
 // Project Index（§52）由服务端解释状态：status/editable/legacy/archived/
 // scene_count/duration/has_draft/has_final/actions——前端不猜。
 
-window.PM = {index: [], filter: 'all', query: '', shown: 50, busy: {}};
+window.PM = {index: [], filter: 'all', query: '', shown: 50, busy: {}, selected: new Set()};
 
 const PM_PAGE = 50;  // §8 大量项目：列表分页渲染（默认 50，「显示更多」追加）
 
@@ -19,6 +19,7 @@ const PM_STATUS_CN = {
 
 function pmStatusCn(p){
   if (p.archived) return '已归档';
+  if (p.interrupted) return '已中断';
   if (p.legacy) return '旧版';
   const s = p.status;
   if (p.active_job && s !== 'AWAITING_CONFIRM')
@@ -60,6 +61,7 @@ function renderProjectList(){
   if (countEl) countEl.textContent = PM.index.length ? `${PM.index.length} 个项目` : '';
   if (!PM.index.length) {
     box.innerHTML = '<div class="pm-empty">没有符合条件的项目<br><span class="hint">换个筛选条件，或点上方「新建项目」开始创作。</span></div>';
+    pmRefreshBulkBar();
     return;
   }
   const shown = PM.index.slice(0, PM.shown);
@@ -79,7 +81,13 @@ function renderProjectList(){
     const busyAct = PM.busy[p.project_id];
     const busyCn = {rename: '重命名中……', clone: '复制中……', archive: '归档中……',
                     restore: '恢复中……', delete: '删除中……', convert: '转换中……'};
+    const selectable = !p.active_job;
+    const selected = selectable && PM.selected.has(p.project_id);
     return `<div class="pm-row${busyAct ? ' pm-row-busy' : ''}" data-pid="${esc(p.project_id)}">
+      <span style="width:28px;display:flex;align-items:center;justify-content:center">
+        <input type="checkbox" aria-label="选择项目 ${esc(name)}" ${selected ? 'checked' : ''}${selectable ? '' : ' disabled title="项目正在执行，暂不可批量操作"'}
+          onclick="event.stopPropagation()" onchange="pmToggleSelected('${esc(p.project_id)}',this.checked)">
+      </span>
       <span class="pm-name" onclick="pmOpenDetail('${esc(p.project_id)}')"><b>${esc(name)}</b>
         <span class="hint">${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
       <span class="pm-st ${pmStatusCls(p)}">${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
@@ -89,10 +97,65 @@ function renderProjectList(){
         : `${primary} <button class="btn-secondary btn-sm pm-more-btn" onclick="pmRowMenu(event,'${esc(p.project_id)}')" title="更多操作">···</button>`}</span>
     </div>`;
   }).join('');
+  pmRefreshBulkBar();
   if (PM.index.length > PM.shown) {
     box.innerHTML += `<div class="pm-empty"><button class="btn-secondary btn-sm" onclick="pmShowMore()">显示更多（还有 ${PM.index.length - PM.shown} 个）</button></div>`;
   }
 }
+// ---- 批量项目管理（同一后端 /api/bulk_action） ----
+function pmClearSelection(){ PM.selected.clear(); renderProjectList(); }
+function pmToggleSelected(pid, checked){
+  if (checked) PM.selected.add(pid); else PM.selected.delete(pid);
+  pmRefreshBulkBar();
+}
+function pmToggleAll(checked){
+  const shown = PM.index.slice(0, PM.shown);
+  for (const p of shown) {
+    if (p.active_job) continue;
+    if (checked) PM.selected.add(p.project_id); else PM.selected.delete(p.project_id);
+  }
+  renderProjectList();
+}
+function pmRefreshBulkBar(){
+  const bar = document.getElementById('pm-bulk-bar');
+  const count = document.getElementById('pm-selected-count');
+  const del = document.getElementById('pm-bulk-delete');
+  const arch = document.getElementById('pm-bulk-archive');
+  const selAll = document.getElementById('pm-select-all');
+  const rows = [...PM.selected].map(pid => PM.index.find(p => p.project_id === pid)).filter(Boolean);
+  if (count) count.textContent = rows.length ? '已选择 ' + rows.length + ' 个项目' : '';
+  if (bar) bar.style.display = rows.length ? 'flex' : 'none';
+  if (del) del.disabled = !rows.length;
+  const canArchive = rows.length > 0 && rows.every(p => !p.archived && !p.active_job);
+  if (arch) arch.style.display = canArchive ? '' : 'none';
+  if (selAll) {
+    const selectable = PM.index.slice(0, PM.shown).filter(p => !p.active_job);
+    const selected = selectable.filter(p => PM.selected.has(p.project_id));
+    selAll.checked = selectable.length > 0 && selected.length === selectable.length;
+    selAll.indeterminate = selected.length > 0 && selected.length < selectable.length;
+  }
+}
+function pmAskBulkDelete(){
+  if (!PM.selected.size) return;
+  pmShowModal(`<h3>删除所选项目？</h3>
+    <div class="pm-modal-name">共 ${PM.selected.size} 个项目</div>
+    <div class="pm-modal-body">将删除配置、时间线、草稿、成片、任务记录和项目目录，此操作不可撤销。</div>
+    <div class="pm-modal-actions">
+      <button class="btn-secondary btn-sm" onclick="pmCloseModal()">取消</button>
+      <button class="btn-sm pm-act-danger" onclick="pmBulkAction('delete')">删除所选</button>
+    </div>`);
+}
+async function pmBulkAction(action){
+  const ids = [...PM.selected];
+  if (!ids.length) return;
+  pmCloseModal();
+  const r = await apiPost('/api/bulk_action', {resource:'projects', action, ids});
+  if (!r.ok) { editorToast('批量操作未完成：' + (r.error || ''), true); return; }
+  PM.selected.clear();
+  await loadProjects();
+  editorToast(action === 'delete' ? '已删除所选项目' : '已归档所选项目');
+}
+
 function pmShowMore(){
   PM.shown += PM_PAGE;
   renderProjectList();
@@ -353,5 +416,7 @@ Object.assign(window, {
   projectAction, renameProject, continueProject, pmClone, pmArchive, pmRestore,
   convertLegacyProject, pmReopenFailed, pmPreviewFinal, pmPreviewLegacy,
   pmAskDelete, deleteProject, pmAskRename, pmShowModal, pmCloseModal,
-  pmShowMore, pmOpenDetail, pmRowMenu, pmCloseRowMenu, PM, PM_STATUS_CN, PM_PAGE,
+  pmShowMore, pmOpenDetail, pmRowMenu, pmCloseRowMenu,
+  pmToggleSelected, pmToggleAll, pmRefreshBulkBar, pmAskBulkDelete, pmBulkAction,
+  PM, PM_STATUS_CN, PM_PAGE,
 });

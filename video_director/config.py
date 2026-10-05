@@ -5,6 +5,7 @@
 """
 
 from pathlib import Path
+import os
 
 # ---------------------------------------------------------------------------
 # 变速策略（V2 §12，取代 V1 §15 的 0.85-1.60 单层）
@@ -77,8 +78,10 @@ MAX_REPAIR_ROUNDS = 3
 
 
 def composer_storage_root() -> Path:
-    """项目产物根目录 <项目根>/storage/composer/。"""
-    root = Path(__file__).resolve().parent.parent / "storage" / "composer"
+    """项目产物根目录；支持 VIDEO_DIRECTOR_STORAGE_ROOT 隔离测试/运行数据。"""
+    configured = os.environ.get("VIDEO_DIRECTOR_STORAGE_ROOT", "").strip()
+    root = (Path(configured).expanduser() if configured
+            else Path(__file__).resolve().parent.parent / "storage" / "composer")
     root.mkdir(parents=True, exist_ok=True)
     return root
 
