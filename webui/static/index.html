@@ -61,7 +61,18 @@
       </div>
       <div id="task-drawer-list"></div>
     </div>
+    <div id="pm-bulk-bar" class="panel" style="display:none;padding:8px 10px;margin-top:8px;align-items:center">
+      <span id="pm-selected-count" class="hint"></span>
+      <span class="tb-sep"></span>
+      <button class="btn-secondary btn-sm" id="pm-bulk-archive" onclick="pmBulkAction('archive')">归档所选</button>
+      <button class="btn-secondary btn-sm pm-act-danger" id="pm-bulk-delete" onclick="pmAskBulkDelete()">删除所选</button>
+      <button class="btn-secondary btn-sm" onclick="PM.selected.clear();renderProjectList()">取消选择</button>
+    </div>
     <div class="pm-list-head">
+      <span style="width:28px;display:flex;align-items:center;justify-content:center">
+        <input type="checkbox" id="pm-select-all" aria-label="选择全部可批量操作的项目"
+               onclick="event.stopPropagation()" onchange="pmToggleAll(this.checked)">
+      </span>
       <span>名称</span><span>状态</span><span>时长</span><span>最近修改</span><span>操作</span>
     </div>
     <div id="pm-list"></div>
@@ -70,27 +81,10 @@
 
     <!-- §27 系列：项目管理上下文（项目 → 系列），不再首页平铺表单 -->
     <details class="panel" style="margin-top:20px">
-      <summary>系列（同一系列多集共用设置，一次配置批量成片）</summary>
+      <summary>系列管理</summary>
       <div id="series-list" style="margin-top:8px">加载中……</div>
-      <div class="rev-console">
-        <b>新建系列</b>
-        <label>系列名</label>
-        <input type="text" id="series-name" placeholder="例：历史悬疑系列">
-        <label>每集文案分隔：每集之间用一行 <code>------------</code> 分隔</label>
-        <textarea id="series-scripts" placeholder="第一集文案……&#10;------------&#10;第二集文案……" style="min-height:120px"></textarea>
-        <label>共享素材（可选，系列内每集复用）</label>
-        <input type="file" id="series-videos" multiple accept=".mp4,.mov,.mkv,.webm">
-        <div class="btn-row" style="gap:10px">
-          <div style="flex:1"><label>画幅</label><select id="series-aspect"></select></div>
-          <div style="flex:1"><label>配音</label><select id="series-voice"></select></div>
-          <div style="flex:1"><label>字幕样式</label>
-            <select id="series-subtitle">
-              <option value="plain">普通字幕</option>
-              <option value="karaoke">卡拉OK</option>
-            </select></div>
-        </div>
-        <div class="btn-row"><button onclick="createSeriesAndBatch()">创建系列并批量生成</button></div>
-        <div class="hint" id="series-status"></div>
+      <div class="hint">系列创建已并入「新建项目 → 系列」。这里用于查看和管理已有系列。</div>
+      
       </div>
     </details>
   </main>
