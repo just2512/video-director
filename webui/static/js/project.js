@@ -7,7 +7,7 @@
 // Project Index（§52）由服务端解释状态：status/editable/legacy/archived/
 // scene_count/duration/has_draft/has_final/actions——前端不猜。
 
-window.PM = {index: [], filter: 'all', query: '', shown: 50, busy: {}};
+window.PM = {index: [], filter: 'all', query: '', shown: 50, busy: {}, selected: new Set()};
 
 const PM_PAGE = 50;  // §8 大量项目：列表分页渲染（默认 50，「显示更多」追加）
 
@@ -61,6 +61,7 @@ function renderProjectList(){
   if (countEl) countEl.textContent = PM.index.length ? `${PM.index.length} 个项目` : '';
   if (!PM.index.length) {
     box.innerHTML = '<div class="pm-empty">没有符合条件的项目<br><span class="hint">换个筛选条件，或点上方「新建项目」开始创作。</span></div>';
+    pmRefreshBulkBar();
     return;
   }
   const shown = PM.index.slice(0, PM.shown);
