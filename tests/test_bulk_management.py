@@ -214,3 +214,18 @@ def test_frontend_bulk_contracts_and_ci_coverage():
     assert "tests/test_bulk_management.py" in ci
     assert "python -m compileall video_director webui" in ci
     assert 'node --check "$f"' in ci
+
+
+def test_webui_storage_root_isolation_not_hardcoded():
+    """§五：server 项目数据根必须走 config.composer_storage_root()（env 隔离），
+    不得用硬编码 STORAGE/composer（否则 VIDEO_DIRECTOR_STORAGE_ROOT 下测试
+    服务器会把素材/缓存写进生产 storage）。"""
+    root = Path(__file__).resolve().parents[1]
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    blocks = (root / "video_director" / "graphics" / "blocks.py").read_text(encoding="utf-8")
+
+    assert 'COMPOSER_ROOT = vd_config.composer_storage_root()' in server
+    # 数据路径不再有硬编码 STORAGE/composer
+    assert 'STORAGE / "composer"' not in server
+    # 自定义块读取不再内部拼 /composer（隔离根已是 composer root）
+    assert 'Path(storage_root) / "custom_blocks.json"' in blocks

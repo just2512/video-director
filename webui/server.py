@@ -39,8 +39,11 @@ from video_director import prober as vd_prober  # noqa: E402
 from video_director import store as vd_store  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-STORAGE = ROOT / "storage"
-LLM_CONFIG_FILE = STORAGE / "composer" / "llm_config.json"
+# §五 测试/生产 storage 隔离：项目数据根统一走 config.composer_storage_root()
+# （VIDEO_DIRECTOR_STORAGE_ROOT）。STORAGE = 该根父目录（staging 等非项目杂项随其隔离）。
+COMPOSER_ROOT = vd_config.composer_storage_root()
+STORAGE = COMPOSER_ROOT.parent
+LLM_CONFIG_FILE = COMPOSER_ROOT / "llm_config.json"
 
 # ---------------------------------------------------------------------------
 # §48 SSE 进度推送：事件总线（Director/生成/渲染过程事件 → 前端 EventSource）
@@ -422,7 +425,7 @@ class Handler(BaseHTTPRequestHandler):
             pid = qs.get("project_id", [""])[0]
             # 全库索引（source/used_in）+ 项目 manifest（duration/fps/license）
             from pathlib import Path as _P
-            root = STORAGE / "composer"
+            root = COMPOSER_ROOT
             source = "user"
             license_note = None
             used_in = []
@@ -568,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
             if not voice:
                 self._send_json({"error": "缺少 voice"}, 400)
                 return
-            cache_dir = STORAGE / "composer" / "voice_previews"
+            cache_dir = COMPOSER_ROOT / "voice_previews"
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = cache_dir / f"{voice}.mp3"
             try:
@@ -713,7 +716,7 @@ class Handler(BaseHTTPRequestHandler):
             # §46 Preview：项目草稿存在性 + 路径（顶栏 Preview 按钮消费）
             pid = route[len("/api/projects/"):-len("/draft_info")]
             try:
-                pdir = STORAGE / "composer" / pid
+                pdir = COMPOSER_ROOT / pid
                 draft = pdir / "output" / "draft.mp4"
                 final = pdir / "output" / "final.mp4"
                 self._send_json({
@@ -732,7 +735,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
             try:
-                pdir = STORAGE / "composer" / pid
+                pdir = COMPOSER_ROOT / pid
                 if not pdir.is_dir():
                     self._send_json({"error": "项目不存在"}, 404)
                     return
@@ -789,7 +792,7 @@ class Handler(BaseHTTPRequestHandler):
                     only_clear=qs.get("only_clear", [""])[0] == "1")
                 lib = {e["asset_id"]: dict(e, used_in=[]) for e in lib_entries}
                 # 项目 manifest 合并（老项目素材照常出现，含 used_in）
-                root = STORAGE / "composer"
+                root = COMPOSER_ROOT
                 if root.is_dir():
                     for d in root.iterdir():
                         man = d / "assets" / "manifest.json"
@@ -1144,7 +1147,7 @@ class Handler(BaseHTTPRequestHandler):
                 import asyncio
                 import edge_tts
                 import hashlib as _hl
-                cache_dir = STORAGE / "composer" / "voice_previews"
+                cache_dir = COMPOSER_ROOT / "voice_previews"
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 key = _hl.sha1(f"{voice}:{text}".encode("utf-8")).hexdigest()[:16]
                 cache_file = cache_dir / f"full-{key}.mp3"
@@ -1248,7 +1251,7 @@ class Handler(BaseHTTPRequestHandler):
                 spec = series.get(series_id, {}).get("spec", {})
                 # 素材落盘（系列共享素材目录；视频/图片均可作为共享输入）
                 video_paths, image_paths = [], []
-                shared_dir = STORAGE / "composer" / f"series-{series_id[:12]}" / "input" / "shared"
+                shared_dir = COMPOSER_ROOT / f"series-{series_id[:12]}" / "input" / "shared"
                 shared_dir.mkdir(parents=True, exist_ok=True)
                 for f in files:
                     if f["name"] not in ("videos", "images"):
@@ -2315,7 +2318,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 # 持久化用户块定义（storage/composer/custom_blocks.json；加载时并入 catalog）
                 from dataclasses import replace
-                custom_dir = STORAGE / "composer"
+                custom_dir = COMPOSER_ROOT
                 custom_dir.mkdir(parents=True, exist_ok=True)
                 cfile = custom_dir / "custom_blocks.json"
                 defs = []
@@ -3229,7 +3232,7 @@ def main(port: int = 8501):
     # §42 Block 开发体验：启动时加载用户自定义块进 Creative Catalog
     try:
         from video_director.graphics import blocks as _vd_gfx_blocks
-        n = _vd_gfx_blocks.load_custom_blocks(STORAGE)
+        n = _vd_gfx_blocks.load_custom_blocks(COMPOSER_ROOT)
         if n:
             print(f"[web] 自定义块加载 {n} 个进 Creative Catalog", file=sys.stderr)
     except Exception as exc:

@@ -406,10 +406,14 @@ def register_custom_block(block_id: str, name: str, category: str,
 
 
 def load_custom_blocks(storage_root) -> int:
-    """启动时加载 storage/composer/custom_blocks.json 进 catalog。返回加载数。"""
+    """启动时加载 <composer root>/custom_blocks.json 进 catalog。返回加载数。
+
+    storage_root = config.composer_storage_root()（已含 env 隔离；
+    不再内部拼 "/composer"——那是旧 storage/composer 布局的硬编码）。
+    """
     import json
     from pathlib import Path
-    cfile = Path(storage_root) / "composer" / "custom_blocks.json"
+    cfile = Path(storage_root) / "custom_blocks.json"
     if not cfile.is_file():
         return 0
     n = 0
