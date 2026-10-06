@@ -2151,7 +2151,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             from video_director import confirm as confirm_mod
             try:
-                final = confirm_mod.finalize_after_review(pid, edits=edits)
+                # §四 WorkflowRun=运行态事实源：同步渲染也必须登记 RUNNING run，
+                # 否则渲染中项目查不到 active_job（mid-render 可删）。
+                run_id = _run_confirm_as_workflow(pid)
+                try:
+                    final = confirm_mod.finalize_after_review(pid, edits=edits)
+                except Exception:
+                    from video_director import workflow_run as vd_wf_fail
+                    try:
+                        vd_wf_fail.finish_run(run_id, vd_wf_fail.FAILED,
+                                               error="确认渲染失败")
+                    except Exception:  # noqa: BLE001 run 收尾失败不掩盖原错误
+                        pass
+                    raise
                 # 创作记忆接线：确认渲染的 final 记录/补全 CreationCase。
                 # preview 模式 compose 已存 draft（分镜书字段），这里只补 final，
                 # 保证 👍👎 时 extract_preference_delta 有 diff 源。
@@ -2201,6 +2213,12 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:
                     print(f"[web] record_case(confirm) 失败（不阻塞）: {exc}",
                           file=sys.stderr)
+                from video_director import workflow_run as vd_wf_ok
+                try:
+                    vd_wf_ok.finish_run(run_id, vd_wf_ok.COMPLETED, result={
+                        "project_id": pid, "final_path": str(final.final_path)})
+                except Exception:  # noqa: BLE001 run 收尾失败不阻塞响应
+                    pass
                 self._send_json({
                     "ok": True,
                     "case_id": case_id,
@@ -3175,6 +3193,22 @@ class Handler(BaseHTTPRequestHandler):
             })
         except Exception as exc:
             self._send_json({"ok": False, "error": str(exc)}, 500)
+
+
+def _run_confirm_as_workflow(project_id: str) -> str:
+    """§四 /api/confirm 同步渲染的 WorkflowRun 登记（渲染中删除保护）。
+
+    start_run 即刻落 RUNNING（_workflow_snapshot 立刻可见）；调用方在
+    finalize 成功/失败后 finish_run。登记失败不阻塞渲染本身（run 是
+    保护信号，不是渲染前置条件）。
+    """
+    from video_director import workflow_run as vd_wf
+    try:
+        return vd_wf.start_run("render_final", project_id=project_id,
+                               steps=["render", "verify"])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[web] confirm run 登记失败（不阻塞渲染）: {exc}", file=sys.stderr)
+        return ""
 
 
 def main(port: int = 8501):

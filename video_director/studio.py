@@ -37,6 +37,8 @@ def _db_path() -> Path:
 
 
 def _conn() -> sqlite3.Connection:
+    # monkeypatched storage root（测试隔离）下目录可能尚未存在，先建再连
+    _db_path().parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_db_path(), timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
@@ -337,7 +339,9 @@ def _run_series_episode(spec: dict) -> dict:
     """系列单集：模板 spec + 一段文案 → compose_auto 独立成片。"""
     from video_director import pipeline
     sp = spec.get("spec", {}) or {}
-    pid = f"ser-{spec.get('series_id','x')[:8]}-ep{spec.get('episode', 0):02d}-{uuid.uuid4().hex[:4]}"
+    # pid 预生成于 enqueue_series_batch；兼容旧 job（无 project_id）才回退随机
+    pid = spec.get("project_id") or (
+        f"ser-{spec.get('series_id','x')[:8]}-ep{spec.get('episode', 0):02d}-{uuid.uuid4().hex[:4]}")
     result = pipeline.compose_auto(
         script=spec["script"],
         video_files=spec.get("video_files", []) or [],
@@ -433,16 +437,23 @@ def _kick_worker():
 
 
 def enqueue_series_batch(series_id: str, spec: dict, episodes: List[dict],
-                          video_files: List[str] = None) -> List[str]:
+                          video_files: List[str] = None,
+                          image_files: List[str] = None) -> List[str]:
     """系列批量：多集文案 → 逐集入队。episodes=[{episode, script}]。"""
     job_ids = []
     for ep in episodes:
+        # pid 在入队时预生成（不再在执行期随机）：镜像 WorkflowRun 与 compose
+        # 用同一 project_id——渲染中的 ser-* 项目可被 _workflow_snapshot 查到，
+        # mid-render 删除保护（§四 WorkflowRun=运行态事实源）由此成立。
+        pid = (f"ser-{series_id[:8]}-ep{ep.get('episode', 0):02d}-"
+               f"{uuid.uuid4().hex[:4]}")
         job_ids.append(job_enqueue("series_episode", {
             "series_id": series_id,
             "episode": ep.get("episode", 0),
             "script": ep.get("script", ""),
             "video_files": video_files or [],
             "image_files": image_files or [],
+            "project_id": pid,
             "spec": spec,
         }))
     return job_ids

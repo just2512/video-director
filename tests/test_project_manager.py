@@ -121,12 +121,23 @@ class TestListIndex:
         assert orphan["editable"] is False
 
     def test_active_job_delete_rejected_in_actions(self):
+        # §四（PR #5 后）：WorkflowRun=运行态事实源。stage 活跃 + 真实 RUNNING run
+        # 才算活跃任务；只有 stage 没有对应 run = 中断残留（不再误锁删除）。
+        from video_director import workflow_run as vd_wf
         _mk_project("web-run-01", stage="RENDERING")
+        vd_wf.start_run("compose", project_id="web-run-01", steps=["render"])
         idx = {p["project_id"]: p for p in pm.list_index()}
         p = idx["web-run-01"]
         assert p["active_job"] is True
         assert p["actions"]["delete"] is False  # §5 RUNNING：删除禁用
         assert p["actions"]["open"] is True     # 可查看进度
+        # stage 活跃但 run 已终态（服务重启收敛后）→ 已中断，可删
+        _mk_project("web-run-02", stage="RENDERING")
+        idx = {p["project_id"]: p for p in pm.list_index()}
+        p2 = idx["web-run-02"]
+        assert p2["interrupted"] is True
+        assert p2["active_job"] is False
+        assert p2["actions"]["delete"] is True
 
     def test_filter_index_pure_function(self):
         _mk_project("web-a", stage="DONE", name="甲项目")
@@ -206,7 +217,10 @@ class TestProjectActions:
         assert p2["archived"] is False
 
     def test_archive_active_job_rejected(self):
+        # §四：真实 RUNNING run 在跑 → 归档拒绝；无 run 的 stage 残留可归档
+        from video_director import workflow_run as vd_wf
         _mk_project("web-ar-run", stage="RENDERING")
+        vd_wf.start_run("compose", project_id="web-ar-run", steps=["render"])
         with pytest.raises(ProjectActionError) as e:
             pm.archive("web-ar-run")
         assert e.value.code == "ACTIVE_JOB"
@@ -240,7 +254,10 @@ class TestDelete:
         assert store.jobs_of_project(pid) == []
 
     def test_delete_active_job_rejected(self):
+        # §四：删除保护的依据是真实 RUNNING WorkflowRun（不是 stage 快照）
+        from video_director import workflow_run as vd_wf
         _mk_project("web-del-run", stage="TTS")
+        vd_wf.start_run("compose", project_id="web-del-run", steps=["narration"])
         with pytest.raises(ProjectActionError) as e:
             pm.delete("web-del-run")
         assert e.value.code == "ACTIVE_JOB"

@@ -14,6 +14,9 @@ import video_director.workflow_run as workflow_run
 def isolated_storage(monkeypatch, tmp_path):
     root = tmp_path / "composer"
     monkeypatch.setattr(config, "composer_storage_root", lambda: root)
+    # 屏蔽队列 worker 守护线程：入队不应在隔离 storage 下起真 worker 抢跑（会撞 jobs 表缺失）
+    from video_director import studio as vd_studio
+    monkeypatch.setattr(vd_studio, "_kick_worker", lambda: None)
     return root
 
 
@@ -101,6 +104,86 @@ def test_asset_bulk_delete_rejects_used_asset_then_deletes_unused(isolated_stora
     assert deleted["ok"] is True
     assert asset_catalog.get_asset("local-unused") is None
     assert not unused_file.exists()
+
+
+def test_enqueue_series_batch_accepts_shared_images_and_videos(isolated_storage):
+    """PR #5 系列：共享素材含图片时不能在入队层 NameError（CI 漏跑点）。"""
+    from video_director import studio as vd_studio
+
+    job_ids = vd_studio.enqueue_series_batch(
+        "ser-img-01", {"voice": "zh-CN-XiaoxiaoNeural"},
+        [{"episode": 1, "script": "第一集"}],
+        video_files=["/tmp/a.mp4"], image_files=["/tmp/b.png"],
+    )
+
+    assert len(job_ids) == 1
+    job = vd_studio.job_get(job_ids[0])
+    spec = job["spec"]
+    assert spec["video_files"] == ["/tmp/a.mp4"]
+    assert spec["image_files"] == ["/tmp/b.png"]
+
+
+def test_running_series_episode_run_protects_generated_project_from_delete(
+        isolated_storage):
+    """系列单集渲染中（ser-* pid 入队时预生成）：镜像 run 必须挂上真实 pid。
+
+    pid 运行期随机时（PR #5 原实现），镜像 run 无 project_id → 渲染中的
+    ser-* 项目查不到 RUNNING → mid-render 可删。预生成后 run/job/项目三者
+    同源，删除保护恢复。
+    """
+    from video_director import studio as vd_studio
+
+    job_ids = vd_studio.enqueue_series_batch(
+        "ser-del-01", {}, [{"episode": 1, "script": "第一集"}],
+        video_files=[], image_files=[])
+    job = vd_studio.job_get(job_ids[0])
+    spec = job["spec"]
+
+    # pid 已在 enqueue 时预生成进 spec（镜像与 compose 同源）
+    pid = spec["project_id"]
+    assert pid and pid.startswith("ser-")
+    run_id = vd_studio._mirror_to_workflow_run(job["job_id"], "series_episode", spec)
+    assert run_id, "series 镜像 run 未登记"
+    run = workflow_run.get_run(run_id)
+    assert run["project_id"] == pid, "镜像 run 缺 project_id（mid-render 删除保护失效）"
+
+    # 渲染中（run RUNNING + job running）：delete 必须被拒
+    config.init_project_dirs(config.project_dir(pid))
+    store.create_project(pid, "系列单集", {})
+    from video_director import project_manager as pm
+    with pytest.raises(pm.ProjectActionError) as exc:
+        pm.delete(pid)
+    assert exc.value.code == "ACTIVE_JOB"
+
+    # 真实生命周期结束（job done + run COMPLETED）→ 删除放行
+    vd_studio._set_job(job_ids[0], "done", result={"project_id": pid})
+    workflow_run.finish_run(run_id, workflow_run.COMPLETED, result={})
+    assert pm.delete(pid)["ok"] is True
+
+
+def test_sync_confirm_render_registers_running_workflow_run(isolated_storage):
+    """§四 /api/confirm 同步渲染也必须登记 RUNNING run（渲染中删除保护）。"""
+    pid = "web-confirm-run"
+    base = config.project_dir(pid)
+    config.init_project_dirs(base)
+    store.create_project(pid, "确认渲染测试", {})
+
+    from webui import server as web_server
+    run_id = web_server._run_confirm_as_workflow(pid)
+    assert run_id, "confirm 渲染未登记 WorkflowRun"
+    run = workflow_run.get_run(run_id)
+    assert run["status"] == workflow_run.RUNNING
+    assert run["project_id"] == pid
+
+    # 渲染中：删除被拒（run 是 active_job 事实源）
+    import video_director.project_manager as pm
+    with pytest.raises(pm.ProjectActionError) as exc:
+        pm.delete(pid)
+    assert exc.value.code == "ACTIVE_JOB"
+
+    # 渲染结束：run COMPLETED → 不再锁项目
+    workflow_run.finish_run(run_id, workflow_run.COMPLETED, result={})
+    assert pm.delete(pid)["ok"] is True
 
 
 def test_frontend_bulk_contracts_and_ci_coverage():
