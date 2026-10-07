@@ -349,6 +349,59 @@ def run_director_create_async(spec: dict, plan: Optional[dict] = None) -> str:
     return run_id
 
 
+def run_director_retry_async(project_id: str) -> Optional[str]:
+    """FAILED 导演项目「重新执行」：从持久化 bundle + params 重建 spec → 新 run。
+
+    门禁（§四 活跃保护）：项目不存在 / 无 director_inputs.json / 已有
+    RUNNING run → 拒绝（返回 None，调用方给出可解释错误）。
+    """
+    from video_director import store
+    proj = store.get_project(project_id)
+    if proj is None:
+        logger.warning("director retry rejected: project %s not found", project_id)
+        return None
+    try:
+        runs = list_runs(project_id=project_id, limit=1)
+        if runs and get_run(runs[0]["run_id"])["status"] == RUNNING:
+            logger.warning("director retry rejected: %s has RUNNING run", project_id)
+            return None
+    except Exception:
+        pass
+
+    from video_director import director_inputs as di
+    bundle = di.load_bundle(project_id)
+    if not bundle:
+        logger.warning("director retry rejected: %s has no persisted bundle", project_id)
+        return None
+
+    try:
+        params = json.loads(proj.get("params_json") or "{}")
+        if not isinstance(params, dict):
+            params = {}
+    except json.JSONDecodeError:
+        params = {}
+    spec = {
+        "project_id": project_id,
+        # 重试沿用初次参数；script 覆盖：bundle 里可能有 director 生成稿
+        "script": (bundle.get("script") or {}).get("text")
+                 or proj.get("script") or "",
+        "brief": (bundle.get("brief") or params.get("creative_brief") or ""),
+        "director_inputs": bundle,
+        "voice": params.get("voice") or "zh-CN-XiaoxiaoNeural",
+        "voice_rate": params.get("voice_rate") or "+0%",
+        "width": params.get("width"), "height": params.get("height"),
+        "fps": params.get("fps"),
+        "bgm": params.get("bgm") or "auto",
+        "subtitle_mode": params.get("subtitle_mode") or "plain",
+        "match_materials_to_script": params.get("match_materials_to_script", True),
+    }
+    try:
+        store.set_stage(project_id, store.Stage.CREATED)
+    except Exception as exc:
+        logger.warning("director retry stage reset failed: %s", exc)
+    return run_director_create_async(spec)
+
+
 def _compose_worker(run_id: str, spec: dict) -> None:
     """compose/director 工作线程：Director 创建走统一 Agent；旧 compose 保持原执行链。"""
     try:
@@ -492,13 +545,9 @@ def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> di
     _emit(run_id, "workflow.start", {"project_id": pid, "mode": mode})
 
     # voice_rate 归一：倍数（'1.0'/'1.3'）→ edge-tts 相对百分比（'+0%'）
-    voice_rate = spec.get("voice_rate", "+0%")
-    if not str(voice_rate).startswith(("+", "-")):
-        try:
-            _spd = float(voice_rate)
-            voice_rate = f"{int(round((_spd - 1.0) * 100)):+d}%"
-        except (TypeError, ValueError):
-            voice_rate = "+0%"
+    # 2026-10-07：归一逻辑统一到 narration.normalize_rate（Director 路径共用）
+    from video_director import narration as narration_mod
+    voice_rate = narration_mod.normalize_rate(spec.get("voice_rate", "+0%"))
 
     # sfx 选择归一（'auto' → None 走默认；'' → [] 关闭；具体 id → 铺底）
     sfx_choice = spec.get("sfx", spec.get("sfx_choice", "auto"))

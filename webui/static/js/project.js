@@ -71,7 +71,7 @@ function renderProjectList(){
     let primary = '';
     if (p.legacy) primary = `<button class="btn-sm" onclick="convertLegacyProject('${esc(p.project_id)}')">转换为可编辑项目</button>`;
     else if (actions.continue_) primary = `<button class="btn-sm" onclick="continueProject('${esc(p.project_id)}')">继续确认</button>`;
-    else if (p.status === 'FAILED') primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">查看问题</button>`;
+    else if (p.status === 'FAILED') primary = `<button class="btn-secondary btn-sm" onclick="pmShowFailure('${esc(p.project_id)}')">查看问题</button>`;
     else if (actions.open) primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">继续编辑</button>`;
     if (p.status === 'FAILED') primary += ` <button class="btn-secondary btn-sm" onclick="pmReopenFailed('${esc(p.project_id)}')">重新执行</button>`;
     // 「···」菜单由 pmRowMenu 动态展开；动作存在性由 Index actions 决定。
@@ -251,10 +251,38 @@ async function convertLegacyProject(pid){
     workspaceOpen(r.project_id);
   }
 }
-/** FAILED 项目「重新执行」：进工作台看错误 + 一键重渲染。 */
-function pmReopenFailed(pid){
-  workspaceOpen(pid);
-  if (typeof editorPreflight === 'function') setTimeout(editorPreflight, 600);
+/** FAILED 项目「查看问题」：项目页就地展示失败原因（不进编辑器——编辑器
+ *  editable 门禁会把无 composition 的失败项目挡在门外，用户无从知道为什么失败）。 */
+async function pmShowFailure(pid){
+  const r = await apiGet('/api/director/failure?project_id=' + encodeURIComponent(pid));
+  if (!r || !r.ok) { editorToast('读取失败原因出错：' + ((r && r.error) || '未知'), true); return; }
+  const nodes = (r.failed_nodes || []).map(n =>
+    `<div class="hint"><b class="cap-off">✗</b> ${esc(n.id)}${n.error ? '：' + esc(n.error.slice(0, 120)) : ''}</div>`
+  ).join('');
+  pmShowModal(`<h3>失败原因</h3>
+    <div class="pm-modal-name">「${esc(_pmNameOf(pid))}」</div>
+    <div class="pm-modal-body">
+      <div class="err-box">${esc(r.error || '无失败详情（任务记录可能已被清理）')}</div>
+      ${nodes ? `<div style="margin-top:8px"><b style="font-size:13px">失败节点</b>${nodes}</div>` : ''}
+      <div class="hint" style="margin-top:8px">任务状态：${esc(r.status || '—')}</div>
+    </div>
+    <div class="pm-modal-actions">
+      <button class="btn-secondary btn-sm" onclick="pmCloseModal()">关闭</button>
+      ${r.can_retry ? `<button class="btn-sm" onclick="pmCloseModal();pmReopenFailed('${esc(pid)}')">重新执行</button>` : ''}
+    </div>`);
+}
+function _pmNameOf(pid){
+  const p = PM.index.find(x => x.project_id === pid);
+  return (p && p.name) || pid;
+}
+/** FAILED 项目「重新执行」：从持久化输入重建 → 新 director_create run（真重跑）。 */
+async function pmReopenFailed(pid){
+  editorToast('正在重新提交 AI 导演创作……');
+  const r = await apiPost('/api/director/retry', {project_id: pid});
+  if (!r || !r.ok) { editorToast('重新执行未开始：' + ((r && r.error) || '未知'), true); return; }
+  editorToast('已重新开始创作，可在「任务」抽屉查看进度');
+  if (typeof taskRefresh === 'function') taskRefresh();
+  setTimeout(loadProjects, 1200);
 }
 /** 预览成品（中央 preview 语义：项目页就地播放，不跳页）。 */
 async function pmPreviewFinal(pid){
@@ -414,7 +442,7 @@ async function pmOpenDetail(pid){
 Object.assign(window, {
   loadProjects, renderProjectList, pmSetFilter, pmSearch,
   projectAction, renameProject, continueProject, pmClone, pmArchive, pmRestore,
-  convertLegacyProject, pmReopenFailed, pmPreviewFinal, pmPreviewLegacy,
+  convertLegacyProject, pmReopenFailed, pmShowFailure, pmPreviewFinal, pmPreviewLegacy,
   pmAskDelete, deleteProject, pmAskRename, pmShowModal, pmCloseModal,
   pmShowMore, pmOpenDetail, pmRowMenu, pmCloseRowMenu,
   pmToggleSelected, pmToggleAll, pmRefreshBulkBar, pmAskBulkDelete, pmBulkAction,

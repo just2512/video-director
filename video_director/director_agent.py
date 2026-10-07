@@ -20,6 +20,15 @@ from video_director import validator, qc as qc_mod
 from video_director import vision as vision_mod
 
 
+class DirectorAgentError(Exception):
+    """Agent Loop 终止性错误（STOP/死循环/未恢复失败节点）。
+
+    2026-10-07 教训：本类此前从未定义，execute() 的 STOP/retry 路径 raise
+    NameError 自掩盖真实失败原因（如 edge-tts Invalid rate），把可诊断的
+    参数错误变成裸 NameError。
+    """
+
+
 def _json_file(path: Path, value) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -200,7 +209,7 @@ def _tool_narration(spec: dict, state: dict) -> dict:
         )
         audio_path, words, scenes = narration.synth_narration(
             scene_texts, voice, out_dir,
-            rate=spec.get("voice_rate") or "+0%",
+            rate=narration.normalize_rate(spec.get("voice_rate")),
         )
         tool_name = "narration.synthesize"
 

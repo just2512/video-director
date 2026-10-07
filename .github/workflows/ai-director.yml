@@ -23,6 +23,8 @@ jobs:
             tests/test_director_control_plane.py \
             tests/test_director_unified_inputs.py \
             tests/test_bulk_management.py \
+            tests/test_director_failure_recovery.py \
+            tests/test_frontend_duplicate_controls.py \
             tests/test_action_registry.py \
             tests/test_ui_action_audit.py \
             tests/test_mpt_user_flow.py

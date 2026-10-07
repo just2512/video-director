@@ -25,6 +25,34 @@ class NarrationError(Exception):
     pass
 
 
+def normalize_rate(rate) -> str:
+    """voice_rate 归一 → edge-tts 相对百分比（'+0%'/'-10%'/'30%' 形态）。
+
+    兼容三种来源（2026-10-07 教训：Director 路径直传倍数 '0.9' 导致
+    edge-tts `Invalid rate 0.9`）：
+    - 倍数字符串/数字：'1.3'/0.9 → 相对百分比
+    - 合法百分比：'+15%'/'-10%' → 透传
+    - 空/非法值 → '+0%'
+    """
+    if rate is None:
+        return "+0%"
+    s = str(rate).strip()
+    if not s:
+        return "+0%"
+    if s.endswith("%"):
+        body = s[:-1]
+        try:
+            v = int(round(float(body)))
+        except (TypeError, ValueError):
+            return "+0%"
+        return f"{v:+d}%"
+    try:
+        mult = float(s)
+    except (TypeError, ValueError):
+        return "+0%"
+    return f"{int(round((mult - 1.0) * 100)):+d}%"
+
+
 def _word_boundaries(text: str) -> List[Tuple[str, float]]:
     """粗分中文词边界（无 ASR 时的估算兜底）。
 

@@ -50,10 +50,7 @@ function _createPanelHtml(){
     </div>
     <textarea id="cf-director-brief" style="min-height:82px;margin-top:8px"
       placeholder="例如：做一条 45 秒的视频，讲清楚为什么很多人越忙越没钱，口吻克制，画面以真实生活为主，适合抖音。"></textarea>
-    <div class="btn-row" style="margin-top:8px;align-items:center">
-      <button id="cf-ai-go" class="btn-sm" onclick="createProject()">AI 开始创作</button>
-      <span class="hint">可以不写文案；AI 会自己完成文案、分镜、配音、找画面、字幕、音乐、预览与预检。</span>
-    </div>
+    <div class="hint" style="margin-top:8px">可以不写文案；AI 会自己完成文案、分镜、配音、找画面、字幕、音乐、预览与预检。填好后点底部「AI 开始创作」。</div>
     <div id="cf-director-plan-preview" class="hint" style="margin-top:8px"></div>
   </div>
   <div class="panel" style="margin-top:10px;padding:12px">
@@ -258,34 +255,10 @@ function _createPanelHtml(){
   </div>`;
 }
 
-/** §37 切换 Create Source：仅替换输入区，不改变后面的 Composition 流程。 */
-function setCreateSource(src){
-  CF.source = src;
-  document.querySelectorAll('.cf-src').forEach(b =>
-    b.classList.toggle('chip-on', b.dataset.src === src));
-  const area = document.getElementById('cf-source-area');
-  if (!area) return;
-  if (src === 'reference') {
-    area.innerHTML = `
-      <label>参考视频（从优秀视频提取风格/节奏/镜头结构，指导本次创作）</label>
-      <input type="file" id="cf-reference" accept=".mp4,.mov,.mkv,.webm">
-      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="cfAnalyzeReference()">分析参考视频</button>
-      <span class="hint" id="cf-reference-status">分析报告（镜头结构/节奏/运动语言）会并入创作简报，指导成片风格；不复制参考内容。</span></div>
-      <div id="cf-reference-result"></div>`;
-  } else if (src === 'repo') {
-    area.innerHTML = `
-      <label>软件项目根目录（从代码库发现可验证的卖点，AI 不编造功能）</label>
-      <input type="text" id="cf-repo-root" class="rev-input" placeholder="例：D:\\Projects\\my-app">
-      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="cfScanRepo()">扫描软件项目</button>
-      <span class="hint" id="cf-repo-status">会扫描 README/CHANGELOG 等证据文件，可验证的卖点会并入创作简报。</span></div>
-      <div id="cf-repo-result"></div>`;
-  } else if (src === 'assets') {
-    area.innerHTML = `
-      <div class="hint">素材起步：先添加素材；文案请至少写一句创作说明，系统才能按场景匹配画面。</div>`;
-  } else {
-    area.innerHTML = '';
-  }
-}
+/** §37（已废弃 2026-10-07）：旧 source-picker 单值输入模型被并行输入卡取代。
+ * setCreateSource/cf-source-area 动态模板整段删除——它的动态 HTML 与并行
+ * 输入卡渲染同名 id（cf-reference/cf-repo-root…），既造成重复控件又让
+ * DOM 查询错位。四张并行输入卡见 _createPanelHtml「输入上下文」区。 */
 
 /** 下拉/风格预设填充（单一数据源：与设置页同 API）。 */
 async function createLoadDefaults(){
@@ -313,10 +286,6 @@ async function createLoadDefaults(){
         `<button class="btn-secondary btn-sm" onclick="document.getElementById('cf-style').value='${esc(s.name)}'" title="${esc(s.description || '')}">${esc(s.name)}</button>`).join('');
     }
   } catch (e) { /* 预设失败不阻塞 */ }
-  // 来源按钮绑定
-  document.querySelectorAll('.cf-src').forEach(b => {
-    b.onclick = () => setCreateSource(b.dataset.src);
-  });
 }
 
 function cfRefreshAssetSummary(){
@@ -640,7 +609,7 @@ function cfSeriesSync(){
   const scope=(document.querySelector('input[name="cf-scope"]:checked')||{}).value||'single';
   const box=document.getElementById('cf-series-options');
   if(box)box.style.display=scope==='series'?'':'none';
-  ['cf-ai-go','cf-go'].map(id=>document.getElementById(id)).filter(Boolean).forEach(b=>b.textContent=scope==='series'?'AI 开始批量创作':'AI 开始创作');
+  const btns=['cf-go'].map(id=>document.getElementById(id)).filter(Boolean);btns.forEach(b=>b.textContent=scope==='series'?'AI 开始批量创作':'AI 开始创作');
 }
 async function createSeriesFromCreatePanel(){
   const status=document.getElementById('cf-status');
@@ -651,7 +620,7 @@ async function createSeriesFromCreatePanel(){
   if(!name.trim()){status.textContent='系列模式请填写系列名称';return;}
   if(!parts.length){status.textContent='系列模式请至少输入一集文案，并用 ------------ 分隔多集';return;}
   CF.state='submitting';
-  const bs=['cf-ai-go','cf-go'].map(id=>document.getElementById(id)).filter(Boolean);bs.forEach(b=>b.disabled=true);
+  const bs=['cf-go'].map(id=>document.getElementById(id)).filter(Boolean);bs.forEach(b=>b.disabled=true);
   status.textContent='正在建立系列并提交批量任务……';
   try{
     const res=(document.getElementById('cf-resolution')||{}).value||'1080x1920';
@@ -735,7 +704,7 @@ function cfMakeGraphicPlan(){
 }
 
 Object.assign(window, {
-  openCreate, closeCreate, setCreateSource, createLoadDefaults,
+  openCreate, closeCreate, createLoadDefaults,
   createPlatformSync, createProject, createEnhance, createAcceptEnhanced,
   cfMakeGraphicPlan, cfAnalyzeReference, cfScanRepo, cfVoiceModeSync, cfSeriesSync, createSeriesFromCreatePanel, CF,
 });

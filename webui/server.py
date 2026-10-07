@@ -1891,6 +1891,79 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 503)
             return
 
+        if parsed.path == "/api/director/retry":
+            # FAILED 导演项目「重新执行」：读持久化 bundle/params → 新 director_create run。
+            # 门禁在 workflow_run.run_director_retry_async（项目存在/有 bundle/无 RUNNING run）。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import workflow_run as _wf
+                run_id = _wf.run_director_retry_async(pid)
+                if not run_id:
+                    # 区分三种拒绝原因，给用户可解释错误
+                    from video_director import store as _vd_store
+                    if _vd_store.get_project(pid) is None:
+                        reason = "项目不存在"
+                    elif not (vd_config.project_dir(pid) / "plans" / "director_inputs.json").is_file():
+                        reason = "该项目没有 AI 导演输入记录（可能是旧流程项目），无法重新执行"
+                    else:
+                        reason = "项目有正在执行的任务，结束后再试"
+                    self._send_json({"ok": False, "error": reason}, 409)
+                    return
+                self._send_json({"ok": True, "run_id": run_id, "project_id": pid})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/director/failure":
+            # FAILED 项目「查看问题」：失败 run 详情 + director_plan 失败节点（不进编辑器）。
+            qs = parse_qs(parsed.query)
+            pid = (qs.get("project_id", [""])[0] or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import workflow_run as _wf
+                runs = _wf.list_runs(project_id=pid, limit=10)
+                failed = [r for r in runs if r.get("status") in ("FAILED", "INTERRUPTED")]
+                latest = (failed or runs)[0] if (failed or runs) else None
+                detail = _wf.get_run(latest["run_id"]) if latest else {}
+                # 失败节点定位（director_plan.json 里 status=FAILED 的节点）
+                failed_nodes = []
+                plan_path = vd_config.project_dir(pid) / "plans" / "director_plan.json"
+                if plan_path.is_file():
+                    try:
+                        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                        failed_nodes = [
+                            {"id": n.get("id"), "error": (n.get("error") or "")[:300]}
+                            for n in plan.get("nodes") or []
+                            if n.get("status") == "FAILED"
+                        ]
+                    except (OSError, json.JSONDecodeError):
+                        pass
+                self._send_json({
+                    "ok": True,
+                    "project_id": pid,
+                    "run_id": (latest or {}).get("run_id", ""),
+                    "status": (latest or {}).get("status", ""),
+                    "error": (detail.get("error") or (latest or {}).get("error") or "")[:500],
+                    "failed_nodes": failed_nodes,
+                    "can_retry": bool(not latest or latest.get("status") != "RUNNING"),
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         # §12 UI/AI 共用唯一动作入口：Action → Capability → Command Bus。
         # UI 只提交用户语义 action；Director 也使用同一 Registry。
         if parsed.path == "/api/action/execute":

@@ -82,6 +82,8 @@ UI_ONLY_PREFIXES = (
     "inboxToggle(", "inboxToggleAll(", "inboxBulkAction(", "inboxBulkDeleteSelected(", "inboxBulkDismissSelected(",
     "taskToggleSelected(", "taskToggleAllTerminal(", "taskBulkCleanup(",
     "edLibToggleAsset(", "edLibToggleUnusedAll(", "edLibBulkDeleteAssets(",
+    # FAILED 项目失败查看（项目页就地 modal，不进编辑器）
+    "pmShowFailure(",
     "event.stopPropagation()",
 )
 
