@@ -18,22 +18,23 @@ from typing import List, Tuple
 
 from video_director.graphics import blocks as blocks_mod
 from video_director.graphics.program import GraphicProgram, GraphicScene
+from video_director.graphics.procedural import get_provider
 
 #: FrameAdapter runtime（浏览器侧 seek 协议，GFX-005）——注入进每一份编译 HTML
 #: 控制协议用 postMessage（sandbox iframe 是 opaque origin，父页面不可直接
 #: 访问其 JS——这本身就是沙箱边界正确的证据；消息驱动保持隔离可控）。
 _SEEK_RUNTIME = """
 <script>
-/* FrameAdapter（GFX-005）：frame 是唯一时间事实。逐帧 scrub 驱动 CSS。 */
+/* FrameAdapter：frame 是唯一时间事实；procedural scene 同样只由 seek(frame) 驱动。 */
 window.__gf = (function(){
   var fps = __GF_FPS__;
   var total = __GF_TOTAL__;
-  var scenes = __GF_SCENES__;  // [{start,duration,motion}]
+  var scenes = __GF_SCENES__;
   var timer = null;
   function seek(frame){
     if (frame < 0) frame = 0;
     if (frame > total) frame = total;
-    var t = frame / fps;             // 绝对时间
+    var t = frame / fps;
     var els = document.querySelectorAll('.gfx-scene');
     for (var i = 0; i < els.length; i++){
       var s = scenes[i];
@@ -41,6 +42,11 @@ window.__gf = (function(){
       els[i].style.display = on ? '' : 'none';
       els[i].style.setProperty('--t', on ? (t - s.start) + 's' : '-1s');
       els[i].style.setProperty('--dur', (s.duration) + 's');
+      if (on && s.engine === 'procedural'){
+        var draw = window.__HUASHU_DRAW && window.__HUASHU_DRAW[s.id];
+        if (typeof draw !== 'function') throw new Error('PROCEDURAL_DRAW_NOT_READY: ' + s.id);
+        draw(t - s.start);
+      }
     }
     return {frame: frame, t: t};
   }
@@ -54,7 +60,6 @@ window.__gf = (function(){
     }, 1000 / fps);
   }
   function pause(){ if (timer) { clearInterval(timer); timer = null; } }
-  /* 沙箱控制协议：父页面 postMessage（opaque origin 下唯一合法通道） */
   window.addEventListener('message', function(ev){
     var d = ev.data || {};
     if (d.type === 'gf-seek') { seek(d.frame | 0); }
@@ -62,8 +67,6 @@ window.__gf = (function(){
     else if (d.type === 'gf-pause') { pause(); }
     else if (d.type === 'gf-enable-select') { enableSelect(); }
   });
-  /* §39 Direct Manipulation：点击元素 → 选中态（outline bounds 高亮）。
-     手势不直接改 HTML——选中只发信号回父页面，修改走 plan→command→重编译。 */
   function enableSelect(){
     if (window.__gfSelectOn) return;
     window.__gfSelectOn = true;
@@ -73,16 +76,24 @@ window.__gf = (function(){
       var t = e.target.closest('.gfx-type, .gfx-cell, .gfx-num');
       if (!t) return;
       t.classList.add('gf-sel');
-      /* opaque origin 无法直接调父页面：postMessage 上报选中（父页面可更新 Inspector） */
       try { parent.postMessage({type:'gf-selected', tag:(t.tagName||''), cls:(t.className||''),
         text:(t.textContent||'').slice(0,40)}, '*'); } catch(e2){}
     });
   }
-  seek(0);
   return { fps: fps, totalFrames: total, scenes: scenes, seek: seek, play: play, pause: pause };
 })();
+window.__gfReady = false;
+Promise.all(Object.values(window.__HUASHU_READY || {}).map(function(p){ return p; }))
+  .then(function(){
+    window.__gfReady = true;
+    window.__gf.seek(0);
+  })
+  .catch(function(err){
+    window.__gfReadyError = String(err && err.stack || err);
+  });
 </script>
 """
+
 
 
 class CompileError(Exception):
@@ -105,9 +116,33 @@ def compile_to_html(program: GraphicProgram) -> str:
     total = scenes_sorted[-1].start + scenes_sorted[-1].duration
     rfp = program.rational_fps
 
-    # 逐 scene 编译 block 片段（§8：clip 元素自带 data-start/duration/track-index 契约）
+    # 逐 scene 编译：native block 与 procedural provider 共用同一 Scene/Runtime。
     bodies: List[str] = []
     for track_idx, sc in enumerate(scenes_sorted):
+        if sc.engine == "procedural":
+            if not sc.provider_id:
+                raise CompileError(
+                    "PROCEDURAL_PROVIDER_MISSING",
+                    f"scene {sc.id}: 缺少 provider_id",
+                )
+            try:
+                provider = get_provider(sc.provider_id)
+                inner = provider.compile_scene(program, sc)
+            except CompileError:
+                raise
+            except Exception as exc:
+                raise CompileError(
+                    "PROCEDURAL_COMPILE_FAILED",
+                    f"scene {sc.id}: {exc}",
+                ) from exc
+            bodies.append(
+                f'<section class="gfx-scene" data-engine="procedural" '
+                f'data-procedural-id="{sc.program_id}" data-start="{sc.start:.3f}" '
+                f'data-duration="{sc.duration:.3f}" data-track-index="{track_idx}" '
+                f'style="--dur:{sc.duration:.3f}s;--t:-1s">{inner}</section>'
+            )
+            continue
+
         try:
             block = blocks_mod.get_block(sc.block_id)
         except KeyError as exc:
@@ -131,8 +166,9 @@ def compile_to_html(program: GraphicProgram) -> str:
 
     # scene 时序 JSON（FrameAdapter 定位 clip 用）
     scenes_json = [
-        {"start": round(sc.start, 3), "duration": round(sc.duration, 3),
-         "motion": sc.motion_id}
+        {"id": sc.id, "start": round(sc.start, 3), "duration": round(sc.duration, 3),
+         "motion": sc.motion_id, "engine": sc.engine,
+         "provider_id": sc.provider_id, "program_id": sc.program_id}
         for sc in scenes_sorted
     ]
     import json
@@ -162,8 +198,8 @@ def compile_to_html(program: GraphicProgram) -> str:
       data-width="{program.width}" data-height="{program.height}"
       data-fps="{int(rfp.numerator)}" data-fps-den="{int(rfp.denominator)}"
       data-duration="{total:.3f}">
-{runtime}
 {''.join(bodies)}
+{runtime}
 </body>
 </html>"""
     return html
