@@ -97,6 +97,7 @@ def render_graphics(
             # 网络阻断：渲染页禁发起任何请求（§49 沙箱）
             page.route("**/*", lambda route: route.abort())
             page.set_content(html, wait_until="load")
+            _wait_for_graphics_ready(page)
 
             for n in range(total_frames):
                 page.evaluate(f"window.__gf && window.__gf.seek({n})")
@@ -137,6 +138,17 @@ def render_graphics(
     return out_path
 
 
+def _wait_for_graphics_ready(page) -> None:
+    """等待统一 Graphics Runtime 完成 procedural provider 的异步资源准备。"""
+    page.wait_for_function(
+        "() => window.__gfReady === true || !!window.__gfReadyError",
+        timeout=120000,
+    )
+    err = page.evaluate("window.__gfReadyError || ''")
+    if err:
+        raise GraphicsRenderError("GRAPHICS_READY_FAILED", str(err))
+
+
 def _is_on_path(exe: str) -> bool:
     import shutil
     return shutil.which(exe) is not None
@@ -170,6 +182,7 @@ def render_still(
         page = ctx.new_page()
         page.route("**/*", lambda route: route.abort())
         page.set_content(html, wait_until="load")
+        _wait_for_graphics_ready(page)
         page.evaluate(f"window.__gf && window.__gf.seek({frame})")
         page.wait_for_timeout(33)
         page.screenshot(path=out_path)
