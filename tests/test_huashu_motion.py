@@ -98,3 +98,42 @@ def test_create_motion_asset_persists_artifact(monkeypatch, tmp_path):
     assert out["asset"]["asset_id"] == "asset-huashu-test"
     assert Path(out["artifact"]["output"]).is_file()
     assert Path(out["artifact"]["plan"]).is_file()
+
+
+def test_material_motion_capability_and_executor(monkeypatch):
+    from video_director import tool_executor
+
+    assert tool_executor._is_material_motion("material.motion.list")
+    assert tool_executor._is_material_motion("material.motion.create")
+
+    listed = tool_executor.execute_tool(
+        "p-huashu-list",
+        {"tool": "material.motion.list", "payload": {}},
+    )
+    assert listed["ok"] is True
+    assert any(x["id"] == "y5_kinetic_type" for x in listed["result"]["grammars"])
+
+    monkeypatch.setattr(
+        procedural_motion,
+        "create_motion_asset",
+        lambda project_id, payload: {
+            "program": {"id": "motion-test", "grammar": payload["grammar"]},
+            "asset": {"asset_id": "asset-test", "file": "/tmp/motion.mp4"},
+            "artifact": {"output": "/tmp/motion.mp4"},
+        },
+    )
+    created = tool_executor.execute_tool(
+        "p-huashu-create",
+        {
+            "tool": "material.motion.create",
+            "payload": {
+                "grammar": "y5_kinetic_type",
+                "prompt": "第一句。第二句。",
+                "duration": 4,
+                "width": 1080,
+                "height": 1920,
+            },
+        },
+    )
+    assert created["ok"] is True
+    assert created["result"]["asset"]["asset_id"] == "asset-test"
