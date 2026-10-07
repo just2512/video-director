@@ -2764,6 +2764,10 @@ class Handler(BaseHTTPRequestHandler):
                         "style_id": plan.get("style_id") or "editorial",
                         "narration": sc.get("narration") or sc.get("text") or "",
                         "visual_intent": sc.get("visual_intent") or "",
+                        "engine": sc.get("engine") or "native",
+                        "provider_id": sc.get("provider_id"),
+                        "program_id": sc.get("program_id"),
+                        "program_data": sc.get("program_data") or {},
                     }
                     ir_scenes.append(SceneIR.model_validate({
                         "id": f"scene-{len(ir_scenes) + 1:02d}",
