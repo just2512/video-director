@@ -88,7 +88,7 @@ U.setStage = (w, h) => {
   window.STAGE = {W: w, H: h};
   __stageHooks.forEach(f => f(w, h));
 };
-U.fontFamily = f => String(f || '').replace(/^(italics+|bolds+|d+s+)*[d.]+pxs+/, '').replace(/^["']|["']$/g, '');
+U.fontFamily = f => String(f || '').replace(/^(italic\s+|bold\s+|\d+\s+)*[\d.]+px\s+/, '').replace(/^["']|["']$/g, '');
 """
 
 _HTML_STYLE = """
