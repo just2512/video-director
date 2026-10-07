@@ -85,7 +85,7 @@ class MotionProgram(BaseModel):
     engine: str = "huashu"
     grammar: str
     duration: float = Field(gt=0, le=300)
-    fps: float = Field(gt=0, le=120)
+    fps: int = Field(gt=0, le=120)
     width: int = Field(gt=0, le=7680)
     height: int = Field(gt=0, le=7680)
     safe: Dict[str, Any] = Field(default_factory=dict)
@@ -113,12 +113,9 @@ class MotionProgram(BaseModel):
             )
         return value
 
-    @field_validator("fps")
-    @classmethod
-    def _fps(cls, value: float) -> float:
-        if value != int(value) and abs(value - round(value, 3)) > 1e-9:
-            raise ValueError("fps 必须使用稳定的数值表示")
-        return float(value)
+    @property
+    def total_frames(self) -> int:
+        return max(1, int(round(self.duration * self.fps)))
 
     def to_spec(self, asset_keys: Optional[Dict[str, str]] = None) -> dict:
         asset_keys = asset_keys or {}
@@ -415,7 +412,7 @@ def build_motion_program(
     grammar: str,
     *,
     duration: float,
-    fps: float = 30,
+    fps: int = 30,
     width: int = 1080,
     height: int = 1920,
     safe: Optional[dict] = None,
@@ -452,7 +449,7 @@ def build_motion_program(
         id=f"motion-{uuid.uuid4().hex[:10]}",
         grammar=grammar,
         duration=float(duration),
-        fps=float(fps),
+        fps=int(fps),
         width=int(width),
         height=int(height),
         safe=safe or {},

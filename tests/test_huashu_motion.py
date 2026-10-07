@@ -137,3 +137,23 @@ def test_material_motion_capability_and_executor(monkeypatch):
     )
     assert created["ok"] is True
     assert created["result"]["asset"]["asset_id"] == "asset-test"
+
+
+def test_motion_program_has_exact_integer_frame_contract():
+    p = procedural_motion.build_motion_program(
+        "一句话。",
+        "y5_kinetic_type",
+        duration=4,
+        fps=30,
+    )
+    assert p.fps == 30
+    assert p.total_frames == 120
+    with pytest.raises(Exception):
+        procedural_motion.MotionProgram(
+            id="bad-fps",
+            grammar="y5_kinetic_type",
+            duration=1,
+            fps=29.97,
+            width=1080,
+            height=1920,
+        )
