@@ -12,7 +12,7 @@ GraphicBlock + 槽位值 + 一个 entrance motion，渲染器逐帧 scrub。
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -62,8 +62,9 @@ class GraphicScene(BaseModel):
     role: str  # hook/intro/body/feature/proof/outro/cta/conclusion
     start: float = 0.0
     duration: float = 3.0
-    block_id: str
+    block_id: str = ""
     slot_values: Dict[str, str] = Field(default_factory=dict)
+    program_data: Dict[str, Any] = Field(default_factory=dict)
     motion_id: str = "graphics.fade-up"
     # 渲染引擎：native 使用现有 Graphics Block；procedural 使用注册的 Procedural Provider。
     engine: str = "native"
