@@ -66,6 +66,8 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
             return _execute_readonly(project_id, tool, payload, target_id)
         if _is_revision(tool):
             return _execute_revision(project_id, tool, payload, target_id)
+        if _is_material_motion(tool):
+            return _execute_material_motion(project_id, tool, payload, target_id)
         if _is_generation(tool):
             return _execute_generation(project_id, tool, payload, target_id)
         if _is_render(tool):
@@ -137,11 +139,13 @@ _READONLY = {
     "render.verify", "composition.verify",
     # §13 ContinuityVerifier（PPT Detector，只读检查）
     "visual.continuity.verify",
+    "material.motion.list",
 }
 
 _REVISION = {"revision.propose", "revision.preview", "revision.apply", "revision.reject"}
 
 _GENERATION = {"generation.image", "generation.video", "generation.sfx", "generation.music"}
+_MATERIAL_MOTION = {"material.motion.list", "material.motion.create"}
 
 _RENDER = {"render.draft", "render.final"}
 
@@ -167,6 +171,10 @@ def _is_revision(tool: str) -> bool:
 
 def _is_generation(tool: str) -> bool:
     return tool in _GENERATION
+
+
+def _is_material_motion(tool: str) -> bool:
+    return tool in _MATERIAL_MOTION
 
 
 def _is_render(tool: str) -> bool:
@@ -349,6 +357,39 @@ def _execute_content(project_id: str, tool: str, payload: dict, target_id) -> di
         })
     except Exception as exc:
         return _result(tool, False, "CONTENT_GENERATION_FAILED", error=str(exc)[:300])
+
+
+def _execute_material_motion(project_id: str, tool: str, payload: dict, target_id) -> dict:
+    """Huashu Procedural Motion：生成结构化动画 Artifact，不直接修改 Composition。"""
+    from video_director import procedural_motion
+
+    try:
+        if tool == "material.motion.list":
+            return _result(
+                tool,
+                True,
+                "OK",
+                result={"grammars": procedural_motion.available_grammars()},
+            )
+        out = procedural_motion.create_motion_asset(project_id, payload)
+        asset = out.get("asset") or {}
+        artifact = out.get("artifact") or {}
+        return _result(
+            tool,
+            True,
+            "APPLIED",
+            result={
+                "program": out.get("program") or {},
+                "asset": asset,
+                "artifact": artifact,
+            },
+            verify={
+                "asset_exists": bool(asset.get("file")),
+                "artifact_exists": bool(artifact.get("output")),
+            },
+        )
+    except procedural_motion.ProceduralMotionError as exc:
+        return _result(tool, False, exc.code, error=str(exc))
 
 
 def _execute_generation(project_id: str, tool: str, payload: dict, target_id) -> dict:
