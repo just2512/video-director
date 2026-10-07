@@ -17,17 +17,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt
       - run: python -m compileall video_director webui
-      - run: |
-          pytest -q \
-            tests/test_ai_director_first_class.py \
-            tests/test_director_control_plane.py \
-            tests/test_director_unified_inputs.py \
-            tests/test_bulk_management.py \
-            tests/test_director_failure_recovery.py \
-            tests/test_frontend_duplicate_controls.py \
-            tests/test_action_registry.py \
-            tests/test_ui_action_audit.py \
-            tests/test_mpt_user_flow.py
+      - run: pytest -q
       - run: |
           for f in webui/static/js/*.js; do
             node --check "$f"
