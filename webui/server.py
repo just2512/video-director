@@ -1071,6 +1071,43 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"context": project_context.inspect_project_context(pid)})
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/director/failure":
+            # FAILED 项目「查看问题」：失败 run 详情 + director_plan 失败节点
+            # （不进编辑器——editable 门禁会把无 composition 的失败项目挡死）。
+            qs = parse_qs(parsed.query)
+            pid = (qs.get("project_id", [""])[0] or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import workflow_run as vd_wf
+                runs = vd_wf.list_runs(project_id=pid, limit=10)
+                failed = [r for r in runs if r.get("status") in ("FAILED", "INTERRUPTED")]
+                latest = (failed or runs)[0] if (failed or runs) else None
+                detail = vd_wf.get_run(latest["run_id"]) if latest else {}
+                failed_nodes = []
+                plan_path = vd_config.project_dir(pid) / "plans" / "director_plan.json"
+                if plan_path.is_file():
+                    try:
+                        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                        failed_nodes = [
+                            {"id": n.get("id"), "error": (n.get("error") or "")[:300]}
+                            for n in plan.get("nodes") or []
+                            if n.get("status") == "FAILED"
+                        ]
+                    except (OSError, json.JSONDecodeError):
+                        pass
+                self._send_json({
+                    "ok": True,
+                    "project_id": pid,
+                    "run_id": (latest or {}).get("run_id", ""),
+                    "status": (latest or {}).get("status", ""),
+                    "error": (detail.get("error") or (latest or {}).get("error") or "")[:500],
+                    "failed_nodes": failed_nodes,
+                    "can_retry": bool(not latest or latest.get("status") != "RUNNING"),
+                })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/file":
             qs = parse_qs(parsed.query)
             fpath = qs.get("path", [""])[0]
@@ -1921,45 +1958,6 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "error": reason}, 409)
                     return
                 self._send_json({"ok": True, "run_id": run_id, "project_id": pid})
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, 500)
-            return
-
-        if parsed.path == "/api/director/failure":
-            # FAILED 项目「查看问题」：失败 run 详情 + director_plan 失败节点（不进编辑器）。
-            qs = parse_qs(parsed.query)
-            pid = (qs.get("project_id", [""])[0] or "").strip()
-            if not pid:
-                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
-                return
-            try:
-                from video_director import workflow_run as _wf
-                runs = _wf.list_runs(project_id=pid, limit=10)
-                failed = [r for r in runs if r.get("status") in ("FAILED", "INTERRUPTED")]
-                latest = (failed or runs)[0] if (failed or runs) else None
-                detail = _wf.get_run(latest["run_id"]) if latest else {}
-                # 失败节点定位（director_plan.json 里 status=FAILED 的节点）
-                failed_nodes = []
-                plan_path = vd_config.project_dir(pid) / "plans" / "director_plan.json"
-                if plan_path.is_file():
-                    try:
-                        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-                        failed_nodes = [
-                            {"id": n.get("id"), "error": (n.get("error") or "")[:300]}
-                            for n in plan.get("nodes") or []
-                            if n.get("status") == "FAILED"
-                        ]
-                    except (OSError, json.JSONDecodeError):
-                        pass
-                self._send_json({
-                    "ok": True,
-                    "project_id": pid,
-                    "run_id": (latest or {}).get("run_id", ""),
-                    "status": (latest or {}).get("status", ""),
-                    "error": (detail.get("error") or (latest or {}).get("error") or "")[:500],
-                    "failed_nodes": failed_nodes,
-                    "can_retry": bool(not latest or latest.get("status") != "RUNNING"),
-                })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
