@@ -62,12 +62,11 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
     try:
         if _is_verify(tool):
             return _execute_verify(project_id, tool, payload, target_id)
+        if _is_material_motion(tool):
+            return _execute_material_motion(project_id, tool, payload, target_id)
         if _is_readonly(tool):
             return _execute_readonly(project_id, tool, payload, target_id)
         if _is_revision(tool):
-            return _execute_revision(project_id, tool, payload, target_id)
-        if _is_material_motion(tool):
-            return _execute_material_motion(project_id, tool, payload, target_id)
         if _is_generation(tool):
             return _execute_generation(project_id, tool, payload, target_id)
         if _is_render(tool):
@@ -139,7 +138,6 @@ _READONLY = {
     "render.verify", "composition.verify",
     # §13 ContinuityVerifier（PPT Detector，只读检查）
     "visual.continuity.verify",
-    "material.motion.list",
 }
 
 _REVISION = {"revision.propose", "revision.preview", "revision.apply", "revision.reject"}
