@@ -157,3 +157,34 @@ def test_motion_program_has_exact_integer_frame_contract():
             width=1080,
             height=1920,
         )
+
+
+def test_all_huashu_grammars_compile_through_provider():
+    for grammar in procedural_motion.HUASHU_GRAMMARS:
+        if grammar == "t3_finance_chart":
+            p = procedural_motion.build_motion_program(
+                "数据变化。",
+                grammar,
+                duration=4,
+                data={
+                    "title": "测试",
+                    "series": [
+                        {"label": "A", "value": 10},
+                        {"label": "B", "value": 20},
+                    ],
+                },
+                cues=[
+                    {"at": 0.0, "kind": "title", "text": "测试"},
+                    {"at": 1.0, "kind": "bar"},
+                ],
+            )
+        else:
+            p = procedural_motion.build_motion_program(
+                "第一句。第二句。",
+                grammar,
+                duration=4,
+            )
+        html = procedural_motion.compile_motion_html(p)
+        assert grammar in html
+        assert "window.__gf" in html
+        assert deterministic_preflight(html).status == "PASS"

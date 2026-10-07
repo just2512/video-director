@@ -24,3 +24,4 @@ jobs:
           for f in webui/static/js/*.js; do
             node --check "$f"
           done
+          node --check third_party/huashu/huashu_motion_bundle.js
