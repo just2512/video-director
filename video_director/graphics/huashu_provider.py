@@ -222,8 +222,8 @@ window.__HUASHU_DRAW = window.__HUASHU_DRAW || {{}};
     h: ctx2.H - ctx2.safe.top - ctx2.safe.bottom
   }};
   ctx2.of = (...kinds) => ctx2.cues.filter(q => kinds.includes(q.kind));
-  ctx2.lt = (t, at) => t - at;
-  ctx2.p = (t, at, d) => Math.max(0, Math.min(1, (t - at) / d));
+  ctx2.lt = (t, at) => t - at + 1 / ctx2.FPS;
+  ctx2.p = (t, at, d) => Math.max(0, Math.min(1, ctx2.lt(t, at) / d));
   U.setStage(ctx2.W, ctx2.H);
   const clip = window.__HUASHU_CLIPS["{scene.id}"];
   if (!clip || typeof clip.draw !== "function") throw new Error("Huashu clip 未注册: {scene.id}");
