@@ -67,6 +67,7 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
         if _is_readonly(tool):
             return _execute_readonly(project_id, tool, payload, target_id)
         if _is_revision(tool):
+            return _execute_revision(project_id, tool, payload, target_id)
         if _is_generation(tool):
             return _execute_generation(project_id, tool, payload, target_id)
         if _is_render(tool):
