@@ -2,5 +2,6 @@
 pydantic>=2.5
 loguru>=0.7
 edge-tts>=6.1
+playwright>=1.40
 # pytest 仅测试需要，可注释
 pytest>=7.4
