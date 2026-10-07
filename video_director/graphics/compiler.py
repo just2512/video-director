@@ -44,7 +44,10 @@ window.__gf = (function(){
       els[i].style.setProperty('--dur', (s.duration) + 's');
       if (on && s.engine === 'procedural'){
         var draw = window.__HUASHU_DRAW && window.__HUASHU_DRAW[s.id];
-        if (typeof draw !== 'function') throw new Error('PROCEDURAL_DRAW_NOT_READY: ' + s.id);
+        if (typeof draw !== 'function') {
+          window.__gf._pending = frame;
+          continue;
+        }
         draw(t - s.start);
       }
     }
@@ -86,7 +89,7 @@ window.__gfReady = false;
 Promise.all(Object.values(window.__HUASHU_READY || {}).map(function(p){ return p; }))
   .then(function(){
     window.__gfReady = true;
-    window.__gf.seek(0);
+    window.__gf.seek(window.__gf._pending == null ? 0 : window.__gf._pending);
   })
   .catch(function(err){
     window.__gfReadyError = String(err && err.stack || err);
