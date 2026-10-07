@@ -41,6 +41,10 @@ def register_provider(provider: ProceduralProvider) -> None:
 
 
 def get_provider(provider_id: str) -> ProceduralProvider:
+    # Built-in providers are lazy-loaded so adding the contract does not create
+    # an import cycle and native graphics remain unaffected.
+    if provider_id == "huashu" and provider_id not in _PROVIDERS:
+        from video_director.graphics import huashu_provider  # noqa: F401
     try:
         return _PROVIDERS[provider_id]
     except KeyError as exc:
