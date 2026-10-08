@@ -120,6 +120,13 @@ SCHEMAS: Dict[str, InputSchema] = {
         "targetId": FieldSpec("str", required=True),
         "assetId": FieldSpec("str", required=True),
     }),
+    "CreativeCandidateSelectRequest": InputSchema("CreativeCandidateSelectRequest", {
+        "targetId": FieldSpec("str", required=True),
+        "candidateId": FieldSpec("str", required=True),
+        "visualIntent": FieldSpec("str", required=True),
+        "approach": FieldSpec("str"),
+        "sourcePreference": FieldSpec("str"),
+    }),
     "StockSearchRequest": InputSchema("StockSearchRequest", {
         "query": FieldSpec("str", required=True),
         "provider": FieldSpec("enum:str", enum=frozenset({"pexels", "pixabay", "coverr"})),
