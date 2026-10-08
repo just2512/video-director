@@ -551,6 +551,15 @@ def _tool_material(spec: dict, state: dict) -> dict:
         selected_candidate_by_scene=selected_candidate_by_scene,
     )
     intent_path.write_text(json.dumps(intent_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    candidate_snapshot = creative_candidates.build_candidate_snapshot(
+        scene_plan_items,
+        selected_by_scene=selected_candidate_by_scene,
+    )
+    _json_file(
+        base / "plans" / "creative_candidates.json",
+        candidate_snapshot,
+    )
+    state["creative_candidates"] = candidate_snapshot
 
     state.update({
         "video_files": videos,
