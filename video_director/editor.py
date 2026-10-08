@@ -587,6 +587,11 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
         "ir_after": _snapshot_for_revision(ir),
     }
     _append_revision(project_id, revision)
+    try:
+        from video_director import artifact_graph
+        artifact_graph.mark_stale(project_id, stale)
+    except Exception as exc:  # noqa: BLE001 失效台账是旁路，不能阻断已成功的编辑命令
+        logger.debug(f"artifact manifest stale 标记失败（忽略）: {exc}")
     if cmd_name == "set_scene_intent":
         _sync_candidate_views(project_id, ir)
     logger.info(
