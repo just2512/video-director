@@ -201,6 +201,16 @@ def infer_provider(role: str, cfg: Optional[Mapping[str, Any]] = None) -> str:
     return "unconfigured"
 
 
+def _effective_config(role: str, cfg: Optional[Mapping[str, Any]] = None) -> dict:
+    raw = dict(cfg or model_config.get_role_config(role))
+    definition = model_config.ROLE_DEFS.get(role, {})
+    if not raw.get("base_url"):
+        raw["base_url"] = definition.get("default_base_url", "")
+    if not raw.get("model"):
+        raw["model"] = definition.get("default_model", "")
+    return raw
+
+
 def _configured(defn: ProviderDefinition, cfg: Mapping[str, Any], *, manual_manifest: str = "") -> tuple[bool, str]:
     if defn.provider_id == "manual-vision":
         if manual_manifest and os.path.isfile(manual_manifest):
@@ -227,7 +237,7 @@ def _configured(defn: ProviderDefinition, cfg: Mapping[str, Any], *, manual_mani
 
 def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
           *, manual_manifest: str = "") -> CapabilityState:
-    cfg = dict(cfg or model_config.get_role_config(role))
+    cfg = _effective_config(role, cfg)
     provider_id = infer_provider(role, cfg)
     definition = next(
         (d for d in DEFINITIONS if d.provider_id == provider_id and d.role == role),
@@ -278,7 +288,7 @@ def matrix_for_frontend() -> list[dict]:
     out = []
     roles = ("llm", "image", "video", "vision")
     for role in roles:
-        cfg = model_config.get_role_config(role)
+        cfg = _effective_config(role)
         provider_id = infer_provider(role, cfg)
         operations = [op for op in OPERATIONS if any(
             d.role == role and d.provider_id == provider_id and op in d.operations
@@ -322,7 +332,7 @@ def matrix_for_frontend() -> list[dict]:
 
 def describe(role: str, cfg: Optional[Mapping[str, Any]] = None,
              *, manual_manifest: str = "") -> dict:
-    cfg = dict(cfg or model_config.get_role_config(role))
+    cfg = _effective_config(role, cfg)
     pid = infer_provider(role, cfg)
     states = {}
     for op in OPERATIONS:
