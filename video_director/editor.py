@@ -318,6 +318,7 @@ SUPPORTED_COMMANDS = (
     "set_graphic_block",          # 换视觉块（graphic 层 program.block_id）
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
+    "set_transition",             # 场景转场（用户确认后才写入 IR）
     "undo",
     "redo",
 )
@@ -461,6 +462,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_graphic_layout(ir, target_id, payload)
         elif cmd_name == "set_scene_continuity":
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
+        elif cmd_name == "set_transition":
+            changed, stale = _cmd_set_transition(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -1785,6 +1788,28 @@ def _cmd_set_graphic_layout(ir: CompositionIR, target_id: str,
 
 
 _SCENE_CONTINUITY_TYPES = tuple(t.value for t in ContinuityType)
+
+
+def _cmd_set_transition(ir: CompositionIR, target_id: str,
+                        payload: dict) -> Tuple[List[str], List[str]]:
+    """场景转场确认命令：默认 cut；效果转场必须由用户显式确认后写入 IR。"""
+    si, scene = _find_scene(ir, target_id)
+    transition_type = (payload.get("type") or "cut").strip().lower()
+    if transition_type == "cut":
+        scene.transition_out = TransitionOut(type="cut", duration=0.0)
+        return [scene.id], [f"{scene.id}:render", f"{scene.id}:preview"]
+    if transition_type not in ("crossfade", "fade"):
+        raise EditorError("INVALID_PAYLOAD",
+                          f"转场类型 {transition_type!r} 非法，应为 cut/crossfade/fade")
+    duration = float(payload.get("duration", 0.5))
+    if not (0.05 <= duration <= 3.0):
+        raise EditorError("INVALID_PARAMETER",
+                          f"转场时长 {duration:.3f}s 越界 [0.05,3.0]")
+    # 最后一镜没有“下一个镜头”，避免写入没有实际边界的效果。
+    if si >= len(ir.scenes) - 1:
+        raise EditorError("INVALID_TARGET", "最后一个场景不能设置转场")
+    scene.transition_out = TransitionOut(type=transition_type, duration=duration)
+    return [scene.id], [f"{scene.id}:render", f"{scene.id}:preview"]
 
 
 def _cmd_set_scene_continuity(ir: CompositionIR, target_id: str,
