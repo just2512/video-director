@@ -185,6 +185,8 @@ def infer_provider(role: str, cfg: Optional[Mapping[str, Any]] = None) -> str:
         return "huashu-motion"
     if role == "renderer":
         return "ffmpeg"
+    if role == "hyperframes":
+        return "hyperframes"
 
     base = str(cfg.get("base_url") or "")
     host = _host(base)
