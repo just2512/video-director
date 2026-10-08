@@ -31,6 +31,7 @@ from video_director.models import (
     Layer,
     LayerType,
     SceneIR,
+    TransitionOut,
     SubtitleStyle,
     WatermarkLayer,
 )
