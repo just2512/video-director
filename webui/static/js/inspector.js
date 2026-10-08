@@ -237,16 +237,30 @@ async function _loadMptSceneContext(sceneId){
       }[candidate.source_preference] || candidate.source_preference || '未指定';
       const termPreview = (candidate.search_terms || []).slice(0, 3)
         .map(function(t){ return '<span class="hint">' + esc(t) + '</span>'; }).join(' · ');
+      const executeHtml = candidate.source_preference === 'stock'
+        ? '<button class="btn-secondary btn-sm" data-action="asset.search_stock" data-target="scene" data-params=\'' +
+          JSON.stringify({query: (candidate.search_terms || [])[0] || ''}).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>找素材</button>'
+        : candidate.source_preference === 'generated'
+          ? '<button class="btn-secondary btn-sm" data-action="ui.generate_scene_visual" data-params=\'' +
+            JSON.stringify({
+              prompt: candidate.generation_prompt || candidate.visual_intent || '',
+              type: candidate.generation_type || 'image'
+            }).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>准备生成</button>'
+          : '<button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">选我的素材</button>';
       return '<div style="border:1px solid ' + (selected ? 'var(--accent)' : 'var(--border)') +
         ';border-radius:6px;padding:8px;margin:6px 0;background:var(--panel)">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
         '<b>' + esc(candidate.title || candidate.id) + '</b>' +
+        '<div class="btn-row" style="gap:5px">' +
         '<button class="btn-secondary btn-sm" data-action="creative.select_candidate" data-target="scene" ' +
         'data-params=\'' + candidateParam(candidate) + '\'' + (selected ? ' disabled' : '') + '>' +
         (selected ? '当前方案' : '采用') + '</button>' +
+        executeHtml +
+        '</div>' +
         '</div>' +
         '<div style="margin-top:4px">' + esc(candidate.visual_intent || '') + '</div>' +
         '<div style="margin-top:4px">' + esc(sourceText) + (termPreview ? ' · ' + termPreview : '') + '</div>' +
+        '<div class="hint" style="margin-top:4px">候选状态：' + esc(candidate.status || 'INTENT_ONLY') + '</div>' +
         '</div>';
     }).join('');
     const windows = usage.length
