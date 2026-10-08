@@ -47,5 +47,11 @@
                     verify={"verdict": "UNKNOWN", "evidence_present": False},
                 )
             return _result(tool, False, exc.code, error=str(exc))
+        evidence_dict = evidence.to_dict()
+        try:
+            visual_qa.save_scene_evidence(project_id, evidence)
+        except Exception as persist_exc:
+            logger.warning(f"visual QA 证据落盘失败（不阻断 QA 结果）: {persist_exc}")
+            evidence_dict["persist_status"] = "UNKNOWN"
         return _result(tool, True, evidence.verdict,
-                       result=evidence.to_dict(),
+                       result=evidence_dict,
