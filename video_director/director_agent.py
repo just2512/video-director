@@ -55,6 +55,38 @@ def _scene_texts(script: str) -> List[str]:
     raw_script = script or ""
     parts = [x.strip() for x in re.split(r"[。！？!?\n]+", raw_script) if x.strip()]
     return [x + ("。" if not x.endswith(("。", "！", "？", "!", "?")) else "") for x in parts]
+_STOP_NODE_ALIASES = {
+    "script": "script",
+    "terms": "scene_plan",
+    "audio": "narration",
+    "subtitle": "subtitle",
+    "materials": "material_match",
+    "preview": "verify",
+    "video": "render",
+}
+
+
+def _resolve_stop_node(spec: dict) -> str:
+    """MPT stop_at → Director node；默认 full/video 只在 confirm_mode 决定是否真正渲染。"""
+    raw = str(spec.get("stop_at") or "video").strip().lower()
+    return _STOP_NODE_ALIASES.get(raw, "render")
+
+
+def _mark_downstream_skipped(plan: dict, stop_node: str, update_node, run_id: str, pid: str) -> None:
+    """检查点停止时显式收敛后续节点，避免留下假 PENDING。"""
+    reached = False
+    for node in plan.get("nodes") or []:
+        if node.get("id") == stop_node:
+            reached = True
+            continue
+        if reached and node.get("status") == "PENDING":
+            update_node(
+                run_id, pid, plan, node["id"], "SKIPPED",
+                decision={"reason": f"按 stop_at={stop_node} 在此检查点停止"},
+                verify={"ok": True, "status": "CHECKPOINT_SKIPPED"},
+            )
+
+
 def _ready_nodes(plan: dict) -> List[str]:
     by_id = {n.get("id"): n for n in plan.get("nodes") or []}
     out = []
@@ -952,6 +984,9 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     _TOOLS_WITH_UNDERSTAND = dict(_TOOLS)
     _TOOLS_WITH_UNDERSTAND["understand"] = _tool_understand
 
+    stop_node = _resolve_stop_node(spec)
+    checkpoint_reached = False
+
     retries: Dict[str, int] = {}
     current = "start"
     last_result = {"ok": True, "status": "START"}
@@ -1038,6 +1073,16 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 artifacts=artifacts,
             )
             last_result = {"ok": True, **tool_result}
+
+            # MPT stop_at：当前节点完成后立刻停住，后续节点显式 SKIPPED。
+            if node_id == stop_node:
+                _mark_downstream_skipped(
+                    plan, stop_node, update_node, run_id, pid
+                )
+                checkpoint_reached = True
+                current = node_id
+                di.persist_plan(pid, plan)
+                break
         else:
             update_node(
                 run_id, pid, plan, node_id, "FAILED",
@@ -1104,14 +1149,19 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     if any(n.get("status") == "FAILED" for n in plan.get("nodes", [])):
         raise DirectorAgentError("Director 存在未恢复失败节点")
 
-    verify_node = next(n for n in plan["nodes"] if n["id"] == "verify")
-    verify_ok = (
-        verify_node.get("status") == "DONE"
-        and bool(verify_node.get("verify", {}).get("ok"))
+    verify_node = next((n for n in plan["nodes"] if n["id"] == "verify"), None)
+    verify_ok = bool(
+        verify_node
+        and verify_node.get("status") == "DONE"
+        and verify_node.get("verify", {}).get("ok")
     )
     pending = (spec.get("confirm_mode") or "preview") != "direct"
 
-    if pending and verify_ok is not True:
+    if checkpoint_reached:
+        pending = True
+        if stop_node == "verify" and verify_ok is not True:
+            raise DirectorAgentError("预览检查点必须先完成真实 Verify")
+    elif pending and verify_ok is not True:
         raise DirectorAgentError("预览模式必须先完成真实 Verify")
 
     if pending:
@@ -1138,6 +1188,8 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
         "director_inputs": di.load_bundle(pid),
         "director_plan": plan,
         "director_verify_ok": verify_ok,
+        "checkpoint": stop_node if checkpoint_reached else "",
+        "checkpoint_reached": checkpoint_reached,
     }
     emit(run_id, "director", {
         "phase": "done",
