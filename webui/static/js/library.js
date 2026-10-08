@@ -469,7 +469,7 @@ function directorRenderNodeControls(n, box){
     html+='<div class="director-node-scenes">'+(ED.comp.scenes||[]).map((sc,i)=>'<div class="proj-row"><span style="flex:1"><b>场景 '+(i+1)+'</b> <span class="hint">'+escv((sc.text||'').slice(0,50))+' · '+sc.duration.toFixed(1)+'s</span></span><button class="btn-secondary btn-sm" data-dctrl="select-scene" data-scene-id="'+escv(sc.id)+'">选中</button></div>').join('')+'</div>';
     html+='<div class="hint" style="margin-top:6px">选中后可在时间线拖动排序、裁剪、改时长。</div>';
   } else if(id==='material_match'){
-    const sc=(ED.comp.scenes||[]).find(s=>s.id=((typeof SEL!=='undefined'&&SEL.selection&&SEL.selection.type==='scene')?SEL.selection.id:''))||(ED.comp.scenes||[])[0];
+    const sc=(ED.comp.scenes||[]).find(s=>s.id===((typeof SEL!=='undefined'&&SEL.selection&&SEL.selection.type==='scene')?SEL.selection.id:''))||(ED.comp.scenes||[])[0];
     const assets=Object.values((ED.comp&&ED.comp.assets)||{}).filter(a=>a.type==='video'||a.type==='image');
     html+='<div class="hint">当前场景：'+escv(sc&&sc.text||'未选择')+'</div><div class="director-asset-grid">'+assets.slice(0,24).map(a=>'<div class="director-asset-card"><img src="/api/asset_thumbnail?asset_id='+encodeURIComponent(a.asset_id)+'" alt="" loading="lazy"><button class="btn-secondary btn-sm" data-dctrl="replace-asset" data-scene-id="'+escv(sc&&sc.id||'')+'" data-asset-id="'+escv(a.asset_id)+'">采用</button></div>').join('')+'</div>';
   } else if(id==='narration') html+='<button class="btn-secondary btn-sm" data-dctrl="voice">打开配音设置</button>';
@@ -483,7 +483,7 @@ function directorRenderNodeControls(n, box){
   else html+='<button class="btn-secondary btn-sm" data-dctrl="focus-ai">继续告诉 AI</button>';
   const props=(ED.comp&&ED.comp.transition_proposals)||[];
   if((id==='scene_plan'||id==='material_match')&&props.length){
-    html+='<div class="role-block" style="margin-top:8px"><b>待确认转场</b>'+props.map(p=>'<div class="proj-row"><span style="flex:1">'+escv(p.from_scene_id)+' → '+escv(p.to_scene_id)+' · '+escv(p.type)+' '+escv(p.duration)+'s</span><button class="btn-secondary btn-sm" data-dctrl="transition" data-scene-id="'+escv(p.from_scene_id)+'" data-type="'+escv(p.type)+'" data-duration="'+escv(p.duration)+'">确认</button></div>').join('')+'</div>';
+    html+='<div class="role-block" style="margin-top:8px"><b>待确认转场</b>'+props.map(p=>{ const from=(ED.comp.scenes||[]).find(s=>s.id===p.from_scene_id); const applied=!!(from&&from.transition_out&&from.transition_out.type===p.type); return '<div class="proj-row"><span style="flex:1">'+escv(p.from_scene_id)+' → '+escv(p.to_scene_id)+' · '+escv(p.type)+' '+escv(p.duration)+'s</span>'+(applied?'<span class="hint">已应用</span>':'<button class="btn-secondary btn-sm" data-dctrl="transition" data-scene-id="'+escv(p.from_scene_id)+'" data-type="'+escv(p.type)+'" data-duration="'+escv(p.duration)+'">确认</button>')+'</div>'; }).join('')+'</div>';
   }
   box.innerHTML=html;
   box.querySelectorAll('[data-dctrl]').forEach(btn=>btn.addEventListener('click',async()=>{
