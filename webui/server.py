@@ -780,13 +780,21 @@ class Handler(BaseHTTPRequestHandler):
             pid = route[len("/api/projects/"):-len("/draft_info")]
             try:
                 pdir = COMPOSER_ROOT / pid
-                draft = pdir / "output" / "draft.mp4"
-                final = pdir / "output" / "final.mp4"
+                # 渲染器真实落盘在 render/draft.mp4（confirm.render_draft）；
+                # 此前只探 output/ 导致渲完 draft_exists=false——「尚无草稿」
+                # 假阴性，前端渲完无法载入（2026-10-09 Playwright K3 实锚）。
+                # output/ 旧位置保留兼容（历史项目）。
+                candidates = [pdir / "render" / "draft.mp4",
+                              pdir / "output" / "draft.mp4"]
+                draft = next((c for c in candidates if c.is_file()), None)
+                final_candidates = [pdir / "render" / "final.mp4",
+                                    pdir / "output" / "final.mp4"]
+                final = next((c for c in final_candidates if c.is_file()), None)
                 self._send_json({
                     "project_id": pid,
-                    "draft_path": str(draft) if draft.is_file() else "",
-                    "draft_exists": draft.is_file(),
-                    "final_path": str(final) if final.is_file() else "",
+                    "draft_path": str(draft) if draft else "",
+                    "draft_exists": draft is not None,
+                    "final_path": str(final) if final else "",
                 })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)

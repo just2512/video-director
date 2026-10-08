@@ -80,7 +80,21 @@ async function executeCommand(spec) {
   if (data.ok) {
     // 同步版本与 Composition（Server State 单向流入前端）
     if (typeof data.composition_version === 'number') ED.version = data.composition_version;
-    if (data.composition) ED.comp = data.composition;
+    if (data.composition) {
+      // editor command 响应的 composition 是裸 IR dump——不含 server 组装
+      // /api/editor/composition 时附加的展示字段（assets 缩略图映射 /
+      // transition_proposals）。裸赋值会让 PR#9 的缩略图/匹配面板/转场
+      // 待确认区在第一次编辑后全部失效（ED.comp.assets 变 undefined，
+      // 2026-10-09 Playwright H 断言实锚）。保留展示字段，只换 IR 本体。
+      const keepExtras = {
+        assets: ED.comp && ED.comp.assets,
+        transition_proposals: ED.comp && ED.comp.transition_proposals,
+      };
+      ED.comp = Object.assign({}, data.composition);
+      if (keepExtras.assets && !ED.comp.assets) ED.comp.assets = keepExtras.assets;
+      if (keepExtras.transition_proposals && !ED.comp.transition_proposals)
+        ED.comp.transition_proposals = keepExtras.transition_proposals;
+    }
     return {ok: true, status: 'APPLIED', data};
   }
   const code = (data.errors && data.errors[0] && data.errors[0].code) || data.status || 'ERROR';

@@ -376,6 +376,18 @@ let _layerDrag = null;
 function _tlBindSceneDrag(){
   document.querySelectorAll('#editor-timeline .ed-scene-header').forEach(el => {
     el.addEventListener('pointerdown', ev => {
+      // pointerdown 阶段必须 preventDefault：浏览器在 mousedown 后移动会启动
+      // 文本选区拖拽（.ed-scene-title 是文本）/ <img> 原生拖拽（缩略图），
+      // dragstart 一触发 pointerup 就被 pointercancel 顶掉——场景拖动排序
+      // 在缩略图/标题落点全部失效（2026-10-09 Playwright 实测事件流：
+      // pointerdown → dragstart → pointercancel → drag×N → dragend，
+      // editorCmd('move') 永不触发）。move 阶段 preventDefault 已来不及。
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      // setPointerCapture：鼠标移出 header 后 pointermove/up 仍派发给本元素
+      // ——否则拖到目标场景位置时 pointerup 打在别的 header 上，本元素的
+      // 监听器收不到，move 永不提交（同日实测：状态机 moved=true 但零请求）。
+      try { el.setPointerCapture(ev.pointerId); } catch(e) { /* 老浏览器降级 */ }
       el._tlSceneDrag = { sceneId: el.closest('.ed-scene') && el.closest('.ed-scene').dataset.scene, startX: ev.clientX, moved: false };
     });
     el.addEventListener('pointermove', ev => {
@@ -395,6 +407,12 @@ function _tlBindSceneDrag(){
       if (!target || target.dataset.scene === d.sceneId) return;
       const toIdx = ED.comp.scenes.findIndex(sc => sc.id === target.dataset.scene);
       if (toIdx >= 0) editorCmd('move', {toIndex: toIdx}, d.sceneId, true);
+    });
+    el.addEventListener('pointercancel', () => {
+      // 拖拽被系统手势打断时清状态，避免残留 moved 导致后续误提交
+      el._tlSceneDrag = null;
+      const scene = el.closest('.ed-scene');
+      if (scene) scene.classList.remove('tl-dragging');
     });
   });
 }

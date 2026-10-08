@@ -152,8 +152,11 @@
 .ed-scene-thumb-wrap { flex:0 0 42px; width:42px; height:24px; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:3px; background:var(--surface-1); }
 .ed-scene-thumb { width:42px; height:24px; object-fit:cover; display:block; }
 .tl-thumb-empty { font-size:9px; color:var(--muted); }
-.ed-scene-header { align-items:center; min-height:30px; cursor:grab; }
+.ed-scene-header { align-items:center; min-height:30px; cursor:grab; user-select:none; -webkit-user-select:none; }
 .ed-scene-header:active { cursor:grabbing; }
+/* 缩略图 <img> 默认可原生拖拽：dragstart 会把 pointerup 顶成
+   pointercancel，场景拖动排序在缩略图落点失效（2026-10-09 实测）。 */
+.ed-scene-thumb { pointer-events:none; }
 .ed-scene { min-height:70px; }
 .ed-layer { position:relative; min-height:18px; padding-right:8px; }
 .ed-layer::before, .ed-layer::after { content:''; position:absolute; top:0; bottom:0; width:4px; background:var(--border-strong); opacity:.55; }
