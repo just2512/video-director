@@ -1,1 +1,23 @@
 /* §8 timeline：时间线（物理/语义轨、playhead、帧点）。 */
+
+/* Editor Session：OpenCut 风格交互反馈，状态仍归 Selection / Command / IR。 */
+#editor-timeline.session-box-mode .ed-tl-scroll { cursor: crosshair; }
+.ed-session-box {
+  position:absolute; z-index:30; border:1px solid var(--accent);
+  background:color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events:none; display:none;
+}
+.ed-session-snap-guide {
+  position:absolute; top:0; bottom:0; width:1px; background:var(--accent);
+  z-index:25; pointer-events:none; display:none;
+}
+.ed-session-snap-guide::after {
+  content:attr(data-label); position:absolute; top:4px; left:4px;
+  white-space:nowrap; padding:2px 5px; font-size:10px;
+  border:1px solid var(--accent); border-radius:3px;
+  background:var(--panel); color:var(--fg);
+}
+.tl-group-dragging { opacity:.72; outline:1px dashed var(--accent); }
+#tl-snap-toggle.tl-switch-on, #tl-box-toggle.tl-switch-on {
+  border-color:var(--accent);
+}
