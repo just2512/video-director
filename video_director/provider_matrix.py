@@ -176,7 +176,7 @@ def _host(base_url: str) -> str:
 
 
 def infer_provider(role: str, cfg: Optional[Mapping[str, Any]] = None) -> str:
-    cfg = dict(cfg or model_config.get_role_config(role))
+    cfg = _effective_config(role, cfg)
     if role.startswith("stock_"):
         return role[len("stock_"):]
     if role == "tts":
