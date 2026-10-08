@@ -2005,6 +2005,7 @@ class Handler(BaseHTTPRequestHandler):
                     "concat_mode": payload.get("concat_mode") or "sequential",
                     "transition_mode": payload.get("transition_mode") or "cut",
                     "match_materials_to_script": bool(payload.get("match_materials_to_script", True)),
+                    "stop_at": str(payload.get("stop_at") or "video"),
                     "watermark": payload.get("watermark") or "",
                     "lower_third_name": payload.get("lower_third_name") or "",
                     "lower_third_role": payload.get("lower_third_role") or "",
