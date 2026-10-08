@@ -160,18 +160,26 @@
     stage.classList.add('edx-live');
   }
 
-  async function enhancedRefreshPreview(){
+  async function enhancedRefreshPreview(showDraft=false){
     if(!ED || !ED.pid) return;
-    try{
-      const info=await apiGet('/api/projects/'+encodeURIComponent(ED.pid)+'/draft_info');
-      PV.draftPath=info&&info.draft_path||'';
-      PV.finalPath=info&&info.final_path||'';
-      if(PV.draftPath){
-        if(typeof previewShowVideo==='function') previewShowVideo(PV.draftPath,'草稿预览');
-      }else{
+    if(showDraft){
+      try{
+        const info=await apiGet('/api/projects/'+encodeURIComponent(ED.pid)+'/draft_info');
+        PV.draftPath=info&&info.draft_path||'';
+        PV.finalPath=info&&info.final_path||'';
+        if(PV.draftPath && typeof previewShowVideo==='function'){
+          previewShowVideo(PV.draftPath,'草稿预览');
+        }else{
+          PV.draftPath='';
+          liveSceneAt(Number(PV.playhead||0));
+        }
+      }catch(e){
+        PV.draftPath='';
         liveSceneAt(Number(PV.playhead||0));
       }
-    }catch(e){
+    }else{
+      // Composition 有任何编辑后，旧 draft 视为潜在过期，不继续冒充当前状态。
+      PV.draftPath='';
       liveSceneAt(Number(PV.playhead||0));
     }
     renderStoryboard();
@@ -221,7 +229,7 @@
           if(run.status==='COMPLETED'){
             clearInterval(EDX.draftPolling);EDX.draftPolling=null;
             setButtonBusy('edx-render-draft',false);
-            await enhancedRefreshPreview();
+            await enhancedRefreshPreview(true);
             editorToast('草稿已生成，中央预览已更新');
           }else if(run.status==='FAILED'){
             clearInterval(EDX.draftPolling);EDX.draftPolling=null;
@@ -400,7 +408,7 @@
       window.refreshWorkspace=async function(){
         const r=old.apply(this,arguments);
         if(r&&typeof r.then==='function') await r;
-        await enhancedRefreshPreview();
+        await enhancedRefreshPreview(false);
         return r;
       };
     }
