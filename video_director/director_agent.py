@@ -483,13 +483,22 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         )
     ]
 
-    # 用户素材原声：按 Composition 中实际视频层逐段建立 original track。
+    # 用户素材原声：先用既有 prober 确认实际视频流是否含音频，再按每个 video layer 分段入轨。
+    from video_director import prober as _audio_prober
+    audio_capability = {}
     for sc in ir.scenes:
         for lay in sc.layers:
             if lay.type != LayerType.video or not lay.asset_id:
                 continue
             src = all_assets.get(lay.asset_id)
-            if not src or not getattr(src, "has_audio", False):
+            if not src:
+                continue
+            if lay.asset_id not in audio_capability:
+                try:
+                    audio_capability[lay.asset_id] = bool(_audio_prober.probe_media(src.file).has_audio_stream)
+                except Exception:
+                    audio_capability[lay.asset_id] = False
+            if not audio_capability[lay.asset_id]:
                 continue
             tracks.append(AudioTrack(
                 type=AudioTrackType.original,
@@ -578,7 +587,7 @@ def _tool_composition(spec: dict, state: dict) -> dict:
                 1 for sc in ir.scenes for lay in sc.layers
                 if lay.type == LayerType.video and lay.asset_id
                 and all_assets.get(lay.asset_id) is not None
-                and bool(getattr(all_assets.get(lay.asset_id), "has_audio", False))
+                and audio_capability.get(lay.asset_id, False)
             ),
         },
         "verify": {"ok": all(x["ok"] for x in checks), "checks": checks},
