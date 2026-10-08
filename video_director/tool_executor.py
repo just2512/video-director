@@ -549,7 +549,51 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
                        result={"timeline": _timeline_summary(project_id)})
     if tool == "visual.semantic_rerank":
         from video_director import visual_qa
-        candidates = payload.get("candidates") or []
+        candidates = list(payload.get("candidates") or [])
+        scene_id = str(payload.get("sceneId") or "")
+        # UI/Director 可以只给 sceneId；后端从项目实际 manifest + 当前时间线
+        # 补齐候选，避免客户端自己维护 Asset 文件路径。
+        if not candidates:
+            try:
+                from video_director import asset_catalog
+                ir = editor.load_composition(project_id)
+                target_scene = next((s for s in ir.scenes if s.id == scene_id), None)
+                asset_ids = []
+                if target_scene:
+                    asset_ids.extend(
+                        l.asset_id for l in target_scene.layers
+                        if l.type.value == "video" and l.asset_id
+                    )
+                # 候选方案绑定的 asset 也纳入；保持去重与原顺序。
+                try:
+                    snap = json.loads(
+                        (config.project_dir(project_id) / "plans" / "creative_candidates.json")
+                        .read_text(encoding="utf-8")
+                    )
+                    row = next(
+                        (x for x in snap.get("scenes", []) if x.get("scene_id") == scene_id),
+                        {},
+                    )
+                    asset_ids.extend(
+                        c.get("asset_id") for c in row.get("candidates", [])
+                        if c.get("asset_id")
+                    )
+                except Exception:
+                    pass
+                seen_assets = set()
+                for aid in asset_ids:
+                    if aid in seen_assets:
+                        continue
+                    seen_assets.add(aid)
+                    entry = asset_catalog.get_asset(aid)
+                    if entry and entry.get("type") == "video" and entry.get("file"):
+                        candidates.append({
+                            "asset_id": aid,
+                            "file": entry.get("file"),
+                            "content_hash": entry.get("content_hash", ""),
+                        })
+            except Exception as exc:
+                logger.info(f"visual.semantic_rerank: 自动收集候选失败: {exc}")
         out, meta = visual_qa.semantic_rerank(
             payload.get("sceneText", ""),
             candidates,
