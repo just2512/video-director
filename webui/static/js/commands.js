@@ -1,3 +1,20 @@
+/**
+ * 编辑器兼容命令入口：统一把旧时间线/键盘调用收口到 executeCommand。
+ * targetId 未显式提供时，从当前 Selection 取得；实际修改仍只经过 backend Command + Revision。
+ */
+async function editorCmd(command, payload = {}, targetId = null, refresh = true) {
+  const target = targetId || ((typeof SEL !== 'undefined' && SEL.selection) ? (SEL.selection.id || '') : '');
+  const result = await executeCommand({command, targetId: target, payload});
+  if (result && result.ok && refresh) {
+    if (typeof refreshWorkspace === 'function') await refreshWorkspace();
+    else {
+      if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+      if (typeof edShowInspector === 'function') edShowInspector();
+    }
+  }
+  return result;
+}
+
 // §20/FE-002 commands.js：所有前端正式写操作的统一入口。
 // executeCommand 自动附加 projectId / expectedVersion / commandId；
 // 统一处理 APPLIED / CONFLICT / VALIDATION_ERROR / CAPABILITY_UNAVAILABLE / DEPENDENCY_ERROR。
