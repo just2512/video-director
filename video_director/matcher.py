@@ -18,6 +18,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 
 from video_director.models import AssetRef
+from video_director.source_usage_policy import enforce_assignments
 
 
 class MatcherError(Exception):
@@ -189,6 +190,8 @@ def match_assets(
     scenes: List[dict],
     assets: Dict[str, AssetRef],
     llm_call=None,
+    *,
+    policy_by_scene: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Dict[str, str]:
     """统一入口：LLM 主路 → 确定性 fallback → 顺序兜底（保证总有结果）。
 
@@ -226,4 +229,18 @@ def match_assets(
         if s["id"] not in assignments and video_ids:
             assignments[s["id"]] = video_ids[i % len(video_ids)]
             logger.warning(f"asset match: 场景 {s['id']} 无语义匹配，顺序兜底 {assignments[s['id']]}")
+
+    # Step ⑤：语义匹配完成后再执行来源/复用政策。
+    # 政策不能改变“是否匹配”的语义模型，只负责处理连续重复、来源切换与复用边界。
+    if assignments and assets:
+        assignments, decisions = enforce_assignments(
+            scenes, assets, assignments, video_ids,
+            policy_by_scene=policy_by_scene,
+        )
+        deferred = [d for d in decisions if d.get("reason", "").startswith("存在其他")]
+        if deferred:
+            logger.info(
+                "asset usage policy: 调整 %d 个场景的来源/复用顺序",
+                len(deferred),
+            )
     return assignments
