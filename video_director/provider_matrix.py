@@ -204,7 +204,7 @@ def infer_provider(role: str, cfg: Optional[Mapping[str, Any]] = None) -> str:
 
 
 def _effective_config(role: str, cfg: Optional[Mapping[str, Any]] = None) -> dict:
-    raw = dict(cfg or model_config.get_role_config(role))
+    raw = dict(model_config.get_role_config(role) if cfg is None else cfg)
     definition = model_config.ROLE_DEFS.get(role, {})
     if not raw.get("base_url"):
         raw["base_url"] = definition.get("default_base_url", "")
