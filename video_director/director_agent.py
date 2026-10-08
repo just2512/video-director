@@ -167,8 +167,11 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
         raw = provider.generate(
             "请为视频设计可执行分镜。必须同时考虑用户素材、参考视频风格、"
             "软件项目 VERIFIED 事实。参考视频只借鉴镜头语言，不复制内容。"
+            "同时为每个场景生成 3-8 个按叙事顺序排列的 stock 搜索词；"
+            "搜索词用于真实图库检索，不能脱离该场景含义。"
             '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"画面意图",'
-            '"source_preference":"user_asset|reference_style|software_evidence|stock|generated"}]}\n'
+            '"source_preference":"user_asset|reference_style|software_evidence|stock|generated",'
+            '"search_terms":["按叙事顺序的检索词"]}]}\n'
             + json.dumps(di.build_agent_scene_context(state["bundle"], state["script"]),
                          ensure_ascii=False, indent=2),
             system="你是视频 Director，只输出合法 JSON。",
@@ -201,7 +204,9 @@ def _tool_narration(spec: dict, state: dict) -> dict:
     if uploaded:
         from video_director import voice_upload
         up = voice_upload.import_uploaded_voice(
-            pid, uploaded, scene_texts=scene_texts
+            pid,
+            uploaded,
+            scene_texts=[mpt_semantics.remove_pause_markup(t) for t in scene_texts],
         )
         audio_path = up["narration_file"]
         words = up.get("word_timeline") or []
