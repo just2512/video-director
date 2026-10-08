@@ -281,6 +281,9 @@ _ACTIONS: List[ActionSpec] = [
     ActionSpec("asset.download", "下载素材", "asset.resolve", "noop",
                targets=["scene", "layer"], undo=False,
                aliases=["下载采用"]),
+    ActionSpec("visual.verify_asset", "视觉验证素材", "visual.qa", "noop",
+               targets=["layer"], undo=False,
+               aliases=["视觉验证", "检查画面", "验证素材"]),
     # ---- §66 配音扩展（§37 试听=UI 播放型）----
     ActionSpec("voice.preview_full", "完整旁白试听", "tts.preview_narration",
                "noop", targets=["project"], undo=False, preview=True,
