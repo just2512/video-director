@@ -349,6 +349,84 @@ def run_director_create_async(spec: dict, plan: Optional[dict] = None) -> str:
     return run_id
 
 
+def run_director_continue_async(
+    project_id: str, target: str = "preview"
+) -> Optional[str]:
+    """从已完成的 Director checkpoint 继续到 preview，不重跑已完成节点。"""
+    from video_director import director_inputs as di
+    from video_director import store
+
+    proj = store.get_project(project_id)
+    if proj is None:
+        return None
+
+    runs = runs_of_project(project_id)
+    source_run = next(
+        (r for r in runs if r.get("kind") == "director_create"
+         and r.get("status") == WAITING_CONFIRMATION),
+        None,
+    )
+    if source_run is None:
+        return None
+
+    plan_path = config.project_dir(project_id) / "plans" / "director_plan.json"
+    spec_path = config.project_dir(project_id) / "plans" / "director_spec.json"
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(plan, dict) or not isinstance(spec, dict):
+        return None
+
+    runtime = plan.get("runtime") or {}
+    checkpoint = str(runtime.get("checkpoint") or "")
+    if not checkpoint:
+        return None
+
+    target = str(target or "preview").strip().lower()
+    target_node = {"preview": "verify", "video": "render"}.get(target)
+    if target_node is None:
+        return None
+
+    nodes = plan.get("nodes") or []
+    ids = [str(n.get("id") or "") for n in nodes]
+    if checkpoint not in ids or target_node not in ids:
+        return None
+
+    cp_i = ids.index(checkpoint)
+    target_i = ids.index(target_node)
+    if target_i < cp_i:
+        return None
+
+    # 目标节点已经完成时不启动空任务；用户直接进入工作台检查即可。
+    if nodes[target_i].get("status") == "DONE":
+        return None
+
+    # checkpoint 之后、目标节点之前的 SKIPPED → PENDING；目标节点也恢复执行。
+    # 目标之后继续保持 SKIPPED，下一次继续仍从这个构建边界推进。
+    for i, node in enumerate(nodes):
+        if i > cp_i and i <= target_i and node.get("status") == "SKIPPED":
+            node["status"] = "PENDING"
+            node["verify"] = {"status": "PENDING"}
+            node["decision"] = {}
+            node["error"] = ""
+
+    plan["runtime"]["continued_from"] = checkpoint
+    plan["runtime"]["checkpoint"] = ""
+    spec["stop_at"] = target
+    spec["confirm_mode"] = "preview"
+
+    try:
+        store.set_stage(project_id, store.Stage.CREATED)
+    except Exception as exc:
+        logger.warning("Director continue stage reset failed: %s", exc)
+
+    # 不改变 bundle；Director execute 会从 checkpoint snapshot 恢复 script/audio/assets。
+    return run_director_create_async(spec, plan=plan)
+
+
 def run_director_retry_async(project_id: str) -> Optional[str]:
     """FAILED 导演项目「重新执行」：从持久化 bundle + params 重建 spec → 新 run。
 
