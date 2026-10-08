@@ -140,6 +140,7 @@ _READONLY = {
     "render.verify", "composition.verify",
     # §13 ContinuityVerifier（PPT Detector，只读检查）
     "visual.continuity.verify",
+    "visual.semantic_rerank", "visual.qa",
 }
 
 _REVISION = {"revision.propose", "revision.preview", "revision.apply", "revision.reject"}
@@ -546,6 +547,34 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
     if tool == "timeline.query":
         return _result(tool, True, "OK",
                        result={"timeline": _timeline_summary(project_id)})
+    if tool == "visual.semantic_rerank":
+        from video_director import visual_qa
+        candidates = payload.get("candidates") or []
+        out, meta = visual_qa.semantic_rerank(
+            payload.get("sceneText", ""),
+            candidates,
+            limit=int(payload.get("limit") or 5),
+        )
+        return _result(tool, True, meta.get("status", "UNKNOWN"),
+                       result={"scene_id": payload.get("sceneId"),
+                               "candidates": out,
+                               "provider": meta.get("provider"),
+                               "reason": meta.get("reason", "")})
+    if tool == "visual.qa":
+        from video_director import visual_qa
+        try:
+            evidence = visual_qa.pegasus_visual_qa(
+                payload.get("sceneId", ""),
+                payload.get("sceneText", ""),
+                payload.get("assetId", ""),
+                payload.get("assetFile", ""),
+            )
+        except visual_qa.VisualAnalysisError as exc:
+            return _result(tool, False, exc.code, error=str(exc))
+        return _result(tool, True, evidence.verdict,
+                       result=evidence.to_dict(),
+                       verify={"verdict": evidence.verdict,
+                               "evidence_present": bool(evidence.evidence)})
     if tool == "visual.continuity.verify":
         # §13 ContinuityVerifier（PPT Detector）：只读检查相邻场景连续性
         from video_director import continuity as vd_continuity
