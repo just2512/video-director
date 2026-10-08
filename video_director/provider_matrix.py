@@ -311,7 +311,7 @@ class ProviderCapabilityError(RuntimeError):
 def matrix_for_frontend() -> list[dict]:
     """不返回 key，只返回当前配置状态与已声明操作。"""
     out = []
-    roles = ("llm", "image", "video", "vision")
+    roles = ("llm", "image", "video", "vision", "semantic_rerank", "visual_qa")
     for role in roles:
         cfg = _effective_config(role)
         provider_id = infer_provider(role, cfg)
