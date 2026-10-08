@@ -646,6 +646,7 @@ def render_composition(
     lower_third_role: Optional[str] = None,
     watermark: Optional[str] = None,
     project_id: Optional[str] = None,
+    artifact_kind: str = "final",
 ) -> RenderResult:
     """渲染完整 Composition IR。字幕最后烧录（V1 §20/§22 video-use Rule 1）。
 
@@ -670,6 +671,7 @@ def render_composition(
                 "width": w,
                 "height": h,
                 "fps": ir.project.fps,
+                "kind": artifact_kind,
                 "narration_file": narration_file,
                 "subtitle_file": subtitle_file,
                 "title_card": title_card,
