@@ -235,20 +235,18 @@ def _configured(defn: ProviderDefinition, cfg: Mapping[str, Any], *, manual_mani
     return True, ""
 
 
-def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
-          *, manual_manifest: str = "") -> CapabilityState:
-    cfg = _effective_config(role, cfg)
-    provider_id = infer_provider(role, cfg)
+def state_for_provider(provider_id: str, role: str, operation: str,
+                         cfg: Optional[Mapping[str, Any]] = None,
+                         *, manual_manifest: str = "") -> CapabilityState:
     matrix_role = "stock" if role.startswith("stock_") else role
+    cfg = _effective_config(role, cfg)
     definition = next(
         (d for d in DEFINITIONS if d.provider_id == provider_id and d.role == matrix_role),
         None,
     )
     if definition is None:
-        if provider_id == "unconfigured":
-            return CapabilityState(provider_id, role, operation, MISSING, False, "角色未配置")
-        return CapabilityState(provider_id, role, operation, UNKNOWN, bool(cfg.get("api_key")),
-                               "Provider 身份未知，未声明该能力")
+        return CapabilityState(provider_id, role, operation, UNKNOWN,
+                               bool(cfg.get("api_key")), "Provider 未登记")
     if operation not in definition.operations or not definition.implemented:
         return CapabilityState(
             provider_id, role, operation, UNSUPPORTED, bool(cfg.get("api_key")),
@@ -260,20 +258,13 @@ def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
     return CapabilityState(provider_id, role, operation, READY, True, definition.note)
 
 
-def relevant_operations(role: str, cfg: Optional[Mapping[str, Any]] = None) -> tuple[str, ...]:
-    """返回该角色/当前 Provider 实际声明或明确拒绝的相关操作，避免 UI 展示无关能力。"""
+def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
+          *, manual_manifest: str = "") -> CapabilityState:
     cfg = _effective_config(role, cfg)
     provider_id = infer_provider(role, cfg)
-    matrix_role = "stock" if role.startswith("stock_") else role
-    if role == "hyperframes":
-        return ("renderer.hyperframes",)
-    ops = []
-    for d in DEFINITIONS:
-        if d.provider_id == provider_id and d.role == matrix_role:
-            ops.extend(d.operations)
-    if matrix_role == "video":
-        ops.append("video.image_to_video")
-    return tuple(dict.fromkeys(ops))
+    return state_for_provider(
+        provider_id, role, operation, cfg, manual_manifest=manual_manifest
+    )
 
 
 def require(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
@@ -368,6 +359,6 @@ def describe(role: str, cfg: Optional[Mapping[str, Any]] = None,
 
 __all__ = [
     "READY", "MISSING", "UNSUPPORTED", "UNKNOWN", "ProviderCapabilityError",
-    "CapabilityState", "infer_provider", "state", "require",
+    "CapabilityState", "infer_provider", "state_for_provider", "state", "require",
     "matrix_for_frontend", "describe",
 ]
