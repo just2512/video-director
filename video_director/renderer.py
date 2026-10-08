@@ -782,7 +782,8 @@ def render_composition(
     # 2. 场景间转场拼接（cut=concat，crossfade/fade=xfade）
     visual_path = str(work_dir / "visual.mp4")
     if len(scene_clips) == 1:
-        shutil.move(scene_clips[0], visual_path)
+        # Scene artifact 是可复用缓存，不能 move 走，否则 manifest 记录的缓存路径会失效。
+        shutil.copyfile(scene_clips[0], visual_path)
     else:
         splice_with_transitions(
             scene_clips, scene_transitions[: len(scene_clips) - 1],
