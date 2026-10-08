@@ -39,6 +39,8 @@ const UI_BEHAVIORS = {
   preview_draft: () => (typeof editorPreviewBar === 'function' && editorPreviewBar()),
   move_prompt: () => (typeof editorMovePrompt === 'function' && editorMovePrompt()),
   add_broll_prompt: () => (typeof editorAddBrollPrompt === 'function' && editorAddBrollPrompt()),
+  editor_session_snap: () => (typeof editorSessionToggleSnap === 'function' && editorSessionToggleSnap()),
+  editor_session_box: () => (typeof editorSessionToggleBox === 'function' && editorSessionToggleBox()),
   open_asset_picker: () => {
     const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
     const id = (sel && sel.id) || '';
