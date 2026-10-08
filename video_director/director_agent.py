@@ -510,9 +510,33 @@ def _tool_material(spec: dict, state: dict) -> dict:
             "verify": {"ok": False},
         }
 
+    # 候选与真实素材池汇合：直叙候选承接当前自动匹配素材；其他候选保持“尚待执行”，
+    # 防止把“存在候选方案”误报成“已经有对应视频”。
+    for row in scene_plan_items:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("id") or "")
+        aid = str(assignments.get(sid) or "")
+        for candidate in row.get("candidates") or []:
+            if candidate.get("approach") == "direct" and aid:
+                candidate["asset_id"] = aid
+                candidate["status"] = "READY"
+            elif not candidate.get("status"):
+                candidate["status"] = "INTENT_ONLY"
+
     selection_reasons = {
         sid: "场景语义匹配：结合场景文案、素材语义与素材可用性选择"
         for sid in assignments
+    }
+    candidate_sets_by_scene = {
+        str(row.get("id") or f"S{i + 1:02d}"): row.get("candidates") or []
+        for i, row in enumerate(scene_plan_items)
+        if isinstance(row, dict)
+    }
+    selected_candidate_by_scene = {
+        str(row.get("id") or f"S{i + 1:02d}"): str(row.get("selected_candidate_id") or "")
+        for i, row in enumerate(scene_plan_items)
+        if isinstance(row, dict)
     }
     intent_data = mpt_semantics.material_intent_snapshot(
         state.get("narration_scenes") or [],
