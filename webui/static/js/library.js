@@ -469,7 +469,7 @@ function directorRenderNodeControls(n, box){
     html+='<div class="director-node-scenes">'+(ED.comp.scenes||[]).map((sc,i)=>'<div class="proj-row"><span style="flex:1"><b>场景 '+(i+1)+'</b> <span class="hint">'+escv((sc.text||'').slice(0,50))+' · '+sc.duration.toFixed(1)+'s</span></span><button class="btn-secondary btn-sm" data-dctrl="select-scene" data-scene-id="'+escv(sc.id)+'">选中</button></div>').join('')+'</div>';
     html+='<div class="hint" style="margin-top:6px">选中后可在时间线拖动排序、裁剪、改时长。</div>';
   } else if(id==='material_match'){
-    const sc=(ED.comp.scenes||[]).find(s=>s.id===((SEL&&SEL.selection&&SEL.selection.type==='scene')?SEL.selection.id:''))||(ED.comp.scenes||[])[0];
+    const sc=(ED.comp.scenes||[]).find(s=>s.id=((typeof SEL!=='undefined'&&SEL.selection&&SEL.selection.type==='scene')?SEL.selection.id:''))||(ED.comp.scenes||[])[0];
     const assets=Object.values((ED.comp&&ED.comp.assets)||{}).filter(a=>a.type==='video'||a.type==='image');
     html+='<div class="hint">当前场景：'+escv(sc&&sc.text||'未选择')+'</div><div class="director-asset-grid">'+assets.slice(0,24).map(a=>'<div class="director-asset-card"><img src="/api/asset_thumbnail?asset_id='+encodeURIComponent(a.asset_id)+'" alt="" loading="lazy"><button class="btn-secondary btn-sm" data-dctrl="replace-asset" data-scene-id="'+escv(sc&&sc.id||'')+'" data-asset-id="'+escv(a.asset_id)+'">采用</button></div>').join('')+'</div>';
   } else if(id==='narration') html+='<button class="btn-secondary btn-sm" data-dctrl="voice">打开配音设置</button>';
@@ -489,7 +489,7 @@ function directorRenderNodeControls(n, box){
   box.querySelectorAll('[data-dctrl]').forEach(btn=>btn.addEventListener('click',async()=>{
     const a=btn.dataset.dctrl;
     if(a==='focus-ai'){document.getElementById('director-input')?.focus();return;}
-    if(a==='select-scene'){editorSelectScene(btn.dataset.sceneId,event);return;}
+    if(a==='select-scene'){editorSelectScene(btn.dataset.sceneId,null);return;}
     if(a==='replace-asset'){await directorReplaceSceneAsset(btn.dataset.sceneId,btn.dataset.assetId);return;}
     if(a==='voice'){editorVoiceOpen();return;} if(a==='subtitle'){editorSubtitleStyleOpen();return;}
     if(a==='audio'){editorAudioBusOpen();return;} if(a==='watermark'){projectOverlayOpen();return;}
@@ -508,7 +508,7 @@ async function directorReplaceSceneAsset(sceneId,assetId){
 async function directorApplyTransition(sceneId,type,duration){
   const r=await executeCommand({command:'set_transition_out',targetId:sceneId,payload:{type:type,duration:duration}});
   if(r&&r.ok){await refreshWorkspace();editorToast('转场已确认并应用');}
-+}
+}
 
 function directorRenderPlan(run, detail){
   const card = document.getElementById('director-plan-card');
