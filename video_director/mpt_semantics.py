@@ -4,12 +4,12 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Iterable, List, Mapping, Optional, Sequence\nimport json
 
 PAUSE_TAG_RE = re.compile(
-    r"[\\[\\(]\\s*(?:pause|pausa|silence|silencio|silêncio|silenzio|stille|"
-    r"пауза|тишина|停顿|暂停|静音|ポーズ|一時停止|無音|일시중지|정지)\\b"
-    r"(?:\\s*[:：]?\\s*([^\\]\\)]*?))?\\s*[\\]\\)]",
+    r"[\[\(]\s*(?:pause|pausa|silence|silencio|silêncio|silenzio|stille|"
+    r"пауза|тишина|停顿|暂停|静音|ポーズ|一時停止|無音|일시중지|정지)\b"
+    r"(?:\s*[:：]?\s*([^\]\)]*?))?\s*[\]\)]",
     re.IGNORECASE,
 )
 PAUSE_MIN_SECONDS = 0.1
@@ -54,13 +54,13 @@ def _parse_pause_value(raw: Optional[str]) -> Optional[float]:
     if raw is None or not raw.strip():
         return 1.0
     m = re.fullmatch(
-        r"[+-]?\\d+(?:\\.\\d+)?\\s*"
+        r"[+-]?\d+(?:\.\d+)?\s*"
         r"(?:s|sec|secs|second|seconds|ms|msec|msecs|秒|毫秒)?",
         raw.strip(), re.IGNORECASE,
     )
     if not m:
         return None
-    num = re.match(r"([+-]?\\d+(?:\\.\\d+)?)", raw.strip())
+    num = re.match(r"([+-]?\d+(?:\.\d+)?)", raw.strip())
     if not num:
         return None
     value = float(num.group(1))
@@ -111,15 +111,14 @@ def parse_pause_markup(text: str) -> tuple[List[SpeechSegment], List[PauseEvent]
     tail = text[cursor:].strip()
     if tail:
         segments.append(SpeechSegment(tail, 0.0))
-    return segments, events
-def remove_pause_markup(text: str) -> str:
+    return segments, events\n\n\ndef remove_pause_markup(text: str) -> str:
     cleaned = PAUSE_TAG_RE.sub(" ", text or "")
-    return re.sub(r"[ \\t]+", " ", cleaned).strip()
+    return re.sub(r"[ \t]+", " ", cleaned).strip()
 
 def normalize_search_terms(raw: Any, scene_text: str = "", amount: int = 8) -> List[str]:
     values: Iterable[Any]
     if isinstance(raw, str):
-        values = re.split(r"[\\n,，;；|]+", raw)
+        values = re.split(r"[\n,，;；|]+", raw)
     elif isinstance(raw, Sequence) and not isinstance(raw, (bytes, bytearray)):
         values = raw
     else:
@@ -128,14 +127,14 @@ def normalize_search_terms(raw: Any, scene_text: str = "", amount: int = 8) -> L
     seen = set()
     for item in values:
         term = str(item or "").strip().strip("*[]\\\"' ")
-        term = re.sub(r"^[-•\\d.)、]+\\s*", "", term).strip()
+        term = re.sub(r"^[-•\d.)、]+\s*", "", term).strip()
         if not term:
             continue
-        key = re.sub(r"\\s+", " ", term).casefold()
+        key = re.sub(r"\s+", " ", term).casefold()
         if key in seen:
             continue
         seen.add(key)
-        out.append(re.sub(r"\\s+", " ", term))
+        out.append(re.sub(r"\s+", " ", term))
         if len(out) >= max(1, amount):
             break
     if not out and scene_text.strip():
@@ -199,7 +198,12 @@ def build_artifact_fingerprint(parts: Mapping[str, Any]) -> str:
         if isinstance(v, (list, tuple)):
             return [stable(x) for x in v]
         return v
-    canonical = repr(stable(parts)).encode("utf-8")
+    canonical = json.dumps(
+        stable(parts),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()[:16]
 
 def material_intent_snapshot(
