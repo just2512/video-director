@@ -224,7 +224,7 @@ async function _loadMptSceneContext(sceneId){
         visualIntent: candidate.visual_intent,
         approach: candidate.approach || '',
         sourcePreference: candidate.source_preference || '',
-      }).replace(/&/g, '&amp;').replace(/'/g, '&#39;');
+      }).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;');
     }
     const candidateHtml = candidates.map(function(candidate){
       const selected = candidate.id === selectedCandidate;
@@ -237,6 +237,12 @@ async function _loadMptSceneContext(sceneId){
       }[candidate.source_preference] || candidate.source_preference || '未指定';
       const termPreview = (candidate.search_terms || []).slice(0, 3)
         .map(function(t){ return '<span class="hint">' + esc(t) + '</span>'; }).join(' · ');
+      const statusText = {
+        READY: '已有可用素材',
+        INTENT_ONLY: '方案已生成，待执行',
+        APPLIED: '已采用',
+        FAILED: '执行失败',
+      }[candidate.status] || candidate.status || '待执行';
       const executeHtml = candidate.source_preference === 'stock'
         ? '<button class="btn-secondary btn-sm" data-action="asset.search_stock" data-target="scene" data-params=\'' +
           JSON.stringify({query: (candidate.search_terms || [])[0] || ''}).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>找素材</button>'
@@ -260,7 +266,7 @@ async function _loadMptSceneContext(sceneId){
         '</div>' +
         '<div style="margin-top:4px">' + esc(candidate.visual_intent || '') + '</div>' +
         '<div style="margin-top:4px">' + esc(sourceText) + (termPreview ? ' · ' + termPreview : '') + '</div>' +
-        '<div class="hint" style="margin-top:4px">候选状态：' + esc(candidate.status || 'INTENT_ONLY') + '</div>' +
+        '<div class="hint" style="margin-top:4px">状态：' + esc(statusText) + '</div>' +
         '</div>';
     }).join('');
     const windows = usage.length
