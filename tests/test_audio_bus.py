@@ -120,6 +120,43 @@ class TestAudioBus:
         assert r2.status == "APPLIED"
         assert editor.load_composition(pid).audio[0].muted is False
 
+    def test_original_audio_supports_multiple_video_segments(self, pid):
+        """多素材时间线：每个视频片段可独立保留原声，不能只覆盖第一条 original。"""
+        r1 = editor.execute_command(pid, {
+            "command": "set_original_audio", "targetId": "project",
+            "payload": {"mode": "preserve", "assetId": "a.mp4",
+                        "start": 0.0, "duration": 3.0,
+                        "sourceIn": 0.0, "sourceOut": 3.0}})
+        assert r1.status == "APPLIED"
+        r2 = editor.execute_command(pid, {
+            "command": "set_original_audio", "targetId": "project",
+            "payload": {"mode": "preserve", "assetId": "b.mp4",
+                        "start": 3.0, "duration": 3.0,
+                        "sourceIn": 1.0, "sourceOut": 4.0}})
+        assert r2.status == "APPLIED"
+        originals = [t for t in editor.load_composition(pid)
+                     .audio if t.type == AudioTrackType.original]
+        assert len(originals) == 2
+        assert [(t.asset_id, t.start, t.source_in, t.source_out)
+                for t in originals] == [
+                    ("a.mp4", 0.0, 0.0, 3.0),
+                    ("b.mp4", 3.0, 1.0, 4.0),
+                ]
+
+    def test_confirmed_transition_command(self, pid):
+        r = editor.execute_command(pid, {
+            "command": "set_transition", "targetId": "scene-1",
+            "payload": {"type": "crossfade", "duration": 0.5}})
+        assert r.status == "APPLIED"
+        ir = editor.load_composition(pid)
+        assert ir.scenes[0].transition_out.type == "crossfade"
+        assert abs(ir.scenes[0].transition_out.duration - 0.5) < 1e-9
+        r2 = editor.execute_command(pid, {
+            "command": "set_transition", "targetId": "scene-1",
+            "payload": {"type": "cut"}})
+        assert r2.status == "APPLIED"
+        assert editor.load_composition(pid).scenes[0].transition_out.type == "cut"
+
     def test_fade_command(self, pid):
         r = editor.execute_command(pid, {
             "command": "set_audio_fade", "targetId": "bgm",
