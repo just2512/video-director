@@ -127,7 +127,14 @@ class RulePlanner:
 
         # 素材全利用（用户诉求：上传 N 个素材全部进时间线）：
         # 视频素材数 > 场景数时，场景内用多镜头均分，让每个素材至少出场一次。
-        video_ids = [aid for aid in asset_order if aid in assets and assets[aid].type == "video"]
+        # 去重保序（ContentMatchPlanner 上游幽灵 assignment 防御会让 matched_order
+        # 与 fallback 池重复吐同一素材：不去重则 len(video_ids) 虚高、cnt 分配
+        # 抬升，兜底 video_ids[si % len] 会把同一素材重复铺进同场景——2026-10-09
+        # 探针实录：preferred 引用不存在的 v0 时 S03=['v3','v3']）。
+        video_ids = [aid for aid in asset_order
+                     if aid in assets and assets[aid].type == "video"]
+        _seen: set = set()
+        video_ids = [a for a in video_ids if not (a in _seen or _seen.add(a))]
         _use_cover_all = len(video_ids) > len(scenes) and len(scenes) > 0 and not clip_duration
         _used_videos: set = set()
         # 已有语义匹配的主素材全部保留，补镜头不得提前消费别的场景主素材。

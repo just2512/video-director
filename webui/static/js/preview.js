@@ -29,6 +29,12 @@ function previewShowVideo(path, label){
     if (meta) meta.textContent = '无草稿';
     return;
   }
+  // 草稿成片预览：切 draft 模式（播放/暂停/seek 走 <video> 原生通道；
+  // 不设 mode 时渲染完成载入草稿后点 ▶ 会被 live 分支顶掉——方案 §五
+  // Preview 与 Draft Render 分离的破坏）。
+  PV.mode = 'draft';
+  if (PV.timer) { clearInterval(PV.timer); PV.timer = null; }
+  PV.playing = false;
   stage.innerHTML = `<video controls src="/file?path=${encodeURIComponent(path)}"></video>`;
   if (meta) meta.textContent = label || ('草稿 · ' + path.split(/[\\/]/).pop());
   _previewApplyOverlay();

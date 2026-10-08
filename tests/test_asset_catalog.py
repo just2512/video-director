@@ -111,6 +111,48 @@ class TestAssetLibrary:
         img = ac.import_asset(fixtures["img"])
         assert img["type"] == "image" and img["width"]
 
+    def test_make_thumbnail_real_render_26(self, _iso, fixtures):
+        """§26 缩略图真实渲染：视频抽帧 + 图片直缩 + 幂等。
+
+        回归锚点：旧实现依赖 ffmpeg-python（requirements 从未包含）→
+        import 即 ModuleNotFoundError 被吞 → 恒 None → /api/asset_thumbnail
+        404。此测试用真 ffmpeg 生成真 JPEG，锁住「缩略图能力可用」。
+        """
+        from video_director import asset_catalog as ac
+        v = ac.import_asset(fixtures["clip"])
+        thumb = ac.make_thumbnail(v["asset_id"])
+        assert thumb and Path(thumb).is_file(), "视频缩略图必须真实生成"
+        assert Path(thumb).stat().st_size > 500, "缩略图应为真实 JPEG（非空壳）"
+        assert Path(thumb).suffix == ".jpg"
+        # 幂等：再次请求命中缓存路径（同一路径，不重复生成）
+        assert ac.make_thumbnail(v["asset_id"]) == thumb
+
+        img = ac.import_asset(fixtures["img"])
+        thumb2 = ac.make_thumbnail(img["asset_id"])
+        assert thumb2 and Path(thumb2).is_file(), "图片缩略图必须真实生成"
+        assert Path(thumb2).stat().st_size > 500
+
+        # 幽灵 id / 无文件 → 诚实 None（不抛异常不阻断入库链）
+        assert ac.make_thumbnail("ghost-id-xyz") is None
+
+    def test_make_thumbnail_short_video_first_frame(self, _iso, tmp_path, fixtures):
+        """§26 短视频（<1s）在 1s 处无帧 → 回退首帧，缩略图仍生成。"""
+        import subprocess as sp
+        import shutil
+        from video_director import asset_catalog as ac
+        from video_director.prober import _resolve_ffmpeg
+        ff = _resolve_ffmpeg()
+        if not ff:
+            pytest.skip("本机无 ffmpeg，跳过短视频缩略图回退测试")
+        tiny = tmp_path / "tiny.mp4"
+        sp.run([ff, "-y", "-v", "error", "-f", "lavfi", "-i",
+                "testsrc=duration=0.3:size=270x480:rate=10", "-pix_fmt", "yuv420p",
+                str(tiny)], check=True)
+        entry = ac.import_asset(str(tiny))
+        thumb = ac.make_thumbnail(entry["asset_id"])
+        assert thumb and Path(thumb).is_file(), "短视频必须回退首帧生成缩略图"
+        assert Path(thumb).stat().st_size > 500
+
     def test_generated_registers_39(self, _iso, fixtures):
         """§39 AI 生成产物 = 普通 Asset（source=generated）。"""
         from video_director import asset_catalog as ac
