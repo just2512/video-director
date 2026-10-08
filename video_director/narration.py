@@ -19,6 +19,7 @@ from typing import List, Optional, Tuple
 from loguru import logger
 
 from video_director import prober
+from video_director import mpt_semantics
 
 
 class NarrationError(Exception):
@@ -115,54 +116,124 @@ def synth_scene_audio(
         raise NarrationError(f"edge-tts 合成失败: {exc}") from exc
 
 
+def _synth_scene_with_pauses(
+    text: str,
+    voice: str,
+    scene_index: int,
+    work_dir: Path,
+    rate: str,
+) -> Tuple[str, List[dict], float, List[dict]]:
+    """MPT-compatible scene narration: TTS speech segments + exact silent gaps."""
+    from video_director import renderer
+
+    segments, pause_events = mpt_semantics.parse_pause_markup(text)
+    if not segments:
+        clean = mpt_semantics.remove_pause_markup(text)
+        if not clean:
+            return "", [], 0.0, []
+        scene_mp3 = str(work_dir / f"scene-{scene_index:02d}.mp3")
+        words = synth_scene_audio(clean, voice, scene_mp3, rate)
+        dur = prober.get_audio_duration(scene_mp3)
+        return scene_mp3, words, dur, []
+
+    audio_parts: List[str] = []
+    words_global: List[dict] = []
+    cursor = 0.0
+    pause_meta: List[dict] = []
+
+    for part_index, segment in enumerate(segments, 1):
+        speech_file = work_dir / f"scene-{scene_index:02d}-speech-{part_index:02d}.mp3"
+        words = synth_scene_audio(segment.text, voice, str(speech_file), rate)
+        speech_duration = prober.get_audio_duration(str(speech_file))
+        audio_parts.append(str(speech_file))
+        for w in words:
+            words_global.append({
+                "text": w["text"],
+                "start": round(cursor + w["start"], 3),
+                "end": round(cursor + w["end"], 3),
+            })
+        cursor += speech_duration
+
+        if segment.pause_after > 0:
+            pause_file = work_dir / f"scene-{scene_index:02d}-pause-{part_index:02d}.mp3"
+            renderer._run([
+                renderer._ffmpeg(), "-y", "-loglevel", "error",
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+                "-t", f"{segment.pause_after:.3f}",
+                "-c:a", "libmp3lame", "-b:a", "128k", str(pause_file),
+            ])
+            actual_pause = prober.get_audio_duration(str(pause_file))
+            audio_parts.append(str(pause_file))
+            pause_meta.append({
+                "after_text": segment.text,
+                "requested": round(segment.pause_after, 3),
+                "actual": round(actual_pause, 3),
+            })
+            cursor += actual_pause
+
+    scene_mp3 = str(work_dir / f"scene-{scene_index:02d}.mp3")
+    renderer._run([
+        renderer._ffmpeg(), "-y", "-loglevel", "error",
+        "-f", "concat", "-safe", "0",
+        "-i", _write_concat_list(audio_parts, work_dir),
+        "-c:a", "libmp3lame", "-b:a", "128k",
+        scene_mp3,
+    ])
+    actual_duration = prober.get_audio_duration(scene_mp3)
+    return scene_mp3, words_global, actual_duration, pause_meta
+
+
 def synth_narration(
     scene_texts: List[str],
     voice: str,
     work_dir: Path,
     rate: str = "+0%",
 ) -> Tuple[str, List[dict], List[dict]]:
-    """逐场景合成旁白，拼接为单一音频，返回 (audio_path, word_timeline, narration_scenes)。
-
-    - word_timeline: 全局秒 [{text,start,end}]
-    - narration_scenes: [{id,text,start,duration}] 无缝衔接
-    - §34/§17 无配音模式（voice 为空/silent）：不合成假旁白——
-      每场景按估算阅读时长生成静音轨（scene timing），word_timeline 为空
-      （字幕按场景时间轴而非词级）；返回路径指向静音文件（下游混音兼容）。
-    """
+    """逐场景合成旁白；MPT pause markup 会真实改变音频和 Narration Timeline。"""
     from video_director import renderer
 
-    # §34 silent：Narration Track absent 语义（禁 fake voice）
     if not voice or voice == "silent":
         return _silent_narration(scene_texts, work_dir)
 
     scene_audios = []
     word_timeline = []
     narration_scenes = []
+    pause_timeline = []
     cursor = 0.0
 
-    for i, text in enumerate(scene_texts):
-        scene_mp3 = str(work_dir / f"scene-{i+1:02d}.mp3")
-        words_local = synth_scene_audio(text, voice, scene_mp3, rate)
-        dur = prober.get_audio_duration(scene_mp3)
+    for i, raw_text in enumerate(scene_texts):
+        clean_text = mpt_semantics.remove_pause_markup(raw_text)
+        scene_mp3, words_local, dur, pauses = _synth_scene_with_pauses(
+            raw_text, voice, i + 1, work_dir, rate
+        )
 
-        # 全局偏移累加
         for w in words_local:
             word_timeline.append({
                 "text": w["text"],
                 "start": round(cursor + w["start"], 3),
                 "end": round(cursor + w["end"], 3),
             })
+
         narration_scenes.append({
             "id": f"S{i+1:02d}",
-            "text": text,
+            "text": clean_text,
             "start": round(cursor, 3),
             "duration": round(dur, 3),
+            "pause_events": pauses,
         })
+        for p in pauses:
+            pause_timeline.append({
+                "scene_id": f"S{i+1:02d}",
+                **p,
+            })
+
         scene_audios.append(scene_mp3)
         cursor += dur
-        logger.info(f"narration scene {i+1:02d}: {dur:.2f}s, {len(words_local)} words <- {text[:16]}")
+        logger.info(
+            f"narration scene {i+1:02d}: {dur:.2f}s, "
+            f"{len(words_local)} words, pauses={len(pauses)} <- {clean_text[:16]}"
+        )
 
-    # 拼接为单一音频（concat demuxer + 重编码，保证无损衔接）
     audio_out = str(work_dir / "narration.mp3")
     renderer._run([
         renderer._ffmpeg(), "-y", "-loglevel", "error",
