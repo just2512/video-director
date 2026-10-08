@@ -51,10 +51,10 @@ def _strip_code_fence(text: str) -> str:
 
 def _scene_texts(script: str) -> List[str]:
     import re
-    parts = [x.strip() for x in re.split(r"[。！？!?\n]+", script or "") if x.strip()]
+    # 保留 MPT pause markup 到 Narration 节点；视觉规划/素材检索在消费时再清除。
+    raw_script = script or ""
+    parts = [x.strip() for x in re.split(r"[。！？!?\n]+", raw_script) if x.strip()]
     return [x + ("。" if not x.endswith(("。", "！", "？", "!", "?")) else "") for x in parts]
-
-
 def _ready_nodes(plan: dict) -> List[str]:
     by_id = {n.get("id"): n for n in plan.get("nodes") or []}
     out = []
