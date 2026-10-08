@@ -501,38 +501,49 @@ def mix_audio(
         ref_labels.append("[nar]")
         idx += 1
 
-    # ---- original（§18：素材原声轨，从 source video 抽取音轨）----
-    # original 轨 asset_id 指向一个视频素材；渲染时 ffmpeg 抽其音轨按音量混入，
-    # 有旁白时 duck（§18 OriginalAudioPolicy.duckAgainst=narration）。
-    original_track: Optional[AudioTrack] = None
-    for t in ir.audio:
-        if t.type == AudioTrackType.original and assets.get(t.asset_id or ""):
-            original_track = t
-            break
-    if original_track is not None and getattr(original_track, "muted", False):
-        original_track = None  # §37 Audio Bus mute：静音轨不进混音
-    if original_track is not None:
-        # 只有 video 素材才有可抽的原声；image/audio 源不匹配 original 语义
-        src = assets[original_track.asset_id]
-        if src.type == "video" and os.path.isfile(src.file):
-            duck_db = config.DUCKING_DB if (narration_file and original_track.ducking) else 0.0
-            vol_db = 20 * math.log10(max(original_track.volume, 0.01)) + duck_db
-            ss = original_track.source_in or 0.0
-            dur = original_track.source_out or original_track.duration
-            inputs += ["-ss", f"{ss:.3f}", "-t", f"{dur:.3f}", "-i", src.file]
-            # §18 OriginalAudioPolicy fadeIn/fadeOut
-            chain_o = (f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
-                       f"volume={vol_db:.2f}dB")
-            fin_o = float(getattr(original_track, "fadeIn", 0.0) or 0.0)
-            fout_o = float(getattr(original_track, "fadeOut", 0.0) or 0.0)
-            if fin_o > 0:
-                chain_o += f",afade=t=in:st=0:d={min(fin_o, total):.2f}"
-            if fout_o > 0:
-                chain_o += f",afade=t=out:st={max(0.0, total - fout_o):.2f}:d={min(fout_o, total):.2f}"
-            chain_o += f",atrim=0:{total:.3f}[orig]"
-            filters.append(chain_o)
-            ref_labels.append("[orig]")
-            idx += 1
+    # ---- original（§18：按视频片段逐条抽取素材原声）----
+    # 每个 Composition video layer 都可以产生自己的 original track。
+    # 旧项目只有一条 original track 时仍保持原有行为；新项目可无缝混合多个片段。
+    original_tracks = [
+        t for t in ir.audio
+        if t.type == AudioTrackType.original
+        and not getattr(t, "muted", False)
+        and assets.get(t.asset_id or "")
+    ]
+    for oi, original_track in enumerate(original_tracks):
+        src = assets.get(original_track.asset_id or "")
+        if not src or src.type != "video" or not os.path.isfile(src.file):
+            continue
+        src_in = max(0.0, float(getattr(original_track, "source_in", 0.0) or 0.0))
+        src_out = getattr(original_track, "source_out", None)
+        if src_out is not None:
+            span = max(0.0, float(src_out) - src_in)
+        else:
+            span = max(0.0, float(original_track.duration))
+        track_dur = min(float(original_track.duration), span or float(original_track.duration))
+        if track_dur <= 0.01:
+            continue
+        inputs += ["-ss", f"{src_in:.3f}", "-t", f"{track_dur:.3f}", "-i", src.file]
+        duck_db = config.DUCKING_DB if (narration_file and original_track.ducking) else 0.0
+        vol_db = 20 * math.log10(max(original_track.volume, 0.01)) + duck_db
+        chain_o = (
+            f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
+            f"volume={vol_db:.2f}dB"
+        )
+        fin_o = min(float(getattr(original_track, "fadeIn", 0.0) or 0.0), track_dur)
+        fout_o = min(float(getattr(original_track, "fadeOut", 0.0) or 0.0), track_dur)
+        if fin_o > 0:
+            chain_o += f",afade=t=in:st=0:d={fin_o:.2f}"
+        if fout_o > 0:
+            chain_o += f",afade=t=out:st={max(0.0, track_dur - fout_o):.2f}:d={fout_o:.2f}"
+        chain_o += f",atrim=0:{track_dur:.3f}"
+        delay_ms = max(0, int(round(float(original_track.start or 0.0) * 1000)))
+        if delay_ms:
+            chain_o += f",adelay={delay_ms}:all=1"
+        chain_o += f"[orig{oi}]"
+        filters.append(chain_o)
+        ref_labels.append(f"[orig{oi}]")
+        idx += 1
 
     # ---- BGM（首个有效 bgm track；循环铺满总长 + duck + 用户音量）----
     bgm_track: Optional[AudioTrack] = None
