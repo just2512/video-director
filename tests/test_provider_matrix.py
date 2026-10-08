@@ -99,6 +99,7 @@ def test_generation_video_missing_provider_is_honest(monkeypatch, tmp_path):
 
 
 def test_matrix_frontend_never_contains_secret():
+    # 前端只能拿到 provider/capability 元数据，不能拿到本机密钥。
     rows = provider_matrix.matrix_for_frontend()
     for row in rows:
         assert "api_key" not in row
