@@ -130,6 +130,11 @@ class RulePlanner:
         video_ids = [aid for aid in asset_order if aid in assets and assets[aid].type == "video"]
         _use_cover_all = len(video_ids) > len(scenes) and len(scenes) > 0 and not clip_duration
         _used_videos: set = set()
+        # 已有语义匹配的主素材全部保留，补镜头不得提前消费别的场景主素材。
+        reserved_preferred = {
+            aid for aid in preferred_asset_ids.values()
+            if aid in video_ids
+        }
         _next_video = 0
 
         for si, scene in enumerate(scenes):
@@ -151,7 +156,9 @@ class RulePlanner:
                     for _ in range(len(video_ids)):
                         cand = video_ids[_next_video % len(video_ids)]
                         _next_video += 1
-                        if cand not in _used_videos:
+                        if cand not in _used_videos and (
+                            cand not in reserved_preferred or cand == preferred
+                        ):
                             chosen = cand
                             break
                     if chosen is None:
