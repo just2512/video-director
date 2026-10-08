@@ -142,17 +142,18 @@ def _synth_scene_with_pauses(
     pause_meta: List[dict] = []
 
     for part_index, segment in enumerate(segments, 1):
-        speech_file = work_dir / f"scene-{scene_index:02d}-speech-{part_index:02d}.mp3"
-        words = synth_scene_audio(segment.text, voice, str(speech_file), rate)
-        speech_duration = prober.get_audio_duration(str(speech_file))
-        audio_parts.append(str(speech_file))
-        for w in words:
-            words_global.append({
-                "text": w["text"],
-                "start": round(cursor + w["start"], 3),
-                "end": round(cursor + w["end"], 3),
-            })
-        cursor += speech_duration
+        if segment.text:
+            speech_file = work_dir / f"scene-{scene_index:02d}-speech-{part_index:02d}.mp3"
+            words = synth_scene_audio(segment.text, voice, str(speech_file), rate)
+            speech_duration = prober.get_audio_duration(str(speech_file))
+            audio_parts.append(str(speech_file))
+            for w in words:
+                words_global.append({
+                    "text": w["text"],
+                    "start": round(cursor + w["start"], 3),
+                    "end": round(cursor + w["end"], 3),
+                })
+            cursor += speech_duration
 
         if segment.pause_after > 0:
             pause_file = work_dir / f"scene-{scene_index:02d}-pause-{part_index:02d}.mp3"
