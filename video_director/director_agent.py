@@ -387,6 +387,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
 
     visual_source = state.get("constraints", {}).get("visual_source") or "auto"
     assignments = {}
+    policy_decisions: List[dict] = []
     match_enabled = bool(spec.get("match_materials_to_script", True))
 
     # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
@@ -461,6 +462,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
             assignments = matcher.match_assets(
                 state["narration_scenes"], all_assets, llm_call,
                 policy_by_scene=source_policy_by_scene,
+                policy_decisions_out=policy_decisions,
             ) or {}
         except Exception as exc:
             warnings.append("本地素材匹配失败：" + str(exc))
@@ -509,6 +511,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 matcher.match_assets(
                     state["narration_scenes"], all_assets, llm_call,
                     policy_by_scene=source_policy_by_scene,
+                    policy_decisions_out=policy_decisions,
                 )
                 if match_enabled and visual_source != "online" else {}
             )
@@ -591,6 +594,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
         "version": 1,
         "policies": source_policy_by_scene,
         "assignments": assignments,
+        "decisions": policy_decisions,
         "source_policy": "selection_then_usage",
     })
     path = _json_file(base / "assets" / "match_assignments.json", {
