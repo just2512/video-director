@@ -230,8 +230,7 @@ def status_for_frontend() -> list:
             "provider": provider_id,
             "capability_states": {
                 op: provider_matrix.state(role, op, cfg).status
-                for op in provider_matrix.OPERATIONS
-                if provider_matrix.state(role, op, cfg).status != provider_matrix.MISSING
+                for op in provider_matrix.relevant_operations(role, cfg)
             },
         })
     return out
