@@ -1094,11 +1094,16 @@ class Handler(BaseHTTPRequestHandler):
                     if asset is None:
                         unmatched.append(sc.id)
                         continue
+                    # 匹配建议必须能完整覆盖场景，否则替换后会留下非法 source range。
+                    if asset.duration is not None and float(asset.duration) + 0.05 < float(sc.duration):
+                        unmatched.append(sc.id)
+                        continue
                     lay = sc.layers[layer_idx]
-                    source_in = float(getattr(lay, "source_in", 0.0) or 0.0)
-                    source_out = getattr(lay, "source_out", None)
-                    if source_out is not None:
-                        source_out = float(source_out)
+                    source_in = 0.0
+                    source_out = (
+                        min(float(asset.duration), float(sc.duration))
+                        if asset.duration is not None else float(sc.duration)
+                    )
                     matches.append({
                         "scene_id": sc.id,
                         "scene_text": sc.text or "",
