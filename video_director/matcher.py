@@ -192,6 +192,7 @@ def match_assets(
     llm_call=None,
     *,
     policy_by_scene: Optional[Dict[str, Dict[str, str]]] = None,
+    policy_decisions_out: Optional[List[dict]] = None,
 ) -> Dict[str, str]:
     """统一入口：LLM 主路 → 确定性 fallback → 顺序兜底（保证总有结果）。
 
@@ -237,6 +238,8 @@ def match_assets(
             scenes, assets, assignments, video_ids,
             policy_by_scene=policy_by_scene,
         )
+        if policy_decisions_out is not None:
+            policy_decisions_out.extend(decisions)
         deferred = [d for d in decisions if d.get("reason", "").startswith("存在其他")]
         if deferred:
             logger.info(
