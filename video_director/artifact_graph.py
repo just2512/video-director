@@ -49,10 +49,12 @@ def load_manifest(project_id: str) -> dict:
 def save_manifest(project_id: str, manifest: dict) -> str:
     path = manifest_path(project_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    tmp.replace(path)
     return str(path)
 
 
@@ -186,7 +188,7 @@ def build_graph(ir: Any, assets: Mapping[str, Any], runtime: Optional[Mapping[st
         nodes[aid] = {
             "id": aid,
             "kind": "scene_render",
-            "depends_on": [f"asset:{x}" for x in asset_ids] + [f"scene:{sid}:composition"],
+            "depends_on": [f"asset:{x}" for x in asset_ids],
             "fingerprint": mpt_semantics.build_artifact_fingerprint(scene_payload),
         }
 
@@ -227,7 +229,7 @@ def build_graph(ir: Any, assets: Mapping[str, Any], runtime: Optional[Mapping[st
     nodes["master"] = {
         "id": "master",
         "kind": "master",
-        "depends_on": ["visual"] + [f"asset:{x}" for x in audio_asset_ids],
+        "depends_on": ["visual", "narration"] + [f"asset:{x}" for x in audio_asset_ids],
         "fingerprint": mpt_semantics.build_artifact_fingerprint(audio_inputs),
     }
 
@@ -363,10 +365,14 @@ def record_render(
     final_path: str,
 ) -> str:
     """成功渲染后原子替换 manifest；失败时旧 manifest 保留。"""
+    runtime = graph.get("runtime") or {}
     path_by_id = {
         "visual": visual_path,
         "master": master_path,
         "final": final_path,
+        "composition": str(config.project_dir(project_id) / "plans" / "composition.json"),
+        "narration": ((runtime.get("narration_file") or {}).get("path") or ""),
+        "subtitle": ((runtime.get("subtitle_file") or {}).get("path") or ""),
     }
     manifest = {
         "version": VERSION,
