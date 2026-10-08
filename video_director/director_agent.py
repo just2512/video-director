@@ -396,6 +396,22 @@ def _tool_material(spec: dict, state: dict) -> dict:
 
     # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
     scene_plan_items = state.get("scene_plan", {}).get("scenes") or []
+    candidate_sets_by_scene = {
+        str(scene.get("text") and scene.get("id") or ""): scene.get("candidates") or []
+        for scene in scene_plan_items
+        if isinstance(scene, dict)
+    }
+    # 上面的 id 优先，兼容错误/空 id 时不把候选错误挂到其他场景。
+    candidate_sets_by_scene = {
+        str(scene.get("id") or f"S{i + 1:02d}"): scene.get("candidates") or []
+        for i, scene in enumerate(scene_plan_items)
+        if isinstance(scene, dict)
+    }
+    selected_candidate_by_scene = {
+        str(scene.get("id") or f"S{i + 1:02d}"): str(scene.get("selected_candidate_id") or "")
+        for i, scene in enumerate(scene_plan_items)
+        if isinstance(scene, dict)
+    }
     search_terms_by_scene = []
     for i, scene in enumerate(state.get("narration_scenes") or []):
         planned = scene_plan_items[i] if i < len(scene_plan_items) else {}
@@ -414,6 +430,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
                 },
                 max_clip_duration=spec.get("clip_duration"),
+                candidate_sets_by_scene=candidate_sets_by_scene,
+                selected_candidate_by_scene=selected_candidate_by_scene,
             ),
             ensure_ascii=False,
             indent=2,
@@ -505,6 +523,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
         max_clip_duration=spec.get("clip_duration"),
         selected_assets=assignments,
         selection_reasons=selection_reasons,
+        candidate_sets_by_scene=candidate_sets_by_scene,
+        selected_candidate_by_scene=selected_candidate_by_scene,
     )
     intent_path.write_text(json.dumps(intent_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
