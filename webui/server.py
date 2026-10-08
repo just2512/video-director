@@ -995,6 +995,7 @@ class Handler(BaseHTTPRequestHandler):
                             "id": sc.id, "start": sc.start, "duration": sc.duration,
                             "text": sc.text,
                             "origin_recipe_id": sc.origin_recipe_id,
+                            "transition_out": (sc.transition_out.model_dump() if sc.transition_out else {"type":"cut","duration":0.0}),
                             "layers": [
                                 {
                                     "index": i, "type": lay.type.value,
@@ -1020,6 +1021,7 @@ class Handler(BaseHTTPRequestHandler):
                     "audio": [
                         {"type": t.type.value, "asset_id": t.asset_id, "start": t.start,
                          "duration": t.duration, "volume": t.volume, "ducking": t.ducking,
+                         "source_in": getattr(t, "source_in", 0.0), "source_out": getattr(t, "source_out", None),
                          # §37 Audio Bus：muted/fade 前端可显（轨道 badge + Inspector）
                          "muted": bool(getattr(t, "muted", False)),
                          "fadeIn": getattr(t, "fadeIn", 0.0), "fadeOut": getattr(t, "fadeOut", 0.0)}
