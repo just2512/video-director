@@ -319,12 +319,15 @@
   async function approveTransition(i){
     const p=EDX.transitionProposal&&EDX.transitionProposal[i]; if(!p)return;
     if(p.status==='APPROVED')return;
-    // 复用既有 continuity/transition UI command path：这里直接走 registered action
-    // relation.set 不同实现可能要求 continuity type，因此先用 natural action only when available.
-    // 跨场景转场本身由渲染器读取 scene.transition_out，已有 action 没有专用 transition command。
-    // 为避免猜 payload，不直接改 IR；给出明确提示并保留 proposal。
-    p.status='APPROVED_PENDING'; renderTransitionProposal();
-    editorToast('转场已标记为待应用；当前 Command Bus 没有专用“transition”命令，因此未擅自写入 IR。请在 Inspector 的转场控件确认。',true);
+    const r=await executeCommand({command:'set_transition',targetId:p.from,payload:{type:'crossfade',duration:.5}});
+    if(r.ok){
+      p.status='APPROVED';
+      await refreshComposition();
+      renderTransitionProposal();
+      editorToast(p.from+' → '+p.to+' 已应用溶解转场');
+    }else{
+      renderTransitionProposal();
+    }
   }
   function rejectTransition(i){
     if(!EDX.transitionProposal)return;
