@@ -217,10 +217,14 @@ def material_intent_snapshot(
     max_clip_duration: Optional[float] = None,
     selected_assets: Optional[Mapping[str, str]] = None,
     selection_reasons: Optional[Mapping[str, str]] = None,
+    candidate_sets_by_scene: Optional[Mapping[str, Any]] = None,
+    selected_candidate_by_scene: Optional[Mapping[str, str]] = None,
 ) -> dict:
     search_terms_by_scene = search_terms_by_scene or {}
     selected_assets = selected_assets or {}
     selection_reasons = selection_reasons or {}
+    candidate_sets_by_scene = candidate_sets_by_scene or {}
+    selected_candidate_by_scene = selected_candidate_by_scene or {}
     intents = []
     for scene in scenes:
         sid = str(scene.get("id") or "")
@@ -230,6 +234,11 @@ def material_intent_snapshot(
             max_clip_duration=max_clip_duration,
             selected_asset_id=selected_assets.get(sid, ""),
             selection_reason=selection_reasons.get(sid, ""),
+        )
+        candidates = candidate_sets_by_scene.get(sid) or []
+        selected_candidate = (
+            selected_candidate_by_scene.get(sid)
+            or (candidates[0].get("id") if candidates and isinstance(candidates[0], Mapping) else "")
         )
         intents.append({
             "scene_id": i.scene_id,
@@ -244,5 +253,7 @@ def material_intent_snapshot(
             "diversity_policy": i.diversity_policy,
             "selected_asset_id": i.selected_asset_id,
             "selection_reason": i.selection_reason,
+            "selected_candidate_id": selected_candidate,
+            "candidates": [dict(x) for x in candidates if isinstance(x, Mapping)],
         })
     return {"version": 1, "scenes": intents}
