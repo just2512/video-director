@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 from loguru import logger
 
-from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics
+from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
@@ -64,6 +64,48 @@ _STOP_NODE_ALIASES = {
     "preview": "verify",
     "video": "render",
 }
+
+
+def _restore_checkpoint_state(project_id: str, state: dict) -> bool:
+    """恢复 MPT-style checkpoint；只恢复已持久化的事实，不猜不存在的状态。"""
+    restored = director_checkpoint.restore_into(project_id, state, config.project_dir)
+    if not restored:
+        return False
+
+    try:
+        from video_director.models import AssetRef
+        raw_assets = state.get("assets") or {}
+        if isinstance(raw_assets, dict):
+            state["assets"] = {
+                aid: AssetRef.model_validate(value)
+                for aid, value in raw_assets.items()
+                if isinstance(value, dict)
+            }
+    except Exception as exc:
+        logger.warning("Director checkpoint asset restore failed: %s", exc)
+        state["assets"] = {}
+
+    try:
+        if state.get("composition_path") or (
+            config.project_dir(project_id) / "plans" / "composition.json"
+        ).is_file():
+            from video_director.editor import load_composition
+            state["ir"] = load_composition(project_id)
+            state["render_assets"] = dict(state.get("assets") or {})
+            bgm_id = state.get("bgm_asset_id")
+            if bgm_id:
+                lib = audio.scan_library()
+                bgm_asset = lib.get(bgm_id)
+                if bgm_asset is not None:
+                    state["render_assets"].update(
+                        audio.append_audio_assets(
+                            state["render_assets"], {bgm_id: bgm_asset}
+                        )
+                    )
+    except Exception as exc:
+        logger.warning("Director checkpoint composition restore failed: %s", exc)
+
+    return True
 
 
 def _resolve_stop_node(spec: dict) -> str:
@@ -917,6 +959,11 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     pid = spec.get("project_id") or ("web-" + str(time.time_ns()))
     bundle = di.build_bundle(spec)
     di.persist_bundle(pid, bundle)
+    # 保留本次创作的完整执行参数，供 checkpoint continue 精确恢复。
+    _json_file(
+        config.project_dir(pid) / "plans" / "director_spec.json",
+        {k: v for k, v in spec.items() if k not in {"api_key", "token", "secret"}},
+    )
 
     user_style = (bundle.get("creative_settings") or {}).get("style") or ""
     ref_style = di.reference_style_intent(bundle)
@@ -971,6 +1018,7 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     refs = di.materialize_reference(pid, bundle)
     repo_files = di.materialize_software_project_artifacts(pid, bundle)
     state["video_files"], state["image_files"] = videos, images
+    _restore_checkpoint_state(pid, state)
     bundle["materialized"] = {
         "reference_files": refs,
         "software_evidence_files": repo_files,
@@ -1072,6 +1120,7 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 verify=verify,
                 artifacts=artifacts,
             )
+            director_checkpoint.save(pid, state, config.project_dir)
             last_result = {"ok": True, **tool_result}
 
             # MPT stop_at：当前节点完成后立刻停住，后续节点显式 SKIPPED。
