@@ -529,7 +529,7 @@ def _cmd_set_scene_intent(
     payload: dict,
     project_id: str,
 ) -> Tuple[List[str], List[str]]:
-    """采用一个 Creative Candidate：改 Scene 视觉意图，不偷偷替换实际素材。"""
+    """采用一个 Creative Candidate：改 Scene 视觉意图；选择状态随 IR 一起原子落盘。"""
     _, scene = _find_scene(ir, target_id)
     candidate_id = str(payload.get("candidateId") or "")
     visual_intent = str(payload.get("visualIntent") or "").strip()
@@ -551,56 +551,18 @@ def _cmd_set_scene_intent(
     if candidate is None:
         raise EditorError("CANDIDATE_NOT_FOUND", f"候选 {candidate_id} 不存在")
 
+    # 只有这里修改 IR；save_composition / revision 会作为同一 Command Transaction 落盘。
     scene.visual_intent = visual_intent
+    scene.selected_candidate_id = candidate_id
 
-    for row in snapshot.get("scenes") or []:
-        if row.get("scene_id") != scene.id:
-            continue
-        row["selected_candidate_id"] = candidate_id
-        for item in row.get("candidates") or []:
-            item["selected"] = item.get("id") == candidate_id
-        break
-
-    tmp = candidate_path.with_suffix(".tmp")
-    tmp.write_text(_json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(candidate_path)
-
-    # 同步 Scene Plan，保证下一次 Director 继续时保留用户决定。
-    scene_plan_path = config.project_dir(project_id) / "plans" / "director_scene_plan.json"
-    if scene_plan_path.is_file():
-        try:
-            plan = _json.loads(scene_plan_path.read_text(encoding="utf-8"))
-            for row in plan.get("scenes") or []:
-                if row.get("id") == scene.id or row.get("scene_id") == scene.id:
-                    row["visual_intent"] = visual_intent
-                    row["selected_candidate_id"] = candidate_id
-                    break
-            tmp_plan = scene_plan_path.with_suffix(".tmp")
-            tmp_plan.write_text(_json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp_plan.replace(scene_plan_path)
-        except (_json.JSONDecodeError, OSError):
-            pass
-
-    intent_path = config.project_dir(project_id) / "plans" / "material_intents.json"
-    if intent_path.is_file():
-        try:
-            intents = _json.loads(intent_path.read_text(encoding="utf-8"))
-        except (_json.JSONDecodeError, OSError):
-            intents = {}
-        for row in intents.get("scenes") or []:
-            if row.get("scene_id") != scene.id:
-                continue
-            row["selected_candidate_id"] = candidate_id
-            row["search_terms"] = list(candidate.get("search_terms") or [])
-            row["search_order"] = list(candidate.get("search_terms") or [])
-            row["source_preference"] = candidate.get("source_preference") or row.get("source_preference")
-            row["selection_reason"] = f"用户采用创作候选：{candidate.get('title') or candidate_id}"
-            break
-        tmp2 = intent_path.with_suffix(".tmp")
-        tmp2.write_text(_json.dumps(intents, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp2.replace(intent_path)
-
-    return [scene.id], [f"{scene.id}:render", f"{scene.id}:preview", "material_intents"]
+    return [
+        scene.id
+    ], [
+        f"{scene.id}:render",
+        f"{scene.id}:preview",
+        "creative_candidates",
+        "material_intents",
+    ]
 
 def _cmd_replace_motion(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Motion Gallery 应用：Layer.motion_recipe_id 替换（CMP-002 复用）。"""
