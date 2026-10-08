@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 from loguru import logger
 
-from video_director import audio, assets as assets_mod, config, matcher, narration
+from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
@@ -156,8 +156,12 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
     if provider is None:
         data = {
             "source": "rule",
-            "scenes": [{"text": t, "visual_intent": t, "source_preference": "user_asset"}
-                       for t in state["scene_texts"]],
+            "scenes": [{
+                "text": t,
+                "visual_intent": t,
+                "source_preference": "user_asset",
+                "search_terms": [mpt_semantics.remove_pause_markup(t)],
+            } for t in state["scene_texts"]],
         }
     else:
         raw = provider.generate(
@@ -282,6 +286,33 @@ def _tool_material(spec: dict, state: dict) -> dict:
     visual_source = state.get("constraints", {}).get("visual_source") or "auto"
     assignments = {}
     match_enabled = bool(spec.get("match_materials_to_script", True))
+
+    # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
+    scene_plan_items = state.get("scene_plan", {}).get("scenes") or []
+    search_terms_by_scene = []
+    for i, scene in enumerate(state.get("narration_scenes") or []):
+        planned = scene_plan_items[i] if i < len(scene_plan_items) else {}
+        raw_terms = planned.get("search_terms") if isinstance(planned, dict) else None
+        search_terms_by_scene.append(
+            mpt_semantics.normalize_search_terms(raw_terms, scene.get("text", ""), amount=8)
+        )
+    intent_path = base / "plans" / "material_intents.json"
+    intent_path.parent.mkdir(parents=True, exist_ok=True)
+    intent_path.write_text(
+        json.dumps(
+            mpt_semantics.material_intent_snapshot(
+                state.get("narration_scenes") or [],
+                search_terms_by_scene={
+                    str(s.get("id") or ""): t
+                    for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
+                },
+                max_clip_duration=spec.get("clip_duration"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     if visual_source != "online" and match_enabled and all_assets and state.get("narration_scenes"):
         try:
             assignments = matcher.match_assets(
@@ -313,6 +344,11 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 per_scene=1,
                 providers=["pexels", "pixabay"],
                 scene_ids=[str(s.get("id") or "") for s in targets],
+                search_terms_by_scene=[
+                    search_terms_by_scene[i]
+                    for i, s in enumerate(state.get("narration_scenes") or [])
+                    if s["id"] in missing
+                ],
             )
             stock_files = list(sr.get("files") or [])
             metadata.update(sr.get("metadata") or {})
@@ -349,13 +385,33 @@ def _tool_material(spec: dict, state: dict) -> dict:
             "verify": {"ok": False},
         }
 
+    selection_reasons = {
+        sid: "场景语义匹配：结合场景文案、素材语义与素材可用性选择"
+        for sid in assignments
+    }
+    intent_data = mpt_semantics.material_intent_snapshot(
+        state.get("narration_scenes") or [],
+        search_terms_by_scene={
+            str(s.get("id") or ""): t
+            for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
+        },
+        max_clip_duration=spec.get("clip_duration"),
+        selected_assets=assignments,
+        selection_reasons=selection_reasons,
+    )
+    intent_path.write_text(json.dumps(intent_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
     state.update({
         "video_files": videos,
         "assets": all_assets,
         "asset_order": order,
         "assignments": assignments,
+        "material_intents": intent_data,
     })
-    path = _json_file(base / "assets" / "match_assignments.json", assignments)
+    path = _json_file(base / "assets" / "match_assignments.json", {
+        "assignments": assignments,
+        "selection_reasons": selection_reasons,
+    })
     coverage_ok = (
         all(s["id"] in assignments for s in state["narration_scenes"])
         if match_enabled and visual_source != "online"
@@ -531,6 +587,28 @@ def _tool_composition(spec: dict, state: dict) -> dict:
             ))
     ir.audio = tracks
     render_assets = audio.append_audio_assets(all_assets, audio_assets)
+
+    # MPT source-window 台账：记录真正消费了哪个源文件的哪个区间。
+    usage = mpt_semantics.material_usage_from_ir(ir)
+    usage_path = _json_file(
+        dirs["plans"] / "material_usage.json",
+        [u.__dict__ for u in usage],
+    )
+    build_fingerprint = mpt_semantics.build_artifact_fingerprint({
+        "composition": json.loads(ir.model_dump_json()),
+        "narration_duration": duration,
+        "clip_duration": spec.get("clip_duration"),
+        "clip_speed": spec.get("clip_speed"),
+        "fit_mode": spec.get("fit_mode") or "cover",
+        "concat_mode": spec.get("concat_mode") or "sequential",
+        "transition_mode": spec.get("transition_mode") or "cut",
+        "bgm_asset_id": state.get("bgm_asset_id"),
+        "subtitle_mode": spec.get("subtitle_mode") or "plain",
+    })
+    fingerprint_path = _json_file(
+        dirs["plans"] / "mpt_build_fingerprint.json",
+        {"version": 1, "fingerprint": build_fingerprint},
+    )
 
     check = validator.validate_composition(
         ir, render_assets, duration, state.get("subtitle_entries")
