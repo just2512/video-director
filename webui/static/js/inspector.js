@@ -366,7 +366,7 @@ function _secSource({sceneId, idx, lay}){
     <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>` : ''}
     <div class="btn-row">
       <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>
-      ${lay.asset_id && lay.type === 'video' ? '<button class="btn-secondary btn-sm" onclick="editorVisualQA(\\\'' + sceneId + '\\\',' + idx + ')">视觉验证</button>' : ''}
+      ${lay.asset_id && lay.type === 'video' ? "<button class=\"btn-secondary btn-sm\" onclick=\"editorVisualQA('" + sceneId + "'," + idx + ")\">视觉验证</button>" : ''}
       <button class="btn-secondary btn-sm" onclick="editorToggleLock('${sceneId}',${idx})">${lay.locked ? '解锁' : '锁定'}</button>
     </div>
     <div id="ed-asset-inspector" class="hint"></div>`;
