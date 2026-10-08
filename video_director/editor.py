@@ -571,6 +571,26 @@ def _cmd_set_scene_intent(
     )
     tmp.replace(selected_path)
 
+    # Director Scene Plan 也同步当前选择，避免后续继续执行时丢失用户决策。
+    scene_plan_path = config.project_dir(project_id) / "plans" / "director_scene_plan.json"
+    if scene_plan_path.is_file():
+        try:
+            scene_plan = _json.loads(scene_plan_path.read_text(encoding="utf-8"))
+            for row in scene_plan.get("scenes") or []:
+                if row.get("id") == scene.id or row.get("scene_id") == scene.id:
+                    row["visual_intent"] = visual_intent
+                    row["selected_candidate_id"] = candidate_id
+                    break
+            tmp_plan = scene_plan_path.with_suffix(".tmp")
+            tmp_plan.write_text(
+                _json.dumps(scene_plan, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            tmp_plan.replace(scene_plan_path)
+        except (_json.JSONDecodeError, OSError):
+            # 候选选择本身仍以 Composition + creative_candidates 为事实；Plan 同步失败不污染编辑主链。
+            pass
+
     # material_intents 是 MPT 素材语义台账，同步当前候选，供下一次匹配直接消费。
     intent_path = config.project_dir(project_id) / "plans" / "material_intents.json"
     if intent_path.is_file():
