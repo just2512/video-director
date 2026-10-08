@@ -190,7 +190,7 @@
     };
     window.previewShowSelectionOverlay=function(){
       if(PV.draftPath && oldSelectOverlay) return oldSelectOverlay();
-      const s=SEL&&SEL.selection;
+      const s=window.SEL&&SEL.selection;
       const c=comp();
       const sc=s&&s.type==='scene'?sceneOf(s.id):(s&&s.type==='layer'?sceneOf(String(s.id).split('#')[0]):null);
       if(sc) liveSceneAt(Number(sc.start||0));
