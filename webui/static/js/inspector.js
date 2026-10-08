@@ -276,7 +276,8 @@ async function _loadMptSceneContext(sceneId){
         }).join('<br>')
       : '尚未形成 source-window 使用记录';
     box.innerHTML =
-      '<div><b>创作方案</b> <span class="hint">先选表达方式，再决定用什么素材</span></div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>创作方案</b> <span class="hint">先选表达方式，再决定用什么素材</span>' +
+      '<button class="btn-secondary btn-sm" onclick="editorSemanticRerank(\\'' + sceneId + '\\')">按画面语义重排候选</button></div>' +
       '<div style="margin-top:4px">' + (candidateHtml || '<span class="hint">暂无候选方案；重新执行 Director 后建立。</span>') + '</div>' +
       '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:7px">检索词（按叙事顺序）</div>' +
       '<div style="margin:3px 0 6px">' + (terms || '<span class="hint">未记录</span>') + '</div>' +
@@ -762,6 +763,41 @@ async function loadAssetInspector(assetId){
       (d.license_note ? `<br>许可：${esc(d.license_note)}` : '') +
       (d.used_in && d.used_in.length ? `<br>用于：${esc(d.used_in.slice(0,3).join('、'))}` : '');
   } catch(e) { el.textContent = ''; }
+}
+
+async function editorSemanticRerank(sceneId){
+  const sc = (ED.comp.scenes || []).find(s => s.id === sceneId);
+  const box = document.getElementById('mpt-scene-context');
+  if (!sc || !box) return;
+  const oldText = box.querySelector('.semantic-rerank-result');
+  if (oldText) oldText.remove();
+  const host = document.createElement('div');
+  host.className = 'hint semantic-rerank-result';
+  host.textContent = '语义重排中……';
+  box.appendChild(host);
+  try {
+    const r = await apiPost('/api/action/execute', {
+      project_id: ED.pid || '',
+      action: 'visual.semantic_rerank',
+      target: 'current_selection',
+      params: {sceneId: sceneId, sceneText: sc.text || '', limit: 5},
+      selection: {type:'scene', id:sceneId}
+    });
+    if (r && r.result && Array.isArray(r.result.candidates)) {
+      const items = r.result.candidates.map((x, i) =>
+        '<div>' + (i + 1) + '. <b>' + esc(x.asset_id || x.assetId || '未命名') + '</b>' +
+        (x.semantic_status ? ' · ' + esc(x.semantic_status) : '') +
+        (x.semantic_reason ? ' · ' + esc(x.semantic_reason) : '') + '</div>'
+      ).join('');
+      host.innerHTML = '<b>语义候选顺序</b>' +
+        (items || '<br>没有可供重排的视频素材。') +
+        (r.result.reason ? '<br><span class="hint">' + esc(r.result.reason) + '</span>' : '');
+    } else {
+      host.textContent = '语义重排失败：' + esc((r && (r.error || r.reason)) || '未知原因');
+    }
+  } catch (e) {
+    host.textContent = '语义重排失败：' + esc(e.message || e);
+  }
 }
 
 async function editorVisualQA(sceneId, idx){
@@ -1301,7 +1337,7 @@ async function editorApplySpeed(sceneId, idx){
 // §8 拆分导出：inline onclick/window 引用兼容
 Object.assign(window, {
   layerTypeCn, edShowInspector, resolveInspector, inspectorOpenSection,
-  inspectorActionsBox, loadAssetInspector, editorVisualQA, editorSetVisualTransform,
+  inspectorActionsBox, loadAssetInspector, editorSemanticRerank, editorVisualQA, editorSetVisualTransform,
   editorApplyCamera, editorApplyContinuity, edContTypeChanged,
   edMorphFromChanged, editorApplyMorph, editorVerifyContinuity,
   editorApplyPip, editorRemovePip, editorApplyTrim, editorApplySpeed,
