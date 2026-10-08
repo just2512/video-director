@@ -152,6 +152,21 @@ function _createPanelHtml(){
       <span class="hint" id="cf-visual-source-hint">本地素材与网络素材共同参与匹配；需要时自动搜索 Pexels / Pixabay 补足画面。</span>
     </div>
     <div class="panel" style="margin-top:10px;padding:10px">
+      <b style="font-size:13px">创作检查点</b>
+      <div class="btn-row" style="gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div><label>自动做到</label>
+          <select id="cf-stop-at">
+            <option value="video" selected>草稿预览后停住（默认）</option>
+            <option value="materials">先准备好素材</option>
+            <option value="subtitle">先生成字幕</option>
+            <option value="audio">先生成旁白</option>
+            <option value="script">先完成文案</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint">停在检查点不会丢掉已经生成的产物；之后从项目继续，不需要从头生成。</div>
+    </div>
+    <div class="panel" style="margin-top:10px;padding:10px">
       <b style="font-size:13px">画面与时间线</b>
       <div class="btn-row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
         <div><label>画面适配</label>
@@ -544,6 +559,7 @@ async function createProject(){
     concat_mode: (document.getElementById('cf-concat-mode') || {}).value || 'sequential',
     transition_mode: (document.getElementById('cf-transition-mode') || {}).value || 'cut',
     match_materials_to_script: !!(document.getElementById('cf-match-materials') || {}).checked,
+    stop_at: (document.getElementById('cf-stop-at') || {}).value || 'video',
     fps: parseInt((document.getElementById('cf-fps') || {}).value || '30'),
     watermark: (document.getElementById('cf-watermark') || {}).value || '',
     lower_third_name: (document.getElementById('cf-lower-name') || {}).value || '',
