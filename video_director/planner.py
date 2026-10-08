@@ -94,6 +94,7 @@ class ContentMatchPlanner:
             image_motion=image_motion, fit_mode=fit_mode,
             clip_duration=clip_duration, clip_speed=clip_speed,
             concat_mode=concat_mode,
+            preferred_asset_ids=self._assignments,
         )
 
 
@@ -113,7 +114,9 @@ class RulePlanner:
         clip_duration: Optional[float] = None,
         clip_speed: Optional[float] = None,
         concat_mode: str = "sequential",
+        preferred_asset_ids: Optional[Dict[str, str]] = None,
     ) -> CompositionIR:
+        preferred_asset_ids = preferred_asset_ids or {}
         pool = {aid: 0.0 for aid in asset_order}  # 视频已消费源时长
         if fit_mode not in ("cover", "contain"):
             fit_mode = "cover"
@@ -124,9 +127,21 @@ class RulePlanner:
 
         # 素材全利用（用户诉求：上传 N 个素材全部进时间线）：
         # 视频素材数 > 场景数时，场景内用多镜头均分，让每个素材至少出场一次。
-        video_ids = [aid for aid in asset_order if aid in assets and assets[aid].type == "video"]
+        # 去重保序（ContentMatchPlanner 上游幽灵 assignment 防御会让 matched_order
+        # 与 fallback 池重复吐同一素材：不去重则 len(video_ids) 虚高、cnt 分配
+        # 抬升，兜底 video_ids[si % len] 会把同一素材重复铺进同场景——2026-10-09
+        # 探针实录：preferred 引用不存在的 v0 时 S03=['v3','v3']）。
+        video_ids = [aid for aid in asset_order
+                     if aid in assets and assets[aid].type == "video"]
+        _seen: set = set()
+        video_ids = [a for a in video_ids if not (a in _seen or _seen.add(a))]
         _use_cover_all = len(video_ids) > len(scenes) and len(scenes) > 0 and not clip_duration
         _used_videos: set = set()
+        # 已有语义匹配的主素材全部保留，补镜头不得提前消费别的场景主素材。
+        reserved_preferred = {
+            aid for aid in preferred_asset_ids.values()
+            if aid in video_ids
+        }
         _next_video = 0
 
         for si, scene in enumerate(scenes):
@@ -137,13 +152,20 @@ class RulePlanner:
                 extra = len(video_ids) % len(scenes)
                 cnt = per + (1 if si < extra else 0)
                 my_videos: List[str] = []
-                for _ in range(cnt):
-                    # 优先取未使用素材（轮转），用尽后重复使用
+                # 第一优先：当前场景的语义匹配主素材。
+                preferred = preferred_asset_ids.get(scene["id"])
+                if preferred in video_ids and preferred not in _used_videos:
+                    my_videos.append(preferred)
+                    _used_videos.add(preferred)
+                # 第二优先：剩余素材按稳定顺序补齐镜头数，确保全部素材最终进时间线。
+                while len(my_videos) < cnt:
                     chosen = None
                     for _ in range(len(video_ids)):
                         cand = video_ids[_next_video % len(video_ids)]
                         _next_video += 1
-                        if cand not in _used_videos:
+                        if cand not in _used_videos and (
+                            cand not in reserved_preferred or cand == preferred
+                        ):
                             chosen = cand
                             break
                     if chosen is None:

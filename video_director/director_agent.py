@@ -449,11 +449,31 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         concat_mode=spec.get("concat_mode") or "sequential",
     )
     style_mod.apply_to_ir(ir, state["style_contract"], config)
+    # 转场改为 Proposal：AI 可以提出，但没有用户确认绝不写入 IR。
     transition_mode = spec.get("transition_mode") or "cut"
-    if transition_mode in ("crossfade", "fade") and state["style_contract"].transition_budget > 0:
-        from video_director import pipeline
-        pipeline._inject_transitions(ir, state["style_contract"].transition_budget)
-    from video_director.models import AudioTrack, AudioTrackType
+    transition_budget = int(state["style_contract"].transition_budget or 0)
+    proposal_path = dirs["plans"] / "transition_proposals.json"
+    proposals = []
+    if transition_budget > 0:
+        requested_type = transition_mode if transition_mode in ("crossfade", "fade") else "crossfade"
+        boundaries = max(0, len(ir.scenes) - 1)
+        count = min(transition_budget, boundaries)
+        if count > 0:
+            step = boundaries / count
+            picks = sorted({min(boundaries - 1, int(step * (i + 0.5))) for i in range(count)})
+            for bi in picks:
+                proposals.append({
+                    "from_scene_id": ir.scenes[bi].id,
+                    "to_scene_id": ir.scenes[bi + 1].id,
+                    "type": requested_type,
+                    "duration": 0.5,
+                    "status": "PROPOSED",
+                })
+    proposal_path.write_text(
+        json.dumps(proposals, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    from video_director.models import AudioTrack, AudioTrackType, LayerType
 
     duration = scenes[-1]["start"] + scenes[-1]["duration"]
     tracks = [
@@ -462,6 +482,34 @@ def _tool_composition(spec: dict, state: dict) -> dict:
             volume=float(spec.get("narration_volume") or 1.0),
         )
     ]
+
+    # 用户素材原声：先用既有 prober 确认实际视频流是否含音频，再按每个 video layer 分段入轨。
+    from video_director import prober as _audio_prober
+    audio_capability = {}
+    for sc in ir.scenes:
+        for lay in sc.layers:
+            if lay.type != LayerType.video or not lay.asset_id:
+                continue
+            src = all_assets.get(lay.asset_id)
+            if not src:
+                continue
+            if lay.asset_id not in audio_capability:
+                try:
+                    audio_capability[lay.asset_id] = bool(_audio_prober.probe_media(src.file).has_audio_stream)
+                except Exception:
+                    audio_capability[lay.asset_id] = False
+            if not audio_capability[lay.asset_id]:
+                continue
+            tracks.append(AudioTrack(
+                type=AudioTrackType.original,
+                asset_id=lay.asset_id,
+                start=round(sc.start + lay.start, 3),
+                duration=round(lay.duration, 3),
+                source_in=round(lay.source_in, 3),
+                source_out=round(lay.source_out, 3),
+                volume=1.0,
+                ducking=False,
+            ))
     audio_assets = {}
     if state.get("bgm_asset_id"):
         lib = audio.scan_library()
@@ -521,6 +569,7 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         "composition_path": cpath,
         "manifest_path": mpath,
         "style_path": spath,
+        "transition_proposals_path": str(proposal_path),
     })
     checks = [
         {"id": "composition_file", "ok": _file_ok(cpath)},
@@ -531,7 +580,16 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         "ok": ok,
         "tool": "composition.build",
         "status": "APPLIED" if ok else "FAILED",
-        "result": {"composition": cpath, "manifest": mpath, "style": spath},
+        "result": {
+            "composition": cpath, "manifest": mpath, "style": spath,
+            "transition_proposals": str(proposal_path),
+            "original_audio_segments": sum(
+                1 for sc in ir.scenes for lay in sc.layers
+                if lay.type == LayerType.video and lay.asset_id
+                and all_assets.get(lay.asset_id) is not None
+                and audio_capability.get(lay.asset_id, False)
+            ),
+        },
         "verify": {"ok": all(x["ok"] for x in checks), "checks": checks},
     }
 

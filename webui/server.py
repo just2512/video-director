@@ -312,6 +312,52 @@ def _parse_multipart(handler) -> dict:
     return {"fields": fields, "files": files}
 
 
+def _editor_asset_preview_map(ir):
+    """编辑器展示用 Asset Map：只读投影，不写入 Composition IR。"""
+    try:
+        from video_director import asset_catalog
+        out = {}
+        seen = set()
+        for sc in ir.scenes:
+            for lay in sc.layers:
+                aid = getattr(lay, "asset_id", None)
+                if not aid or aid in seen:
+                    continue
+                seen.add(aid)
+                entry = asset_catalog.get_asset(aid)
+                if not entry:
+                    continue
+                file_path = entry.get("file") or ""
+                thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
+                out[aid] = {
+                    "asset_id": aid,
+                    "type": entry.get("type"),
+                    "file_url": ("/file?path=" + urllib_quote(file_path)) if file_path else "",
+                    "thumbnail_url": ("/file?path=" + urllib_quote(str(thumb))) if thumb.is_file() else "",
+                    "width": entry.get("width"),
+                    "height": entry.get("height"),
+                    "duration": entry.get("duration"),
+                    "fps": entry.get("fps"),
+                    "has_audio": entry.get("has_audio"),
+                    "source": entry.get("source"),
+                }
+        return out
+    except Exception:
+        return {}
+
+
+def _load_transition_proposals(project_id):
+    """读取 AI 导演生成的待确认转场提案；不存在时返回空列表。"""
+    try:
+        p = vd_config.project_dir(project_id) / "plans" / "transition_proposals.json"
+        if not p.is_file():
+            return []
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AI-Video-Director/1.0"
 
@@ -949,6 +995,7 @@ class Handler(BaseHTTPRequestHandler):
                             "id": sc.id, "start": sc.start, "duration": sc.duration,
                             "text": sc.text,
                             "origin_recipe_id": sc.origin_recipe_id,
+                            "transition_out": (sc.transition_out.model_dump() if sc.transition_out else {"type":"cut","duration":0.0}),
                             "layers": [
                                 {
                                     "index": i, "type": lay.type.value,
@@ -974,6 +1021,7 @@ class Handler(BaseHTTPRequestHandler):
                     "audio": [
                         {"type": t.type.value, "asset_id": t.asset_id, "start": t.start,
                          "duration": t.duration, "volume": t.volume, "ducking": t.ducking,
+                         "source_in": getattr(t, "source_in", 0.0), "source_out": getattr(t, "source_out", None),
                          # §37 Audio Bus：muted/fade 前端可显（轨道 badge + Inspector）
                          "muted": bool(getattr(t, "muted", False)),
                          "fadeIn": getattr(t, "fadeIn", 0.0), "fadeOut": getattr(t, "fadeOut", 0.0)}
@@ -986,6 +1034,8 @@ class Handler(BaseHTTPRequestHandler):
                     ],
                     "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
                     "references": ir.references.to_dict()["references"] if ir.references else [],
+                    "assets": _editor_asset_preview_map(ir),
+                    "transition_proposals": _load_transition_proposals(pid),
                     "revisions_count": len(revs),
                 })
             except Exception as exc:
@@ -1123,6 +1173,32 @@ class Handler(BaseHTTPRequestHandler):
                     "failed_nodes": failed_nodes,
                     "can_retry": bool(not latest or latest.get("status") != "RUNNING"),
                 })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+        elif route == "/api/asset_thumbnail":
+            # Lazy thumbnail：首次请求才生成，之后直接命中 storage/assets/thumbnails。
+            qs = parse_qs(parsed.query)
+            aid = (qs.get("asset_id", [""])[0] or "").strip()
+            if not aid:
+                self._send_json({"ok": False, "error": "缺少 asset_id"}, 400)
+                return
+            try:
+                from video_director import asset_catalog
+                entry = asset_catalog.get_asset(aid)
+                if not entry:
+                    self._send_json({"ok": False, "error": "素材不存在"}, 404)
+                    return
+                thumb = asset_catalog.make_thumbnail(aid)
+                if not thumb or not Path(thumb).is_file():
+                    self._send_json({"ok": False, "error": "缩略图生成失败"}, 404)
+                    return
+                body = Path(thumb).read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/file":

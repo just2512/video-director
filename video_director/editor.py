@@ -318,6 +318,7 @@ SUPPORTED_COMMANDS = (
     "set_graphic_block",          # 换视觉块（graphic 层 program.block_id）
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
+    "set_transition_out",         # 转场确认（Scene.transition_out）
     "undo",
     "redo",
 )
@@ -461,6 +462,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_graphic_layout(ir, target_id, payload)
         elif cmd_name == "set_scene_continuity":
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
+        elif cmd_name == "set_transition_out":
+            changed, stale = _cmd_set_transition_out(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -692,6 +695,7 @@ def _cmd_split(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[s
     ir.scenes[si] = scene_a
     ir.scenes.insert(si + 1, scene_b)
     _renumber_starts(ir)
+    _resync_audio_to_scenes(ir)
     return [scene_a.id, scene_b.id], _stale_of_scene(project_id="", scene_id=scene.id)
 
 
@@ -702,6 +706,7 @@ def _cmd_move(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
     to = max(0, min(to, len(ir.scenes) - 1))
     ir.scenes.insert(to, ir.scenes.pop(si))
     _renumber_starts(ir)
+    _resync_audio_to_scenes(ir)
     return [scene.id], [f"{scene.id}:render", f"{scene.id}:preview"]
 
 
@@ -722,6 +727,7 @@ def _cmd_delete(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[
     del ir.scenes[si]
     _renumber_starts(ir)
     _rescale_total(ir)
+    _resync_audio_to_scenes(ir)
     return [scene.id], [f"{scene.id}:render"]
 
 
@@ -732,6 +738,7 @@ def _cmd_duplicate(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[Li
     ir.scenes.insert(si + 1, copy)
     _renumber_starts(ir)
     _rescale_total(ir)
+    _resync_audio_to_scenes(ir)
     return [copy.id], [f"{copy.id}:render"]
 
 
@@ -758,6 +765,7 @@ def _cmd_set_duration(ir: CompositionIR, target_id: str, payload: dict) -> Tuple
     ir.scenes[si] = scene.model_copy(update={"duration": new_dur, "layers": new_layers})
     _renumber_starts(ir)
     _rescale_total(ir)
+    _resync_audio_to_scenes(ir)
     return [scene.id], _stale_of_scene(project_id="", scene_id=scene.id)
 
 
@@ -789,6 +797,78 @@ def _renumber_starts(ir: CompositionIR) -> None:
     for sc in ir.scenes:
         sc.start = cursor
         cursor += sc.duration
+
+
+def _resync_audio_to_scenes(ir: CompositionIR) -> None:
+    """场景结构编辑（move/delete/duplicate/reorder/split）后的音频轨同步。
+
+    PR #9 起原声（original）轨按每个 video layer 分段入轨，narration 也按
+    场景段生成——但 _cmd_move/_cmd_delete 等只重排场景 start，音频轨仍挂
+    在旧时间点：预览与渲染全部错位（2026-10-09 对抗测试实锚）。
+
+    同步规则（最小侵入，不改变轨道数量语义）：
+    - original 轨：asset_id 若仍出现在某场景的 video 层 → 跟随该层新窗口；
+      素材已不在任何场景（场景被删）→ 轨删除（诚实：没有画面就没有原声）。
+    - narration 轨：按场景顺序逐段重铺（1:1 场景窗口；narration 由旁白
+      模块生成时与场景 1:1，这里只做时间对齐不造新内容）。
+    - 其他类型（bgm/sfx/dialogue/ambience）：start 超出新时间轴末尾的裁剪
+      到界内；不足总长不拉长（BGM 循环铺满由渲染层负责）。
+    """
+    from video_director.models import AudioTrack, AudioTrackType
+
+    if not ir.scenes:
+        ir.audio = []
+        return
+    total = sum(sc.duration for sc in ir.scenes)
+
+    # 场景窗口表：scene_id -> (start, duration)
+    windows = {sc.id: (sc.start, sc.duration) for sc in ir.scenes}
+    # 素材在场景中的新窗口：asset_id -> [(timeline_start, layer_dur)]
+    asset_windows: dict = {}
+    for sc in ir.scenes:
+        for lay in sc.layers:
+            if getattr(lay, "asset_id", None):
+                asset_windows.setdefault(lay.asset_id, []).append(
+                    (sc.start + lay.start, lay.duration))
+
+    new_audio: list = []
+    narration_dur: dict = {}
+    for t in ir.audio:
+        ttype = t.type.value if hasattr(t.type, "value") else str(t.type)
+        if ttype == "original":
+            wins = asset_windows.get(t.asset_id or "")
+            if not wins:
+                continue  # 素材已不在时间线 → 原声轨删除
+            # 跟随该素材第一个窗口（多窗口=同素材多镜头，取最早段保持简
+            # 单；分段原声在 composition.build 时按层生成，这里只保证
+            # 不残留孤儿轨）
+            w_start, w_dur = wins[0]
+            new_audio.append(t.model_copy(update={
+                "start": round(float(w_start), 3),
+                "duration": round(min(float(t.duration), float(w_dur)), 3),
+            }))
+        elif ttype == "narration":
+            # 按场景顺序重铺：narration 数量与场景数量一致时逐段对齐
+            narration_dur.setdefault(t.asset_id or "", []).append(t)
+        else:
+            # bgm/sfx/ambience：超出新时间轴的部分裁进界内（不拉长）
+            start = min(float(t.start), max(0.0, total - float(t.duration)))
+            dur = min(float(t.duration), max(0.0, total - start))
+            if dur <= 0.01:
+                continue
+            new_audio.append(t.model_copy(update={
+                "start": round(start, 3), "duration": round(dur, 3)}))
+
+    # narration：按场景窗口 1:1 重铺（保序；数量不匹配时保序截断/对齐前
+    # min(n, scenes) 段——旁白模块生成时本就 1:1，异常态不做创造性补齐）
+    nar_tracks = [t for ts in narration_dur.values() for t in ts]
+    for i, sc in enumerate(ir.scenes):
+        if i < len(nar_tracks):
+            new_audio.append(nar_tracks[i].model_copy(update={
+                "start": round(float(sc.start), 3),
+                "duration": round(min(float(nar_tracks[i].duration),
+                                      float(sc.duration)), 3)}))
+    ir.audio = new_audio
 
 
 def _rescale_total(ir: CompositionIR) -> None:
@@ -1785,6 +1865,26 @@ def _cmd_set_graphic_layout(ir: CompositionIR, target_id: str,
 
 
 _SCENE_CONTINUITY_TYPES = tuple(t.value for t in ContinuityType)
+
+
+def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """编辑器转场确认：只修改 Scene.transition_out，不重建场景/图层。"""
+    if not target_id:
+        raise EditorError("INVALID_TARGET", "set_transition_out 缺少场景 targetId")
+    _, scene = _find_scene(ir, target_id)
+    ttype = str(payload.get("type") or "cut")
+    duration = float(payload.get("duration", 0.0) or 0.0)
+    if duration < 0:
+        raise EditorError("INVALID_PARAMETER", "转场时长不能为负")
+    if ttype not in {"cut", "crossfade", "fade"}:
+        raise EditorError("INVALID_PAYLOAD", f"不支持的转场类型 {ttype!r}")
+    if ttype == "cut":
+        duration = 0.0
+    if duration > scene.duration / 2:
+        raise EditorError("INVALID_PARAMETER", "转场时长不能超过当前场景时长的一半")
+    from video_director.models import TransitionOut
+    scene.transition_out = TransitionOut(type=ttype, duration=duration)
+    return [f"{scene.id}:transition"], [f"{scene.id}:render", f"{scene.id}:preview"]
 
 
 def _cmd_set_scene_continuity(ir: CompositionIR, target_id: str,

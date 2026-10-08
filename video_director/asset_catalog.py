@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -261,7 +263,12 @@ def register_stock(file_path: str, provider: str, source_id: str = "",
 
 
 def make_thumbnail(asset_id: str) -> Optional[str]:
-    """§26 缩略图（视频抽帧 1s 处 / 图片直接缩；产物在 thumbnails/）。"""
+    """§26 缩略图（视频抽帧 1s 处 / 图片直接缩；产物在 thumbnails/）。
+
+    用项目统一 ffmpeg 二进制（prober._resolve_ffmpeg，随包 bin/ 优先），不引
+    ffmpeg-python 依赖：requirements 从未包含它，旧实现 import 即
+    ModuleNotFoundError → 恒返回 None → /api/asset_thumbnail 全 404（2026-10-09
+    实测；缩略图零测试覆盖所以从未被发现）。"""
     entry = get_asset(asset_id)
     if not entry:
         return None
@@ -270,18 +277,40 @@ def make_thumbnail(asset_id: str) -> Optional[str]:
     thumb = thumb_dir / f"{asset_id}.jpg"
     if thumb.is_file():
         return str(thumb)
+    src = str(entry.get("file") or "")
+    if not src or not os.path.isfile(src):
+        return None
     try:
-        import ffmpeg
-        if entry["type"] == "video":
-            (ffmpeg.input(entry["file"], ss=1.0)
-             .filter("scale", w=320, h=-2)
-             .output(str(thumb), vframes=1, format="image2")
-             .overwrite_output().run(quiet=True))
+        from video_director import prober as _prober
+        ff = _prober._resolve_ffmpeg()
+        if not ff:
+            logger.warning(f"asset_library: 缩略图失败 {asset_id}: 找不到 ffmpeg 可执行文件")
+            return None
+        cmd = [ff, "-y", "-loglevel", "error"]
+        if entry.get("type") == "video":
+            # 视频在 1s 处抽帧（短于 1s 的素材回退首帧）
+            cmd += ["-ss", "1.0", "-i", src]
         else:
-            (ffmpeg.input(entry["file"])
-             .filter("scale", w=320, h=-2)
-             .output(str(thumb), vframes=1, format="image2")
-             .overwrite_output().run(quiet=True))
+            cmd += ["-i", src]
+        cmd += ["-vf", "scale=320:-2", "-vframes", "1", "-f", "image2", str(thumb)]
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=60)
+        if proc.returncode != 0 or not thumb.is_file():
+            # 短视频在 1s 处无帧：回退首帧（不带 -ss 再试一次）
+            if entry.get("type") == "video":
+                cmd2 = [ff, "-y", "-loglevel", "error", "-i", src,
+                        "-vf", "scale=320:-2", "-vframes", "1",
+                        "-f", "image2", str(thumb)]
+                proc2 = subprocess.run(cmd2, capture_output=True, text=True,
+                                       encoding="utf-8", errors="replace", timeout=60)
+                if proc2.returncode != 0 or not thumb.is_file():
+                    logger.warning(
+                        f"asset_library: 缩略图失败 {asset_id}: {proc2.stderr[:200]}")
+                    return None
+            else:
+                logger.warning(
+                    f"asset_library: 缩略图失败 {asset_id}: {proc.stderr[:200]}")
+                return None
         return str(thumb)
     except Exception as exc:  # noqa: BLE001 缩略图失败不阻断入库
         logger.warning(f"asset_library: 缩略图失败 {asset_id}: {exc}")

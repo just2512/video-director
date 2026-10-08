@@ -63,7 +63,7 @@ async function editorLoad(){
   directorLoadCapCount();
   renderWatermarkList();
   editorTopbarRefresh();
-  previewLoadDraft().then(() => previewShowSelectionOverlay());
+  previewLoadDraft().then(() => { previewRenderComposition(); previewShowSelectionOverlay(); });
   if (!ED_LIB.domain) edLibDomain('content', 'scenes'); else edLibLoad();
   edVoiceLoadOptions();
   if (typeof directorRefreshContext === 'function') directorRefreshContext();
@@ -190,6 +190,7 @@ function editorRenderTimeline(){
   box.innerHTML = renderPhysicalTimeline();
   _tlBindPlayheadDrag();
   _tlBindLayerDrag();
+  _tlBindSceneDrag();
 }
 
 function renderPhysicalTimeline(){
@@ -304,6 +305,13 @@ function renderPhysicalTimeline(){
 }
 
 /** §14 场景轨：Scene 头部条（可点=选场景）+ 层窄带（点=选层）。空白区域点击=Scene。 */
+function _tlAssetThumbHtml(lay){
+  const aid = lay && lay.asset_id;
+  const a = aid && ED.comp && ED.comp.assets && ED.comp.assets[aid];
+  if (!aid || !a) return '<span class="tl-thumb-empty">无画面</span>';
+  return '<img class="ed-scene-thumb" src="/api/asset_thumbnail?asset_id=' +
+    encodeURIComponent(aid) + '" alt="" loading="lazy" decoding="async">';
+}
 function _sceneTrackHtml(c, total){
   let mInner = '';
   c.scenes.forEach((sc, si) => {
@@ -311,7 +319,7 @@ function _sceneTrackHtml(c, total){
     const selCls = edIsSelected('scene', sc.id) ? ' ed-sel' : '';
     mInner += `<div class="ed-scene${selCls}" data-scene="${sc.id}" style="width:${wPct}%">`+
       `<div class="ed-scene-header" onclick="editorSelectScene('${sc.id}', event)">`+
-      `<span class="ed-scene-num">${si + 1}</span>`+
+      `<span class="ed-scene-thumb-wrap">${_tlAssetThumbHtml((sc.layers || [])[0])}</span><span class="ed-scene-num">${si + 1}</span>`+
       `<span class="ed-scene-title">${esc((sc.text || '').slice(0, 12))}</span>`+
       `<span class="ed-scene-dur">${sc.duration.toFixed(1)}s</span></div>`+
       `<div class="ed-scene-body" onclick="editorSelectScene('${sc.id}', event)">`;
@@ -365,6 +373,31 @@ function _tlBindPlayheadDrag(){
 /** §17 层直接操作：拖动重排（跨场景）+ 边缘 Trim（层内裁剪）。
  *  拖动全程 Local（DOM 类标记），释放才 Command → Revision。 */
 let _layerDrag = null;
+function _tlBindSceneDrag(){
+  document.querySelectorAll('#editor-timeline .ed-scene-header').forEach(el => {
+    el.addEventListener('pointerdown', ev => {
+      el._tlSceneDrag = { sceneId: el.closest('.ed-scene') && el.closest('.ed-scene').dataset.scene, startX: ev.clientX, moved: false };
+    });
+    el.addEventListener('pointermove', ev => {
+      const d = el._tlSceneDrag;
+      if (!d || Math.abs(ev.clientX - d.startX) <= 8) return;
+      d.moved = true; ev.preventDefault();
+      const scene = el.closest('.ed-scene'); if (scene) scene.classList.add('tl-dragging');
+    });
+    el.addEventListener('pointerup', ev => {
+      const d = el._tlSceneDrag; el._tlSceneDrag = null;
+      const src = el.closest('.ed-scene');
+      if (!d || !d.moved || !src) return;
+      ev.preventDefault(); src.classList.remove('tl-dragging');
+      const target = [...document.querySelectorAll('#editor-timeline .ed-scene')].find(scEl => {
+        const r = scEl.getBoundingClientRect(); return ev.clientX >= r.left && ev.clientX <= r.right;
+      });
+      if (!target || target.dataset.scene === d.sceneId) return;
+      const toIdx = ED.comp.scenes.findIndex(sc => sc.id === target.dataset.scene);
+      if (toIdx >= 0) editorCmd('move', {toIndex: toIdx}, d.sceneId, true);
+    });
+  });
+}
 function _tlBindLayerDrag(){
   document.querySelectorAll('#editor-timeline .ed-layer').forEach(el => {
     el.addEventListener('pointerdown', ev => {
@@ -524,14 +557,11 @@ async function editorSaveBar(){
 }
 async function editorPreviewBar(){
   if (!ED.pid) { editorToast('先打开项目'); return; }
-  const info = await previewLoadDraft();
-  previewShowVideo(info && info.draft_path, info && info.draft_path
-    ? '草稿 · ' + info.draft_path.split(/[\\/]/).pop() : '');
-  if (!info || !info.draft_path) {
-    const stage = document.getElementById('ed-preview-stage');
-    if (stage) stage.innerHTML = '<div>尚无草稿（时间线「渲染」生成后可预览）</div>';
-    editorToast('尚无草稿可预览');
-  }
+  PV.mode = 'live';
+  PV.playhead = PLAYHEAD.at || 0;
+  previewRenderComposition();
+  _previewApplyOverlay();
+  editorToast('实时预览已打开；渲染草稿用于生成可交付草稿文件');
 }
 function editorTopbarRefresh(){
   const tp = document.getElementById('tb-project');

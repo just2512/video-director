@@ -460,6 +460,56 @@ async function directorLoadCapCount(){
   } catch(e) {}
 }
 
+function directorRenderNodeControls(n, box){
+  const id=n.id, label=n.label||id;
+  const escv=x=>esc(String(x==null?'':x));
+  let html='<b>'+escv(label)+'</b><div class="hint" style="margin:4px 0 8px">这里直接操作，不展示内部命令、检查结果或 PASS。</div>';
+  if(id==='understand'||id==='script') html+='<div class="hint">把修改要求直接写进下方 AI 导演输入框。</div><button class="btn-secondary btn-sm" data-dctrl="focus-ai">继续修改</button>';
+  else if(id==='scene_plan'){
+    html+='<div class="director-node-scenes">'+(ED.comp.scenes||[]).map((sc,i)=>'<div class="proj-row"><span style="flex:1"><b>场景 '+(i+1)+'</b> <span class="hint">'+escv((sc.text||'').slice(0,50))+' · '+sc.duration.toFixed(1)+'s</span></span><button class="btn-secondary btn-sm" data-dctrl="select-scene" data-scene-id="'+escv(sc.id)+'">选中</button></div>').join('')+'</div>';
+    html+='<div class="hint" style="margin-top:6px">选中后可在时间线拖动排序、裁剪、改时长。</div>';
+  } else if(id==='material_match'){
+    const sc=(ED.comp.scenes||[]).find(s=>s.id===((typeof SEL!=='undefined'&&SEL.selection&&SEL.selection.type==='scene')?SEL.selection.id:''))||(ED.comp.scenes||[])[0];
+    const assets=Object.values((ED.comp&&ED.comp.assets)||{}).filter(a=>a.type==='video'||a.type==='image');
+    html+='<div class="hint">当前场景：'+escv(sc&&sc.text||'未选择')+'</div><div class="director-asset-grid">'+assets.slice(0,24).map(a=>'<div class="director-asset-card"><img src="/api/asset_thumbnail?asset_id='+encodeURIComponent(a.asset_id)+'" alt="" loading="lazy"><button class="btn-secondary btn-sm" data-dctrl="replace-asset" data-scene-id="'+escv(sc&&sc.id||'')+'" data-asset-id="'+escv(a.asset_id)+'">采用</button></div>').join('')+'</div>';
+  } else if(id==='narration') html+='<button class="btn-secondary btn-sm" data-dctrl="voice">打开配音设置</button>';
+  else if(id==='subtitle') html+='<button class="btn-secondary btn-sm" data-dctrl="subtitle">打开字幕设置</button>';
+  else if(id==='music') html+='<button class="btn-secondary btn-sm" data-dctrl="audio">打开音乐/音量</button>';
+  else if(id==='watermark') html+='<button class="btn-secondary btn-sm" data-dctrl="watermark">打开品牌设置</button>';
+  else if(id==='composition') html+='<button class="btn-secondary btn-sm" data-dctrl="timeline">定位时间线</button>';
+  else if(id==='preview') html+='<button class="btn-secondary btn-sm" data-dctrl="preview">实时预览</button>';
+  else if(id==='verify') html+='<button class="btn-secondary btn-sm" data-dctrl="verify">执行预检</button>';
+  else if(id==='render') html+='<button class="btn-secondary btn-sm" data-dctrl="render">渲染草稿</button>';
+  else html+='<button class="btn-secondary btn-sm" data-dctrl="focus-ai">继续告诉 AI</button>';
+  const props=(ED.comp&&ED.comp.transition_proposals)||[];
+  if((id==='scene_plan'||id==='material_match')&&props.length){
+    html+='<div class="role-block" style="margin-top:8px"><b>待确认转场</b>'+props.map(p=>{ const from=(ED.comp.scenes||[]).find(s=>s.id===p.from_scene_id); const applied=!!(from&&from.transition_out&&from.transition_out.type===p.type); return '<div class="proj-row"><span style="flex:1">'+escv(p.from_scene_id)+' → '+escv(p.to_scene_id)+' · '+escv(p.type)+' '+escv(p.duration)+'s</span>'+(applied?'<span class="hint">已应用</span>':'<button class="btn-secondary btn-sm" data-dctrl="transition" data-scene-id="'+escv(p.from_scene_id)+'" data-type="'+escv(p.type)+'" data-duration="'+escv(p.duration)+'">确认</button>')+'</div>'; }).join('')+'</div>';
+  }
+  box.innerHTML=html;
+  box.querySelectorAll('[data-dctrl]').forEach(btn=>btn.addEventListener('click',async()=>{
+    const a=btn.dataset.dctrl;
+    if(a==='focus-ai'){document.getElementById('director-input')?.focus();return;}
+    if(a==='select-scene'){editorSelectScene(btn.dataset.sceneId,null);return;}
+    if(a==='replace-asset'){await directorReplaceSceneAsset(btn.dataset.sceneId,btn.dataset.assetId);return;}
+    if(a==='voice'){editorVoiceOpen();return;} if(a==='subtitle'){editorSubtitleStyleOpen();return;}
+    if(a==='audio'){editorAudioBusOpen();return;} if(a==='watermark'){projectOverlayOpen();return;}
+    if(a==='timeline'){document.getElementById('editor-timeline')?.scrollIntoView({behavior:'smooth',block:'center'});return;}
+    if(a==='preview'){previewRenderComposition();previewPlay();return;} if(a==='verify'){await executeAction('verify.run',{},'project');return;}
+    if(a==='render'){await executeAction('render.draft',{},'project');return;}
+    if(a==='transition'){await directorApplyTransition(btn.dataset.sceneId,btn.dataset.type,Number(btn.dataset.duration||0.5));}
+  }));
+}
+async function directorReplaceSceneAsset(sceneId,assetId){
+  const sc=(ED.comp.scenes||[]).find(s=>s.id===sceneId); if(!sc||!sc.layers||!sc.layers.length){editorToast('当前场景没有可替换画面',true);return;}
+  const idx=sc.layers.findIndex(l=>l.asset_id||l.type==='video'||l.type==='image');
+  const r=await executeCommand({command:'replace_source',targetId:sceneId+'#'+Math.max(0,idx),payload:{assetId:assetId}});
+  if(r&&r.ok){await refreshWorkspace();editorToast('画面已替换');}
+}
+async function directorApplyTransition(sceneId,type,duration){
+  const r=await executeCommand({command:'set_transition_out',targetId:sceneId,payload:{type:type,duration:duration}});
+  if(r&&r.ok){await refreshWorkspace();editorToast('转场已确认并应用');}
+}
+
 function directorRenderPlan(run, detail){
   const card = document.getElementById('director-plan-card');
   const nodesBox = document.getElementById('director-plan-nodes');
@@ -503,6 +553,7 @@ function directorRenderPlan(run, detail){
             ? `<div class="hint">产物：${n.artifacts.map(x => esc(String(x))).join('、')}</div>`
             : '');
       }
+      if (typeof directorRenderNodeControls === 'function') directorRenderNodeControls(n, detailBox);
       const input = document.getElementById('director-input');
       if (input && n.id !== 'understand') input.placeholder = `继续告诉 AI 如何处理“${n.label || n.id}”`;
     };

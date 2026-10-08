@@ -148,6 +148,24 @@
 .ed-layer:hover { border-color: var(--accent); }
 .ed-motion-tag { background: var(--accent); color: #fff; border-radius: 3px; padding: 0 3px; margin-left: 3px; font-size: 10px; }
 
+/* ---- OpenCut-style visual timeline / live preview ---- */
+.ed-scene-thumb-wrap { flex:0 0 42px; width:42px; height:24px; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:3px; background:var(--surface-1); }
+.ed-scene-thumb { width:42px; height:24px; object-fit:cover; display:block; }
+.tl-thumb-empty { font-size:9px; color:var(--muted); }
+.ed-scene-header { align-items:center; min-height:30px; cursor:grab; }
+.ed-scene-header:active { cursor:grabbing; }
+.ed-scene { min-height:70px; }
+.ed-layer { position:relative; min-height:18px; padding-right:8px; }
+.ed-layer::before, .ed-layer::after { content:''; position:absolute; top:0; bottom:0; width:4px; background:var(--border-strong); opacity:.55; }
+.ed-layer::before { left:0; cursor:ew-resize; }
+.ed-layer::after { right:0; cursor:ew-resize; }
+.pv-live-media { width:100%; height:100%; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:var(--radius-sm); background:#000; }
+.pv-live-media video, .pv-live-image { max-width:100%; max-height:360px; width:100%; height:100%; object-fit:contain; border-radius:var(--radius-sm); }
+.pv-live-caption { position:absolute; left:10px; right:10px; bottom:10px; padding:7px 9px; background:rgba(0,0,0,.58); color:#fff; border-radius:5px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; pointer-events:none; }
+.pv-live-transition { padding:2px 5px; border:1px solid rgba(255,255,255,.35); border-radius:3px; font-size:11px; }
+.pv-live-empty { color:#aaa; font-size:12px; }
+.tl-dragging { cursor:grabbing; }
+
 /* ---- §19 Preview 占位/overlay ---- */
 .pv-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
 .pv-ph-bar {
@@ -170,6 +188,12 @@
 .ed-semantic-role { flex: 0 0 76px; font-size: 12px; font-weight: bold; color: var(--accent); text-align: center; padding-top: 2px; }
 .ed-semantic-body { flex: 1; }
 .ed-semantic-text { font-size: 13px; color: var(--text); }
+
+.director-asset-grid { display:grid; grid-template-columns:repeat(4,minmax(52px,1fr)); gap:6px; margin-top:6px; }
+.director-asset-card { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.director-asset-card img { width:100%; aspect-ratio:16/9; object-fit:cover; border:1px solid var(--border); border-radius:4px; background:var(--surface-1); }
+.director-asset-card button { width:100%; padding:3px 4px; }
+.director-node-scenes { max-height:240px; overflow:auto; }
 
 /* ---- 顶栏/三栏（§9） ---- */
 .ed-topbar {
