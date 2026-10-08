@@ -401,6 +401,26 @@ def _tool_material(spec: dict, state: dict) -> dict:
         for i, scene in enumerate(scene_plan_items)
         if isinstance(scene, dict)
     }
+    source_policy_by_scene = {}
+    for i, scene in enumerate(scene_plan_items):
+        if not isinstance(scene, dict):
+            continue
+        sid = str(scene.get("id") or f"S{i + 1:02d}")
+        selected_id = str(scene.get("selected_candidate_id") or "")
+        candidates = scene.get("candidates") or []
+        selected = next(
+            (x for x in candidates if isinstance(x, dict) and x.get("id") == selected_id),
+            None,
+        )
+        source_policy_by_scene[sid] = {
+            "source_preference": str(
+                (selected or {}).get("source_preference")
+                or scene.get("source_preference")
+                or "user_first"
+            ),
+            "reuse_policy": str(scene.get("reuse_policy") or "reuse_when_needed"),
+            "diversity_policy": str(scene.get("diversity_policy") or "prefer_unique_source"),
+        }
     search_terms_by_scene = []
     for i, scene in enumerate(state.get("narration_scenes") or []):
         planned = scene_plan_items[i] if i < len(scene_plan_items) else {}
@@ -439,7 +459,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
     if visual_source != "online" and match_enabled and all_assets and state.get("narration_scenes"):
         try:
             assignments = matcher.match_assets(
-                state["narration_scenes"], all_assets, llm_call
+                state["narration_scenes"], all_assets, llm_call,
+                policy_by_scene=source_policy_by_scene,
             ) or {}
         except Exception as exc:
             warnings.append("本地素材匹配失败：" + str(exc))
@@ -485,7 +506,10 @@ def _tool_material(spec: dict, state: dict) -> dict:
             ii, io = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
             all_assets, order = {**vv, **ii}, vo + io
             assignments = (
-                matcher.match_assets(state["narration_scenes"], all_assets, llm_call)
+                matcher.match_assets(
+                    state["narration_scenes"], all_assets, llm_call,
+                    policy_by_scene=source_policy_by_scene,
+                )
                 if match_enabled and visual_source != "online" else {}
             )
         except Exception as exc:
@@ -562,9 +586,17 @@ def _tool_material(spec: dict, state: dict) -> dict:
         "assignments": assignments,
         "material_intents": intent_data,
     })
+    # Step ⑤ 台账：来源策略与本轮实际匹配结果分开记录，后续 compose 可继续派生实际使用情况。
+    policy_path = _json_file(base / "plans" / "source_usage_policy.json", {
+        "version": 1,
+        "policies": source_policy_by_scene,
+        "assignments": assignments,
+        "source_policy": "selection_then_usage",
+    })
     path = _json_file(base / "assets" / "match_assignments.json", {
         "assignments": assignments,
         "selection_reasons": selection_reasons,
+        "source_usage_policy": str(policy_path),
     })
     coverage_ok = (
         all(s["id"] in assignments for s in state["narration_scenes"])
@@ -833,6 +865,7 @@ def _tool_composition(spec: dict, state: dict) -> dict:
             "transition_proposals": str(proposal_path),
             "material_intents": str(dirs["plans"] / "material_intents.json"),
             "material_usage": usage_path,
+            "source_usage_policy": str(dirs["plans"] / "source_usage_policy.json"),
             "build_fingerprint": fingerprint_path,
             "original_audio_segments": sum(
                 1 for sc in ir.scenes for lay in sc.layers
