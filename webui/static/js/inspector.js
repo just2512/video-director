@@ -366,6 +366,7 @@ function _secSource({sceneId, idx, lay}){
     <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>` : ''}
     <div class="btn-row">
       <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>
+      ${lay.asset_id ? '<button class="btn-secondary btn-sm" onclick="editorVisualQA(\\\'' + sceneId + '\\\',' + idx + ')">视觉验证</button>' : ''}
       <button class="btn-secondary btn-sm" onclick="editorToggleLock('${sceneId}',${idx})">${lay.locked ? '解锁' : '锁定'}</button>
     </div>
     <div id="ed-asset-inspector" class="hint"></div>`;
@@ -761,6 +762,36 @@ async function loadAssetInspector(assetId){
       (d.license_note ? `<br>许可：${esc(d.license_note)}` : '') +
       (d.used_in && d.used_in.length ? `<br>用于：${esc(d.used_in.slice(0,3).join('、'))}` : '');
   } catch(e) { el.textContent = ''; }
+}
+
+async function editorVisualQA(sceneId, idx){
+  const sc = (ED.comp.scenes || []).find(s => s.id === sceneId);
+  const lay = sc && sc.layers ? sc.layers[idx] : null;
+  const el = document.getElementById('ed-asset-inspector');
+  if (!lay || !lay.asset_id || !el) return;
+  el.innerHTML = '视觉验证中……';
+  try {
+    const d = await apiGet('/api/asset_detail?asset_id=' + encodeURIComponent(lay.asset_id) +
+      '&project_id=' + encodeURIComponent(ED.pid || ''));
+    if (!d || d.error || !d.file) {
+      el.innerHTML = '<span class="hint">素材文件不可用，无法验证。</span>';
+      return;
+    }
+    const r = await executeAction('visual.verify_asset', {
+      sceneId: sceneId, sceneText: sc.text || '', assetId: lay.asset_id, assetFile: d.file
+    }, 'current_selection', {type:'layer', id:sceneId + '#' + idx, layer_type:lay.type || 'video'});
+    if (r && r.result && r.result.verdict) {
+      const verdictCn = {DIRECT_MATCH:'直接匹配', SUPPORTING:'辅助匹配', CONFLICT:'明显冲突', UNKNOWN:'无法确认'};
+      const v = r.result.verdict;
+      el.innerHTML = '<b>视觉验证</b>：<b>' + esc(verdictCn[v] || v) + '</b>' +
+        (r.result.evidence ? '<br>' + esc(r.result.evidence) : '') +
+        (r.result.reason ? '<br><span class="hint">' + esc(r.result.reason) + '</span>' : '');
+    } else if (r && !r.ok) {
+      el.innerHTML = '<span class="hint">验证失败：' + esc(r.error || '未知错误') + '</span>';
+    }
+  } catch (e) {
+    el.innerHTML = '<span class="hint">验证失败：' + esc(e.message || e) + '</span>';
+  }
 }
 
 function editorSetVisualTransform(sceneId, idx){
@@ -1260,7 +1291,7 @@ async function editorApplySpeed(sceneId, idx){
 // §8 拆分导出：inline onclick/window 引用兼容
 Object.assign(window, {
   layerTypeCn, edShowInspector, resolveInspector, inspectorOpenSection,
-  inspectorActionsBox, loadAssetInspector, editorSetVisualTransform,
+  inspectorActionsBox, loadAssetInspector, editorVisualQA, editorSetVisualTransform,
   editorApplyCamera, editorApplyContinuity, edContTypeChanged,
   edMorphFromChanged, editorApplyMorph, editorVerifyContinuity,
   editorApplyPip, editorRemovePip, editorApplyTrim, editorApplySpeed,
