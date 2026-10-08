@@ -112,6 +112,60 @@ async function _loadUiActions(){
   }
 }
 
+window._renderMonitors = window._renderMonitors || {};
+
+async function _startRenderWorkflow(actionId, pid){
+  const kind = actionId === 'render.final' ? 'render_final' : 'render_draft';
+  try {
+    const r = await apiPost('/api/workflows', {kind, project_id: pid});
+    if (!r || !r.ok || !r.run_id) {
+      const msg = (r && (r.error || r.reason)) || '渲染任务提交失败';
+      editorToast(msg, true);
+      return r || {ok:false,error:msg};
+    }
+    const runId = r.run_id;
+    window._renderMonitors[runId] = true;
+    const meta = document.getElementById('ed-preview-meta');
+    if (meta) meta.textContent = (kind === 'render_draft' ? '草稿渲染中……' : '成片渲染中……');
+    editorToast(kind === 'render_draft' ? '草稿渲染已开始，可继续编辑' : '成片渲染已开始');
+    const poll = async () => {
+      if (!window._renderMonitors[runId]) return;
+      try {
+        const d = await apiGet('/api/workflows/' + encodeURIComponent(runId));
+        const st = d && d.status;
+        if (st === 'COMPLETED') {
+          delete window._renderMonitors[runId];
+          const info = await previewLoadDraft();
+          const path = kind === 'render_draft' ? info && info.draft_path : info && info.final_path;
+          if (kind === 'render_draft') {
+            if (path) previewShowVideo(path, '草稿 · 已完成');
+            else previewRenderComposition();
+          }
+          const meta2 = document.getElementById('ed-preview-meta');
+          if (meta2 && path) meta2.textContent = (kind === 'render_draft' ? '草稿已完成' : '成片已完成');
+          if (typeof taskRefresh === 'function') taskRefresh();
+          editorToast(kind === 'render_draft' ? '草稿渲染完成，已载入预览' : '成片渲染完成');
+          return;
+        }
+        if (['FAILED','INTERRUPTED','CANCELLED'].includes(st)) {
+          delete window._renderMonitors[runId];
+          const reason = (d && d.error) || '渲染未完成';
+          editorToast('渲染失败：' + reason, true);
+          if (typeof taskRefresh === 'function') taskRefresh();
+          return;
+        }
+        setTimeout(poll, 800);
+      } catch (e) {
+        setTimeout(poll, 1500);
+      }
+    };
+    poll();
+    return r;
+  } catch (e) {
+    editorToast('渲染任务提交失败：' + (e.message || e), true);
+    return {ok:false,error:e.message || String(e)};
+  }
+}
 async function executeAction(actionId, params={}, target=null, selection=null){
   const pid = (typeof ED !== 'undefined' && ED.pid) || '';
   if (!pid) {
@@ -119,6 +173,9 @@ async function executeAction(actionId, params={}, target=null, selection=null){
     return {ok:false,status:'NO_PROJECT'};
   }
   const sel = selection || _dispatchSelection();
+  if (actionId === 'render.draft' || actionId === 'render.final') {
+    return await _startRenderWorkflow(actionId, pid);
+  }
   const targetValue = target || (
     sel.type === 'project' || !sel.id ? 'project' : 'current_selection'
   );
