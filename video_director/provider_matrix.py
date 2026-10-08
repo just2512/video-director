@@ -240,7 +240,7 @@ def _configured(defn: ProviderDefinition, cfg: Mapping[str, Any], *, manual_mani
 def state_for_provider(provider_id: str, role: str, operation: str,
                          cfg: Optional[Mapping[str, Any]] = None,
                          *, manual_manifest: str = "") -> CapabilityState:
-    matrix_role = "stock" if role.startswith("stock_") else role
+    matrix_role = "stock" if role.startswith("stock_") else ("renderer" if role == "hyperframes" else role)
     cfg = _effective_config(role, cfg)
     definition = next(
         (d for d in DEFINITIONS if d.provider_id == provider_id and d.role == matrix_role),
