@@ -260,6 +260,22 @@ def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
     return CapabilityState(provider_id, role, operation, READY, True, definition.note)
 
 
+def relevant_operations(role: str, cfg: Optional[Mapping[str, Any]] = None) -> tuple[str, ...]:
+    """返回该角色/当前 Provider 实际声明或明确拒绝的相关操作，避免 UI 展示无关能力。"""
+    cfg = _effective_config(role, cfg)
+    provider_id = infer_provider(role, cfg)
+    matrix_role = "stock" if role.startswith("stock_") else role
+    if role == "hyperframes":
+        return ("renderer.hyperframes",)
+    ops = []
+    for d in DEFINITIONS:
+        if d.provider_id == provider_id and d.role == matrix_role:
+            ops.extend(d.operations)
+    if matrix_role == "video":
+        ops.append("video.image_to_video")
+    return tuple(dict.fromkeys(ops))
+
+
 def require(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
             *, manual_manifest: str = "") -> CapabilityState:
     result = state(role, operation, cfg, manual_manifest=manual_manifest)
