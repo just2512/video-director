@@ -178,30 +178,39 @@
   }
 
   function selectRect(rect, scope, additive) {
-    if (!window.ED || !ED.comp || typeof select !== 'function') return;
+    if (!window.ED || !ED.comp || !window.SEL) return;
     const selector = scope === 'layer' ? '.ed-layer' : '.ed-scene';
     const nodes = [...document.querySelectorAll('#editor-timeline ' + selector)];
-    const hits = nodes.filter(node => {
+    const ids = nodes.filter(node => {
       const r = node.getBoundingClientRect();
       return r.right >= rect.left && r.left <= rect.right &&
              r.bottom >= rect.top && r.top <= rect.bottom;
-    });
+    }).map(node => scope === 'layer'
+      ? node.dataset.scene + '#' + node.dataset.idx
+      : node.dataset.scene
+    ).filter(Boolean);
 
-    const ids = hits.map(node => {
-      if (scope === 'layer') return node.dataset.scene + '#' + node.dataset.idx;
-      return node.dataset.scene;
-    }).filter(Boolean);
+    if (!ids.length) {
+      if (!additive && typeof clearSelection === 'function') clearSelection('box-select');
+      return;
+    }
 
-    if (!additive) clearSelection('box-select');
-    ids.forEach((id, i) => {
-      const ev = {ctrlKey: additive || i > 0, metaKey: additive || i > 0, shiftKey: false};
-      if (scope === 'layer') {
-        const [sceneId, idx] = id.split('#');
-        select('layer', id, ev, 'box-select');
-      } else {
-        select('scene', id, ev, 'box-select');
-      }
-    });
+    // 仍使用同一个 SEL 事实源，但只提交一次 selection:changed，避免拖框过程中
+    // 每选中一个元素就触发 Timeline/Preview/Inspector 重绘。
+    const next = additive ? new Set(SEL.selectionSet) : new Set();
+    ids.forEach(id => next.add(_selKey(scope, id)));
+    SEL.selectionSet = next;
+    const last = ids[ids.length - 1];
+    SEL.selection = scope === 'layer'
+      ? {type:'layer', id:last}
+      : {type:'scene', id:last};
+    if (scope === 'scene') {
+      const idx = ED.comp.scenes.findIndex(s => s.id === last);
+      if (idx >= 0) SEL.lastSceneIdx = idx;
+    }
+    document.dispatchEvent(new CustomEvent('selection:changed', {
+      detail: {selection: SEL.selection, selectionSet: SEL.selectionSet, origin: 'box-select'}
+    }));
   }
 
   function startBox(ev) {
@@ -347,18 +356,8 @@
           state.groupDrag.moved = true;
           ev.preventDefault();
           ev.stopImmediatePropagation();
-          const rootRect = root.getBoundingClientRect();
           const t = timeFromClientX(ev.clientX);
           snapTime(t, {shiftKey: ev.shiftKey});
-          if (rootRect.width > 0) {
-            const ph = document.getElementById('ed-session-drag-guide');
-            if (!ph) {
-              const line = document.createElement('div');
-              line.id = 'ed-session-drag-guide';
-              line.className = 'ed-session-drag-guide';
-              root.appendChild(line);
-            }
-          }
         }
       }
     }, true);
