@@ -94,6 +94,7 @@ class ContentMatchPlanner:
             image_motion=image_motion, fit_mode=fit_mode,
             clip_duration=clip_duration, clip_speed=clip_speed,
             concat_mode=concat_mode,
+            preferred_asset_ids=self._assignments,
         )
 
 
@@ -113,7 +114,9 @@ class RulePlanner:
         clip_duration: Optional[float] = None,
         clip_speed: Optional[float] = None,
         concat_mode: str = "sequential",
+        preferred_asset_ids: Optional[Dict[str, str]] = None,
     ) -> CompositionIR:
+        preferred_asset_ids = preferred_asset_ids or {}
         pool = {aid: 0.0 for aid in asset_order}  # 视频已消费源时长
         if fit_mode not in ("cover", "contain"):
             fit_mode = "cover"
@@ -137,8 +140,13 @@ class RulePlanner:
                 extra = len(video_ids) % len(scenes)
                 cnt = per + (1 if si < extra else 0)
                 my_videos: List[str] = []
-                for _ in range(cnt):
-                    # 优先取未使用素材（轮转），用尽后重复使用
+                # 第一优先：当前场景的语义匹配主素材。
+                preferred = preferred_asset_ids.get(scene["id"])
+                if preferred in video_ids and preferred not in _used_videos:
+                    my_videos.append(preferred)
+                    _used_videos.add(preferred)
+                # 第二优先：剩余素材按稳定顺序补齐镜头数，确保全部素材最终进时间线。
+                while len(my_videos) < cnt:
                     chosen = None
                     for _ in range(len(video_ids)):
                         cand = video_ids[_next_video % len(video_ids)]
