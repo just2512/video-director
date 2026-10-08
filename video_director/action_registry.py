@@ -550,6 +550,7 @@ _CONTEXT_KEYS = {
         "render.draft", "render.final", "verify.run",
     ],
     ("scene", None): [
+        "creative.select_candidate",
         "timeline.split", "timeline.duplicate", "timeline.delete", "timeline.move",
         "timeline.duration", "visual.camera",
         "asset.replace", "asset.search", "asset.add_broll",
