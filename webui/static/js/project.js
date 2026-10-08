@@ -67,10 +67,12 @@ function renderProjectList(){
   const shown = PM.index.slice(0, PM.shown);
   box.innerHTML = shown.map(p => {
     const actions = p.actions || {};
+    const checkpointLabel = (p.checkpoint === 'render' || p.checkpoint === 'verify')
+      ? '检查草稿' : '继续到草稿';
     // 主行动作（§43 第一按钮：状态决定；其余进「···」菜单）
     let primary = '';
     if (p.legacy) primary = `<button class="btn-sm" onclick="convertLegacyProject('${esc(p.project_id)}')">转换为可编辑项目</button>`;
-    else if (actions.continue_) primary = `<button class="btn-sm" onclick="continueProject('${esc(p.project_id)}')">继续确认</button>`;
+    else if (actions.continue_) primary = `<button class="btn-sm" onclick="continueProject('${esc(p.project_id)}')">${checkpointLabel}</button>`;
     else if (p.status === 'FAILED') primary = `<button class="btn-secondary btn-sm" onclick="pmShowFailure('${esc(p.project_id)}')">查看问题</button>`;
     else if (actions.open) primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">继续编辑</button>`;
     if (p.status === 'FAILED') primary += ` <button class="btn-secondary btn-sm" onclick="pmReopenFailed('${esc(p.project_id)}')">重新执行</button>`;
