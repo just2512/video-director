@@ -239,8 +239,9 @@ def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
           *, manual_manifest: str = "") -> CapabilityState:
     cfg = _effective_config(role, cfg)
     provider_id = infer_provider(role, cfg)
+    matrix_role = "stock" if role.startswith("stock_") else role
     definition = next(
-        (d for d in DEFINITIONS if d.provider_id == provider_id and d.role == role),
+        (d for d in DEFINITIONS if d.provider_id == provider_id and d.role == matrix_role),
         None,
     )
     if definition is None:
