@@ -337,6 +337,92 @@ class CommandResult:
     composition: Optional[dict] = None  # 更新后的 IR（前端重渲染时间线用）
 
 
+
+def _sync_candidate_views(project_id: str, ir: CompositionIR) -> None:
+    """把 IR 中的 candidate selection 同步到派生计划文件；失败不回滚已成功的 IR Command。"""
+    import json as _json
+
+    base = config.project_dir(project_id)
+    candidate_path = base / "plans" / "creative_candidates.json"
+    if not candidate_path.is_file():
+        return
+    try:
+        snapshot = _json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        logger.warning("candidate cache unreadable; IR selection remains authoritative")
+        return
+
+    selected_by_scene = {
+        sc.id: getattr(sc, "selected_candidate_id", None)
+        for sc in ir.scenes
+    }
+    for row in snapshot.get("scenes") or []:
+        sid = row.get("scene_id")
+        selected = selected_by_scene.get(sid)
+        if selected:
+            row["selected_candidate_id"] = selected
+            for candidate in row.get("candidates") or []:
+                candidate["selected"] = candidate.get("id") == selected
+
+    tmp = candidate_path.with_suffix(".tmp")
+    try:
+        tmp.write_text(_json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(candidate_path)
+    except OSError:
+        logger.warning("candidate cache write failed; IR selection remains authoritative")
+
+    intent_path = base / "plans" / "material_intents.json"
+    if not intent_path.is_file():
+        return
+    try:
+        intents = _json.loads(intent_path.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        return
+
+    for row in intents.get("scenes") or []:
+        sid = row.get("scene_id")
+        selected = selected_by_scene.get(sid)
+        if not selected:
+            continue
+        row["selected_candidate_id"] = selected
+        candidate_row = next(
+            (x for x in snapshot.get("scenes") or [] if x.get("scene_id") == sid),
+            None,
+        )
+        candidates = (candidate_row or {}).get("candidates") or []
+        candidate = next((x for x in candidates if x.get("id") == selected), None)
+        if candidate:
+            row["search_terms"] = list(candidate.get("search_terms") or [])
+            row["search_order"] = list(candidate.get("search_terms") or [])
+            row["source_preference"] = candidate.get("source_preference") or row.get("source_preference")
+            row["selection_reason"] = f"用户采用创作候选：{candidate.get('title') or selected}"
+
+    tmp2 = intent_path.with_suffix(".tmp")
+    try:
+        tmp2.write_text(_json.dumps(intents, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp2.replace(intent_path)
+    except OSError:
+        logger.warning("material intent cache write failed; IR selection remains authoritative")
+
+    plan_path = base / "plans" / "director_scene_plan.json"
+    if plan_path.is_file():
+        try:
+            plan = _json.loads(plan_path.read_text(encoding="utf-8"))
+            for row in plan.get("scenes") or []:
+                sid = row.get("id") or row.get("scene_id")
+                selected = selected_by_scene.get(sid)
+                if not selected:
+                    continue
+                row["selected_candidate_id"] = selected
+                scene = next((sc for sc in ir.scenes if sc.id == sid), None)
+                if scene:
+                    row["visual_intent"] = scene.visual_intent
+            tmp3 = plan_path.with_suffix(".tmp")
+            tmp3.write_text(_json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp3.replace(plan_path)
+        except (OSError, _json.JSONDecodeError):
+            logger.warning("scene plan cache write failed; IR selection remains authoritative")
+
 def execute_command(project_id: str, command: dict) -> CommandResult:
     """执行 Editor Command（校验 → 修改 → revision 落盘 → 返回结果）。
 
@@ -501,6 +587,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
         "ir_after": _snapshot_for_revision(ir),
     }
     _append_revision(project_id, revision)
+    if cmd_name == "set_scene_intent":
+        _sync_candidate_views(project_id, ir)
     logger.info(
         f"editor: {cmd_name} {target_id} → revision {revision_id} "
         f"(changed={changed}, stale={stale})"
