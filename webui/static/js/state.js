@@ -27,4 +27,5 @@ window._previewEl = null;
 // §10 DeveloperState：默认关闭；开启后显示 capability/command/原始错误等内部信息
 window.DEV = {mode: false};
 // §12 Capability availability：从 /api/capabilities 拉取（generation 禁用态依据）
-window.CAPS = {imageAvailable: null, imageReason: '', videoAvailable: null, videoReason: ''};
+// §十八 motionGrammars：Huashu 艺术动画语法清单（本地确定性渲染，无禁用态）
+window.CAPS = {imageAvailable: null, imageReason: '', videoAvailable: null, videoReason: '', motionGrammars: []};

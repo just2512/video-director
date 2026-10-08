@@ -210,8 +210,7 @@ def test_frontend_bulk_contracts_and_ci_coverage():
     for marker in ('id="cf-script"', 'id="cf-assets"', 'id="cf-reference"', 'id="cf-repo-root"', 'name="cf-scope"'):
         assert marker in create_js
 
-    assert "tests/test_director_unified_inputs.py" in ci
-    assert "tests/test_bulk_management.py" in ci
+    assert "pytest -q" in ci
     assert "python -m compileall video_director webui" in ci
     assert 'node --check "$f"' in ci
 

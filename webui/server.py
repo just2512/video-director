@@ -201,6 +201,15 @@ def _scan_sfx() -> list:
         return []
 
 
+def _motion_grammars() -> list:
+    """§十八 艺术动画：Huashu grammar 清单（generation.availability.motion）。"""
+    try:
+        from video_director import procedural_motion as _pm
+        return _pm.available_grammars()
+    except Exception:
+        return []
+
+
 def _load_llm_config() -> None:
     """启动时恢复模型配置：model_config.json（新中心）+ 旧 llm_config.json 迁移。"""
     try:
@@ -650,6 +659,14 @@ class Handler(BaseHTTPRequestHandler):
                                 "available": _mc.is_role_enabled("video"),
                                 "reason": "" if _mc.is_role_enabled("video")
                                 else "未配置视频生成服务（设置 → 模型里填写生视频服务）",
+                            },
+                            # §十八 艺术动画：Huashu Procedural Motion 本地确定性
+                            # 渲染，无外部 provider；grammar 清单随可用性下发，
+                            # 前端不用再发第二个请求（零新端点）。
+                            "motion": {
+                                "available": True,
+                                "reason": "",
+                                "grammars": _motion_grammars(),
                             },
                         },
                         "providers": [],

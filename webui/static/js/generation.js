@@ -26,6 +26,8 @@ async function refreshGenerationAvailability(){
       CAPS.imageReason = gen.generation.image.reason || '';
       CAPS.videoAvailable = !!gen.generation.video.available;
       CAPS.videoReason = gen.generation.video.reason || '';
+      const mo = gen.generation.motion || {};
+      CAPS.motionGrammars = Array.isArray(mo.grammars) ? mo.grammars : [];
     }
   } catch (e) { /* 拉取失败保持 null（不误禁用） */ }
   applyGenerationAvailability();
@@ -37,6 +39,7 @@ function applyGenerationAvailability(){
   const btn = document.querySelector('#pane-editor .card .btn-row button[onclick="editorGenerate()"]');
   if (!sel) return;
   const type = sel.value;
+  syncMotionGrammarVisibility(type);
   const unavailable = (type === 'image' && CAPS.imageAvailable === false)
                    || (type === 'video' && CAPS.videoAvailable === false);
   if (btn) {
@@ -44,7 +47,8 @@ function applyGenerationAvailability(){
     btn.title = unavailable
       ? ((type === 'image' ? CAPS.imageReason : CAPS.videoReason) || '该生成服务未配置')
       : '';
-    btn.textContent = unavailable ? '生成（暂不可用）' : '生成 3 变体';
+    btn.textContent = unavailable ? '生成（暂不可用）'
+      : (type === 'motion' ? '生成动画' : '生成 3 变体');
   }
   if (status && unavailable) {
     const reason = (type === 'image' ? CAPS.imageReason : CAPS.videoReason)
@@ -54,6 +58,22 @@ function applyGenerationAvailability(){
     status.textContent = '';
   }
 }
+
+/** §十八 艺术动画：Huashu grammar 下拉显隐 + 清单（generation.availability.motion）。
+    motion 无外部 provider（本地确定性渲染），只做显隐与数据填充，不做可用性 Gate。 */
+function syncMotionGrammarVisibility(type){
+  const gs = document.getElementById('gen-grammar');
+  if (!gs) return;
+  gs.style.display = type === 'motion' ? '' : 'none';
+  if (type !== 'motion' || gs.dataset.loaded) return;
+  const grammars = (CAPS.motionGrammars || []);
+  if (grammars.length) {
+    gs.dataset.loaded = '1';
+    gs.innerHTML = grammars.map(g =>
+      `<option value="${esc(g.id)}">${esc(g.name || g.id)}</option>`).join('');
+  }
+}
+function onMotionGrammarChanged(){ /* 预留：grammar 切换即时预览 */ }
 
 async function editorGenerate(){
   if (!ED.pid) { editorToast('先打开项目'); return; }
@@ -71,6 +91,11 @@ async function editorGenerate(){
   let refSel = (document.getElementById('gen-reference') || {}).value || '';
   const status = document.getElementById('gen-status');
   if (!prompt) { status.textContent = '请填生成提示词'; return; }
+  // §十八 艺术动画：grammar 选择进 reference 通道（grammar:<id>）
+  if (type === 'motion') {
+    const grammarSel = (document.getElementById('gen-grammar') || {}).value || '';
+    refSel = grammarSel ? `grammar:${grammarSel}` : 'grammar:y5_kinetic_type';
+  }
   // §90 参考图/参考视频：asset:first-image|first-video 解析为项目首个对应类型素材 id
   if (refSel === 'asset:first-image' || refSel === 'asset:first-video') {
     const wantType = refSel.endsWith('image') ? 'image' : 'video';
@@ -81,7 +106,7 @@ async function editorGenerate(){
     if (!found) { status.textContent = `项目无 ${wantType} 素材可作参考`; return; }
     refSel = 'asset:' + found;
   }
-  status.textContent = '生成中……（A/B/C 变体）';
+  status.textContent = type === 'motion' ? '动画生成中……（逐帧渲染）' : '生成中……（A/B/C 变体）';
   const r = await apiPost('/api/editor/generate', {project_id: ED.pid, prompt, type,
     model: modelSel.replace(/^\[(image|video)\] /, ''), reference: refSel,
     width: ED.comp ? (ED.comp.width || 1080) : 1080,
@@ -122,6 +147,8 @@ Object.assign(window, {
   populateGenModels,
   refreshGenerationAvailability,
   applyGenerationAvailability,
+  syncMotionGrammarVisibility,
+  onMotionGrammarChanged,
   editorGenerate,
   addGenToTimeline,
 });

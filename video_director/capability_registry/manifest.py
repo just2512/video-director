@@ -258,6 +258,16 @@ def _build_manifest() -> List[Capability]:
         "生成音乐", input_schema="GenerationRequest", outputs=("Asset",),
         supports_preview=True, provider_required=True, examples=("生成配乐",)))
 
+    # ---- CAP-MATERIAL-MOTION：Huashu Procedural Motion Provider ----
+    caps.append(_cap("material.motion.list", "generation",
+        "列出内置参数化解说动画语法（Huashu）", outputs=("MotionGrammarList",),
+        side_effect="", examples=("有哪些程序化动画语法", "列出动画语言")))
+    caps.append(_cap("material.motion.create", "generation",
+        "从结构化 MotionProgram 生成参数化动画视频并登记 Asset Catalog；AI 不直接执行 JS",
+        input_schema="MotionRequest", outputs=("MotionProgram", "Asset", "Artifact"),
+        side_effect="asset", supports_preview=True, provider_required=False,
+        examples=("做一段 Kinetic Type 动画", "用 Vox 语法做这段解说")))
+
     # ---- motion / style / template / shot（§54/§57）----
     caps.append(_cap("motion.list", "edit",
         "列出动效配方", outputs=("MotionList",), side_effect="",
