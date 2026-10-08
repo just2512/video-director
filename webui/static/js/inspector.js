@@ -777,17 +777,27 @@ async function editorVisualQA(sceneId, idx){
       el.innerHTML = '<span class="hint">素材文件不可用，无法验证。</span>';
       return;
     }
-    const r = await executeAction('visual.verify_asset', {
-      sceneId: sceneId, sceneText: sc.text || '', assetId: lay.asset_id, assetFile: d.file
-    }, 'current_selection', {type:'layer', id:sceneId + '#' + idx, layer_type:lay.type || 'video'});
+    const r = await apiPost('/api/action/execute', {
+      project_id: ED.pid || '',
+      action: 'visual.verify_asset',
+      target: 'current_selection',
+      params: {
+        sceneId: sceneId,
+        sceneText: sc.text || '',
+        assetId: lay.asset_id,
+        assetFile: d.file
+      },
+      selection: {type:'layer', id:sceneId + '#' + idx, layer_type:lay.type || 'video'}
+    });
     if (r && r.result && r.result.verdict) {
       const verdictCn = {DIRECT_MATCH:'直接匹配', SUPPORTING:'辅助匹配', CONFLICT:'明显冲突', UNKNOWN:'无法确认'};
       const v = r.result.verdict;
       el.innerHTML = '<b>视觉验证</b>：<b>' + esc(verdictCn[v] || v) + '</b>' +
         (r.result.evidence ? '<br>' + esc(r.result.evidence) : '') +
-        (r.result.reason ? '<br><span class="hint">' + esc(r.result.reason) + '</span>' : '');
-    } else if (r && !r.ok) {
-      el.innerHTML = '<span class="hint">验证失败：' + esc(r.error || '未知错误') + '</span>';
+        (r.result.reason ? '<br><span class="hint">' + esc(r.result.reason) + '</span>' : '') +
+        (!r.ok && r.error ? '<br><span class="hint">' + esc(r.error) + '</span>' : '');
+    } else {
+      el.innerHTML = '<span class="hint">验证失败：' + esc((r && (r.error || r.reason)) || '未知错误') + '</span>';
     }
   } catch (e) {
     el.innerHTML = '<span class="hint">验证失败：' + esc(e.message || e) + '</span>';
