@@ -60,6 +60,7 @@ function _createPanelHtml(){
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>文案</b><span class="hint"> 可选；填写后作为权威文案</span>
       <textarea id="cf-script" style="min-height:110px;margin-top:6px" placeholder="粘贴你已经写好的文案；没有文案也可以留空，让 AI 根据目标和其他输入生成。"></textarea>
+      <div class="hint" style="margin-top:5px">支持 [pause: 2s] / [停顿: 2s] / [silence: 1s]；停顿会真正进入旁白、字幕和镜头时间轴（0.1–10 秒）。</div>
     </div>
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>我的素材</b><span class="hint"> 可选；图片 / 视频可多选</span>
