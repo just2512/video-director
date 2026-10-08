@@ -55,6 +55,7 @@ def test_composition_and_material_match_expose_asset_preview_fields():
     assert 'route == "/api/editor/material_match"' in server
     assert '"layer_target"' in server
     assert '"asset_duration"' in server
+    assert '"asset_has_audio"' in server
 
 
 def test_renderer_supports_multiple_original_tracks():
