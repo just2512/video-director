@@ -1044,6 +1044,10 @@ class Handler(BaseHTTPRequestHandler):
                                      "message": "项目没有素材 manifest"}, 200)
                     return
                 raw_assets = json.loads(manifest_path.read_text(encoding="utf-8"))
+                raw_by_id = {
+                    raw.get("id"): raw for raw in raw_assets
+                    if isinstance(raw, dict) and raw.get("id")
+                }
                 assets = {}
                 for raw in raw_assets:
                     if raw.get("type") != "video" or not raw.get("id") or not raw.get("file"):
@@ -1112,7 +1116,7 @@ class Handler(BaseHTTPRequestHandler):
                         "asset_name": Path(asset.file).name,
                         "asset_file": (str(Path(asset.file).resolve()) if (Path(asset.file).is_file() and (lambda _r: _r == STORAGE.resolve() or STORAGE.resolve() in _r.parents)(Path(asset.file).resolve())) else ""),
                         "asset_duration": asset.duration,
-                        "asset_has_audio": getattr(asset, "has_audio", None),
+                        "asset_has_audio": raw_by_id.get(aid, {}).get("has_audio"),
                         "source_in": source_in,
                         "source_out": source_out,
                     })
