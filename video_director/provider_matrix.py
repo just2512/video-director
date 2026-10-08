@@ -330,12 +330,25 @@ def matrix_for_frontend() -> list[dict]:
                 fake_cfg = model_config.get_role_config(f"stock_{provider_id}")
             defs = [d for d in DEFINITIONS if d.role == role and d.provider_id == provider_id]
             ops = defs[0].operations if defs else ()
+            matrix_role = "stock" if role == "stock" else "tts"
+            display_configured = (
+                bool(fake_cfg.get("api_key"))
+                if role == "stock"
+                else provider_id == "edge-tts"
+            )
             out.append({
                 "role": role,
                 "provider": provider_id,
-                "configured": bool(fake_cfg.get("api_key")) if role == "stock" else provider_id == "edge-tts",
-                "operations": {op: state(role if role != "stock" else "stock_"+provider_id, op, fake_cfg).status
-                               for op in ops},
+                "configured": display_configured,
+                "operations": {
+                    op: state_for_provider(
+                        provider_id,
+                        matrix_role,
+                        fake_cfg,
+                        manual_manifest="",
+                    ).status
+                    for op in ops
+                },
             })
     return out
 
