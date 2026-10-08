@@ -294,41 +294,35 @@ def _legacy_stale_ids(stale_artifacts: Iterable[str]) -> set[str]:
     out = set()
     for value in stale_artifacts or []:
         raw = str(value or "")
+        if not raw:
+            continue
+        if raw == "composition":
+            out.add("composition")
+            continue
         if raw.startswith("audio:"):
             out.update({"master", "final"})
             continue
         if raw.startswith("subtitle:"):
             out.update({"subtitle", "final"})
             continue
-        if raw.startswith("project:") or raw == "project:render":
+        if raw.startswith("project:"):
             out.update({"visual", "master", "final"})
             continue
         if raw.startswith("watermark:"):
             out.add("final")
             continue
         if raw.endswith(":preview"):
+            out.update({"visual", "master", "final"})
             prefix = raw[:-len(":preview")]
-            if prefix:
-                if prefix.startswith("scene:"):
-                    out.update({f"scene:{prefix}:render", "visual", "master", "final"})
-                else:
-                    out.add("visual")
-            else:
-                out.update({"visual", "master", "final"})
+            if prefix.startswith("scene:"):
+                out.add(f"scene:{prefix}:render")
             continue
-        # Existing editor stale ids are generally "<scene>:render",
-        # "<scene>:camera", "<scene>:graphic", "<scene>:transition".
+        # Existing editor stale ids are "<scene>:render", "<scene>:camera",
+        # "<scene>:graphic", "<scene>:transition", "<scene>:continuity".
         if ":" in raw:
             prefix, suffix = raw.rsplit(":", 1)
-            if suffix == "render" and prefix:
+            if suffix in {"render", "camera", "graphic", "transition", "continuity"} and prefix:
                 out.update({f"scene:{prefix}:render", "visual", "master", "final"})
-            elif suffix in {"camera", "graphic", "transition", "continuity"} and prefix:
-                out.update({f"scene:{prefix}:render", "visual", "master", "final"})
-            elif raw == "composition":
-                out.add("composition")
-    return out
-        elif raw == "composition":
-            out.add("composition")
     return out
 
 
@@ -366,7 +360,6 @@ def prepare_render(
         if (
             aid.startswith("scene:")
             and prev.get("fingerprint") == node.get("fingerprint")
-            and prev.get("status") == FRESH
             and path
             and Path(path).is_file()
         ):
