@@ -247,28 +247,43 @@ def synth_narration(
 
 
 def _silent_narration(scene_texts: List[str], work_dir: Path) -> Tuple[str, List[dict], List[dict]]:
-    """§34 无配音模式：静音旁白轨（scene timing 估时；无词级时间轴，字幕按场景）。
-
-    场景时长估算：中文 ~4 字/秒（与 estimate 语义一致）；最少 2s 保底。
-    """
+    """无配音模式：同样消费 MPT pause markup，保证静音时间轴与有声模式一致。"""
     from video_director import renderer
+
     narration_scenes = []
     cursor = 0.0
-    for i, text in enumerate(scene_texts):
-        dur = max(2.0, len(text or "") / 4.0)
-        narration_scenes.append({"id": f"S{i+1:02d}", "text": text,
-                                  "start": round(cursor, 3), "duration": round(dur, 3)})
+    for i, raw_text in enumerate(scene_texts):
+        segments, _ = mpt_semantics.parse_pause_markup(raw_text)
+        clean_text = mpt_semantics.remove_pause_markup(raw_text)
+        speech_duration = max(2.0, len(clean_text) / 4.0)
+        pause_duration = sum(
+            max(0.0, float(seg.pause_after or 0.0))
+            for seg in segments
+        )
+        dur = speech_duration + pause_duration
+        narration_scenes.append({
+            "id": f"S{i+1:02d}",
+            "text": clean_text,
+            "start": round(cursor, 3),
+            "duration": round(dur, 3),
+            "pause_events": [
+                {"requested": round(seg.pause_after, 3)}
+                for seg in segments if seg.pause_after > 0
+            ],
+        })
         cursor += dur
+
     total = max(cursor, 1.0)
     audio_out = str(work_dir / "narration.mp3")
     renderer._run([
         renderer._ffmpeg(), "-y", "-loglevel", "error",
-        "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=mono",
+        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
         "-t", f"{total:.3f}", "-c:a", "libmp3lame", "-b:a", "128k", audio_out,
     ])
-    logger.info(f"narration silent mode: {len(scene_texts)} 场景 {total:.1f}s 静音轨（无假旁白）")
+    logger.info(
+        f"narration silent mode: {len(scene_texts)} 场景 {total:.1f}s 静音轨（保留 pause 时间语义）"
+    )
     return audio_out, [], narration_scenes
-
 
 def _write_concat_list(audio_paths: List[str], work_dir: Path) -> str:
     list_file = str(work_dir / "narration.concat.txt")
