@@ -405,6 +405,15 @@ def _tool_material(spec: dict, state: dict) -> dict:
     for i, scene in enumerate(state.get("narration_scenes") or []):
         planned = scene_plan_items[i] if i < len(scene_plan_items) else {}
         raw_terms = planned.get("search_terms") if isinstance(planned, dict) else None
+        selected_id = str(planned.get("selected_candidate_id") or "") if isinstance(planned, dict) else ""
+        candidates = planned.get("candidates") or [] if isinstance(planned, dict) else []
+        if selected_id:
+            selected = next(
+                (x for x in candidates if isinstance(x, dict) and x.get("id") == selected_id),
+                None,
+            )
+            if selected:
+                raw_terms = selected.get("search_terms") or raw_terms
         search_terms_by_scene.append(
             mpt_semantics.normalize_search_terms(raw_terms, scene.get("text", ""), amount=8)
         )
