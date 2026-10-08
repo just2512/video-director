@@ -214,8 +214,8 @@
           <span class="tb-sep"></span>
           <button class="btn-secondary btn-sm" id="tl-view-time" onclick="timelineView('time')">时间</button>
           <button class="btn-secondary btn-sm" id="tl-view-semantic" onclick="timelineView('semantic')">语义</button>
-          <button class="btn-secondary btn-sm" id="tl-snap-toggle" onclick="editorSessionToggleSnap()">吸附：开</button>
-          <button class="btn-secondary btn-sm" id="tl-box-toggle" onclick="editorSessionToggleBox()">框选</button>
+          <button class="btn-secondary btn-sm" id="tl-snap-toggle" data-action="ui.editor_session_snap">吸附：开</button>
+          <button class="btn-secondary btn-sm" id="tl-box-toggle" data-action="ui.editor_session_box">框选</button>
         </div>
         <div class="btn-row" style="flex-wrap:wrap">
           <button class="btn-secondary btn-sm" data-action="timeline.split" title="拆分当前场景">拆分</button>
