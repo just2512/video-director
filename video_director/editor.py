@@ -1794,7 +1794,7 @@ def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) ->
     """编辑器转场确认：只修改 Scene.transition_out，不重建场景/图层。"""
     if not target_id:
         raise EditorError("INVALID_TARGET", "set_transition_out 缺少场景 targetId")
-    scene, _ = _find_scene(ir, target_id)
+    _, scene = _find_scene(ir, target_id)
     ttype = str(payload.get("type") or "cut")
     duration = float(payload.get("duration", 0.0) or 0.0)
     if duration < 0:
