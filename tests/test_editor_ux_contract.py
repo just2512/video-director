@@ -32,6 +32,8 @@ def test_editor_ux_files_are_wired():
     assert "command:'set_transition'" in js
     assert "window.editorRenderTimeline" in js
     assert "liveSceneAt" in js
+    assert "enhancedRefreshPreview(false)" in js
+    assert "Composition 有任何编辑后" in js
     assert "按文案匹配我的素材" in js
     assert "待确认" in js
     assert ".edx-story-card" in css
@@ -46,6 +48,7 @@ def test_draft_render_action_and_transition_command_are_registered():
     assert 'render_draft: () =>' in dispatcher
     assert '"set_transition"' in editor
     assert 'elif cmd_name == "set_transition"' in editor
+    assert "TransitionOut," in editor
 
 
 def test_composition_and_material_match_expose_asset_preview_fields():
