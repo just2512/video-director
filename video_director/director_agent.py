@@ -1094,6 +1094,33 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     repo_files = di.materialize_software_project_artifacts(pid, bundle)
     state["video_files"], state["image_files"] = videos, images
     _restore_checkpoint_state(pid, state)
+    # checkpoint 可能来自用户在工作台选择候选之后；以持久化候选文件覆盖内存 Scene Plan，
+    # 防止继续执行时重新加载旧的 AI 规划而丢失用户选择。
+    candidate_path = config.project_dir(pid) / "plans" / "creative_candidates.json"
+    if candidate_path.is_file():
+        try:
+            persisted_candidates = json.loads(candidate_path.read_text(encoding="utf-8"))
+            state["creative_candidates"] = persisted_candidates
+            by_scene = {
+                row.get("scene_id"): row
+                for row in persisted_candidates.get("scenes") or []
+                if isinstance(row, dict) and row.get("scene_id")
+            }
+            plan_data = state.get("scene_plan") or {}
+            for row in plan_data.get("scenes") or []:
+                persisted = by_scene.get(row.get("id") or row.get("scene_id"))
+                if persisted:
+                    row["candidates"] = persisted.get("candidates") or row.get("candidates") or []
+                    row["selected_candidate_id"] = persisted.get("selected_candidate_id") or row.get("selected_candidate_id") or ""
+                    selected = next(
+                        (x for x in row["candidates"] if x.get("id") == row["selected_candidate_id"]),
+                        None,
+                    )
+                    if selected:
+                        row["visual_intent"] = selected.get("visual_intent") or row.get("visual_intent") or ""
+            state["scene_plan"] = plan_data
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Director candidate state restore failed; keeping checkpoint state")
     bundle["materialized"] = {
         "reference_files": refs,
         "software_evidence_files": repo_files,
