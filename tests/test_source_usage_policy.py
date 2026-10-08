@@ -72,3 +72,16 @@ def test_assignment_policy_preserves_semantic_choice_when_no_conflict():
     )
     assert result == assignments
     assert all(x["status"] == ACCEPT for x in decisions)
+
+
+def test_matcher_enforces_policy_after_semantic_assignment(monkeypatch):
+    from video_director import matcher
+    a = _asset("a", "uploaded")
+    b = _asset("b", "uploaded")
+    assets = {"a": a, "b": b}
+    scenes = [{"id": "S01", "text": "甲"}, {"id": "S02", "text": "乙"}]
+
+    monkeypatch.setattr(matcher, "deterministic_match", lambda *args, **kwargs: "a")
+    result = matcher.match_assets(scenes, assets, llm_call=None)
+    assert result["S01"] == "a"
+    assert result["S02"] == "b"
