@@ -467,6 +467,29 @@ def verify_scene_candidates(
     }
 
 
+def save_scene_evidence(project_id: str, evidence: VisualEvidence) -> Path:
+    """持久化单条 QA 证据，按 scene_id + asset_id 幂等覆盖。"""
+    path = config.project_dir(project_id) / "plans" / "visual_qa.json"
+    reports = []
+    if path.is_file():
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+            reports = current.get("reports", []) if isinstance(current, dict) else []
+        except (OSError, json.JSONDecodeError):
+            reports = []
+    row = evidence.to_dict()
+    reports = [
+        x for x in reports
+        if not (
+            isinstance(x, dict)
+            and x.get("scene_id") == evidence.scene_id
+            and x.get("asset_id") == evidence.asset_id
+        )
+    ]
+    reports.append(row)
+    return save_scene_report(project_id, reports)
+
+
 def save_scene_report(project_id: str, scene_reports: Sequence[Mapping[str, Any]]) -> Path:
     path = config.project_dir(project_id) / "plans" / "visual_qa.json"
     path.parent.mkdir(parents=True, exist_ok=True)
