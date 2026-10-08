@@ -125,18 +125,8 @@ def test_candidate_selection_command_changes_intent_only_and_persists_choice(mon
     assert changed == ["S01"]
     assert "S01:render" in stale
     assert ir.scenes[0].visual_intent == candidate["visual_intent"]
+    assert ir.scenes[0].selected_candidate_id == candidate["id"]
     assert ir.scenes[0].layers[0].asset_id == "asset-old"
-
-    saved = __import__("json").loads(
-        (project_dir / "creative_candidates.json").read_text(encoding="utf-8")
-    )
-    assert saved["scenes"][0]["selected_candidate_id"] == candidate["id"]
-
-    plan = __import__("json").loads(
-        (project_dir / "director_scene_plan.json").read_text(encoding="utf-8")
-    )
-    assert plan["scenes"][0]["selected_candidate_id"] == candidate["id"]
-    assert plan["scenes"][0]["visual_intent"] == candidate["visual_intent"]
 
 
 def test_inspector_candidate_actions_use_existing_action_and_tools():
@@ -159,3 +149,57 @@ def test_action_registry_and_command_contract_are_registered():
     assert '"creative.candidate.select": "set_scene_intent"' in executor
     assert '"creative.candidate.select"' in manifest
     assert '"CreativeCandidateSelectRequest"' in validator
+
+
+def test_committed_ir_can_sync_candidate_views_without_changing_asset():
+    from video_director import config
+    from video_director.editor import _sync_candidate_views
+    from video_director.models import Layer, LayerType, SceneIR, CompositionIR, ProjectSpec
+
+    import json
+    monkeypatch = __import__("pytest").MonkeyPatch()
+    try:
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            monkeypatch.setattr(config, "project_dir", lambda pid: root / pid)
+            plans = root / "p1" / "plans"
+            plans.mkdir(parents=True)
+            snapshot = creative_candidates.build_candidate_snapshot([
+                {"id": "S01", "text": "办公室会议"}
+            ])
+            selected = snapshot["scenes"][0]["candidates"][1]
+            snapshot["scenes"][0]["selected_candidate_id"] = selected["id"]
+            for item in snapshot["scenes"][0]["candidates"]:
+                item["selected"] = item["id"] == selected["id"]
+            (plans / "creative_candidates.json").write_text(
+                json.dumps(snapshot, ensure_ascii=False), encoding="utf-8"
+            )
+            (plans / "material_intents.json").write_text(
+                json.dumps({"version": 1, "scenes": [{
+                    "scene_id": "S01",
+                    "search_terms": ["old"],
+                    "selected_candidate_id": "S01-C1",
+                    "selected_asset_id": "asset-old",
+                }]}, ensure_ascii=False), encoding="utf-8"
+            )
+            layer = Layer(type=LayerType.image, asset_id="asset-old", start=0, duration=5)
+            scene = SceneIR(
+                id="S01", start=0, duration=5, text="办公室会议",
+                layers=[layer], visual_intent=selected["visual_intent"],
+                selected_candidate_id=selected["id"],
+            )
+            ir = CompositionIR(
+                project=ProjectSpec(width=1080, height=1920, fps=30, duration=5),
+                scenes=[scene],
+            )
+            _sync_candidate_views("p1", ir)
+            out = json.loads((plans / "creative_candidates.json").read_text(encoding="utf-8"))
+            assert out["scenes"][0]["selected_candidate_id"] == selected["id"]
+            assert out["scenes"][0]["candidates"][1]["selected"] is True
+            intent = json.loads((plans / "material_intents.json").read_text(encoding="utf-8"))
+            assert intent["scenes"][0]["selected_candidate_id"] == selected["id"]
+            assert intent["scenes"][0]["search_terms"] == selected["search_terms"]
+            assert ir.scenes[0].layers[0].asset_id == "asset-old"
+    finally:
+        monkeypatch.undo()
