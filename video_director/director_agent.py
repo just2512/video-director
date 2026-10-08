@@ -653,6 +653,8 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         "manifest_path": mpath,
         "style_path": spath,
         "transition_proposals_path": str(proposal_path),
+        "material_usage_path": usage_path,
+        "build_fingerprint_path": fingerprint_path,
     })
     checks = [
         {"id": "composition_file", "ok": _file_ok(cpath)},
@@ -666,6 +668,9 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         "result": {
             "composition": cpath, "manifest": mpath, "style": spath,
             "transition_proposals": str(proposal_path),
+            "material_intents": str(dirs["plans"] / "material_intents.json"),
+            "material_usage": usage_path,
+            "build_fingerprint": fingerprint_path,
             "original_audio_segments": sum(
                 1 for sc in ir.scenes for lay in sc.layers
                 if lay.type == LayerType.video and lay.asset_id
