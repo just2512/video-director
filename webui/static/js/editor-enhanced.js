@@ -257,17 +257,11 @@
     for(const x of m.matches){
       if(!x.layer_target || !x.asset_id) continue;
       ops.push({command:'replace_source',targetId:x.layer_target,payload:{assetId:x.asset_id}});
-      const sc=sceneOf(x.scene_id), lay=sc&&primaryLayer(sc);
-      if(lay && lay.asset_id===x.asset_id){
+      const sc=sceneOf(x.scene_id);
+      if(x.asset_has_audio!==false && sc){
         ops.push({command:'set_original_audio',targetId:'project',
           payload:{mode:'preserve',assetId:x.asset_id,start:Number(sc.start||0),
-            duration:Number(Math.min(sc.duration||0,x.source_duration||sc.duration||0)),
-            sourceIn:Number(x.source_in||0),sourceOut:x.source_out==null?null:Number(x.source_out),
-            volume:0.8}});
-      }else{
-        ops.push({command:'set_original_audio',targetId:'project',
-          payload:{mode:'preserve',assetId:x.asset_id,start:Number(sc&&sc.start||0),
-            duration:Number(sc&&sc.duration||0),sourceIn:Number(x.source_in||0),
+            duration:Number(sc.duration||0),sourceIn:Number(x.source_in||0),
             sourceOut:x.source_out==null?null:Number(x.source_out),volume:0.8}});
       }
     }
@@ -290,8 +284,9 @@
     box.innerHTML='<div class="edx-match-head"><b>素材匹配建议</b><button class="btn-secondary btn-sm" onclick="edxApplyMaterialMatch()">全部采用</button></div>'+
       (m.matches||[]).map(x=>'<div class="edx-match-row">'+
         thumbMarkup({type:'video',asset_file:x.asset_file})+
-        '<div><b>'+escx(x.scene_id)+'</b><div class="hint">'+escx(x.scene_text||'')+'</div><div>→ '+escx(x.asset_name||x.asset_id)+'</div></div>'+
-      '</div>').join('')+
+        '<div><b>'+escx(x.scene_id)+'</b><div class="hint">'+escx(x.scene_text||'')+'</div><div>→ '+escx(x.asset_name||x.asset_id)+'</div>'+
+        (x.asset_has_audio===false?'<div class="hint">该素材无音轨</div>':'<div class="hint">原声：保留</div>')+
+        '</div></div>').join('')+
       ((m.unmatched||[]).length?'<div class="hint">未形成匹配：'+escx(m.unmatched.join('、'))+'。这些场景不会被自动替换。</div>':'');
   }
 
