@@ -318,6 +318,7 @@ SUPPORTED_COMMANDS = (
     "set_graphic_block",          # 换视觉块（graphic 层 program.block_id）
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
+    "set_transition_out",         # 转场确认（Scene.transition_out）
     "undo",
     "redo",
 )
@@ -461,6 +462,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_graphic_layout(ir, target_id, payload)
         elif cmd_name == "set_scene_continuity":
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
+        elif cmd_name == "set_transition_out":
+            changed, stale = _cmd_set_transition_out(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -1785,6 +1788,26 @@ def _cmd_set_graphic_layout(ir: CompositionIR, target_id: str,
 
 
 _SCENE_CONTINUITY_TYPES = tuple(t.value for t in ContinuityType)
+
+
+def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """编辑器转场确认：只修改 Scene.transition_out，不重建场景/图层。"""
+    if not target_id:
+        raise EditorError("INVALID_TARGET", "set_transition_out 缺少场景 targetId")
+    scene, _ = _find_scene(ir, target_id)
+    ttype = str(payload.get("type") or "cut")
+    duration = float(payload.get("duration", 0.0) or 0.0)
+    if duration < 0:
+        raise EditorError("INVALID_PARAMETER", "转场时长不能为负")
+    if ttype not in {"cut", "crossfade", "fade"}:
+        raise EditorError("INVALID_PAYLOAD", f"不支持的转场类型 {ttype!r}")
+    if ttype == "cut":
+        duration = 0.0
+    if duration > scene.duration / 2:
+        raise EditorError("INVALID_PARAMETER", "转场时长不能超过当前场景时长的一半")
+    from video_director.models import TransitionOut
+    scene.transition_out = TransitionOut(type=ttype, duration=duration)
+    return [f"{scene.id}:transition"], [f"{scene.id}:render", f"{scene.id}:preview"]
 
 
 def _cmd_set_scene_continuity(ir: CompositionIR, target_id: str,
