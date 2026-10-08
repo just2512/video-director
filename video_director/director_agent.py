@@ -966,6 +966,7 @@ def _tool_render(spec: dict, state: dict) -> dict:
         narration_file=state.get("narration_file"),
         subtitle_file=state.get("subtitle_file"),
         title_card=title_card,
+        project_id=pid,
         lower_third_name=(spec.get("lower_third_name") or "").strip() or None,
         lower_third_role=(spec.get("lower_third_role") or "").strip() or None,
     )
