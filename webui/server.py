@@ -1112,6 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
                         "asset_name": Path(asset.file).name,
                         "asset_file": (str(Path(asset.file).resolve()) if (Path(asset.file).is_file() and (lambda _r: _r == STORAGE.resolve() or STORAGE.resolve() in _r.parents)(Path(asset.file).resolve())) else ""),
                         "asset_duration": asset.duration,
+                        "asset_has_audio": getattr(asset, "has_audio", None),
                         "source_in": source_in,
                         "source_out": source_out,
                     })
