@@ -294,20 +294,39 @@ def _legacy_stale_ids(stale_artifacts: Iterable[str]) -> set[str]:
     out = set()
     for value in stale_artifacts or []:
         raw = str(value or "")
-        if ":render" in raw and raw.endswith(":render") and not raw.startswith("audio:"):
-            sid = raw[:-len(":render")]
-            if sid and sid != "project":
-                out.add(f"scene:{sid}:render")
-        elif raw.endswith(":preview"):
-            out.add("visual")
-        elif raw.startswith("audio:"):
+        if raw.startswith("audio:"):
             out.update({"master", "final"})
-        elif raw.startswith("subtitle:"):
+            continue
+        if raw.startswith("subtitle:"):
             out.update({"subtitle", "final"})
-        elif raw.startswith("project:") or raw == "project:render":
+            continue
+        if raw.startswith("project:") or raw == "project:render":
             out.update({"visual", "master", "final"})
-        elif raw.startswith("watermark:"):
+            continue
+        if raw.startswith("watermark:"):
             out.add("final")
+            continue
+        if raw.endswith(":preview"):
+            prefix = raw[:-len(":preview")]
+            if prefix:
+                if prefix.startswith("scene:"):
+                    out.update({f"scene:{prefix}:render", "visual", "master", "final"})
+                else:
+                    out.add("visual")
+            else:
+                out.update({"visual", "master", "final"})
+            continue
+        # Existing editor stale ids are generally "<scene>:render",
+        # "<scene>:camera", "<scene>:graphic", "<scene>:transition".
+        if ":" in raw:
+            prefix, suffix = raw.rsplit(":", 1)
+            if suffix == "render" and prefix:
+                out.update({f"scene:{prefix}:render", "visual", "master", "final"})
+            elif suffix in {"camera", "graphic", "transition", "continuity"} and prefix:
+                out.update({f"scene:{prefix}:render", "visual", "master", "final"})
+            elif raw == "composition":
+                out.add("composition")
+    return out
         elif raw == "composition":
             out.add("composition")
     return out
