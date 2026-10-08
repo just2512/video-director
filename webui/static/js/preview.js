@@ -6,7 +6,7 @@
 // 职责：loadDraft / showSelectionOverlay / showMaskOverlay / showScenePair /
 //       play / pause / seek
 
-window.PV = {draftPath: '', finalPath: '', playhead: 0, pairMode: null};
+window.PV = {draftPath: '', finalPath: '', playhead: 0, pairMode: null, mode: 'live', playing: false, timer: null, activeSceneId: '', activeLayerId: ''};
 
 /** 加载项目草稿/成片信息（顶栏「预览」与打开项目时调用）。 */
 async function previewLoadDraft(){
@@ -37,15 +37,42 @@ function previewShowVideo(path, label){
 /** 播放/暂停/seek（§64）。 */
 function previewPlay(){
   const v = document.querySelector('#ed-preview-stage video');
-  if (v) v.play().catch(()=>{});
+  if (PV.mode === 'draft' && v) { v.play().catch(()=>{}); return; }
+  if (!ED.comp) return;
+  PV.mode = 'live';
+  PV.playing = true;
+  if (PV.timer) clearInterval(PV.timer);
+  let last = performance.now();
+  PV.timer = setInterval(() => {
+    if (!PV.playing) return;
+    const now = performance.now();
+    const dt = Math.min(0.2, Math.max(0, (now - last) / 1000));
+    last = now;
+    const total = ED.comp.duration || 0;
+    PV.playhead += dt;
+    if (PV.playhead >= total) {
+      PV.playhead = total;
+      previewPause();
+    }
+    _previewRenderAt(PV.playhead, true);
+  }, 80);
+  _previewRenderAt(PV.playhead, true);
 }
 function previewPause(){
   const v = document.querySelector('#ed-preview-stage video');
-  if (v) v.pause();
+  if (v && PV.mode === 'draft') v.pause();
+  PV.playing = false;
+  if (PV.timer) { clearInterval(PV.timer); PV.timer = null; }
 }
 function previewSeek(sec){
-  const v = document.querySelector('#ed-preview-stage video');
-  if (v && sec >= 0) { v.currentTime = sec; PV.playhead = sec; }
+  if (!ED.comp || sec < 0) return;
+  PV.playhead = Math.min(sec, ED.comp.duration || sec);
+  if (PV.mode === 'draft') {
+    const v = document.querySelector('#ed-preview-stage video');
+    if (v) v.currentTime = PV.playhead;
+    return;
+  }
+  _previewRenderAt(PV.playhead, false);
 }
 
 /** 选择高亮 Overlay：Selection → Preview 边界框（§19）。
@@ -53,8 +80,7 @@ function previewSeek(sec){
 function previewShowSelectionOverlay(){
   const stage = document.getElementById('ed-preview-stage');
   if (!stage) return;
-  const hasVideo = !!stage.querySelector('video');
-  if (!hasVideo) previewRenderPlaceholder();
+  if (!stage.querySelector('video, img, .pv-live-media')) previewRenderComposition();
   _previewApplyOverlay();
 }
 
@@ -76,6 +102,80 @@ function previewRenderPlaceholder(){
   const pairHint = SEL.selection && SEL.selection.type === 'scene_pair'
     ? `<div class="pv-ph-pair">镜头关系：${esc(SEL.selection.id.split('->')[0])} → ${esc(SEL.selection.id.split('->')[1])}</div>` : '';
   stage.innerHTML = `<div class="pv-placeholder">${bars}${pairHint}</div>`;
+}
+
+
+/** 实时 Composition 预览：编辑态直接播放 IR，不要求先生成 draft.mp4。 */
+function previewRenderComposition(){
+  if (!ED.comp) return;
+  PV.mode = 'live';
+  _previewRenderAt(PV.playhead || 0, false);
+}
+function _previewSceneAt(sec){
+  const scenes = ED.comp && ED.comp.scenes || [];
+  if (!scenes.length) return null;
+  return scenes.find((sc, i) =>
+    (sec >= sc.start && sec < sc.start + sc.duration) ||
+    (i === scenes.length - 1 && sec >= sc.start)
+  ) || scenes[0];
+}
+function _previewLayerAt(sc, local){
+  const layers = (sc.layers || []).slice().sort((a,b)=>(a.start||0)-(b.start||0));
+  return layers.find(l => local >= (l.start||0) && local < (l.start||0) + (l.duration||0))
+      || layers.find(l => l.asset_id)
+      || layers[0] || null;
+}
+function _previewAsset(aid){
+  return (ED.comp && ED.comp.assets && ED.comp.assets[aid]) || null;
+}
+function _previewRenderAt(sec, keepPlaying){
+  if (!ED.comp) return;
+  const stage = document.getElementById('ed-preview-stage');
+  const meta = document.getElementById('ed-preview-meta');
+  if (!stage) return;
+  const sc = _previewSceneAt(sec);
+  if (!sc) return;
+  const local = Math.max(0, Math.min(sc.duration, sec - sc.start));
+  const lay = _previewLayerAt(sc, local);
+  const asset = lay && _previewAsset(lay.asset_id);
+  const key = (lay && lay.asset_id) || '';
+  const changed = PV.activeSceneId !== sc.id || PV.activeLayerId !== key;
+  if (changed) {
+    PV.activeSceneId = sc.id;
+    PV.activeLayerId = key;
+    let media = '<div class="pv-live-empty">本镜暂无可预览素材</div>';
+    if (asset && asset.file_url) {
+      if (asset.type === 'video') {
+        media = '<video id="pv-live-video" muted playsinline preload="metadata" src="' + asset.file_url + '"></video>';
+      } else {
+        media = '<img class="pv-live-image" src="' + asset.file_url + '" alt="">';
+      }
+    }
+    const sourceBadge = asset && asset.source === 'user' ? ' · 用户素材' : '';
+    const transition = sc.transition_out && sc.transition_out.type && sc.transition_out.type !== 'cut'
+      ? '<span class="pv-live-transition">下一镜：' + esc(sc.transition_out.type) + '</span>' : '';
+    stage.innerHTML =
+      '<div class="pv-live-media">' + media + '</div>' +
+      '<div class="pv-live-caption"><b>' + esc(sc.text || sc.id) + '</b>' +
+      '<span class="hint">场景 ' + esc(String((ED.comp.scenes || []).indexOf(sc) + 1)) +
+      ' · ' + sc.duration.toFixed(1) + 's</span>' + sourceBadge + transition + '</div>';
+    const v = document.getElementById('pv-live-video');
+    if (v) {
+      v.addEventListener('loadedmetadata', () => _previewSyncVideo(v, sc, lay, local));
+      if (PV.playing && keepPlaying) v.play().catch(()=>{});
+    }
+  }
+  const v = document.getElementById('pv-live-video');
+  if (v && lay && lay.type === 'video') _previewSyncVideo(v, sc, lay, local);
+  if (meta) meta.textContent = '实时预览 · ' + sec.toFixed(1) + ' / ' + (ED.comp.duration || 0).toFixed(1) + 's';
+}
+function _previewSyncVideo(v, sc, lay, local){
+  if (!v || !lay) return;
+  const sourceIn = Number(lay.source_in || 0);
+  const speed = Number(lay.speed || 1);
+  const within = Math.max(0, local - Number(lay.start || 0));
+  const t = sourceIn + within * speed;
+  if (Number.isFinite(t) && Math.abs((v.currentTime || 0) - t) > 0.12) v.currentTime = t;
 }
 
 /** 叠加层：PiP 框 / 蒙版手柄（mask-editor 已有 overlay 逻辑则不重复挂）。 */
