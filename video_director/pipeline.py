@@ -459,6 +459,7 @@ def compose_project(
                 lower_third_name=lower_third_name,
                 lower_third_role=lower_third_role,
                 watermark=watermark,
+                project_id=pid,
             )
             store.set_stage(pid, store.Stage.QC)
             report = qc_mod.run_qc(
