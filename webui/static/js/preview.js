@@ -225,7 +225,7 @@ function previewShowScenePair(fromId, toId){
   if (meta) meta.textContent = `镜头关系：${fromId} → ${toId}`;
 }
 
-Object.assign(window, {
+Object.assign(window, { previewRenderComposition, previewPlay, previewPause, previewSeek, 
   previewLoadDraft, previewShowVideo, previewPlay, previewPause, previewSeek,
   previewShowSelectionOverlay, previewRenderPlaceholder, previewShowScenePair,
   PV,
