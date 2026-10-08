@@ -340,6 +340,8 @@ _ACTIONS: List[ActionSpec] = [
                targets=["layer"], undo=False, ui="edit_mask"),
     ActionSpec("ui.preview_draft", "预览草稿", "render.draft", "noop",
                targets=["project"], undo=False, ui="preview_draft"),
+    ActionSpec("ui.render_draft", "渲染草稿任务", "render.draft", "noop",
+               targets=["project"], undo=False, ui="render_draft"),
     ActionSpec("ui.undo", "撤销", "system.capabilities.list", "noop",
                targets=["project"], undo=False, ui="undo"),
     ActionSpec("ui.redo", "重做", "system.capabilities.list", "noop",
