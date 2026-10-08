@@ -82,6 +82,15 @@ def generate_image_variants(
     model_override：§38 Model 选择器的显式模型（None 用角色配置）。
     """
     cfg = _role_cfg("image")
+    try:
+        from video_director import provider_matrix
+        provider_matrix.require("image", "image.generate", cfg)
+    except provider_matrix.ProviderCapabilityError as exc:
+        raise GenerationError(
+            "IMAGE_PROVIDER_UNAVAILABLE" if exc.state.status == provider_matrix.MISSING
+            else "CAPABILITY_UNSUPPORTED",
+            str(exc),
+        ) from exc
     if not (cfg or {}).get("api_key"):
         raise GenerationError(
             "IMAGE_PROVIDER_UNAVAILABLE",
@@ -447,6 +456,15 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                     input_fp, manifest, model=None):
     """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。"""
     cfg = _role_cfg("video")
+    try:
+        from video_director import provider_matrix
+        provider_matrix.require("video", "video.generate", cfg)
+    except provider_matrix.ProviderCapabilityError as exc:
+        raise GenerationError(
+            "VIDEO_PROVIDER_UNAVAILABLE" if exc.state.status == provider_matrix.MISSING
+            else "CAPABILITY_UNSUPPORTED",
+            str(exc),
+        ) from exc
     if not (cfg or {}).get("api_key"):
         raise GenerationError(
             "VIDEO_PROVIDER_UNAVAILABLE",
