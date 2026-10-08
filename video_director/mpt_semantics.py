@@ -72,39 +72,46 @@ def _parse_pause_value(raw: Optional[str]) -> Optional[float]:
     return max(PAUSE_MIN_SECONDS, min(PAUSE_MAX_SECONDS, value))
 
 def parse_pause_markup(text: str) -> tuple[List[SpeechSegment], List[PauseEvent]]:
+    """复刻 MPT pause markup：无效删除、0.1s 下限、10s 上限、连续停顿合并。"""
     text = text or ""
     if not text:
         return [], []
+
     segments: List[SpeechSegment] = []
     events: List[PauseEvent] = []
     cursor = 0
-    pending = 0.0
+
     for match in PAUSE_TAG_RE.finditer(text):
         speech = text[cursor:match.start()].strip()
         if speech:
             segments.append(SpeechSegment(speech, 0.0))
+
         duration = _parse_pause_value(match.group(1))
         cursor = match.end()
         if duration is None:
             continue
-        pending = min(PAUSE_MAX_SECONDS, pending + duration)
+
+        # MPT：连续 pause 标签合并；无语音前缀时保留 leading pause。
         if segments:
             prev = segments[-1]
-            segments[-1] = SpeechSegment(prev.text, pending)
-            pending = 0.0
-        if events and events[-1].at_text_offset == match.start():
+            merged = min(PAUSE_MAX_SECONDS, prev.pause_after + duration)
+            segments[-1] = SpeechSegment(prev.text, merged)
+        else:
+            segments.append(SpeechSegment("", min(PAUSE_MAX_SECONDS, duration)))
+
+        if events and events[-1].at_text_offset >= match.start() - 1:
             events[-1] = PauseEvent(
-                match.start(),
+                events[-1].at_text_offset,
                 min(PAUSE_MAX_SECONDS, events[-1].duration + duration),
-                match.group(0),
+                events[-1].raw + match.group(0),
             )
         else:
             events.append(PauseEvent(match.start(), duration, match.group(0)))
+
     tail = text[cursor:].strip()
     if tail:
         segments.append(SpeechSegment(tail, 0.0))
     return segments, events
-
 def remove_pause_markup(text: str) -> str:
     cleaned = PAUSE_TAG_RE.sub(" ", text or "")
     return re.sub(r"[ \\t]+", " ", cleaned).strip()
