@@ -36,7 +36,10 @@ async function refreshGenerationAvailability(){
 function applyGenerationAvailability(){
   const sel = document.getElementById('gen-type');
   const status = document.getElementById('gen-status');
-  const btn = document.querySelector('#pane-editor .card .btn-row button[onclick="editorGenerate()"]');
+  // 生成按钮在场景 inspector 的 role-block 里（§8 生成入 Scene→画面），
+  // 不在 #pane-editor .card 路径下——按 onclick 属性定位（2026-10-08 实测
+  // 前者永远 miss，按钮文案/禁用态从不更新）。
+  const btn = document.querySelector('button[onclick="editorGenerate()"]');
   if (!sel) return;
   const type = sel.value;
   syncMotionGrammarVisibility(type);
@@ -119,7 +122,11 @@ async function editorGenerate(){
     `<span class="hint">${layerTypeCn(res.type)} · 来源：${res.provider_id === 'image-llm' ? '图片生成' : esc(res.provider_id || '生成')}</span>`+
     (DEV.mode ? `<span class="hint" style="font-size:11px">指纹 ${esc(res.input_fingerprint || '')}</span>` : '')+`</span>`+
     `<span class="btn-row">`+
-    `<button class="btn-sm" data-action="asset.add_broll" data-params='{"assetId":"${esc(res.asset_id)}"}'>加入时间线</button>`+
+    // 视频类产物（AI 视频 / Huashu motion mp4）按 video 层入轨并带足
+    // sourceOut——缺省会被 _cmd_add_broll 当 image 层（1s 静帧，5s 动画被截）。
+    // duration 服务端 generation 知道但未回传，这里用宽裕的 3600s 上限，
+    // editor 的 _respread_layers 会按场景时长重新铺排。
+    `<button class="btn-sm" data-action="asset.add_broll" data-params='{"assetId":"${esc(res.asset_id)}","assetType":"${esc(res.type)}"${res.type === 'video' ? ',"sourceOut":3600' : ''}}'>加入时间线</button>`+
     `<button class="btn-secondary btn-sm" onclick="edLibDomain('content','assets')">已存项目素材</button>`+
     `</span></div>`).join('');
 }
