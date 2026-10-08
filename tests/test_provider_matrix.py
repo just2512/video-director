@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import os
-
 from video_director import generation, provider_matrix, stock, voice
 
 
@@ -26,18 +24,16 @@ def test_infer_openai_and_custom_compatible():
 
 def test_image_ready_requires_key_but_uses_role_defaults():
     st = provider_matrix.state(
-        "image",
+        "image", "image.generate",
         {"api_key": "k", "base_url": "", "model": ""},
-        "image.generate",
     )
     assert st.status == provider_matrix.READY
 
 
 def test_video_missing_base_url_is_not_ready():
     st = provider_matrix.state(
-        "video",
+        "video", "video.generate",
         {"api_key": "k", "base_url": "", "model": ""},
-        "video.generate",
     )
     assert st.status == provider_matrix.MISSING
     assert "服务地址" in st.reason
@@ -45,25 +41,22 @@ def test_video_missing_base_url_is_not_ready():
 
 def test_video_image_to_video_is_explicitly_unsupported():
     st = provider_matrix.state(
-        "video",
+        "video", "video.image_to_video",
         {"api_key": "k", "base_url": "https://example.com/v1", "model": "video-model"},
-        "video.image_to_video",
     )
     assert st.status == provider_matrix.UNSUPPORTED
 
 
 def test_unknown_custom_role_provider_is_fail_closed():
     st = provider_matrix.state(
-        "image",
+        "image", "image.generate",
         {"api_key": "k", "base_url": "", "model": "image-model"},
-        "image.generate",
     )
     assert st.status == provider_matrix.READY
 
     st2 = provider_matrix.state(
-        "image",
+        "image", "image.generate",
         {"api_key": "k", "base_url": "not-a-url", "model": "image-model"},
-        "image.generate",
     )
     assert st2.status == provider_matrix.READY
 
@@ -80,9 +73,8 @@ def test_tts_unimplemented_providers_never_report_ready():
 def test_stock_coverr_is_unsupported_even_when_key_exists(monkeypatch):
     monkeypatch.setenv("COVERR_API_KEY", "test-key")
     st = provider_matrix.state(
-        "stock_coverr",
+        "stock_coverr", "stock.search_video",
         {"api_key": "test-key", "base_url": "https://coverr.co", "model": ""},
-        "stock.search_video",
     )
     assert st.status == provider_matrix.UNSUPPORTED
 
