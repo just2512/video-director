@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 from loguru import logger
 
-from video_director import audio, assets as assets_mod, config, matcher, narration
+from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
@@ -51,8 +51,82 @@ def _strip_code_fence(text: str) -> str:
 
 def _scene_texts(script: str) -> List[str]:
     import re
-    parts = [x.strip() for x in re.split(r"[。！？!?\n]+", script or "") if x.strip()]
+    # 保留 MPT pause markup 到 Narration 节点；视觉规划/素材检索在消费时再清除。
+    raw_script = script or ""
+    parts = [x.strip() for x in re.split(r"[。！？!?\n]+", raw_script) if x.strip()]
     return [x + ("。" if not x.endswith(("。", "！", "？", "!", "?")) else "") for x in parts]
+_STOP_NODE_ALIASES = {
+    "script": "script",
+    "terms": "scene_plan",
+    "audio": "narration",
+    "subtitle": "subtitle",
+    "materials": "material_match",
+    "preview": "verify",
+    "video": "render",
+}
+
+
+def _restore_checkpoint_state(project_id: str, state: dict) -> bool:
+    """恢复 MPT-style checkpoint；只恢复已持久化的事实，不猜不存在的状态。"""
+    restored = director_checkpoint.restore_into(project_id, state, config.project_dir)
+    if not restored:
+        return False
+
+    try:
+        from video_director.models import AssetRef
+        raw_assets = state.get("assets") or {}
+        if isinstance(raw_assets, dict):
+            state["assets"] = {
+                aid: AssetRef.model_validate(value)
+                for aid, value in raw_assets.items()
+                if isinstance(value, dict)
+            }
+    except Exception as exc:
+        logger.warning("Director checkpoint asset restore failed: %s", exc)
+        state["assets"] = {}
+
+    try:
+        if state.get("composition_path") or (
+            config.project_dir(project_id) / "plans" / "composition.json"
+        ).is_file():
+            from video_director.editor import load_composition
+            state["ir"] = load_composition(project_id)
+            state["render_assets"] = dict(state.get("assets") or {})
+            bgm_id = state.get("bgm_asset_id")
+            if bgm_id:
+                lib = audio.scan_library()
+                bgm_asset = lib.get(bgm_id)
+                if bgm_asset is not None:
+                    state["render_assets"].update(
+                        audio.append_audio_assets(
+                            state["render_assets"], {bgm_id: bgm_asset}
+                        )
+                    )
+    except Exception as exc:
+        logger.warning("Director checkpoint composition restore failed: %s", exc)
+
+    return True
+
+
+def _resolve_stop_node(spec: dict) -> str:
+    """MPT stop_at → Director node；默认 full/video 只在 confirm_mode 决定是否真正渲染。"""
+    raw = str(spec.get("stop_at") or "video").strip().lower()
+    return _STOP_NODE_ALIASES.get(raw, "render")
+
+
+def _mark_downstream_skipped(plan: dict, stop_node: str, update_node, run_id: str, pid: str) -> None:
+    """检查点停止时显式收敛后续节点，避免留下假 PENDING。"""
+    reached = False
+    for node in plan.get("nodes") or []:
+        if node.get("id") == stop_node:
+            reached = True
+            continue
+        if reached and node.get("status") == "PENDING":
+            update_node(
+                run_id, pid, plan, node["id"], "SKIPPED",
+                decision={"reason": f"按 stop_at={stop_node} 在此检查点停止"},
+                verify={"ok": True, "status": "CHECKPOINT_SKIPPED"},
+            )
 
 
 def _ready_nodes(plan: dict) -> List[str]:
@@ -156,15 +230,22 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
     if provider is None:
         data = {
             "source": "rule",
-            "scenes": [{"text": t, "visual_intent": t, "source_preference": "user_asset"}
-                       for t in state["scene_texts"]],
+            "scenes": [{
+                "text": t,
+                "visual_intent": t,
+                "source_preference": "user_asset",
+                "search_terms": [mpt_semantics.remove_pause_markup(t)],
+            } for t in state["scene_texts"]],
         }
     else:
         raw = provider.generate(
             "请为视频设计可执行分镜。必须同时考虑用户素材、参考视频风格、"
             "软件项目 VERIFIED 事实。参考视频只借鉴镜头语言，不复制内容。"
+            "同时为每个场景生成 3-8 个按叙事顺序排列的 stock 搜索词；"
+            "搜索词用于真实图库检索，不能脱离该场景含义。"
             '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"画面意图",'
-            '"source_preference":"user_asset|reference_style|software_evidence|stock|generated"}]}\n'
+            '"source_preference":"user_asset|reference_style|software_evidence|stock|generated",'
+            '"search_terms":["按叙事顺序的检索词"]}]}\n'
             + json.dumps(di.build_agent_scene_context(state["bundle"], state["script"]),
                          ensure_ascii=False, indent=2),
             system="你是视频 Director，只输出合法 JSON。",
@@ -197,7 +278,9 @@ def _tool_narration(spec: dict, state: dict) -> dict:
     if uploaded:
         from video_director import voice_upload
         up = voice_upload.import_uploaded_voice(
-            pid, uploaded, scene_texts=scene_texts
+            pid,
+            uploaded,
+            scene_texts=[mpt_semantics.remove_pause_markup(t) for t in scene_texts],
         )
         audio_path = up["narration_file"]
         words = up.get("word_timeline") or []
@@ -282,6 +365,33 @@ def _tool_material(spec: dict, state: dict) -> dict:
     visual_source = state.get("constraints", {}).get("visual_source") or "auto"
     assignments = {}
     match_enabled = bool(spec.get("match_materials_to_script", True))
+
+    # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
+    scene_plan_items = state.get("scene_plan", {}).get("scenes") or []
+    search_terms_by_scene = []
+    for i, scene in enumerate(state.get("narration_scenes") or []):
+        planned = scene_plan_items[i] if i < len(scene_plan_items) else {}
+        raw_terms = planned.get("search_terms") if isinstance(planned, dict) else None
+        search_terms_by_scene.append(
+            mpt_semantics.normalize_search_terms(raw_terms, scene.get("text", ""), amount=8)
+        )
+    intent_path = base / "plans" / "material_intents.json"
+    intent_path.parent.mkdir(parents=True, exist_ok=True)
+    intent_path.write_text(
+        json.dumps(
+            mpt_semantics.material_intent_snapshot(
+                state.get("narration_scenes") or [],
+                search_terms_by_scene={
+                    str(s.get("id") or ""): t
+                    for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
+                },
+                max_clip_duration=spec.get("clip_duration"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     if visual_source != "online" and match_enabled and all_assets and state.get("narration_scenes"):
         try:
             assignments = matcher.match_assets(
@@ -313,6 +423,11 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 per_scene=1,
                 providers=["pexels", "pixabay"],
                 scene_ids=[str(s.get("id") or "") for s in targets],
+                search_terms_by_scene=[
+                    search_terms_by_scene[i]
+                    for i, s in enumerate(state.get("narration_scenes") or [])
+                    if s["id"] in missing
+                ],
             )
             stock_files = list(sr.get("files") or [])
             metadata.update(sr.get("metadata") or {})
@@ -349,13 +464,33 @@ def _tool_material(spec: dict, state: dict) -> dict:
             "verify": {"ok": False},
         }
 
+    selection_reasons = {
+        sid: "场景语义匹配：结合场景文案、素材语义与素材可用性选择"
+        for sid in assignments
+    }
+    intent_data = mpt_semantics.material_intent_snapshot(
+        state.get("narration_scenes") or [],
+        search_terms_by_scene={
+            str(s.get("id") or ""): t
+            for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
+        },
+        max_clip_duration=spec.get("clip_duration"),
+        selected_assets=assignments,
+        selection_reasons=selection_reasons,
+    )
+    intent_path.write_text(json.dumps(intent_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
     state.update({
         "video_files": videos,
         "assets": all_assets,
         "asset_order": order,
         "assignments": assignments,
+        "material_intents": intent_data,
     })
-    path = _json_file(base / "assets" / "match_assignments.json", assignments)
+    path = _json_file(base / "assets" / "match_assignments.json", {
+        "assignments": assignments,
+        "selection_reasons": selection_reasons,
+    })
     coverage_ok = (
         all(s["id"] in assignments for s in state["narration_scenes"])
         if match_enabled and visual_source != "online"
@@ -393,10 +528,24 @@ def _tool_subtitle(spec: dict, state: dict) -> dict:
     path.write_text(body, encoding="utf-8")
     state["subtitle_file"] = str(path)
     state["subtitle_entries"] = subtitle_mod.srt_entries(state["narration_scenes"])
+    subtitle_meta_path = config.project_dir(state["project_id"]) / "plans" / "subtitle_alignment.json"
+    _json_file(subtitle_meta_path, {
+        "version": 1,
+        "text_authority": "script",
+        "timing_authority": "narration",
+        "timing_source": "word_timeline" if state.get("word_timeline") else "scene_timeline",
+        "mode": mode,
+        "entry_count": len(state["subtitle_entries"]),
+        "corrected_against_script": False,
+    })
     ok = _file_ok(str(path)) and bool(state["subtitle_entries"])
     return {
         "ok": ok, "tool": "subtitle.generate", "status": "APPLIED" if ok else "FAILED",
-        "result": {"file": str(path), "cue_count": len(state["subtitle_entries"])},
+        "result": {
+            "file": str(path),
+            "cue_count": len(state["subtitle_entries"]),
+            "alignment_meta": str(subtitle_meta_path),
+        },
         "verify": {"ok": ok, "checks": [{"id": "subtitle_file", "ok": _file_ok(str(path))},
                                          {"id": "cue_count", "ok": bool(state["subtitle_entries"])}]},
     }
@@ -532,6 +681,28 @@ def _tool_composition(spec: dict, state: dict) -> dict:
     ir.audio = tracks
     render_assets = audio.append_audio_assets(all_assets, audio_assets)
 
+    # MPT source-window 台账：记录真正消费了哪个源文件的哪个区间。
+    usage = mpt_semantics.material_usage_from_ir(ir)
+    usage_path = _json_file(
+        dirs["plans"] / "material_usage.json",
+        [u.__dict__ for u in usage],
+    )
+    build_fingerprint = mpt_semantics.build_artifact_fingerprint({
+        "composition": json.loads(ir.model_dump_json()),
+        "narration_duration": duration,
+        "clip_duration": spec.get("clip_duration"),
+        "clip_speed": spec.get("clip_speed"),
+        "fit_mode": spec.get("fit_mode") or "cover",
+        "concat_mode": spec.get("concat_mode") or "sequential",
+        "transition_mode": spec.get("transition_mode") or "cut",
+        "bgm_asset_id": state.get("bgm_asset_id"),
+        "subtitle_mode": spec.get("subtitle_mode") or "plain",
+    })
+    fingerprint_path = _json_file(
+        dirs["plans"] / "mpt_build_fingerprint.json",
+        {"version": 1, "fingerprint": build_fingerprint},
+    )
+
     check = validator.validate_composition(
         ir, render_assets, duration, state.get("subtitle_entries")
     )
@@ -570,6 +741,8 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         "manifest_path": mpath,
         "style_path": spath,
         "transition_proposals_path": str(proposal_path),
+        "material_usage_path": usage_path,
+        "build_fingerprint_path": fingerprint_path,
     })
     checks = [
         {"id": "composition_file", "ok": _file_ok(cpath)},
@@ -583,6 +756,9 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         "result": {
             "composition": cpath, "manifest": mpath, "style": spath,
             "transition_proposals": str(proposal_path),
+            "material_intents": str(dirs["plans"] / "material_intents.json"),
+            "material_usage": usage_path,
+            "build_fingerprint": fingerprint_path,
             "original_audio_segments": sum(
                 1 for sc in ir.scenes for lay in sc.layers
                 if lay.type == LayerType.video and lay.asset_id
@@ -783,6 +959,11 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     pid = spec.get("project_id") or ("web-" + str(time.time_ns()))
     bundle = di.build_bundle(spec)
     di.persist_bundle(pid, bundle)
+    # 保留本次创作的完整执行参数，供 checkpoint continue 精确恢复。
+    _json_file(
+        config.project_dir(pid) / "plans" / "director_spec.json",
+        {k: v for k, v in spec.items() if k not in {"api_key", "token", "secret"}},
+    )
 
     user_style = (bundle.get("creative_settings") or {}).get("style") or ""
     ref_style = di.reference_style_intent(bundle)
@@ -837,6 +1018,7 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     refs = di.materialize_reference(pid, bundle)
     repo_files = di.materialize_software_project_artifacts(pid, bundle)
     state["video_files"], state["image_files"] = videos, images
+    _restore_checkpoint_state(pid, state)
     bundle["materialized"] = {
         "reference_files": refs,
         "software_evidence_files": repo_files,
@@ -849,6 +1031,9 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
 
     _TOOLS_WITH_UNDERSTAND = dict(_TOOLS)
     _TOOLS_WITH_UNDERSTAND["understand"] = _tool_understand
+
+    stop_node = _resolve_stop_node(spec)
+    checkpoint_reached = False
 
     retries: Dict[str, int] = {}
     current = "start"
@@ -935,7 +1120,19 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 verify=verify,
                 artifacts=artifacts,
             )
+            director_checkpoint.save(pid, state, config.project_dir)
             last_result = {"ok": True, **tool_result}
+
+            # MPT stop_at：当前节点完成后立刻停住，后续节点显式 SKIPPED。
+            if node_id == stop_node:
+                _mark_downstream_skipped(
+                    plan, stop_node, update_node, run_id, pid
+                )
+                checkpoint_reached = True
+                current = node_id
+                plan.setdefault("runtime", {})["checkpoint"] = stop_node
+                di.persist_plan(pid, plan)
+                break
         else:
             update_node(
                 run_id, pid, plan, node_id, "FAILED",
@@ -1002,14 +1199,19 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     if any(n.get("status") == "FAILED" for n in plan.get("nodes", [])):
         raise DirectorAgentError("Director 存在未恢复失败节点")
 
-    verify_node = next(n for n in plan["nodes"] if n["id"] == "verify")
-    verify_ok = (
-        verify_node.get("status") == "DONE"
-        and bool(verify_node.get("verify", {}).get("ok"))
+    verify_node = next((n for n in plan["nodes"] if n["id"] == "verify"), None)
+    verify_ok = bool(
+        verify_node
+        and verify_node.get("status") == "DONE"
+        and verify_node.get("verify", {}).get("ok")
     )
     pending = (spec.get("confirm_mode") or "preview") != "direct"
 
-    if pending and verify_ok is not True:
+    if checkpoint_reached:
+        pending = True
+        if stop_node == "verify" and verify_ok is not True:
+            raise DirectorAgentError("预览检查点必须先完成真实 Verify")
+    elif pending and verify_ok is not True:
         raise DirectorAgentError("预览模式必须先完成真实 Verify")
 
     if pending:
@@ -1036,6 +1238,8 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
         "director_inputs": di.load_bundle(pid),
         "director_plan": plan,
         "director_verify_ok": verify_ok,
+        "checkpoint": stop_node if checkpoint_reached else "",
+        "checkpoint_reached": checkpoint_reached,
     }
     emit(run_id, "director", {
         "phase": "done",

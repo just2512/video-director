@@ -67,10 +67,12 @@ function renderProjectList(){
   const shown = PM.index.slice(0, PM.shown);
   box.innerHTML = shown.map(p => {
     const actions = p.actions || {};
+    const checkpointLabel = (p.checkpoint === 'render' || p.checkpoint === 'verify')
+      ? '检查草稿' : '继续到草稿';
     // 主行动作（§43 第一按钮：状态决定；其余进「···」菜单）
     let primary = '';
     if (p.legacy) primary = `<button class="btn-sm" onclick="convertLegacyProject('${esc(p.project_id)}')">转换为可编辑项目</button>`;
-    else if (actions.continue_) primary = `<button class="btn-sm" onclick="continueProject('${esc(p.project_id)}')">继续确认</button>`;
+    else if (actions.continue_) primary = `<button class="btn-sm" onclick="continueProject('${esc(p.project_id)}')">${checkpointLabel}</button>`;
     else if (p.status === 'FAILED') primary = `<button class="btn-secondary btn-sm" onclick="pmShowFailure('${esc(p.project_id)}')">查看问题</button>`;
     else if (actions.open) primary = `<button class="btn-secondary btn-sm" onclick="workspaceOpen('${esc(p.project_id)}')">继续编辑</button>`;
     if (p.status === 'FAILED') primary += ` <button class="btn-secondary btn-sm" onclick="pmReopenFailed('${esc(p.project_id)}')">重新执行</button>`;
@@ -217,8 +219,21 @@ function _pmMenuItems(p){
 // ---- 各动作 ----
 /** 继续确认（AWAITING_CONFIRM：打开工作台走确认流）。 */
 async function continueProject(pid){
-  const r = await workspaceOpen(pid);
-  if (r && r.ok) editorToast('项目已打开——选中场景查看分镜，或用下方指令栏直接修改后渲染');
+  // MPT checkpoint 语义：AWAITING_CONFIRM 不只是“打开项目”，而是从最近完成节点继续到草稿检查点。
+  const r = await apiPost('/api/director/continue', {project_id: pid, target: 'preview'});
+  if (r && r.ok) {
+    editorToast('正在从已完成的检查点继续到草稿，不重复生成已完成内容');
+    if (typeof taskRefresh === 'function') taskRefresh();
+  } else if (r && /没有可继续的 AI Director 检查点/.test(r.error || '')) {
+    editorToast('项目已准备好，可直接进入工作台检查并渲染');
+  } else if (r && r.error) {
+    editorToast('继续创作未开始：' + r.error, true);
+    return;
+  }
+  const opened = await workspaceOpen(pid);
+  if (opened && opened.ok) {
+    editorToast('工作台已打开——可以检查场景、素材依据和时间线');
+  }
 }
 async function renameProject(pid){
   const input = document.getElementById('pm-rename-input');

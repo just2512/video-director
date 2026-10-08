@@ -492,8 +492,9 @@ def auto_download_for_scenes(
     providers: Optional[List[str]] = None,
     max_scenes: Optional[int] = None,
     scene_ids: Optional[List[str]] = None,
+    search_terms_by_scene: Optional[List[List[str]]] = None,
 ) -> dict:
-    """为指定场景自动搜索并下载视觉素材；只采用 SUPPORTED 候选。"""
+    """搜索并下载场景素材，支持 MPT 式按叙事顺序传入多个搜索词。"""
     providers = providers or ["pexels", "pixabay"]
     providers = [p for p in providers if p in PROVIDER_POLICY] or ["pexels", "pixabay"]
     orientation = _stock_orientation(target_ratio)
@@ -503,54 +504,101 @@ def auto_download_for_scenes(
     queries = []
     used_sources = set()
     wanted = max(0, int(per_scene or 1))
+
     for idx, scene_text in enumerate(scene_texts or []):
         if max_scenes is not None and idx >= max_scenes:
             break
         scene_id = scene_ids[idx] if scene_ids and idx < len(scene_ids) else f"S{idx + 1:02d}"
-        query = build_scene_search_query(scene_text, llm_call)
-        if not query:
+        supplied = []
+        if search_terms_by_scene and idx < len(search_terms_by_scene):
+            supplied = _normalize_scene_terms(search_terms_by_scene[idx])
+        scene_queries = supplied[:3] if supplied else [build_scene_search_query(scene_text, llm_call)]
+        scene_queries = [q for q in scene_queries if q]
+        if not scene_queries:
             warnings.append(f"{scene_id}：场景没有可用检索词")
             continue
-        queries.append({"scene_id": scene_id, "query": query})
-        hits: List[StockAsset] = []
-        provider_errors = []
-        for provider in providers:
-            try:
-                hits.extend(search_stock(
-                    query, provider=provider, orientation=orientation,
-                    per_page=max(4, wanted * 4)))
-            except StockError as exc:
-                provider_errors.append(f"{provider}:{exc.code}")
-        if not hits and provider_errors:
-            warnings.append(f"{scene_id}：图库搜索失败（{'；'.join(provider_errors)}）")
-            continue
+
         selected = 0
-        for candidate in resolve_candidates(hits, target_ratio=target_ratio or "any",
-                                             target_duration=None):
-            a = candidate.asset
-            key = f"{a.provider}:{a.source_id}"
-            if candidate.status != SUPPORTED or key in used_sources:
+        for query in scene_queries:
+            queries.append({"scene_id": scene_id, "query": query})
+            hits: List[StockAsset] = []
+            provider_errors = []
+            for provider in providers:
+                try:
+                    hits.extend(search_stock(
+                        query, provider=provider, orientation=orientation,
+                        per_page=max(4, wanted * 4),
+                    ))
+                except StockError as exc:
+                    provider_errors.append(f"{provider}:{exc.code}")
+
+            if not hits and provider_errors:
+                warnings.append(
+                    f"{scene_id}：图库搜索失败（{'；'.join(provider_errors)}）"
+                )
                 continue
-            try:
-                out = download_asset(a, project_base)
-            except StockError as exc:
-                warnings.append(f"{scene_id}：{a.provider} 下载失败（{exc.code}）")
-                continue
-            used_sources.add(key)
-            files.append(out["file"])
-            metadata[out["file"]] = {
-                "source": "stock",
-                "license_note": f"{a.provider}·{a.source_page}",
-                "provenance": {"provider": a.provider, "sourceId": a.source_id,
-                               "sourcePage": a.source_page, "creator": a.creator},
-                "rights_status": a.commercial_status,
-                "scene_id": scene_id,
-                "query": query,
-            }
-            selected += 1
+
+            for candidate in resolve_candidates(
+                hits, target_ratio=target_ratio or "any", target_duration=None
+            ):
+                a = candidate.asset
+                key = f"{a.provider}:{a.source_id}"
+                if candidate.status != SUPPORTED or key in used_sources:
+                    continue
+                try:
+                    out = download_asset(a, project_base)
+                except StockError as exc:
+                    warnings.append(f"{scene_id}：{a.provider} 下载失败（{exc.code}）")
+                    continue
+                used_sources.add(key)
+                files.append(out["file"])
+                metadata[out["file"]] = {
+                    "source": "stock",
+                    "license_note": f"{a.provider}·{a.source_page}",
+                    "provenance": {
+                        "provider": a.provider,
+                        "sourceId": a.source_id,
+                        "sourcePage": a.source_page,
+                        "creator": a.creator,
+                    },
+                    "rights_status": a.commercial_status,
+                    "scene_id": scene_id,
+                    "query": query,
+                    "query_order": len(queries),
+                }
+                selected += 1
+                if selected >= wanted:
+                    break
             if selected >= wanted:
                 break
+
         if selected == 0:
             warnings.append(f"{scene_id}：没有满足画幅/授权条件的网络素材")
-    return {"files": files, "metadata": metadata,
-            "warnings": warnings, "queries": queries}
+
+    return {
+        "files": files,
+        "metadata": metadata,
+        "warnings": warnings,
+        "queries": queries,
+    }
+
+
+def _normalize_scene_terms(raw: Any) -> List[str]:
+    """Stock 层小型归一器，保持搜索词首次出现顺序并去重。"""
+    if isinstance(raw, str):
+        raw_values = re.split(r"[\n,，;；|]+", raw)
+    elif isinstance(raw, (list, tuple)):
+        raw_values = raw
+    else:
+        raw_values = []
+    out = []
+    seen = set()
+    for value in raw_values:
+        term = re.sub(r"^[-•\d.)、]+\s*", "", str(value or "").strip())
+        term = re.sub(r"\s+", " ", term)
+        key = term.casefold()
+        if not term or key in seen:
+            continue
+        seen.add(key)
+        out.append(term)
+    return out

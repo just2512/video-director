@@ -60,6 +60,7 @@ function _createPanelHtml(){
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>文案</b><span class="hint"> 可选；填写后作为权威文案</span>
       <textarea id="cf-script" style="min-height:110px;margin-top:6px" placeholder="粘贴你已经写好的文案；没有文案也可以留空，让 AI 根据目标和其他输入生成。"></textarea>
+      <div class="hint" style="margin-top:5px">支持 [pause: 2s] / [停顿: 2s] / [silence: 1s]；停顿会真正进入旁白、字幕和镜头时间轴（0.1–10 秒）。</div>
     </div>
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>我的素材</b><span class="hint"> 可选；图片 / 视频可多选</span>
@@ -149,6 +150,21 @@ function _createPanelHtml(){
         </select>
       </div>
       <span class="hint" id="cf-visual-source-hint">本地素材与网络素材共同参与匹配；需要时自动搜索 Pexels / Pixabay 补足画面。</span>
+    </div>
+    <div class="panel" style="margin-top:10px;padding:10px">
+      <b style="font-size:13px">创作检查点</b>
+      <div class="btn-row" style="gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div><label>自动做到</label>
+          <select id="cf-stop-at">
+            <option value="video" selected>草稿预览后停住（默认）</option>
+            <option value="materials">先准备好素材</option>
+            <option value="subtitle">先生成字幕</option>
+            <option value="audio">先生成旁白</option>
+            <option value="script">先完成文案</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint">停在检查点不会丢掉已经生成的产物；之后从项目继续，不需要从头生成。</div>
     </div>
     <div class="panel" style="margin-top:10px;padding:10px">
       <b style="font-size:13px">画面与时间线</b>
@@ -543,6 +559,7 @@ async function createProject(){
     concat_mode: (document.getElementById('cf-concat-mode') || {}).value || 'sequential',
     transition_mode: (document.getElementById('cf-transition-mode') || {}).value || 'cut',
     match_materials_to_script: !!(document.getElementById('cf-match-materials') || {}).checked,
+    stop_at: (document.getElementById('cf-stop-at') || {}).value || 'video',
     fps: parseInt((document.getElementById('cf-fps') || {}).value || '30'),
     watermark: (document.getElementById('cf-watermark') || {}).value || '',
     lower_third_name: (document.getElementById('cf-lower-name') || {}).value || '',

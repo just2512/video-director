@@ -2005,6 +2005,7 @@ class Handler(BaseHTTPRequestHandler):
                     "concat_mode": payload.get("concat_mode") or "sequential",
                     "transition_mode": payload.get("transition_mode") or "cut",
                     "match_materials_to_script": bool(payload.get("match_materials_to_script", True)),
+                    "stop_at": str(payload.get("stop_at") or "video"),
                     "watermark": payload.get("watermark") or "",
                     "lower_third_name": payload.get("lower_third_name") or "",
                     "lower_third_role": payload.get("lower_third_role") or "",
@@ -2027,6 +2028,40 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 503)
+            return
+
+        if parsed.path == "/api/director/continue":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            target = (payload.get("target") or "preview").strip().lower()
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import workflow_run as _wf
+                run_id = _wf.run_director_continue_async(pid, target=target)
+                if not run_id:
+                    # 已经完成目标检查点时无需新任务；其余情况按项目实际状态给出原因。
+                    from video_director import store as _vd_store
+                    proj = _vd_store.get_project(pid)
+                    if proj is None:
+                        self._send_json({"ok": False, "error": "项目不存在"}, 404)
+                    else:
+                        self._send_json({
+                            "ok": False,
+                            "error": "当前项目没有可继续的 AI Director 检查点，可能已经在目标阶段或需要重新执行",
+                        }, 409)
+                    return
+                self._send_json({"ok": True, "run_id": run_id, "project_id": pid, "target": target})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
         if parsed.path == "/api/director/retry":

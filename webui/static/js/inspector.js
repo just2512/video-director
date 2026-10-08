@@ -162,7 +162,13 @@ function _inspectorScene(sceneId){
         <button class="btn-secondary btn-sm" data-action="visual.camera" data-params='{"preset":"push_in"}'>镜头推进</button>
         <button class="btn-secondary btn-sm" data-action="visual.camera" data-params='{"preset":"pull_out"}'>镜头拉远</button>
       </div>
-      <div id="editor-picker-box"></div>
+      <div id="editor-picker-box"></div><div class="role-block" data-section="mpt-material">
+        <b>素材依据</b>
+        <div id="mpt-scene-context" class="hint">正在读取本镜素材检索与使用记录……</div>
+        <div class="btn-row" style="flex-wrap:wrap">
+          <button class="btn-secondary btn-sm" data-action="asset.search" data-target="project">按本镜语义重新找素材</button>
+        </div>
+      </div>
       ${_sceneGenBox(sc.id)}
     </div>
     ${si > 0 ? `
@@ -189,9 +195,46 @@ function _inspectorScene(sceneId){
         <button class="btn-secondary btn-sm" data-action="audio.mute_original">静音本镜原声</button>
       </div>` : ''}
     </div>`;
+  _loadMptSceneContext(sc.id);
 }
 
 /** §8 生成入 Scene→画面：场景内联生成区（不再有页面底部「生成画面」面板）。 */
+async function _loadMptSceneContext(sceneId){
+  const box = document.getElementById('mpt-scene-context');
+  if (!box || !ED.pid) return;
+  try {
+    const ctx = await apiGet('/api/director/context?project_id=' + encodeURIComponent(ED.pid));
+    const mpt = (ctx && ctx.mpt) || {};
+    const intent = (mpt.material_intents || []).find(x => x.scene_id === sceneId);
+    const usage = (mpt.material_usage || []).filter(x => x.scene_id === sceneId);
+    if (!intent) {
+      box.innerHTML = '暂无素材意图记录。首次完成 Director 创作后会自动建立。';
+      return;
+    }
+    const terms = (intent.search_terms || []).map(function(t){
+      return '<span style="display:inline-block;padding:2px 6px;border:1px solid var(--border);border-radius:10px;margin:2px 3px 2px 0">' + esc(t) + '</span>';
+    }).join('');
+    const windows = usage.length
+      ? usage.map(function(u){
+          return esc(u.asset_id) + ' · ' + Number(u.source_in || 0).toFixed(1) + 's → ' +
+            Number(u.source_out || 0).toFixed(1) + 's';
+        }).join('<br>')
+      : '尚未形成 source-window 使用记录';
+    box.innerHTML =
+      '<div>检索词（按叙事顺序）</div>' +
+      '<div style="margin:3px 0 6px">' + (terms || '<span class="hint">未记录</span>') + '</div>' +
+      '<div>目标时长：' + Number(intent.target_duration || 0).toFixed(1) + 's' +
+      ' · 单段上限：' + (intent.max_clip_duration ? Number(intent.max_clip_duration).toFixed(1) + 's' : '自动') + '</div>' +
+      '<div>策略：' + esc(intent.source_preference || 'user_first') +
+      ' · ' + esc(intent.diversity_policy || 'prefer_unique_source') +
+      ' · ' + esc(intent.reuse_policy || 'reuse_when_needed') + '</div>' +
+      '<div style="margin-top:5px">实际消费：</div><div>' + windows + '</div>' +
+      (intent.selection_reason ? '<div style="margin-top:5px">选择依据：' + esc(intent.selection_reason) + '</div>' : '');
+  } catch (e) {
+    box.textContent = '素材依据暂不可读，不影响编辑。';
+  }
+}
+
 function _sceneGenBox(sceneId){
   return `
     <div id="gen-inline-box" style="margin-top:6px">

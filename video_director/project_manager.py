@@ -278,6 +278,7 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
         "interrupted": interrupted,
         "workflow_status": wf_status,
         "workflow_current": wf.get("current") or "",
+        "checkpoint": (wf.get("result") or {}).get("checkpoint") or "",
         "scene_count": scene_count,
         "duration": round(duration, 2),
         "has_draft": meta["has_draft"],
