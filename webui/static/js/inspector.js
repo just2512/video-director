@@ -196,13 +196,16 @@ function _sceneGenBox(sceneId){
   return `
     <div id="gen-inline-box" style="margin-top:6px">
       <details>
-        <summary style="cursor:pointer;font-size:12px;color:var(--muted)">AI 生成新画面（图片 / 图形 / 视频 → 3 变体）</summary>
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted)">AI 生成新画面（图片 / 图形 / 视频 / 艺术动画 → 变体）</summary>
         <div class="btn-row" style="flex-wrap:wrap;margin-top:6px">
           <select id="gen-type" style="width:96px" onchange="applyGenerationAvailability()">
             <option value="image">图片</option>
             <option value="graphic">图形（程序化）</option>
             <option value="video">视频</option>
+            <option value="motion">艺术动画</option>
           </select>
+          <select id="gen-grammar" style="width:150px;display:none"
+                  onchange="onMotionGrammarChanged()"></select>
           <input type="text" id="gen-prompt" class="rev-input" style="flex:1;min-width:120px"
                  placeholder="画面描述（例：极简标题卡：效率提升80%）">
           <button class="btn-sm" onclick="editorGenerate()">生成 3 变体</button>

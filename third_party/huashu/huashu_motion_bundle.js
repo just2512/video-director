@@ -1,5 +1,9 @@
 // ===== huashu util.js =====
 // 通用工具（最先加载，转场库与引擎共用）
+// 参考 clip.js 第 10 行在语法文件 XHR eval 之前声明 window.CLIPS；离线打包把
+// clip.js 引导移除后该声明必须在此处补上，否则 grammar 段的
+// CLIPS.y1_kurzgesagt = ... 裸赋值抛 ReferenceError（2026-10-08 黑屏事故链第二环）。
+window.CLIPS = window.CLIPS || {};
 (() => {
 // ---------- 工具 ----------
 window.U = {
@@ -29,6 +33,13 @@ window.U = {
 
 
 U.fontFamily = font => { const m = /"([^"]+)"/.exec(font) || /'([^']+)'/.exec(font); return m ? m[1] : String(font).replace(/^(italic\s+|bold\s+|\d+\s+)*[\d.]+px\s+/, '').trim(); };
+// 离线适配说明：参考实现的 U.loadCmaps/missingGlyphs/assertGlyphs（字体 cmap 缺字检查）
+// 依赖运行时 fetch 字体文件，违反 Video Director 确定性预检，本 bundle 不携带；
+// 字形风险改由字体子集生成期（scripts/font_subset.py --gb2312）保障。
+// 2026-10-08 事故：裁剪该段时把本 IIFE 的收尾 `})();` 一并删掉，整份 bundle
+// 变成 SyntaxError，浏览器里 U/PAINT/MO/CLIPS 全部未定义，8 个 grammar 全渲
+// 染成 2817 字节黑屏 mp4 而测试全绿。此处恢复收尾。
+})();
 
 
 // ===== huashu paint.js =====

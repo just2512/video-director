@@ -289,6 +289,12 @@ def compile_motion_html(program: MotionProgram) -> str:
         for key, uri in asset_uris.items()
     )
 
+    # 注意：不能对整个 HTML 做全串 replace("</script>")——那会把真正的
+    # <script> 闭合标签一起改掉，Chromium 不识别 <\/script>，bundle+runtime
+    # 全被吞进第一个 script 的文本，浏览器里什么都不执行（2026-10-08 事故：
+    # 8 个 grammar 全渲染出 2817 字节黑屏 mp4，测试全绿）。
+    # spec 的注入风险已由 _safe_script_json 在 JSON 层转义（<、>、&），
+    # bundle 是仓库内可信代码（离线确定性预检已拦截外联），无需再转义。
     runtime = """
 (() => {
   const cv = document.getElementById("c");
@@ -404,7 +410,7 @@ def compile_motion_html(program: MotionProgram) -> str:
         f"<script>{bundle}</script>"
         f"<script>{runtime}</script>"
         "</body></html>"
-    ).replace("</script>", "<\\/script>")
+    )
 
 
 def build_motion_program(
@@ -428,6 +434,14 @@ def build_motion_program(
             "UNKNOWN_GRAMMAR",
             f"未知 grammar {grammar!r}，可用：{', '.join(HUASHU_GRAMMARS)}",
         )
+    # 整数帧率契约：29.97 这类非整数 fps 会导致 total_frames 与时间轴漂移，
+    # MotionProgram(fps: int) 会静默 int() 截断掩盖问题——入口必须诚实拒绝。
+    if isinstance(fps, float) and not fps.is_integer():
+        raise ProceduralMotionError(
+            "NON_INTEGER_FPS",
+            f"fps 必须是整数帧率（收到 {fps}）；29.97 等非整数 fps 会造成静默时间轴错误",
+        )
+    fps = int(fps)
     prompt = str(prompt or "").strip()
     if not prompt and not cues:
         raise ProceduralMotionError("INVALID_PROMPT", "prompt/script 不能为空")

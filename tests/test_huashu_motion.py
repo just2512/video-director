@@ -54,6 +54,80 @@ def test_compile_is_self_contained_and_deterministic():
     assert rep.status == "PASS", rep.issues
 
 
+def test_bundle_is_valid_javascript():
+    """2026-10-08 事故：打包裁剪把 util IIFE 收尾 `})();` 删掉，整份 bundle
+    成为 SyntaxError，8 个 grammar 全渲染成 2817 字节黑屏 mp4 而所有只查
+    子串的测试全绿。bundle 必须能通过 node --check（CI 之外本地也兜底）。"""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if not node:
+        # nvm-windows / ProgramData 安装不在 PATH 时按常见位置探测（本机实际形状）
+        for cand in (
+            os.path.expandvars(r"%NVM_SYMLINK%\node.exe"),
+            os.path.expandvars(r"%NVM_HOME%\node.exe"),
+            r"D:\ProgramData\nodejs\node.exe",
+            r"C:\Program Files\nodejs\node.exe",
+        ):
+            if cand and Path(cand).is_file():
+                node = cand
+                break
+    if not node:
+        pytest.skip("node 不可用，无法做 bundle 语法闸门")
+    r = subprocess.run(
+        [node, "--check", str(procedural_motion._BUNDLE_PATH)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, f"bundle 语法损坏: {r.stderr[:400]}"
+
+
+def test_compiled_html_boots_in_browser():
+    """真实浏览器闸门：编译出的 HTML 必须执行出 window.__gf 且画布有真实
+    像素（防止任何一层把 JS 变成不执行的死文本——黑屏事故的通用特征）。"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        pytest.skip("playwright 不可用")
+
+    p = procedural_motion.build_motion_program(
+        "第一句。第二句。", "y5_kinetic_type", duration=2, fps=6,
+        width=270, height=480,
+    )
+    html = procedural_motion.compile_motion_html(p)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": 270, "height": 480})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)[:200]))
+        page.set_content(html, wait_until="load")
+        page.wait_for_timeout(200)
+        gf_type = page.evaluate("typeof window.__gf")
+        ready = page.evaluate("!!window.__gfx_ready")
+        variance = page.evaluate("""
+          () => {
+            const cv = document.getElementById('c');
+            if (!cv || !cv.width) return -1;
+            const d = cv.getContext('2d').getImageData(
+              0, 0, cv.width, cv.height).data;
+            const n = d.length / 4;
+            let sum = 0, sumsq = 0;
+            for (let i = 0; i < d.length; i += 4) {
+              const v = (d[i] + d[i+1] + d[i+2]) / 3;
+              sum += v; sumsq += v * v;
+            }
+            const mean = sum / n;
+            return Math.sqrt(sumsq / n - mean * mean);
+          }""")
+        browser.close()
+    assert gf_type == "object", "runtime 未执行：__gf 不存在"
+    assert ready is True, "__gfx_ready 未置位"
+    assert variance > 0, f"画布全黑（std={variance}）：动画没有真实渲染"
+    assert not errors, "浏览器报错: " + "; ".join(errors[:3])
+
+
 def test_compile_rejects_bad_bundle(monkeypatch, tmp_path):
     bad = tmp_path / "bundle.js"
     bad.write_text("Math.random()", encoding="utf-8")
@@ -157,6 +231,12 @@ def test_motion_program_has_exact_integer_frame_contract():
             width=1080,
             height=1920,
         )
+    # 入口同样拒绝非整数 fps——int() 静默截断会掩盖时间轴错误
+    with pytest.raises(procedural_motion.ProceduralMotionError) as ei:
+        procedural_motion.build_motion_program(
+            "一句话。", "y5_kinetic_type", duration=4, fps=29.97,
+        )
+    assert ei.value.code == "NON_INTEGER_FPS"
 
 
 def test_all_huashu_grammars_compile_through_provider():
