@@ -314,8 +314,9 @@ def _legacy_stale_ids(stale_artifacts: Iterable[str]) -> set[str]:
         if raw.endswith(":preview"):
             out.update({"visual", "master", "final"})
             prefix = raw[:-len(":preview")]
-            if prefix.startswith("scene:"):
-                out.add(f"scene:{prefix}:render")
+            scene_id = prefix[6:] if prefix.startswith("scene:") else prefix
+            if scene_id:
+                out.add(f"scene:{scene_id}:render")
             continue
         # Existing editor stale ids are "<scene>:render", "<scene>:camera",
         # "<scene>:graphic", "<scene>:transition", "<scene>:continuity".
