@@ -189,6 +189,12 @@
 .ed-semantic-body { flex: 1; }
 .ed-semantic-text { font-size: 13px; color: var(--text); }
 
+.director-asset-grid { display:grid; grid-template-columns:repeat(4,minmax(52px,1fr)); gap:6px; margin-top:6px; }
+.director-asset-card { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.director-asset-card img { width:100%; aspect-ratio:16/9; object-fit:cover; border:1px solid var(--border); border-radius:4px; background:var(--surface-1); }
+.director-asset-card button { width:100%; padding:3px 4px; }
+.director-node-scenes { max-height:240px; overflow:auto; }
+
 /* ---- 顶栏/三栏（§9） ---- */
 .ed-topbar {
   display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
