@@ -319,6 +319,7 @@ SUPPORTED_COMMANDS = (
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
     "set_transition_out",         # 转场确认（Scene.transition_out）
+    "set_scene_intent",            # 采用创作候选后的 Scene 视觉意图
     "undo",
     "redo",
 )
@@ -464,6 +465,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
         elif cmd_name == "set_transition_out":
             changed, stale = _cmd_set_transition_out(ir, target_id, payload)
+        elif cmd_name == "set_scene_intent":
+            changed, stale = _cmd_set_scene_intent(ir, target_id, payload, project_id)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -518,6 +521,80 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
 # execute_command 统一 save）
 # ---------------------------------------------------------------------------
 
+
+
+def _cmd_set_scene_intent(
+    ir: CompositionIR,
+    target_id: str,
+    payload: dict,
+    project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """采用 Creative Candidate：只改变 Scene 的视觉意图，并同步候选选择状态。
+
+    Asset 不在这里偷偷替换；用户后续执行“找素材/AI生成”时才真正改变媒体。
+    这样 Candidate 选择是可撤销的设计决策，而不是隐藏的素材副作用。
+    """
+    scene_index, scene = _find_scene(ir, target_id)
+    candidate_id = str(payload.get("candidateId") or "")
+    visual_intent = str(payload.get("visualIntent") or "").strip()
+    if not candidate_id or not visual_intent:
+        raise EditorError("INVALID_PAYLOAD", "采用候选缺 candidateId 或 visualIntent")
+
+    import json as _json
+    from video_director import creative_candidates
+
+    candidate_path = config.project_dir(project_id) / "plans" / "creative_candidates.json"
+    if not candidate_path.is_file():
+        raise EditorError("CANDIDATE_NOT_FOUND", "当前项目没有创作候选集")
+    try:
+        snapshot = _json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (_json.JSONDecodeError, OSError) as exc:
+        raise EditorError("CANDIDATE_STATE_INVALID", "创作候选集无法读取") from exc
+
+    candidate = creative_candidates.find_candidate(snapshot, scene.id, candidate_id)
+    if candidate is None:
+        raise EditorError("CANDIDATE_NOT_FOUND", f"候选 {candidate_id} 不存在")
+    scene.visual_intent = visual_intent
+
+    # 持久化候选选择；候选本身仍保存在历史 plan 中。
+    selected_path = config.project_dir(project_id) / "plans" / "creative_candidates.json"
+    for row in snapshot.get("scenes") or []:
+        if row.get("scene_id") != scene.id:
+            continue
+        row["selected_candidate_id"] = candidate_id
+        for item in row.get("candidates") or []:
+            item["selected"] = item.get("id") == candidate_id
+    tmp = selected_path.with_suffix(".tmp")
+    tmp.write_text(
+        _json.dumps(snapshot, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    tmp.replace(selected_path)
+
+    # material_intents 是 MPT 素材语义台账，同步当前候选，供下一次匹配直接消费。
+    intent_path = config.project_dir(project_id) / "plans" / "material_intents.json"
+    if intent_path.is_file():
+        try:
+            intents = _json.loads(intent_path.read_text(encoding="utf-8"))
+        except (_json.JSONDecodeError, OSError):
+            intents = {}
+        for row in intents.get("scenes") or []:
+            if row.get("scene_id") != scene.id:
+                continue
+            row["selected_candidate_id"] = candidate_id
+            row["search_terms"] = list(candidate.get("search_terms") or [])
+            row["search_order"] = list(candidate.get("search_terms") or [])
+            row["source_preference"] = candidate.get("source_preference") or row.get("source_preference")
+            row["selected_asset_id"] = candidate.get("asset_id") or ""
+            row["selection_reason"] = f"用户采用创作候选：{candidate.get('title') or candidate_id}"
+            break
+        tmp2 = intent_path.with_suffix(".tmp")
+        tmp2.write_text(_json.dumps(intents, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp2.replace(intent_path)
+
+    changed = [scene.id]
+    stale = [f"{scene.id}:render", f"{scene.id}:preview", "material_intents"]
+    return changed, stale
 
 def _cmd_replace_motion(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Motion Gallery 应用：Layer.motion_recipe_id 替换（CMP-002 复用）。"""
