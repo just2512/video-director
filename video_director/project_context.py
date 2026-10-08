@@ -84,6 +84,7 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
         "material_usage": [],
         "build_fingerprint": "",
         "creative_candidates": [],
+        "source_usage_policy": {},
     }
     try:
         from pathlib import Path
@@ -93,6 +94,7 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
         usage_path = base / "plans" / "material_usage.json"
         fingerprint_path = base / "plans" / "mpt_build_fingerprint.json"
         candidate_path = base / "plans" / "creative_candidates.json"
+        policy_path = base / "plans" / "source_usage_policy.json"
         if intent_path.is_file():
             import json
             data = json.loads(intent_path.read_text(encoding="utf-8"))
@@ -109,6 +111,10 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
             import json
             data = json.loads(candidate_path.read_text(encoding="utf-8"))
             mpt["creative_candidates"] = data.get("scenes") or []
+        if policy_path.is_file():
+            import json
+            data = json.loads(policy_path.read_text(encoding="utf-8"))
+            mpt["source_usage_policy"] = data if isinstance(data, dict) else {}
     except Exception:
         pass
 
