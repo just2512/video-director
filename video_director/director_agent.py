@@ -1130,6 +1130,7 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 )
                 checkpoint_reached = True
                 current = node_id
+                plan.setdefault("runtime", {})["checkpoint"] = stop_node
                 di.persist_plan(pid, plan)
                 break
         else:
