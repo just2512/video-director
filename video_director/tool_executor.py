@@ -103,6 +103,7 @@ _COMMAND_MAP: Dict[str, str] = {
     "layer.remove": "remove_broll",
     "asset.add_to_timeline": "add_broll",
     "asset.replace": "replace_source",
+    "creative.candidate.select": "set_scene_intent",
     "music.volume": "set_audio_volume",
     "music.duck": "set_audio_volume",
     "music.add": "set_audio_volume",
