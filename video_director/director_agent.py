@@ -454,10 +454,24 @@ def _tool_subtitle(spec: dict, state: dict) -> dict:
     path.write_text(body, encoding="utf-8")
     state["subtitle_file"] = str(path)
     state["subtitle_entries"] = subtitle_mod.srt_entries(state["narration_scenes"])
+    subtitle_meta_path = config.project_dir(state["project_id"]) / "plans" / "subtitle_alignment.json"
+    _json_file(subtitle_meta_path, {
+        "version": 1,
+        "text_authority": "script",
+        "timing_authority": "narration",
+        "timing_source": "word_timeline" if state.get("word_timeline") else "scene_timeline",
+        "mode": mode,
+        "entry_count": len(state["subtitle_entries"]),
+        "corrected_against_script": False,
+    })
     ok = _file_ok(str(path)) and bool(state["subtitle_entries"])
     return {
         "ok": ok, "tool": "subtitle.generate", "status": "APPLIED" if ok else "FAILED",
-        "result": {"file": str(path), "cue_count": len(state["subtitle_entries"])},
+        "result": {
+            "file": str(path),
+            "cue_count": len(state["subtitle_entries"]),
+            "alignment_meta": str(subtitle_meta_path),
+        },
         "verify": {"ok": ok, "checks": [{"id": "subtitle_file", "ok": _file_ok(str(path))},
                                          {"id": "cue_count", "ok": bool(state["subtitle_entries"])}]},
     }
