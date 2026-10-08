@@ -77,6 +77,35 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
         track_types.extend(["MainVisual"] if not track_types else [])
     track_types.append("Subtitle")  # 字幕轨默认存在（§31 Track 化）
 
+    # MPT 融合上下文：检索意图、source-window 台账、构建指纹都属于项目事实，
+    # 供 Director 与 Inspector 共用；文件缺失时返回空结构，不猜状态。
+    mpt = {
+        "material_intents": [],
+        "material_usage": [],
+        "build_fingerprint": "",
+    }
+    try:
+        from pathlib import Path
+        from video_director import config as vd_config
+        base = vd_config.project_dir(project_id)
+        intent_path = base / "plans" / "material_intents.json"
+        usage_path = base / "plans" / "material_usage.json"
+        fingerprint_path = base / "plans" / "mpt_build_fingerprint.json"
+        if intent_path.is_file():
+            import json
+            data = json.loads(intent_path.read_text(encoding="utf-8"))
+            mpt["material_intents"] = data.get("scenes") or []
+        if usage_path.is_file():
+            import json
+            data = json.loads(usage_path.read_text(encoding="utf-8"))
+            mpt["material_usage"] = data if isinstance(data, list) else []
+        if fingerprint_path.is_file():
+            import json
+            data = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+            mpt["build_fingerprint"] = str(data.get("fingerprint") or "")
+    except Exception:
+        pass
+
     # activeFeatures（§6：subtitle/original_audio/bgm 是否启用）
     active: List[str] = []
     if any(t.type.value == "original" for t in ir.audio):
@@ -102,4 +131,5 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
         "assets": {"video": video, "image": image, "audio": audio_n},
         "activeFeatures": active,
         "providers": _provider_availability(),
+        "mpt": mpt,
     }
