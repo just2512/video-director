@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 from loguru import logger
 
-from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint
+from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint, creative_candidates
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
@@ -243,9 +243,21 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
             "软件项目 VERIFIED 事实。参考视频只借鉴镜头语言，不复制内容。"
             "同时为每个场景生成 3-8 个按叙事顺序排列的 stock 搜索词；"
             "搜索词用于真实图库检索，不能脱离该场景含义。"
-            '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"画面意图",'
+            "每个场景再提供 3 个明显不同的创作候选：直叙表达、细节/B-roll、概念化表达；"
+            "每个候选必须包含 title、approach、visual_intent、search_terms、source_preference、"
+            "generation_type、generation_prompt。"
+            '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"主视觉意图",'
             '"source_preference":"user_asset|reference_style|software_evidence|stock|generated",'
-            '"search_terms":["按叙事顺序的检索词"]}]}\n'
+            '"search_terms":["按叙事顺序的检索词"],'
+            '"candidates":[{"title":"直叙表达","approach":"direct","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"user_asset","generation_type":"",'
+            '"generation_prompt":"..."},'
+            '{"title":"细节补画面","approach":"broll","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"stock","generation_type":"",'
+            '"generation_prompt":"..."},'
+            '{"title":"概念化表达","approach":"concept","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"generated","generation_type":"image",'
+            '"generation_prompt":"..."}]}]}\n'
             + json.dumps(di.build_agent_scene_context(state["bundle"], state["script"]),
                          ensure_ascii=False, indent=2),
             system="你是视频 Director，只输出合法 JSON。",
@@ -257,8 +269,19 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
         data = json.loads(raw[a:b + 1])
         if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
             raise RuntimeError("分镜节点缺少 scenes")
+    candidate_snapshot = creative_candidates.build_candidate_snapshot(
+        data.get("scenes") or []
+    )
+    for scene, row in zip(data.get("scenes") or [], candidate_snapshot["scenes"]):
+        scene["candidates"] = row["candidates"]
+        scene["selected_candidate_id"] = row["selected_candidate_id"]
     state["scene_plan"] = data
+    state["creative_candidates"] = candidate_snapshot
     path = _json_file(config.project_dir(state["project_id"]) / "plans" / "director_scene_plan.json", data)
+    _json_file(
+        config.project_dir(state["project_id"]) / "plans" / "creative_candidates.json",
+        candidate_snapshot,
+    )
     ok = Path(path).is_file() and bool(data.get("scenes"))
     return {
         "ok": ok, "tool": "scene.plan", "status": "APPLIED",
@@ -368,6 +391,16 @@ def _tool_material(spec: dict, state: dict) -> dict:
 
     # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
     scene_plan_items = state.get("scene_plan", {}).get("scenes") or []
+    candidate_sets_by_scene = {
+        str(scene.get("id") or f"S{i + 1:02d}"): scene.get("candidates") or []
+        for i, scene in enumerate(scene_plan_items)
+        if isinstance(scene, dict)
+    }
+    selected_candidate_by_scene = {
+        str(scene.get("id") or f"S{i + 1:02d}"): str(scene.get("selected_candidate_id") or "")
+        for i, scene in enumerate(scene_plan_items)
+        if isinstance(scene, dict)
+    }
     search_terms_by_scene = []
     for i, scene in enumerate(state.get("narration_scenes") or []):
         planned = scene_plan_items[i] if i < len(scene_plan_items) else {}
@@ -386,6 +419,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
                 },
                 max_clip_duration=spec.get("clip_duration"),
+                candidate_sets_by_scene=candidate_sets_by_scene,
+                selected_candidate_by_scene=selected_candidate_by_scene,
             ),
             ensure_ascii=False,
             indent=2,
@@ -464,6 +499,29 @@ def _tool_material(spec: dict, state: dict) -> dict:
             "verify": {"ok": False},
         }
 
+    # 当前自动匹配结果只绑定到直叙候选，其余候选保持 INTENT_ONLY，避免把“有方案”误报成“已生成素材”。
+    for row in scene_plan_items:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("id") or "")
+        aid = str(assignments.get(sid) or "")
+        for candidate in row.get("candidates") or []:
+            if candidate.get("approach") == "direct" and aid:
+                candidate["asset_id"] = aid
+                candidate["status"] = "READY"
+            elif not candidate.get("status"):
+                candidate["status"] = "INTENT_ONLY"
+
+    candidate_sets_by_scene = {
+        str(row.get("id") or f"S{i + 1:02d}"): row.get("candidates") or []
+        for i, row in enumerate(scene_plan_items)
+        if isinstance(row, dict)
+    }
+    selected_candidate_by_scene = {
+        str(row.get("id") or f"S{i + 1:02d}"): str(row.get("selected_candidate_id") or "")
+        for i, row in enumerate(scene_plan_items)
+        if isinstance(row, dict)
+    }
     selection_reasons = {
         sid: "场景语义匹配：结合场景文案、素材语义与素材可用性选择"
         for sid in assignments
@@ -477,8 +535,16 @@ def _tool_material(spec: dict, state: dict) -> dict:
         max_clip_duration=spec.get("clip_duration"),
         selected_assets=assignments,
         selection_reasons=selection_reasons,
+        candidate_sets_by_scene=candidate_sets_by_scene,
+        selected_candidate_by_scene=selected_candidate_by_scene,
     )
     intent_path.write_text(json.dumps(intent_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    candidate_snapshot = creative_candidates.build_candidate_snapshot(
+        scene_plan_items,
+        selected_by_scene=selected_candidate_by_scene,
+    )
+    _json_file(base / "plans" / "creative_candidates.json", candidate_snapshot)
+    state["creative_candidates"] = candidate_snapshot
 
     state.update({
         "video_files": videos,
