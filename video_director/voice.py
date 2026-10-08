@@ -5,17 +5,12 @@ def list_providers() -> List[dict]:
     from video_director import provider_matrix
     out = []
     for pid, meta in TTS_PROVIDERS.items():
-        st = provider_matrix.state("tts", "tts.speak",
-                                   {"api_key": "configured"} if pid == "edge-tts" else {})
-        # state("tts") 的 identity 固定为 edge-tts；其它 provider 单独按定义判断。
-        if pid != "edge-tts":
-            defn = next((d for d in provider_matrix.DEFINITIONS
-                         if d.provider_id == pid and d.role == "tts"), None)
-            status = provider_matrix.UNSUPPORTED if not defn or not defn.implemented else provider_matrix.MISSING
-            reason = (defn.note if defn else "Provider 未登记") or "未接通"
-        else:
-            status = st.status
-            reason = st.reason
+        st = provider_matrix.state_for_provider(
+            pid, "tts", "tts.speak",
+            {"api_key": "configured"} if pid == "edge-tts" else {}
+        )
+        status = st.status
+        reason = st.reason
         out.append({
             "id": pid, "label": meta["label"],
             "requires_key": meta["requires_key"],
