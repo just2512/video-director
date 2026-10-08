@@ -47,7 +47,7 @@ def test_video_image_to_video_is_explicitly_unsupported():
     assert st.status == provider_matrix.UNSUPPORTED
 
 
-def test_unknown_custom_role_provider_is_fail_closed():
+def test_custom_openai_compatible_endpoint_is_declared_supported():
     st = provider_matrix.state(
         "image", "image.generate",
         {"api_key": "k", "base_url": "", "model": "image-model"},
@@ -103,3 +103,19 @@ def test_matrix_frontend_never_contains_secret():
     for row in rows:
         assert "api_key" not in row
         assert "secret" not in str(row).lower()
+
+
+def test_matrix_frontend_reports_unimplemented_tts_as_unsupported(monkeypatch):
+    monkeypatch.delenv("COVERR_API_KEY", raising=False)
+    rows = provider_matrix.matrix_for_frontend()
+    tts = {r["provider"]: r for r in rows if r["role"] == "tts"}
+    assert tts["edge-tts"]["operations"]["tts.speak"] == provider_matrix.READY
+    assert tts["kokoro"]["operations"]["tts.speak"] == provider_matrix.UNSUPPORTED
+
+
+def test_matrix_frontend_reports_stock_states(monkeypatch):
+    monkeypatch.delenv("PEXELS_API_KEY", raising=False)
+    rows = provider_matrix.matrix_for_frontend()
+    stock_rows = {r["provider"]: r for r in rows if r["role"] == "stock"}
+    assert stock_rows["pexels"]["operations"]["stock.search_video"] == provider_matrix.MISSING
+    assert stock_rows["coverr"]["operations"]["stock.search_video"] == provider_matrix.UNSUPPORTED
