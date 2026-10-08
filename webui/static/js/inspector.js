@@ -214,6 +214,55 @@ async function _loadMptSceneContext(sceneId){
     const terms = (intent.search_terms || []).map(function(t){
       return '<span style="display:inline-block;padding:2px 6px;border:1px solid var(--border);border-radius:10px;margin:2px 3px 2px 0">' + esc(t) + '</span>';
     }).join('');
+    const candidateRow = (mpt.creative_candidates || []).find(function(x){ return x.scene_id === sceneId; });
+    const candidates = (candidateRow && candidateRow.candidates) || intent.candidates || [];
+    const selectedCandidate = (candidateRow && candidateRow.selected_candidate_id) ||
+      intent.selected_candidate_id || '';
+    function candidateParam(candidate){
+      return JSON.stringify({
+        candidateId: candidate.id,
+        visualIntent: candidate.visual_intent,
+        approach: candidate.approach || '',
+        sourcePreference: candidate.source_preference || '',
+      }).replace(/&/g, '&amp;').replace(/'/g, '&#39;');
+    }
+    const candidateHtml = candidates.map(function(candidate){
+      const selected = candidate.id === selectedCandidate;
+      const sourceText = {
+        user_asset: '优先用我的素材',
+        stock: '按检索词找素材',
+        generated: 'AI 生成画面',
+        reference_style: '参考风格',
+        software_evidence: '项目证据'
+      }[candidate.source_preference] || candidate.source_preference || '未指定';
+      const termPreview = (candidate.search_terms || []).slice(0, 3)
+        .map(function(t){ return '<span class="hint">' + esc(t) + '</span>'; }).join(' · ');
+      const executeHtml = candidate.source_preference === 'stock'
+        ? '<button class="btn-secondary btn-sm" data-action="asset.search_stock" data-target="scene" data-params=\'' +
+          JSON.stringify({query: (candidate.search_terms || [])[0] || ''}).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>找素材</button>'
+        : candidate.source_preference === 'generated'
+          ? '<button class="btn-secondary btn-sm" data-action="ui.generate_scene_visual" data-params=\'' +
+            JSON.stringify({
+              prompt: candidate.generation_prompt || candidate.visual_intent || '',
+              type: candidate.generation_type || 'image'
+            }).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>准备生成</button>'
+          : '<button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">选我的素材</button>';
+      return '<div style="border:1px solid ' + (selected ? 'var(--accent)' : 'var(--border)') +
+        ';border-radius:6px;padding:8px;margin:6px 0;background:var(--panel)">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+        '<b>' + esc(candidate.title || candidate.id) + '</b>' +
+        '<div class="btn-row" style="gap:5px">' +
+        '<button class="btn-secondary btn-sm" data-action="creative.select_candidate" data-target="scene" ' +
+        'data-params=\'' + candidateParam(candidate) + '\'' + (selected ? ' disabled' : '') + '>' +
+        (selected ? '当前方案' : '采用') + '</button>' +
+        executeHtml +
+        '</div>' +
+        '</div>' +
+        '<div style="margin-top:4px">' + esc(candidate.visual_intent || '') + '</div>' +
+        '<div style="margin-top:4px">' + esc(sourceText) + (termPreview ? ' · ' + termPreview : '') + '</div>' +
+        '<div class="hint" style="margin-top:4px">候选状态：' + esc(candidate.status || 'INTENT_ONLY') + '</div>' +
+        '</div>';
+    }).join('');
     const windows = usage.length
       ? usage.map(function(u){
           return esc(u.asset_id) + ' · ' + Number(u.source_in || 0).toFixed(1) + 's → ' +
@@ -221,7 +270,9 @@ async function _loadMptSceneContext(sceneId){
         }).join('<br>')
       : '尚未形成 source-window 使用记录';
     box.innerHTML =
-      '<div>检索词（按叙事顺序）</div>' +
+      '<div><b>创作方案</b> <span class="hint">先选表达方式，再决定用什么素材</span></div>' +
+      '<div style="margin-top:4px">' + (candidateHtml || '<span class="hint">暂无候选方案；重新执行 Director 后建立。</span>') + '</div>' +
+      '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:7px">检索词（按叙事顺序）</div>' +
       '<div style="margin:3px 0 6px">' + (terms || '<span class="hint">未记录</span>') + '</div>' +
       '<div>目标时长：' + Number(intent.target_duration || 0).toFixed(1) + 's' +
       ' · 单段上限：' + (intent.max_clip_duration ? Number(intent.max_clip_duration).toFixed(1) + 's' : '自动') + '</div>' +
