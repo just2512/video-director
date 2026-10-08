@@ -1105,7 +1105,7 @@ class Handler(BaseHTTPRequestHandler):
                         "layer_target": f"{sc.id}#{layer_idx}",
                         "asset_id": aid,
                         "asset_name": Path(asset.file).name,
-                        "asset_file": asset.file,
+                        "asset_file": (str(Path(asset.file).resolve()) if (Path(asset.file).is_file() and (lambda _r: _r == STORAGE.resolve() or STORAGE.resolve() in _r.parents)(Path(asset.file).resolve())) else ""),
                         "asset_duration": asset.duration,
                         "source_in": source_in,
                         "source_out": source_out,
