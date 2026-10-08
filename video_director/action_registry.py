@@ -566,6 +566,7 @@ _CONTEXT_KEYS = {
         "ui.open_asset_picker", "ui.open_shot_picker", "ui.generate_scene_visual",
         "ui.move_prompt", "ui.add_broll_prompt", "sfx.add",
         "asset.import_local", "asset.search_stock",
+        "visual.semantic_rerank",
     ],
     ("layer", "video"): [
         "asset.replace", "asset.search",
