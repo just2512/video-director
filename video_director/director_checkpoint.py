@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 STATE_KEYS = (
-    "script", "scene_texts", "narration_file", "word_timeline", "narration_scenes",
+    "script", "scene_texts", "scene_plan", "narration_file", "word_timeline", "narration_scenes",
     "video_files", "image_files", "assets", "asset_order", "assignments",
     "material_intents", "subtitle_file", "subtitle_entries", "bgm_asset_id",
     "bgm_volume", "composition_path", "manifest_path", "style_path",
