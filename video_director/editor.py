@@ -1198,18 +1198,41 @@ def _cmd_lock(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
 
 
 def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
-    """多选批量命令（§47 multi-select）：对选中集合逐条执行，单 revision 原子记录。
+    """多选批量命令（§47）：单 revision 原子执行。
 
-    payload = {subcommand: "delete"|"duplicate"|"lock", targets: [...],
-               lock: bool}（lock 用）。
-    各子命令按 id 定位（delete/duplicate 内部重查 id，不受重排影响）。
+    支持 delete / duplicate / lock，以及 OpenCut 风格的多场景移动。
+    move 使用 anchorId：把选中的场景按当前相对顺序移动到锚点场景之前。
+    持久化仍只有 Composition IR + Revision，不创建第二套时间线。
     """
     sub = payload.get("subcommand") or ""
     targets = [t for t in (payload.get("targets") or []) if t]
     if not targets:
         raise EditorError("INVALID_PAYLOAD", "batch 缺 targets")
-    if sub not in ("delete", "duplicate", "lock"):
+    if sub not in ("delete", "duplicate", "lock", "move"):
         raise EditorError("INVALID_PAYLOAD", f"batch 不支持的 subcommand {sub!r}")
+
+    if sub == "move":
+        scene_targets = [t for t in targets if any(sc.id == t for sc in ir.scenes)]
+        if not scene_targets:
+            raise EditorError("NOOP", "批量移动没有有效场景")
+        selected = set(scene_targets)
+        anchor_id = payload.get("anchorId") or ""
+        if anchor_id and anchor_id in selected:
+            raise EditorError("NOOP", "不能把所选场景移动到所选集合内部")
+        moving = [sc for sc in ir.scenes if sc.id in selected]
+        remain = [sc for sc in ir.scenes if sc.id not in selected]
+        if anchor_id:
+            anchor_idx = next((i for i, sc in enumerate(remain) if sc.id == anchor_id), None)
+            if anchor_idx is None:
+                raise EditorError("NOT_FOUND", f"移动目标 {anchor_id} 不存在")
+        else:
+            anchor_idx = len(remain)
+        ir.scenes = remain[:anchor_idx] + moving + remain[anchor_idx:]
+        _renumber_starts(ir)
+        _resync_audio_to_scenes(ir)
+        stale = [f"{sc.id}:render" for sc in moving] + [f"{sc.id}:preview" for sc in moving]
+        return [sc.id for sc in moving], stale
+
     changed_all: List[str] = []
     stale_all: List[str] = []
     for t in targets:
@@ -1218,10 +1241,9 @@ def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
                 c, s = _cmd_delete(ir, t, {})
             elif sub == "duplicate":
                 c, s = _cmd_duplicate(ir, t, {})
-            else:  # lock
+            else:
                 c, s = _cmd_lock(ir, t, {"locked": bool(payload.get("locked", True))})
         except EditorError as exc:
-            # 集合中单个失败：余下目标继续（集合语义），但整体标记该错误
             if exc.code in ("NOT_FOUND", "INVALID_PAYLOAD") and exc.recoverable:
                 continue
             raise
