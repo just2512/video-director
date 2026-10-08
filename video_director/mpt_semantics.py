@@ -4,7 +4,8 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, List, Mapping, Optional, Sequence\nimport json
+from typing import Any, Iterable, List, Mapping, Optional, Sequence
+import json
 
 PAUSE_TAG_RE = re.compile(
     r"[\[\(]\s*(?:pause|pausa|silence|silencio|silêncio|silenzio|stille|"
@@ -111,7 +112,10 @@ def parse_pause_markup(text: str) -> tuple[List[SpeechSegment], List[PauseEvent]
     tail = text[cursor:].strip()
     if tail:
         segments.append(SpeechSegment(tail, 0.0))
-    return segments, events\n\n\ndef remove_pause_markup(text: str) -> str:
+    return segments, events
+
+
+def remove_pause_markup(text: str) -> str:
     cleaned = PAUSE_TAG_RE.sub(" ", text or "")
     return re.sub(r"[ \t]+", " ", cleaned).strip()
 
