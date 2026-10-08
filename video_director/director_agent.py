@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 from loguru import logger
 
-from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint
+from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint, creative_candidates
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
@@ -243,9 +243,21 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
             "软件项目 VERIFIED 事实。参考视频只借鉴镜头语言，不复制内容。"
             "同时为每个场景生成 3-8 个按叙事顺序排列的 stock 搜索词；"
             "搜索词用于真实图库检索，不能脱离该场景含义。"
-            '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"画面意图",'
+            "每个场景再提供 3 个明显不同的创作候选：直叙表达、细节/B-roll、概念化表达；"
+            "每个候选必须包含 title、approach、visual_intent、search_terms、source_preference、"
+            "generation_type、generation_prompt。"
+            '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"主视觉意图",'
             '"source_preference":"user_asset|reference_style|software_evidence|stock|generated",'
-            '"search_terms":["按叙事顺序的检索词"]}]}\n'
+            '"search_terms":["按叙事顺序的检索词"],'
+            '"candidates":[{"title":"直叙表达","approach":"direct","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"user_asset","generation_type":"",'
+            '"generation_prompt":"..."},'
+            '{"title":"细节补画面","approach":"broll","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"stock","generation_type":"",'
+            '"generation_prompt":"..."},'
+            '{"title":"概念化表达","approach":"concept","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"generated","generation_type":"image",'
+            '"generation_prompt":"..."}]}]}\n'
             + json.dumps(di.build_agent_scene_context(state["bundle"], state["script"]),
                          ensure_ascii=False, indent=2),
             system="你是视频 Director，只输出合法 JSON。",
@@ -257,8 +269,24 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
         data = json.loads(raw[a:b + 1])
         if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
             raise RuntimeError("分镜节点缺少 scenes")
+    # 候选集是 Scene Plan 的一部分：缺失时生成稳定的三路线 fallback，避免 UI 出现空白候选。
+    candidate_snapshot = creative_candidates.build_candidate_snapshot(
+        data.get("scenes") or []
+    )
+    selected_map = {
+        item["scene_id"]: item["selected_candidate_id"]
+        for item in candidate_snapshot["scenes"]
+    }
+    for scene, candidate_row in zip(data.get("scenes") or [], candidate_snapshot["scenes"]):
+        scene["candidates"] = candidate_row["candidates"]
+        scene["selected_candidate_id"] = candidate_row["selected_candidate_id"]
     state["scene_plan"] = data
+    state["creative_candidates"] = candidate_snapshot
     path = _json_file(config.project_dir(state["project_id"]) / "plans" / "director_scene_plan.json", data)
+    _json_file(
+        config.project_dir(state["project_id"]) / "plans" / "creative_candidates.json",
+        candidate_snapshot,
+    )
     ok = Path(path).is_file() and bool(data.get("scenes"))
     return {
         "ok": ok, "tool": "scene.plan", "status": "APPLIED",
