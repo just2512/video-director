@@ -154,7 +154,7 @@
         try{v.currentTime=Math.min(max,sourceIn+rel*(Number(lay.speed||1)));}catch(e){}
       },{once:true});
     } else {
-      stage.innerHTML='<div class="edx-live-empty"><b>'+escx(sc.text||'当前场景')+'</b><span>'+escx(layerTypeCn?layerTypeCn(lay.type):lay.type)+'</span></div>';
+      stage.innerHTML='<div class="edx-live-empty"><b>'+escx(sc.text||'当前场景')+'</b><span>'+escx(typeof layerTypeCn==='function'?layerTypeCn(lay.type):lay.type)+'</span></div>';
     }
     if(meta) meta.textContent='编辑预览 · '+sc.id+' · '+Number(sc.duration||0).toFixed(1)+'s';
     stage.classList.add('edx-live');
