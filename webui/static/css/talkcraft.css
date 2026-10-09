@@ -1,0 +1,45 @@
+/* Speech-to-shot planning panel: uses the existing editor workspace tokens. */
+.tc-panel { margin-top: 14px; }
+.tc-head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; }
+.tc-head h3 { font-size:15px; margin:0 0 5px; color:var(--text); }
+.tc-head p { margin:0; max-width:780px; }
+.tc-head-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.tc-status,.tc-pill { display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:999px; padding:4px 9px; font-size:11px; white-space:nowrap; color:var(--muted); background:var(--surface-2); }
+.tc-status.is-ok,.tc-pill.is-ok { color:var(--text); border-color:var(--accent); }
+.tc-status.is-warn,.tc-pill.is-warn { color:var(--text); border-color:#b7791f; }
+.tc-truth-note { margin-top:12px; padding:9px 11px; border-left:3px solid var(--border); background:var(--surface-2); color:var(--muted); font-size:12px; line-height:1.6; }
+.tc-summary { display:grid; grid-template-columns:repeat(5,minmax(90px,1fr)); gap:7px; margin-top:12px; }
+.tc-stat { min-width:0; padding:9px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface-2); display:flex; flex-direction:column; gap:4px; }
+.tc-stat-name { font-size:11px; color:var(--muted); }
+.tc-stat-value { font-size:14px; font-weight:650; color:var(--text); overflow-wrap:anywhere; }
+.tc-message { margin-top:10px; min-height:18px; color:var(--muted); font-size:12px; line-height:1.5; }
+.tc-message.is-error { color:var(--danger, #b42318); }
+.tc-message.is-warn { color:var(--warning, #a15c00); }
+.tc-message.is-success { color:var(--text); }
+.tc-beats { display:grid; gap:12px; margin-top:12px; }
+.tc-beat { min-width:0; border:1px solid var(--border); border-radius:var(--radius-md); padding:12px; background:var(--surface-1); }
+.tc-beat-head { display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-bottom:9px; }
+.tc-beat-number { font-weight:700; font-size:12px; color:var(--text); }
+.tc-time,.tc-muted { color:var(--muted); font-size:11px; }
+.tc-script { border-left:3px solid var(--accent); margin:0 0 11px; padding:8px 11px; background:var(--surface-2); color:var(--text); white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.7; }
+.tc-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+.tc-field { min-width:0; display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:11px; }
+.tc-field-label { color:var(--muted); }
+.tc-field input,.tc-field select,.tc-recipe-controls select { box-sizing:border-box; min-width:0; width:100%; color:var(--text); background:var(--surface-1); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 9px; font:inherit; font-size:12px; }
+.tc-beat-actions { display:flex; gap:8px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:10px; }
+.tc-check { display:flex; align-items:center; gap:6px; margin-right:auto; color:var(--muted); font-size:11px; }
+.tc-check input { margin:0; }
+.tc-recipe-area { border-top:1px solid var(--border); margin-top:12px; padding-top:10px; }
+.tc-recipe-title { display:flex; gap:9px; align-items:baseline; margin-bottom:8px; font-size:12px; }
+.tc-recipe-title strong { color:var(--text); }
+.tc-recipe-controls { display:grid; grid-template-columns:minmax(140px,.7fr) minmax(220px,1.5fr); gap:9px; }
+.tc-recipe-status { font-size:11px; margin-top:7px; color:var(--muted); }
+.tc-notes { margin:8px 0; padding:8px 12px 8px 28px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--muted); font-size:11px; }
+.tc-notes li { margin:4px 0; }
+@media (max-width:800px) {
+  .tc-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .tc-edit-grid { grid-template-columns:1fr; }
+  .tc-recipe-controls { grid-template-columns:1fr; }
+  .tc-beat-actions { justify-content:flex-start; }
+  .tc-check { width:100%; margin-right:0; }
+}
