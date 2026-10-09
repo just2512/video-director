@@ -182,22 +182,42 @@ def build_sentence_timing(
         review_reasons.append("部分字符通过相邻锚点插值，需抽听复核")
 
     ordered = []
-    previous_start = -1
+    previous_start = start_ms
+    sentence_end = max(start_ms + 1, end_ms)
     for target_index, (original_index, char, _key) in enumerate(target):
         start, end, timing_source, review = assigned[target_index]
-        if start < previous_start:
+        original_start, original_end = start, end
+
+        # Hard bound every character to its sentence. ASR/TTS can return words
+        # slightly outside an IR scene; retain the fact as a review issue rather
+        # than allowing impossible timestamps into the persisted contract.
+        start = min(sentence_end - 1, max(start_ms, start))
+        end = min(sentence_end, max(start + 1, end))
+        if original_start != start or original_end != end:
             review = True
             timing_source = "text_interpolation"
-            review_reasons.append("检测到时间锚点倒序，需抽听复核")
-        if start < start_ms - 100 or end > end_ms + 100:
+            review_reasons.append("字符锚点越出句子时间窗，已裁回句内并需抽听复核")
+
+        # Character order is an output invariant. Do not let a reversed ASR
+        # anchor break the contract: monotonize the start while preserving a
+        # valid positive interval, explicitly mark the resulting estimate.
+        if start < previous_start:
+            start = min(sentence_end - 1, previous_start)
+            end = min(sentence_end, max(start + 1, end))
             review = True
-            review_reasons.append("字符时间超出句子时间窗")
+            timing_source = "text_interpolation"
+            review_reasons.append("检测到时间锚点倒序，已归一为单调时间并需抽听复核")
+
         if end <= start:
-            end = start + 1
+            start = min(start, sentence_end - 1)
+            end = min(sentence_end, start + 1)
             review = True
+            timing_source = "text_interpolation"
+            review_reasons.append("字符时间窗无有效长度，已按句内最小时间窗修正并需复核")
+
         ordered.append(CharacterTiming(
-            index=original_index, text=char, start_ms=max(0, start),
-            end_ms=max(1, end), source=timing_source, review_required=review,
+            index=original_index, text=char, start_ms=start,
+            end_ms=end, source=timing_source, review_required=review,
         ))
         previous_start = start
 
