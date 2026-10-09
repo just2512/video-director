@@ -181,6 +181,7 @@ def _align_scene_chars(text: str, scene_start: float, scene_end: float,
             src = word_chars[block.b + j]
             mapped[block.a + j] = {
                 "text": target[block.a + j],
+                "script_index": script_chars[block.a + j][0],
                 "start": src["start"],
                 "end": src["end"],
                 "timing_source": src["timing_source"],
@@ -195,7 +196,8 @@ def _align_scene_chars(text: str, scene_start: float, scene_end: float,
         for i, ch in enumerate(target):
             a = scene_start + width * i / len(target)
             b = scene_start + width * (i + 1) / len(target)
-            mapped.append({"text": ch, "start": round(a, 4), "end": round(b, 4),
+            mapped.append({"text": ch, "script_index": script_chars[i][0],
+                           "start": round(a, 4), "end": round(b, 4),
                            "timing_source": "estimated_from_scene", "review_required": True})
         return mapped, 0.0
     # Fill unmatched characters between real/derived word anchors, clearly marked.
@@ -218,7 +220,8 @@ def _align_scene_chars(text: str, scene_start: float, scene_end: float,
             step = (end_t - start_t) / (right - left)
             start_t = start_t + step * (i - left - 1)
             end_t = start_t + step
-        mapped[i] = {"text": target[i], "start": round(start_t, 4), "end": round(end_t, 4),
+        mapped[i] = {"text": target[i], "script_index": script_chars[i][0],
+                     "start": round(start_t, 4), "end": round(end_t, 4),
                      "timing_source": "interpolated_between_anchors", "review_required": True}
     coverage = direct / max(1, len(target))
     return [x for x in mapped if x is not None], round(coverage, 4)
