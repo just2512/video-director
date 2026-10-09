@@ -213,6 +213,7 @@
         return;
       }
       TC.data.revision = r.revision;
+      TC.data.shot_revision = r.shot_revision ?? TC.data.shot_revision;
       if (r.shot) {
         const oldShot = (TC.data.shots || []).find(s => s.scene_id === r.shot.scene_id);
         if (oldShot) Object.assign(oldShot, r.shot);
@@ -351,7 +352,12 @@
       return;
     }
     const shots = new Map((data.shots || []).map(s => [s.scene_id, s]));
-    for (const beat of data.beats) list.appendChild(buildBeatCard(beat, shots.get(beat.scene_id)));
+    const sceneSeen = new Set();
+    for (const beat of data.beats) {
+      const firstInShot = !sceneSeen.has(beat.scene_id);
+      sceneSeen.add(beat.scene_id);
+      list.appendChild(buildBeatCard(beat, firstInShot ? shots.get(beat.scene_id) : null));
+    }
     if (data.notes && data.notes.length) {
       const notes = el("ul", "tc-notes");
       for (const n of data.notes) notes.appendChild(el("li", "", n));
@@ -384,6 +390,14 @@
         output.hidden = true;
         output.removeAttribute("href");
       }
+    }
+    const shotbookLink = $("tc-shotbook-output");
+    if (shotbookLink && TC.data && TC.data.shotbook_url) {
+      shotbookLink.href = TC.data.shotbook_url;
+      shotbookLink.hidden = false;
+    } else if (shotbookLink) {
+      shotbookLink.hidden = true;
+      shotbookLink.removeAttribute("href");
     }
     const active = ["QUEUED", "PREPARING", "RENDERING"].includes(state.status);
     if (active && TC.renderPoll === null) {
