@@ -121,6 +121,22 @@
         <button class="btn-secondary btn-sm" data-action="render.draft" data-target="project" title="快速渲染低清草稿">渲染草稿</button>
         <button class="btn-sm" data-action="render.final" data-target="project" title="商用预检通过后渲染正式成片">渲染成片</button>
       </div>
+      <!-- Shotbook Workbench: editable semantic beats, character timing and recipe application -->
+      <details id="shotbook-details" class="panel" style="margin:10px 0;padding:10px" open>
+        <summary style="cursor:pointer;font-weight:600">旁白与镜头设计 · 分镜、字级时间锚点、动态字卡、证据与音效</summary>
+        <div class="hint" style="margin-top:6px">草案来自当前项目时间线。字内时间若由词级/场景级推算，会明确标记为估算；应用镜头配方只通过现有 Editor Command + Revision 修改时间线。</div>
+        <div class="btn-row" style="align-items:center">
+          <button class="btn-secondary btn-sm" type="button" onclick="shotbookLoad()">载入当前分镜</button>
+          <button class="btn-secondary btn-sm" type="button" onclick="shotbookGenerate()">从时间线生成/更新草案</button>
+          <button class="btn-sm" type="button" onclick="shotbookSave()">保存分镜</button>
+          <button id="shotbook-reload-conflict" class="btn-secondary btn-sm" type="button" onclick="shotbookReloadConflict()" style="display:none">重新载入冲突版本</button>
+          <span id="shotbook-meta" class="hint">尚未载入</span>
+        </div>
+        <div id="shotbook-status" class="hint" role="status" aria-live="polite">打开项目后，载入或生成分镜草案。</div>
+        <div id="shotbook-timing-note" class="hint" style="margin:5px 0"></div>
+        <div id="shotbook-gates" class="sb-gates"></div>
+        <div id="shotbook-list" style="max-height:620px;overflow:auto;margin-top:8px"></div>
+      </details>
       <!-- 项目操作抽屉宿主 -->
       <div id="project-drawer"></div>
       <!-- 版本历史抽屉宿主 -->
@@ -340,6 +356,7 @@
 <script src="/static/js/generation.js"></script>
 <script src="/static/js/review.js"></script>
 <script src="/static/js/graphics.js"></script>
+<script src="/static/js/shotbook.js"></script>
 <script src="/static/js/storyboard.js"></script>
 <script src="/static/js/workflow.js"></script>
 <script src="/static/js/project.js"></script>
