@@ -980,6 +980,19 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/catalog/blocks/resolve" or route == "/api/graphics/blocks/resolve":
             # GFX-010 Block Resolver（POST，见 do_POST）——GET 拒绝
             self._send_json({"error": "POST only"}, 405)
+        elif route == "/api/talkcraft/plan":
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import talkcraft as vd_talkcraft
+                self._send_json(vd_talkcraft.get_plan(pid))
+            except vd_talkcraft.TalkCraftError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/editor/composition":
             # ?project_id= → 场景/层时间线数据（Editor 页事实源）
             qs = parse_qs(parsed.query)
@@ -1235,6 +1248,46 @@ class Handler(BaseHTTPRequestHandler):
         # §52 POST /api/workflows：发起 WorkflowRun → 立即返回 run_id（不阻塞）。
         #   kind: compose（spec 同 /api/compose 字段）| render_draft | render_final
         #   前端轮询 GET /api/workflows/{run_id} 或走 SSE workflow.* 事件。
+        if parsed.path in ("/api/talkcraft/prepare", "/api/talkcraft/beat",
+                           "/api/talkcraft/recipe/plan", "/api/talkcraft/recipe/apply"):
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = str(payload.get("project_id") or "")
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import talkcraft as vd_talkcraft
+                if parsed.path == "/api/talkcraft/prepare":
+                    result = vd_talkcraft.prepare_plan(pid)
+                elif parsed.path == "/api/talkcraft/beat":
+                    result = vd_talkcraft.update_beat(pid, str(payload.get("beat_id") or ""), payload)
+                elif parsed.path == "/api/talkcraft/recipe/plan":
+                    result = vd_talkcraft.save_shot_recipe(
+                        pid, str(payload.get("scene_id") or ""),
+                        str(payload.get("recipe_id") or ""),
+                        payload.get("expected_revision"),
+                    )
+                else:
+                    result = vd_talkcraft.apply_shot_recipe(
+                        pid, str(payload.get("scene_id") or ""),
+                        int(payload.get("layer_index", 0)),
+                        str(payload.get("recipe_id") or ""),
+                        payload.get("expected_version"),
+                    )
+                self._send_json(result)
+            except vd_talkcraft.TalkCraftError as exc:
+                message = str(exc)
+                status = 409 if ("REVISION_CONFLICT" in message or "版本冲突" in message) else 400
+                self._send_json({"ok": False, "error": message}, status)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         if parsed.path == "/api/workflows":
             length = int(self.headers.get("Content-Length", 0))
             try:
