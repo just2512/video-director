@@ -550,13 +550,21 @@ def apply_shot_recipe(project_id: str, scene_id: str, layer_index: int,
     recipe = next((x for x in _list_recipes() if x.get("id") == recipe_id), None)
     if not recipe or not recipe.get("enabled"):
         raise TalkCraftError("所选配方不可用。")
+    if layer_type not in {"video", "image"}:
+        raise TalkCraftError(f"当前渲染器尚未实现 {layer_type} 图层的通用 Motion Recipe 执行；已阻止应用，避免生成无效果的假成功。")
     if layer_type not in recipe.get("compatible_layers", []):
         raise TalkCraftError(f"配方 {recipe.get('name', recipe_id)} 不支持 {layer_type} 图层。")
-    # Current FFmpeg renderer only permits opacity-only motion channels on video layers.
+    # These are the real properties consumed by renderer.render_layer_segment:
+    # video -> opacity only; image -> scale/opacity. x/y are not rendered for these
+    # layer types, so do not let a seemingly successful UI action produce no change.
     channels = recipe.get("channels", [])
     props = {c.get("property") for c in channels if isinstance(c, dict)}
-    if layer_type == "video" and props - {"opacity"}:
-        raise TalkCraftError("该配方包含当前视频层渲染器不支持的运动通道；已阻止应用，避免渲染时才失败。")
+    supported = {"opacity"} if layer_type == "video" else {"opacity", "scale"}
+    if not props or props - supported:
+        raise TalkCraftError(
+            f"该配方的运动通道 {sorted(props)} 超出当前 {layer_type} 渲染能力 {sorted(supported)}；"
+            "已阻止应用，避免渲染时失败或看起来没有变化。"
+        )
     result = editor.execute_command(project_id, {
         "command": "replace_motion", "targetId": f"{scene_id}#{layer_index}",
         "payload": {"motionRecipeId": recipe_id},
