@@ -371,15 +371,24 @@ function _tlBindPlayheadDrag(){
   scroll.addEventListener('pointermove', ev => {
     if (PLAYHEAD.dragging) playheadSet(_tlPct(ev, scroll), ev);
   });
-  const up = ev => {
-    if (PLAYHEAD.dragging) {
-      PLAYHEAD.dragging = false;
-      playheadSet(_tlPct(ev, scroll), {type: 'pointerup', shiftKey: !!ev.shiftKey});
-      // 释放后清 Snap Guide（拖动辅助线不留屏）
-      if (window.editorSessionClearSnapGuide) window.editorSessionClearSnapGuide();
-    }
-  };
-  document.addEventListener('pointerup', up);
+  // 释放 handler 挂 document（鼠标可移出 scroll 释放）。每次重渲都会重建
+  // scroll 并再挂一个——旧 handler 闭包捕获脱离 DOM 的旧 scroll：
+  // getBoundingClientRect()=0 宽 → (x-0)/0=Infinity → clamp=1 → 释放瞬间
+  // 播放头跳到结尾并置 dragging=false 短路正确 handler（B9，实测必现）。
+  // 修复：模块级单 handler，动态解析当前连接中的 scroll。
+  if (!window.__tlPlayheadUp) {
+    window.__tlPlayheadUp = ev => {
+      const live = document.querySelector('#editor-timeline .ed-tl-scroll');
+      if (!live || !live.isConnected) return;
+      if (PLAYHEAD.dragging) {
+        PLAYHEAD.dragging = false;
+        playheadSet(_tlPct(ev, live), {type: 'pointerup', shiftKey: !!ev.shiftKey});
+        // 释放后清 Snap Guide（拖动辅助线不留屏）
+        if (window.editorSessionClearSnapGuide) window.editorSessionClearSnapGuide();
+      }
+    };
+    document.addEventListener('pointerup', window.__tlPlayheadUp);
+  }
 }
 
 /** §17 层直接操作：拖动重排（跨场景）+ 边缘 Trim（层内裁剪）。
