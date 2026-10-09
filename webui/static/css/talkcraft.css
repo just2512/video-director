@@ -43,3 +43,13 @@
   .tc-beat-actions { justify-content:flex-start; }
   .tc-check { width:100%; margin-right:0; }
 }
+
+.tc-render-box { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-top:12px; padding:12px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-2); }
+.tc-render-box strong { font-size:13px; color:var(--text); }
+.tc-render-box p { margin:5px 0 8px; max-width:760px; font-size:11px; line-height:1.5; }
+.tc-render-actions { display:flex; gap:7px; flex-wrap:wrap; }
+.tc-render-status { color:var(--muted); font-size:11px; line-height:1.55; overflow-wrap:anywhere; }
+.tc-render-status.is-ok { color:var(--text); }
+.tc-render-status.is-error { color:var(--danger, #b42318); }
+.tc-render-output { display:inline-block; margin-top:6px; color:var(--text); font-size:12px; text-decoration:underline; text-underline-offset:3px; }
+.tc-stale-note { border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; color:var(--muted); font-size:12px; line-height:1.6; }
