@@ -90,6 +90,7 @@ export type TalkCraftProps = {
   audio: AudioPlan[];
   recipes: Record<string, RecipePlan>;
   narrationSrc: string | null;
+  duckingWindows: Array<[number, number]>;
   title: string;
 };
 
@@ -275,12 +276,15 @@ export const TalkCraftVideo: React.FC<TalkCraftProps> = (props) => {
           startFrom={frames(track.source_in || 0, fps)}
           volume={(f) => {
             const seconds = f / fps;
+            const projectTime = track.start + seconds;
+            const speechActive = (props.duckingWindows || []).some(([a, b]) => projectTime >= a && projectTime <= b);
+            const duckGain = track.ducking && speechActive ? 0.28 : 1;
             const fadeIn = Math.max(0, track.fadeIn || 0);
             const fadeOut = Math.max(0, track.fadeOut || 0);
             const inGain = fadeIn > 0 ? interpolate(seconds, [0, frames(fadeIn, fps) / fps], [0, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1;
             const outStart = Math.max(0, track.duration - fadeOut);
             const outGain = fadeOut > 0 ? interpolate(seconds, [outStart, track.duration], [1, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1;
-            return Math.max(0, Math.min(2, track.volume * inGain * outGain));
+            return Math.max(0, Math.min(2, track.volume * inGain * outGain * duckGain));
           }}
         />
       </Sequence>
