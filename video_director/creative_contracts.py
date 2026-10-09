@@ -41,6 +41,7 @@ class SentenceTiming(ContractModel):
     status: TimingStatus
     characters: list[CharacterTiming] = Field(default_factory=list)
     review_reasons: list[str] = Field(default_factory=list)
+    reviewed: bool = False  # 人工抽听后显式确认，保留插值来源而不伪装为原生锚点
 
     @model_validator(mode="after")
     def _valid_sentence(self):

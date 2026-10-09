@@ -162,15 +162,21 @@ def build_sentence_timing(
             right_anchor += 1
         left_ms = assigned[left_anchor][1] if left_anchor >= 0 else start_ms
         right_ms = assigned[right_anchor][0] if right_anchor < len(target) else end_ms
+        # 插值永远限制在句子时间窗内。若相邻锚点重叠/没有空间，允许字符时间窗重叠，
+        # 但必须留 review_required；不能为了制造单调间隔把时间推到下一句或音频外。
+        sentence_last_ms = max(start_ms + 1, end_ms)
+        left_ms = min(sentence_last_ms - 1, max(start_ms, left_ms))
+        right_ms = min(sentence_last_ms, max(start_ms + 1, right_ms))
         if right_ms <= left_ms:
-            left_ms = min(left_ms, max(start_ms, right_ms - len(group) - 1))
-            right_ms = max(right_ms, left_ms + len(group) + 1)
-        span = max(len(group), right_ms - left_ms)
+            left_ms = start_ms
+            right_ms = sentence_last_ms
+            review_reasons.append("相邻锚点没有可分配间隔，回退到句内插值并需复核")
+        span = max(1, right_ms - left_ms)
         for offset, target_index in enumerate(group):
             left = left_ms + int(round(span * offset / len(group)))
             right = left_ms + int(round(span * (offset + 1) / len(group)))
-            if right <= left:
-                right = left + 1
+            left = min(sentence_last_ms - 1, max(start_ms, left))
+            right = min(sentence_last_ms, max(left + 1, right))
             assigned[target_index] = (left, right, "text_interpolation", True)
         cursor = last_cursor + 1
         review_reasons.append("部分字符通过相邻锚点插值，需抽听复核")
@@ -313,12 +319,66 @@ def build_initial_plan(
     )
 
 
-def _known_motion_ids() -> set[str]:
+def _shot_registry() -> dict[str, Any]:
+    from video_director.registries.recipes import ShotRegistry
+    return {str(item.id): item for item in ShotRegistry().all()}
+
+
+def _motion_registry() -> dict[str, Any]:
+    from video_director.registries.recipes import MotionRegistry
+    return {str(item.id): item for item in MotionRegistry().all()}
+
+
+def _known_project_assets(project_id: str) -> dict[str, dict]:
+    """只接受资产库/项目 manifest 中登记过的 ID；自由输入路径不直接交给浏览器渲染。"""
+    pid = validate_project_id(project_id)
+    found: dict[str, dict] = {}
     try:
-        from video_director.registries.recipes import MotionRegistry
-        return {str(item.id) for item in MotionRegistry().all()}
+        from video_director import asset_catalog
+        for item in asset_catalog.list_assets():
+            aid = str(item.get("asset_id") or item.get("id") or "")
+            path = str(item.get("file") or "")
+            if aid and path:
+                found[aid] = {**item, "asset_id": aid, "file": path}
     except Exception:
-        return set()
+        pass
+
+    manifest = config.project_dir(pid) / "assets" / "manifest.json"
+    if manifest.is_file():
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                entries = payload.get("assets", list(payload.values()))
+            elif isinstance(payload, list):
+                entries = payload
+            else:
+                entries = []
+            for item in entries:
+                if not isinstance(item, dict):
+                    continue
+                aid = str(item.get("asset_id") or item.get("id") or "")
+                path = str(item.get("file") or "")
+                if aid and path:
+                    found[aid] = {**found.get(aid, {}), **item, "asset_id": aid, "file": path}
+        except (OSError, json.JSONDecodeError):
+            pass
+    return found
+
+
+def _asset_type_matches(slot_type: str, asset_type: str) -> bool:
+    slot_type = str(slot_type or "").lower()
+    asset_type = str(asset_type or "").lower()
+    compatibility = {
+        "video": {"video"},
+        "image": {"image"},
+        "product": {"image"},
+        "screen": {"video", "image"},
+        "person": {"video", "image"},
+        "graphic": {"image"},
+        "logo": {"image"},
+        "text": set(),
+    }
+    return asset_type in compatibility.get(slot_type, set())
 
 
 def validate_creative_plan(plan: CreativePlan, ir, project_id: str) -> dict:
@@ -362,9 +422,67 @@ def validate_creative_plan(plan: CreativePlan, ir, project_id: str) -> dict:
         for layer in shot.layers:
             if not layer.recipe_id and not layer.asset_ids and not layer.evidence_refs:
                 add("LAYER_TARGET_MISSING", "MISSING", f"图层 {layer.role} 没有真实配方或素材引用", scene_id)
-            if layer.recipe_id and layer.recipe_id not in _known_motion_ids():
-                add("RECIPE_UNAVAILABLE", "REJECT",
-                    f"配方 {layer.recipe_id} 不在当前 Motion Registry 中", scene_id)
+            if layer.recipe_id:
+                try:
+                    recipes = _shot_registry()
+                    motions = _motion_registry()
+                except Exception as exc:
+                    add("RECIPE_REGISTRY_UNAVAILABLE", "REJECT",
+                        f"无法加载 Shot/Motion Registry：{exc}", scene_id)
+                    recipes, motions = {}, {}
+                recipe = recipes.get(layer.recipe_id)
+                if recipe is None:
+                    add("SHOT_RECIPE_UNAVAILABLE", "REJECT",
+                        f"镜头配方 {layer.recipe_id} 不在当前 Shot Registry 中", scene_id)
+                else:
+                    if recipe.id in {"shot.soft-transition-breathe"} and len(layer.asset_ids) + len(layer.evidence_refs) < 2:
+                        add("SHOT_RECIPE_INPUT_MISSING", "MISSING",
+                            f"{recipe.name} 需要两个视频/图片资产，当前只声明了 {len(layer.asset_ids) + len(layer.evidence_refs)} 个",
+                            scene_id)
+                    for slot in recipe.slots:
+                        if slot.type == "text":
+                            if slot.required and not any(
+                                beat.text.strip() for beat in plan.semantic_beats
+                                if beat.id in shot.beat_ids
+                            ):
+                                add("SHOT_SLOT_TEXT_MISSING", "MISSING",
+                                    f"镜头配方 {recipe.name} 需要文本输入 {slot.id}", scene_id)
+                            continue
+                        candidates = []
+                        assets = _known_project_assets(pid)
+                        for aid in list(layer.asset_ids) + list(layer.evidence_refs):
+                            asset = assets.get(aid)
+                            if asset and _asset_type_matches(slot.type, str(asset.get("type") or "")):
+                                candidates.append(asset)
+                        needed = len(candidates) if slot.cardinality == "many" else min(1, len(candidates))
+                        if slot.required and needed == 0:
+                            add("SHOT_SLOT_ASSET_MISSING", "MISSING",
+                                f"镜头配方 {recipe.name} 的必需素材槽 {slot.id}（{slot.type}）没有可用资产",
+                                scene_id)
+                        for asset in candidates:
+                            asset_path = Path(str(asset.get("file") or "")).expanduser()
+                            if not asset_path.is_file():
+                                add("ASSET_FILE_MISSING", "REJECT",
+                                    f"资产 {asset.get('asset_id')} 的文件不存在：{asset_path}", scene_id)
+                    for item in recipe.layer_plan:
+                        motion_id = item.motion
+                        if not motion_id:
+                            continue
+                        motion = motions.get(motion_id)
+                        if motion is None:
+                            add("MOTION_RECIPE_UNAVAILABLE", "REJECT",
+                                f"镜头配方 {recipe.id} 引用的动效 {motion_id} 不在 Motion Registry",
+                                scene_id)
+                            continue
+                        supported_properties = {"opacity", "x", "y", "scale", "scaleX", "scaleY", "rotation", "blur"}
+                        unsupported = sorted({
+                            channel.property for channel in motion.channels
+                            if channel.property not in supported_properties
+                        })
+                        if unsupported:
+                            add("MOTION_CHANNEL_UNSUPPORTED", "REJECT",
+                                f"动效 {motion_id} 含 Remotion 适配器未实现的通道：{', '.join(unsupported)}",
+                                scene_id)
 
     valid_scene_ids, valid_beat_ids = set(scenes), set(beats)
     for shot in plan.shots:
@@ -385,18 +503,18 @@ def validate_creative_plan(plan: CreativePlan, ir, project_id: str) -> dict:
             add("BEAT_INTENT_MISSING", "MISSING", "未标注这句话的语义意图", beat.shot_id or "", beat.id)
         if not beat.visual_need:
             add("BEAT_VISUAL_NEED_MISSING", "MISSING", "未声明这句话需要什么画面表达", beat.shot_id or "", beat.id)
-        if beat.timing_status == "MISSING":
-            add("BEAT_TIMING_MISSING", "MISSING", "没有可验证的字符时间锚点", beat.shot_id or "", beat.id)
-        elif beat.timing_status == "PARTIAL":
-            add("BEAT_TIMING_REVIEW", "NEEDS_REVIEW",
-                "部分字符时间来自插值或异常锚点，需要抽听复核", beat.shot_id or "", beat.id)
         timing = timings.get(beat.sentence_id)
         if timing is None:
             add("SENTENCE_TIMING_MISSING", "MISSING", "语义拍没有对应的句级时间记录", beat.shot_id or "", beat.id)
-        elif timing.status == "PARTIAL":
-            add("CHARACTER_TIMING_REVIEW", "NEEDS_REVIEW", "字级时间轴含插值或异常位置", beat.shot_id or "", beat.id)
         elif timing.status == "MISSING":
+            add("BEAT_TIMING_MISSING", "MISSING", "没有可验证的字符时间锚点", beat.shot_id or "", beat.id)
             add("CHARACTER_TIMING_MISSING", "MISSING", "句级没有可用字符锚点", beat.shot_id or "", beat.id)
+        elif timing.status == "PARTIAL" and not timing.reviewed:
+            add("BEAT_TIMING_REVIEW", "NEEDS_REVIEW",
+                "部分字符时间来自插值或异常锚点；完成试听复核并勾选确认后才能放行",
+                beat.shot_id or "", beat.id)
+            add("CHARACTER_TIMING_REVIEW", "NEEDS_REVIEW",
+                "字级时间轴含插值或异常位置且尚未人工确认", beat.shot_id or "", beat.id)
 
     statuses = {issue["status"] for issue in issues}
     verdict = (

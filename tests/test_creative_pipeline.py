@@ -46,6 +46,17 @@ def test_no_matching_word_anchor_is_missing_not_fabricated():
     assert result.review_reasons
 
 
+def test_interpolation_stays_inside_sentence_even_with_overlapping_anchors():
+    result = cp.build_sentence_timing(
+        "s1", "甲乙丙丁", 100, 102,
+        [{"text": "甲", "start": 0.102, "end": 0.104},
+         {"text": "丁", "start": 0.100, "end": 0.101}],
+    )
+    assert result.status == "PARTIAL"
+    assert all(100 <= c.start_ms < c.end_ms <= 102 for c in result.characters)
+    assert all(c.review_required for c in result.characters)
+
+
 def test_punctuation_is_not_mistaken_for_a_speech_anchor():
     result = cp.build_sentence_timing(
         "s1", "你好，世界！", 0, 1000,
@@ -84,9 +95,10 @@ def test_initial_plan_is_honest_about_missing_alignment_and_layers(monkeypatch, 
     assert "SHOT_LAYER_MISSING" in codes
 
 
-def test_preflight_rejects_unregistered_recipe(monkeypatch, tmp_path):
+def test_preflight_rejects_unregistered_shot_recipe(monkeypatch, tmp_path):
     monkeypatch.setattr(cp.config, "composer_storage_root", lambda: tmp_path / "composer")
-    monkeypatch.setattr(cp, "_known_motion_ids", lambda: {"motion.valid"})
+    monkeypatch.setattr(cp, "_shot_registry", lambda: {"shot.valid": SimpleNamespace(id="shot.valid", slots=[], layer_plan=[])})
+    monkeypatch.setattr(cp, "_motion_registry", lambda: {})
     scene = SimpleNamespace(id="s1", text="一句解说", start=0.0, duration=2.0, transition_out=None)
     ir = SimpleNamespace(scenes=[scene], project=SimpleNamespace(fps=30))
     plan = cp.build_initial_plan("p1", ir, [
@@ -94,13 +106,13 @@ def test_preflight_rejects_unregistered_recipe(monkeypatch, tmp_path):
         {"text": "解", "start": 0.3, "end": 0.4},
     ], "tts_word_boundary", "", version=1)
     plan.shots[0].intent = "解释核心观点"
-    plan.shots[0].layers = [ShotLayerPlan(role="主视觉", recipe_id="motion.not-registered")]
+    plan.shots[0].layers = [ShotLayerPlan(role="主视觉", recipe_id="shot.not-registered")]
     plan.semantic_beats[0] = plan.semantic_beats[0].model_copy(update={
         "intent": ["解释"], "visual_need": ["强调"]
     })
     report = cp.validate_creative_plan(plan, ir, "p1")
     assert report["verdict"] == "REJECT"
-    assert any(i["code"] == "RECIPE_UNAVAILABLE" for i in report["issues"])
+    assert any(i["code"] == "SHOT_RECIPE_UNAVAILABLE" for i in report["issues"])
 
 
 def test_plan_save_is_atomic_and_rejects_stale_version(monkeypatch, tmp_path):
