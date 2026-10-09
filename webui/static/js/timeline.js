@@ -164,9 +164,15 @@ function renderSemanticTimeline(){
 window.PLAYHEAD = {at: 0, dragging: false};
 function playheadSet(pct, ev){
   const total = ED.comp ? ED.comp.duration : 1;
-  PLAYHEAD.at = Math.max(0, Math.min(1, pct)) * total;
+  let at = Math.max(0, Math.min(1, pct)) * total;
+  if (ev && window.editorSessionSnapTime) {
+    at = window.editorSessionSnapTime(at, {shiftKey: !!ev.shiftKey});
+  } else if (window.editorSessionSnapTime) {
+    window.editorSessionSnapTime(at, {disable: true});
+  }
+  PLAYHEAD.at = at;
   const ph = document.getElementById('tl-playhead');
-  if (ph) ph.style.left = (Math.max(0, Math.min(1, pct)) * 100) + '%';
+  if (ph) ph.style.left = (at / total * 100) + '%';
   const label = document.getElementById('tl-playhead-label');
   if (label) label.textContent = PLAYHEAD.at.toFixed(1) + 's';
   if (ev && ev.type === 'pointerup') previewSeek(PLAYHEAD.at);
@@ -191,6 +197,8 @@ function editorRenderTimeline(){
   _tlBindPlayheadDrag();
   _tlBindLayerDrag();
   _tlBindSceneDrag();
+  if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
+  document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
 }
 
 function renderPhysicalTimeline(){

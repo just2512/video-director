@@ -346,6 +346,10 @@ _ACTIONS: List[ActionSpec] = [
                targets=["project"], undo=False, ui="redo"),
     ActionSpec("ui.save", "保存", "system.capabilities.list", "noop",
                targets=["project"], undo=False, ui="save"),
+    ActionSpec("ui.editor_session_snap", "时间线吸附", "system.capabilities.list", "noop",
+               targets=["project"], undo=False, ui="editor_session_snap"),
+    ActionSpec("ui.editor_session_box", "时间线框选", "system.capabilities.list", "noop",
+               targets=["project"], undo=False, ui="editor_session_box"),
     ActionSpec("ui.move_prompt", "移动场景（输入位置）", "timeline.move", "noop",
                targets=["scene"], undo=False, ui="move_prompt"),
     ActionSpec("ui.add_broll_prompt", "加素材层（选择素材）", "asset.add_to_timeline",
@@ -539,6 +543,7 @@ _CONTEXT_KEYS = {
         "voice.change", "voice.preview",
         # §58 UI 交互动作（dispatcher 本地执行；group 暴露 ui 字段）
         "ui.undo", "ui.redo", "ui.save", "ui.preview_draft",
+        "ui.editor_session_snap", "ui.editor_session_box",
         "ui.open_voice_settings", "ui.open_audio_bus", "ui.open_subtitle_style",
         "voice.preview_full", "voice.upload", "content.generate_script",
         "content.rewrite_script", "music.auto_match", "music.preview",

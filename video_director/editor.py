@@ -800,74 +800,89 @@ def _renumber_starts(ir: CompositionIR) -> None:
 
 
 def _resync_audio_to_scenes(ir: CompositionIR) -> None:
-    """场景结构编辑（move/delete/duplicate/reorder/split）后的音频轨同步。
+    """场景结构编辑后的音频时间同步。
 
-    PR #9 起原声（original）轨按每个 video layer 分段入轨，narration 也按
-    场景段生成——但 _cmd_move/_cmd_delete 等只重排场景 start，音频轨仍挂
-    在旧时间点：预览与渲染全部错位（2026-10-09 对抗测试实锚）。
-
-    同步规则（最小侵入，不改变轨道数量语义）：
-    - original 轨：asset_id 若仍出现在某场景的 video 层 → 跟随该层新窗口；
-      素材已不在任何场景（场景被删）→ 轨删除（诚实：没有画面就没有原声）。
-    - narration 轨：按场景顺序逐段重铺（1:1 场景窗口；narration 由旁白
-      模块生成时与场景 1:1，这里只做时间对齐不造新内容）。
-    - 其他类型（bgm/sfx/dialogue/ambience）：start 超出新时间轴末尾的裁剪
-      到界内；不足总长不拉长（BGM 循环铺满由渲染层负责）。
+    original 轨不再简单按 asset_id 取第一个窗口，而是：
+    - 同一素材的多个 original track 按“旧 timeline start”保留实例顺序；
+    - 与该素材在新时间线中的多个 video layer 窗口按新 start 顺序一一对应；
+    - 没有对应窗口的轨道视为孤儿并删除；
+    narration 仍按场景顺序 1:1 重铺；其他音轨只做时间范围裁剪。
     """
-    from video_director.models import AudioTrack, AudioTrackType
+    from video_director.models import AudioTrackType
 
     if not ir.scenes:
         ir.audio = []
         return
     total = sum(sc.duration for sc in ir.scenes)
 
-    # 场景窗口表：scene_id -> (start, duration)
-    windows = {sc.id: (sc.start, sc.duration) for sc in ir.scenes}
-    # 素材在场景中的新窗口：asset_id -> [(timeline_start, layer_dur)]
     asset_windows: dict = {}
     for sc in ir.scenes:
         for lay in sc.layers:
             if getattr(lay, "asset_id", None):
                 asset_windows.setdefault(lay.asset_id, []).append(
-                    (sc.start + lay.start, lay.duration))
+                    (sc.start + lay.start, lay.duration, lay.source_in, lay.source_out)
+                )
+    for aid in asset_windows:
+        asset_windows[aid].sort(key=lambda x: x[0])
 
+    original_by_asset: dict = {}
+    narration_tracks: list = []
     new_audio: list = []
-    narration_dur: dict = {}
+
     for t in ir.audio:
         ttype = t.type.value if hasattr(t.type, "value") else str(t.type)
         if ttype == "original":
-            wins = asset_windows.get(t.asset_id or "")
-            if not wins:
-                continue  # 素材已不在时间线 → 原声轨删除
-            # 跟随该素材第一个窗口（多窗口=同素材多镜头，取最早段保持简
-            # 单；分段原声在 composition.build 时按层生成，这里只保证
-            # 不残留孤儿轨）
-            w_start, w_dur = wins[0]
+            original_by_asset.setdefault(t.asset_id or "", []).append(t)
+        elif ttype == "narration":
+            narration_tracks.append(t)
+        else:
+            start = min(float(t.start), max(0.0, total - float(t.duration)))
+            dur = min(float(t.duration), max(0.0, total - start))
+            if dur > 0.01:
+                new_audio.append(t.model_copy(update={
+                    "start": round(start, 3), "duration": round(dur, 3)
+                }))
+
+    for aid, tracks in original_by_asset.items():
+        wins = asset_windows.get(aid, [])
+        tracks = sorted(tracks, key=lambda t: float(t.start or 0.0))
+        for i, t in enumerate(tracks):
+            if i >= len(wins):
+                continue
+            w_start, w_dur, w_src_in, w_src_out = wins[i]
+            # source 窗口随配对图层走：重配对后轨播的必须是该层实际消费的
+            # 源区间，否则同素材多实例在结构编辑后原声播错源片段（多场景移动
+            # 只动 start/duration 时，轨道 #1 的 0-5s 源窗会被接到消费 10-15s
+            # 的图层窗口上）。音量/ducking/淡入淡出仍是轨道自身属性。
             new_audio.append(t.model_copy(update={
                 "start": round(float(w_start), 3),
                 "duration": round(min(float(t.duration), float(w_dur)), 3),
+                "source_in": round(float(w_src_in if w_src_in is not None else 0.0), 3),
+                "source_out": round(float(w_src_out), 3) if w_src_out is not None else None,
             }))
-        elif ttype == "narration":
-            # 按场景顺序重铺：narration 数量与场景数量一致时逐段对齐
-            narration_dur.setdefault(t.asset_id or "", []).append(t)
-        else:
-            # bgm/sfx/ambience：超出新时间轴的部分裁进界内（不拉长）
-            start = min(float(t.start), max(0.0, total - float(t.duration)))
-            dur = min(float(t.duration), max(0.0, total - start))
-            if dur <= 0.01:
-                continue
-            new_audio.append(t.model_copy(update={
-                "start": round(start, 3), "duration": round(dur, 3)}))
 
-    # narration：按场景窗口 1:1 重铺（保序；数量不匹配时保序截断/对齐前
-    # min(n, scenes) 段——旁白模块生成时本就 1:1，异常态不做创造性补齐）
-    nar_tracks = [t for ts in narration_dur.values() for t in ts]
     for i, sc in enumerate(ir.scenes):
-        if i < len(nar_tracks):
-            new_audio.append(nar_tracks[i].model_copy(update={
+        if i < len(narration_tracks):
+            t = narration_tracks[i]
+            new_audio.append(t.model_copy(update={
                 "start": round(float(sc.start), 3),
-                "duration": round(min(float(nar_tracks[i].duration),
-                                      float(sc.duration)), 3)}))
+                "duration": round(min(float(t.duration), float(sc.duration)), 3),
+            }))
+
+    # 保持音频输出稳定：按 timeline start、类型顺序重新排列，避免结构编辑后
+    # 原声/旁白插入位置随机变化影响 renderer 的输入顺序。
+    type_order = {
+        AudioTrackType.narration.value: 0,
+        AudioTrackType.dialogue.value: 1,
+        AudioTrackType.original.value: 2,
+        AudioTrackType.bgm.value: 3,
+        AudioTrackType.sfx.value: 4,
+        AudioTrackType.ambience.value: 5,
+    }
+    new_audio.sort(key=lambda t: (
+        round(float(t.start or 0.0), 6),
+        type_order.get(t.type.value if hasattr(t.type, "value") else str(t.type), 99),
+    ))
     ir.audio = new_audio
 
 
@@ -1198,18 +1213,41 @@ def _cmd_lock(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
 
 
 def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
-    """多选批量命令（§47 multi-select）：对选中集合逐条执行，单 revision 原子记录。
+    """多选批量命令（§47）：单 revision 原子执行。
 
-    payload = {subcommand: "delete"|"duplicate"|"lock", targets: [...],
-               lock: bool}（lock 用）。
-    各子命令按 id 定位（delete/duplicate 内部重查 id，不受重排影响）。
+    支持 delete / duplicate / lock，以及 OpenCut 风格的多场景移动。
+    move 使用 anchorId：把选中的场景按当前相对顺序移动到锚点场景之前。
+    持久化仍只有 Composition IR + Revision，不创建第二套时间线。
     """
     sub = payload.get("subcommand") or ""
     targets = [t for t in (payload.get("targets") or []) if t]
     if not targets:
         raise EditorError("INVALID_PAYLOAD", "batch 缺 targets")
-    if sub not in ("delete", "duplicate", "lock"):
+    if sub not in ("delete", "duplicate", "lock", "move"):
         raise EditorError("INVALID_PAYLOAD", f"batch 不支持的 subcommand {sub!r}")
+
+    if sub == "move":
+        scene_targets = [t for t in targets if any(sc.id == t for sc in ir.scenes)]
+        if not scene_targets:
+            raise EditorError("NOOP", "批量移动没有有效场景")
+        selected = set(scene_targets)
+        anchor_id = payload.get("anchorId") or ""
+        if anchor_id and anchor_id in selected:
+            raise EditorError("NOOP", "不能把所选场景移动到所选集合内部")
+        moving = [sc for sc in ir.scenes if sc.id in selected]
+        remain = [sc for sc in ir.scenes if sc.id not in selected]
+        if anchor_id:
+            anchor_idx = next((i for i, sc in enumerate(remain) if sc.id == anchor_id), None)
+            if anchor_idx is None:
+                raise EditorError("NOT_FOUND", f"移动目标 {anchor_id} 不存在")
+        else:
+            anchor_idx = len(remain)
+        ir.scenes = remain[:anchor_idx] + moving + remain[anchor_idx:]
+        _renumber_starts(ir)
+        _resync_audio_to_scenes(ir)
+        stale = [f"{sc.id}:render" for sc in moving] + [f"{sc.id}:preview" for sc in moving]
+        return [sc.id for sc in moving], stale
+
     changed_all: List[str] = []
     stale_all: List[str] = []
     for t in targets:
@@ -1218,10 +1256,9 @@ def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
                 c, s = _cmd_delete(ir, t, {})
             elif sub == "duplicate":
                 c, s = _cmd_duplicate(ir, t, {})
-            else:  # lock
+            else:
                 c, s = _cmd_lock(ir, t, {"locked": bool(payload.get("locked", True))})
         except EditorError as exc:
-            # 集合中单个失败：余下目标继续（集合语义），但整体标记该错误
             if exc.code in ("NOT_FOUND", "INVALID_PAYLOAD") and exc.recoverable:
                 continue
             raise
