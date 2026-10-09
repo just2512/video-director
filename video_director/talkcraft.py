@@ -140,6 +140,104 @@ def _entities(text: str) -> list[str]:
     return list(dict.fromkeys(x.strip() for x in out if x.strip()))
 
 
+def _sentence_spans(text: str) -> list[dict]:
+    """Split a scene into readable sentence-sized semantic beats while keeping source offsets."""
+    spans = []
+    start = 0
+    for index, char in enumerate(text):
+        if char not in "。！？!?；;\\n":
+            continue
+        end = index + 1
+        left, right = start, end
+        while left < right and text[left].isspace():
+            left += 1
+        while right > left and text[right - 1].isspace():
+            right -= 1
+        if left < right:
+            spans.append({"start_index": left, "end_index": right, "text": text[left:right]})
+        start = end
+    left, right = start, len(text)
+    while left < right and text[left].isspace():
+        left += 1
+    while right > left and text[right - 1].isspace():
+        right -= 1
+    if left < right:
+        spans.append({"start_index": left, "end_index": right, "text": text[left:right]})
+    return spans or ([{"start_index": 0, "end_index": len(text), "text": text}] if text.strip() else [])
+
+
+def _md_escape(value: Any) -> str:
+    return re.sub(r"\\s+", " ", str(value or "")).replace("|", "\\|").strip()
+
+
+def _sync_shotbook(root: Path) -> None:
+    """Generate SHOTBOOK.md as a readable view; structured JSON remains the editing source."""
+    semantic_doc = _read_json(root / "plans" / "semantic_beats.json")
+    shot_doc = _read_json(root / "plans" / "shot_plan.json")
+    if not semantic_doc or not shot_doc:
+        return
+    by_scene: dict[str, list[dict]] = {}
+    for beat in semantic_doc.get("beats", []):
+        by_scene.setdefault(str(beat.get("scene_id") or ""), []).append(beat)
+    lines = [
+        "# SHOTBOOK · 口播语义拍与镜头计划", "",
+        "> 本文件由工作台结构化计划生成，供阅读、审片和交付核对。修改请回到工作台，避免与结构化计划发生双重事实源冲突。", "",
+        f"- 项目：{_md_escape(semantic_doc.get('project_id'))}",
+        f"- 蓝图指纹：{_md_escape(shot_doc.get('input_signature'))}",
+        f"- 镜头数：{len(shot_doc.get('shots', []))}",
+        f"- 语义拍数：{len(semantic_doc.get('beats', []))}", "",
+    ]
+    for index, shot in enumerate(shot_doc.get("shots", []), 1):
+        scene_id = str(shot.get("scene_id") or "")
+        lines.extend([
+            f"## {index}. {_md_escape(scene_id)} · {float(shot.get('start', 0)):.3f}–{float(shot.get('end', 0)):.3f}s",
+            "",
+            f"- 叙事意图：{_md_escape(shot.get('intent')) or '待补充'}",
+            f"- 画面意图：{_md_escape(shot.get('visual_intent')) or '待补充'}",
+            f"- 镜头状态：{_md_escape(shot.get('review_status') or 'NEEDS_REVIEW')}",
+            f"- 配方：{_md_escape(shot.get('recipe_name') or shot.get('recipe_id') or '未选择')}（{_md_escape(shot.get('recipe_status') or 'NOT_SELECTED')}）",
+            f"- 转场：{_md_escape(shot.get('transition_out') or 'cut')}",
+            "", "### 语义拍", "",
+        ])
+        for beat in by_scene.get(scene_id, []):
+            sem = "、".join(beat.get("sem") or [])
+            need = "、".join(beat.get("need") or [])
+            entities = "、".join(beat.get("entities") or [])
+            lines.append(
+                f"- [{_md_escape(beat.get('weight') or 'main')}] "
+                f"{float(beat.get('start', 0)):.3f}–{float(beat.get('end', 0)):.3f}s · "
+                f"{_md_escape(beat.get('text'))}"
+            )
+            lines.append(
+                f"  - 语义：{_md_escape(sem) or '待标注'}；画面需求：{_md_escape(need) or '待标注'}；"
+                f"实体/证据线索：{_md_escape(entities) or '无'}"
+            )
+            lines.append(
+                f"  - 时间覆盖：{_md_escape(beat.get('timing_status'))}；"
+                f"标注复核：{_md_escape(beat.get('review_status'))}"
+            )
+        lines.extend(["", "### 图层", ""])
+        for layer in shot.get("layers", []):
+            lines.append(
+                f"- 第 {int(layer.get('index', 0)) + 1} 层 · {_md_escape(layer.get('type'))} · "
+                f"素材 {_md_escape(layer.get('asset_id') or '无')} · "
+                f"起点 {float(layer.get('start', 0)):.3f}s · 时长 {float(layer.get('duration', 0)):.3f}s · "
+                f"动效 {_md_escape(layer.get('motion_recipe_id') or '无')}"
+            )
+        lines.append("")
+    _atomic_text(root / "plans" / "SHOTBOOK.md", "\\n".join(lines) + "\\n")
+
+
+def _atomic_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def _word_chars(words: list[dict], start: float, end: float) -> list[dict]:
     out: list[dict] = []
     for word in words:
@@ -275,49 +373,88 @@ def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
     all_direct = 0
     all_chars = 0
     for index, scene in enumerate(ir.scenes):
-        start, end = float(scene.start), float(scene.start + scene.duration)
+        scene_start, scene_end = float(scene.start), float(scene.start + scene.duration)
         text = scene.text or ""
-        scene_words = _word_chars(words, start, end)
-        chars, coverage = _align_scene_chars(text, start, end, scene_words)
-        all_direct += sum(1 for c in chars if c.get("timing_source") == "interpolated_from_word")
+        scene_words = _word_chars(words, scene_start, scene_end)
+        chars, scene_coverage = _align_scene_chars(text, scene_start, scene_end, scene_words)
+        all_direct += sum(1 for char in chars if char.get("timing_source") == "interpolated_from_word")
         all_chars += len(chars)
-        timing_status = "ALIGNED_FROM_WORDS" if coverage >= 0.75 else ("PARTIAL" if coverage > 0 else "UNKNOWN")
-        if timing_status != "ALIGNED_FROM_WORDS":
-            notes.append(f"{scene.id}：逐字时间覆盖需要复核（{timing_status}）")
+        scene_timing_status = "ALIGNED_FROM_WORDS" if scene_coverage >= 0.75 else ("PARTIAL" if scene_coverage > 0 else "UNKNOWN")
+        if scene_timing_status != "ALIGNED_FROM_WORDS":
+            notes.append(f"{scene.id}：逐字时间覆盖需要复核（{scene_timing_status}）")
         timing_sentences.append({
-            "scene_id": scene.id, "text": text, "start": round(start, 4), "end": round(end, 4),
-            "coverage": coverage, "status": timing_status, "characters": chars,
+            "scene_id": scene.id, "text": text, "start": round(scene_start, 4), "end": round(scene_end, 4),
+            "coverage": scene_coverage, "status": scene_timing_status, "characters": chars,
         })
-        sem, need, reasons = _semantic_suggestions(text)
-        beat_id = f"beat-{scene.id}"
-        previous = old_items.get(beat_id) if preserve_edits and same_source else None
-        sem = previous.get("sem", sem) if previous else sem
-        need = previous.get("need", need) if previous else need
-        weight = previous.get("weight", "main") if previous else "main"
-        intent = previous.get("intent", scene.intent or "") if previous else (scene.intent or "")
-        visual_intent = previous.get("visual_intent", scene.visual_intent or "") if previous else (scene.visual_intent or "")
-        review_status = previous.get("review_status", "NEEDS_REVIEW") if previous else "NEEDS_REVIEW"
-        entities = previous.get("entities", _entities(text)) if previous else _entities(text)
-        beats.append({
-            "id": beat_id, "scene_id": scene.id, "index": index, "text": text,
-            "start": round(start, 4), "end": round(end, 4), "sem": sem, "entities": entities,
-            "need": need, "weight": weight, "intent": intent, "visual_intent": visual_intent,
-            "semantic_role": previous.get("semantic_role", scene.semantic_role or "") if previous else (scene.semantic_role or ""),
-            "timing_status": timing_status, "timing_coverage": coverage,
-            "review_status": review_status, "review_reasons": reasons,
-        })
+        spans = _sentence_spans(text)
+        scene_beat_ids = []
+        for sentence_index, span in enumerate(spans):
+            sentence_text = span["text"]
+            start_index, end_index = span["start_index"], span["end_index"]
+            sentence_chars = [char for char in chars
+                              if start_index <= int(char.get("script_index", -1)) < end_index]
+            if sentence_chars:
+                beat_start = min(float(char["start"]) for char in sentence_chars)
+                beat_end = max(float(char["end"]) for char in sentence_chars)
+                direct = sum(1 for char in sentence_chars
+                             if char.get("timing_source") == "interpolated_from_word")
+                beat_coverage = direct / max(1, len(sentence_chars))
+            else:
+                text_width = max(1, len(text))
+                beat_start = scene_start + (scene_end - scene_start) * start_index / text_width
+                beat_end = scene_start + (scene_end - scene_start) * end_index / text_width
+                beat_coverage = 0.0
+            beat_timing_status = "ALIGNED_FROM_WORDS" if beat_coverage >= 0.75 else ("PARTIAL" if beat_coverage > 0 else "UNKNOWN")
+            sem, need, reasons = _semantic_suggestions(sentence_text)
+            beat_id = f"beat-{scene.id}-{sentence_index + 1:02d}"
+            previous = old_items.get(beat_id) if preserve_edits and same_source else None
+            sem = previous.get("sem", sem) if previous else sem
+            need = previous.get("need", need) if previous else need
+            weight = previous.get("weight", "main") if previous else "main"
+            intent = previous.get("intent", scene.intent or "") if previous else (scene.intent or "")
+            visual_intent = previous.get("visual_intent", scene.visual_intent or "") if previous else (scene.visual_intent or "")
+            review_status = previous.get("review_status", "NEEDS_REVIEW") if previous else "NEEDS_REVIEW"
+            entities = previous.get("entities", _entities(sentence_text)) if previous else _entities(sentence_text)
+            semantic_role = previous.get("semantic_role", scene.semantic_role or "") if previous else (scene.semantic_role or "")
+            beats.append({
+                "id": beat_id, "scene_id": scene.id, "sentence_index": sentence_index,
+                "script_start_index": start_index, "script_end_index": end_index,
+                "index": len(beats), "text": sentence_text,
+                "start": round(beat_start, 4), "end": round(max(beat_start + 0.001, beat_end), 4),
+                "sem": sem, "entities": entities, "need": need, "weight": weight,
+                "intent": intent, "visual_intent": visual_intent, "semantic_role": semantic_role,
+                "timing_status": beat_timing_status, "timing_coverage": round(beat_coverage, 4),
+                "review_status": review_status, "review_reasons": reasons,
+            })
+            scene_beat_ids.append(beat_id)
+            if beat_timing_status != "ALIGNED_FROM_WORDS":
+                notes.append(f"{scene.id} 第 {sentence_index + 1} 句：时间覆盖需要复核（{beat_timing_status}）")
         old_shot = old_shot_map.get(scene.id, {}) if same_source else {}
-        layer_types = [getattr(l.type, "value", str(l.type)) for l in scene.layers]
+        layer_types = [getattr(layer.type, "value", str(layer.type)) for layer in scene.layers]
+        shot_review_status = "REVIEWED" if scene_beat_ids and all(
+            next((b.get("review_status") for b in beats if b.get("id") == bid), "") == "REVIEWED"
+            for bid in scene_beat_ids
+        ) else "NEEDS_REVIEW"
         shots.append({
-            "scene_id": scene.id, "start": round(start, 4), "end": round(end, 4),
-            "text": text, "beat_ids": [beat_id],
-            "intent": old_shot.get("intent", intent),
-            "visual_intent": old_shot.get("visual_intent", visual_intent),
+            "scene_id": scene.id, "start": round(scene_start, 4), "end": round(scene_end, 4),
+            "text": text, "beat_ids": scene_beat_ids,
+            "intent": old_shot.get("intent", scene.intent or ""),
+            "visual_intent": old_shot.get("visual_intent", scene.visual_intent or ""),
             "recipe_id": old_shot.get("recipe_id") or scene.origin_recipe_id,
-            "layer_types": layer_types,
-            "layer_count": len(scene.layers),
+            "recipe_name": old_shot.get("recipe_name", ""),
+            "recipe_status": old_shot.get("recipe_status", "NOT_SELECTED"),
+            "applied_layer": old_shot.get("applied_layer"),
+            "composition_version": old_shot.get("composition_version"),
+            "layer_types": layer_types, "layer_count": len(scene.layers),
+            "layers": [
+                {"index": layer_index, "type": layer_types[layer_index],
+                 "asset_id": getattr(layer, "asset_id", None), "start": float(layer.start),
+                 "duration": float(layer.duration),
+                 "motion_recipe_id": getattr(layer, "motion_recipe_id", None)}
+                for layer_index, layer in enumerate(scene.layers)
+            ],
             "transition_out": getattr(scene.transition_out, "type", "cut"),
-            "review_status": review_status,
+            "review_status": shot_review_status,
         })
 
     timing = {
