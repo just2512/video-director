@@ -1,27 +1,36 @@
 // Editable Shotbook workbench: semantic beats + qualified character-time anchors.
 let SHOTBOOK = null;
+let SHOTBOOK_DIRTY = false;
 const SB_ROLE_LABELS = {hook:'开场钩子',context:'背景交代',problem:'问题冲突',evidence:'证据呈现',turn:'认知转折',resolution:'解决方案',cta:'结尾行动',neutral:'普通叙述'};
 const SB_INTENT_LABELS = {establish:'建立场景',illustrate:'解释/举例',contrast:'对比反差',prove:'证据支撑',emphasize:'重点强调',transition:'转场过渡',breathe:'留白停顿',close:'收束结尾'};
 const SB_SHOT_LABELS = {footage:'实拍/素材',document:'文件/文献',screenshot:'屏幕截图',chart:'图表数据',title_card:'动态字卡',diagram:'示意图',product:'产品/物件',map:'地图',split_screen:'分屏对照',still:'静帧'};
 function sbEsc(value){return String(value==null?'':value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function sbStatusClass(status){return status==='PASS'?'cap-ok':(status==='REJECT'||status==='MISSING'?'cap-off':'cap-warn');}
 function sbGetProjectId(){return (window.ED&&ED.pid)||(document.getElementById('editor-project')||{}).value||'';}
-async function shotbookLoad(){
+async function shotbookLoad(discardDirty){
   const pid=sbGetProjectId(), status=document.getElementById('shotbook-status');
-  if(!pid){if(status)status.textContent='先打开一个项目，再生成分镜。';return;}
+  if(!pid){if(status)status.textContent='先打开一个项目，再生成分镜。';return false;}
+  if(SHOTBOOK_DIRTY&&!discardDirty&&!window.confirm('分镜有未保存修改。重新载入会丢弃这些修改，是否继续？'))return false;
   if(status)status.textContent='正在读取当前时间线……';
   const data=await apiGet('/api/editor/shotbook?project_id='+encodeURIComponent(pid));
-  if(!data||data.ok===false||data.error){if(status)status.textContent='读取失败：'+((data&&data.error)||'服务暂不可用');return;}
-  SHOTBOOK=data;shotbookRender();
-  if(status)status.textContent=data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前为未保存草案；点“生成/更新草案”创建项目分镜。';
+  if(!data||data.ok===false||data.error){if(status)status.textContent='读取失败：'+((data&&data.error)||'服务暂不可用');return false;}
+  SHOTBOOK=data;SHOTBOOK_DIRTY=false;shotbookRender();
+  if(status)status.textContent=data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前项目还没有保存过分镜；可从当前时间线生成草案。';
+  return true;
 }
 async function shotbookGenerate(){
   const pid=sbGetProjectId(),status=document.getElementById('shotbook-status');
   if(!pid){if(status)status.textContent='先打开一个项目，再生成分镜。';return;}
+  if(SHOTBOOK_DIRTY&&!window.confirm('当前分镜有未保存修改；继续生成会丢弃页面上的修改，是否继续？'))return;
+  if(!SHOTBOOK||SHOTBOOK.project_id!==pid){
+    const loaded=await shotbookLoad(true);
+    if(!loaded)return;
+  }
+  SHOTBOOK_DIRTY=false;
   if(status)status.textContent='正在按当前时间线生成分镜草案……';
-  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'generate',base_version:SHOTBOOK?SHOTBOOK.version:0});
-  if(!r||!r.ok){if(status)status.textContent='生成未完成：'+((r&&r.error)||'请求失败');if(r&&r.code==='CONFLICT')await shotbookLoad();return;}
-  SHOTBOOK=r;shotbookRender();
+  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'generate',base_version:SHOTBOOK.version});
+  if(!r||!r.ok){if(status)status.textContent='生成未完成：'+((r&&r.error)||'请求失败');if(r&&r.code==='CONFLICT')await shotbookLoad(true);return;}
+  SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();
   if(status)status.textContent='已生成草案（版本 V'+r.version+'）。自动推断尚未通过人工验收，请逐镜核对后保存。';
 }
 function shotbookSelectOptions(values,current,labels){
@@ -101,9 +110,10 @@ function shotbookCollect(){
 async function shotbookSave(){
   const pid=sbGetProjectId(),status=document.getElementById('shotbook-status');
   if(!pid||!SHOTBOOK){if(status)status.textContent='先载入或生成分镜草案。';return;}
+  if(SHOTBOOK.project_id!==pid){if(status)status.textContent='当前编辑器已切换到其他项目；先载入该项目的分镜，避免把修改写错项目。';return;}
   const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'save',base_version:SHOTBOOK.version,shots:shotbookCollect()});
   if(!r||!r.ok){if(status)status.textContent='保存未完成：'+((r&&r.error)||'请求失败')+'。当前修改仍留在页面中。';const reload=document.getElementById('shotbook-reload-conflict');if(reload&&r&&r.code==='CONFLICT')reload.style.display='';return;}
-  SHOTBOOK=r;shotbookRender();if(status)status.textContent='分镜已保存为 V'+r.version+'。语义确认、字级校正和配方关联已写入项目。';
+  SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();if(status)status.textContent='分镜已保存为 V'+r.version+'。语义确认、字级校正和配方关联已写入项目。';
 }
 async function shotbookApplyMotion(sceneId){
   const card=document.querySelector('#shotbook-list .sb-shot[data-scene-key="'+CSS.escape(sceneId)+'"]');
@@ -145,14 +155,27 @@ function shotbookLocate(sceneId){
   if(typeof timelineScrollToScene==='function')timelineScrollToScene(sceneId);
   if(typeof edShowInspector==='function')edShowInspector();
 }
-async function shotbookReloadConflict(){const button=document.getElementById('shotbook-reload-conflict');if(button)button.style.display='none';await shotbookLoad();}
+async function shotbookReloadConflict(){if(SHOTBOOK_DIRTY&&!window.confirm('重新载入会丢弃当前未保存修改。是否继续？'))return;SHOTBOOK_DIRTY=false;const button=document.getElementById('shotbook-reload-conflict');if(button)button.style.display='none';await shotbookLoad(true);}
 // Delegate UI handlers so the existing UI Action Audit covers this workbench.
 const shotbookPanel=document.getElementById('shotbook-details');
 if(shotbookPanel&&!shotbookPanel.dataset.autoLoadBound){
-  shotbookPanel.addEventListener('toggle',function(){if(shotbookPanel.open&&!SHOTBOOK)shotbookLoad();});
+  shotbookPanel.addEventListener('toggle',function(){if(shotbookPanel.open&&(!SHOTBOOK||SHOTBOOK.project_id!==sbGetProjectId()))shotbookLoad();});
   shotbookPanel.dataset.autoLoadBound='1';
 }
 if(!window.__shotbookDelegated){
+  function markShotbookDirty(event, requireReview){
+    const target=event.target,card=target.closest&&target.closest('#shotbook-list .sb-shot');
+    SHOTBOOK_DIRTY=true;
+    if(card&&requireReview){const reviewed=card.querySelector('.sb-reviewed');if(reviewed)reviewed.checked=false;}
+    const status=document.getElementById('shotbook-status');
+    if(status)status.textContent='有未保存修改。修改语义、时间或配方会取消这镜的已确认状态；保存后再做分镜验收。';
+    const meta=document.getElementById('shotbook-meta');
+    if(meta&&SHOTBOOK)meta.textContent='V'+SHOTBOOK.version+' · 有未保存修改 · '+SHOTBOOK.shots.length+' 个镜头';
+  }
+  document.addEventListener('input',function(event){
+    if(event.target.matches('#shotbook-list .sb-char-start,#shotbook-list .sb-char-end,#shotbook-list .sb-overlay,#shotbook-list .sb-evidence,#shotbook-list .sb-sfx,#shotbook-list .sb-notes'))markShotbookDirty(event,true);
+  });
+
   document.addEventListener('click',function(event){
     const button=event.target.closest('[data-shotbook-action]');
     if(!button)return;
@@ -170,6 +193,8 @@ if(!window.__shotbookDelegated){
     if(!card)return;
     const shot=SHOTBOOK&&SHOTBOOK.shots.find(function(item){return item.scene_id===card.dataset.sceneKey;});
     if(!shot)return;
+    if(target.matches('.sb-reviewed')){markShotbookDirty(event,false);return;}
+    if(target.matches('.sb-role,.sb-intent,.sb-type,.sb-recipe,.sb-motion,.sb-motion-layer'))markShotbookDirty(event,true);
     if(target.matches('.sb-role')){
       const select=card.querySelector('.sb-recipe'),previous=select.value;
       select.innerHTML=shotbookRecipeOptions(Object.assign({},shot,{semantic_role:target.value}));
@@ -184,4 +209,5 @@ if(!window.__shotbookDelegated){
   });
   window.__shotbookDelegated=true;
 }
+window.addEventListener('beforeunload',function(event){if(SHOTBOOK_DIRTY){event.preventDefault();event.returnValue='';}});
 Object.assign(window,{shotbookLoad,shotbookGenerate,shotbookSave,shotbookApplyRecipe,shotbookApplyMotion,shotbookLocate,shotbookReloadConflict});
