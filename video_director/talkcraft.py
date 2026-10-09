@@ -363,6 +363,10 @@ def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
     shots_path = root / "plans" / "shot_plan.json"
     old_beats = _read_json(beats_path, {}) or {}
     old_items = {b.get("id"): b for b in old_beats.get("beats", []) if isinstance(b, dict)}
+    legacy_by_scene = {
+        str(b.get("scene_id")): b for b in old_beats.get("beats", [])
+        if isinstance(b, dict) and b.get("scene_id") and "sentence_index" not in b
+    }
     old_shots = _read_json(shots_path, {}) or {}
     old_shot_map = {s.get("scene_id"): s for s in old_shots.get("shots", []) if isinstance(s, dict)}
     same_source = old_beats.get("input_signature") == signature
@@ -388,6 +392,8 @@ def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
             "coverage": scene_coverage, "status": scene_timing_status, "characters": chars,
         })
         spans = _sentence_spans(text)
+        if same_source and len(spans) > 1 and scene.id in legacy_by_scene:
+            notes.append(f"{scene.id}：旧版整场标注未自动复制到多句，请逐句复核，避免错配。")
         scene_beat_ids = []
         for sentence_index, span in enumerate(spans):
             sentence_text = span["text"]
@@ -409,6 +415,10 @@ def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
             sem, need, reasons = _semantic_suggestions(sentence_text)
             beat_id = f"beat-{scene.id}-{sentence_index + 1:02d}"
             previous = old_items.get(beat_id) if preserve_edits and same_source else None
+            if previous is None and preserve_edits and same_source and sentence_index == 0:
+                legacy = legacy_by_scene.get(str(scene.id))
+                if legacy and legacy.get("text") == sentence_text:
+                    previous = legacy
             sem = previous.get("sem", sem) if previous else sem
             need = previous.get("need", need) if previous else need
             weight = previous.get("weight", "main") if previous else "main"
