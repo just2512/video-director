@@ -1,0 +1,21 @@
+{
+  "name": "video-director-remotion-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "render:help": "remotion render --help",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.534",
+    "remotion": "4.0.534",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.3",
+    "@types/react-dom": "19.2.2",
+    "typescript": "5.8.3"
+  }
+}
