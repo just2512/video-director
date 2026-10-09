@@ -134,7 +134,9 @@ async function shotbookApplyMotion(sceneId){
   if(status)status.textContent='正在通过 Editor Command 应用动效并创建 Revision……';
   const result=await editorCmd('replace_motion',{motionRecipeId:motion.id,motionVersion:motion.version,duration:motion.duration_recommended},targetId);
   if(!result||!result.ok){if(status)status.textContent='动效未应用：'+((result&&result.error)||'应用失败')+'。时间线保持原样。';return;}
-  shot.motion_recipe_id=motion.id;shot.motion_layer_target=targetId;
+  shot.motion_recipe_id=motion.id;shot.motion_layer_target=targetId;shot.reviewed=false;
+  const reviewed=card.querySelector('.sb-reviewed');if(reviewed)reviewed.checked=false;
+  SHOTBOOK_DIRTY=true;
   if(typeof refreshComposition==='function')await refreshComposition();
   await shotbookSave();
 }
@@ -146,7 +148,9 @@ async function shotbookApplyRecipe(sceneId){
   if(status)status.textContent='正在检查素材槽位并应用配方……';
   const result=await editorCmd('replace_recipe',{recipeId:recipeId,recipeVersion:recipe.version},sceneId);
   if(!result||!result.ok){if(status)status.textContent='配方未应用，时间线没有因此被覆盖：'+((result&&result.error)||'应用失败');return;}
-  const shot=SHOTBOOK.shots.find(function(s){return s.scene_id===sceneId;});if(shot)shot.shot_recipe_id=recipeId;
+  const shot=SHOTBOOK.shots.find(function(s){return s.scene_id===sceneId;});if(shot){shot.shot_recipe_id=recipeId;shot.reviewed=false;}
+  const reviewed=card.querySelector('.sb-reviewed');if(reviewed)reviewed.checked=false;
+  SHOTBOOK_DIRTY=true;
   if(typeof refreshComposition==='function')await refreshComposition();
   await shotbookSave();
 }

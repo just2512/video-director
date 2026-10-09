@@ -43,3 +43,31 @@ def test_character_timing_keeps_monotonic_order_with_repeat_characters():
     assert len(anchors) == 4
     assert all(a["start"] <= a["end"] for a in anchors)
     assert [a["start"] for a in anchors] == sorted(a["start"] for a in anchors)
+
+
+def test_motion_registry_exposes_only_renderer_supported_layer_contracts():
+    from video_director.shotbook import _motion_recipes
+
+    motions = _motion_recipes()
+    assert motions, "Motion Registry should load the project's built-in motion recipes"
+    for motion in motions:
+        assert set(motion["supported_for"]) <= set(motion["compatible_layers"])
+        if motion["preview_only"]:
+            assert not motion["supported_for"]
+        if "video" in motion["supported_for"]:
+            assert set(motion["properties"]) <= {"opacity"}
+        if "image" in motion["supported_for"]:
+            assert set(motion["properties"]) <= {"scale", "opacity"}
+
+
+def test_pipeline_timing_sidecar_persists_provenance(tmp_path):
+    import json
+    from video_director.pipeline import _persist_narration_timing
+
+    plans = tmp_path / "plans"
+    words = [{"text": "你好", "start": 0.2, "end": 0.8}]
+    _persist_narration_timing({"plans": plans}, "asr", words, 1.25)
+    payload = json.loads((plans / "narration_timing.json").read_text(encoding="utf-8"))
+    assert payload["source"] == "asr"
+    assert payload["duration"] == 1.25
+    assert payload["word_timeline"] == words
