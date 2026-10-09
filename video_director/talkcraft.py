@@ -379,6 +379,7 @@ def _snapshot(project_id: str, root: Path | None = None, ir: CompositionIR | Non
         "status": "NOT_PREPARED" if not prepared else ("STALE" if stale else "READY"),
         "stale_reason": "CompositionIR 或 word timestamps 已变化，请重建蓝图；未自动覆盖用户标注。" if stale else "",
         "revision": int(semantic_doc.get("revision", 1)) if prepared else 0,
+        "shot_revision": int(shot_doc.get("revision", 1)) if prepared else 0,
         "scene_count": len(ir.scenes),
         "beat_count": len(beats), "shot_count": len(shots),
         "timing_status": "MISSING" if not timing else (
@@ -473,7 +474,7 @@ def update_beat(project_id: str, beat_id: str, payload: dict) -> dict:
     return {
         "ok": True, "revision": semantic_doc["revision"],
         "composition_version": result.composition_version,
-        "beat": beat, "shot": shot,
+        "beat": beat, "shot": shot, "composition": result.composition,
         "message": "标注与场景意图已保存；已通过编辑器 Revision 记录。",
     }
 
