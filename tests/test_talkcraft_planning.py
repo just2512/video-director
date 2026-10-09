@@ -135,5 +135,5 @@ def test_shotbook_is_a_readable_generated_view(tmp_path):
     body = (root / "plans" / "SHOTBOOK.md").read_text(encoding="utf-8")
     assert "s1" in body
     assert "收入下降了。" in body
-    assert "motion.fade" in body or "motion.fade" not in body
+    assert "motion.fade" in body
     assert "语义：数据" in body
