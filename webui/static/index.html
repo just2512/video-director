@@ -250,6 +250,18 @@
           时间说明：系统从已有词级时间戳构建逐字时间网格。词内拆分和缺失锚点会明确标注为插值，不等同于逐字声学强制对齐；缺少配音时间戳时会标记为待复核。
         </div>
         <div id="tc-summary" class="tc-summary" aria-live="polite"></div>
+        <div class="tc-render-box">
+          <div>
+            <strong>Remotion 成片渲染</strong>
+            <p class="hint">预览渲染允许未复核标注；正式渲染要求语义拍已人工确认、时间覆盖满足条件。首次使用需先安装 Remotion Runtime。</p>
+            <div id="tc-render-status" class="tc-render-status" role="status">正在读取渲染状态…</div>
+            <a id="tc-render-output" class="tc-render-output" hidden target="_blank" rel="noopener">打开最近的 Remotion 成片</a>
+          </div>
+          <div class="tc-render-actions">
+            <button class="btn-secondary btn-sm" id="tc-render-draft" type="button" onclick="talkcraftRemotionRender('draft')">渲染预览</button>
+            <button class="btn-sm" id="tc-render-final" type="button" onclick="talkcraftRemotionRender('final')">正式渲染</button>
+          </div>
+        </div>
         <div id="tc-message" class="tc-message" role="status">打开一个项目后生成创作蓝图。生成不会自动改动现有成片。</div>
         <div id="tc-beats" class="tc-beats"></div>
       </section>
