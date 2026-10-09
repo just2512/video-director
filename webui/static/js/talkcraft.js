@@ -95,6 +95,10 @@
       setMessage("请先打开项目，再生成蓝图。", "warn");
       return;
     }
+    if (TC.data && TC.data.status === "STALE" &&
+        !window.confirm("当前稿件、配音或时间轴已变化。旧标注不会自动套用，刷新后请重新核对每句语义。继续刷新蓝图？")) {
+      return;
+    }
     const button = $("tc-prepare");
     if (button) { button.disabled = true; button.textContent = "正在整理…"; }
     setMessage("正在读取旁白时间轴、语义线索与现有镜头；不会覆盖 CompositionIR 中的时间和素材。");
@@ -209,7 +213,10 @@
       save.disabled = false;
       if (!r || r.ok === false) {
         setMessage((r && r.error) || "保存标注失败。", "error");
-        if (r && /CONFLICT|版本冲突|REVISION_CONFLICT/.test(r.error || "")) await talkcraftLoad(true);
+        if (r && /CONFLICT|版本冲突|REVISION_CONFLICT/.test(r.error || "")) {
+          if (typeof editorLoad === "function") await editorLoad();
+          await talkcraftLoad(true);
+        }
         return;
       }
       TC.data.revision = r.revision;
@@ -281,6 +288,7 @@
         planButton.disabled = false;
         if (!r || r.ok === false) {
           setMessage((r && r.error) || "保存配方计划失败。", "error");
+          if (r && /CONFLICT|版本冲突|REVISION_CONFLICT/.test(r.error || "")) await talkcraftLoad(true);
           return;
         }
         TC.data.shot_revision = r.revision;
