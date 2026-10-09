@@ -1,0 +1,25 @@
+.creative-plan-panel { border: 1px solid var(--border); }
+.creative-plan-panel input, .creative-plan-panel select { box-sizing: border-box; width: 100%; margin: 4px 0 7px; min-width: 0; }
+.creative-plan-empty, .creative-plan-meta { color: var(--muted, #777); font-size: 12px; }
+.creative-plan-empty { padding: 12px 4px; }
+.creative-plan-section { margin-top: 12px; }
+.creative-plan-section h4 { margin: 0 0 7px; font-size: 13px; }
+.creative-plan-table-wrap { max-width: 100%; overflow: auto; border: 1px solid var(--border); border-radius: 7px; }
+.creative-plan-table { border-collapse: collapse; width: 100%; font-size: 12px; min-width: 720px; }
+.creative-plan-table th, .creative-plan-table td { padding: 7px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.creative-plan-table th { background: var(--surface, #f7f7f7); white-space: nowrap; }
+.creative-plan-table input, .creative-plan-table select { min-width: 150px; }
+.creative-plan-sentence { font-weight: 600; min-width: 150px; }
+.creative-plan-meta { margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }
+.creative-plan-shot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+.creative-plan-shot { border: 1px solid var(--border); border-radius: 7px; padding: 10px; min-width: 0; }
+.creative-plan-shot-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.creative-plan-shot label { display: block; font-size: 12px; margin-top: 5px; }
+.creative-plan-warning, .creative-plan-error { color: #9a3412; background: #fff7ed; padding: 8px; border-radius: 6px; }
+.creative-plan-verdict { padding: 8px 10px; margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; }
+.creative-plan-pass { color: #166534; }
+.creative-plan-reject { color: #991b1b; }
+.creative-plan-missing, .creative-plan-needs_review { color: #92400e; }
+.creative-plan-issues { font-size: 12px; padding-left: 20px; }
+.creative-plan-issues li { margin: 5px 0; }
+@media (max-width: 760px) { .creative-plan-table { min-width: 640px; } .creative-plan-shot-grid { grid-template-columns: 1fr; } }
