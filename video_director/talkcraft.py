@@ -14,6 +14,7 @@ import os
 import re
 import tempfile
 import time
+from urllib.parse import quote
 from pathlib import Path
 from typing import Any
 
@@ -479,6 +480,7 @@ def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
     _atomic_json(timing_path, timing)
     _atomic_json(beats_path, semantic_doc)
     _atomic_json(shots_path, shot_doc)
+    _sync_shotbook(root)
     return _snapshot(project_id, root, ir, timing, semantic_doc, shot_doc, notes, all_direct, all_chars)
 
 
@@ -512,7 +514,7 @@ def _list_recipes() -> list[dict]:
             "semantic_intents": list(getattr(item, "semantic_intents", ()) or ()),
             "compatible_layers": list(getattr(item, "compatible_layers", ()) or ()),
             "commercial_status": getattr(item, "commercial_status", "UNKNOWN"),
-            "enabled": True,
+            "enabled": bool(getattr(raw_item, "enabled", True)) if raw_item else True,
             "provenance_ref": getattr(item, "provenance_ref", None),
             "duration": duration, "channels": channels,
         })
@@ -565,6 +567,8 @@ def _snapshot(project_id: str, root: Path | None = None, ir: CompositionIR | Non
         "notes": notes or [],
         "beats": beats, "shots": shots, "timing": timing or {},
         "recipes": _list_recipes(),
+        "shotbook_path": str(root / "plans" / "SHOTBOOK.md") if (root / "plans" / "SHOTBOOK.md").is_file() else "",
+        "shotbook_url": "/file?path=" + quote(str(root / "plans" / "SHOTBOOK.md")) if (root / "plans" / "SHOTBOOK.md").is_file() else "",
     }
 
 
