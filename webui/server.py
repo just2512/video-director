@@ -980,6 +980,19 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/catalog/blocks/resolve" or route == "/api/graphics/blocks/resolve":
             # GFX-010 Block Resolver（POST，见 do_POST）——GET 拒绝
             self._send_json({"error": "POST only"}, 405)
+        elif route == "/api/talkcraft/remotion/status":
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import remotion_adapter as vd_remotion
+                self._send_json(vd_remotion.get_status(pid))
+            except vd_remotion.RemotionError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/talkcraft/plan":
             qs = parse_qs(parsed.query)
             pid = qs.get("project_id", [""])[0]
@@ -1248,6 +1261,28 @@ class Handler(BaseHTTPRequestHandler):
         # §52 POST /api/workflows：发起 WorkflowRun → 立即返回 run_id（不阻塞）。
         #   kind: compose（spec 同 /api/compose 字段）| render_draft | render_final
         #   前端轮询 GET /api/workflows/{run_id} 或走 SSE workflow.* 事件。
+        if parsed.path == "/api/talkcraft/remotion/render":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = str(payload.get("project_id") or "")
+            quality = str(payload.get("quality") or "draft")
+            try:
+                from video_director import remotion_adapter as vd_remotion
+                result = vd_remotion.start_render(
+                    pid, quality=quality, confirm_budget=bool(payload.get("confirm_budget", False))
+                )
+                status = 409 if result.get("confirmation_required") else (200 if result.get("ok") else 400)
+                self._send_json(result, status)
+            except vd_remotion.RemotionError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         if parsed.path in ("/api/talkcraft/prepare", "/api/talkcraft/beat",
                            "/api/talkcraft/recipe/plan", "/api/talkcraft/recipe/apply"):
             length = int(self.headers.get("Content-Length", 0))
