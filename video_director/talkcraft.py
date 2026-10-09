@@ -727,7 +727,9 @@ def save_shot_recipe(project_id: str, scene_id: str, recipe_id: str,
     shot_doc["revision"] = current_rev + 1
     shot_doc["generated_at"] = time.time()
     _atomic_json(path, shot_doc)
+    _sync_shotbook(root)
     return {"ok": True, "revision": shot_doc["revision"], "shot": shot,
+            "shotbook_url": "/file?path=" + quote(str(root / "plans" / "SHOTBOOK.md")),
             "message": "已保存镜头配方选择。此操作只更新镜头计划；点击“应用到当前图层”才会修改实际时间线。"}
 
 
@@ -776,7 +778,10 @@ def apply_shot_recipe(project_id: str, scene_id: str, layer_index: int,
         plan_shot["recipe_status"] = "APPLIED_TO_LAYER"
         plan_shot["applied_layer"] = f"{scene_id}#{layer_index}"
         plan_shot["composition_version"] = result.composition_version
+        plan["revision"] = int(plan.get("revision", 1)) + 1
+        plan["generated_at"] = time.time()
         _atomic_json(root / "plans" / "shot_plan.json", plan)
+        _sync_shotbook(root)
     return {"ok": True, "composition_version": result.composition_version,
             "changed_artifacts": result.changed_artifacts, "stale_artifacts": result.stale_artifacts,
             "message": "动效已通过 Editor Command → Revision 应用到图层。"}
