@@ -543,6 +543,7 @@ _CONTEXT_KEYS = {
         "voice.change", "voice.preview",
         # §58 UI 交互动作（dispatcher 本地执行；group 暴露 ui 字段）
         "ui.undo", "ui.redo", "ui.save", "ui.preview_draft",
+        "ui.editor_session_snap", "ui.editor_session_box",
         "ui.open_voice_settings", "ui.open_audio_bus", "ui.open_subtitle_style",
         "voice.preview_full", "voice.upload", "content.generate_script",
         "content.rewrite_script", "music.auto_match", "music.preview",

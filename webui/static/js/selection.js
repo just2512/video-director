@@ -18,8 +18,24 @@ function _emitSelectionChanged(origin){
     {detail: {selection: SEL.selection, selectionSet: SEL.selectionSet, origin: origin || ''}}));
 }
 
-/** 主选择 API：select(type, id, ev, origin)。ev 支持 Ctrl 多选 / Shift 范围（场景）。 */
+/** 主选择 API：select(type, id, ev, origin)。ev 支持 Ctrl 多选 / Shift 范围（场景）。
+ * ev.boxIds：框选批量事务（Editor Session §框选）——一次性提交整个命中集合，
+ * 仍是本函数单一写入，且只 emit 一次 selection:changed（拖框过程中不逐元素提交）。 */
 function select(type, id, ev, origin){
+  const boxIds = ev && Array.isArray(ev.boxIds) ? ev.boxIds.filter(Boolean) : null;
+  if (boxIds) {
+    const additive = !!(ev && (ev.ctrlKey || ev.metaKey || ev.shiftKey));
+    const next = additive ? new Set(SEL.selectionSet) : new Set();
+    boxIds.forEach(x => next.add(_selKey(type, x)));
+    SEL.selectionSet = next;
+    SEL.selection = {type, id};
+    if (type === 'scene' && ED.comp) {
+      const idx = ED.comp.scenes.findIndex(s => s.id === id);
+      if (idx >= 0) SEL.lastSceneIdx = idx;
+    }
+    _emitSelectionChanged(origin);
+    return;
+  }
   const wantMulti = !!(ev && (ev.ctrlKey || ev.metaKey));
   const wantRange = !!(ev && ev.shiftKey && type === 'scene');
   if (!wantMulti && !wantRange) SEL.selectionSet = new Set();

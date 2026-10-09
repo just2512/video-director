@@ -820,7 +820,7 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
         for lay in sc.layers:
             if getattr(lay, "asset_id", None):
                 asset_windows.setdefault(lay.asset_id, []).append(
-                    (sc.start + lay.start, lay.duration)
+                    (sc.start + lay.start, lay.duration, lay.source_in, lay.source_out)
                 )
     for aid in asset_windows:
         asset_windows[aid].sort(key=lambda x: x[0])
@@ -849,10 +849,16 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
         for i, t in enumerate(tracks):
             if i >= len(wins):
                 continue
-            w_start, w_dur = wins[i]
+            w_start, w_dur, w_src_in, w_src_out = wins[i]
+            # source 窗口随配对图层走：重配对后轨播的必须是该层实际消费的
+            # 源区间，否则同素材多实例在结构编辑后原声播错源片段（多场景移动
+            # 只动 start/duration 时，轨道 #1 的 0-5s 源窗会被接到消费 10-15s
+            # 的图层窗口上）。音量/ducking/淡入淡出仍是轨道自身属性。
             new_audio.append(t.model_copy(update={
                 "start": round(float(w_start), 3),
                 "duration": round(min(float(t.duration), float(w_dur)), 3),
+                "source_in": round(float(w_src_in if w_src_in is not None else 0.0), 3),
+                "source_out": round(float(w_src_out), 3) if w_src_out is not None else None,
             }))
 
     for i, sc in enumerate(ir.scenes):

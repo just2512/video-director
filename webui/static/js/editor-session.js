@@ -177,11 +177,10 @@
     if (line) line.style.display = 'none';
   }
 
-  function selectRect(rect, scope, additive) {
-    if (!window.ED || !ED.comp || !window.SEL) return;
+  function boxHitIds(rect, scope) {
     const selector = scope === 'layer' ? '.ed-layer' : '.ed-scene';
     const nodes = [...document.querySelectorAll('#editor-timeline ' + selector)];
-    const ids = nodes.filter(node => {
+    return nodes.filter(node => {
       const r = node.getBoundingClientRect();
       return r.right >= rect.left && r.left <= rect.right &&
              r.bottom >= rect.top && r.top <= rect.bottom;
@@ -189,28 +188,21 @@
       ? node.dataset.scene + '#' + node.dataset.idx
       : node.dataset.scene
     ).filter(Boolean);
+  }
 
+  function commitBoxSelection(rect, scope, additive) {
+    if (!window.ED || !ED.comp || !window.SEL) return;
+    const ids = boxHitIds(rect, scope);
     if (!ids.length) {
       if (!additive && typeof clearSelection === 'function') clearSelection('box-select');
       return;
     }
-
-    // 仍使用同一个 SEL 事实源，但只提交一次 selection:changed，避免拖框过程中
-    // 每选中一个元素就触发 Timeline/Preview/Inspector 重绘。
-    const next = additive ? new Set(SEL.selectionSet) : new Set();
-    ids.forEach(id => next.add(_selKey(scope, id)));
-    SEL.selectionSet = next;
     const last = ids[ids.length - 1];
-    SEL.selection = scope === 'layer'
-      ? {type:'layer', id:last}
-      : {type:'scene', id:last};
-    if (scope === 'scene') {
-      const idx = ED.comp.scenes.findIndex(s => s.id === last);
-      if (idx >= 0) SEL.lastSceneIdx = idx;
-    }
-    document.dispatchEvent(new CustomEvent('selection:changed', {
-      detail: {selection: SEL.selection, selectionSet: SEL.selectionSet, origin: 'box-select'}
-    }));
+    const boxEv = {boxIds: ids, ctrlKey: additive, metaKey: false, shiftKey: false};
+    // 走唯一 Selection 写入者（§63 不允许第二套 selection）：boxIds 批量事务
+    // 模式——整个命中集合一次提交、只发一次 selection:changed。
+    if (scope === 'layer') select('layer', last, boxEv, 'box-select');
+    else select('scene', last, boxEv, 'box-select');
   }
 
   function startBox(ev) {
@@ -255,21 +247,34 @@
     box.style.top = top + 'px';
     box.style.width = width + 'px';
     box.style.height = height + 'px';
-    if (width > 6 || height > 6) {
-      selectRect({
-        left: Math.min(b.startX, ev.clientX),
-        top: Math.min(b.startY, ev.clientY),
-        right: Math.max(b.startX, ev.clientX),
-        bottom: Math.max(b.startY, ev.clientY)
-      }, b.scope, b.additive);
-    }
+    b.rect = (width > 6 || height > 6) ? {
+      left: Math.min(b.startX, ev.clientX),
+      top: Math.min(b.startY, ev.clientY),
+      right: Math.max(b.startX, ev.clientX),
+      bottom: Math.max(b.startY, ev.clientY)
+    } : null;
+    // 拖框过程只做视觉高亮（零 selection:changed）：selection:changed 会触发
+    // 五区同步整树重渲（editorRenderTimeline innerHTML 替换），把正在拖的
+    // 矩形框和命中节点全部打掉。提交推迟到 pointerup 单次事务（B3）。
+    const selector = b.scope === 'layer' ? '.ed-layer' : '.ed-scene';
+    const nodes = [...document.querySelectorAll('#editor-timeline ' + selector)];
+    nodes.forEach(node => {
+      if (!b.rect) { node.classList.remove('tl-box-hit'); return; }
+      const r = node.getBoundingClientRect();
+      const hit = r.right >= b.rect.left && r.left <= b.rect.right &&
+                  r.bottom >= b.rect.top && r.top <= b.rect.bottom;
+      node.classList.toggle('tl-box-hit', hit);
+    });
   }
 
   function endBox() {
-    if (!state.box) return;
+    const b = state.box;
     state.box = null;
     const box = document.getElementById('ed-session-box');
     if (box) box.style.display = 'none';
+    document.querySelectorAll('#editor-timeline .tl-box-hit')
+      .forEach(el => el.classList.remove('tl-box-hit'));
+    if (b && b.rect) commitBoxSelection(b.rect, b.scope, b.additive);
   }
 
   function selectedSceneIds() {
