@@ -347,6 +347,8 @@ function _sceneTrackHtml(c, total){
 
 // 播放头拖动（§17）：只在手柄（::after 头部）上按住才拖；线体 pointer-events:none
 // 不再拦截场景/层的点击 hitbox（§14 修复的伴随缺陷）。
+// ev 必须透传给 playheadSet——§2 snap：拖动中 editorSessionSnapTime(at) 真实吸附
+// （此前恒传 null → playheadSet 走 disable 分支，播放头拖动从不吸附，Guide 也不显示）。
 function _tlBindPlayheadDrag(){
   const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
   if (!scroll) return;
@@ -355,7 +357,7 @@ function _tlBindPlayheadDrag(){
     handle.addEventListener('pointerdown', ev => {
       PLAYHEAD.dragging = true;
       ev.preventDefault();  // 手柄按下不触发下层场景选择
-      playheadSet(_tlPct(ev, scroll), null);
+      playheadSet(_tlPct(ev, scroll), ev);
     });
   }
   scroll.addEventListener('pointerdown', ev => {
@@ -364,15 +366,17 @@ function _tlBindPlayheadDrag(){
         || ev.target.closest('.ed-track-clip') || ev.target.closest('.ed-kf-dot')) return;
     if (ev.target.closest('.ed-scene') && !ev.target.closest('.ed-scene-body')) return;
     PLAYHEAD.dragging = true;
-    playheadSet(_tlPct(ev, scroll), null);
+    playheadSet(_tlPct(ev, scroll), ev);
   });
   scroll.addEventListener('pointermove', ev => {
-    if (PLAYHEAD.dragging) playheadSet(_tlPct(ev, scroll), null);
+    if (PLAYHEAD.dragging) playheadSet(_tlPct(ev, scroll), ev);
   });
   const up = ev => {
     if (PLAYHEAD.dragging) {
       PLAYHEAD.dragging = false;
-      playheadSet(_tlPct(ev, scroll), {type: 'pointerup'});
+      playheadSet(_tlPct(ev, scroll), {type: 'pointerup', shiftKey: !!ev.shiftKey});
+      // 释放后清 Snap Guide（拖动辅助线不留屏）
+      if (window.editorSessionClearSnapGuide) window.editorSessionClearSnapGuide();
     }
   };
   document.addEventListener('pointerup', up);

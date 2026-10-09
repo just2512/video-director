@@ -167,7 +167,9 @@
     const pct = Math.max(0, Math.min(100, state.snapGuideTime / total * 100));
     line.style.left = pct + '%';
     line.dataset.label = state.snapGuideLabel;
-    line.style.display = '';
+    // CSS 初始 display:none；置空 inline 不会盖过它，必须显式 block（B7：
+    // 此前 display='' → Guide 永远不可见，吸附只剩数值生效无视觉反馈）
+    line.style.display = 'block';
   }
 
   function clearGuide() {
@@ -387,8 +389,12 @@
       clearGuide();
     }, true);
 
-    root.addEventListener('pointerleave', () => {
-      if (!state.groupDrag) clearGuide();
+    root.addEventListener('pointerleave', ev => {
+      // 播放头拖动没有指针捕获：移动中 hover 目标离开子元素会冒泡出
+      // pointerleave（实测每步 move 都触发 leave+clear），吸附 Guide 刚
+      // set 就被清掉（B8）。拖动期间不清；真正离开（root 外）时才清。
+      const phDragging = !!(window.PLAYHEAD && PLAYHEAD.dragging);
+      if (!state.groupDrag && !phDragging) clearGuide();
     }, true);
 
     root.querySelectorAll('.ed-scene-header').forEach(header => {
@@ -416,5 +422,6 @@
   window.editorSessionToggleSnap = toggleSnap;
   window.editorSessionToggleBox = toggleBoxSelect;
   window.editorSessionSetSnap = setSnap;
+  window.editorSessionClearSnapGuide = clearGuide;
   window.editorSessionState = state;
 })();
