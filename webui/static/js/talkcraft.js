@@ -4,7 +4,7 @@
  * is copied into this repository.
  */
 (() => {
-  const TC = { projectId: "", data: null, loading: false, lastError: "" };
+  const TC = { projectId: "", data: null, loading: false, lastError: "", renderPoll: null, renderStatus: null };
   const $ = (id) => document.getElementById(id);
   const SEMANTICS = ["钩子","自我介绍","介绍他人","数据","引用","对比","定义","步骤","列举","时间地点","机制","选择","过程演示","空间叙事","设问","金句","章节","论点","转折","例证","号召"];
   const NEEDS = ["证据","身份","量化","对比","结构","强调","无"];
@@ -358,7 +358,107 @@
     }
   }
 
+  const RENDER_LABELS = {
+    IDLE: "尚未渲染", QUEUED: "排队中", PREPARING: "准备渲染输入",
+    RENDERING: "Remotion 正在逐帧渲染", PASS: "渲染与机器 QC 已通过",
+    REJECT: "渲染失败或 QC 未通过"
+  };
+
+  function updateRenderStatus(state) {
+    TC.renderStatus = state;
+    const elStatus = $("tc-render-status");
+    const output = $("tc-render-output");
+    if (elStatus) {
+      const label = RENDER_LABELS[state.status] || state.status || "状态未知";
+      elStatus.textContent = label + (state.message ? " · " + state.message : "");
+      elStatus.className = "tc-render-status" +
+        (state.status === "PASS" ? " is-ok" : (state.status === "REJECT" ? " is-error" : ""));
+    }
+    if (output) {
+      if (state.output_url && state.status === "PASS") {
+        output.href = state.output_url;
+        output.hidden = false;
+        output.textContent = "打开最近的 Remotion 成片（" + (state.quality || "render") + "）";
+      } else {
+        output.hidden = true;
+        output.removeAttribute("href");
+      }
+    }
+    const active = ["QUEUED", "PREPARING", "RENDERING"].includes(state.status);
+    if (active && TC.renderPoll === null) {
+      TC.renderPoll = setInterval(() => { void talkcraftRemotionStatus(); }, 1500);
+    } else if (!active && TC.renderPoll !== null) {
+      clearInterval(TC.renderPoll);
+      TC.renderPoll = null;
+    }
+    const canRender = !!(TC.data && TC.data.status === "READY") && !active;
+    const draft = $("tc-render-draft");
+    const final = $("tc-render-final");
+    if (draft) draft.disabled = !canRender;
+    if (final) final.disabled = !canRender;
+  }
+
+  async function talkcraftRemotionStatus() {
+    if (!window.ED || !ED.pid) {
+      updateRenderStatus({status: "IDLE", message: "请先打开项目。"});
+      return null;
+    }
+    const r = await apiGet("/api/talkcraft/remotion/status?project_id=" + encodeURIComponent(ED.pid));
+    if (!r || r.ok === false) {
+      updateRenderStatus({status: "REJECT", message: (r && r.error) || "读取渲染状态失败。"});
+      return null;
+    }
+    if (!r.runtime_installed && r.status === "IDLE") {
+      r.message = "未安装运行环境。安装方式：cd remotion_runtime && npm install";
+    }
+    updateRenderStatus(r);
+    return r;
+  }
+
+  async function talkcraftRemotionRender(quality, confirmed = false) {
+    if (!window.ED || !ED.pid) {
+      setMessage("请先打开项目，再启动 Remotion 渲染。", "warn");
+      return;
+    }
+    if (!TC.data || TC.data.status !== "READY") {
+      setMessage("蓝图尚未就绪或已过期；先生成 / 刷新蓝图。", "warn");
+      return;
+    }
+    const buttons = [$("tc-render-draft"), $("tc-render-final")].filter(Boolean);
+    buttons.forEach(b => { b.disabled = true; });
+    setMessage(quality === "final" ? "正在检查正式渲染门槛…" : "正在启动 Remotion 预览渲染…");
+    try {
+      const r = await apiPost("/api/talkcraft/remotion/render", {
+        project_id: ED.pid, quality, confirm_budget: confirmed
+      });
+      if (r && r.confirmation_required) {
+        buttons.forEach(b => { b.disabled = false; });
+        const proceed = window.confirm(r.message + "\n\n继续后仍会执行完整机器 QC。");
+        if (proceed) return talkcraftRemotionRender(quality, true);
+        setMessage("已取消正式渲染。", "warn");
+        return;
+      }
+      if (!r || r.ok === false) {
+        setMessage((r && r.error) || (r && r.message) || "启动 Remotion 渲染失败。", "error");
+        await talkcraftRemotionStatus();
+        return;
+      }
+      setMessage(r.message || "渲染任务已启动。", "success");
+      await talkcraftRemotionStatus();
+    } catch (e) {
+      setMessage(String(e), "error");
+    } finally {
+      buttons.forEach(b => { b.disabled = false; });
+      if (TC.data && TC.data.status === "READY" &&
+          !["QUEUED","PREPARING","RENDERING"].includes((TC.renderStatus || {}).status)) {
+        buttons.forEach(b => { b.disabled = false; });
+      }
+    }
+  }
+
   window.talkcraftLoad = talkcraftLoad;
   window.talkcraftPrepare = talkcraftPrepare;
+  window.talkcraftRemotionRender = talkcraftRemotionRender;
+  window.talkcraftRemotionStatus = talkcraftRemotionStatus;
   window.talkcraftState = () => TC;
 })();
