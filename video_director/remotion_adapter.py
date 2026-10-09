@@ -172,12 +172,17 @@ def _prepare_props(project_id: str, quality: str) -> tuple[Path, Path, Path, dic
                 if b.get("review_status") != "REVIEWED"]
         uncertain = [s.get("scene_id", "?") for s in timing_doc.get("sentences", [])
                      if s.get("status") != "ALIGNED_FROM_WORDS"]
-        if todo or uncertain:
+        uncertain_beats = [f"{b.get('scene_id', '?')} 第 {int(b.get('sentence_index', 0)) + 1} 句"
+                           for b in semantic_doc.get("beats", [])
+                           if b.get("timing_status") != "ALIGNED_FROM_WORDS"]
+        if todo or uncertain or uncertain_beats:
             parts = []
             if todo:
                 parts.append("待复核语义拍：" + "、".join(todo[:12]))
             if uncertain:
-                parts.append("时间覆盖不足：" + "、".join(uncertain[:12]))
+                parts.append("场景时间覆盖不足：" + "、".join(uncertain[:12]))
+            if uncertain_beats:
+                parts.append("句级时间覆盖不足：" + "、".join(uncertain_beats[:12]))
             raise RemotionError("正式渲染被验收门拦截。请先处理：" + "；".join(parts))
 
     runtime_modules = RUNTIME_ROOT / "node_modules"
