@@ -57,6 +57,7 @@ async function editorLoad(){
   if (metaEl) metaEl.textContent =
     `v${comp.version} · ${comp.scenes.length} 场景 · ${comp.duration.toFixed(1)}s`;
   editorRenderTimeline();
+  if (typeof window.talkcraftLoad === "function") void window.talkcraftLoad(true);
   editorLoadVersions();
   populateGenModels();
   refreshGenerationAvailability();
