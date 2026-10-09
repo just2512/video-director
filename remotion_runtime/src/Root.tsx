@@ -11,6 +11,7 @@ const defaults: TalkCraftProps = {
   audio: [],
   recipes: {},
   narrationSrc: null,
+  duckingWindows: [],
 };
 
 export const TalkCraftRoot: React.FC = () => (
