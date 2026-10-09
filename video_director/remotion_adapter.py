@@ -212,7 +212,13 @@ def _prepare_props(project_id: str, quality: str) -> tuple[Path, Path, Path, dic
         root / "audio" / "full.wav",
         root / "audio" / "full.mp3",
     ) if p.is_file()), None)
-    narration_src = _public_asset(narration_path, public_dir, copied) if narration_path else None
+    has_narration_track = any(_enum(track.type) == "narration" for track in (ir.audio or []))
+    # Fallback narration is only enabled if CompositionIR has no narration track at all.
+    # Otherwise a muted narration track must remain muted in the Remotion output.
+    narration_src = (
+        _public_asset(narration_path, public_dir, copied)
+        if narration_path and not has_narration_track else None
+    )
 
     scenes: list[dict] = []
     for scene in ir.scenes:
@@ -273,9 +279,7 @@ def _prepare_props(project_id: str, quality: str) -> tuple[Path, Path, Path, dic
         track_type = _enum(track.type)
         asset_id = getattr(track, "asset_id", None)
         source_path: Path | None = None
-        if track_type == "narration" and narration_path:
-            source_path = narration_path
-        elif asset_id:
+        if asset_id:
             record = _resolve_asset(str(asset_id), known_assets)
             if record:
                 source_path = Path(record["file"])
