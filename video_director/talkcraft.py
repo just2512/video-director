@@ -227,11 +227,13 @@ def _align_scene_chars(text: str, scene_start: float, scene_end: float,
     return [x for x in mapped if x is not None], round(coverage, 4)
 
 
-def _composition_signature(ir: CompositionIR, word_hash: str | None) -> str:
+def _composition_signature(ir: CompositionIR, word_hash: str | None,
+                           audio_hash: str | None = None) -> str:
     material = {
         "scenes": [{"id": s.id, "start": s.start, "duration": s.duration, "text": s.text}
                    for s in ir.scenes],
         "word_hash": word_hash,
+        "audio_hash": audio_hash,
         "fps": ir.project.fps,
     }
     return _hash_text(json.dumps(material, ensure_ascii=False, sort_keys=True))
@@ -250,8 +252,9 @@ def _load_inputs(project_id: str):
     audio_candidates = [root / "audio" / "narration.mp3", root / "audio" / "narration.wav",
                         root / "audio" / "full.wav"]
     audio_path = next((p for p in audio_candidates if p.is_file()), None)
-    input_signature = _composition_signature(ir, word_hash)
-    return root, ir, raw_words, word_hash, _hash_file(audio_path), input_signature
+    audio_hash = _hash_file(audio_path)
+    input_signature = _composition_signature(ir, word_hash, audio_hash)
+    return root, ir, raw_words, word_hash, audio_hash, input_signature
 
 
 def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
@@ -388,11 +391,27 @@ def _snapshot(project_id: str, root: Path | None = None, ir: CompositionIR | Non
         timing = _read_json(root / "alignment" / "character_timing.json")
         semantic_doc = _read_json(root / "plans" / "semantic_beats.json")
         shot_doc = _read_json(root / "plans" / "shot_plan.json")
-        current_signature = _composition_signature(ir, _hash_file(root / "alignment" / "words.json"))
+        audio_path = next((p for p in (
+            root / "audio" / "narration.mp3", root / "audio" / "narration.wav",
+            root / "audio" / "full.wav", root / "audio" / "full.mp3"
+        ) if p.is_file()), None)
+        current_signature = _composition_signature(
+            ir, _hash_file(root / "alignment" / "words.json"), _hash_file(audio_path)
+        )
     else:
-        current_signature = _composition_signature(ir, _hash_file(root / "alignment" / "words.json"))
+        audio_path = next((p for p in (
+            root / "audio" / "narration.mp3", root / "audio" / "narration.wav",
+            root / "audio" / "full.wav", root / "audio" / "full.mp3"
+        ) if p.is_file()), None)
+        current_signature = _composition_signature(
+            ir, _hash_file(root / "alignment" / "words.json"), _hash_file(audio_path)
+        )
     prepared = bool(semantic_doc and shot_doc and timing)
-    stale = prepared and semantic_doc.get("input_signature") != current_signature
+    stale = prepared and (
+        semantic_doc.get("input_signature") != current_signature
+        or shot_doc.get("input_signature") != current_signature
+        or timing.get("input_signature") != current_signature
+    )
     beats = semantic_doc.get("beats", []) if prepared else []
     shots = shot_doc.get("shots", []) if prepared else []
     return {
