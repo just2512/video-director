@@ -123,6 +123,35 @@ def _extract_original_audio(source: Path, source_in: float, duration: float,
     return target_rel
 
 
+def _ducking_windows(root: Path) -> list[list[float]]:
+    """Approximate speech-active windows from existing word timestamps, not waveform analysis."""
+    path = root / "alignment" / "words.json"
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if isinstance(raw, dict):
+        raw = raw.get("words") or raw.get("word_timeline") or []
+    spans = []
+    for item in raw if isinstance(raw, list) else []:
+        try:
+            start, end = float(item["start"]), float(item["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end > start:
+            spans.append([max(0.0, start - 0.04), end + 0.08])
+    spans.sort(key=lambda pair: pair[0])
+    merged: list[list[float]] = []
+    for start, end in spans:
+        if merged and start - merged[-1][1] <= 0.14:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [[round(a, 4), round(b, 4)] for a, b in merged]
+
+
 def _prepare_props(project_id: str, quality: str) -> tuple[Path, Path, Path, dict]:
     root = config.project_dir(project_id)
     ir = editor.load_composition(project_id)
@@ -286,7 +315,8 @@ def _prepare_props(project_id: str, quality: str) -> tuple[Path, Path, Path, dic
         "width": int(ir.project.width), "height": int(ir.project.height), "fps": fps,
         "durationInFrames": duration_frames, "scenes": scenes, "audio": audio,
         "recipes": recipe_map, "narrationSrc": narration_src,
-        "title": str(store.get_project(project_id).get("script", "") or "")[:120],
+        "duckingWindows": _ducking_windows(root),
+        "title": str((store.get_project(project_id) or {}).get("script", "") or "")[:120],
     }
     _atomic_json(props_path, props)
     manifest = {
@@ -296,7 +326,7 @@ def _prepare_props(project_id: str, quality: str) -> tuple[Path, Path, Path, dic
         "shot_revision": shot_doc.get("revision"),
         "character_timing_hash": _sha256_file(timing_path),
         "input_props_hash": _sha256_file(props_path),
-        "public_assets": [{"path": key, "sha256": value} for value, key in copied.items()],
+        "public_assets": [{"path": relative, "sha256": digest} for digest, relative in copied.items()],
         "fps": fps, "width": props["width"], "height": props["height"],
         "duration_in_frames": duration_frames,
         "created_at": time.time(),
@@ -310,11 +340,17 @@ def _run_job(project_id: str, quality: str, job_id: str) -> None:
     status_path = root / "plans" / "remotion_render.json"
     render_root = root / "render" / "remotion"
     log_path = render_root / "render.log"
+    try:
+        initial_status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        initial_status = {}
+    count_state = {"successful_final_renders": int(initial_status.get("successful_final_renders", 0))}
 
     def set_status(status: str, message: str, **extra) -> dict:
         state = {
             "version": 1, "project_id": project_id, "job_id": job_id,
             "quality": quality, "status": status, "message": message,
+            "successful_final_renders": count_state["successful_final_renders"],
             "updated_at": time.time(),
         }
         state.update(extra)
@@ -349,6 +385,14 @@ def _run_job(project_id: str, quality: str, job_id: str) -> None:
         if proc.returncode != 0 or not output_path.is_file() or output_path.stat().st_size < 4096:
             detail = (proc.stderr or proc.stdout or "未生成可用输出文件")[-1800:]
             raise RemotionError("Remotion 渲染失败：" + detail)
+        # Do not mark an output PASS when the user edited the project during rendering.
+        if editor.composition_version(project_id) != manifest["composition_version"]:
+            raise RemotionError("渲染期间 CompositionIR 已发生变化；本次输出已作废，请刷新并重新渲染。")
+        latest_plan = talkcraft.get_plan(project_id)
+        if (latest_plan.get("status") != "READY"
+                or int(latest_plan.get("revision", 0)) != int(manifest["semantic_revision"] or 0)
+                or int(latest_plan.get("shot_revision", 0)) != int(manifest["shot_revision"] or 0)):
+            raise RemotionError("渲染期间语义拍或镜头计划发生变化；本次输出已作废，请刷新后重新渲染。")
         manifest["output_sha256"] = _sha256_file(output_path)
         manifest["output_bytes"] = output_path.stat().st_size
         manifest["rendered_at"] = time.time()
@@ -365,10 +409,8 @@ def _run_job(project_id: str, quality: str, job_id: str) -> None:
         _atomic_json(root / "plans" / "remotion_render_manifest.json", manifest)
         if not qc_report.ok:
             raise RemotionError("成片文件已生成，但 QC 未通过；请查看 qc/remotion-" + quality + ".json。")
-        prev = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
-        count = int(prev.get("successful_final_renders", 0))
         if quality == "final":
-            count += 1
+            count_state["successful_final_renders"] += 1
         set_status("PASS", "Remotion 成片渲染与机器 QC 均已通过。",
                    output_path=str(output_path), output_url="/file?path=" + __import__("urllib.parse").parse.quote(str(output_path)),
                    output_bytes=manifest["output_bytes"], probe=manifest["probe"],
