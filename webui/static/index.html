@@ -229,7 +229,7 @@
           <label style="font-size:12px;margin:0 0 0 8px">缩放</label>
           <input type="range" id="ed-zoom" min="0.5" max="2" step="0.1" value="1"
                  style="width:100px;margin:0" oninput="ED.zoom=parseFloat(this.value);editorRenderTimeline()">
-          <button class="btn-secondary btn-sm" onclick="creativePlanToggle()">语义拍 / 分镜</button>
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_toggle">语义拍 / 分镜</button>
           <span class="hint">连续时间轴：调时长/删除后，后续场景与关联音轨自动跟随</span>
           <input type="checkbox" id="ed-snap" checked style="display:none" aria-hidden="true">
           <span class="hint" id="editor-selection-count">未选中</span>
@@ -240,10 +240,10 @@
           <b>语义拍与镜头计划</b>
           <span class="hint">字级锚点 → 语义需求 → 镜头画面层</span>
           <span class="tb-sep"></span>
-          <button class="btn-secondary btn-sm" onclick="creativePlanReload()">刷新</button>
-          <button class="btn-secondary btn-sm" onclick="creativePlanInitialize()">从当前稿件生成草案</button>
-          <button class="btn-secondary btn-sm" onclick="creativePlanSave()">保存标注</button>
-          <button class="btn-sm" onclick="creativePlanValidate()">运行预检</button>
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_reload">刷新</button>
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_initialize">从当前稿件生成草案</button>
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_save">保存标注</button>
+          <button class="btn-sm" data-action="ui.creative_plan_validate">运行预检</button>
         </div>
         <div id="creative-plan-status" class="hint" style="margin:6px 0">打开项目后可生成语义拍与镜头计划。</div>
         <div id="creative-plan-content"></div>
