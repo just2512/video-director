@@ -146,7 +146,7 @@ def _sentence_spans(text: str) -> list[dict]:
     spans = []
     start = 0
     for index, char in enumerate(text):
-        if char not in "。！？!?；;\\n":
+        if char not in "。！？!?；;\n":
             continue
         end = index + 1
         left, right = start, end
@@ -226,7 +226,7 @@ def _sync_shotbook(root: Path) -> None:
                 f"动效 {_md_escape(layer.get('motion_recipe_id') or '无')}"
             )
         lines.append("")
-    _atomic_text(root / "plans" / "SHOTBOOK.md", "\\n".join(lines) + "\\n")
+    _atomic_text(root / "plans" / "SHOTBOOK.md", "\n".join(lines) + "\n")
 
 
 def _atomic_text(path: Path, content: str) -> None:
