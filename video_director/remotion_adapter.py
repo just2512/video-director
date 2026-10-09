@@ -415,7 +415,7 @@ def _run_job(project_id: str, quality: str, job_id: str) -> None:
                    output_path=str(output_path), output_url="/file?path=" + __import__("urllib.parse").parse.quote(str(output_path)),
                    output_bytes=manifest["output_bytes"], probe=manifest["probe"],
                    qc=qc_report.to_dict(), manifest_path=str(root / "plans" / "remotion_render_manifest.json"),
-                   successful_final_renders=count)
+)
     except Exception as exc:
         try:
             previous = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
