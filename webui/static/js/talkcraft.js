@@ -77,6 +77,7 @@
     TC.projectId = pid;
     TC.data = r;
     render();
+    void talkcraftRemotionStatus();
     return r;
   }
 
