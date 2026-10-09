@@ -414,7 +414,7 @@
       clearInterval(TC.renderPoll);
       TC.renderPoll = null;
     }
-    const canRender = !!(TC.data && TC.data.status === "READY") && !active;
+    const canRender = !!(TC.data && TC.data.status === "READY") && !active && state.runtime_installed !== false;
     const draft = $("tc-render-draft");
     const final = $("tc-render-final");
     if (draft) draft.disabled = !canRender;
