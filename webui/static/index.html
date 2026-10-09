@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/static/css/workspace.css">
 <link rel="stylesheet" href="/static/css/timeline.css">
 <link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/talkcraft.css">
 </head>
 <body>
 <div class="app-shell">
@@ -234,6 +235,24 @@
         </div>
         <div id="editor-timeline"></div>
       </div>
+      <section class="panel tc-panel" id="talkcraft-panel" aria-labelledby="talkcraft-title">
+        <div class="tc-head">
+          <div>
+            <h3 id="talkcraft-title">口播导演 · 语义拍与镜头计划</h3>
+            <p class="hint">把旁白句子变成可编辑的语义需求和镜头计划；保存通过编辑器 Revision，应用配方则会实际修改图层。</p>
+          </div>
+          <div class="tc-head-actions">
+            <span id="tc-state" class="tc-status">尚未载入</span>
+            <button class="btn-sm" id="tc-prepare" type="button" onclick="talkcraftPrepare()">生成 / 刷新蓝图</button>
+          </div>
+        </div>
+        <div class="tc-truth-note">
+          时间说明：系统从已有词级时间戳构建逐字时间网格。词内拆分和缺失锚点会明确标注为插值，不等同于逐字声学强制对齐；缺少配音时间戳时会标记为待复核。
+        </div>
+        <div id="tc-summary" class="tc-summary" aria-live="polite"></div>
+        <div id="tc-message" class="tc-message" role="status">打开一个项目后生成创作蓝图。生成不会自动改动现有成片。</div>
+        <div id="tc-beats" class="tc-beats"></div>
+      </section>
       <div id="editor-preflight-box"></div>
     </div>
   </main>
@@ -346,6 +365,7 @@
 <script src="/static/js/create.js"></script>
 <script src="/static/js/mask-editor.js"></script>
 <script src="/static/js/developer.js"></script>
+<script src="/static/js/talkcraft.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>
