@@ -563,6 +563,8 @@ def _snapshot(project_id: str, root: Path | None = None, ir: CompositionIR | Non
     )
     beats = semantic_doc.get("beats", []) if prepared else []
     shots = shot_doc.get("shots", []) if prepared else []
+    if prepared and not (root / "plans" / "SHOTBOOK.md").is_file():
+        _sync_shotbook(root)
     return {
         "ok": True, "project_id": project_id,
         "status": "NOT_PREPARED" if not prepared else ("STALE" if stale else "READY"),
