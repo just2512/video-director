@@ -323,11 +323,12 @@ def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
     semantic_doc = {
         "version": 1, "project_id": project_id, "input_signature": signature,
         "vocabulary": list(SEMANTIC_VOCAB), "visual_needs": list(VISUAL_NEEDS),
-        "generated_at": time.time(), "beats": beats,
+        "generated_at": time.time(), "revision": int(old_beats.get("revision", 1)) if same_source else 1, "beats": beats,
     }
     shot_doc = {
         "version": 1, "project_id": project_id, "input_signature": signature,
         "fps": ir.project.fps, "generated_at": time.time(),
+        "revision": int(old_shots.get("revision", 1)) if same_source else 1,
         "source_of_truth": "CompositionIR scene ranges; this file is the editable shot-planning overlay.",
         "shots": shots,
     }
@@ -345,15 +346,31 @@ def _list_recipes() -> list[dict]:
     except Exception as exc:
         return [{"id": "", "name": "动效库不可用", "enabled": False, "reason": str(exc)}]
     for item in recipes:
+        duration = {
+            "min": float(getattr(item, "duration_min", 0.3)),
+            "recommended": float(getattr(item, "duration_recommended", 0.5)),
+            "max": float(getattr(item, "duration_max", 1.0)),
+        }
+        channels = []
+        for ch in (getattr(item, "channels", ()) or ()):
+            channels.append({
+                "property": getattr(ch, "property", ""),
+                "interpolation": getattr(ch, "interpolation", "linear"),
+                "keyframes": [
+                    {"at": float(k.at), "value": k.value, "easing": k.easing}
+                    for k in (getattr(ch, "keyframes", ()) or ())
+                ],
+            })
+        raw_item = getattr(item, "item", None)
         result.append({
-            "id": item.id, "name": item.name, "description": getattr(item, "description", ""),
+            "id": item.id, "name": item.name,
+            "description": getattr(raw_item, "description", "") if raw_item else "",
             "semantic_intents": list(getattr(item, "semantic_intents", ()) or ()),
             "compatible_layers": list(getattr(item, "compatible_layers", ()) or ()),
             "commercial_status": getattr(item, "commercial_status", "UNKNOWN"),
-            "enabled": bool(getattr(item, "enabled", True)),
-            "duration": getattr(item, "duration", None),
-            "channels": [c.model_dump() if hasattr(c, "model_dump") else c.__dict__
-                         for c in (getattr(item, "channels", ()) or ())],
+            "enabled": True,
+            "provenance_ref": getattr(item, "provenance_ref", None),
+            "duration": duration, "channels": channels,
         })
     return result
 
