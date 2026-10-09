@@ -296,6 +296,7 @@ def _build_artifacts(project_id: str, preserve_edits: bool = True) -> dict:
             "id": beat_id, "scene_id": scene.id, "index": index, "text": text,
             "start": round(start, 4), "end": round(end, 4), "sem": sem, "entities": entities,
             "need": need, "weight": weight, "intent": intent, "visual_intent": visual_intent,
+            "semantic_role": previous.get("semantic_role", scene.semantic_role or "") if previous else (scene.semantic_role or ""),
             "timing_status": timing_status, "timing_coverage": coverage,
             "review_status": review_status, "review_reasons": reasons,
         })
@@ -477,6 +478,7 @@ def update_beat(project_id: str, beat_id: str, payload: dict) -> dict:
     beat.update({
         "sem": list(dict.fromkeys(sem)), "need": list(dict.fromkeys(need)),
         "weight": weight, "intent": intent, "visual_intent": visual_intent,
+        "semantic_role": payload.get("semantic_role", beat.get("semantic_role", "")),
         "entities": list(dict.fromkeys(entities)), "review_status": review_status,
         "last_edited_at": time.time(),
     })
