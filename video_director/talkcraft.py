@@ -593,7 +593,9 @@ def update_beat(project_id: str, beat_id: str, payload: dict) -> dict:
     shots_path = root / "plans" / "shot_plan.json"
     semantic_doc = _read_json(beats_path)
     shot_doc = _read_json(shots_path)
-    if not semantic_doc or not shot_doc or semantic_doc.get("input_signature") != signature:
+    if (not semantic_doc or not shot_doc
+            or semantic_doc.get("input_signature") != signature
+            or shot_doc.get("input_signature") != signature):
         raise TalkCraftError("蓝图尚未建立或已过期；请先刷新蓝图。")
     expected = payload.get("expected_revision")
     current_revision = int(semantic_doc.get("revision", 1))
@@ -622,15 +624,40 @@ def update_beat(project_id: str, beat_id: str, payload: dict) -> dict:
         entities = [x.strip() for x in re.split(r"[、,，;；]", entities) if x.strip()]
     if not isinstance(entities, list) or any(not isinstance(x, str) or len(x) > 200 for x in entities):
         raise TalkCraftError("entities 格式不正确。")
+    semantic_role = payload.get("semantic_role", beat.get("semantic_role", ""))
+    if semantic_role not in ROLES:
+        raise TalkCraftError("叙事角色不在允许的角色词表中。")
     review_status = "REVIEWED" if payload.get("mark_reviewed") else "NEEDS_REVIEW"
     scene_id = beat["scene_id"]
-    # Persist the creative intent through the official Command -> Revision path.
+
+    # Per-sentence annotations share a SceneIR. The scene-level intent is derived from
+    # the primary (first) semantic beat; changing a later sentence does not overwrite
+    # the whole scene intent with that sentence's text/intent.
+    candidate = dict(beat)
+    candidate.update({
+        "sem": list(dict.fromkeys(sem)), "need": list(dict.fromkeys(need)),
+        "weight": weight, "intent": intent, "visual_intent": visual_intent,
+        "semantic_role": semantic_role, "entities": list(dict.fromkeys(entities)),
+        "review_status": review_status,
+    })
+    candidate_beats = [
+        candidate if item.get("id") == beat_id else item
+        for item in semantic_doc.get("beats", [])
+        if item.get("scene_id") == scene_id
+    ]
+    candidate_beats.sort(key=lambda item: int(item.get("sentence_index", 0)))
+    primary = candidate_beats[0] if candidate_beats else candidate
+    scene_intent = str(primary.get("intent") or "").strip()[:500]
+    scene_visual_intent = str(primary.get("visual_intent") or "").strip()[:500]
+    scene_role = primary.get("semantic_role") or ""
+
+    # Persist the scene-level summary through the official Editor Command -> Revision path.
     result = editor.execute_command(project_id, {
         "command": "set_scene_intent",
         "targetId": scene_id,
         "payload": {
-            "intent": intent, "visualIntent": visual_intent,
-            "semanticRole": payload.get("semantic_role", ""),
+            "intent": scene_intent, "visualIntent": scene_visual_intent,
+            "semanticRole": scene_role,
         },
         "expectedVersion": payload.get("composition_version"),
         "author": "talkcraft-workbench",
@@ -638,26 +665,32 @@ def update_beat(project_id: str, beat_id: str, payload: dict) -> dict:
     if result.status != "APPLIED":
         detail = "; ".join(str(e.get("message", e)) for e in (result.errors or []))
         raise TalkCraftError(f"场景意图未保存到时间线：{detail or result.status}")
-    beat.update({
-        "sem": list(dict.fromkeys(sem)), "need": list(dict.fromkeys(need)),
-        "weight": weight, "intent": intent, "visual_intent": visual_intent,
-        "semantic_role": payload.get("semantic_role", beat.get("semantic_role", "")),
-        "entities": list(dict.fromkeys(entities)), "review_status": review_status,
-        "last_edited_at": time.time(),
-    })
+
+    beat.update(candidate)
+    beat["last_edited_at"] = time.time()
     semantic_doc["revision"] = current_revision + 1
     semantic_doc["generated_at"] = time.time()
     _atomic_json(beats_path, semantic_doc)
+
     shot = next((s for s in shot_doc.get("shots", []) if s.get("scene_id") == scene_id), None)
     if shot:
-        shot.update({"intent": intent, "visual_intent": visual_intent, "review_status": review_status})
+        all_scene_beats = [b for b in semantic_doc.get("beats", []) if b.get("scene_id") == scene_id]
+        shot.update({
+            "intent": scene_intent, "visual_intent": scene_visual_intent,
+            "review_status": "REVIEWED" if all_scene_beats and all(
+                b.get("review_status") == "REVIEWED" for b in all_scene_beats
+            ) else "NEEDS_REVIEW",
+        })
+        shot_doc["revision"] = int(shot_doc.get("revision", 1)) + 1
         shot_doc["generated_at"] = time.time()
         _atomic_json(shots_path, shot_doc)
+    _sync_shotbook(root)
     return {
         "ok": True, "revision": semantic_doc["revision"],
+        "shot_revision": int(shot_doc.get("revision", 1)),
         "composition_version": result.composition_version,
         "beat": beat, "shot": shot, "composition": result.composition,
-        "message": "标注与场景意图已保存；已通过编辑器 Revision 记录。",
+        "message": "语义拍已保存；镜头意图汇总到首句，并通过编辑器 Revision 记录。",
     }
 
 
