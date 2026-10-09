@@ -45,6 +45,21 @@ from video_director.models import (
 )
 
 
+def _persist_narration_timing(dirs: dict, source: str, words: List[dict],
+                              duration: Optional[float] = None) -> None:
+    """Persist upstream word timing and its provenance for the Shotbook editor."""
+    path = dirs["plans"] / "narration_timing.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "source": source if source in ("asr", "estimated", "tts", "native_character", "character") else "estimated",
+        "duration": round(float(duration), 3) if duration is not None else None,
+        "word_timeline": words or [],
+    }
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
 def parse_brief_voice_rate(creative_brief: str) -> Optional[str]:
     """创作要求 → 语速（方案 §30 G0 约束落地）。
 
@@ -838,6 +853,11 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile:
         narration_file = narration_audio
         with open(dirs["alignment"] / "words.json", "w", encoding="utf-8") as f:
             json.dump(word_timeline, f, ensure_ascii=False, indent=2)
+        _persist_narration_timing(
+            dirs, "tts" if voice and voice != "silent" else "estimated",
+            word_timeline,
+            narration_scenes[-1]["start"] + narration_scenes[-1]["duration"] if narration_scenes else 0.0,
+        )
         with open(scenes_path, "w", encoding="utf-8") as f:
             json.dump(narration_scenes, f, ensure_ascii=False, indent=2)
         sub_file = dirs["render"] / "master.ass"
@@ -1050,14 +1070,20 @@ def compose_auto(
         narration_audio = up["narration_file"]
         word_timeline = up.get("word_timeline") or []
         narration_scenes = up.get("narration_scenes") or []
+        alignment_source = up.get("source", "estimated")
         logger.info(f"§34 上传配音：{Path(narration_upload).name} {up['duration']:.1f}s"
                     f"（ASR={up['source']}），TTS 跳过")
     else:
         narration_audio, word_timeline, narration_scenes = narration_mod.synth_narration(
             scene_texts, voice, dirs["audio"], rate=voice_rate
         )
+        alignment_source = "tts" if voice and voice != "silent" else "estimated"
     with open(dirs["alignment"] / "words.json", "w", encoding="utf-8") as f:
         json.dump(word_timeline, f, ensure_ascii=False, indent=2)
+    _persist_narration_timing(
+        dirs, alignment_source, word_timeline,
+        narration_scenes[-1]["start"] + narration_scenes[-1]["duration"] if narration_scenes else 0.0,
+    )
     store.set_stage(project_id, store.Stage.ALIGNMENT)
 
     # 2. 字幕（统一 ASS 渲染，生产级：句级显示 + 白字黑描边 + 底部安全区）

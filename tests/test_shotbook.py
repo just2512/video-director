@@ -32,3 +32,14 @@ def test_frontend_choices_remain_registry_domains():
     assert "hook" in SEMANTIC_ROLES
     assert "prove" in VISUAL_INTENTS
     assert "document" in SHOT_TYPES
+
+
+def test_character_timing_keeps_monotonic_order_with_repeat_characters():
+    anchors = expand_character_timing(
+        "哈哈哈哈", 0.0, 2.0,
+        [{"text": "哈哈", "start": 0.1, "end": 0.8},
+         {"text": "哈哈", "start": 1.0, "end": 1.7}],
+    )
+    assert len(anchors) == 4
+    assert all(a["start"] <= a["end"] for a in anchors)
+    assert [a["start"] for a in anchors] == sorted(a["start"] for a in anchors)

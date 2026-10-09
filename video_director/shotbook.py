@@ -181,18 +181,32 @@ def _build_rows(ir: Any, timing: dict, previous: dict | None) -> list[dict]:
         token_words = _scene_words(scene, words) if timing_source in ("asr", "tts", "native_tts") else []
         anchors = expand_character_timing(text, start, end, token_words)
         old_anchors = prior.get("characters") or []
-        if len(old_anchors) == len(anchors):
+        prior_text_same = bool(prior) and str(prior.get("text", "")) == text
+        try:
+            prior_start, prior_end = float(prior.get("start", start)), float(prior.get("end", end))
+        except (TypeError, ValueError):
+            prior_start, prior_end = start, end
+        prior_span = prior_end - prior_start
+        if prior_text_same and len(old_anchors) == len(anchors) and prior_span > 0:
+            current_span = end - start
             for fresh, old in zip(anchors, old_anchors):
                 if old.get("char") != fresh["char"]:
                     continue
                 try:
                     old_start, old_end = float(old.get("start")), float(old.get("end"))
-                    if start - 0.05 <= old_start <= old_end <= end + 0.05:
-                        fresh["start"], fresh["end"] = round(old_start, 3), round(old_end, 3)
+                    if prior_start - 0.05 <= old_start <= old_end <= prior_end + 0.05:
+                        rel_start = (old_start - prior_start) / prior_span
+                        rel_end = (old_end - prior_start) / prior_span
+                        fresh["start"] = round(max(start, min(end, start + rel_start * current_span)), 3)
+                        fresh["end"] = round(max(fresh["start"], min(end, start + rel_end * current_span)), 3)
                         if old.get("method") == "manual":
                             fresh["method"] = "manual"
                 except (TypeError, ValueError):
                     pass
+        source_unchanged = (
+            prior_text_same and abs(prior_start - start) <= 0.005
+            and abs(prior_end - end) <= 0.005
+        )
         role = _default_role(text, index, len(scenes),
                              getattr(scene, "semantic_role", None) or prior.get("semantic_role"))
         intent = _default_intent(role, getattr(scene, "visual_intent", None) or prior.get("visual_intent"))
@@ -213,12 +227,23 @@ def _build_rows(ir: Any, timing: dict, previous: dict | None) -> list[dict]:
             "semantic_role": role, "visual_intent": intent,
             "shot_type": prior.get("shot_type") if prior.get("shot_type") in SHOT_TYPES else "footage",
             "shot_recipe_id": str(recipe_id or ""),
-            "motion_recipe_id": str(layer_recipe or prior.get("motion_recipe_id") or ""),
+            "motion_recipe_id": str(prior.get("motion_recipe_id") or layer_recipe or ""),
             "overlay_text": str(prior.get("overlay_text") or "")[:120],
             "evidence_ref": str(prior.get("evidence_ref") or "")[:300],
             "sfx_cue": str(prior.get("sfx_cue") or "")[:160],
             "notes": str(prior.get("notes") or "")[:_TEXT_LIMIT],
-            "reviewed": bool(prior.get("reviewed", False)),
+            # Changing narration text or scene interval invalidates previous editorial sign-off.
+            "reviewed": bool(prior.get("reviewed", False)) and source_unchanged,
+            "applied_motion_recipe_id": str(layer_recipe or ""),
+            "editable_layers": [
+                {
+                    "target_id": str(scene.id) + "#" + str(layer_index),
+                    "type": getattr(getattr(layer, "type", ""), "value", str(getattr(layer, "type", ""))),
+                    "asset_id": str(getattr(layer, "asset_id", "") or ""),
+                    "locked": bool(getattr(layer, "locked", False)),
+                }
+                for layer_index, layer in enumerate(layers)
+            ],
             "has_visual_layer": bool(layers),
             "has_bound_asset": any(getattr(layer, "asset_id", None) for layer in layers),
         })
@@ -240,6 +265,40 @@ def _recipes() -> list[dict]:
                 "layer_types": [part.layer_type for part in recipe.layer_plan],
             })
         return sorted(rows, key=lambda item: (item["category"], item["name"], item["id"]))
+    except Exception:
+        return []
+
+
+def _motion_recipes() -> list[dict]:
+    """Motion Registry plus conservative support for the current FFmpeg renderer."""
+    try:
+        from video_director.registries.recipes import MotionRegistry
+        rows = []
+        for motion in MotionRegistry().all():
+            properties = sorted({str(channel.property) for channel in motion.channels})
+            layers = {str(value) for value in motion.compatible_layers}
+            preview_only = "renderer_preview_only" in motion.constraints
+            supported_for = []
+            # renderer.py executes image scale/opacity; video currently supports opacity only.
+            if not preview_only and properties:
+                if "image" in layers and set(properties) <= {"scale", "opacity"}:
+                    supported_for.append("image")
+                if "video" in layers and set(properties) <= {"opacity"}:
+                    supported_for.append("video")
+            note = ("可由当前渲染器执行" if supported_for else
+                    "配方标记为仅预览" if preview_only else
+                    "当前 FFmpeg 渲染器不支持此图层/属性组合")
+            rows.append({
+                "id": motion.id, "version": motion.version, "name": motion.name,
+                "motion_type": motion.motion_type,
+                "semantic_intents": list(motion.semantic_intents),
+                "compatible_layers": sorted(layers), "supported_for": supported_for,
+                "properties": properties, "duration_recommended": motion.duration_recommended,
+                "duration_range": [motion.duration_min, motion.duration_max],
+                "commercial_status": motion.commercial_status,
+                "preview_only": preview_only, "execution_note": note,
+            })
+        return sorted(rows, key=lambda item: (item["motion_type"], item["name"], item["id"]))
     except Exception:
         return []
 
@@ -304,7 +363,7 @@ def get_project_shotbook(project_id: str) -> dict:
     return {
         "ok": True, "project_id": pid, "schema_version": SCHEMA_VERSION,
         "version": int((previous or {}).get("version") or 0),
-        "saved": bool(previous), "shots": shots, "recipes": recipes,
+        "saved": bool(previous), "shots": shots, "recipes": recipes, "motions": _motion_recipes(),
         "gates": _gates(shots, recipes, source), "timing_source": source,
         "timing_note": ("ASR 词时间可用，但词内字符时间由插值估算。"
                         if source == "asr" else
@@ -359,6 +418,8 @@ def _editable_fields(incoming: dict, generated: dict) -> dict:
         "evidence_ref": bounded_text("evidence_ref", 300),
         "sfx_cue": bounded_text("sfx_cue", 160),
         "notes": bounded_text("notes", _TEXT_LIMIT),
+        "motion_recipe_id": bounded_text("motion_recipe_id", 160),
+        "motion_layer_target": bounded_text("motion_layer_target", 180),
         "reviewed": bool(incoming.get("reviewed", False)),
     }
 
@@ -412,6 +473,17 @@ def save_project_shotbook(project_id: str, payload: dict) -> dict:
     bad = [s["shot_recipe_id"] for s in cleaned if s["shot_recipe_id"] and s["shot_recipe_id"] not in allowed_ids]
     if bad:
         raise ShotbookError("INVALID_RECIPE_ID", "镜头配方不存在于当前 Registry：" + ", ".join(bad[:3]))
+    allowed_motion_ids = {m["id"] for m in current["motions"]}
+    bad_motions = [s["motion_recipe_id"] for s in cleaned
+                   if s["motion_recipe_id"] and allowed_motion_ids and s["motion_recipe_id"] not in allowed_motion_ids]
+    if bad_motions:
+        raise ShotbookError("INVALID_MOTION_RECIPE_ID",
+                            "动效配方不存在于当前 Registry：" + ", ".join(bad_motions[:3]))
+    for shot in cleaned:
+        target = shot["motion_layer_target"]
+        if target and target not in {layer["target_id"] for layer in shot["editable_layers"]}:
+            raise ShotbookError("INVALID_MOTION_LAYER_TARGET",
+                                shot["scene_id"] + " 的动效目标层已变化，请重新载入分镜。")
     plan = {
         "schema_version": SCHEMA_VERSION, "project_id": pid,
         "version": current["version"] + 1, "updated_at": int(time.time()),
