@@ -142,9 +142,10 @@
           recipe.commercial_status === "UNKNOWN") return false;
       if (!(recipe.compatible_layers || []).includes(layerType)) return false;
       const props = new Set((recipe.channels || []).map(ch => ch && ch.property).filter(Boolean));
-      // Current FFmpeg video-layer motion path supports opacity only. Do not offer
-      // recipes that would commit successfully but fail only during rendering.
-      if (layerType === "video" && Array.from(props).some(p => p !== "opacity")) return false;
+      // Match the renderer, not just the Registry's broad compatible_layers field.
+      if (layerType === "video" && (!props.size || Array.from(props).some(p => p !== "opacity"))) return false;
+      if (layerType === "image" && (!props.size || Array.from(props).some(p => !["opacity", "scale"].includes(p)))) return false;
+      if (!["video", "image"].includes(layerType)) return false;
       return true;
     });
   }
@@ -190,6 +191,7 @@
     footer.appendChild(reviewedWrap);
     const save = el("button", "btn-sm", "保存标注");
     save.type = "button";
+    save.disabled = TC.data.status === "STALE";
     save.addEventListener("click", async () => {
       save.disabled = true;
       setMessage("正在保存语义拍和场景意图…");
@@ -265,7 +267,8 @@
       const actions = el("div", "tc-beat-actions");
       const planButton = el("button", "btn-secondary btn-sm", "保存配方到计划");
       planButton.type = "button";
-      planButton.disabled = true;
+      planButton.disabled = !recipeSelect.value;
+      recipeSelect.addEventListener("change", () => { planButton.disabled = !recipeSelect.value; });
       recipeSelect.addEventListener("change", () => { planButton.disabled = !recipeSelect.value; });
       planButton.addEventListener("click", async () => {
         planButton.disabled = true;
@@ -289,6 +292,10 @@
       applyButton.type = "button";
       applyButton.disabled = !recipeSelect.value || !layerOptions.length;
       recipeSelect.addEventListener("change", () => { applyButton.disabled = !recipeSelect.value || !layerOptions.length; });
+      layerSelect.addEventListener("change", () => {
+        applyButton.disabled = !recipeSelect.value || !layerOptions.length;
+        planButton.disabled = !recipeSelect.value;
+      });
       applyButton.addEventListener("click", async () => {
         applyButton.disabled = true;
         const r = await apiPost("/api/talkcraft/recipe/apply", {
@@ -332,7 +339,11 @@
       return;
     }
     if (data.status === "STALE") {
-      setMessage(data.stale_reason || "项目输入已变化。刷新蓝图前请注意，新的稿件或时间轴可能使旧标注失效。", "warn");
+      setMessage(data.stale_reason || "项目输入已变化。请刷新蓝图后再编辑，避免把旧标注写回新稿件。", "warn");
+      const staleNote = el("div", "tc-stale-note",
+        "当前只读显示旧蓝图。刷新后会按新文本和时间范围重建语义拍；源文本已变化时，旧标注不会被静默套用。");
+      list.appendChild(staleNote);
+      return;
     }
     if (!(data.beats || []).length) {
       setMessage("当前项目没有可编辑语义拍。请先完成旁白与场景规划。", "warn");
