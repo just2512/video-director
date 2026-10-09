@@ -317,6 +317,7 @@ SUPPORTED_COMMANDS = (
     "apply_graphic_plan",         # Creative Plan（proposal）确认 → Composition IR（§7 分层）
     "set_graphic_block",          # 换视觉块（graphic 层 program.block_id）
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
+    "set_scene_intent",           # 语义拍/镜头计划写入 Scene intent（经 Revision）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
     "set_transition_out",         # 转场确认（Scene.transition_out）
     "undo",
@@ -460,6 +461,8 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_graphic_block(ir, target_id, payload)
         elif cmd_name == "set_graphic_layout":
             changed, stale = _cmd_set_graphic_layout(ir, target_id, payload)
+        elif cmd_name == "set_scene_intent":
+            changed, stale = _cmd_set_scene_intent(ir, target_id, payload)
         elif cmd_name == "set_scene_continuity":
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
         elif cmd_name == "set_transition_out":
@@ -1922,6 +1925,26 @@ def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) ->
     from video_director.models import TransitionOut
     scene.transition_out = TransitionOut(type=ttype, duration=duration)
     return [f"{scene.id}:transition"], [f"{scene.id}:render", f"{scene.id}:preview"]
+
+
+def _cmd_set_scene_intent(ir: CompositionIR, target_id: str,
+                        payload: dict) -> Tuple[List[str], List[str]]:
+    """保存语义拍的创作意图到 SceneIR；通过 execute_command 统一产生 Revision。"""
+    _si, scene = _find_scene(ir, target_id)
+    intent = payload.get("intent", scene.intent)
+    visual_intent = payload.get("visualIntent", scene.visual_intent)
+    semantic_role = payload.get("semanticRole", scene.semantic_role or "")
+    if not isinstance(intent, str) or len(intent) > 500:
+        raise EditorError("INVALID_PAYLOAD", "intent 必须为不超过 500 字符的文本")
+    if not isinstance(visual_intent, str) or len(visual_intent) > 500:
+        raise EditorError("INVALID_PAYLOAD", "visualIntent 必须为不超过 500 字符的文本")
+    allowed_roles = {"", "hook", "context", "problem", "evidence", "turn", "resolution", "cta", "body"}
+    if semantic_role not in allowed_roles:
+        raise EditorError("INVALID_PAYLOAD", f"semanticRole 必须为 {sorted(allowed_roles)}")
+    scene.intent = intent.strip()
+    scene.visual_intent = visual_intent.strip()
+    scene.semantic_role = semantic_role or None
+    return [f"{scene.id}:intent"], [f"{scene.id}:render", f"{scene.id}:preview"]
 
 
 def _cmd_set_scene_continuity(ir: CompositionIR, target_id: str,
