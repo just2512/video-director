@@ -98,6 +98,22 @@ function _createPanelHtml(){
       <div class="hint" style="margin-top:4px">每集文案用一行 <code>------------</code> 分隔；上面的素材、参考视频和软件项目可作为共享上下文。</div>
     </div>
   </div>
+    <div class="panel" style="margin-top:8px;padding:10px">
+      <div class="btn-row" style="align-items:center">
+        <b>Studio：风格与执行引擎</b>
+        <span class="hint" id="cf-studio-catalog-status" role="status" aria-live="polite">正在核验本机可执行能力……</span>
+      </div>
+      <div class="btn-row" style="gap:10px;align-items:center;margin-top:7px">
+        <div style="flex:1;min-width:180px">
+          <label for="cf-render-engine">最终视频引擎</label>
+          <select id="cf-render-engine"><option value="ffmpeg">FFmpeg · 当前生产渲染器</option></select>
+        </div>
+        <div id="cf-studio-graphics-status" class="hint" style="flex:2">动态图形引擎状态将由运行环境实际检查。</div>
+      </div>
+      <div id="cf-style-presets" class="btn-row" style="flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted);margin-top:7px"></div>
+      <div id="cf-style-contract-detail" class="hint" style="margin-top:5px">只显示由现有 StyleContract 执行的风格。</div>
+      <div id="cf-studio-template-list" class="hint" style="margin-top:7px"></div>
+    </div>
   <details id="cf-manual-options" style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
   <div id="cf-essentials">
@@ -137,22 +153,6 @@ function _createPanelHtml(){
         <input type="number" id="cf-duration" placeholder="例：30" min="3" step="1"></div>
       <div style="flex:1"><label>风格</label>
         <input type="text" id="cf-style" placeholder="例：纪录片沉稳，或点选可执行风格"></div>
-    </div>
-    <div class="panel" style="margin-top:8px;padding:10px">
-      <div class="btn-row" style="align-items:center">
-        <b>Studio：风格与执行引擎</b>
-        <span class="hint" id="cf-studio-catalog-status" role="status" aria-live="polite">正在核验本机可执行能力……</span>
-      </div>
-      <div class="btn-row" style="gap:10px;align-items:center;margin-top:7px">
-        <div style="flex:1;min-width:180px">
-          <label for="cf-render-engine">最终视频引擎</label>
-          <select id="cf-render-engine"><option value="ffmpeg">FFmpeg · 当前生产渲染器</option></select>
-        </div>
-        <div id="cf-studio-graphics-status" class="hint" style="flex:2">动态图形引擎状态将由运行环境实际检查。</div>
-      </div>
-      <div id="cf-style-presets" class="btn-row" style="flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted);margin-top:7px"></div>
-      <div id="cf-style-contract-detail" class="hint" style="margin-top:5px">只显示由现有 StyleContract 执行的风格。</div>
-      <div id="cf-studio-template-list" class="hint" style="margin-top:7px"></div>
     </div>
     <div class="hint">素材已移到上面的「输入上下文」区。</div>
     <div class="btn-row" style="align-items:center;gap:10px;margin-top:8px">
