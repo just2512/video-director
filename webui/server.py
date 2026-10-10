@@ -928,6 +928,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/registry/motions":
             self._registry_motions(parsed)
+        elif route == "/api/studio/catalog":
+            try:
+                from video_director.studio_catalog import build_studio_catalog
+                self._send_json(build_studio_catalog())
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/registry/templates":
             self._registry_templates(parsed)
         elif route in GENERIC_REGISTRY_KINDS:
@@ -1270,6 +1276,14 @@ class Handler(BaseHTTPRequestHandler):
                     if not pid:
                         self._send_json({"error": "缺少 project_id"}, 400)
                         return
+                    if kind == "render_final":
+                        from video_director import shotbook as vd_shotbook
+                        try:
+                            vd_shotbook.assert_project_shotbook_confirmed(pid)
+                        except vd_shotbook.ShotbookError as exc:
+                            self._send_json({"ok": False, "code": exc.code, "error": str(exc)},
+                                            409 if exc.code in ("SHOTBOOK_NOT_CONFIRMED", "CORRUPT_SHOTBOOK") else 400)
+                            return
                     run_id = vd_wf.run_render_async(
                         pid, "draft" if kind == "render_draft" else "final")
                 else:
@@ -2386,6 +2400,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             from video_director import confirm as confirm_mod
             try:
+                from video_director import shotbook as vd_shotbook
+                vd_shotbook.assert_project_shotbook_confirmed(pid)
                 # §四 WorkflowRun=运行态事实源：同步渲染也必须登记 RUNNING run，
                 # 否则渲染中项目查不到 active_job（mid-render 可删）。
                 run_id = _run_confirm_as_workflow(pid)
@@ -3080,13 +3096,18 @@ class Handler(BaseHTTPRequestHandler):
                     result = vd_shotbook.generate_project_shotbook(pid, payload.get("base_version"))
                 elif action == "save":
                     result = vd_shotbook.save_project_shotbook(pid, payload)
+                elif action == "recover":
+                    result = vd_shotbook.recover_project_shotbook(pid)
+                elif action == "confirm":
+                    result = vd_shotbook.confirm_project_shotbook(pid, payload)
                 else:
-                    self._send_json({"ok": False, "code": "INVALID_ACTION", "error": "action 只能是 generate 或 save"}, 400)
+                    self._send_json({"ok": False, "code": "INVALID_ACTION",
+                                     "error": "action 只能是 generate、save、recover 或 confirm"}, 400)
                     return
                 self._send_json(result)
             except vd_shotbook.ShotbookError as exc:
                 self._send_json({"ok": False, "code": exc.code, "error": str(exc)},
-                                409 if exc.code == "CONFLICT" else 400)
+                                409 if exc.code in ("CONFLICT", "STALE_SOURCE", "CONFIRMATION_GATE", "SHOTBOOK_NOT_CONFIRMED", "CORRUPT_SHOTBOOK") else 400)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
