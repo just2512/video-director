@@ -418,6 +418,7 @@ class Handler(BaseHTTPRequestHandler):
         """GET /api/registry/templates：模板清单（Template Gallery 数据源）。"""
         try:
             from video_director.registries.templates import TemplateRegistry
+            from video_director.registries.runtime import template_runtime_report
             qs = parse_qs(parsed.query)
             category = qs.get("category", [""])[0]
             ratio = qs.get("ratio", [""])[0]
@@ -439,25 +440,52 @@ class Handler(BaseHTTPRequestHandler):
                     ],
                     "scene_count": len(t.scenes),
                     "commercial_status": t.commercial_status,
+                    "runtime": template_runtime_report(t),
                 })
             self._send_json(out)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+    def _registry_template_runtime(self, parsed):
+        """GET /api/registry/templates/runtime：可执行前置条件报告。"""
+        try:
+            from video_director.registries.templates import TemplateRegistry
+            from video_director.registries.runtime import template_runtime_report
+            qs = parse_qs(parsed.query)
+            only_id = (qs.get("id", [""])[0] or "").strip()
+            reports = []
+            for template in TemplateRegistry().all():
+                if only_id and template.id != only_id:
+                    continue
+                reports.append(template_runtime_report(template))
+            if only_id and not reports:
+                self._send_json({"ok": False, "code": "TEMPLATE_NOT_FOUND",
+                                 "error": f"未找到模板：{only_id}"}, 404)
+                return
+            self._send_json({"ok": True, "templates": reports})
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, 500)
+
     def _generic_registry(self, parsed, kind: str):
         """GET /api/registry/{transitions|styles|...}：§三十四 通用 Registry 清单。"""
         try:
             from video_director.registries.core import LayeredRegistryLoader
+            from video_director.registries.runtime import style_runtime_report
             sub = GENERIC_REGISTRY_SUBDIR[kind]
             loader = LayeredRegistryLoader(kind, sub)
-            out = [{
-                "id": it.id, "version": it.version, "name": it.name,
-                "kind": it.kind, "tags": list(it.tags),
-                "description": it.description,
-                "commercial_status": it.commercial_status,
-                "provenance_ref": it.provenance_ref,
-                "source_layer": loader.layer_of(it.id, it.version),
-            } for it in loader.load_all()]
+            out = []
+            for it in loader.load_all():
+                item = {
+                    "id": it.id, "version": it.version, "name": it.name,
+                    "kind": it.kind, "tags": list(it.tags),
+                    "description": it.description,
+                    "commercial_status": it.commercial_status,
+                    "provenance_ref": it.provenance_ref,
+                    "source_layer": loader.layer_of(it.id, it.version),
+                }
+                if kind == "style":
+                    item["runtime"] = style_runtime_report(it)
+                out.append(item)
             self._send_json(out)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
@@ -930,6 +958,8 @@ class Handler(BaseHTTPRequestHandler):
             self._registry_motions(parsed)
         elif route == "/api/registry/templates":
             self._registry_templates(parsed)
+        elif route == "/api/registry/templates/runtime":
+            self._registry_template_runtime(parsed)
         elif route in GENERIC_REGISTRY_KINDS:
             self._generic_registry(parsed, GENERIC_REGISTRY_KINDS[route])
         elif route == "/api/style_dna/behaviors":
