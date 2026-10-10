@@ -490,7 +490,7 @@ class Handler(BaseHTTPRequestHandler):
 
             registry = TemplateRegistry()
             try:
-                template = registry.get(template_id)
+                template = registry.get(template_id, fields.get("template_version") or None)
             except Exception as exc:
                 self._send_json({"ok": False, "code": "TEMPLATE_NOT_FOUND",
                                  "error": str(exc)}, 404)
