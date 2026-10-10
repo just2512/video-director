@@ -170,12 +170,14 @@ function playheadSet(pct, ev){
   } else if (window.editorSessionSnapTime) {
     window.editorSessionSnapTime(at, {disable: true});
   }
+  if (ev && ev.type === 'pointerdown' && typeof previewPause === 'function') previewPause();
   PLAYHEAD.at = at;
   const ph = document.getElementById('tl-playhead');
   if (ph) ph.style.left = (at / total * 100) + '%';
   const label = document.getElementById('tl-playhead-label');
-  if (label) label.textContent = PLAYHEAD.at.toFixed(1) + 's';
-  if (ev && ev.type === 'pointerup') previewSeek(PLAYHEAD.at);
+  if (label) label.textContent = PLAYHEAD.at.toFixed(2) + 's';
+  // Scrubbing updates the central preview continuously, not only on pointer release.
+  if (typeof previewSeek === 'function') previewSeek(PLAYHEAD.at);
 }
 function _tlPct(ev, el){
   const r = el.getBoundingClientRect();
