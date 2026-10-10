@@ -101,4 +101,4 @@ def test_layer_edit_buttons_and_cross_scene_drop_no_longer_reorders_scene():
     assert "editorSplitSelectedLayer" in js and "editorCmd('split_layer'" in js
     assert "reorder_layer" in js
     assert "跨分镜移动需要独立物理轨道" in js
-    assert 'onclick="editorSplitSelectedLayer()" title="在播放头处切分选中的视频/图片片段"' in html
+    assert 'data-action="ui.split_layer" title="在播放头处切分选中的视频/图片片段"' in html
