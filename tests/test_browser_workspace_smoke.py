@@ -206,8 +206,16 @@ def test_chromium_loads_unified_editor_workspace():
                 page.route("**/api/editor/command", capture_editor_command)
 
                 audio_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
+                # The timeline lives below the fold in this full-workspace browser test.
+                # Playwright's mouse API sends page coordinates; never click a valid but
+                # off-viewport bounding box (which can be > viewport height).
+                audio_clip.scroll_into_view_if_needed()
                 move_box = audio_clip.bounding_box()
                 assert move_box and move_box["width"] > 16 and move_box["height"] > 0
+                viewport_height = page.viewport_size["height"]
+                assert 0 <= move_box["y"] and move_box["y"] + move_box["height"] <= viewport_height, (
+                    f"audio move target must be inside viewport: box={move_box}, viewport={page.viewport_size}"
+                )
                 page.mouse.move(move_box["x"] + move_box["width"] / 2, move_box["y"] + move_box["height"] / 2)
                 page.mouse.down()
                 page.mouse.move(move_box["x"] + move_box["width"] / 2 + 40,
@@ -222,8 +230,12 @@ def test_chromium_loads_unified_editor_workspace():
                 captured_commands.clear()
                 page.evaluate("editorRenderTimeline()")
                 trim_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
+                trim_clip.scroll_into_view_if_needed()
                 trim_box = trim_clip.bounding_box()
                 assert trim_box and trim_box["width"] > 16
+                assert 0 <= trim_box["y"] and trim_box["y"] + trim_box["height"] <= viewport_height, (
+                    f"audio trim target must be inside viewport: box={trim_box}, viewport={page.viewport_size}"
+                )
                 page.mouse.move(trim_box["x"] + trim_box["width"] - 1, trim_box["y"] + trim_box["height"] / 2)
                 page.mouse.down()
                 page.mouse.move(trim_box["x"] + trim_box["width"] - 31,
