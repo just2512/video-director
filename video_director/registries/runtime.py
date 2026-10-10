@@ -72,6 +72,19 @@ def template_runtime_report(template: Any) -> dict:
     requested_static_text = []
     unsupported_layer_types = set()
     text_motion_refs = set()
+    used_slots = {
+        getattr(layer, "slot_id", None)
+        for scene in getattr(template, "scenes", ())
+        for layer in getattr(scene, "layers", ())
+        if getattr(layer, "slot_id", None)
+    }
+    for slot in getattr(template, "slots", ()):
+        if getattr(slot, "required", False) and getattr(slot, "id", None) not in used_slots:
+            blockers.append({
+                "code": "REQUIRED_SLOT_UNUSED",
+                "slot_id": slot.id,
+                "message": f"必填槽位「{slot.label}」没有绑定到任何模板层；用户填写后也不会进入成片。",
+            })
 
     for scene in getattr(template, "scenes", ()):
         shot_id = getattr(scene, "shot_recipe_id", None)
