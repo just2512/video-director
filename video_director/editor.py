@@ -106,7 +106,7 @@ def save_composition(project_id: str, ir: CompositionIR) -> None:
     tmp = p.with_name(p.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
     serialized = json.dumps(json.loads(ir.model_dump_json()), ensure_ascii=False, indent=2)
     try:
-        with tmp.open("w", encoding="utf-8", newline="\\n") as handle:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(serialized)
             handle.flush()
             os.fsync(handle.fileno())
