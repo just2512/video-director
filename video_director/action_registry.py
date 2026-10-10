@@ -230,6 +230,8 @@ _ACTIONS: List[ActionSpec] = [
     ActionSpec("timeline.split", "拆分场景", "timeline.split", "split",
                targets=["scene"],
                aliases=["拆开", "切成两半"]),
+    ActionSpec("ui.split_layer", "切分片段", "system.capabilities.list", "noop",
+               targets=["project", "scene", "layer"], undo=False, ui="split_layer"),
     ActionSpec("timeline.delete", "删除", "timeline.delete", "delete",
                targets=["scene", "layer"],
                aliases=["删除场景", "移除图层", "删掉"],
@@ -542,7 +544,7 @@ _CONTEXT_KEYS = {
         "watermark.add", "watermark.update", "watermark.remove",
         "voice.change", "voice.preview",
         # §58 UI 交互动作（dispatcher 本地执行；group 暴露 ui 字段）
-        "ui.undo", "ui.redo", "ui.save", "ui.preview_draft",
+        "ui.undo", "ui.redo", "ui.save", "ui.preview_draft", "ui.split_layer",
         "ui.editor_session_snap", "ui.editor_session_box",
         "ui.open_voice_settings", "ui.open_audio_bus", "ui.open_subtitle_style",
         "voice.preview_full", "voice.upload", "content.generate_script",
@@ -552,6 +554,7 @@ _CONTEXT_KEYS = {
     ],
     ("scene", None): [
         "timeline.split", "timeline.duplicate", "timeline.delete", "timeline.move",
+        "ui.split_layer",
         "timeline.duration", "visual.camera",
         "asset.replace", "asset.search", "asset.add_broll",
         "generate.image", "generate.video",
@@ -562,7 +565,7 @@ _CONTEXT_KEYS = {
     ],
     ("layer", "video"): [
         "asset.replace", "asset.search",
-        "timeline.trim", "timeline.delete", "timeline.duplicate",
+        "timeline.trim", "timeline.delete", "timeline.duplicate", "ui.split_layer", "ui.split_layer",
         "visual.transform", "visual.motion", "visual.pip", "visual.mask",
         "audio.preserve", "audio.mute_original", "audio.original_volume",
         "generate.image", "generate.video",
