@@ -128,6 +128,25 @@ def _normal_char(value: str) -> str:
     return unicodedata.normalize("NFKC", value).casefold()
 
 
+def _alignment_fingerprint_valid(timing: dict) -> bool:
+    """Verify the sidecar's alignment data has not changed since it was written."""
+    if not isinstance(timing, dict) or timing.get("fingerprint_schema") != 1:
+        return False
+    expected = timing.get("alignment_fingerprint")
+    material = {
+        key: timing.get(key)
+        for key in ("source", "duration", "word_timeline", "audio_fingerprint")
+    }
+    try:
+        actual = hashlib.sha256(
+            json.dumps(material, ensure_ascii=False, sort_keys=True,
+                       separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+    except (TypeError, ValueError):
+        return False
+    return isinstance(expected, str) and actual == expected
+
+
 def _timed_token_chars(text: str, start: float, end: float) -> list[dict]:
     chars = [c for c in str(text) if not c.isspace()]
     if not chars or end <= start:
@@ -451,9 +470,10 @@ def get_project_shotbook(project_id: str) -> dict:
     timing = _read_json(_timing_path(pid), {"source": "missing", "word_timeline": []})
     source = str(timing.get("source") or "missing")
     fingerprint = timing.get("audio_fingerprint") or {}
-    # Legacy timing sidecars are not assumed to match the current narration bytes.
-    # If the audio changed, discard word-level alignment instead of presenting stale anchors.
-    if source not in ("missing",) and fingerprint.get("status") == "VERIFIED":
+    # Legacy sidecars are unverified; edited/corrupt fingerprints or changed audio are stale.
+    if source != "missing" and not _alignment_fingerprint_valid(timing):
+        source = "stale" if timing.get("alignment_fingerprint") else "unverified"
+    elif source != "missing" and fingerprint.get("status") == "VERIFIED":
         audio_path = config.project_dir(pid) / "audio" / "narration.mp3"
         if not audio_path.is_file():
             source = "stale"
@@ -464,7 +484,7 @@ def get_project_shotbook(project_id: str) -> dict:
                     digest.update(chunk)
             if digest.hexdigest() != fingerprint.get("sha256"):
                 source = "stale"
-    elif source not in ("missing",):
+    elif source != "missing":
         source = "unverified"
     if source in ("stale", "unverified"):
         timing = {**timing, "source": source, "word_timeline": []}
