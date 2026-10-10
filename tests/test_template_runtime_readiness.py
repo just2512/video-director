@@ -107,7 +107,7 @@ def test_template_readiness_distinguishes_partial_from_executable(monkeypatch):
     assert report["status"] == "PARTIAL"
     assert report["sample_render"] == "NOT_RUN"
     assert any(item["code"] == "TEXT_MOTION_NOT_IMPLEMENTED" for item in report["warnings"])
-    assert "motion.fade-slide" in report["warnings"][0]["references"] or any(
+    assert any(
         "motion.fade-slide" in item.get("references", []) for item in report["warnings"]
     )
 
