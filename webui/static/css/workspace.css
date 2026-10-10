@@ -264,3 +264,24 @@
 @media(max-width:700px){.sb-gates{grid-template-columns:1fr}.sb-char-list{grid-template-columns:1fr}}
 
 .sb-motion-note{margin:5px 0 8px}
+
+
+/* Shotbook dock: storyboard cards share the editor's right-side workspace. */
+.shotbook-workbench { min-width:0; max-width:100%; }
+.shotbook-workbench summary { line-height:1.4; }
+.shotbook-workbench .btn-row { gap:6px; }
+.sb-shot-visual { display:flex; align-items:stretch; gap:9px; min-width:0; margin-bottom:7px; }
+.sb-shot-thumb { display:block; flex:0 0 108px; width:108px; min-height:62px; max-height:82px; object-fit:cover; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); }
+.sb-shot-thumb-empty { display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px; text-align:center; padding:6px; box-sizing:border-box; }
+.sb-shot-visual-meta { display:flex; flex:1; min-width:0; flex-direction:column; align-items:flex-start; gap:5px; }
+.sb-shot-visual-meta b { overflow-wrap:anywhere; font-size:12px; }
+.sb-shot-visual-meta .hint { font-size:11px; }
+.sb-shot-visual-meta button { margin-top:auto; }
+.sb-shot .sb-script { font-size:12px; line-height:1.55; overflow-wrap:anywhere; padding:5px 0; }
+.sb-shot .sb-form-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
+.sb-shot .sb-label { margin-top:7px; font-size:11px; color:var(--muted); }
+.sb-shot select, .sb-shot input, .sb-shot textarea { min-width:0; max-width:100%; box-sizing:border-box; }
+.sb-shot .sb-char-list { max-width:100%; overflow-x:auto; }
+@media (max-width: 1100px) {
+  .sb-shot-thumb { flex-basis:88px; width:88px; min-height:52px; }
+}
