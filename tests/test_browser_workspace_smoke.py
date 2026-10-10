@@ -159,6 +159,81 @@ def test_chromium_loads_unified_editor_workspace():
                 assert geometry["sfx"]["left"] == "70%" and geometry["sfx"]["width"] == "10%"
                 assert geometry["ambience"]["left"] == "60%" and geometry["ambience"]["width"] == "10%"
                 assert geometry["broll"]["left"] == "80%" and geometry["broll"]["width"] == "20%"
+
+                # Real DOM pointer interaction: moving and trimming audio clips must
+                # dispatch versioned Editor Commands rather than only changing CSS.
+                setup = page.evaluate("""() => {
+                    const pane = document.getElementById('pane-editor');
+                    const body = document.getElementById('editor-body');
+                    pane.style.display = '';
+                    body.style.display = '';
+                    ED.pid = 'browser-audio-test';
+                    ED.version = 1;
+                    ED.zoom = 1;
+                    ED.timelineView = 'time';
+                    PLAYHEAD.at = 0;
+                    Object.values(TL_GROUPS).forEach(group => { group.open = true; });
+                    ED.comp = {
+                        duration: 10, version: 1,
+                        project: {fps: 30, duration: 10},
+                        scenes: [{id: 'S01', start: 0, duration: 10, text: 'Audio interaction',
+                                  layers: [{type: 'image', asset_id: 'img', start: 0, duration: 10}]}],
+                        assets: {
+                            img: {name: 'Still', file: 'still.jpg'},
+                            'bgm-1': {name: 'Music', file: 'music.wav'},
+                            'sfx-1': {name: 'Impact', file: 'impact.wav'}
+                        },
+                        audio: [
+                            {type: 'bgm', asset_id: 'bgm-1', start: 3, duration: 2, volume: 0.5},
+                            {type: 'sfx', asset_id: 'sfx-1', start: 7, duration: 1, volume: 0.4}
+                        ],
+                        watermarks: [], subtitle_track: {mode: 'word', cues: []}
+                    };
+                    window.__audioCommandCalls = [];
+                    window.executeCommand = spec => {
+                        window.__audioCommandCalls.push(JSON.parse(JSON.stringify(spec)));
+                        return Promise.resolve({ok: true, status: 'APPLIED'});
+                    };
+                    window.refreshWorkspace = () => Promise.resolve();
+                    window.editorToast = () => {};
+                    editorRenderTimeline();
+                    const clips = [...document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]')];
+                    return {count: clips.length, firstIndex: clips[0] && clips[0].dataset.audioIndex};
+                }""")
+                assert setup["count"] == 2 and setup["firstIndex"] == "0"
+
+                audio_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
+                move_box = audio_clip.bounding_box()
+                assert move_box and move_box["width"] > 16 and move_box["height"] > 0
+                page.mouse.move(move_box["x"] + move_box["width"] / 2, move_box["y"] + move_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2 + 40,
+                                move_box["y"] + move_box["height"] / 2, steps=4)
+                page.mouse.up()
+                page.wait_for_function(
+                    "() => (window.__audioCommandCalls || []).some(c => c.command === 'move_audio_clip')",
+                    timeout=3000,
+                )
+                moved = page.evaluate("window.__audioCommandCalls.find(c => c.command === 'move_audio_clip')")
+                assert moved["targetId"] == "audio#0"
+                assert moved["payload"]["start"] > 3
+
+                page.evaluate("() => { window.__audioCommandCalls.length = 0; editorRenderTimeline(); }")
+                trim_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
+                trim_box = trim_clip.bounding_box()
+                assert trim_box and trim_box["width"] > 16
+                page.mouse.move(trim_box["x"] + trim_box["width"] - 1, trim_box["y"] + trim_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(trim_box["x"] + trim_box["width"] - 31,
+                                trim_box["y"] + trim_box["height"] / 2, steps=4)
+                page.mouse.up()
+                page.wait_for_function(
+                    "() => (window.__audioCommandCalls || []).some(c => c.command === 'trim_audio_clip')",
+                    timeout=3000,
+                )
+                trimmed = page.evaluate("window.__audioCommandCalls.find(c => c.command === 'trim_audio_clip')")
+                assert trimmed["targetId"] == "audio#0"
+                assert trimmed["payload"]["sourceOut"] < 2
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise
