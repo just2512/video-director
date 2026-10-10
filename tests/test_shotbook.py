@@ -214,3 +214,25 @@ def test_evidence_reference_is_not_treated_as_verified_file():
     )
     assert evidence_gate["status"] == "REVIEW"
     assert "不能视为真实性通过" in evidence_gate["detail"]
+
+
+
+def test_alignment_fingerprint_detects_modified_word_timeline(tmp_path):
+    import json
+    from video_director.pipeline import _persist_narration_timing
+    from video_director.shotbook import _alignment_fingerprint_valid
+
+    plans = tmp_path / "plans"
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    (audio / "narration.mp3").write_bytes(b"same audio")
+    _persist_narration_timing(
+        {"plans": plans, "audio": audio}, "asr",
+        [{"text": "原文", "start": 0.0, "end": 0.8}], 1.0,
+    )
+    sidecar = plans / "narration_timing.json"
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert _alignment_fingerprint_valid(payload)
+
+    payload["word_timeline"][0]["text"] = "被改写"
+    assert not _alignment_fingerprint_valid(payload)
