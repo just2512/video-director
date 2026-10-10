@@ -19,9 +19,23 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: python -m playwright install --with-deps chromium
       - run: python -m compileall video_director webui
-      - run: pytest -q
+      - name: Run test suite and retain JUnit report
+        run: pytest -q --junitxml=junit.xml
       - run: |
           for f in webui/static/js/*.js; do
             node --check "$f"
           done
           node --check third_party/huashu/huashu_motion_bundle.js
+
+      - name: Upload test reports and browser traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-director-test-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            junit.xml
+            test-results/**
+            playwright-report/**
+            artifacts/**
