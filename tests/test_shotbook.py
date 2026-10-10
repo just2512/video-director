@@ -71,3 +71,57 @@ def test_pipeline_timing_sidecar_persists_provenance(tmp_path):
     assert payload["source"] == "asr"
     assert payload["duration"] == 1.25
     assert payload["word_timeline"] == words
+
+
+def test_character_timing_survives_overlapping_word_timestamps():
+    """B1：重叠词时间戳（ASR 常见形态）不得产出倒流锚点。
+
+    TalkCraft timestamps_cpu.py 的教训：重叠/乱序 token 会让插值锚点时间倒流；
+    保存端强制起点单调——生成端必须同契约，否则 generate 出的草案
+    自己过不了 save 校验，用户被自己没碰过的字段卡死。
+    """
+    anchors = expand_character_timing("重叠词", 0.0, 2.0, [
+        {"text": "重叠", "start": 0.0, "end": 2.0},
+        {"text": "词", "start": 0.5, "end": 1.0},
+    ])
+    starts = [a["start"] for a in anchors]
+    assert starts == sorted(starts), f"重叠词时间戳导致起点倒流: {anchors}"
+    assert all(a["start"] <= a["end"] for a in anchors)
+    # 倒流位置的字退化为场景估算（诚实标注），不伪造词级精度
+    assert anchors[-1]["method"] == "scene_estimate"
+
+
+def test_character_timing_survives_out_of_order_tokens():
+    """B1b：token 时序乱序（ASR 输出与稿序不一致）同样不得倒流。"""
+    anchors = expand_character_timing("数据出来了", 0.0, 2.0, [
+        {"text": "数据", "start": 1.8, "end": 2.6},
+        {"text": "出来了", "start": 0.5, "end": 1.2},
+    ])
+    starts = [a["start"] for a in anchors]
+    assert starts == sorted(starts), f"乱序 token 导致起点倒流: {anchors}"
+    assert all(a["start"] <= a["end"] for a in anchors)
+
+
+def test_recipe_filter_domain_matches_visual_intent_not_role():
+    """B2：配方过滤值域契约。
+
+    Registry 的 semantic_intents 值域（opening/data_highlight/…）与
+    semantic_role（hook/…/neutral）零相交，与 visual_intent
+    （emphasize/transition/…）相交——前端过滤必须用 visual_intent，
+    用 semantic_role 是永远空转的死分支。
+    """
+    from video_director.shotbook import _recipes
+
+    recipes = _recipes()
+    assert recipes, "Shot Registry 应加载内置配方"
+    all_intents = set()
+    for recipe in recipes:
+        all_intents.update(recipe["semantic_intents"])
+    # 值域事实：与 role 零相交（如果将来相交，此测试提醒重审过滤逻辑）
+    assert not (all_intents & set(SEMANTIC_ROLES)), (
+        "semantic_intents 与 SEMANTIC_ROLES 出现交集——过滤语义需要重新裁决"
+    )
+    # 与 visual_intent 至少相交（过滤有真实命中面）
+    assert all_intents & set(VISUAL_INTENTS), (
+        "semantic_intents 与 VISUAL_INTENTS 零相交——过滤失去意义"
+    )

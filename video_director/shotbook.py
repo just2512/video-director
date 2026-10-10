@@ -101,6 +101,7 @@ def expand_character_timing(
             token_chars.extend(_timed_token_chars(word.get("text", ""), ws, we))
     result = []
     cursor = 0
+    prev_start = float(start)
     for original_index, char in visible:
         match_index = None
         for candidate in range(cursor, min(len(token_chars), cursor + 9)):
@@ -111,12 +112,23 @@ def expand_character_timing(
             token = token_chars[match_index]
             a = max(float(start), min(float(end), token["start"]))
             b = max(a, min(float(end), token["end"]))
-            method = "token_interpolation"
-            cursor = match_index + 1
+            # TalkCraft 教训（timestamps_cpu.py）：重叠/乱序 token 会产出时间倒流锚点，
+            # 而保存端强制起点单调——生成端必须同样强制，否则草案自己过不了自己的校验。
+            # token 起点早于前一字起点 → 该字退化为场景估算，不伪造词级精度。
+            if a < prev_start - 1e-9:
+                method = "scene_estimate"
+                a, b = fallback[original_index]
+            else:
+                method = "token_interpolation"
+                cursor = match_index + 1
         else:
             a, b = fallback[original_index]
             method = "scene_estimate"
+        # 生成端与保存端同一单调契约：任何路径产出的起点都不得早于前一字。
+        a = max(a, prev_start)
+        b = max(b, a)
         result.append({"char": char, "start": round(a, 3), "end": round(b, 3), "method": method})
+        prev_start = result[-1]["start"]
     return result
 
 

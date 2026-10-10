@@ -39,7 +39,10 @@ function shotbookSelectOptions(values,current,labels){
 function shotbookRecipeOptions(shot){
   const recipes=(SHOTBOOK&&SHOTBOOK.recipes)||[],current=shot.shot_recipe_id||'';
   let list=recipes;
-  if(shot.semantic_role){const compatible=recipes.filter(function(r){return (r.semantic_intents||[]).includes(shot.semantic_role);});if(compatible.length)list=compatible;}
+  // Registry 的 semantic_intents 值域（opening/data_highlight/…）与 visual_intent
+  //（emphasize/transition/…）相交，与 semantic_role（hook/…/neutral）零相交——
+  // 按 visual_intent 过滤，semantic_role 无匹配时保持全量，不隐藏任何可用配方。
+  if(shot.visual_intent){const compatible=recipes.filter(function(r){return (r.semantic_intents||[]).includes(shot.visual_intent);});if(compatible.length)list=compatible;}
   return '<option value="">暂不指定配方</option>'+list.map(function(r){
     return '<option value="'+sbEsc(r.id)+'"'+(r.id===current?' selected':'')+'>'+sbEsc(r.name)+' · '+sbEsc(r.category)+' ('+sbEsc(r.id)+')</option>';
   }).join('');
@@ -199,9 +202,9 @@ if(!window.__shotbookDelegated){
     if(!shot)return;
     if(target.matches('.sb-reviewed')){markShotbookDirty(event,false);return;}
     if(target.matches('.sb-role,.sb-intent,.sb-type,.sb-recipe,.sb-motion,.sb-motion-layer'))markShotbookDirty(event,true);
-    if(target.matches('.sb-role')){
+    if(target.matches('.sb-intent')){
       const select=card.querySelector('.sb-recipe'),previous=select.value;
-      select.innerHTML=shotbookRecipeOptions(Object.assign({},shot,{semantic_role:target.value}));
+      select.innerHTML=shotbookRecipeOptions(Object.assign({},shot,{visual_intent:target.value}));
       if(Array.from(select.options).some(function(opt){return opt.value===previous;}))select.value=previous;
     }
     if(target.matches('.sb-motion')||target.matches('.sb-motion-layer')){
