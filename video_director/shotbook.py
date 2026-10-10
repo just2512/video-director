@@ -421,13 +421,21 @@ def _gates(shots: list[dict], recipes: list[dict], timing_source: str) -> list[d
         else:
             render_status, render_detail = "PASS", "每镜均有可解析的配方；仍需检查素材槽位与实际渲染结果。"
         render = {"id": "render", "label": "镜头执行", "status": render_status, "detail": render_detail}
-    evidence_required = [s for s in shots
-                         if s.get("shot_type") in ("document", "screenshot", "chart", "map") and not s.get("evidence_ref")]
+    evidence_shots = [s for s in shots
+                      if s.get("shot_type") in ("document", "screenshot", "chart", "map")]
+    evidence_missing = [s for s in evidence_shots if not str(s.get("evidence_ref") or "").strip()]
+    evidence_unverified = [s for s in evidence_shots if str(s.get("evidence_ref") or "").strip()]
     evidence = {
         "id": "evidence", "label": "证据素材",
-        "status": "MISSING" if evidence_required else "PASS",
-        "detail": (str(len(evidence_required)) + " 个文件、截图、图表或地图镜头缺少来源/素材引用。")
-                  if evidence_required else "需留证据的镜头已填写引用；请核对引用指向真实文件。",
+        "status": ("MISSING" if evidence_missing else
+                   "REVIEW" if evidence_unverified else "PASS"),
+        "detail": (
+            str(len(evidence_missing)) + " 个文件、截图、图表或地图镜头缺少来源/素材引用。"
+            if evidence_missing else
+            str(len(evidence_unverified)) + " 个镜头填写了引用，但引用尚未由服务端解析并核验到实际文件或已登记素材；不能视为真实性通过。"
+            if evidence_unverified else
+            "当前没有要求证据引用的镜头。"
+        ),
     }
     return [timing, semantic, render, evidence]
 
