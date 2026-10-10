@@ -136,9 +136,24 @@ function _createPanelHtml(){
       <div style="flex:1"><label>时长（秒，可选）</label>
         <input type="number" id="cf-duration" placeholder="例：30" min="3" step="1"></div>
       <div style="flex:1"><label>风格</label>
-        <input type="text" id="cf-style" placeholder="例：纪录片沉稳"></div>
+        <input type="text" id="cf-style" placeholder="例：纪录片沉稳，或点选可执行风格"></div>
     </div>
-    <div id="cf-style-presets" class="btn-row" style="flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted)"></div>
+    <div class="panel" style="margin-top:8px;padding:10px">
+      <div class="btn-row" style="align-items:center">
+        <b>Studio：风格与执行引擎</b>
+        <span class="hint" id="cf-studio-catalog-status" role="status" aria-live="polite">正在核验本机可执行能力……</span>
+      </div>
+      <div class="btn-row" style="gap:10px;align-items:center;margin-top:7px">
+        <div style="flex:1;min-width:180px">
+          <label for="cf-render-engine">最终视频引擎</label>
+          <select id="cf-render-engine"><option value="ffmpeg">FFmpeg · 当前生产渲染器</option></select>
+        </div>
+        <div id="cf-studio-graphics-status" class="hint" style="flex:2">动态图形引擎状态将由运行环境实际检查。</div>
+      </div>
+      <div id="cf-style-presets" class="btn-row" style="flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted);margin-top:7px"></div>
+      <div id="cf-style-contract-detail" class="hint" style="margin-top:5px">只显示由现有 StyleContract 执行的风格。</div>
+      <div id="cf-studio-template-list" class="hint" style="margin-top:7px"></div>
+    </div>
     <div class="hint">素材已移到上面的「输入上下文」区。</div>
     <div class="btn-row" style="align-items:center;gap:10px;margin-top:8px">
       <div style="flex:1"><label>画面来源</label>
@@ -294,14 +309,85 @@ async function createLoadDefaults(){
     _rebuildSelect('cf-sfx', [['auto', '自动（按镜头配音效，推荐）'], ['', '关闭'],
                               ...sfxs.map(s => [s.id, s.label])]);
   } catch (e) { /* 下拉加载失败不阻塞创建 */ }
-  try {
-    const styles = await apiGet('/api/registry/styles');
-    if (Array.isArray(styles) && styles.length) {
-      const box = document.getElementById('cf-style-presets');
-      box.innerHTML = '<span>风格：</span>' + styles.slice(0, 5).map(s =>
-        `<button class="btn-secondary btn-sm" onclick="document.getElementById('cf-style').value='${esc(s.name)}'" title="${esc(s.description || '')}">${esc(s.name)}</button>`).join('');
+  await cfLoadStudioCatalog();
+}
+
+const CF_STYLE_NAMES = {
+  'documentary-calm':'沉稳纪录片',
+  'knowledge-explainer':'知识讲解',
+  'energetic-social':'快节奏社交视频',
+  'cinematic-story':'电影叙事'
+};
+let CF_STUDIO_CATALOG = null;
+async function cfLoadStudioCatalog(){
+  const status=document.getElementById('cf-studio-catalog-status');
+  const box=document.getElementById('cf-style-presets');
+  const detail=document.getElementById('cf-style-contract-detail');
+  const graphics=document.getElementById('cf-studio-graphics-status');
+  const templates=document.getElementById('cf-studio-template-list');
+  try{
+    const catalog=await apiGet('/api/studio/catalog');
+    if(!catalog||!catalog.ok)throw new Error((catalog&&catalog.error)||'目录服务未就绪');
+    CF_STUDIO_CATALOG=catalog;
+    window.CF_STUDIO_CATALOG=catalog;
+    const engineSelect=document.getElementById('cf-render-engine');
+    if(engineSelect){
+      const available=(catalog.engines||[]).filter(e=>e.scope==='full_video'&&e.selectable);
+      const previous=engineSelect.value;
+      engineSelect.innerHTML=available.length
+        ?available.map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name)+' · 可执行</option>').join('')
+        :'<option value="">没有可执行的最终视频引擎</option>';
+      if(available.some(e=>e.id===previous))engineSelect.value=previous;
+      engineSelect.disabled=!available.length;
     }
-  } catch (e) { /* 预设失败不阻塞 */ }
+    if(status)status.textContent=(catalog.engines||[]).some(e=>e.scope==='full_video'&&e.selectable)
+      ?'已核验当前可执行的成片引擎':'未找到可执行的成片引擎，提交会被拒绝';
+    const graphicEngines=(catalog.engines||[]).filter(e=>e.scope==='graphics_layer');
+    if(graphics)graphics.textContent='动态图形：'+(graphicEngines.length
+      ?graphicEngines.map(e=>e.name+' '+e.status+'（'+e.detail+'）').join('；')
+      :'没有声明的图形执行器');
+    const availableStyles=(catalog.styles||[]).filter(item=>item.selectable);
+    if(box){
+      box.innerHTML='<span>可执行风格：</span>'+(
+        availableStyles.length?availableStyles.map(item=>{
+          const label=CF_STYLE_NAMES[item.id]||item.id;
+          const contract=item.contract||{};
+          const description=(item.detail||'')+' '+Object.entries(contract).map(([k,v])=>k+': '+v).join(' · ');
+          return '<button type="button" class="btn-secondary btn-sm" data-studio-style="'+esc(item.id)+'" title="'+esc(description)+'">'+esc(label)+'</button>';
+        }).join(''):'<span>无可执行风格</span>');
+    }
+    if(detail)detail.textContent=availableStyles.length
+      ?'所选风格由 StyleContract 写入正式生成链：字幕布局/字号、图片运动、转场预算、配乐音量和音效密度。'
+      :'风格契约未通过环境检查，不提供未验证选项。';
+    if(templates){
+      const all=catalog.templates||[];
+      templates.textContent=all.length
+        ?'模板目录（已检查但当前不可直接套用）：'+all.map(t=>t.name+' — '+t.status+'：'+t.detail).join('；')
+        :'当前没有注册模板';
+    }
+  }catch(error){
+    if(status)status.textContent='引擎/风格目录读取失败：'+(error.message||error);
+    if(box)box.textContent='未能核验风格执行能力；不会回退到未验证的风格列表。';
+    if(templates)templates.textContent='';
+  }
+}
+document.addEventListener('click',function(event){
+  const button=event.target.closest('[data-studio-style]');
+  if(!button)return;
+  const input=document.getElementById('cf-style');
+  if(input)input.value=button.dataset.studioStyle;
+  document.querySelectorAll('[data-studio-style]').forEach(el=>el.classList.toggle('tab-active',el===button));
+  const row=(CF_STUDIO_CATALOG&&CF_STUDIO_CATALOG.styles||[]).find(x=>x.id===button.dataset.studioStyle);
+  const detail=document.getElementById('cf-style-contract-detail');
+  if(detail&&row){
+    const contract=row.contract||{};
+    detail.textContent=(CF_STYLE_NAMES[row.id]||row.id)+'：字幕'+(contract.subtitle_position||'—')
+      +' / '+(contract.subtitle_font_size||'—')+'px / 最多'+(contract.subtitle_max_lines||'—')+'行'
+      +'；图片运动 '+(contract.image_motion_intensity||'—')
+      +'；转场预算 '+(contract.transition_budget??'—')
+      +'；BGM '+(contract.bgm_volume??'—')
+      +'；音效密度 '+(contract.sfx_density||'—');
+  }
 }
 
 function cfRefreshAssetSummary(){
@@ -530,7 +616,8 @@ async function createProject(){
     constraints: {
       visual_source: visualSource,
       allow_stock: visualSource !== 'local',
-      allow_generation: true
+      allow_generation: true,
+      render_engine: (document.getElementById('cf-render-engine') || {}).value || 'ffmpeg'
     },
     platform: (tp || {}).value || '',
     duration: (td || {}).value || '',
