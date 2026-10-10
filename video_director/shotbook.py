@@ -459,7 +459,7 @@ def _gates(shots: list[dict], recipes: list[dict], timing_source: str) -> list[d
     return [timing, semantic, render, evidence]
 
 
-def get_project_shotbook(project_id: str) -> dict:
+def _get_project_shotbook_unlocked(project_id: str) -> dict:
     pid = _project_id(project_id)
     try:
         ir = editor.load_composition(pid)
@@ -577,7 +577,7 @@ def _write_plan(project_id: str, plan: dict) -> dict:
 
 
 def _generate_project_shotbook_unlocked(project_id: str, base_version: int | None = None) -> dict:
-    current = get_project_shotbook(project_id)
+    current = _get_project_shotbook_unlocked(project_id)
     if base_version is not None and int(base_version) != current["version"]:
         raise ShotbookError("CONFLICT", "分镜草案已被其他操作更新，请重新载入后再生成。")
     plan = {
@@ -586,7 +586,7 @@ def _generate_project_shotbook_unlocked(project_id: str, base_version: int | Non
         "shots": current["shots"],
     }
     _write_plan(current["project_id"], plan)
-    return get_project_shotbook(current["project_id"])
+    return _get_project_shotbook_unlocked(current["project_id"])
 
 
 def _save_project_shotbook_unlocked(project_id: str, payload: dict) -> dict:
@@ -633,7 +633,7 @@ def _save_project_shotbook_unlocked(project_id: str, payload: dict) -> dict:
         "shots": cleaned,
     }
     _write_plan(pid, plan)
-    return get_project_shotbook(pid)
+    return _get_project_shotbook_unlocked(pid)
 
 
 
@@ -642,6 +642,13 @@ def generate_project_shotbook(project_id: str, base_version: int | None = None) 
     pid = _project_id(project_id)
     with _project_plan_lock(pid):
         return _generate_project_shotbook_unlocked(pid, base_version)
+
+
+def get_project_shotbook(project_id: str) -> dict:
+    """Serialize recovery reads with writers so a backup restore cannot race a save."""
+    pid = _project_id(project_id)
+    with _project_plan_lock(pid):
+        return _get_project_shotbook_unlocked(pid)
 
 
 def save_project_shotbook(project_id: str, payload: dict) -> dict:
