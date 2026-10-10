@@ -1687,16 +1687,16 @@ class Handler(BaseHTTPRequestHandler):
                     project_id, str(tmp_file),
                     scene_texts=scene_texts or None)
                 # Persist alignment evidence for Shotbook; source remains ASR vs estimate.
-                timing_path = vd_config.project_dir(project_id) / "plans" / "narration_timing.json"
-                timing_path.parent.mkdir(parents=True, exist_ok=True)
-                timing_tmp = timing_path.with_suffix(".json.tmp")
-                timing_tmp.write_text(json.dumps({
-                    "source": out.get("source", "estimated"),
-                    "duration": out.get("duration"),
-                    "word_timeline": out.get("word_timeline") or [],
-                    "saved_at": int(__import__("time").time()),
-                }, ensure_ascii=False, indent=2), encoding="utf-8")
-                timing_tmp.replace(timing_path)
+                # 与 pipeline._persist_narration_timing 同一契约：写指纹 + 真实音频锚点，
+                # 否则 Shotbook 读取端会按旧格式把刚对齐出的词时间降级清空（B1）。
+                from video_director import pipeline as vd_pipeline
+                vd_pipeline._persist_narration_timing(
+                    {"plans": vd_config.project_dir(project_id) / "plans"},
+                    out.get("source", "estimated"),
+                    out.get("word_timeline") or [],
+                    out.get("duration"),
+                    audio_path=Path(out.get("narration_file") or ""),
+                )
                 # §48 SSE：配音导入完成事件
                 sse_publish("voice", {"phase": "uploaded", "project_id": project_id,
                                       "source": out["source"],

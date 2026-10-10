@@ -60,17 +60,38 @@ def test_motion_registry_exposes_only_renderer_supported_layer_contracts():
             assert set(motion["properties"]) <= {"scale", "opacity"}
 
 
-def test_pipeline_timing_sidecar_persists_provenance(tmp_path):
+def test_pipeline_timing_sidecar_persists_provenance_and_audio_fingerprints(tmp_path):
+    import hashlib
     import json
     from video_director.pipeline import _persist_narration_timing
 
     plans = tmp_path / "plans"
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    audio_bytes = b"test narration bytes"
+    (audio / "narration.mp3").write_bytes(audio_bytes)
     words = [{"text": "你好", "start": 0.2, "end": 0.8}]
-    _persist_narration_timing({"plans": plans}, "asr", words, 1.25)
+    _persist_narration_timing({"plans": plans, "audio": audio}, "asr", words, 1.25)
     payload = json.loads((plans / "narration_timing.json").read_text(encoding="utf-8"))
     assert payload["source"] == "asr"
     assert payload["duration"] == 1.25
     assert payload["word_timeline"] == words
+    assert payload["audio_fingerprint"]["status"] == "VERIFIED"
+    assert payload["audio_fingerprint"]["sha256"] == hashlib.sha256(audio_bytes).hexdigest()
+    assert payload["audio_fingerprint"]["size_bytes"] == len(audio_bytes)
+    assert len(payload["alignment_fingerprint"]) == 64
+    assert payload["fingerprint_schema"] == 1
+
+
+def test_pipeline_timing_sidecar_marks_missing_audio_fingerprint(tmp_path):
+    import json
+    from video_director.pipeline import _persist_narration_timing
+
+    plans = tmp_path / "plans"
+    _persist_narration_timing({"plans": plans}, "asr", [{"text": "x", "start": 0, "end": 1}], 1)
+    payload = json.loads((plans / "narration_timing.json").read_text(encoding="utf-8"))
+    assert payload["audio_fingerprint"]["status"] == "MISSING"
+    assert payload["audio_fingerprint"]["sha256"] is None
 
 
 def test_character_timing_survives_overlapping_word_timestamps():
@@ -125,3 +146,156 @@ def test_recipe_filter_domain_matches_visual_intent_not_role():
     assert all_intents & set(VISUAL_INTENTS), (
         "semantic_intents 与 VISUAL_INTENTS 零相交——过滤失去意义"
     )
+
+
+
+def test_shotbook_corrupt_primary_recovers_from_valid_backup(tmp_path):
+    import json
+    from video_director.shotbook import _read_plan
+
+    primary = tmp_path / "shotbook.json"
+    backup = tmp_path / "shotbook.json.bak"
+    valid = {"schema_version": 1, "project_id": "demo", "version": 4, "shots": []}
+    primary.write_text("{broken", encoding="utf-8")
+    backup.write_text(json.dumps(valid), encoding="utf-8")
+
+    assert _read_plan(primary) == valid
+    assert json.loads(primary.read_text(encoding="utf-8")) == valid
+
+
+def test_shotbook_corruption_without_backup_is_not_silently_reset(tmp_path):
+    import pytest
+    from video_director.shotbook import ShotbookError, _read_plan
+
+    primary = tmp_path / "shotbook.json"
+    primary.write_text("{broken-but-preserve", encoding="utf-8")
+
+    with pytest.raises(ShotbookError) as error:
+        _read_plan(primary)
+
+    assert error.value.code == "CORRUPT_PLAN"
+    assert primary.read_text(encoding="utf-8") == "{broken-but-preserve"
+
+
+def test_shotbook_write_keeps_previous_valid_plan_as_recovery_point(tmp_path, monkeypatch):
+    import json
+    from video_director import shotbook
+
+    root = tmp_path / "project"
+    plans = root / "plans"
+    plans.mkdir(parents=True)
+    monkeypatch.setattr(shotbook.config, "project_dir", lambda _pid: root)
+    old = {"schema_version": 1, "project_id": "demo", "version": 1, "shots": []}
+    new = {"schema_version": 1, "project_id": "demo", "version": 2, "shots": []}
+    (plans / "shotbook.json").write_text(json.dumps(old), encoding="utf-8")
+
+    shotbook._write_plan("demo", new)
+
+    assert json.loads((plans / "shotbook.json").read_text(encoding="utf-8")) == new
+    assert json.loads((plans / "shotbook.json.bak").read_text(encoding="utf-8")) == old
+
+
+
+def test_evidence_reference_is_not_treated_as_verified_file():
+    from video_director.shotbook import _gates
+
+    shot = {
+        "shot_type": "screenshot",
+        "evidence_ref": "asset-123",
+        "has_visual_layer": True,
+        "shot_recipe_id": "known",
+        "reviewed": True,
+        "semantic_role": "evidence",
+        "visual_intent": "prove",
+    }
+    evidence_gate = next(
+        gate for gate in _gates([shot], [{"id": "known"}], "asr")
+        if gate["id"] == "evidence"
+    )
+    assert evidence_gate["status"] == "REVIEW"
+    assert "不能视为真实性通过" in evidence_gate["detail"]
+
+
+
+def test_alignment_fingerprint_detects_modified_word_timeline(tmp_path):
+    import json
+    from video_director.pipeline import _persist_narration_timing
+    from video_director.shotbook import _alignment_fingerprint_valid
+
+    plans = tmp_path / "plans"
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    (audio / "narration.mp3").write_bytes(b"same audio")
+    _persist_narration_timing(
+        {"plans": plans, "audio": audio}, "asr",
+        [{"text": "原文", "start": 0.0, "end": 0.8}], 1.0,
+    )
+    sidecar = plans / "narration_timing.json"
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert _alignment_fingerprint_valid(payload)
+
+    payload["word_timeline"][0]["text"] = "被改写"
+    assert not _alignment_fingerprint_valid(payload)
+
+
+def test_uploaded_voice_timing_keeps_fingerprint_on_real_audio(tmp_path, monkeypatch):
+    """B1 契约：上传配音落盘 narration_uploaded.<ext>，指纹必须绑定这份字节。
+
+    voice_upload.import_uploaded_voice 落盘名不是 narration.mp3；写端把真实
+    音频路径传给 _persist_narration_timing（sidecar 记 audio_file 锚点），
+    Shotbook 读取端按锚点校验——刚对齐出的 ASR 词时间不得被指纹检查清空。
+    """
+    import json
+    from pathlib import Path
+
+    from video_director import shotbook
+    from video_director.pipeline import _persist_narration_timing
+
+    root = tmp_path / "project"
+    plans = root / "plans"
+    audio = root / "audio"
+    plans.mkdir(parents=True)
+    audio.mkdir()
+    (audio / "narration_uploaded.mp3").write_bytes(b"uploaded narration bytes")
+    (plans / "composition.json").write_text(json.dumps({
+        "version": 1, "project": {"duration": 3.0, "fps": 30},
+        "scenes": [{"id": "s-1", "start": 0.0, "duration": 3.0,
+                    "text": "上传配音指纹链",
+                    "layers": [{"type": "image", "asset_id": "img", "start": 0.0,
+                                "duration": 3.0}],
+                    "transition_out": {"type": "cut"}}],
+        "audio": [], "assets": []}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(shotbook.config, "project_dir", lambda _pid: root)
+
+    _persist_narration_timing(
+        {"plans": plans, "audio": audio}, "asr",
+        [{"text": "上传配音指纹链", "start": 0.0, "end": 2.8}], 3.0,
+        audio_path=audio / "narration_uploaded.mp3",
+    )
+    result = shotbook.get_project_shotbook("demo")
+    assert result["timing_source"] == "asr", (
+        "上传配音刚对齐的词时间被指纹检查降级——B1 回归"
+    )
+    assert "插值" in result["shots"][0]["timing_label"]
+
+    # 上传音频被替换（用户重新上传了另一份配音但 sidecar 没重写）→ 必须降级
+    (audio / "narration_uploaded.mp3").write_bytes(b"different upload bytes")
+    stale = shotbook.get_project_shotbook("demo")
+    assert stale["timing_source"] == "stale"
+
+
+def test_project_audio_anchor_refuses_traversal(tmp_path, monkeypatch):
+    """防篡改：sidecar 里的 audio_file 锚点不得指到项目外/绝对路径。"""
+    from video_director import shotbook
+
+    root = tmp_path / "project"
+    root.mkdir()
+    monkeypatch.setattr(shotbook.config, "project_dir", lambda _pid: root)
+
+    assert shotbook._resolve_project_audio("demo", "audio/narration.mp3") == \
+        (root / "audio" / "narration.mp3").resolve()
+    assert shotbook._resolve_project_audio("demo", "audio/narration_uploaded.ogg") is not None
+    assert shotbook._resolve_project_audio("demo", "../outside.mp3") is None
+    assert shotbook._resolve_project_audio("demo", "C:/windows/system32/x.mp3") is None
+    assert shotbook._resolve_project_audio("demo", "") is None
+    assert shotbook._resolve_project_audio("demo", "audio/../../escape.mp3") is None

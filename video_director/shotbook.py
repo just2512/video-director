@@ -5,12 +5,15 @@ The only operation that changes the actual timeline is the existing Editor Comma
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import time
 import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from video_director import config, editor
 
@@ -52,8 +55,119 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
+@contextmanager
+def _project_plan_lock(project_id: str) -> Iterator[None]:
+    """Cross-process exclusive lock for Shotbook read/validate/write transactions."""
+    path = _plan_path(project_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(".lock")
+    with lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _read_plan(path: Path) -> dict | None:
+    """Read the primary plan, recover from the last valid backup, never silently reset."""
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or not isinstance(value.get("shots"), list):
+            raise ValueError("Shotbook JSON 结构无效")
+        return value
+    except (OSError, json.JSONDecodeError, ValueError) as primary_error:
+        backup = path.with_suffix(".json.bak")
+        try:
+            recovered = json.loads(backup.read_text(encoding="utf-8"))
+            if not isinstance(recovered, dict) or not isinstance(recovered.get("shots"), list):
+                raise ValueError("备份结构无效")
+            _atomic_json_write(path, recovered)
+            return recovered
+        except (OSError, json.JSONDecodeError, ValueError) as backup_error:
+            raise ShotbookError(
+                "CORRUPT_PLAN",
+                "分镜文件已损坏，且没有可用的有效备份；原文件已保留，未自动覆盖。"
+                f" 主文件：{primary_error}；备份：{backup_error}",
+            ) from primary_error
+
+
+def _atomic_json_write(path: Path, value: dict) -> None:
+    tmp = path.with_name(path.name + f".{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(value, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _normal_char(value: str) -> str:
     return unicodedata.normalize("NFKC", value).casefold()
+
+
+def _alignment_fingerprint_valid(timing: dict) -> bool:
+    """Verify the sidecar's alignment data has not changed since it was written."""
+    if not isinstance(timing, dict) or timing.get("fingerprint_schema") != 1:
+        return False
+    expected = timing.get("alignment_fingerprint")
+    material = {
+        key: timing.get(key)
+        for key in ("source", "duration", "word_timeline", "audio_fingerprint", "audio_file")
+    }
+    try:
+        actual = hashlib.sha256(
+            json.dumps(material, ensure_ascii=False, sort_keys=True,
+                       separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+    except (TypeError, ValueError):
+        return False
+    return isinstance(expected, str) and actual == expected
+
+
+def _resolve_project_audio(project_id: str, audio_rel: str) -> Path | None:
+    """Resolve a sidecar-recorded audio anchor inside the project directory.
+
+    Only project-relative POSIX paths are accepted; traversal outside the
+    project (or absolute paths planted in a tampered sidecar) is refused so
+    the fingerprint check cannot be aimed at arbitrary files.
+    """
+    value = str(audio_rel or "").strip().replace("\\", "/")
+    if not value or value.startswith("/") or len(value) > 260:
+        return None
+    # Windows drive letters / UNC heads are absolute even on POSIX runners.
+    if re.match(r"^[A-Za-z]:", value) or value.startswith("//"):
+        return None
+    candidate = Path(value)
+    if candidate.is_absolute() or any(part in ("..", "") for part in candidate.parts):
+        return None
+    root = config.project_dir(project_id).resolve()
+    target = (root / candidate).resolve()
+    if target != root and root not in target.parents:
+        return None
+    return target
 
 
 def _timed_token_chars(text: str, start: float, end: float) -> list[dict]:
@@ -349,37 +463,73 @@ def _gates(shots: list[dict], recipes: list[dict], timing_source: str) -> list[d
         else:
             render_status, render_detail = "PASS", "每镜均有可解析的配方；仍需检查素材槽位与实际渲染结果。"
         render = {"id": "render", "label": "镜头执行", "status": render_status, "detail": render_detail}
-    evidence_required = [s for s in shots
-                         if s.get("shot_type") in ("document", "screenshot", "chart", "map") and not s.get("evidence_ref")]
+    evidence_shots = [s for s in shots
+                      if s.get("shot_type") in ("document", "screenshot", "chart", "map")]
+    evidence_missing = [s for s in evidence_shots if not str(s.get("evidence_ref") or "").strip()]
+    evidence_unverified = [s for s in evidence_shots if str(s.get("evidence_ref") or "").strip()]
     evidence = {
         "id": "evidence", "label": "证据素材",
-        "status": "MISSING" if evidence_required else "PASS",
-        "detail": (str(len(evidence_required)) + " 个文件、截图、图表或地图镜头缺少来源/素材引用。")
-                  if evidence_required else "需留证据的镜头已填写引用；请核对引用指向真实文件。",
+        "status": ("MISSING" if evidence_missing else
+                   "REVIEW" if evidence_unverified else "PASS"),
+        "detail": (
+            str(len(evidence_missing)) + " 个文件、截图、图表或地图镜头缺少来源/素材引用。"
+            if evidence_missing else
+            str(len(evidence_unverified)) + " 个镜头填写了引用，但引用尚未由服务端解析并核验到实际文件或已登记素材；不能视为真实性通过。"
+            if evidence_unverified else
+            "当前没有要求证据引用的镜头。"
+        ),
     }
     return [timing, semantic, render, evidence]
 
 
-def get_project_shotbook(project_id: str) -> dict:
+def _get_project_shotbook_unlocked(project_id: str) -> dict:
     pid = _project_id(project_id)
     try:
         ir = editor.load_composition(pid)
     except Exception as exc:
         raise ShotbookError("PROJECT_NOT_FOUND", "无法读取项目时间线：" + str(exc)) from exc
     path = _plan_path(pid)
-    previous = _read_json(path, None)
+    previous = _read_plan(path)
     timing = _read_json(_timing_path(pid), {"source": "missing", "word_timeline": []})
+    source = str(timing.get("source") or "missing")
+    fingerprint = timing.get("audio_fingerprint") or {}
+    # Legacy sidecars are unverified; edited/corrupt fingerprints or changed audio are stale.
+    if source != "missing" and not _alignment_fingerprint_valid(timing):
+        source = "stale" if timing.get("alignment_fingerprint") else "unverified"
+    elif source != "missing" and fingerprint.get("status") == "VERIFIED":
+        # 指纹绑定的是写端落盘的真实音频（TTS=audio/narration.mp3，上传配音=
+        # audio/narration_uploaded.<ext>）；按 sidecar 记录的锚点校验同一份字节。
+        audio_rel = str(timing.get("audio_file") or "audio/narration.mp3")
+        audio_path = _resolve_project_audio(pid, audio_rel)
+        if audio_path is None or not audio_path.is_file():
+            source = "stale"
+        else:
+            digest = hashlib.sha256()
+            with audio_path.open("rb") as audio_file:
+                for chunk in iter(lambda: audio_file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != fingerprint.get("sha256"):
+                source = "stale"
+    elif source != "missing":
+        source = "unverified"
+    if source in ("stale", "unverified"):
+        timing = {**timing, "source": source, "word_timeline": []}
     shots = _build_rows(ir, timing, previous)
     recipes = _recipes()
-    source = str(timing.get("source") or "missing")
     return {
         "ok": True, "project_id": pid, "schema_version": SCHEMA_VERSION,
         "version": int((previous or {}).get("version") or 0),
         "saved": bool(previous), "shots": shots, "recipes": recipes, "motions": _motion_recipes(),
         "gates": _gates(shots, recipes, source), "timing_source": source,
-        "timing_note": ("ASR 词时间可用，但词内字符时间由插值估算。"
-                        if source == "asr" else
-                        "未保存可用的原生词边界；当前字时间仅是按场景区间估算。"),
+        "timing_note": (
+            "旁白文件与对齐指纹不一致；已停用旧词时间，避免字幕/字级锚点错位。请重新分析旁白。"
+            if source == "stale" else
+            "旧版对齐数据缺少音频指纹，无法证明它对应当前旁白；已降级为场景时间估算。重新分析旁白可恢复对齐。"
+            if source == "unverified" else
+            "ASR 词时间可用，但词内字符时间由插值估算。"
+            if source == "asr" else
+            "未保存可用的原生词边界；当前字时间仅是按场景区间估算。"
+        ),
     }
 
 
@@ -439,14 +589,21 @@ def _editable_fields(incoming: dict, generated: dict) -> dict:
 def _write_plan(project_id: str, plan: dict) -> dict:
     path = _plan_path(project_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    # Preserve only a parseable previous plan as the recovery point.
+    if path.is_file():
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(old, dict) and isinstance(old.get("shots"), list):
+                _atomic_json_write(path.with_suffix(".json.bak"), old)
+        except (OSError, json.JSONDecodeError):
+            # Do not overwrite the backup with a corrupt primary.
+            pass
+    _atomic_json_write(path, plan)
     return plan
 
 
-def generate_project_shotbook(project_id: str, base_version: int | None = None) -> dict:
-    current = get_project_shotbook(project_id)
+def _generate_project_shotbook_unlocked(project_id: str, base_version: int | None = None) -> dict:
+    current = _get_project_shotbook_unlocked(project_id)
     if base_version is not None and int(base_version) != current["version"]:
         raise ShotbookError("CONFLICT", "分镜草案已被其他操作更新，请重新载入后再生成。")
     plan = {
@@ -455,12 +612,12 @@ def generate_project_shotbook(project_id: str, base_version: int | None = None) 
         "shots": current["shots"],
     }
     _write_plan(current["project_id"], plan)
-    return get_project_shotbook(current["project_id"])
+    return _get_project_shotbook_unlocked(current["project_id"])
 
 
-def save_project_shotbook(project_id: str, payload: dict) -> dict:
+def _save_project_shotbook_unlocked(project_id: str, payload: dict) -> dict:
     pid = _project_id(project_id)
-    current = get_project_shotbook(pid)
+    current = _get_project_shotbook_unlocked(pid)
     try:
         base_version = int(payload.get("base_version"))
     except (TypeError, ValueError):
@@ -502,4 +659,26 @@ def save_project_shotbook(project_id: str, payload: dict) -> dict:
         "shots": cleaned,
     }
     _write_plan(pid, plan)
-    return get_project_shotbook(pid)
+    return _get_project_shotbook_unlocked(pid)
+
+
+
+def generate_project_shotbook(project_id: str, base_version: int | None = None) -> dict:
+    """Serialize generation and version validation across threads and server processes."""
+    pid = _project_id(project_id)
+    with _project_plan_lock(pid):
+        return _generate_project_shotbook_unlocked(pid, base_version)
+
+
+def get_project_shotbook(project_id: str) -> dict:
+    """Serialize recovery reads with writers so a backup restore cannot race a save."""
+    pid = _project_id(project_id)
+    with _project_plan_lock(pid):
+        return _get_project_shotbook_unlocked(pid)
+
+
+def save_project_shotbook(project_id: str, payload: dict) -> dict:
+    """Serialize save, stale-version check, and atomic replacement as one transaction."""
+    pid = _project_id(project_id)
+    with _project_plan_lock(pid):
+        return _save_project_shotbook_unlocked(pid, payload)
