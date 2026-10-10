@@ -19,7 +19,7 @@ ROOT = Path(__file__).parents[1]
 #: §77 纯 UI 白名单（无业务语义：导航/开关/表单提交收集器/选择）
 UI_ONLY_PREFIXES = (
     "switchTab(", "captureDrawerToggle(", "openCreate(", "closeCreate(",
-    "pmSetFilter(", "edLibDomain(", "edLibSub(", "edLibNav(", "timelineView(",
+    "pmSetFilter(", "edLibDomain(", "edLibSub(", "edLibNav(", "timelineView(", "previewStepFrame(",
     "reviewModeToggle(", "reviewModeScan(", "projectDrawerToggle(", "versionDrawerToggle(",
     "toggleLLMPanel(", "toggleCapPanel(", "devToggleMode(", "loadSettings(",
     "loadProjects(", "loadSeries(", "loadInbox(", "inboxAdd(", "inboxAction(",
