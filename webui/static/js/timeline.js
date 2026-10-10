@@ -644,7 +644,7 @@ function _tlBindAudioClipDrag(){
     }
     d.el.title = d.mode === 'move' ? '松开以移动音频片段'
       : (d.mode === 'trim-left' ? '松开以裁剪音频源起点' : '松开以裁剪音频源终点');
-  });
+  }, true); // capture before EditorSession's box-select handlers can consume the pointer stream
 
   document.addEventListener('pointerup', ev => {
     const d = _audioClipDrag;
@@ -701,14 +701,14 @@ function _tlBindAudioClipDrag(){
         editorToast('音频片段未修改：' + (error.message || error), true);
         editorRenderTimeline();
       });
-  });
+  }, true);
 
   document.addEventListener('pointercancel', () => {
     const d = _audioClipDrag;
     if (!d) return;
     _audioClipDrag = null;
     if (d.el && d.el.isConnected) editorRenderTimeline();
-  });
+  }, true);
 }
 
 // ---------------------------------------------------------------------------
