@@ -81,6 +81,9 @@ def test_chromium_loads_unified_editor_workspace():
                 assert page.locator("#ed-preview-stage").count() == 1
                 assert page.locator("#shotbook-list").count() == 1
                 assert page.locator("#pane-editor").count() == 1
+                assert page.locator('button[title="上一帧"]').count() == 1
+                assert page.locator('button[title="下一帧"]').count() == 1
+                assert page.evaluate("typeof window.previewStepFrame") == "function"
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise
