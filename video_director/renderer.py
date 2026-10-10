@@ -479,11 +479,12 @@ def mix_audio(
     narration_file: Optional[str],
     out_path: str,
 ) -> Optional[str]:
-    """音频合成（V2 §27/§31/§32）。
+    """按 Composition 音轨时间合成。
 
-    Narration 主音轨；BGM 循环对齐总长并全程应用固定 duck（有旁白时压低，
-    第一版用恒定压低量近似 sidechain ducking）；SFX 在语义时间点 adelay 插入。
-    无任何音频输入时返回 None（纯视觉片，调用方跳过混音）。
+    Narration、original、BGM、ambience、dialogue、SFX 各自消费 start/duration、
+    mute、volume 与 fade；BGM/环境音可循环，但只在定义的区间内发声。
+    混音尾部补静音至项目总长，避免仅靠近片尾的短音效触发 -shortest 截断视频。
+    无任何有效音频输入时返回 None（纯视觉片，调用方跳过混音）。
     """
     import math
 
