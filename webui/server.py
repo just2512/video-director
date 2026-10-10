@@ -1708,6 +1708,9 @@ class Handler(BaseHTTPRequestHandler):
                     "source": out.get("source", "estimated"),
                     "duration": out.get("duration"),
                     "word_timeline": out.get("word_timeline") or [],
+                    "audio_path": str(out.get("audio_path") or out.get("path") or tmp_file.resolve()),
+                    "audio_size": tmp_file.stat().st_size,
+                    "audio_mtime_ns": tmp_file.stat().st_mtime_ns,
                     "saved_at": int(__import__("time").time()),
                 }, ensure_ascii=False, indent=2), encoding="utf-8")
                 timing_tmp.replace(timing_path)
