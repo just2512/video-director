@@ -716,11 +716,6 @@ async function verCompareSelected(){
 }
 
 // §8 拆分导出：inline onclick/window 引用兼容
-Object.assign(window, {
-  edSelect, editorSelectScene, editorSelectLayer, edIsSelected,
-  edClearSelection, edSelectedCount,
-  editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
-
 /** Split the selected visual layer at the global playback-head time. */
 async function editorSplitSelectedLayer(){
   const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
@@ -732,6 +727,11 @@ async function editorSplitSelectedLayer(){
   if (result && result.ok) editorToast('片段已在播放头处切分');
   else editorToast('切分未完成：' + ((result && result.error) || '请把播放头放在片段内部'), true);
 }
+
+Object.assign(window, {
+  edSelect, editorSelectScene, editorSelectLayer, edIsSelected,
+  edClearSelection, edSelectedCount,
+  editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
   editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer,
   selectNarration, projectOverlayOpen, originalTrackOpen, bgmTrackOpen,
