@@ -417,6 +417,8 @@ class WatermarkLayer(BaseModel):
             raise ValueError(f"watermark: start {self.start} 为负")
         if not (0 <= self.safe_area <= 200):
             raise ValueError(f"watermark: safe_area {self.safe_area} 越界 [0,200]")
+        if self.duration is not None and not (0 < self.duration < float("inf")):
+            raise ValueError(f"watermark: duration {self.duration} 必须是有限正数或 None")
         if self.kind == "text" and not (self.text or "").strip():
             raise ValueError("watermark(kind=text) 缺 text")
         if self.kind in ("image", "logo", "svg") and not self.asset_id:
