@@ -126,6 +126,8 @@ function shotbookRender(){
   const gateBox=document.getElementById('shotbook-gates'),list=document.getElementById('shotbook-list');
   const note=document.getElementById('shotbook-timing-note');
   if(meta)meta.textContent='V'+SHOTBOOK.version+' · '+(SHOTBOOK.saved?'已保存':'尚未保存')+' · '+SHOTBOOK.shots.length+' 个镜头 · '+({PASS:'服务端已确认',STALE:'确认已失效',INVALID:'确认文件无效',MISSING:'待确认'}[SHOTBOOK.confirmation_status]||'待确认');
+  const confirmButton=document.getElementById('shotbook-confirm');
+  if(confirmButton)confirmButton.disabled=!SHOTBOOK.saved||SHOTBOOK_DIRTY;
   if(note)note.textContent=SHOTBOOK.timing_note||'字级时间来自当前可用对齐数据。';
   if(gateBox)gateBox.innerHTML=(SHOTBOOK.gates||[]).map(function(g){
     return '<div class="sb-gate"><b>'+sbEsc(g.label)+'</b> <span class="'+sbStatusClass(g.status)+'">'+sbEsc(g.status)+'</span><div class="hint">'+sbEsc(g.detail)+'</div></div>';
@@ -253,6 +255,7 @@ if(!window.__shotbookDelegated){
     if(status)status.textContent='有未保存修改。修改语义、时间或配方会取消这镜的已确认状态；保存后再做分镜验收。';
     const meta=document.getElementById('shotbook-meta');
     if(meta&&SHOTBOOK)meta.textContent='V'+SHOTBOOK.version+' · 有未保存修改 · '+SHOTBOOK.shots.length+' 个镜头';
+    const confirmButton=document.getElementById('shotbook-confirm');if(confirmButton)confirmButton.disabled=true;
   }
   document.addEventListener('input',function(event){
     if(event.target.matches('#shotbook-list .sb-char-start,#shotbook-list .sb-char-end,#shotbook-list .sb-overlay,#shotbook-list .sb-evidence,#shotbook-list .sb-sfx,#shotbook-list .sb-notes'))markShotbookDirty(event,true);
