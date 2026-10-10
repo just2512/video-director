@@ -2402,8 +2402,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
             from video_director import confirm as confirm_mod
+            from video_director import shotbook as vd_shotbook
             try:
-                from video_director import shotbook as vd_shotbook
                 vd_shotbook.assert_project_shotbook_confirmed(pid)
                 # §四 WorkflowRun=运行态事实源：同步渲染也必须登记 RUNNING run，
                 # 否则渲染中项目查不到 active_job（mid-render 可删）。
@@ -2481,6 +2481,9 @@ class Handler(BaseHTTPRequestHandler):
                     "qc": final.qc_report,
                     "warnings": final.warnings,
                 })
+            except vd_shotbook.ShotbookError as exc:
+                self._send_json({"ok": False, "code": exc.code, "error": str(exc)},
+                                409 if exc.code in ("SHOTBOOK_NOT_CONFIRMED", "CORRUPT_SHOTBOOK", "STALE_SOURCE", "CONFLICT") else 400)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
