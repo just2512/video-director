@@ -443,6 +443,7 @@ async function renderTemplateSample(tid){
   }
   const fd = new FormData();
   fd.append('template_id', tid);
+  fd.append('template_version', t.version);
   fd.append('ratio', document.getElementById('tpl-ratio').value);
   fd.append('slot_values_json', JSON.stringify(slotValues));
   for (const s of t.slots) {
