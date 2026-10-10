@@ -238,30 +238,56 @@ function renderPhysicalTimeline(){
   }));
   tracks.picture.push({id: 'broll', label: 'B-roll',
     clips: brollLayers.map(([sc, lay]) => ({
-      pct: lay.duration / total * 100, text: 'B-roll', title: 'B-roll 层',
+      positioned: true, leftPct: Math.max(0, Math.min(100, (Number(sc.start || 0) + Number(lay.start || 0)) / total * 100)), pct: Math.max(0, Math.min(100 - Math.max(0, Math.min(100, (Number(sc.start || 0) + Number(lay.start || 0)) / total * 100)), Number(lay.duration || 0) / total * 100)), text: 'B-roll', title: 'B-roll 层',
       onclick: `editorSelectLayer('${sc.id}',${sc.layers.indexOf(lay)}, event)`}))});
   tracks.picture.push({id: 'graphic', label: '图形',
     clips: graphicLayers.map(([sc, lay]) => ({
-      pct: lay.duration / total * 100, text: '图形', title: '图形层',
+      positioned: true, leftPct: Math.max(0, Math.min(100, (Number(sc.start || 0) + Number(lay.start || 0)) / total * 100)), pct: Math.max(0, Math.min(100 - Math.max(0, Math.min(100, (Number(sc.start || 0) + Number(lay.start || 0)) / total * 100)), Number(lay.duration || 0) / total * 100)), text: '图形', title: '图形层',
       onclick: `editorSelectLayer('${sc.id}',${sc.layers.indexOf(lay)}, event)`}))});
   const wmCount = (c.watermarks || []).length;
   tracks.picture.push({id: 'watermark', label: '水印',
     clips: wmCount ? [{pct: 100, text: '水印 ×' + wmCount, title: '项目叠加层（点开 Logo/水印设置）',
       onclick: "projectOverlayOpen()"}] : []});
-  // 声音组
+  // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位。
+  // 之前每类声音只显示第一条记录并绘制为 100% 全长，和实际渲染时间语义不一致。
+  const audioClip = (a, label, onclick) => {
+    const start = Math.max(0, Number(a.start) || 0);
+    const duration = Math.max(0, Number(a.duration) || 0);
+    const inRange = start < total && duration > 0;
+    const visibleDuration = inRange ? Math.min(duration, total - start) : 0;
+    const leftPct = inRange ? Math.min(100, start / total * 100) : 99.2;
+    const pct = inRange ? Math.max(0, Math.min(100 - leftPct, visibleDuration / total * 100)) : 0.8;
+    const end = start + duration;
+    const gain = a.muted ? '已静音' : ('音量 ' + (Number(a.volume ?? 1) * 100).toFixed(0) + '%');
+    const asset = a.asset_id && c.assets && c.assets[a.asset_id];
+    const assetName = asset && (asset.name || (asset.file && asset.file.split(/[\\/]/).pop())) || a.asset_id || '未绑定素材';
+    const edgeNote = !inRange ? ' · 超出项目片长，当前不会出现在成片中' : (end > total ? ' · 末尾超出片长，渲染时截断' : '');
+    return {
+      positioned: true, leftPct, pct, outOfRange: !inRange,
+      text: label,
+      title: `${label} · ${assetName} · ${start.toFixed(2)}–${end.toFixed(2)}s · ${gain}${edgeNote} · 点击打开该类型音轨设置`,
+      onclick
+    };
+  };
   const original = audioOf('original');
   tracks.sound.push({id: 'original', label: '原声',
-    clips: original.length ? [{pct: 100,
-      text: `原声${original[0].muted ? ' · 已静音' : original[0].volume !== undefined ? ' · ' + (original[0].volume * 100).toFixed(0) + '%' : ''}`,
-      title: '素材原声轨（点开原声设置）', onclick: "originalTrackOpen()"}] : []});
+    clips: original.map((a, i) => audioClip(a, original.length > 1 ? `原声 ${i+1}` : '原声',
+      "originalTrackOpen()"))});
   const bgms = audioOf('bgm');
   tracks.sound.push({id: 'bgm', label: '背景音乐',
-    clips: bgms.length ? [{pct: 100, text: '背景音乐' + (bgms[0].muted ? ' · 已静音' : ''),
-      title: '背景音乐轨', onclick: "bgmTrackOpen()"}] : []});
+    clips: bgms.map((a, i) => audioClip(a, bgms.length > 1 ? `BGM ${i+1}` : '背景音乐',
+      "bgmTrackOpen()"))});
   const sfxs = audioOf('sfx');
   tracks.sound.push({id: 'sfx', label: '音效',
-    clips: sfxs.length ? [{pct: 100, text: '音效', title: '音效轨',
-      onclick: "editorAudioVolume('sfx')"}] : []});
+    clips: sfxs.map((a, i) => audioClip(a, sfxs.length > 1 ? `音效 ${i+1}` : '音效',
+      "editorAudioVolume('sfx')"))});
+  const dialogueTracks = audioOf('dialogue');
+  tracks.language.find(t => t.id === 'dialogue').clips = dialogueTracks.map((a, i) =>
+    audioClip(a, dialogueTracks.length > 1 ? `对白 ${i+1}` : '对白', null));
+  const ambienceTracks = audioOf('ambience');
+  tracks.sound.push({id: 'ambience', label: '环境音',
+    clips: ambienceTracks.map((a, i) => audioClip(a, ambienceTracks.length > 1 ? `环境音 ${i+1}` : '环境音',
+      "editorAudioVolume('ambience')"))});
   // 时间关系组：关键帧
   const kfPoints = [];
   c.scenes.forEach(sc => (sc.layers || []).forEach((lay, li) => {
@@ -282,8 +308,13 @@ function renderPhysicalTimeline(){
   const trackRow = (t) => {
     const bodyInner = t.isSceneTrack
       ? _sceneTrackHtml(c, total)
-      : (t.clips || []).map(cl =>
-          `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}" style="width:${cl.pct}%"${cl.title ? ` title="${esc(cl.title)}"` : ''}${cl.onclick ? ` onclick="${cl.onclick}"` : ''}>${esc(cl.text)}</div>`).join('');
+      : (t.clips || []).map(cl => {
+          const style = cl.positioned
+            ? `position:absolute;top:0;height:100%;left:${cl.leftPct}%;width:${cl.pct}%;`
+            : `width:${cl.pct}%`;
+          const outOfRangeClass = cl.outOfRange ? ' tl-out-of-range' : '';
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}" style="${style}"${cl.title ? ` title="${esc(cl.title)}"` : ''}${cl.onclick ? ` onclick="${cl.onclick}"` : ''}>${esc(cl.text)}</div>`;
+        }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
     const empty = (!t.clips || !t.clips.length) && !t.isSceneTrack && !(t.kfPoints || []).length;
