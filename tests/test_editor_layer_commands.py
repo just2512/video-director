@@ -98,7 +98,7 @@ def test_layer_edit_buttons_and_cross_scene_drop_no_longer_reorders_scene():
     root = Path(__file__).resolve().parents[1]
     js = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
     html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
-    assert "editorSplitSelectedLayer" in js and "command: 'split_layer'" in js
+    assert "editorSplitSelectedLayer" in js and "editorCmd('split_layer'" in js
     assert "reorder_layer" in js
     assert "跨分镜移动需要独立物理轨道" in js
     assert 'onclick="editorSplitSelectedLayer()" title="在播放头处切分选中的视频/图片片段"' in html
