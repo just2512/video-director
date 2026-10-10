@@ -573,6 +573,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _template_sample_download(self, parsed):
         """Download only a sample MP4 created by the sample-render endpoint."""
+        import shutil as _shutil
         qs = parse_qs(parsed.query)
         sample_id = (qs.get("id", [""])[0] or "").strip()
         if not re.fullmatch(r"[a-f0-9]{32}", sample_id):
