@@ -189,18 +189,21 @@ def test_chromium_loads_unified_editor_workspace():
                         ],
                         watermarks: [], subtitle_track: {mode: 'word', cues: []}
                     };
-                    window.__audioCommandCalls = [];
-                    window.executeCommand = spec => {
-                        window.__audioCommandCalls.push(JSON.parse(JSON.stringify(spec)));
-                        return Promise.resolve({ok: true, status: 'APPLIED'});
-                    };
-                    window.refreshWorkspace = () => Promise.resolve();
-                    window.editorToast = () => {};
                     editorRenderTimeline();
                     const clips = [...document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]')];
                     return {count: clips.length, firstIndex: clips[0] && clips[0].dataset.audioIndex};
                 }""")
                 assert setup["count"] == 2 and setup["firstIndex"] == "0"
+
+                captured_commands = []
+                def capture_editor_command(route):
+                    captured_commands.append(route.request.post_data_json)
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body='{"ok":false,"status":"REJECTED","error":"intentional browser test interception"}',
+                    )
+                page.route("**/api/editor/command", capture_editor_command)
 
                 audio_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
                 move_box = audio_clip.bounding_box()
@@ -210,15 +213,14 @@ def test_chromium_loads_unified_editor_workspace():
                 page.mouse.move(move_box["x"] + move_box["width"] / 2 + 40,
                                 move_box["y"] + move_box["height"] / 2, steps=4)
                 page.mouse.up()
-                page.wait_for_function(
-                    "() => (window.__audioCommandCalls || []).some(c => c.command === 'move_audio_clip')",
-                    timeout=3000,
-                )
-                moved = page.evaluate("window.__audioCommandCalls.find(c => c.command === 'move_audio_clip')")
+                page.wait_for_timeout(100)
+                moved = next((c for c in captured_commands if c.get("command") == "move_audio_clip"), None)
+                assert moved is not None, "pointer drag did not POST move_audio_clip to the real Editor Command endpoint"
                 assert moved["targetId"] == "audio#0"
                 assert moved["payload"]["start"] > 3
 
-                page.evaluate("() => { window.__audioCommandCalls.length = 0; editorRenderTimeline(); }")
+                captured_commands.clear()
+                page.evaluate("editorRenderTimeline()")
                 trim_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
                 trim_box = trim_clip.bounding_box()
                 assert trim_box and trim_box["width"] > 16
@@ -227,11 +229,9 @@ def test_chromium_loads_unified_editor_workspace():
                 page.mouse.move(trim_box["x"] + trim_box["width"] - 31,
                                 trim_box["y"] + trim_box["height"] / 2, steps=4)
                 page.mouse.up()
-                page.wait_for_function(
-                    "() => (window.__audioCommandCalls || []).some(c => c.command === 'trim_audio_clip')",
-                    timeout=3000,
-                )
-                trimmed = page.evaluate("window.__audioCommandCalls.find(c => c.command === 'trim_audio_clip')")
+                page.wait_for_timeout(100)
+                trimmed = next((c for c in captured_commands if c.get("command") == "trim_audio_clip"), None)
+                assert trimmed is not None, "pointer edge trim did not POST trim_audio_clip to the real Editor Command endpoint"
                 assert trimmed["targetId"] == "audio#0"
                 assert trimmed["payload"]["sourceOut"] < 2
             except Exception:
