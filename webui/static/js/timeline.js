@@ -199,6 +199,7 @@ function editorRenderTimeline(){
   _tlBindPlayheadDrag();
   _tlBindLayerDrag();
   _tlBindAudioClipDrag();
+  _tlBindWatermarkDrag();
   _tlBindSceneDrag();
   if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
   document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
@@ -245,10 +246,23 @@ function renderPhysicalTimeline(){
     clips: graphicLayers.map(([sc, lay]) => ({
       positioned: true, leftPct: Math.max(0, Math.min(100, (Number(sc.start || 0) + Number(lay.start || 0)) / total * 100)), pct: Math.max(0, Math.min(100 - Math.max(0, Math.min(100, (Number(sc.start || 0) + Number(lay.start || 0)) / total * 100)), Number(lay.duration || 0) / total * 100)), text: '图形', title: '图形层',
       onclick: `editorSelectLayer('${sc.id}',${sc.layers.indexOf(lay)}, event)`}))});
-  const wmCount = (c.watermarks || []).length;
-  tracks.picture.push({id: 'watermark', label: '水印',
-    clips: wmCount ? [{pct: 100, text: '水印 ×' + wmCount, title: '项目叠加层（点开 Logo/水印设置）',
-      onclick: "projectOverlayOpen()"}] : []});
+  const watermarks = c.watermarks || [];
+  tracks.picture.push({id: 'watermark', label: '贴纸 / 覆盖层',
+    clips: watermarks.map((wm, index) => {
+      const start = Math.max(0, Number(wm.start) || 0);
+      const end = wm.duration == null ? total : Math.min(total, start + Math.max(0, Number(wm.duration) || 0));
+      const visibleStart = Math.min(total, start);
+      const duration = Math.max(0, end - visibleStart);
+      const leftPct = Math.min(100, visibleStart / total * 100);
+      const pct = Math.max(0, Math.min(100 - leftPct, duration / total * 100));
+      const label = wm.text || wm.asset_id || wm.kind || '覆盖层';
+      return {
+        positioned: true, leftPct, pct, watermarkIndex: index,
+        text: String(label).slice(0, 12),
+        title: `覆盖层 · ${label} · ${start.toFixed(2)}–${(start + duration).toFixed(2)}s · 拖动移动、边缘修剪、点击编辑`,
+        onclick: `editorWatermarkClipOpen(${index}, event)`
+      };
+    })});
   // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位。
   // 之前每类声音只显示第一条记录并绘制为 100% 全长，和实际渲染时间语义不一致。
   const audioClip = (a, label, onclick) => {
@@ -316,12 +330,18 @@ function renderPhysicalTimeline(){
             : `width:${cl.pct}%`;
           const outOfRangeClass = cl.outOfRange ? ' tl-out-of-range' : '';
           const hasAudioIndex = Number.isInteger(cl.audioIndex) && cl.audioIndex >= 0;
+          const hasWatermarkIndex = Number.isInteger(cl.watermarkIndex) && cl.watermarkIndex >= 0;
           const audioAttr = hasAudioIndex
             ? ` data-audio-index="${cl.audioIndex}" aria-label="${esc(cl.text)}：拖动移动，边缘裁剪；点击打开片段设置"` : '';
+          const watermarkAttr = hasWatermarkIndex
+            ? ` data-watermark-index="${cl.watermarkIndex}" aria-label="${esc(cl.text)}：拖动移动、边缘修剪；点击编辑覆盖层"` : '';
+          const clipClass = hasAudioIndex ? ' ed-audio-clip' : (hasWatermarkIndex ? ' ed-watermark-clip' : '');
           const clickAttr = hasAudioIndex
             ? ` onclick="editorAudioClipOpen(${cl.audioIndex}, event)"`
-            : (cl.onclick ? ` onclick="${cl.onclick}"` : '');
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${hasAudioIndex ? ' ed-audio-clip' : ''}" style="${style}"${audioAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
+            : (hasWatermarkIndex
+                ? ` onclick="editorWatermarkClipOpen(${cl.watermarkIndex}, event)"`
+                : (cl.onclick ? ` onclick="${cl.onclick}"` : ''));
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
@@ -815,6 +835,114 @@ function _tlBindAudioClipDrag(){
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// §18 Timeline overlays: timed text/logo layers use the same global time ruler.
+// Edits preview locally while dragging, then persist through Editor Command/Revision.
+let _watermarkDrag = null;
+let _watermarkClipSuppressClick = null;
+
+function _tlBindWatermarkDrag(){
+  document.querySelectorAll('#editor-timeline .ed-watermark-clip[data-watermark-index]').forEach(el => {
+    el.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 || !ED.comp) return;
+      const index = Number.parseInt(el.dataset.watermarkIndex, 10);
+      const wm = (ED.comp.watermarks || [])[index];
+      const total = Number(ED.comp.duration) || 1;
+      if (!wm) return;
+      const start = Math.max(0, Number(wm.start) || 0);
+      const end = wm.duration == null ? total : Math.min(total, start + Number(wm.duration || 0));
+      const duration = end - start;
+      if (duration < 0.05 || start >= total) return;
+      const rect = el.getBoundingClientRect();
+      const edge = Math.min(8, rect.width / 4);
+      const mode = ev.clientX - rect.left <= edge ? 'trim-left'
+        : rect.right - ev.clientX <= edge ? 'trim-right' : 'move';
+      _watermarkClipSuppressClick = null;
+      _watermarkDrag = {
+        el, index, mode, startX: ev.clientX, moved: false,
+        start, duration, end,
+        previewStart: start, previewDuration: duration,
+      };
+      try { el.setPointerCapture(ev.pointerId); } catch (_) {}
+    }, true);
+  });
+  if (window.__tlWatermarkDragHandlers) return;
+  window.__tlWatermarkDragHandlers = true;
+  document.addEventListener('pointerdown', () => {
+    if (!_watermarkDrag) _watermarkClipSuppressClick = null;
+  }, true);
+  document.addEventListener('pointermove', ev => {
+    const d = _watermarkDrag;
+    if (!d || !d.el.isConnected) { _watermarkDrag = null; return; }
+    const body = d.el.closest('.ed-track-body');
+    const width = body ? body.getBoundingClientRect().width : 0;
+    if (width <= 0) return;
+    const dx = ev.clientX - d.startX;
+    if (Math.abs(dx) <= 8 && !d.moved) return;
+    d.moved = true;
+    ev.preventDefault();
+    d.el.classList.add('tl-dragging');
+    const total = Number(ED.comp.duration) || 1;
+    const delta = dx / width * total;
+    let start = d.start, duration = d.duration;
+    if (d.mode === 'move') {
+      start = Math.max(0, Math.min(total - duration, d.start + delta));
+    } else if (d.mode === 'trim-left') {
+      start = Math.max(0, Math.min(d.end - 0.05, d.start + delta));
+      duration = d.end - start;
+    } else {
+      duration = Math.max(0.05, Math.min(total - d.start, d.duration + delta));
+    }
+    d.previewStart = start;
+    d.previewDuration = duration;
+    d.el.style.left = (start / total * 100) + '%';
+    d.el.style.width = (duration / total * 100) + '%';
+    d.el.title = d.mode === 'move' ? '松开以移动覆盖层'
+      : (d.mode === 'trim-left' ? '松开以修剪覆盖层起点' : '松开以修剪覆盖层终点');
+  }, true);
+  document.addEventListener('pointerup', ev => {
+    const d = _watermarkDrag;
+    if (!d) return;
+    _watermarkDrag = null;
+    d.el.classList.remove('tl-dragging');
+    if (!d.moved || !d.el.isConnected || !ED.comp) return;
+    _watermarkClipSuppressClick = d.el;
+    const start = Math.round(d.previewStart * 1000) / 1000;
+    const duration = Math.round(d.previewDuration * 1000) / 1000;
+    const command = d.mode === 'move' ? 'move_watermark' : 'trim_watermark';
+    editorToast(command === 'move_watermark' ? '正在移动覆盖层……' : '正在修剪覆盖层显示区间……');
+    executeCommand({
+      command, targetId: 'watermark#' + d.index,
+      payload: {start, duration},
+    }).then(result => {
+      if (result && result.ok) {
+        editorToast(command === 'move_watermark' ? '覆盖层位置已更新' : '覆盖层显示区间已更新');
+        return refreshWorkspace();
+      }
+      editorToast('覆盖层未修改：' + ((result && result.error) || '未知错误'), true);
+      editorRenderTimeline();
+    }).catch(error => {
+      editorToast('覆盖层未修改：' + (error.message || error), true);
+      editorRenderTimeline();
+    });
+  }, true);
+  document.addEventListener('pointercancel', () => {
+    const d = _watermarkDrag;
+    if (!d) return;
+    _watermarkDrag = null;
+    if (d.el && d.el.isConnected) editorRenderTimeline();
+  }, true);
+  document.addEventListener('click', ev => {
+    if (!_watermarkClipSuppressClick) return;
+    const hit = ev.target && ev.target.closest ? ev.target.closest('.ed-watermark-clip') : null;
+    if (hit === _watermarkClipSuppressClick) {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      _watermarkClipSuppressClick = null;
+    }
+  }, true);
+}
+
 // §17 键盘（Space 播放/暂停、Delete 删除、Ctrl+Z 撤销、Ctrl+Shift+Z 重做、Esc 取消）
 // ---------------------------------------------------------------------------
 document.addEventListener('keydown', ev => {
@@ -1019,3 +1147,4 @@ Object.assign(window, {
   verToggleCheck, verCompareSelected,
   PLAYHEAD, TL_GROUPS,
 });
+
