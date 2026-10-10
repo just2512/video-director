@@ -10,9 +10,9 @@
 CJK 字体：find_cjk_font() 沿用产品级方案（script_only 同源）。
 """
 
-from __future__ import math
-import annotations
+from __future__ import annotations
 
+import math
 import subprocess
 from pathlib import Path
 from typing import Optional
