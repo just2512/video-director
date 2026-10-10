@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from video_director import config, editor
+from video_director.project_lock import project_lock
 
 SCHEMA_VERSION = 1
 SEMANTIC_ROLES = ("hook", "context", "problem", "evidence", "turn", "resolution", "cta", "neutral")
@@ -57,32 +58,9 @@ def _read_json(path: Path, default: Any) -> Any:
 
 @contextmanager
 def _project_plan_lock(project_id: str) -> Iterator[None]:
-    """Cross-process exclusive lock for Shotbook read/validate/write transactions."""
-    path = _plan_path(project_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_suffix(".lock")
-    with lock_path.open("a+b") as handle:
-        if os.name == "nt":
-            import msvcrt
-            handle.seek(0, os.SEEK_END)
-            if handle.tell() == 0:
-                handle.write(b"0")
-                handle.flush()
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                yield
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
+    """Use the shared project lock so Shotbook and timeline edits serialize."""
+    with project_lock(_project_id(project_id)):
+        yield
 
 def _read_plan(path: Path) -> dict | None:
     """Read the primary plan, recover from the last valid backup, never silently reset."""
