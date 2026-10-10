@@ -125,3 +125,50 @@ def test_recipe_filter_domain_matches_visual_intent_not_role():
     assert all_intents & set(VISUAL_INTENTS), (
         "semantic_intents 与 VISUAL_INTENTS 零相交——过滤失去意义"
     )
+
+
+
+def test_shotbook_corrupt_primary_recovers_from_valid_backup(tmp_path):
+    import json
+    from video_director.shotbook import _read_plan
+
+    primary = tmp_path / "shotbook.json"
+    backup = tmp_path / "shotbook.json.bak"
+    valid = {"schema_version": 1, "project_id": "demo", "version": 4, "shots": []}
+    primary.write_text("{broken", encoding="utf-8")
+    backup.write_text(json.dumps(valid), encoding="utf-8")
+
+    assert _read_plan(primary) == valid
+    assert json.loads(primary.read_text(encoding="utf-8")) == valid
+
+
+def test_shotbook_corruption_without_backup_is_not_silently_reset(tmp_path):
+    import pytest
+    from video_director.shotbook import ShotbookError, _read_plan
+
+    primary = tmp_path / "shotbook.json"
+    primary.write_text("{broken-but-preserve", encoding="utf-8")
+
+    with pytest.raises(ShotbookError) as error:
+        _read_plan(primary)
+
+    assert error.value.code == "CORRUPT_PLAN"
+    assert primary.read_text(encoding="utf-8") == "{broken-but-preserve"
+
+
+def test_shotbook_write_keeps_previous_valid_plan_as_recovery_point(tmp_path, monkeypatch):
+    import json
+    from video_director import shotbook
+
+    root = tmp_path / "project"
+    plans = root / "plans"
+    plans.mkdir(parents=True)
+    monkeypatch.setattr(shotbook.config, "project_dir", lambda _pid: root)
+    old = {"schema_version": 1, "project_id": "demo", "version": 1, "shots": []}
+    new = {"schema_version": 1, "project_id": "demo", "version": 2, "shots": []}
+    (plans / "shotbook.json").write_text(json.dumps(old), encoding="utf-8")
+
+    shotbook._write_plan("demo", new)
+
+    assert json.loads((plans / "shotbook.json").read_text(encoding="utf-8")) == new
+    assert json.loads((plans / "shotbook.json.bak").read_text(encoding="utf-8")) == old
