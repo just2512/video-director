@@ -305,6 +305,8 @@ SUPPORTED_COMMANDS = (
     "set_opacity",               # 层透明度（折叠为 motion opacity 近似）
     "set_style",                 # 项目级风格（§20）
     "set_transform",             # 层静态变换（scale/opacity，§20）
+    "move_audio_clip",           # §17 独立音频片段位置编辑
+    "trim_audio_clip",           # §17 独立音频片段源区间裁剪
     "set_audio_volume",          # 音轨音量（§20 / §37 Audio Bus gain）
     "set_audio_mute",            # §37 Audio Bus：轨级静音（mute 一等操作）
     "set_audio_fade",            # §37 Audio Bus：轨级淡入/淡出秒数
@@ -428,6 +430,10 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_style(ir, target_id, payload)
         elif cmd_name == "set_transform":
             changed, stale = _cmd_set_transform(ir, target_id, payload)
+        elif cmd_name == "move_audio_clip":
+            changed, stale = _cmd_move_audio_clip(ir, target_id, payload)
+        elif cmd_name == "trim_audio_clip":
+            changed, stale = _cmd_trim_audio_clip(ir, target_id, payload)
         elif cmd_name == "set_audio_volume":
             changed, stale = _cmd_set_audio_volume(ir, target_id, payload)
         elif cmd_name == "set_audio_mute":
@@ -1109,6 +1115,71 @@ def _cmd_set_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     scene.layers[idx] = layer.model_copy(update={"motion_instance": inst})
     layer_id = f"{scene.id}#{idx}"
     return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _audio_clip_index(ir: CompositionIR, target_id: str) -> int:
+    """Resolve a per-instance audio clip target (audio#<index>).
+
+    Track type alone is not an identity: a project may contain several BGM/SFX
+    clips of the same type. The editor command's expectedVersion protects this
+    index from stale-client writes.
+    """
+    if not target_id.startswith("audio#"):
+        raise EditorError("INVALID_TARGET", "音频片段 targetId 必须为 audio#<index>")
+    try:
+        index = int(target_id.split("#", 1)[1])
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_TARGET", f"音频片段索引非法：{target_id}") from exc
+    if index < 0 or index >= len(ir.audio):
+        raise EditorError("NOT_FOUND", f"音频片段 {target_id} 不存在", recoverable=False)
+    return index
+
+
+def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Move one audio instance on the global timeline without changing its source."""
+    index = _audio_clip_index(ir, target_id)
+    track = ir.audio[index]
+    try:
+        start = float(payload.get("start"))
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "move_audio_clip 需要数字 start") from exc
+    if not math.isfinite(start) or start < 0 or start >= float(ir.project.duration):
+        raise EditorError("INVALID_PARAMETER", "音频片段起点必须位于项目时间范围内")
+    ir.audio[index] = track.model_copy(update={"start": round(start, 3)})
+    key = f"audio:{track.type.value}:{index}"
+    return [key], [f"{key}:render"]
+
+
+def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Trim an audio instance by its source window and align that window on the timeline.
+
+    payload: {start, sourceIn, sourceOut}; output duration is derived from the source
+    window so the preview timeline and FFmpeg render consume the same interval.
+    """
+    index = _audio_clip_index(ir, target_id)
+    track = ir.audio[index]
+    try:
+        start = float(payload.get("start", track.start))
+        source_in = float(payload.get("sourceIn", payload.get("source_in", track.source_in or 0.0)))
+        source_out_raw = payload.get("sourceOut", payload.get("source_out"))
+        source_out = float(source_out_raw)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "trim_audio_clip 需要 start/sourceIn/sourceOut 数字") from exc
+    if not all(math.isfinite(value) for value in (start, source_in, source_out)):
+        raise EditorError("INVALID_PARAMETER", "音频裁剪参数必须是有限数字")
+    duration = source_out - source_in
+    if start < 0 or start >= float(ir.project.duration):
+        raise EditorError("INVALID_PARAMETER", "裁剪后的音频起点必须位于项目时间范围内")
+    if source_in < 0 or duration < 0.05:
+        raise EditorError("INVALID_SOURCE_RANGE", "音频源区间必须非负且至少 0.05 秒")
+    ir.audio[index] = track.model_copy(update={
+        "start": round(start, 3),
+        "source_in": round(source_in, 3),
+        "source_out": round(source_out, 3),
+        "duration": round(duration, 3),
+    })
+    key = f"audio:{track.type.value}:{index}"
+    return [key], [f"{key}:render"]
 
 
 def _cmd_set_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:

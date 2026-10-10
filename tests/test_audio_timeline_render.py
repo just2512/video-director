@@ -88,3 +88,39 @@ def test_muted_narration_is_not_mixed(tmp_path, monkeypatch):
     graph = calls[0][calls[0].index("-filter_complex") + 1]
     assert "[nar]" not in graph
     assert "[bgm0]" in graph
+
+
+
+def test_trimmed_audio_clips_render_from_their_source_window(tmp_path, monkeypatch):
+    """A user-trimmed BGM/SFX is source-seeked, not silently looped from zero."""
+    ir = _audio_composition()
+    ir.audio[1] = ir.audio[1].model_copy(update={
+        "start": 2.0, "duration": 3.0, "source_in": 1.0, "source_out": 4.0,
+    })
+    ir.audio[-1] = ir.audio[-1].model_copy(update={
+        "start": 5.0, "duration": 1.0, "source_in": 2.0, "source_out": 3.0,
+    })
+    calls = []
+    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer, "_run", lambda cmd: calls.append(list(cmd)))
+    monkeypatch.setattr(renderer.os, "remove", lambda _path: None)
+    assets = {
+        aid: SimpleNamespace(id=aid, type="audio", file=f"/fake/{aid}.wav")
+        for aid in ("bgm-one", "bgm-two", "ambience-one", "dialogue-one", "sfx-one")
+    }
+
+    renderer.mix_audio(
+        "visual.mp4", ir, assets, "/fake/narration.wav", str(tmp_path / "trimmed.mp4")
+    )
+    command = calls[0]
+    # The trimmed BGM input uses an explicit source window, rather than stream_loop.
+    bgm_pos = command.index("/fake/bgm-one.wav")
+    assert command[bgm_pos - 4:bgm_pos] == ["-ss", "1.000", "-t", "3.000"]
+    # The other, untrimmed BGM still loops, preserving the existing loop-by-default behavior.
+    assert command.count("-stream_loop") == 2  # bgm-two + ambience-one
+    # SFX likewise starts at the trimmed source offset.
+    sfx_pos = command.index("/fake/sfx-one.wav")
+    assert command[sfx_pos - 4:sfx_pos] == ["-ss", "2.000", "-t", "1.000"]
+    graph = command[command.index("-filter_complex") + 1]
+    assert "atrim=0:3.000,adelay=2000:all=1[bgm0]" in graph
+    assert "atrim=0:1.000,adelay=5000|5000[sfx0]" in graph

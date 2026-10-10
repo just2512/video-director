@@ -23,3 +23,25 @@
 #tl-snap-toggle.tl-switch-on, #tl-box-toggle.tl-switch-on {
   border-color:var(--accent);
 }
+
+
+/* Audio clips are editable objects: center drag moves; 8px edge zones trim source. */
+.ed-audio-clip {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.ed-audio-clip:active { cursor: grabbing; }
+.ed-audio-clip::before,
+.ed-audio-clip::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: color-mix(in srgb, currentColor 35%, transparent);
+  pointer-events: none;
+}
+.ed-audio-clip::before { left: 0; }
+.ed-audio-clip::after { right: 0; }
+.ed-audio-clip.tl-dragging { opacity: .78; }

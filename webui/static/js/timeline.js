@@ -198,6 +198,7 @@ function editorRenderTimeline(){
   box.innerHTML = renderPhysicalTimeline();
   _tlBindPlayheadDrag();
   _tlBindLayerDrag();
+  _tlBindAudioClipDrag();
   _tlBindSceneDrag();
   if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
   document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
@@ -221,7 +222,7 @@ function renderPhysicalTimeline(){
     clips: narration.map((n, i) => ({pct: n.pct, text: n.text, title: n.title,
       onclick: `selectNarration(${i})`}))});
   const dialogue = audioOf('dialogue');
-  tracks.language.push({id: 'dialogue', label: '对白', readOnly: true,
+  tracks.language.push({id: 'dialogue', label: '对白', readOnly: false,
     clips: dialogue.length ? [{pct: 100, text: '对白', title: '对白轨'}] : []});
   const hasSub = !!(c.subtitle_track && c.subtitle_track.cues && c.subtitle_track.cues.length);
   tracks.language.push({id: 'subtitle', label: '字幕', readOnly: false,
@@ -266,6 +267,7 @@ function renderPhysicalTimeline(){
       positioned: true, leftPct, pct, outOfRange: !inRange,
       text: label,
       title: `${label} · ${assetName} · ${start.toFixed(2)}–${end.toFixed(2)}s · ${gain}${edgeNote} · 点击打开该类型音轨设置`,
+      audioIndex: (c.audio || []).indexOf(a),
       onclick
     };
   };
@@ -313,7 +315,9 @@ function renderPhysicalTimeline(){
             ? `position:absolute;top:0;height:100%;left:${cl.leftPct}%;width:${cl.pct}%;`
             : `width:${cl.pct}%`;
           const outOfRangeClass = cl.outOfRange ? ' tl-out-of-range' : '';
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}" style="${style}"${cl.title ? ` title="${esc(cl.title)}"` : ''}${cl.onclick ? ` onclick="${cl.onclick}"` : ''}>${esc(cl.text)}</div>`;
+          const audioAttr = Number.isInteger(cl.audioIndex) && cl.audioIndex >= 0
+            ? ` data-audio-index="${cl.audioIndex}" aria-label="${esc(cl.text)}：拖动移动，边缘裁剪"` : '';
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${audioAttr ? ' ed-audio-clip' : ''}" style="${style}"${audioAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${cl.onclick ? ` onclick="${cl.onclick}"` : ''}>${esc(cl.text)}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
@@ -564,6 +568,146 @@ function _tlBindLayerDrag(){
     if (targetScene && targetScene.dataset.scene !== d.sceneId) {
       editorToast('未更改：当前分镜要求内部片段无缝铺满；跨分镜移动需要独立物理轨道，不能用重排分镜代替。', true);
     }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// §17 音频片段直接操作：拖动移动、左右边缘裁剪。
+// 所有持久化修改仍经 Editor Command / Revision；拖动期间只改当前 DOM 预览。
+let _audioClipDrag = null;
+let _audioClipSuppressClick = null;
+
+function _tlBindAudioClipDrag(){
+  document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]').forEach(el => {
+    el.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 || !ED.comp) return;
+      const index = Number.parseInt(el.dataset.audioIndex, 10);
+      const track = (ED.comp.audio || [])[index];
+      if (!track) return;
+      const rect = el.getBoundingClientRect();
+      const edge = Math.min(8, rect.width / 4);
+      const mode = ev.clientX - rect.left <= edge ? 'trim-left'
+        : rect.right - ev.clientX <= edge ? 'trim-right' : 'move';
+      _audioClipDrag = {
+        el, index, mode, startX: ev.clientX, moved: false,
+        start: Number(track.start) || 0,
+        duration: Number(track.duration) || 0,
+        sourceIn: Number(track.source_in) || 0,
+        // A missing source_out means a loop-to-duration track (typically BGM).
+        // First trim materializes its current window as an explicit source range.
+        sourceOut: track.source_out == null
+          ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
+          : Number(track.source_out),
+        baseLeft: Number.parseFloat(el.style.left) || 0,
+        baseWidth: Number.parseFloat(el.style.width) || 0,
+      };
+      try { el.setPointerCapture(ev.pointerId); } catch (_) {}
+    });
+  });
+  if (window.__tlAudioDragHandlers) return;
+  window.__tlAudioDragHandlers = true;
+
+  // Suppress the click handler only for the clip just dragged; a plain click still
+  // opens that track's existing inspector. A new pointerdown clears stale suppression.
+  document.addEventListener('pointerdown', () => {
+    if (!_audioClipDrag) _audioClipSuppressClick = null;
+  }, true);
+  document.addEventListener('click', ev => {
+    if (!_audioClipSuppressClick) return;
+    const hit = ev.target && ev.target.closest ? ev.target.closest('.ed-audio-clip') : null;
+    if (hit === _audioClipSuppressClick) {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      _audioClipSuppressClick = null;
+    }
+  }, true);
+
+  document.addEventListener('pointermove', ev => {
+    const d = _audioClipDrag;
+    if (!d || !d.el.isConnected) { _audioClipDrag = null; return; }
+    const dx = ev.clientX - d.startX;
+    if (Math.abs(dx) <= 8 && !d.moved) return;
+    d.moved = true;
+    d.el.classList.add('tl-dragging');
+    const body = d.el.closest('.ed-track-body');
+    const width = body ? body.getBoundingClientRect().width : 0;
+    if (width <= 0) return;
+    const deltaPct = dx / width * 100;
+    const minPct = Math.max(0.1, 0.05 / Math.max(0.01, ED.comp.duration || 1) * 100);
+    if (d.mode === 'move') {
+      d.el.style.left = (d.baseLeft + deltaPct) + '%';
+    } else if (d.mode === 'trim-left') {
+      d.el.style.left = (d.baseLeft + deltaPct) + '%';
+      d.el.style.width = Math.max(minPct, d.baseWidth - deltaPct) + '%';
+    } else {
+      d.el.style.width = Math.max(minPct, d.baseWidth + deltaPct) + '%';
+    }
+    d.el.title = d.mode === 'move' ? '松开以移动音频片段'
+      : (d.mode === 'trim-left' ? '松开以裁剪音频源起点' : '松开以裁剪音频源终点');
+  });
+
+  document.addEventListener('pointerup', ev => {
+    const d = _audioClipDrag;
+    if (!d) return;
+    _audioClipDrag = null;
+    d.el.classList.remove('tl-dragging');
+    if (!d.moved || !d.el.isConnected || !ED.comp) return;
+    _audioClipSuppressClick = d.el;
+    const body = d.el.closest('.ed-track-body');
+    const width = body ? body.getBoundingClientRect().width : 0;
+    if (width <= 0) { editorRenderTimeline(); return; }
+    const total = Number(ED.comp.duration) || 1;
+    const delta = (ev.clientX - d.startX) / width * total;
+    const round = value => Math.round(value * 1000) / 1000;
+    let command, payload;
+    if (d.mode === 'move') {
+      command = 'move_audio_clip';
+      payload = {start: round(Math.max(0, Math.min(total - 0.001, d.start + delta)))};
+    } else if (d.mode === 'trim-left') {
+      const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
+      const sourceIn = d.sourceIn + dt;
+      const sourceOut = d.sourceOut;
+      const start = d.start + dt;
+      if (sourceOut - sourceIn < 0.05) {
+        editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+        editorRenderTimeline();
+        return;
+      }
+      command = 'trim_audio_clip';
+      payload = {start: round(start), sourceIn: round(sourceIn), sourceOut: round(sourceOut)};
+    } else {
+      const dt = Math.max(delta, -(d.duration - 0.05));
+      const sourceIn = d.sourceIn;
+      const sourceOut = d.sourceOut + dt;
+      if (sourceOut - sourceIn < 0.05) {
+        editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+        editorRenderTimeline();
+        return;
+      }
+      command = 'trim_audio_clip';
+      payload = {start: round(d.start), sourceIn: round(sourceIn), sourceOut: round(sourceOut)};
+    }
+    editorToast(command === 'move_audio_clip' ? '正在移动音频片段……' : '正在裁剪音频源区间……');
+    executeCommand({command, targetId: 'audio#' + d.index, payload})
+      .then(result => {
+        if (result && result.ok) {
+          editorToast(command === 'move_audio_clip' ? '音频片段位置已更新' : '音频源区间已更新');
+          return refreshWorkspace();
+        }
+        editorToast('音频片段未修改：' + ((result && result.error) || '未知错误'), true);
+        editorRenderTimeline();
+      })
+      .catch(error => {
+        editorToast('音频片段未修改：' + (error.message || error), true);
+        editorRenderTimeline();
+      });
+  });
+
+  document.addEventListener('pointercancel', () => {
+    const d = _audioClipDrag;
+    if (!d) return;
+    _audioClipDrag = null;
+    if (d.el && d.el.isConnected) editorRenderTimeline();
   });
 }
 
