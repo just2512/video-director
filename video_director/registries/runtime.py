@@ -36,11 +36,18 @@ def template_runtime_report(template: Any) -> dict:
     warnings: List[dict] = []
     installed: Dict[str, bool] = {}
     ffmpeg = prober._resolve_ffmpeg()
+    ffprobe = prober._resolve_ffprobe()
     installed["ffmpeg"] = bool(ffmpeg)
+    installed["ffprobe"] = bool(ffprobe)
     if not ffmpeg:
         blockers.append({
             "code": "ENGINE_NOT_INSTALLED",
             "message": "未找到 FFmpeg；安装 FFmpeg 并确认 ffmpeg/ffprobe 可执行后重试。",
+        })
+    if not ffprobe:
+        blockers.append({
+            "code": "MEDIA_PROBE_MISSING",
+            "message": "未找到 ffprobe；无法核验输出 MP4 的视频流、尺寸和时长。",
         })
 
     required = list(getattr(template, "required_capabilities", ()) or ())
