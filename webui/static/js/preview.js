@@ -84,16 +84,19 @@ function previewSeek(sec){
 /** Step one output frame in the same preview/playhead clock used by the timeline. */
 function previewStepFrame(direction){
   if (!ED.comp) return;
+  const draftVideo = PV.mode === 'draft' ? document.querySelector('#ed-preview-stage video') : null;
+  const baseTime = draftVideo ? Number(draftVideo.currentTime) || 0 : Number(PV.playhead) || 0;
   previewPause();
   const fps = Math.max(1, Number((ED.comp.project || {}).fps) || 30);
   const lastFrame = Math.max(0, Math.round((Number(ED.comp.duration) || 0) * fps));
-  const currentFrame = Math.round((Number(PV.playhead) || 0) * fps);
+  const currentFrame = Math.round(baseTime * fps);
   const frame = Math.max(0, Math.min(lastFrame, currentFrame + (Number(direction) < 0 ? -1 : 1)));
   PV.playhead = frame / fps;
   if (PV.mode === 'draft') {
     const v = document.querySelector('#ed-preview-stage video');
     if (v) v.currentTime = PV.playhead;
-    if (typeof previewUpdateFrameLabel === 'function') previewUpdateFrameLabel();
+    const meta = document.getElementById('ed-preview-meta');
+    if (meta) meta.textContent = '草稿预览 · ' + PV.playhead.toFixed(2) + ' / ' + (ED.comp.duration || 0).toFixed(2) + 's';
     return;
   }
   PV.mode = 'live';
