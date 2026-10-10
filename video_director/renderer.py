@@ -700,6 +700,31 @@ def mix_audio(
 
 
 # ---------------------------------------------------------------------------
+# Overlay asset resolution
+# ---------------------------------------------------------------------------
+
+def _resolve_watermark_asset(wm, assets: Dict[str, AssetRef]):
+    """Resolve a watermark's project asset ID to its verified on-disk file.
+
+    WatermarkLayer.asset_id is an IR reference, not inherently a filesystem path.
+    Preserve backward compatibility for legacy records that already store a path,
+    but fail explicitly instead of silently dropping an unresolved image/logo.
+    """
+    if getattr(wm, "kind", "text") == "text":
+        return wm
+    asset_id = str(getattr(wm, "asset_id", "") or "").strip()
+    if not asset_id:
+        raise RenderError(f"覆盖层 {getattr(wm, 'id', '')} 缺少素材引用")
+    asset = assets.get(asset_id)
+    candidate = Path(asset.file) if asset is not None else Path(asset_id)
+    if not candidate.is_file():
+        raise RenderError(
+            f"覆盖层 {getattr(wm, 'id', '')} 的素材无法解析: {asset_id}"
+        )
+    return wm.model_copy(update={"asset_id": str(candidate.resolve())})
+
+
+# ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
 
@@ -841,8 +866,9 @@ def render_composition(
                                       anchor="bottom_right", opacity=0.75, scale=1.0))
     for i, wm in enumerate(wm_list):
         from video_director import title_engine
+        render_wm = _resolve_watermark_asset(wm, assets)
         wm_out = str(work_dir / f"final_watermark_{i}.mp4")
-        final_path = title_engine.render_watermark_layer(final_path, wm, wm_out)
+        final_path = title_engine.render_watermark_layer(final_path, render_wm, wm_out)
 
     return RenderResult(
         visual_path=visual_path,
