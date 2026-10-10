@@ -470,6 +470,9 @@ class AudioTrack(BaseModel):
     """
 
     type: AudioTrackType
+    # Optional stable ID preserves compatibility with existing project JSON while
+    # allowing individually selectable, undoable event clips (e.g. per-shot SFX).
+    id: Optional[str] = None
     asset_id: Optional[str] = None
     start: float = 0.0
     duration: float
