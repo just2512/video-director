@@ -460,6 +460,14 @@ class Handler(BaseHTTPRequestHandler):
         sample_id = _uuid.uuid4().hex
         sample_root = COMPOSER_ROOT / "template-samples"
         sample_root.mkdir(parents=True, exist_ok=True)
+        # Keep generated sample storage bounded; only artifacts older than 72 hours expire.
+        expiry = time.time() - 72 * 60 * 60
+        for stale in sample_root.glob("*.mp4"):
+            try:
+                if stale.stat().st_mtime < expiry:
+                    stale.unlink()
+            except OSError:
+                pass
         work_dir = sample_root / (sample_id + ".work")
         try:
             mp = _parse_multipart(self)
