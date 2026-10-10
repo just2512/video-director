@@ -8,6 +8,19 @@
 
 window.PV = {draftPath: '', finalPath: '', playhead: 0, pairMode: null, mode: 'live', playing: false, timer: null, activeSceneId: '', activeLayerId: ''};
 
+/** One playhead clock shared by the timeline, live preview, and rendered-draft preview. */
+function previewSyncTimelinePlayhead(sec){
+  if (!ED.comp) return;
+  const total = Math.max(0.001, Number(ED.comp.duration) || 1);
+  const at = Math.max(0, Math.min(total, Number(sec) || 0));
+  PV.playhead = at;
+  if (typeof PLAYHEAD !== 'undefined') PLAYHEAD.at = at;
+  const ph = document.getElementById('tl-playhead');
+  if (ph) ph.style.left = (at / total * 100) + '%';
+  const label = document.getElementById('tl-playhead-label');
+  if (label) label.textContent = at.toFixed(2) + 's';
+}
+
 /** 加载项目草稿/成片信息（顶栏「预览」与打开项目时调用）。 */
 async function previewLoadDraft(){
   if (!ED.pid) return {ok: false, error: '无项目'};
@@ -36,6 +49,12 @@ function previewShowVideo(path, label){
   if (PV.timer) { clearInterval(PV.timer); PV.timer = null; }
   PV.playing = false;
   stage.innerHTML = `<video controls src="/file?path=${encodeURIComponent(path)}"></video>`;
+  const draftVideo = stage.querySelector('video');
+  if (draftVideo) draftVideo.addEventListener('timeupdate', () => {
+    previewSyncTimelinePlayhead(draftVideo.currentTime);
+    if (meta) meta.textContent = '草稿预览 · ' + draftVideo.currentTime.toFixed(2) + ' / ' +
+      (ED.comp && ED.comp.duration || draftVideo.duration || 0).toFixed(2) + 's';
+  });
   if (meta) meta.textContent = label || ('草稿 · ' + path.split(/[\\/]/).pop());
   _previewApplyOverlay();
 }
@@ -72,7 +91,7 @@ function previewPause(){
 }
 function previewSeek(sec){
   if (!ED.comp || sec < 0) return;
-  PV.playhead = Math.min(sec, ED.comp.duration || sec);
+  previewSyncTimelinePlayhead(Math.min(sec, ED.comp.duration || sec));
   if (PV.mode === 'draft') {
     const v = document.querySelector('#ed-preview-stage video');
     if (v) v.currentTime = PV.playhead;
@@ -91,7 +110,7 @@ function previewStepFrame(direction){
   const lastFrame = Math.max(0, Math.round((Number(ED.comp.duration) || 0) * fps));
   const currentFrame = Math.round(baseTime * fps);
   const frame = Math.max(0, Math.min(lastFrame, currentFrame + (Number(direction) < 0 ? -1 : 1)));
-  PV.playhead = frame / fps;
+  previewSyncTimelinePlayhead(frame / fps);
   if (PV.mode === 'draft') {
     const v = document.querySelector('#ed-preview-stage video');
     if (v) v.currentTime = PV.playhead;
@@ -158,6 +177,7 @@ function _previewAsset(aid){
 }
 function _previewRenderAt(sec, keepPlaying){
   if (!ED.comp) return;
+  previewSyncTimelinePlayhead(sec);
   const stage = document.getElementById('ed-preview-stage');
   const meta = document.getElementById('ed-preview-meta');
   if (!stage) return;
@@ -257,6 +277,6 @@ function previewShowScenePair(fromId, toId){
 
 Object.assign(window, { previewRenderComposition, previewPlay, previewPause, previewSeek, 
   previewLoadDraft, previewShowVideo, previewPlay, previewPause, previewSeek,
-  previewShowSelectionOverlay, previewRenderPlaceholder, previewShowScenePair,
+  previewSyncTimelinePlayhead, previewShowSelectionOverlay, previewRenderPlaceholder, previewShowScenePair,
   previewStepFrame, PV,
 });
