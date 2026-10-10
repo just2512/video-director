@@ -315,9 +315,13 @@ function renderPhysicalTimeline(){
             ? `position:absolute;top:0;height:100%;left:${cl.leftPct}%;width:${cl.pct}%;`
             : `width:${cl.pct}%`;
           const outOfRangeClass = cl.outOfRange ? ' tl-out-of-range' : '';
-          const audioAttr = Number.isInteger(cl.audioIndex) && cl.audioIndex >= 0
-            ? ` data-audio-index="${cl.audioIndex}" aria-label="${esc(cl.text)}：拖动移动，边缘裁剪"` : '';
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${audioAttr ? ' ed-audio-clip' : ''}" style="${style}"${audioAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${cl.onclick ? ` onclick="${cl.onclick}"` : ''}>${esc(cl.text)}</div>`;
+          const hasAudioIndex = Number.isInteger(cl.audioIndex) && cl.audioIndex >= 0;
+          const audioAttr = hasAudioIndex
+            ? ` data-audio-index="${cl.audioIndex}" aria-label="${esc(cl.text)}：拖动移动，边缘裁剪；点击打开片段设置"` : '';
+          const clickAttr = hasAudioIndex
+            ? ` onclick="editorAudioClipOpen(${cl.audioIndex}, event)"`
+            : (cl.onclick ? ` onclick="${cl.onclick}"` : '');
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${hasAudioIndex ? ' ed-audio-clip' : ''}" style="${style}"${audioAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
@@ -576,6 +580,105 @@ function _tlBindLayerDrag(){
 // 所有持久化修改仍经 Editor Command / Revision；拖动期间只改当前 DOM 预览。
 let _audioClipDrag = null;
 let _audioClipSuppressClick = null;
+
+const _AUDIO_CLIP_CN = {
+  narration: '旁白', dialogue: '对白', original: '原声',
+  bgm: '背景音乐', ambience: '环境音', ambient: '环境音', sfx: '音效'
+};
+
+function editorAudioClipClose(){
+  const mask = document.getElementById('audio-clip-inspector-mask');
+  if (mask) mask.remove();
+}
+
+function editorAudioClipOpen(index, ev){
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  const clip = ED.comp && (ED.comp.audio || [])[index];
+  if (!clip) { editorToast('音频片段已变化，请重新选择', true); return; }
+  editorAudioClipClose();
+  const type = String(clip.type || '');
+  const asset = clip.asset_id && ED.comp.assets && ED.comp.assets[clip.asset_id];
+  const assetName = asset && (asset.name || (asset.file && asset.file.split(/[\\/]/).pop()))
+    || clip.asset_id || '未绑定素材';
+  const duration = Math.max(0.05, Number(clip.duration) || 0.05);
+  const fmt = value => Number(value || 0).toFixed(2);
+  const mask = document.createElement('div');
+  mask.id = 'audio-clip-inspector-mask';
+  mask.className = 'audio-clip-inspector-mask';
+  mask.innerHTML = `
+    <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="audio-clip-inspector-title">
+      <header>
+        <div>
+          <b id="audio-clip-inspector-title">${esc(_AUDIO_CLIP_CN[type] || type)} · 片段设置</b>
+          <div class="hint">${esc(assetName)} · ${fmt(clip.start)}–${fmt(Number(clip.start || 0) + duration)}s</div>
+        </div>
+        <button type="button" class="btn-secondary btn-sm" onclick="editorAudioClipClose()" aria-label="关闭音频片段设置">关闭</button>
+      </header>
+      <label for="audio-clip-volume">音量（0–200%）</label>
+      <div class="audio-clip-field-row">
+        <input id="audio-clip-volume" type="number" min="0" max="2" step="0.05" value="${Number(clip.volume ?? 1)}">
+        <span class="hint">当前 ${Math.round(Number(clip.volume ?? 1) * 100)}%</span>
+      </div>
+      <label for="audio-clip-fade-in">淡入（秒）</label>
+      <input id="audio-clip-fade-in" type="number" min="0" max="${duration}" step="0.05" value="${Number(clip.fadeIn ?? clip.fade_in ?? 0)}">
+      <label for="audio-clip-fade-out">淡出（秒）</label>
+      <input id="audio-clip-fade-out" type="number" min="0" max="${duration}" step="0.05" value="${Number(clip.fadeOut ?? clip.fade_out ?? 0)}">
+      <label class="audio-clip-check"><input id="audio-clip-muted" type="checkbox" ${clip.muted ? 'checked' : ''}> 静音此片段</label>
+      ${type === 'original' ? `<label class="audio-clip-check"><input id="audio-clip-ducking" type="checkbox" ${clip.ducking ? 'checked' : ''}> 旁白播放时压低原声</label>` : ''}
+      <footer>
+        <button type="button" class="btn-secondary" onclick="editorAudioClipClose()">取消</button>
+        <button type="button" class="btn-primary" onclick="editorAudioClipApply(${index})">保存片段设置</button>
+      </footer>
+    </section>`;
+  mask.addEventListener('click', event => {
+    if (event.target === mask) editorAudioClipClose();
+  });
+  document.body.appendChild(mask);
+  const first = mask.querySelector('#audio-clip-volume');
+  if (first) first.focus();
+}
+
+async function editorAudioClipApply(index){
+  const mask = document.getElementById('audio-clip-inspector-mask');
+  const clip = ED.comp && (ED.comp.audio || [])[index];
+  if (!mask || !clip) { editorAudioClipClose(); editorToast('音频片段已变化，请重新打开', true); return; }
+  const number = id => {
+    const node = mask.querySelector('#' + id);
+    return node ? Number(node.value) : NaN;
+  };
+  const volume = number('audio-clip-volume');
+  const fadeIn = number('audio-clip-fade-in');
+  const fadeOut = number('audio-clip-fade-out');
+  if (![volume, fadeIn, fadeOut].every(Number.isFinite)
+      || volume < 0 || volume > 2 || fadeIn < 0 || fadeOut < 0
+      || fadeIn > clip.duration || fadeOut > clip.duration) {
+    editorToast('参数无效：音量须为 0–200%，淡入/淡出不能超过片段时长', true);
+    return;
+  }
+  const payload = {
+    volume, fadeIn, fadeOut,
+    muted: !!mask.querySelector('#audio-clip-muted').checked,
+  };
+  const duck = mask.querySelector('#audio-clip-ducking');
+  if (duck) payload.ducking = !!duck.checked;
+  try {
+    editorToast('正在保存音频片段设置……');
+    const result = await executeCommand({
+      command: 'set_audio_clip_properties',
+      targetId: 'audio#' + index,
+      payload,
+    });
+    if (!result || !result.ok) {
+      editorToast('音频片段设置未保存：' + ((result && result.error) || '未知错误'), true);
+      return;
+    }
+    editorAudioClipClose();
+    editorToast('音频片段设置已保存');
+    await refreshWorkspace();
+  } catch (error) {
+    editorToast('音频片段设置未保存：' + (error.message || error), true);
+  }
+}
 
 function _tlBindAudioClipDrag(){
   document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]').forEach(el => {
@@ -909,6 +1012,7 @@ Object.assign(window, {
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
   editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer,
+  editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
   selectNarration, projectOverlayOpen, originalTrackOpen, bgmTrackOpen,
   editorUndo, editorRedo, editorSaveBar, editorPreviewBar, editorTopbarRefresh,
   versionDrawerToggle, projectDrawerToggle, editorLoadVersions,

@@ -96,3 +96,35 @@ def test_timeline_exposes_audio_clips_as_directly_editable_items():
     assert "move_audio_clip" in js
     assert "trim_audio_clip" in js
     assert ".ed-audio-clip::before" in css
+
+
+
+def test_set_audio_clip_properties_updates_only_the_selected_instance(tmp_path, monkeypatch):
+    pid, _plan_dir = _audio_project(tmp_path, monkeypatch)
+    result = _apply(pid, "set_audio_clip_properties", "audio#1", {
+        "volume": 0.25, "muted": True, "fadeIn": 0.2, "fadeOut": 0.4,
+    })
+    assert result.status == "APPLIED", result.errors
+    comp = load_composition(pid)
+    assert comp.audio[0].volume == 0.7 and comp.audio[0].muted is False
+    assert comp.audio[1].volume == 0.25 and comp.audio[1].muted is True
+    assert comp.audio[1].fadeIn == 0.2 and comp.audio[1].fadeOut == 0.4
+
+
+def test_set_audio_clip_properties_rejects_nonfinite_or_out_of_range_values(tmp_path, monkeypatch):
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    result = _apply(pid, "set_audio_clip_properties", "audio#1", {"volume": 2.1})
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "INVALID_PARAMETER"
+    assert load_composition(pid).audio[1].volume == 0.9
+    revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert revisions == []
+
+
+def test_audio_clip_inspector_is_connected_to_per_instance_command():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
+    assert "editorAudioClipOpen" in js
+    assert "set_audio_clip_properties" in js
+    assert "audio-clip-muted" in js and "audio-clip-fade-in" in js

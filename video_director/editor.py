@@ -307,6 +307,7 @@ SUPPORTED_COMMANDS = (
     "set_transform",             # 层静态变换（scale/opacity，§20）
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
+    "set_audio_clip_properties", # §17 独立音频片段混音/淡入淡出
     "set_audio_volume",          # 音轨音量（§20 / §37 Audio Bus gain）
     "set_audio_mute",            # §37 Audio Bus：轨级静音（mute 一等操作）
     "set_audio_fade",            # §37 Audio Bus：轨级淡入/淡出秒数
@@ -434,6 +435,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_move_audio_clip(ir, target_id, payload)
         elif cmd_name == "trim_audio_clip":
             changed, stale = _cmd_trim_audio_clip(ir, target_id, payload)
+        elif cmd_name == "set_audio_clip_properties":
+            changed, stale = _cmd_set_audio_clip_properties(ir, target_id, payload)
         elif cmd_name == "set_audio_volume":
             changed, stale = _cmd_set_audio_volume(ir, target_id, payload)
         elif cmd_name == "set_audio_mute":
@@ -1178,6 +1181,55 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
         "source_out": round(source_out, 3),
         "duration": round(duration, 3),
     })
+    key = f"audio:{track.type.value}:{index}"
+    return [key], [f"{key}:render"]
+
+
+def _cmd_set_audio_clip_properties(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Edit one AudioTrack instance; unlike Audio Bus commands, never fans out by type."""
+    index = _audio_clip_index(ir, target_id)
+    track = ir.audio[index]
+    allowed = {"volume", "muted", "fadeIn", "fadeOut", "ducking"}
+    unknown = set(payload) - allowed
+    if unknown:
+        raise EditorError("INVALID_PAYLOAD", f"音频片段属性不支持：{', '.join(sorted(unknown))}")
+    if not payload:
+        raise EditorError("INVALID_PAYLOAD", "至少需要一项音频片段属性")
+    update = {}
+    if "volume" in payload:
+        raw = payload["volume"]
+        if isinstance(raw, bool):
+            raise EditorError("INVALID_PARAMETER", "音量必须是 0–2 的数字")
+        try:
+            volume = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PARAMETER", "音量必须是 0–2 的数字") from exc
+        if not math.isfinite(volume) or not 0.0 <= volume <= 2.0:
+            raise EditorError("INVALID_PARAMETER", "音量范围为 0–2")
+        update["volume"] = volume
+    for key in ("fadeIn", "fadeOut"):
+        if key not in payload:
+            continue
+        raw = payload[key]
+        if isinstance(raw, bool):
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是非负秒数")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是非负秒数") from exc
+        if not math.isfinite(value) or value < 0 or value > float(track.duration):
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须在 0 到片段时长 {track.duration:.3f}s 之间")
+        update[key] = value
+    for key in ("muted", "ducking"):
+        if key not in payload:
+            continue
+        value = payload[key]
+        if not isinstance(value, bool):
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须为布尔值")
+        if key == "ducking" and track.type.value != "original":
+            raise EditorError("INVALID_PARAMETER", "只有原声音轨支持此处的旁白闪避开关")
+        update[key] = value
+    ir.audio[index] = track.model_copy(update=update)
     key = f"audio:{track.type.value}:{index}"
     return [key], [f"{key}:render"]
 
