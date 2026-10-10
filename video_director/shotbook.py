@@ -111,7 +111,7 @@ def _read_plan(path: Path) -> dict | None:
 def _atomic_json_write(path: Path, value: dict) -> None:
     tmp = path.with_name(path.name + f".{os.getpid()}.{time.time_ns()}.tmp")
     try:
-        with tmp.open("w", encoding="utf-8", newline="\\n") as handle:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(value, ensure_ascii=False, indent=2))
             handle.flush()
             os.fsync(handle.fileno())
