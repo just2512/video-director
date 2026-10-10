@@ -306,10 +306,19 @@ def render_watermark_layer(
         x_expr, y_expr = _anchor_xy(anchor, w, h, margin)
         # opacity → fontcolor alpha（§19 opacity 字段语义）
         alpha_hex = f"{int(opacity * 255):02x}"
+        # The overlay must follow the timeline interval stored in WatermarkLayer.
+        # Without enable, a timed overlay is silently rendered for the entire video.
+        start = max(0.0, float(getattr(wm, "start", 0.0) or 0.0))
+        duration = getattr(wm, "duration", None)
+        if duration is not None:
+            end = max(start, start + float(duration))
+            enable = f":enable='between(t,{start:.3f},{end:.3f})'"
+        else:
+            enable = f":enable='gte(t,{start:.3f})'" if start > 0 else ""
         draw = (
             f"drawtext=fontfile='{esc_font}':text='{_esc_drawtext(text)}'"
             f":fontsize={size}:fontcolor=white@{alpha_hex}"
-            f":x={x_expr}:y={y_expr}"
+            f":x={x_expr}:y={y_expr}{enable}"
         )
     else:
         # image/logo 水印：overlay 一张项目素材图
@@ -335,9 +344,18 @@ def render_watermark_layer(
             ox, oy = (w - ow) // 2, (h - ow) // 2
         else:
             ox, oy = w - ow - xm, h - (ow * 9 // 16) - ym
+        # The video overlay is a time-ranged timeline clip too. Apply the same
+        # visibility contract as text, rather than burning logos in for the full clip.
+        start = max(0.0, float(getattr(wm, "start", 0.0) or 0.0))
+        duration = getattr(wm, "duration", None)
+        if duration is not None:
+            end = max(start, start + float(duration))
+            enable = f":enable='between(t,{start:.3f},{end:.3f})'"
+        else:
+            enable = f":enable='gte(t,{start:.3f})'" if start > 0 else ""
         draw = (
             f"[1:v]scale={ow}:-1,format=rgba[wm];"
-            f"[0:v][wm]overlay={ox}:{oy}:alpha={opacity:.2f}"
+            f"[0:v][wm]overlay={ox}:{oy}:alpha={opacity:.2f}{enable}"
         )
         cmd = [
             ff, "-y", "-loglevel", "error",
