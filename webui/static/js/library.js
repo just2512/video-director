@@ -475,6 +475,7 @@ async function renderTemplateSample(tid){
 
 async function instantiateTemplate(tid){
   const t = TPLS.find(x=>x.id===tid);
+  if (!t) { editorToast('模板不存在，请刷新模板清单', true); return; }
   const slotValues = {};
   for (const s of t.slots) {
     const el = document.getElementById('tpl-slot-' + s.id);
@@ -484,6 +485,7 @@ async function instantiateTemplate(tid){
   }
   const fd = new FormData();
   fd.append('template_id', tid);
+  fd.append('template_version', t.version);
   fd.append('ratio', document.getElementById('tpl-ratio').value);
   fd.append('slot_values_json', JSON.stringify(slotValues));
   for (const s of t.slots) {
