@@ -115,12 +115,12 @@ def test_trimmed_audio_clips_render_from_their_source_window(tmp_path, monkeypat
     command = calls[0]
     # The trimmed BGM input uses an explicit source window, rather than stream_loop.
     bgm_pos = command.index("/fake/bgm-one.wav")
-    assert command[bgm_pos - 4:bgm_pos] == ["-ss", "1.000", "-t", "3.000"]
+    assert command[bgm_pos - 5:bgm_pos] == ["-ss", "1.000", "-t", "3.000", "-i"]
     # The other, untrimmed BGM still loops, preserving the existing loop-by-default behavior.
     assert command.count("-stream_loop") == 2  # bgm-two + ambience-one
     # SFX likewise starts at the trimmed source offset.
     sfx_pos = command.index("/fake/sfx-one.wav")
-    assert command[sfx_pos - 4:sfx_pos] == ["-ss", "2.000", "-t", "1.000"]
+    assert command[sfx_pos - 5:sfx_pos] == ["-ss", "2.000", "-t", "1.000", "-i"]
     graph = command[command.index("-filter_complex") + 1]
     assert "atrim=0:3.000,adelay=2000:all=1[bgm0]" in graph
     assert "atrim=0:1.000,adelay=5000|5000[sfx0]" in graph
