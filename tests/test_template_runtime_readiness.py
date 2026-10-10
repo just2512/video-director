@@ -6,6 +6,7 @@ this catches required slots that disappear during template compilation.
 from __future__ import annotations
 
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -124,6 +125,24 @@ def test_template_runtime_blocks_missing_engine_dependency(monkeypatch):
     assert report["status"] == "BLOCKED"
     assert report["can_instantiate"] is False
     assert {"ENGINE_NOT_INSTALLED", "MEDIA_PROBE_MISSING", "TEXT_FONT_MISSING"} <= codes
+
+
+def test_template_runtime_blocks_a_required_slot_that_is_not_used():
+    template = TemplateRegistry().get("tpl.minimal-editorial", "1.0.0")
+    orphan = replace(
+        template.slots[0], id="unreferenced_required_copy",
+        label="未绑定必填文案", required=True,
+    )
+    broken = replace(template, slots=template.slots + (orphan,))
+
+    report = template_runtime_report(broken)
+
+    assert report["status"] == "BLOCKED"
+    assert any(
+        item["code"] == "REQUIRED_SLOT_UNUSED"
+        and item["slot_id"] == "unreferenced_required_copy"
+        for item in report["blockers"]
+    )
 
 
 def test_style_registry_metadata_is_not_mislabeled_as_executable_pack():
