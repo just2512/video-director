@@ -583,10 +583,19 @@ def mix_audio(
         if not asset:
             continue
         track_start = max(0.0, float(track.start or 0.0))
-        clip_duration = min(float(track.duration), max(0.0, total - track_start))
+        remaining = max(0.0, total - track_start)
+        src_in = max(0.0, float(getattr(track, "source_in", 0.0) or 0.0))
+        src_out = getattr(track, "source_out", None)
+        has_source_window = src_in > 0 or src_out is not None
+        source_span = max(0.0, float(src_out) - src_in) if src_out is not None else float(track.duration)
+        clip_duration = min(float(track.duration), source_span, remaining)
         if clip_duration <= 0.01:
             continue
-        inputs += ["-stream_loop", "-1", "-i", asset.file]
+        if has_source_window:
+            inputs += ["-ss", f"{src_in:.3f}", "-t", f"{clip_duration:.3f}", "-i", asset.file]
+        else:
+            # Default BGM/ambience loops to its requested timeline duration.
+            inputs += ["-stream_loop", "-1", "-i", asset.file]
         duck_db = config.DUCKING_DB if (narration_file and track.type == AudioTrackType.bgm) else 0.0
         chain = (
             f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
@@ -622,10 +631,17 @@ def mix_audio(
         if asset is None:
             continue
         track_start = max(0.0, float(track.start or 0.0))
-        clip_duration = min(float(track.duration), max(0.0, total - track_start))
+        remaining = max(0.0, total - track_start)
+        src_in = max(0.0, float(getattr(track, "source_in", 0.0) or 0.0))
+        src_out = getattr(track, "source_out", None)
+        source_span = max(0.0, float(src_out) - src_in) if src_out is not None else float(track.duration)
+        clip_duration = min(float(track.duration), source_span, remaining)
         if clip_duration <= 0.01:
             continue
-        inputs += ["-i", asset.file]
+        if src_in > 0 or src_out is not None:
+            inputs += ["-ss", f"{src_in:.3f}", "-t", f"{clip_duration:.3f}", "-i", asset.file]
+        else:
+            inputs += ["-i", asset.file]
         chain = (
             f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
             f"{gain_filter(track.volume)},atrim=0:{clip_duration:.3f}"

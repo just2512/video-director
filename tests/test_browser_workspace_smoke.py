@@ -159,6 +159,93 @@ def test_chromium_loads_unified_editor_workspace():
                 assert geometry["sfx"]["left"] == "70%" and geometry["sfx"]["width"] == "10%"
                 assert geometry["ambience"]["left"] == "60%" and geometry["ambience"]["width"] == "10%"
                 assert geometry["broll"]["left"] == "80%" and geometry["broll"]["width"] == "20%"
+
+                # Real DOM pointer interaction: moving and trimming audio clips must
+                # dispatch versioned Editor Commands rather than only changing CSS.
+                setup = page.evaluate("""() => {
+                    const pane = document.getElementById('pane-editor');
+                    const body = document.getElementById('editor-body');
+                    pane.style.display = '';
+                    body.style.display = '';
+                    ED.pid = 'browser-audio-test';
+                    ED.version = 1;
+                    ED.zoom = 1;
+                    ED.timelineView = 'time';
+                    PLAYHEAD.at = 0;
+                    Object.values(TL_GROUPS).forEach(group => { group.open = true; });
+                    ED.comp = {
+                        duration: 10, version: 1,
+                        project: {fps: 30, duration: 10},
+                        scenes: [{id: 'S01', start: 0, duration: 10, text: 'Audio interaction',
+                                  layers: [{type: 'image', asset_id: 'img', start: 0, duration: 10}]}],
+                        assets: {
+                            img: {name: 'Still', file: 'still.jpg'},
+                            'bgm-1': {name: 'Music', file: 'music.wav'},
+                            'sfx-1': {name: 'Impact', file: 'impact.wav'}
+                        },
+                        audio: [
+                            {type: 'bgm', asset_id: 'bgm-1', start: 3, duration: 2, volume: 0.5},
+                            {type: 'sfx', asset_id: 'sfx-1', start: 7, duration: 1, volume: 0.4}
+                        ],
+                        watermarks: [], subtitle_track: {mode: 'word', cues: []}
+                    };
+                    editorRenderTimeline();
+                    const clips = [...document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]')];
+                    return {count: clips.length, firstIndex: clips[0] && clips[0].dataset.audioIndex};
+                }""")
+                assert setup["count"] == 2 and setup["firstIndex"] == "0"
+
+                captured_commands = []
+                def capture_editor_command(route):
+                    captured_commands.append(route.request.post_data_json)
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body='{"ok":false,"status":"REJECTED","error":"intentional browser test interception"}',
+                    )
+                page.route("**/api/editor/command", capture_editor_command)
+
+                audio_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
+                # The timeline lives below the fold in this full-workspace browser test.
+                # Playwright's mouse API sends page coordinates; never click a valid but
+                # off-viewport bounding box (which can be > viewport height).
+                audio_clip.scroll_into_view_if_needed()
+                move_box = audio_clip.bounding_box()
+                assert move_box and move_box["width"] > 16 and move_box["height"] > 0
+                viewport_height = page.viewport_size["height"]
+                assert 0 <= move_box["y"] and move_box["y"] + move_box["height"] <= viewport_height, (
+                    f"audio move target must be inside viewport: box={move_box}, viewport={page.viewport_size}"
+                )
+                page.mouse.move(move_box["x"] + move_box["width"] / 2, move_box["y"] + move_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2 + 40,
+                                move_box["y"] + move_box["height"] / 2, steps=4)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                moved = next((c for c in captured_commands if c.get("command") == "move_audio_clip"), None)
+                assert moved is not None, "pointer drag did not POST move_audio_clip to the real Editor Command endpoint"
+                assert moved["targetId"] == "audio#0"
+                assert moved["payload"]["start"] > 3
+
+                captured_commands.clear()
+                page.evaluate("editorRenderTimeline()")
+                trim_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
+                trim_clip.scroll_into_view_if_needed()
+                trim_box = trim_clip.bounding_box()
+                assert trim_box and trim_box["width"] > 16
+                assert 0 <= trim_box["y"] and trim_box["y"] + trim_box["height"] <= viewport_height, (
+                    f"audio trim target must be inside viewport: box={trim_box}, viewport={page.viewport_size}"
+                )
+                page.mouse.move(trim_box["x"] + trim_box["width"] - 1, trim_box["y"] + trim_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(trim_box["x"] + trim_box["width"] - 31,
+                                trim_box["y"] + trim_box["height"] / 2, steps=4)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                trimmed = next((c for c in captured_commands if c.get("command") == "trim_audio_clip"), None)
+                assert trimmed is not None, "pointer edge trim did not POST trim_audio_clip to the real Editor Command endpoint"
+                assert trimmed["targetId"] == "audio#0"
+                assert trimmed["payload"]["sourceOut"] < 2
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise
