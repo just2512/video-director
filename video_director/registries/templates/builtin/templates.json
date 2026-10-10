@@ -114,7 +114,7 @@
      {
       "id": "caption",
       "type": "text",
-      "slot_id": "subtitle",
+      "slot_id": "body_text",
       "motion_recipe_id": "motion.fade-slide"
      }
     ]
@@ -232,6 +232,12 @@
       "type": "image",
       "slot_id": "product_image",
       "motion_recipe_id": "motion.spotlight-focus"
+     },
+     {
+      "id": "brand",
+      "type": "text",
+      "slot_id": "brand_name",
+      "motion_recipe_id": "motion.fade-slide"
      }
     ]
    },
@@ -342,7 +348,7 @@
     "id": "hero_image",
     "label": "配图",
     "type": "image",
-    "required": false,
+    "required": true,
     "editable": true
    }
   ],
