@@ -55,6 +55,18 @@ def _persist_narration_timing(dirs: dict, source: str, words: List[dict],
         "duration": round(float(duration), 3) if duration is not None else None,
         "word_timeline": words or [],
     }
+    # The Shotbook alignment fingerprint follows the actual audio file, not just
+    # timestamps. Never stamp an absent or estimated audio path as verified.
+    audio_dir = dirs.get("audio")
+    if audio_dir:
+        candidates = [Path(audio_dir) / name for name in (
+            "narration.mp3", "narration.wav", "voice.mp3", "voice.wav",
+        )]
+        audio_file = next((item for item in candidates if item.is_file() and item.stat().st_size), None)
+        if audio_file:
+            payload["audio_path"] = str(audio_file.resolve())
+            payload["audio_size"] = audio_file.stat().st_size
+            payload["audio_mtime_ns"] = audio_file.stat().st_mtime_ns
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
