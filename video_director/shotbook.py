@@ -5,6 +5,7 @@ The only operation that changes the actual timeline is the existing Editor Comma
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -440,17 +441,41 @@ def get_project_shotbook(project_id: str) -> dict:
     path = _plan_path(pid)
     previous = _read_plan(path)
     timing = _read_json(_timing_path(pid), {"source": "missing", "word_timeline": []})
+    source = str(timing.get("source") or "missing")
+    fingerprint = timing.get("audio_fingerprint") or {}
+    # Legacy timing sidecars are not assumed to match the current narration bytes.
+    # If the audio changed, discard word-level alignment instead of presenting stale anchors.
+    if source not in ("missing",) and fingerprint.get("status") == "VERIFIED":
+        audio_path = config.project_dir(pid) / "audio" / "narration.mp3"
+        if not audio_path.is_file():
+            source = "stale"
+        else:
+            digest = hashlib.sha256()
+            with audio_path.open("rb") as audio_file:
+                for chunk in iter(lambda: audio_file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != fingerprint.get("sha256"):
+                source = "stale"
+    elif source not in ("missing",):
+        source = "unverified"
+    if source in ("stale", "unverified"):
+        timing = {**timing, "source": source, "word_timeline": []}
     shots = _build_rows(ir, timing, previous)
     recipes = _recipes()
-    source = str(timing.get("source") or "missing")
     return {
         "ok": True, "project_id": pid, "schema_version": SCHEMA_VERSION,
         "version": int((previous or {}).get("version") or 0),
         "saved": bool(previous), "shots": shots, "recipes": recipes, "motions": _motion_recipes(),
         "gates": _gates(shots, recipes, source), "timing_source": source,
-        "timing_note": ("ASR 词时间可用，但词内字符时间由插值估算。"
-                        if source == "asr" else
-                        "未保存可用的原生词边界；当前字时间仅是按场景区间估算。"),
+        "timing_note": (
+            "旁白文件与对齐指纹不一致；已停用旧词时间，避免字幕/字级锚点错位。请重新分析旁白。"
+            if source == "stale" else
+            "旧版对齐数据缺少音频指纹，无法证明它对应当前旁白；已降级为场景时间估算。重新分析旁白可恢复对齐。"
+            if source == "unverified" else
+            "ASR 词时间可用，但词内字符时间由插值估算。"
+            if source == "asr" else
+            "未保存可用的原生词边界；当前字时间仅是按场景区间估算。"
+        ),
     }
 
 
