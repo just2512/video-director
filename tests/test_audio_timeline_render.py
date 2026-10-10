@@ -123,4 +123,7 @@ def test_trimmed_audio_clips_render_from_their_source_window(tmp_path, monkeypat
     assert command[sfx_pos - 5:sfx_pos] == ["-ss", "2.000", "-t", "1.000", "-i"]
     graph = command[command.index("-filter_complex") + 1]
     assert "atrim=0:3.000,adelay=2000:all=1[bgm0]" in graph
-    assert "atrim=0:1.000,adelay=5000|5000[sfx0]" in graph
+    assert "atrim=0:1.000" in graph
+    # Existing test fixture carries a 0.1 s fade-out, so the adelay filter
+    # follows the fade rather than being adjacent to atrim.
+    assert "adelay=5000|5000[sfx0]" in graph
