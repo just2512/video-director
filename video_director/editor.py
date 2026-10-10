@@ -15,6 +15,7 @@ Revision 持久化：storage/composer/<pid>/plans/revisions.jsonl 逐条追加�
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import uuid
@@ -290,6 +291,8 @@ def _record_behavior_if_applicable(cmd_name: str, command: dict) -> None:
 SUPPORTED_COMMANDS = (
     "select",                    # 无副作用（前端选择态，服务端不记 revision）
     "trim",                      # layer 时长调整（视频层 source 区间变化）
+    "split_layer",               # 在播放头切分当前视觉片段
+    "reorder_layer",             # 场景内部视觉片段重排
     "split",                     # 场景在比例点分裂为两场景
     "move",                      # 场景重排
     "delete",                    # 删场景/层
@@ -405,6 +408,10 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_replace_source(ir, target_id, payload)
         elif cmd_name == "trim":
             changed, stale = _cmd_trim(ir, target_id, payload)
+        elif cmd_name == "split_layer":
+            changed, stale = _cmd_split_layer(ir, target_id, payload)
+        elif cmd_name == "reorder_layer":
+            changed, stale = _cmd_reorder_layer(ir, target_id, payload)
         elif cmd_name == "split":
             changed, stale = _cmd_split(ir, target_id, payload)
         elif cmd_name == "move":
@@ -659,24 +666,141 @@ def _cmd_replace_source(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
 
 
+def _find_layer_with_scene_index(ir: CompositionIR, target_id: str) -> Tuple[int, SceneIR, int, Layer]:
+    """Like _find_layer, returning scene and layer indexes for stable edits."""
+    if "#" not in target_id:
+        raise EditorError("INVALID_TARGET", f"layer targetId 需为 '<scene>#<index>' 格式: {target_id}")
+    scene_id, index_text = target_id.rsplit("#", 1)
+    si = next((i for i, item in enumerate(ir.scenes) if item.id == scene_id), -1)
+    if si < 0:
+        raise EditorError("NOT_FOUND", f"场景 {scene_id} 不存在", recoverable=False)
+    try:
+        idx = int(index_text)
+    except ValueError as exc:
+        raise EditorError("INVALID_TARGET", f"layer index 非数值: {target_id}") from exc
+    scene = ir.scenes[si]
+    if idx < 0 or idx >= len(scene.layers):
+        raise EditorError("NOT_FOUND", f"层 {target_id} 不存在", recoverable=False)
+    return si, scene, idx, scene.layers[idx]
+
+
+def _cmd_reorder_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Reorder sequential visual segments inside their current scene.
+
+    SceneIR currently requires layers to cover the scene contiguously. Cross-scene
+    drag is rejected in the UI instead of silently invoking the scene-reorder command.
+    """
+    si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    try:
+        to_index = int(payload.get("toIndex", payload.get("targetIndex")))
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "reorder_layer 需要整数 toIndex") from exc
+    if to_index < 0 or to_index >= len(scene.layers):
+        raise EditorError("INVALID_PAYLOAD", f"图层目标位置 {to_index} 越界")
+    if to_index == idx:
+        raise EditorError("NOOP", "图层已经位于目标位置")
+    layers = list(scene.layers)
+    layers.insert(to_index, layers.pop(idx))
+    cursor = 0.0
+    normalized = []
+    for item in layers:
+        normalized.append(item.model_copy(update={"start": round(cursor, 6)}))
+        cursor += float(item.duration)
+    scene_data = scene.model_dump()
+    scene_data["layers"] = [item.model_dump() for item in normalized]
+    ir.scenes[si] = SceneIR(**scene_data)
+    return [f"{scene.id}#{to_index}"], _stale_of_scene(project_id="", scene_id=scene.id)
+
+
+def _cmd_split_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Split one visual segment at an absolute timeline time, preserving source spans."""
+    si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    try:
+        at = float(payload.get("at"))
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "split_layer 需要播放头绝对时间 at") from exc
+    if not math.isfinite(at):
+        raise EditorError("INVALID_PAYLOAD", "切分时间必须是有限数字")
+    layer_start = float(scene.start) + float(layer.start)
+    offset = at - layer_start
+    min_piece = max(0.05, 1.0 / max(1, int(ir.project.fps)))
+    if offset <= min_piece or layer.duration - offset <= min_piece:
+        raise EditorError(
+            "SPLIT_OUTSIDE_CLIP",
+            f"播放头必须位于图层内部至少 {min_piece:.3f}s；当前片段 {layer_start:.3f}–{layer_start + layer.duration:.3f}s",
+        )
+    if layer.type == LayerType.video:
+        source_cut = float(layer.source_in) + offset * float(layer.speed)
+        if layer.source_out is None or not (layer.source_in < source_cut < layer.source_out):
+            raise EditorError("INVALID_SOURCE_RANGE", "切分点超出视频素材源区间")
+        left = layer.model_copy(update={"duration": offset, "source_out": source_cut})
+        right = layer.model_copy(update={
+            "start": layer.start + offset,
+            "duration": layer.duration - offset,
+            "source_in": source_cut,
+        })
+    else:
+        left = layer.model_copy(update={"duration": offset})
+        right = layer.model_copy(update={
+            "start": layer.start + offset,
+            "duration": layer.duration - offset,
+        })
+    layers = list(scene.layers)
+    layers[idx:idx + 1] = [left, right]
+    cursor = 0.0
+    normalized = []
+    for item in layers:
+        normalized.append(item.model_copy(update={"start": round(cursor, 6)}))
+        cursor += float(item.duration)
+    scene_data = scene.model_dump()
+    scene_data["layers"] = [item.model_dump() for item in normalized]
+    ir.scenes[si] = SceneIR(**scene_data)
+    return [f"{scene.id}#{idx}", f"{scene.id}#{idx + 1}"], _stale_of_scene(project_id="", scene_id=scene.id)
+
+
 def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """trim 层：视频层改 source 区间（in/out），时长联动。"""
-    scene, idx, layer = _find_layer(ir, target_id)
+    """Trim source bounds and ripple the following segment sequence.
+
+    The persisted SceneIR contract requires contiguous layers. The changed duration
+    is therefore propagated through following segments and the owning scene instead
+    of saving a Composition that fails validation on the next read.
+    """
+    si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
     _ensure_layer_unlocked(layer)
     if layer.type != LayerType.video:
-        raise EditorError("INVALID_TARGET", f"trim 仅支持 video 层（image 用 set_duration）")
-    new_in = float(payload.get("sourceIn", layer.source_in))
-    new_out = float(payload.get("sourceOut", layer.source_out))
-    if new_out <= new_in:
-        raise EditorError("INVALID_PAYLOAD", f"trim 区间非法: {new_in} >= {new_out}")
-    span = new_out - new_in
-    updated = layer.model_copy(update={
-        "source_in": new_in, "source_out": new_out,
-        "duration": span / layer.speed,
+        raise EditorError("INVALID_TARGET", "trim 仅支持 video 层")
+    try:
+        new_in = float(payload.get("sourceIn", layer.source_in))
+        new_out = float(payload.get("sourceOut", layer.source_out))
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "trim 的 sourceIn/sourceOut 必须是数字") from exc
+    if not (math.isfinite(new_in) and math.isfinite(new_out) and new_in >= 0 and new_out > new_in):
+        raise EditorError("INVALID_PAYLOAD", f"trim 区间非法: {new_in}–{new_out}")
+    new_duration = (new_out - new_in) / float(layer.speed)
+    if not math.isfinite(new_duration) or new_duration <= 0.05:
+        raise EditorError("INVALID_PAYLOAD", "裁剪后片段必须大于 0.05 秒")
+    delta = new_duration - float(layer.duration)
+    new_scene_duration = float(scene.duration) + delta
+    if new_scene_duration <= 0.3:
+        raise EditorError("INVALID_PAYLOAD", "裁剪后场景时长不能小于 0.3 秒")
+    layers = list(scene.layers)
+    layers[idx] = layer.model_copy(update={
+        "source_in": new_in, "source_out": new_out, "duration": new_duration,
     })
-    scene.layers[idx] = updated
-    layer_id = f"{scene.id}#{idx}"
-    return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+    for j in range(idx + 1, len(layers)):
+        layers[j] = layers[j].model_copy(update={"start": float(layers[j].start) + delta})
+    scene_data = scene.model_dump()
+    scene_data["duration"] = new_scene_duration
+    scene_data["layers"] = [item.model_dump() for item in layers]
+    ir.scenes[si] = SceneIR(**scene_data)
+    _renumber_starts(ir)
+    _rescale_total(ir)
+    _resync_audio_to_scenes(ir)
+    return [f"{scene.id}#{idx}"], _stale_of_scene(project_id="", scene_id=scene.id)
+
+
 
 
 def _cmd_split(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:

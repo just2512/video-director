@@ -512,17 +512,27 @@ function _tlBindLayerDrag(){
         });
       return;
     }
-    // move：找松手落点场景
-    const scenes = [...document.querySelectorAll('#editor-timeline .ed-scene')];
-    const target = scenes.find(scEl => {
-      const r = scEl.getBoundingClientRect();
-      return ev.clientX >= r.left && ev.clientX <= r.right;
-    });
-    if (!target || target.dataset.scene === d.sceneId) return;
-    const toIdx = ED.comp.scenes.findIndex(s => s.id === target.dataset.scene);
-    if (toIdx < 0) return;
-    editorToast(`正在把场景 ${d.sceneId} 移到第 ${toIdx + 1} 位……`);
-    editorCmd('move', {toIndex: toIdx}, d.sceneId, true);
+    // A layer drag must never invoke the scene-reorder command.
+    // Same-scene drop reorders visual segments; cross-scene drop is explicitly rejected.
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+    const targetLayer = hit && hit.closest ? hit.closest('#editor-timeline .ed-layer') : null;
+    if (targetLayer && targetLayer.dataset.scene === d.sceneId) {
+      const targetIdx = Number.parseInt(targetLayer.dataset.idx, 10);
+      const rect = targetLayer.getBoundingClientRect();
+      let toIndex = targetIdx + (ev.clientY > rect.top + rect.height / 2 ? 1 : 0);
+      if (d.idx < toIndex) toIndex -= 1;
+      const scene = ED.comp.scenes.find(s => s.id === d.sceneId);
+      toIndex = Math.max(0, Math.min(toIndex, scene ? scene.layers.length - 1 : 0));
+      if (toIndex === d.idx) return;
+      editorToast('正在调整片段顺序……');
+      editorCmd('reorder_layer', {toIndex}, `${d.sceneId}#${d.idx}`, true)
+        .then(r => editorToast(r && r.ok ? '片段顺序已更新' : '片段顺序未更改：' + ((r && r.error) || '请检查片段'), !(r && r.ok)));
+      return;
+    }
+    const targetScene = hit && hit.closest ? hit.closest('#editor-timeline .ed-scene') : null;
+    if (targetScene && targetScene.dataset.scene !== d.sceneId) {
+      editorToast('未更改：当前分镜要求内部片段无缝铺满；跨分镜移动需要独立物理轨道，不能用重排分镜代替。', true);
+    }
   });
 }
 
@@ -706,11 +716,24 @@ async function verCompareSelected(){
 }
 
 // §8 拆分导出：inline onclick/window 引用兼容
+/** Split the selected visual layer at the global playback-head time. */
+async function editorSplitSelectedLayer(){
+  const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
+  if (!selection || selection.type !== 'layer' || !selection.id) {
+    editorToast('先在时间线中选择一个图层，再把播放头放到片段内部切分。', true);
+    return;
+  }
+  const result = await editorCmd('split_layer', {at: PLAYHEAD.at}, selection.id, true);
+  if (result && result.ok) editorToast('片段已在播放头处切分');
+  else editorToast('切分未完成：' + ((result && result.error) || '请把播放头放在片段内部'), true);
+}
+
 Object.assign(window, {
   edSelect, editorSelectScene, editorSelectLayer, edIsSelected,
   edClearSelection, edSelectedCount,
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
-  editorRenderTimeline, tlToggleGroup,
+
+  editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer,
   selectNarration, projectOverlayOpen, originalTrackOpen, bgmTrackOpen,
   editorUndo, editorRedo, editorSaveBar, editorPreviewBar, editorTopbarRefresh,
   versionDrawerToggle, projectDrawerToggle, editorLoadVersions,

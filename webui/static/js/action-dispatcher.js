@@ -34,6 +34,7 @@ function _dispatchParams(el){
 // 是纯 UI renderer 调度——业务效果仍由打开的 UI 内的 data-action 走后端链）
 const UI_BEHAVIORS = {
   undo: () => (typeof editorUndo === 'function' && editorUndo()),
+  split_layer: () => (typeof editorSplitSelectedLayer === 'function' && editorSplitSelectedLayer()),
   redo: () => (typeof editorRedo === 'function' && editorRedo()),
   save: () => (typeof editorSaveBar === 'function' && editorSaveBar()),
   preview_draft: () => (typeof editorPreviewBar === 'function' && editorPreviewBar()),
