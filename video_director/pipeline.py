@@ -9,7 +9,9 @@ Gate 2 起 narration 模块提供真实时长替换 estimate。
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -47,17 +49,50 @@ from video_director.models import (
 
 def _persist_narration_timing(dirs: dict, source: str, words: List[dict],
                               duration: Optional[float] = None) -> None:
-    """Persist upstream word timing and its provenance for the Shotbook editor."""
+    """Persist word alignment with fingerprints tying it to the audio bytes and timing data."""
     path = dirs["plans"] / "narration_timing.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "source": source if source in ("asr", "estimated", "tts", "native_character", "character") else "estimated",
-        "duration": round(float(duration), 3) if duration is not None else None,
+    normalized_source = source if source in ("asr", "estimated", "tts", "native_character", "character") else "estimated"
+    duration_value = round(float(duration), 3) if duration is not None else None
+    audio_path = Path(dirs["audio"]) / "narration.mp3" if dirs.get("audio") else None
+    audio_fingerprint = {"status": "MISSING", "sha256": None, "size_bytes": None}
+    if audio_path and audio_path.is_file():
+        digest = hashlib.sha256()
+        with audio_path.open("rb") as audio_file:
+            for chunk in iter(lambda: audio_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        audio_fingerprint = {
+            "status": "VERIFIED",
+            "sha256": digest.hexdigest(),
+            "size_bytes": audio_path.stat().st_size,
+        }
+    alignment_material = {
+        "source": normalized_source,
+        "duration": duration_value,
         "word_timeline": words or [],
+        "audio_fingerprint": audio_fingerprint,
     }
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    alignment_fingerprint = hashlib.sha256(
+        json.dumps(alignment_material, ensure_ascii=False, sort_keys=True,
+                   separators=(",", ":"), allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    payload = {
+        **alignment_material,
+        "alignment_fingerprint": alignment_fingerprint,
+        "fingerprint_schema": 1,
+    }
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False))
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def parse_brief_voice_rate(creative_brief: str) -> Optional[str]:
