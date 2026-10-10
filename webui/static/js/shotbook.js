@@ -13,11 +13,53 @@ async function shotbookLoad(discardDirty){
   if(SHOTBOOK_DIRTY&&!discardDirty&&!window.confirm('分镜有未保存修改。重新载入会丢弃这些修改，是否继续？'))return false;
   if(status)status.textContent='正在读取当前时间线……';
   const data=await apiGet('/api/editor/shotbook?project_id='+encodeURIComponent(pid));
-  if(!data||data.ok===false||data.error){if(status)status.textContent='读取失败：'+((data&&data.error)||'服务暂不可用');return false;}
+  if(!data||data.ok===false||data.error){
+    if(status)status.textContent='读取失败：'+((data&&data.error)||'服务暂不可用');
+    const recover=document.getElementById('shotbook-recover');
+    if(recover)recover.style.display=data&&data.code==='CORRUPT_SHOTBOOK'?'':'none';
+    return false;
+  }
+  const recover=document.getElementById('shotbook-recover');if(recover)recover.style.display='none';
   SHOTBOOK=data;SHOTBOOK_DIRTY=false;shotbookRender();
-  if(status)status.textContent=data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前项目还没有保存过分镜；可从当前时间线生成草案。';
+  if(status)status.textContent=data.integrity==='RECOVERED'
+    ?'分镜已从有效备份恢复。请先保存一次重建主文件，再逐镜检查并确认。'
+    :(data.confirmation_status==='PASS'?'分镜已通过服务端确认；素材或对齐变化会自动撤销确认。'
+      :(data.saved?'已载入已保存的分镜。修改后点“保存分镜”，再确认分镜。':'当前项目还没有保存过分镜；可从当前时间线生成草案。'));
   return true;
 }
+async function shotbookRecover(){
+  const pid=sbGetProjectId(),status=document.getElementById('shotbook-status');
+  if(!pid)return;
+  if(!window.confirm('将从权威时间线重建分镜。损坏的旧文件会保留为 .corrupt 文件，但无法恢复其中未备份的手工修改。继续？'))return;
+  if(status)status.textContent='正在保留损坏文件并从时间线重建……';
+  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'recover'});
+  if(!r||!r.ok){if(status)status.textContent='重建未完成：'+((r&&r.error)||'请求失败');return;}
+  SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();
+  const button=document.getElementById('shotbook-recover');if(button)button.style.display='none';
+  if(status)status.textContent='已从权威时间线重建分镜。旧损坏文件仍保留；请逐镜检查并保存。';
+}
+async function shotbookConfirm(){
+  const status=document.getElementById('shotbook-status');
+  if(!SHOTBOOK||!SHOTBOOK.project_id){if(status)status.textContent='先载入并生成分镜。';return;}
+  if(SHOTBOOK_DIRTY){if(status)status.textContent='还有未保存修改，请先保存分镜再确认。';return;}
+  const button=document.getElementById('shotbook-confirm');if(button)button.disabled=true;
+  if(status)status.textContent='服务端正在复核镜头、素材真实性、配方可执行性和来源指纹……';
+  try{
+    const r=await apiPost('/api/editor/shotbook',{
+      project_id:SHOTBOOK.project_id,action:'confirm',base_version:SHOTBOOK.version,
+      source_fingerprint:SHOTBOOK.source_fingerprint,
+      alignment_fingerprint:SHOTBOOK.alignment_fingerprint
+    });
+    if(!r||!r.ok){
+      if(status)status.textContent='确认未通过：'+((r&&r.error)||'请求失败');
+      if(r&&(r.code==='CONFLICT'||r.code==='STALE_SOURCE'))await shotbookLoad(true);
+      return;
+    }
+    SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();
+    if(status)status.textContent='服务端确认已记录。该确认只适用于当前版本、素材与对齐；任一变化都会自动失效。';
+  }finally{if(button)button.disabled=false;}
+}
+
 async function shotbookGenerate(){
   const pid=sbGetProjectId(),status=document.getElementById('shotbook-status');
   if(!pid){if(status)status.textContent='先打开一个项目，再生成分镜。';return;}
@@ -83,7 +125,7 @@ function shotbookRender(){
   const status=document.getElementById('shotbook-status'),meta=document.getElementById('shotbook-meta');
   const gateBox=document.getElementById('shotbook-gates'),list=document.getElementById('shotbook-list');
   const note=document.getElementById('shotbook-timing-note');
-  if(meta)meta.textContent='V'+SHOTBOOK.version+' · '+(SHOTBOOK.saved?'已保存':'尚未保存')+' · '+SHOTBOOK.shots.length+' 个镜头';
+  if(meta)meta.textContent='V'+SHOTBOOK.version+' · '+(SHOTBOOK.saved?'已保存':'尚未保存')+' · '+SHOTBOOK.shots.length+' 个镜头 · '+({PASS:'服务端已确认',STALE:'确认已失效',INVALID:'确认文件无效',MISSING:'待确认'}[SHOTBOOK.confirmation_status]||'待确认');
   if(note)note.textContent=SHOTBOOK.timing_note||'字级时间来自当前可用对齐数据。';
   if(gateBox)gateBox.innerHTML=(SHOTBOOK.gates||[]).map(function(g){
     return '<div class="sb-gate"><b>'+sbEsc(g.label)+'</b> <span class="'+sbStatusClass(g.status)+'">'+sbEsc(g.status)+'</span><div class="hint">'+sbEsc(g.detail)+'</div></div>';
@@ -95,8 +137,32 @@ function shotbookRender(){
     const timingDetails=chars.length?'<details class="sb-char-details"><summary>校正字级锚点（显示 '+chars.length+(allChars.length>chars.length?' / '+allChars.length:'')+' 字；时间戳不是原生字级对齐）</summary><div class="sb-char-list">'+chars.map(function(c,i){
       return '<div class="sb-char" data-index="'+i+'" data-char="'+sbEsc(c.char)+'"><span class="sb-char-glyph">'+sbEsc(c.char)+'</span><label>起 <input class="sb-char-start" type="number" step="0.01" min="'+Number(s.start).toFixed(3)+'" max="'+Number(s.end).toFixed(3)+'" value="'+Number(c.start).toFixed(3)+'"></label><label>止 <input class="sb-char-end" type="number" step="0.01" min="'+Number(s.start).toFixed(3)+'" max="'+Number(s.end).toFixed(3)+'" value="'+Number(c.end).toFixed(3)+'"></label><span class="hint">'+(c.method==='manual'?'手工校正':c.method==='token_interpolation'?'词内插值':'场景估算')+'</span></div>';
     }).join('')+'</div>'+(allChars.length>chars.length?'<div class="hint">为避免一次渲染过多输入框，当前界面只显示前 240 字的可编辑锚点；剩余字符保持原估算。</div>':'')+'</details>':'<div class="hint">无可显示的字级锚点。</div>';
-    return '<article class="sb-shot panel" data-scene-key="'+sbEsc(s.scene_id)+'" style="margin-top:8px;padding:10px"><div class="sb-shot-head"><b>'+(idx+1)+'. '+sbEsc(s.scene_id)+' · '+Number(s.start).toFixed(2)+'–'+Number(s.end).toFixed(2)+'s</b><button class="btn-secondary btn-sm" type="button" data-shotbook-action="locate" data-scene-key="'+sbEsc(s.scene_id)+'">在时间线上定位</button></div><div class="sb-script">'+sbEsc(s.text)+'</div><div class="hint">当前时间线实际动效：'+sbEsc(s.applied_motion_recipe_id||'未应用')+'</div><div class="sb-label">语义角色</div><select class="sb-role">'+shotbookSelectOptions(Object.keys(SB_ROLE_LABELS),s.semantic_role,SB_ROLE_LABELS)+'</select><div class="sb-label">画面意图</div><select class="sb-intent">'+shotbookSelectOptions(Object.keys(SB_INTENT_LABELS),s.visual_intent,SB_INTENT_LABELS)+'</select><div class="sb-label">镜头类型</div><select class="sb-type">'+shotbookSelectOptions(Object.keys(SB_SHOT_LABELS),s.shot_type,SB_SHOT_LABELS)+'</select><div class="sb-label">镜头配方（来自当前项目 Shot Registry）</div><select class="sb-recipe">'+shotbookRecipeOptions(s)+'</select><div class="sb-label">动效配方</div><select class="sb-motion">'+shotbookMotionOptions(s)+'</select><div class="sb-label">应用到图层</div><select class="sb-motion-layer">'+shotbookMotionLayerOptions(s)+'</select><div class="hint sb-motion-note">'+sbEsc(shotbookMotionSupportNote(s,s.motion_recipe_id,((s.editable_layers||[]).find(function(l){return l.target_id===s.motion_layer_target;})||{}).type))+'</div><div class="btn-row"><button class="btn-secondary btn-sm" type="button" data-shotbook-action="apply-motion" data-scene-key="'+sbEsc(s.scene_id)+'">应用动效到时间线</button></div><div class="hint">仅当前渲染器明确支持的动效/图层组合可应用；其他配方只作为设计参考，不会被假称已渲染。</div><div class="sb-form-grid"><label>动态字卡文案<input class="sb-overlay" maxlength="120" value="'+sbEsc(s.overlay_text)+'" placeholder="可留空；不会自动覆盖旁白字幕"></label><label>证据引用<input class="sb-evidence" maxlength="300" value="'+sbEsc(s.evidence_ref)+'" placeholder="截图/文档/URL/项目素材 ID"></label><label>音效提示<input class="sb-sfx" maxlength="160" value="'+sbEsc(s.sfx_cue)+'" placeholder="如：落点轻击、翻页声；仅记录设计意图"></label></div><label class="sb-notes-label">镜头说明<textarea class="sb-notes" maxlength="500" rows="2" placeholder="画面要证明什么、主体/构图/动作、避开的表达">'+sbEsc(s.notes)+'</textarea></label>'+timingDetails+'<label class="sb-review"><input class="sb-reviewed" type="checkbox"'+(s.reviewed?' checked':'')+'> 我已核对这镜的语义、画面意图与时间锚点</label><div class="btn-row" style="margin-top:8px"><button class="btn-secondary btn-sm" type="button" data-shotbook-action="apply-recipe" data-scene-key="'+sbEsc(s.scene_id)+'">应用镜头配方到时间线</button></div>'+(!s.has_bound_asset?'<div class="hint">提示：当前场景没有绑定素材。应用配方时将检查槽位；缺少素材不会被静默补成假素材。</div>':'')+'</article>';
+    return '<article class="sb-shot panel" data-scene-key="'+sbEsc(s.scene_id)+'" style="margin-top:8px;padding:10px"><div class="sb-shot-head"><b>'+(idx+1)+'. '+sbEsc(s.scene_id)+' · '+Number(s.start).toFixed(2)+'–'+Number(s.end).toFixed(2)+'s</b><button class="btn-secondary btn-sm" type="button" data-shotbook-action="locate" data-scene-key="'+sbEsc(s.scene_id)+'">在时间线上定位</button></div><div class="sb-script">'+sbEsc(s.text)+'</div><div class="hint">当前时间线实际动效：'+sbEsc(s.applied_motion_recipe_id||'未应用')+'</div><div class="sb-label">语义角色</div><select class="sb-role">'+shotbookSelectOptions(Object.keys(SB_ROLE_LABELS),s.semantic_role,SB_ROLE_LABELS)+'</select><div class="sb-label">画面意图</div><select class="sb-intent">'+shotbookSelectOptions(Object.keys(SB_INTENT_LABELS),s.visual_intent,SB_INTENT_LABELS)+'</select><div class="sb-label">镜头类型</div><select class="sb-type">'+shotbookSelectOptions(Object.keys(SB_SHOT_LABELS),s.shot_type,SB_SHOT_LABELS)+'</select><div class="sb-label">镜头配方（来自当前项目 Shot Registry）</div><select class="sb-recipe">'+shotbookRecipeOptions(s)+'</select><div class="sb-label">动效配方</div><select class="sb-motion">'+shotbookMotionOptions(s)+'</select><div class="sb-label">应用到图层</div><select class="sb-motion-layer">'+shotbookMotionLayerOptions(s)+'</select><div class="hint sb-motion-note">'+sbEsc(shotbookMotionSupportNote(s,s.motion_recipe_id,((s.editable_layers||[]).find(function(l){return l.target_id===s.motion_layer_target;})||{}).type))+'</div><div class="btn-row"><button class="btn-secondary btn-sm" type="button" data-shotbook-action="apply-motion" data-scene-key="'+sbEsc(s.scene_id)+'">应用动效到时间线</button></div><div class="hint">仅当前渲染器明确支持的动效/图层组合可应用；其他配方只作为设计参考，不会被假称已渲染。</div><div class="sb-form-grid"><label>动态字卡文案<input class="sb-overlay" maxlength="120" value="'+sbEsc(s.overlay_text)+'" placeholder="可留空；不会自动覆盖旁白字幕"></label><label>证据引用<input class="sb-evidence" maxlength="300" value="'+sbEsc(s.evidence_ref)+'" placeholder="本地文件路径或已登记素材 ID；网址需先导入"></label><label>音效提示<input class="sb-sfx" maxlength="160" value="'+sbEsc(s.sfx_cue)+'" placeholder="如：落点轻击、翻页声；仅记录设计意图"></label></div><label class="sb-notes-label">镜头说明<textarea class="sb-notes" maxlength="500" rows="2" placeholder="画面要证明什么、主体/构图/动作、避开的表达">'+sbEsc(s.notes)+'</textarea></label>'+timingDetails+'<label class="sb-review"><input class="sb-reviewed" type="checkbox"'+(s.reviewed?' checked':'')+'> 我已核对这镜的语义、画面意图与时间锚点</label><div class="btn-row" style="margin-top:8px"><button class="btn-secondary btn-sm" type="button" data-shotbook-action="apply-recipe" data-scene-key="'+sbEsc(s.scene_id)+'">应用镜头配方到时间线</button></div>'+(!s.has_bound_asset?'<div class="hint">提示：当前场景没有绑定素材。应用配方时将检查槽位；缺少素材不会被静默补成假素材。</div>':'')+'</article>';
   }).join('');
+  Array.from(list.querySelectorAll('.sb-shot')).forEach(function(card){
+    const shot=(SHOTBOOK.shots||[]).find(function(item){return item.scene_id===card.dataset.sceneKey;});
+    if(!shot)return;
+    const head=card.querySelector('.sb-shot-head');
+    const title=head&&head.querySelector('b'),locate=head&&head.querySelector('button');
+    if(title&&locate){
+      const visual=document.createElement('div');visual.className='sb-shot-visual';
+      const layer=(shot.editable_layers||[]).find(function(item){return item.asset_id;});
+      let thumb;
+      if(layer){
+        thumb=document.createElement('img');thumb.className='sb-shot-thumb';
+        thumb.loading='lazy';thumb.decoding='async';thumb.alt='镜头素材预览';
+        thumb.src='/api/asset_thumbnail?asset_id='+encodeURIComponent(layer.asset_id);
+      }else{
+        thumb=document.createElement('div');thumb.className='sb-shot-thumb sb-shot-thumb-empty';
+        thumb.textContent='未绑定画面';
+      }
+      const metaBox=document.createElement('div');metaBox.className='sb-shot-visual-meta';
+      const typeLine=document.createElement('div');typeLine.className='hint';
+      typeLine.textContent=(shot.shot_type||'镜头')+' · '+(shot.applied_motion_recipe_id||'未应用动效');
+      locate.textContent='定位并预览本镜';metaBox.append(title,typeLine,locate);
+      visual.append(thumb,metaBox);head.replaceWith(visual);
+    }
+  });
   Array.from(list.querySelectorAll('.sb-char-details')).forEach(function(item){const card=item.closest('.sb-shot');if(card&&openTiming.has(card.dataset.sceneKey))item.open=true;});
 }
 function shotbookCollect(){
@@ -114,9 +180,14 @@ async function shotbookSave(){
   const pid=sbGetProjectId(),status=document.getElementById('shotbook-status');
   if(!pid||!SHOTBOOK){if(status)status.textContent='先载入或生成分镜草案。';return;}
   if(SHOTBOOK.project_id!==pid){if(status)status.textContent='当前编辑器已切换到其他项目；先载入该项目的分镜，避免把修改写错项目。';return;}
-  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'save',base_version:SHOTBOOK.version,shots:shotbookCollect()});
-  if(!r||!r.ok){if(status)status.textContent='保存未完成：'+((r&&r.error)||'请求失败')+'。当前修改仍留在页面中。';const reload=document.getElementById('shotbook-reload-conflict');if(reload&&r&&r.code==='CONFLICT')reload.style.display='';return;}
-  SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();if(status)status.textContent='分镜已保存为 V'+r.version+'。语义确认、字级校正和配方关联已写入项目。';
+  const r=await apiPost('/api/editor/shotbook',{
+    project_id:pid,action:'save',base_version:SHOTBOOK.version,
+    source_fingerprint:SHOTBOOK.source_fingerprint,
+    alignment_fingerprint:SHOTBOOK.alignment_fingerprint,
+    shots:shotbookCollect()
+  });
+  if(!r||!r.ok){if(status)status.textContent='保存未完成：'+((r&&r.error)||'请求失败')+'。当前修改仍留在页面中。';const reload=document.getElementById('shotbook-reload-conflict');if(reload&&r&&['CONFLICT','STALE_SOURCE'].includes(r.code))reload.style.display='';if(r&&r.code==='CORRUPT_SHOTBOOK'){const recover=document.getElementById('shotbook-recover');if(recover)recover.style.display='';}return;}
+  SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();if(status)status.textContent='分镜已保存为 V'+r.version+'。素材/旁白指纹已绑定；保存后还需通过服务端确认才能正式成片。';
 }
 async function shotbookApplyMotion(sceneId){
   const card=document.querySelector('#shotbook-list .sb-shot[data-scene-key="'+CSS.escape(sceneId)+'"]');
@@ -158,8 +229,12 @@ async function shotbookApplyRecipe(sceneId){
   await shotbookSave();
 }
 function shotbookLocate(sceneId){
+  const shot=(SHOTBOOK&&SHOTBOOK.shots||[]).find(function(item){return item.scene_id===sceneId;});
   if(typeof selectScene==='function')selectScene(sceneId,null,'shotbook');
   if(typeof timelineScrollToScene==='function')timelineScrollToScene(sceneId);
+  if(shot&&typeof previewSeek==='function')previewSeek(Number(shot.start)||0);
+  if(typeof previewRenderComposition==='function')previewRenderComposition();
+  if(typeof previewShowSelectionOverlay==='function')previewShowSelectionOverlay();
   if(typeof edShowInspector==='function')edShowInspector();
 }
 async function shotbookReloadConflict(){if(SHOTBOOK_DIRTY&&!window.confirm('重新载入会丢弃当前未保存修改。是否继续？'))return;SHOTBOOK_DIRTY=false;const button=document.getElementById('shotbook-reload-conflict');if(button)button.style.display='none';await shotbookLoad(true);}
@@ -190,6 +265,8 @@ if(!window.__shotbookDelegated){
     if(action==='load')shotbookLoad();
     else if(action==='generate')shotbookGenerate();
     else if(action==='save')shotbookSave();
+    else if(action==='confirm')shotbookConfirm();
+    else if(action==='recover')shotbookRecover();
     else if(action==='reload-conflict')shotbookReloadConflict();
     else if(action==='locate')shotbookLocate(sceneId);
     else if(action==='apply-recipe')shotbookApplyRecipe(sceneId);
@@ -217,4 +294,4 @@ if(!window.__shotbookDelegated){
   window.__shotbookDelegated=true;
 }
 window.addEventListener('beforeunload',function(event){if(SHOTBOOK_DIRTY){event.preventDefault();event.returnValue='';}});
-Object.assign(window,{shotbookLoad,shotbookGenerate,shotbookSave,shotbookApplyRecipe,shotbookApplyMotion,shotbookLocate,shotbookReloadConflict});
+Object.assign(window,{shotbookLoad,shotbookGenerate,shotbookSave,shotbookConfirm,shotbookRecover,shotbookApplyRecipe,shotbookApplyMotion,shotbookLocate,shotbookReloadConflict});
