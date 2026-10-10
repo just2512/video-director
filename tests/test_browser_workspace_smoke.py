@@ -84,6 +84,21 @@ def test_chromium_loads_unified_editor_workspace():
                 assert page.locator('button[title="上一帧"]').count() == 1
                 assert page.locator('button[title="下一帧"]').count() == 1
                 assert page.evaluate("typeof window.previewStepFrame") == "function"
+                stepped = page.evaluate("""() => {
+                    const previous = ED.comp;
+                    const previousMode = PV.mode;
+                    const previousHead = PV.playhead;
+                    ED.comp = {project: {fps: 24}, duration: 2, scenes: []};
+                    PV.mode = 'live';
+                    PV.playhead = 0;
+                    previewStepFrame(1);
+                    const result = PV.playhead;
+                    ED.comp = previous;
+                    PV.mode = previousMode;
+                    PV.playhead = previousHead;
+                    return result;
+                }""")
+                assert abs(stepped - 1 / 24) < 0.00001
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise
