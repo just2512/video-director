@@ -56,6 +56,13 @@ def test_chromium_loads_unified_editor_workspace():
             except (OSError, urllib.error.URLError):
                 time.sleep(0.25)
         if not ready:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
             output = proc.stdout.read() if proc.stdout else ""
             server_log.write_text(output or "Server did not become ready within 30 seconds.", encoding="utf-8")
             pytest.fail("WebUI server did not become ready; see test-results/workspace-smoke-server.log")
