@@ -135,7 +135,7 @@ def test_chromium_loads_unified_editor_workspace():
                                 {type: 'sfx', asset_id: 'sfx-1', start: 7, duration: 1, volume: 0.4},
                                 {type: 'ambience', asset_id: 'amb-1', start: 6, duration: 1, volume: 0.3}
                             ],
-                            watermarks: [],
+                            watermarks: [{id: 'wm-geometry', kind: 'text', text: 'Overlay', start: 2, duration: 3, anchor: 'top_right', opacity: 0.75}],
                             subtitle_track: {mode: 'word', cues: []}
                         };
                         const host = document.createElement('div');
@@ -147,7 +147,7 @@ def test_chromium_loads_unified_editor_workspace():
                             const node = row && row.querySelector('.ed-track-clip');
                             return node ? {left: node.style.left, width: node.style.width, title: node.title} : null;
                         };
-                        return {bgm: clip('背景音乐'), sfx: clip('音效'), ambience: clip('环境音'), broll: clip('B-roll')};
+                        return {bgm: clip('背景音乐'), sfx: clip('音效'), ambience: clip('环境音'), broll: clip('B-roll'), overlay: clip('贴纸 / 覆盖层')};
                     } finally {
                         ED.comp = previousComp;
                         ED.zoom = previousZoom;
@@ -159,6 +159,7 @@ def test_chromium_loads_unified_editor_workspace():
                 assert geometry["sfx"]["left"] == "70%" and geometry["sfx"]["width"] == "10%"
                 assert geometry["ambience"]["left"] == "60%" and geometry["ambience"]["width"] == "10%"
                 assert geometry["broll"]["left"] == "80%" and geometry["broll"]["width"] == "20%"
+                assert geometry["overlay"]["left"] == "20%" and geometry["overlay"]["width"] == "30%"
 
                 # Real DOM pointer interaction: moving and trimming audio clips must
                 # dispatch versioned Editor Commands rather than only changing CSS.
@@ -187,7 +188,7 @@ def test_chromium_loads_unified_editor_workspace():
                             {type: 'bgm', asset_id: 'bgm-1', start: 3, duration: 2, volume: 0.5},
                             {type: 'sfx', asset_id: 'sfx-1', start: 7, duration: 1, volume: 0.4}
                         ],
-                        watermarks: [], subtitle_track: {mode: 'word', cues: []}
+                        watermarks: [{id: 'wm-browser', kind: 'text', text: 'Overlay', start: 2, duration: 3, anchor: 'top_right', opacity: 0.75}], subtitle_track: {mode: 'word', cues: []}
                     };
                     editorRenderTimeline();
                     const clips = [...document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]')];
@@ -246,6 +247,49 @@ def test_chromium_loads_unified_editor_workspace():
                 assert trimmed is not None, "pointer edge trim did not POST trim_audio_clip to the real Editor Command endpoint"
                 assert trimmed["targetId"] == "audio#0"
                 assert trimmed["payload"]["sourceOut"] < 2
+# The text/logo overlay is an actual positioned clip, not a full-width summary.
+                captured_commands.clear()
+                page.evaluate("editorRenderTimeline()")
+                overlay_clip = page.locator('#editor-timeline .ed-watermark-clip[data-watermark-index="0"]')
+                assert overlay_clip.count() == 1
+                overlay_clip.scroll_into_view_if_needed()
+                overlay_box = overlay_clip.bounding_box()
+                assert overlay_box and overlay_box["width"] > 16 and overlay_box["height"] > 0
+                assert 0 <= overlay_box["y"] and overlay_box["y"] + overlay_box["height"] <= viewport_height, (
+                    f"overlay move target must be inside viewport: box={overlay_box}, viewport={page.viewport_size}"
+                )
+                page.mouse.move(overlay_box["x"] + overlay_box["width"] / 2,
+                                overlay_box["y"] + overlay_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(overlay_box["x"] + overlay_box["width"] / 2 + 40,
+                                overlay_box["y"] + overlay_box["height"] / 2, steps=4)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                moved_overlay = next((c for c in captured_commands if c.get("command") == "move_watermark"), None)
+                assert moved_overlay is not None, "overlay drag did not POST move_watermark"
+                assert moved_overlay["targetId"] == "watermark#0"
+                assert moved_overlay["payload"]["start"] > 2
+
+                captured_commands.clear()
+                page.evaluate("editorRenderTimeline()")
+                overlay_clip = page.locator('#editor-timeline .ed-watermark-clip[data-watermark-index="0"]')
+                overlay_clip.scroll_into_view_if_needed()
+                overlay_box = overlay_clip.bounding_box()
+                assert overlay_box and overlay_box["width"] > 16
+                assert 0 <= overlay_box["y"] and overlay_box["y"] + overlay_box["height"] <= viewport_height, (
+                    f"overlay trim target must be inside viewport: box={overlay_box}, viewport={page.viewport_size}"
+                )
+                page.mouse.move(overlay_box["x"] + overlay_box["width"] - 1,
+                                overlay_box["y"] + overlay_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(overlay_box["x"] + overlay_box["width"] - 31,
+                                overlay_box["y"] + overlay_box["height"] / 2, steps=4)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                trimmed_overlay = next((c for c in captured_commands if c.get("command") == "trim_watermark"), None)
+                assert trimmed_overlay is not None, "overlay edge trim did not POST trim_watermark"
+                assert trimmed_overlay["targetId"] == "watermark#0"
+                assert trimmed_overlay["payload"]["duration"] < 3
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise
@@ -266,3 +310,4 @@ def test_chromium_loads_unified_editor_workspace():
             output = proc.stdout.read()
             if output:
                 server_log.write_text(output, encoding="utf-8")
+
