@@ -628,20 +628,21 @@ def _get_project_shotbook_unlocked(project_id: str) -> dict:
         status, detail = _evidence_ref_status(shot.get("evidence_ref"), assets, pid)
         shot["evidence_status"], shot["evidence_detail"] = status, detail
     recipes, source = _recipes(), str(timing.get("source") or "missing")
-    confirm_status = "MISSING"
-    try:
-        confirmation = _strict_json(_confirmation_path(pid))
-        if (isinstance(confirmation, dict)
-                and confirmation.get("version") == int((previous or {}).get("version") or 0)
-                and confirmation.get("source_fingerprint") == source_fingerprint
-                and confirmation.get("alignment_fingerprint") == alignment_fingerprint):
-            confirm_status = "PASS"
-        else:
-            confirm_status = "STALE"
-    except FileNotFoundError:
+    confirmation_path = _confirmation_path(pid)
+    if not confirmation_path.exists():
         confirm_status = "MISSING"
-    except ValueError:
-        confirm_status = "INVALID"
+    else:
+        try:
+            confirmation = _strict_json(confirmation_path)
+            if (isinstance(confirmation, dict)
+                    and confirmation.get("version") == int((previous or {}).get("version") or 0)
+                    and confirmation.get("source_fingerprint") == source_fingerprint
+                    and confirmation.get("alignment_fingerprint") == alignment_fingerprint):
+                confirm_status = "PASS"
+            else:
+                confirm_status = "STALE"
+        except ValueError:
+            confirm_status = "INVALID"
     return {
         "ok": True, "project_id": pid, "schema_version": SCHEMA_VERSION,
         "version": int((previous or {}).get("version") or 0), "saved": bool(previous),
