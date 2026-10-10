@@ -7,8 +7,11 @@ source provenance and per-node I/O remain inspectable.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -49,6 +52,29 @@ def _dedupe(values: Iterable[str]) -> List[str]:
     return out
 
 
+def _snapshot_file(file_value: Any) -> dict:
+    """Freeze the current identity of a local input; a path/URL alone is not proof."""
+    value = _string(file_value)
+    if not value:
+        return {"status": "MISSING", "path": "", "reason": "未提供本地文件路径"}
+    path = Path(value).expanduser()
+    try:
+        if not path.is_file():
+            return {"status": "MISSING", "path": value, "reason": "当前路径不存在可读取的本地文件"}
+        stat = path.stat()
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return {
+            "status": "PASS", "path": str(path.resolve()),
+            "sha256": digest.hexdigest(), "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+    except OSError as exc:
+        return {"status": "UNKNOWN", "path": value, "reason": str(exc)[:180]}
+
+
 def _asset_ref(asset_id: str, kind: str = "", file_path: str = "") -> dict:
     entry = asset_catalog.get_asset(asset_id) if asset_id else None
     if entry:
@@ -60,6 +86,7 @@ def _asset_ref(asset_id: str, kind: str = "", file_path: str = "") -> dict:
             "description": entry.get("description") or "",
             "commercial_status": entry.get("commercial_status") or "UNKNOWN",
             "license_note": entry.get("license_note") or "",
+            "snapshot": _snapshot_file(entry.get("file") or file_path),
         }
     return {
         "asset_id": asset_id or "",
@@ -69,6 +96,7 @@ def _asset_ref(asset_id: str, kind: str = "", file_path: str = "") -> dict:
         "description": "",
         "commercial_status": "UNKNOWN",
         "license_note": "",
+        "snapshot": _snapshot_file(file_path),
     }
 
 
@@ -116,6 +144,8 @@ def _normalize_reference(source: Any) -> List[dict]:
             "project_id": _string(item.get("project_id")),
             "video": _string(item.get("video") or report.get("video")),
             "report_path": _string(item.get("report_path") or report.get("report_path")),
+            "video_snapshot": _snapshot_file(item.get("video") or report.get("video")),
+            "report_snapshot": _snapshot_file(item.get("report_path") or report.get("report_path")),
             "analysis": report,
             "apply": item.get("apply") or [
                 "pace", "density", "motion", "transition", "shot_grammar"
@@ -149,6 +179,7 @@ def _normalize_project(source: Any) -> dict:
         evidence_rows.append({
             "id": ev.get("id"),
             "source_path": _string(ev.get("source_path") or ev.get("path")),
+            "source_snapshot": _snapshot_file(ev.get("source_path") or ev.get("path")),
             "evidence_type": _string(ev.get("evidence_type") or ev.get("type")),
         })
     return {
@@ -367,19 +398,33 @@ def build_plan(bundle: dict, brief: str) -> dict:
     }
 
 
+def _atomic_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\\n") as stream:
+            stream.write(json.dumps(value, ensure_ascii=False, indent=2))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def persist_bundle(project_id: str, bundle: dict) -> str:
     base = config.project_dir(project_id)
     path = base / "plans" / "director_inputs.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_json(path, bundle)
     return str(path)
 
 
 def persist_plan(project_id: str, plan: dict) -> str:
     base = config.project_dir(project_id)
     path = base / "plans" / "director_plan.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_json(path, plan)
     return str(path)
 
 
