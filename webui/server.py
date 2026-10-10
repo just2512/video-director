@@ -2008,6 +2008,25 @@ class Handler(BaseHTTPRequestHandler):
                     inputs.get("style") if isinstance(inputs, dict) else ""
                 ) or payload.get("style") or payload.get("style_intent") or ""
 
+                bundle_constraints = merged["director_inputs"].setdefault("constraints", {})
+                selected_engine = str(bundle_constraints.get("render_engine") or "ffmpeg").strip()
+                from video_director.studio_catalog import build_studio_catalog
+                studio_catalog = build_studio_catalog()
+                executable_engines = {
+                    engine["id"] for engine in studio_catalog.get("engines", [])
+                    if engine.get("scope") == "full_video" and engine.get("selectable")
+                }
+                if selected_engine not in executable_engines:
+                    self._send_json({
+                        "ok": False, "code": "ENGINE_UNAVAILABLE",
+                        "error": f"所选成片引擎 {selected_engine or '(未选择)'} 当前不可执行；"
+                                 "请刷新 Studio 引擎目录后重试。",
+                        "available_engines": sorted(executable_engines),
+                    }, 409)
+                    return
+                bundle_constraints["render_engine"] = selected_engine
+                bundle_constraints["render_engine_status"] = "PASS"
+
                 bundle = _di.build_bundle(merged)
                 plan = _di.build_plan(bundle, brief or script or "AI Director 创作")
 
