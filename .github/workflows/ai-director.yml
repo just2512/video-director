@@ -16,7 +16,7 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-wqy-microhei
       - run: python -m playwright install --with-deps chromium
       - run: python -m compileall video_director webui
       - name: Run test suite and retain JUnit report
