@@ -565,7 +565,7 @@ _CONTEXT_KEYS = {
     ],
     ("layer", "video"): [
         "asset.replace", "asset.search",
-        "timeline.trim", "timeline.delete", "timeline.duplicate", "ui.split_layer", "ui.split_layer",
+        "timeline.trim", "timeline.delete", "timeline.duplicate", "ui.split_layer",
         "visual.transform", "visual.motion", "visual.pip", "visual.mask",
         "audio.preserve", "audio.mute_original", "audio.original_volume",
         "generate.image", "generate.video",
@@ -574,7 +574,7 @@ _CONTEXT_KEYS = {
     ],
     ("layer", "image"): [
         "asset.replace", "asset.search",
-        "timeline.delete", "timeline.duplicate",
+        "timeline.delete", "timeline.duplicate", "ui.split_layer",
         "visual.transform", "visual.motion", "visual.mask",
         "generate.image",
         "ui.open_asset_picker", "ui.open_motion_picker", "ui.edit_mask",
