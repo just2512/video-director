@@ -236,3 +236,66 @@ def test_alignment_fingerprint_detects_modified_word_timeline(tmp_path):
 
     payload["word_timeline"][0]["text"] = "被改写"
     assert not _alignment_fingerprint_valid(payload)
+
+
+def test_uploaded_voice_timing_keeps_fingerprint_on_real_audio(tmp_path, monkeypatch):
+    """B1 契约：上传配音落盘 narration_uploaded.<ext>，指纹必须绑定这份字节。
+
+    voice_upload.import_uploaded_voice 落盘名不是 narration.mp3；写端把真实
+    音频路径传给 _persist_narration_timing（sidecar 记 audio_file 锚点），
+    Shotbook 读取端按锚点校验——刚对齐出的 ASR 词时间不得被指纹检查清空。
+    """
+    import json
+    from pathlib import Path
+
+    from video_director import shotbook
+    from video_director.pipeline import _persist_narration_timing
+
+    root = tmp_path / "project"
+    plans = root / "plans"
+    audio = root / "audio"
+    plans.mkdir(parents=True)
+    audio.mkdir()
+    (audio / "narration_uploaded.mp3").write_bytes(b"uploaded narration bytes")
+    (plans / "composition.json").write_text(json.dumps({
+        "version": 1, "project": {"duration": 3.0, "fps": 30},
+        "scenes": [{"id": "s-1", "start": 0.0, "duration": 3.0,
+                    "text": "上传配音指纹链",
+                    "layers": [{"type": "image", "asset_id": "img", "start": 0.0,
+                                "duration": 3.0}],
+                    "transition_out": {"type": "cut"}}],
+        "audio": [], "assets": []}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(shotbook.config, "project_dir", lambda _pid: root)
+
+    _persist_narration_timing(
+        {"plans": plans, "audio": audio}, "asr",
+        [{"text": "上传配音指纹链", "start": 0.0, "end": 2.8}], 3.0,
+        audio_path=audio / "narration_uploaded.mp3",
+    )
+    result = shotbook.get_project_shotbook("demo")
+    assert result["timing_source"] == "asr", (
+        "上传配音刚对齐的词时间被指纹检查降级——B1 回归"
+    )
+    assert "插值" in result["shots"][0]["timing_label"]
+
+    # 上传音频被替换（用户重新上传了另一份配音但 sidecar 没重写）→ 必须降级
+    (audio / "narration_uploaded.mp3").write_bytes(b"different upload bytes")
+    stale = shotbook.get_project_shotbook("demo")
+    assert stale["timing_source"] == "stale"
+
+
+def test_project_audio_anchor_refuses_traversal(tmp_path, monkeypatch):
+    """防篡改：sidecar 里的 audio_file 锚点不得指到项目外/绝对路径。"""
+    from video_director import shotbook
+
+    root = tmp_path / "project"
+    root.mkdir()
+    monkeypatch.setattr(shotbook.config, "project_dir", lambda _pid: root)
+
+    assert shotbook._resolve_project_audio("demo", "audio/narration.mp3") == \
+        (root / "audio" / "narration.mp3").resolve()
+    assert shotbook._resolve_project_audio("demo", "audio/narration_uploaded.ogg") is not None
+    assert shotbook._resolve_project_audio("demo", "../outside.mp3") is None
+    assert shotbook._resolve_project_audio("demo", "C:/windows/system32/x.mp3") is None
+    assert shotbook._resolve_project_audio("demo", "") is None
+    assert shotbook._resolve_project_audio("demo", "audio/../../escape.mp3") is None

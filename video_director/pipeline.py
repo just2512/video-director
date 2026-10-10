@@ -48,14 +48,24 @@ from video_director.models import (
 
 
 def _persist_narration_timing(dirs: dict, source: str, words: List[dict],
-                              duration: Optional[float] = None) -> None:
-    """Persist word alignment with fingerprints tying it to the audio bytes and timing data."""
+                              duration: Optional[float] = None,
+                              audio_path: Optional[Path] = None) -> None:
+    """Persist word alignment with fingerprints tying it to the audio bytes and timing data.
+
+    audio_path lets upload flows point at the file they actually wrote
+    (audio/narration_uploaded.<ext>) instead of assuming the TTS output name.
+    The sidecar records it as a project-relative ``audio_file`` so the reader
+    verifies the same bytes this fingerprint was computed from.
+    """
     path = dirs["plans"] / "narration_timing.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized_source = source if source in ("asr", "estimated", "tts", "native_character", "character") else "estimated"
     duration_value = round(float(duration), 3) if duration is not None else None
-    audio_path = Path(dirs["audio"]) / "narration.mp3" if dirs.get("audio") else None
+    if audio_path is None and dirs.get("audio"):
+        audio_path = Path(dirs["audio"]) / "narration.mp3"
+    audio_rel = None
     audio_fingerprint = {"status": "MISSING", "sha256": None, "size_bytes": None}
+    project_root = Path(dirs["plans"]).parent if dirs.get("plans") else None
     if audio_path and audio_path.is_file():
         digest = hashlib.sha256()
         with audio_path.open("rb") as audio_file:
@@ -66,11 +76,21 @@ def _persist_narration_timing(dirs: dict, source: str, words: List[dict],
             "sha256": digest.hexdigest(),
             "size_bytes": audio_path.stat().st_size,
         }
+        if project_root is not None:
+            try:
+                audio_rel = audio_path.resolve().relative_to(project_root.resolve()).as_posix()
+            except ValueError:
+                # 音频在项目目录之外（临时目录）——不记录相对路径，读取端
+                # 将按 status=MISSING 处理而不是拿一个无法解析的锚点。
+                audio_rel = None
     alignment_material = {
         "source": normalized_source,
         "duration": duration_value,
         "word_timeline": words or [],
         "audio_fingerprint": audio_fingerprint,
+        # 真实音频锚点（项目相对路径）。读取端按此校验同一份字节；
+        # 不在项目内或音频缺失时为 None，读取端按 unverified 处理。
+        "audio_file": audio_rel,
     }
     alignment_fingerprint = hashlib.sha256(
         json.dumps(alignment_material, ensure_ascii=False, sort_keys=True,
@@ -1098,6 +1118,7 @@ def compose_auto(
     #    §34 上传配音旁路：narration_upload 指向上传音频 → Import→Probe→ASR/估算
     #    → Word Timing（voice_upload.import_uploaded_voice），TTS 段跳过。
     store.set_stage(project_id, store.Stage.TTS)
+    timing_audio_path: Optional[Path] = None
     if narration_upload:
         from video_director import voice_upload as vd_voice_upload
         up = vd_voice_upload.import_uploaded_voice(project_id, narration_upload,
@@ -1106,6 +1127,9 @@ def compose_auto(
         word_timeline = up.get("word_timeline") or []
         narration_scenes = up.get("narration_scenes") or []
         alignment_source = up.get("source", "estimated")
+        # 上传配音的真实落盘文件（audio/narration_uploaded.<ext>）——指纹必须
+        # 绑定这份字节，而不是 TTS 输出名；否则读取端会判 unverified 清空词时间。
+        timing_audio_path = Path(narration_audio)
         logger.info(f"§34 上传配音：{Path(narration_upload).name} {up['duration']:.1f}s"
                     f"（ASR={up['source']}），TTS 跳过")
     else:
@@ -1118,6 +1142,7 @@ def compose_auto(
     _persist_narration_timing(
         dirs, alignment_source, word_timeline,
         narration_scenes[-1]["start"] + narration_scenes[-1]["duration"] if narration_scenes else 0.0,
+        audio_path=timing_audio_path,
     )
     store.set_stage(project_id, store.Stage.ALIGNMENT)
 

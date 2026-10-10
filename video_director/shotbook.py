@@ -135,7 +135,7 @@ def _alignment_fingerprint_valid(timing: dict) -> bool:
     expected = timing.get("alignment_fingerprint")
     material = {
         key: timing.get(key)
-        for key in ("source", "duration", "word_timeline", "audio_fingerprint")
+        for key in ("source", "duration", "word_timeline", "audio_fingerprint", "audio_file")
     }
     try:
         actual = hashlib.sha256(
@@ -145,6 +145,26 @@ def _alignment_fingerprint_valid(timing: dict) -> bool:
     except (TypeError, ValueError):
         return False
     return isinstance(expected, str) and actual == expected
+
+
+def _resolve_project_audio(project_id: str, audio_rel: str) -> Path | None:
+    """Resolve a sidecar-recorded audio anchor inside the project directory.
+
+    Only project-relative POSIX paths are accepted; traversal outside the
+    project (or absolute paths planted in a tampered sidecar) is refused so
+    the fingerprint check cannot be aimed at arbitrary files.
+    """
+    value = str(audio_rel or "").strip().replace("\\", "/")
+    if not value or value.startswith("/") or len(value) > 260:
+        return None
+    candidate = Path(value)
+    if candidate.is_absolute() or any(part in ("..", "") for part in candidate.parts):
+        return None
+    root = config.project_dir(project_id).resolve()
+    target = (root / candidate).resolve()
+    if target != root and root not in target.parents:
+        return None
+    return target
 
 
 def _timed_token_chars(text: str, start: float, end: float) -> list[dict]:
@@ -474,8 +494,11 @@ def _get_project_shotbook_unlocked(project_id: str) -> dict:
     if source != "missing" and not _alignment_fingerprint_valid(timing):
         source = "stale" if timing.get("alignment_fingerprint") else "unverified"
     elif source != "missing" and fingerprint.get("status") == "VERIFIED":
-        audio_path = config.project_dir(pid) / "audio" / "narration.mp3"
-        if not audio_path.is_file():
+        # 指纹绑定的是写端落盘的真实音频（TTS=audio/narration.mp3，上传配音=
+        # audio/narration_uploaded.<ext>）；按 sidecar 记录的锚点校验同一份字节。
+        audio_rel = str(timing.get("audio_file") or "audio/narration.mp3")
+        audio_path = _resolve_project_audio(pid, audio_rel)
+        if audio_path is None or not audio_path.is_file():
             source = "stale"
         else:
             digest = hashlib.sha256()
