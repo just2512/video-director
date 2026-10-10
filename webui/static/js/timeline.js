@@ -681,40 +681,49 @@ async function editorAudioClipApply(index){
 }
 
 function _tlBindAudioClipDrag(){
-  document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]').forEach(el => {
-    el.addEventListener('pointerdown', ev => {
-      if (ev.button !== 0 || !ED.comp) return;
-      const index = Number.parseInt(el.dataset.audioIndex, 10);
-      const track = (ED.comp.audio || [])[index];
-      if (!track) return;
-      const rect = el.getBoundingClientRect();
-      const edge = Math.min(8, rect.width / 4);
-      const mode = ev.clientX - rect.left <= edge ? 'trim-left'
-        : rect.right - ev.clientX <= edge ? 'trim-right' : 'move';
-      _audioClipDrag = {
-        el, index, mode, startX: ev.clientX, moved: false,
-        start: Number(track.start) || 0,
-        duration: Number(track.duration) || 0,
-        sourceIn: Number(track.source_in) || 0,
-        // A missing source_out means a loop-to-duration track (typically BGM).
-        // First trim materializes its current window as an explicit source range.
-        sourceOut: track.source_out == null
-          ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
-          : Number(track.source_out),
-        baseLeft: Number.parseFloat(el.style.left) || 0,
-        baseWidth: Number.parseFloat(el.style.width) || 0,
-      };
-      try { el.setPointerCapture(ev.pointerId); } catch (_) {}
-    });
-  });
   if (window.__tlAudioDragHandlers) return;
   window.__tlAudioDragHandlers = true;
 
-  // Suppress the click handler only for the clip just dragged; a plain click still
-  // opens that track's existing inspector. A new pointerdown clears stale suppression.
-  document.addEventListener('pointerdown', () => {
-    if (!_audioClipDrag) _audioClipSuppressClick = null;
+  // Start the drag in document capture phase. EditorSession also listens in capture
+  // phase on #editor-timeline for box selection; a per-element bubble listener runs
+  // too late and can lose the pointer stream before _audioClipDrag is initialized.
+  document.addEventListener('pointerdown', ev => {
+    const el = ev.target && ev.target.closest
+      ? ev.target.closest('#editor-timeline .ed-audio-clip[data-audio-index]')
+      : null;
+    if (!el) {
+      if (!_audioClipDrag) _audioClipSuppressClick = null;
+      return;
+    }
+    if (ev.button !== 0 || !ED.comp) return;
+    const index = Number.parseInt(el.dataset.audioIndex, 10);
+    const track = (ED.comp.audio || [])[index];
+    if (!track) return;
+    const rect = el.getBoundingClientRect();
+    const edge = Math.min(8, rect.width / 4);
+    const mode = ev.clientX - rect.left <= edge ? 'trim-left'
+      : rect.right - ev.clientX <= edge ? 'trim-right' : 'move';
+    _audioClipSuppressClick = null;
+    _audioClipDrag = {
+      el, index, mode, startX: ev.clientX, moved: false,
+      start: Number(track.start) || 0,
+      duration: Number(track.duration) || 0,
+      sourceIn: Number(track.source_in) || 0,
+      // A missing source_out means a loop-to-duration track (typically BGM).
+      // First trim materializes its current window as an explicit source range.
+      sourceOut: track.source_out == null
+        ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
+        : Number(track.source_out),
+      baseLeft: Number.parseFloat(el.style.left) || 0,
+      baseWidth: Number.parseFloat(el.style.width) || 0,
+    };
+    try { el.setPointerCapture(ev.pointerId); } catch (_) {}
+    // Do not let the editor-session box-selection handler consume this gesture.
+    // Default is not prevented, so a click without movement still opens the inspector.
+    ev.stopPropagation();
   }, true);
+
+  // Suppress click only after an actual drag; plain clicks still open the inspector.
   document.addEventListener('click', ev => {
     if (!_audioClipSuppressClick) return;
     const hit = ev.target && ev.target.closest ? ev.target.closest('.ed-audio-clip') : null;
@@ -724,7 +733,6 @@ function _tlBindAudioClipDrag(){
       _audioClipSuppressClick = null;
     }
   }, true);
-
   document.addEventListener('pointermove', ev => {
     const d = _audioClipDrag;
     if (!d || !d.el.isConnected) { _audioClipDrag = null; return; }
