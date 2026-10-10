@@ -15,6 +15,7 @@ Revision 持久化：storage/composer/<pid>/plans/revisions.jsonl 逐条追加�
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from typing import Dict, List, Optional, Tuple
 from loguru import logger
 
 from video_director import config
+from video_director.project_lock import project_lock, validate_project_id
 from video_director.models import (
     AudioTrack,
     AudioTrackType,
@@ -98,9 +100,22 @@ def load_composition(project_id: str) -> CompositionIR:
 
 
 def save_composition(project_id: str, ir: CompositionIR) -> None:
+    """Atomically replace the persisted IR so a crash cannot leave partial JSON."""
     p = config.project_dir(project_id) / "plans" / "composition.json"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(json.loads(ir.model_dump_json()), ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = p.with_name(p.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    serialized = json.dumps(json.loads(ir.model_dump_json()), ensure_ascii=False, indent=2)
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(p)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def composition_version(project_id: str) -> int:
@@ -113,6 +128,8 @@ def _append_revision(project_id: str, revision: dict) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps(revision, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
 
 
 
@@ -336,7 +353,7 @@ class CommandResult:
     composition: Optional[dict] = None  # 更新后的 IR（前端重渲染时间线用）
 
 
-def execute_command(project_id: str, command: dict) -> CommandResult:
+def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     """执行 Editor Command（校验 → 修改 → revision 落盘 → 返回结果）。
 
     expectedVersion 与服务端当前版本不一致 → CONFLICT（§27/§28）。
@@ -511,6 +528,18 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
         stale_artifacts=stale,
         composition=json.loads(ir.model_dump_json()),
     )
+
+
+def execute_command(project_id: str, command: dict) -> CommandResult:
+    """Serialize version check, composition read/write and revision append."""
+    try:
+        validate_project_id(project_id)
+    except ValueError as exc:
+        return CommandResult(status="REJECTED", errors=[{
+            "code": "INVALID_PROJECT_ID", "message": str(exc), "recoverable": False,
+        }])
+    with project_lock(project_id):
+        return _execute_command_unlocked(project_id, command)
 
 
 # ---------------------------------------------------------------------------
