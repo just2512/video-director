@@ -591,7 +591,7 @@ def _generate_project_shotbook_unlocked(project_id: str, base_version: int | Non
 
 def _save_project_shotbook_unlocked(project_id: str, payload: dict) -> dict:
     pid = _project_id(project_id)
-    current = get_project_shotbook(pid)
+    current = _get_project_shotbook_unlocked(pid)
     try:
         base_version = int(payload.get("base_version"))
     except (TypeError, ValueError):
