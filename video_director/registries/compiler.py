@@ -367,16 +367,26 @@ def instantiate_template(
             )
         # 模板层的 motion_recipe_id 应用（覆盖 shot recipe 默认）
         for tlay in tsc.layers:
-            if tlay.motion_recipe_id:
-                for i, ilayer in enumerate(scene.layers):
-                    try:
-                        scene.layers[i] = apply_motion_to_layer(
-                            ilayer, tlay.motion_recipe_id
-                        )
-                        break
-                    except CompileError as exc:
-                        if exc.code != "LAYER_INCOMPATIBLE":
-                            raise
+            if not tlay.motion_recipe_id or tlay.type not in ("image", "video"):
+                # Text/title currently compile to timed WatermarkLayer overlays;
+                # applying their motion recipe to the first image was a semantic
+                # mismatch (e.g. word-relay could overwrite the hero image motion).
+                # Runtime readiness reports these requested text motions as PARTIAL.
+                continue
+            bound_asset_id = slot_values.get(tlay.slot_id or "")
+            if bound_asset_id not in assets:
+                continue
+            for i, ilayer in enumerate(scene.layers):
+                if ilayer.asset_id != bound_asset_id:
+                    continue
+                try:
+                    scene.layers[i] = apply_motion_to_layer(
+                        ilayer, tlay.motion_recipe_id
+                    )
+                    break
+                except CompileError as exc:
+                    if exc.code != "LAYER_INCOMPATIBLE":
+                        raise
         # Compile template text layers into real, time-ranged overlays. This is
         # deliberately limited to static text; a requested motion is not simulated
         # and is reported separately by runtime readiness instead of being faked.
