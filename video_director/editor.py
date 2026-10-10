@@ -323,6 +323,8 @@ SUPPORTED_COMMANDS = (
     "set_original_audio",        # 原声 preserve/mute/duck（§18 OriginalAudioPolicy）
     "set_original_audio_volume", # 原声音量（§18）
     "set_watermark",             # 加水印/更新水印（§19 WatermarkLayer）
+    "move_watermark",             # 移动覆盖层时间位置（统一时间线）
+    "trim_watermark",             # 修剪覆盖层显示区间（统一时间线）
     "remove_watermark",          # 移除水印（§19）
     "set_subtitle_style",        # 字幕样式（§32 SubtitleStyle 入 IR）
     "set_subtitle_track",        # 字幕轨（§31/§33 SubtitleTrack：句级/逐词 cues 入 IR）,
@@ -465,6 +467,10 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_original_audio_volume(ir, target_id, payload)
         elif cmd_name == "set_watermark":
             changed, stale = _cmd_set_watermark(ir, target_id, payload)
+        elif cmd_name == "move_watermark":
+            changed, stale = _cmd_move_watermark(ir, target_id, payload)
+        elif cmd_name == "trim_watermark":
+            changed, stale = _cmd_trim_watermark(ir, target_id, payload)
         elif cmd_name == "remove_watermark":
             changed, stale = _cmd_remove_watermark(ir, target_id, payload)
         elif cmd_name == "set_subtitle_style":
@@ -1621,48 +1627,145 @@ def _cmd_set_original_audio_volume(ir: CompositionIR, target_id: str, payload: d
 # ---------------------------------------------------------------------------
 
 
+def _watermark_index(ir: CompositionIR, target_id: str) -> int:
+    """Resolve a timeline clip target (watermark#<index>) without falling back to kind."""
+    import re
+
+    match = re.fullmatch(r"watermark#(\d+)", str(target_id or ""))
+    if not match:
+        raise EditorError("INVALID_TARGET", "覆盖层时间线命令需要 targetId=watermark#<index>")
+    index = int(match.group(1))
+    if index < 0 or index >= len(ir.watermarks):
+        raise EditorError("NOT_FOUND", f"覆盖层索引 {index} 不存在")
+    return index
+
+
+def _watermark_patch(current: WatermarkLayer, payload: dict) -> WatermarkLayer:
+    """Patch only supplied fields, preserving timing/anchor/opacity not present in a legacy UI payload."""
+    fields = {
+        "id": "id", "kind": "kind", "text": "text", "assetId": "asset_id",
+        "anchor": "anchor", "offsetX": "offset_x", "offsetY": "offset_y",
+        "safeArea": "safe_area", "opacity": "opacity", "scale": "scale",
+        "start": "start", "duration": "duration",
+    }
+    data = current.model_dump()
+    for key, field_name in fields.items():
+        if key in payload:
+            data[field_name] = payload[key]
+    return WatermarkLayer(**data)
+
+
 def _cmd_set_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """§19：添加/更新水印（WatermarkLayer 入 IR，渲染器读 ir.watermarks）。"""
+    """Add or patch an overlay; legacy calls still upsert by kind, timeline calls target one exact clip."""
     kind = payload.get("kind") or "text"
-    text = payload.get("text")
-    asset_id = payload.get("assetId")
-    anchor = payload.get("anchor") or "bottom_right"
-    opacity = float(payload.get("opacity", 0.75))
-    scale = float(payload.get("scale", 1.0))
-    start = float(payload.get("start", 0.0))
-    duration = payload.get("duration")
-    safe_area = int(payload.get("safeArea", 32))
-    # 校验：kind=text 需 text；kind=image/logo 需 assetId
-    if kind == "text" and not (text or "").strip():
+    if kind == "text" and not (payload.get("text") or "").strip():
         raise EditorError("INVALID_PAYLOAD", "text 水印缺 text")
-    if kind in ("image", "logo", "svg") and not asset_id:
+    if kind in ("image", "logo", "svg") and not payload.get("assetId"):
         raise EditorError("INVALID_PAYLOAD", f"{kind} 水印缺 assetId")
-    wm = WatermarkLayer(
-        kind=kind, text=text or None, asset_id=asset_id,
-        anchor=anchor, opacity=opacity, scale=scale, start=start,
-        duration=duration, safe_area=safe_area,
-    )
-    # 幂等：同 kind 已存在则更新第一条，否则追加
-    for i, w in enumerate(ir.watermarks):
-        if w.kind == kind:
-            ir.watermarks[i] = wm
-            return [f"watermark:{kind}"], ["project:render"]
-    ir.watermarks.append(wm)
-    return [f"watermark:{kind}"], ["project:render"]
+
+    if str(target_id or "").startswith("watermark#"):
+        index = _watermark_index(ir, target_id)
+        wm = _watermark_patch(ir.watermarks[index], payload)
+        ir.watermarks[index] = wm
+    elif payload.get("createNew"):
+        used = {w.id for w in ir.watermarks}
+        requested = str(payload.get("id") or "").strip()
+        if requested and requested in used:
+            raise EditorError("DUPLICATE_ID", f"覆盖层 id {requested!r} 已存在")
+        stem = requested or f"wm-{kind}"
+        wm_id, suffix = stem, 2
+        while wm_id in used:
+            wm_id, suffix = f"{stem}-{suffix}", suffix + 1
+        data = {
+            "id": wm_id,
+            "kind": kind,
+            "text": payload.get("text"),
+            "asset_id": payload.get("assetId"),
+            "anchor": payload.get("anchor", "bottom_right"),
+            "offset_x": payload.get("offsetX", 0),
+            "offset_y": payload.get("offsetY", 0),
+            "safe_area": payload.get("safeArea", 32),
+            "opacity": payload.get("opacity", 0.75),
+            "scale": payload.get("scale", 1.0),
+            "start": payload.get("start", 0.0),
+            "duration": payload.get("duration"),
+        }
+        wm = WatermarkLayer(**data)
+        ir.watermarks.append(wm)
+    else:
+        # Backward compatibility for older actions that treated set_watermark as upsert-by-kind.
+        index = next((i for i, existing in enumerate(ir.watermarks) if existing.kind == kind), None)
+        if index is None:
+            return _cmd_set_watermark(ir, target_id, {**payload, "createNew": True})
+        wm = _watermark_patch(ir.watermarks[index], payload)
+        ir.watermarks[index] = wm
+
+    return [f"watermark:{wm.id}"], ["project:render"]
+
+
+def _cmd_move_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Move a timed overlay on the global timeline; dragging materializes its effective duration."""
+    index = _watermark_index(ir, target_id)
+    current = ir.watermarks[index]
+    try:
+        start = float(payload["start"])
+        duration = float(payload["duration"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "move_watermark 需要数值 start 和 duration") from exc
+    total = float(ir.project.duration)
+    if not (math.isfinite(start) and math.isfinite(duration)):
+        raise EditorError("INVALID_PAYLOAD", "覆盖层时间必须是有限数值")
+    if start < 0 or duration < 0.05 or start + duration > total + 0.01:
+        raise EditorError("INVALID_RANGE", "覆盖层移动后必须位于成片区间内，且至少显示 0.05 秒")
+    ir.watermarks[index] = WatermarkLayer(**{
+        **current.model_dump(), "start": start, "duration": duration,
+    })
+    return [f"watermark:{current.id}"], ["project:render"]
+
+
+def _cmd_trim_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Commit a timeline overlay's trimmed start/duration after local drag preview."""
+    index = _watermark_index(ir, target_id)
+    current = ir.watermarks[index]
+    try:
+        start = float(payload["start"])
+        duration = float(payload["duration"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "trim_watermark 需要数值 start 和 duration") from exc
+    total = float(ir.project.duration)
+    if not (math.isfinite(start) and math.isfinite(duration)):
+        raise EditorError("INVALID_PAYLOAD", "覆盖层时间必须是有限数值")
+    if start < 0 or duration < 0.05 or start + duration > total + 0.01:
+        raise EditorError("INVALID_RANGE", "覆盖层裁剪后必须位于成片区间内，且至少显示 0.05 秒")
+    ir.watermarks[index] = WatermarkLayer(**{
+        **current.model_dump(), "start": start, "duration": duration,
+    })
+    return [f"watermark:{current.id}"], ["project:render"]
 
 
 def _cmd_remove_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """§19：移除水印。targetId 可为 kind（text/image/logo/svg）或 index。"""
+    """Remove one timeline overlay by index/id, or retain legacy kind-based removal."""
     if not ir.watermarks:
         raise EditorError("NOOP", "项目无水印")
-    kind = target_id or payload.get("kind") or payload.get("id") or ""
-    removed = False
+    target = str(target_id or "")
+    if target.startswith("watermark#"):
+        index = _watermark_index(ir, target)
+        removed = ir.watermarks.pop(index)
+        return [f"watermark:{removed.id}"], ["project:render"]
+    if target.startswith("wm-"):
+        index = next((i for i, wm in enumerate(ir.watermarks) if wm.id == target), None)
+        if index is None:
+            raise EditorError("NOT_FOUND", f"覆盖层 {target!r} 不存在")
+        removed = ir.watermarks.pop(index)
+        return [f"watermark:{removed.id}"], ["project:render"]
+
+    kind = target or payload.get("kind") or payload.get("id") or ""
     if kind:
         before = len(ir.watermarks)
         ir.watermarks = [w for w in ir.watermarks if w.kind != kind]
         removed = len(ir.watermarks) < before
     else:
-        ir.watermarks = ir.watermarks[:-1]  # 移除最后一条
+        ir.watermarks = ir.watermarks[:-1]
         removed = True
     if not removed:
         raise EditorError("NOT_FOUND", f"水印 {kind!r} 不存在")
