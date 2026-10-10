@@ -193,3 +193,24 @@ def test_shotbook_write_keeps_previous_valid_plan_as_recovery_point(tmp_path, mo
 
     assert json.loads((plans / "shotbook.json").read_text(encoding="utf-8")) == new
     assert json.loads((plans / "shotbook.json.bak").read_text(encoding="utf-8")) == old
+
+
+
+def test_evidence_reference_is_not_treated_as_verified_file():
+    from video_director.shotbook import _gates
+
+    shot = {
+        "shot_type": "screenshot",
+        "evidence_ref": "asset-123",
+        "has_visual_layer": True,
+        "shot_recipe_id": "known",
+        "reviewed": True,
+        "semantic_role": "evidence",
+        "visual_intent": "prove",
+    }
+    evidence_gate = next(
+        gate for gate in _gates([shot], [{"id": "known"}], "asr")
+        if gate["id"] == "evidence"
+    )
+    assert evidence_gate["status"] == "REVIEW"
+    assert "不能视为真实性通过" in evidence_gate["detail"]
