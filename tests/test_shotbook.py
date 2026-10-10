@@ -60,17 +60,38 @@ def test_motion_registry_exposes_only_renderer_supported_layer_contracts():
             assert set(motion["properties"]) <= {"scale", "opacity"}
 
 
-def test_pipeline_timing_sidecar_persists_provenance(tmp_path):
+def test_pipeline_timing_sidecar_persists_provenance_and_audio_fingerprints(tmp_path):
+    import hashlib
     import json
     from video_director.pipeline import _persist_narration_timing
 
     plans = tmp_path / "plans"
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    audio_bytes = b"test narration bytes"
+    (audio / "narration.mp3").write_bytes(audio_bytes)
     words = [{"text": "你好", "start": 0.2, "end": 0.8}]
-    _persist_narration_timing({"plans": plans}, "asr", words, 1.25)
+    _persist_narration_timing({"plans": plans, "audio": audio}, "asr", words, 1.25)
     payload = json.loads((plans / "narration_timing.json").read_text(encoding="utf-8"))
     assert payload["source"] == "asr"
     assert payload["duration"] == 1.25
     assert payload["word_timeline"] == words
+    assert payload["audio_fingerprint"]["status"] == "VERIFIED"
+    assert payload["audio_fingerprint"]["sha256"] == hashlib.sha256(audio_bytes).hexdigest()
+    assert payload["audio_fingerprint"]["size_bytes"] == len(audio_bytes)
+    assert len(payload["alignment_fingerprint"]) == 64
+    assert payload["fingerprint_schema"] == 1
+
+
+def test_pipeline_timing_sidecar_marks_missing_audio_fingerprint(tmp_path):
+    import json
+    from video_director.pipeline import _persist_narration_timing
+
+    plans = tmp_path / "plans"
+    _persist_narration_timing({"plans": plans}, "asr", [{"text": "x", "start": 0, "end": 1}], 1)
+    payload = json.loads((plans / "narration_timing.json").read_text(encoding="utf-8"))
+    assert payload["audio_fingerprint"]["status"] == "MISSING"
+    assert payload["audio_fingerprint"]["sha256"] is None
 
 
 def test_character_timing_survives_overlapping_word_timestamps():
