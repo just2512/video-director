@@ -1048,6 +1048,20 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 404)
+        elif route == "/api/editor/shotbook":
+            # Shotbook is a persisted editorial plan; composition.json remains the timeline authority.
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import shotbook as vd_shotbook
+                self._send_json(vd_shotbook.get_project_shotbook(pid))
+            except vd_shotbook.ShotbookError as exc:
+                self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, 404)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/editor/revisions":
             # ?project_id= → revision 历史（Versions 页消费）
             qs = parse_qs(parsed.query)
@@ -1672,6 +1686,17 @@ class Handler(BaseHTTPRequestHandler):
                 out = vd_vu.import_uploaded_voice(
                     project_id, str(tmp_file),
                     scene_texts=scene_texts or None)
+                # Persist alignment evidence for Shotbook; source remains ASR vs estimate.
+                timing_path = vd_config.project_dir(project_id) / "plans" / "narration_timing.json"
+                timing_path.parent.mkdir(parents=True, exist_ok=True)
+                timing_tmp = timing_path.with_suffix(".json.tmp")
+                timing_tmp.write_text(json.dumps({
+                    "source": out.get("source", "estimated"),
+                    "duration": out.get("duration"),
+                    "word_timeline": out.get("word_timeline") or [],
+                    "saved_at": int(__import__("time").time()),
+                }, ensure_ascii=False, indent=2), encoding="utf-8")
+                timing_tmp.replace(timing_path)
                 # §48 SSE：配音导入完成事件
                 sse_publish("voice", {"phase": "uploaded", "project_id": project_id,
                                       "source": out["source"],
@@ -3033,6 +3058,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "asset_id": new_id, "file": str(out_path)})
             except StopIteration:
                 self._send_json({"error": f"目标层 {target} 不存在"}, 404)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/editor/shotbook":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "code": "INVALID_JSON", "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "code": "INVALID_PROJECT_ID", "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import shotbook as vd_shotbook
+                action = payload.get("action")
+                if action == "generate":
+                    result = vd_shotbook.generate_project_shotbook(pid, payload.get("base_version"))
+                elif action == "save":
+                    result = vd_shotbook.save_project_shotbook(pid, payload)
+                else:
+                    self._send_json({"ok": False, "code": "INVALID_ACTION", "error": "action 只能是 generate 或 save"}, 400)
+                    return
+                self._send_json(result)
+            except vd_shotbook.ShotbookError as exc:
+                self._send_json({"ok": False, "code": exc.code, "error": str(exc)},
+                                409 if exc.code == "CONFLICT" else 400)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
