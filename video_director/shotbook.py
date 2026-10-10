@@ -157,6 +157,9 @@ def _resolve_project_audio(project_id: str, audio_rel: str) -> Path | None:
     value = str(audio_rel or "").strip().replace("\\", "/")
     if not value or value.startswith("/") or len(value) > 260:
         return None
+    # Windows drive letters / UNC heads are absolute even on POSIX runners.
+    if re.match(r"^[A-Za-z]:", value) or value.startswith("//"):
+        return None
     candidate = Path(value)
     if candidate.is_absolute() or any(part in ("..", "") for part in candidate.parts):
         return None
