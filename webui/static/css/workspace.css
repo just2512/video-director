@@ -98,7 +98,7 @@
 .ed-track-label { flex: 0 0 90px; font-size: 11px; color: var(--muted); text-align: right; }
 .ed-track-body { flex: 1; display: flex; gap: 2px; overflow: hidden; position: relative; min-height: 22px; }
 .ed-track-clip {
-  flex: 0 0 auto; background: var(--surface-3); border: 1px solid var(--border-strong);
+  box-sizing: border-box; flex: 0 0 auto; background: var(--surface-3); border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm); font-size: 11px; color: var(--text);
   padding: 2px 4px; overflow: hidden; white-space: nowrap; cursor: pointer;
 }
@@ -264,3 +264,5 @@
 @media(max-width:700px){.sb-gates{grid-template-columns:1fr}.sb-char-list{grid-template-columns:1fr}}
 
 .sb-motion-note{margin:5px 0 8px}
+
+.ed-track-clip.tl-out-of-range { border-color: var(--danger, #b42318); color: var(--danger, #b42318); background: color-mix(in srgb, var(--danger, #b42318) 10%, transparent); }
