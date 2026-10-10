@@ -479,11 +479,12 @@ def mix_audio(
     narration_file: Optional[str],
     out_path: str,
 ) -> Optional[str]:
-    """音频合成（V2 §27/§31/§32）。
+    """按 Composition 音轨时间合成。
 
-    Narration 主音轨；BGM 循环对齐总长并全程应用固定 duck（有旁白时压低，
-    第一版用恒定压低量近似 sidechain ducking）；SFX 在语义时间点 adelay 插入。
-    无任何音频输入时返回 None（纯视觉片，调用方跳过混音）。
+    Narration、original、BGM、ambience、dialogue、SFX 各自消费 start/duration、
+    mute、volume 与 fade；BGM/环境音可循环，但只在定义的区间内发声。
+    混音尾部补静音至项目总长，避免仅靠近片尾的短音效触发 -shortest 截断视频。
+    无任何有效音频输入时返回 None（纯视觉片，调用方跳过混音）。
     """
     import math
 
@@ -494,16 +495,40 @@ def mix_audio(
     idx = 0
     total = ir.project.duration
 
-    # ---- narration（主音轨，不压低）----
-    if narration_file:
-        inputs += ["-i", narration_file]
-        filters.append(f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono[nar]")
-        ref_labels.append("[nar]")
-        idx += 1
+    # ---- narration（AudioTrack 控制音量、静音、fade 和时间位置）----
+    def gain_filter(volume: float, extra_db: float = 0.0) -> str:
+        """Render zero as silence, otherwise apply a linear gain in dB."""
+        value = max(0.0, float(volume))
+        if value == 0.0:
+            return "volume=0"
+        return f"volume={20 * math.log10(value) + extra_db:.2f}dB"
 
-    # ---- original（§18：按视频片段逐条抽取素材原声）----
-    # 每个 Composition video layer 都可以产生自己的 original track。
-    # 旧项目只有一条 original track 时仍保持原有行为；新项目可无缝混合多个片段。
+    narration_track = next((t for t in ir.audio if t.type == AudioTrackType.narration), None)
+    if narration_file and not (narration_track and getattr(narration_track, "muted", False)):
+        nar_start = max(0.0, float(narration_track.start)) if narration_track else 0.0
+        nar_requested = float(narration_track.duration) if narration_track else total
+        nar_duration = min(nar_requested, max(0.0, total - nar_start))
+        if nar_duration > 0.01:
+            inputs += ["-i", narration_file]
+            nar_volume = float(narration_track.volume) if narration_track else 1.0
+            chain = (
+                f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
+                f"{gain_filter(nar_volume)},atrim=0:{nar_duration:.3f}"
+            )
+            fade_in = min(float(getattr(narration_track, "fadeIn", 0.0) or 0.0), nar_duration) if narration_track else 0.0
+            fade_out = min(float(getattr(narration_track, "fadeOut", 0.0) or 0.0), nar_duration) if narration_track else 0.0
+            if fade_in > 0:
+                chain += f",afade=t=in:st=0:d={fade_in:.3f}"
+            if fade_out > 0:
+                chain += f",afade=t=out:st={max(0.0, nar_duration - fade_out):.3f}:d={fade_out:.3f}"
+            if nar_start > 0:
+                chain += f",adelay={int(round(nar_start * 1000))}:all=1"
+            chain += "[nar]"
+            filters.append(chain)
+            ref_labels.append("[nar]")
+            idx += 1
+
+    # ---- original：源区间截取，start/duration 决定输出时间位置 ----
     original_tracks = [
         t for t in ir.audio
         if t.type == AudioTrackType.original
@@ -514,30 +539,30 @@ def mix_audio(
         src = assets.get(original_track.asset_id or "")
         if not src or src.type != "video" or not os.path.isfile(src.file):
             continue
+        track_start = max(0.0, float(original_track.start or 0.0))
+        remaining = max(0.0, total - track_start)
+        if remaining <= 0.01:
+            continue
         src_in = max(0.0, float(getattr(original_track, "source_in", 0.0) or 0.0))
         src_out = getattr(original_track, "source_out", None)
-        if src_out is not None:
-            span = max(0.0, float(src_out) - src_in)
-        else:
-            span = max(0.0, float(original_track.duration))
-        track_dur = min(float(original_track.duration), span or float(original_track.duration))
+        span = max(0.0, float(src_out) - src_in) if src_out is not None else 0.0
+        track_dur = min(float(original_track.duration), span or float(original_track.duration), remaining)
         if track_dur <= 0.01:
             continue
         inputs += ["-ss", f"{src_in:.3f}", "-t", f"{track_dur:.3f}", "-i", src.file]
         duck_db = config.DUCKING_DB if (narration_file and original_track.ducking) else 0.0
-        vol_db = 20 * math.log10(max(original_track.volume, 0.01)) + duck_db
         chain_o = (
             f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
-            f"volume={vol_db:.2f}dB"
+            f"{gain_filter(original_track.volume, duck_db)}"
         )
         fin_o = min(float(getattr(original_track, "fadeIn", 0.0) or 0.0), track_dur)
         fout_o = min(float(getattr(original_track, "fadeOut", 0.0) or 0.0), track_dur)
-        if fin_o > 0:
-            chain_o += f",afade=t=in:st=0:d={fin_o:.2f}"
-        if fout_o > 0:
-            chain_o += f",afade=t=out:st={max(0.0, track_dur - fout_o):.2f}:d={fout_o:.2f}"
         chain_o += f",atrim=0:{track_dur:.3f}"
-        delay_ms = max(0, int(round(float(original_track.start or 0.0) * 1000)))
+        if fin_o > 0:
+            chain_o += f",afade=t=in:st=0:d={fin_o:.3f}"
+        if fout_o > 0:
+            chain_o += f",afade=t=out:st={max(0.0, track_dur - fout_o):.3f}:d={fout_o:.3f}"
+        delay_ms = int(round(track_start * 1000))
         if delay_ms:
             chain_o += f",adelay={delay_ms}:all=1"
         chain_o += f"[orig{oi}]"
@@ -545,62 +570,92 @@ def mix_audio(
         ref_labels.append(f"[orig{oi}]")
         idx += 1
 
-    # ---- BGM（首个有效 bgm track；循环铺满总长 + duck + 用户音量）----
-    bgm_track: Optional[AudioTrack] = None
-    for t in ir.audio:
-        if t.type == AudioTrackType.bgm and assets.get(t.asset_id or ""):
-            bgm_track = t
-            break
-    if bgm_track is not None and getattr(bgm_track, "muted", False):
-        bgm_track = None  # §37 Audio Bus mute
-    if bgm_track is not None:
-        duck_db = config.DUCKING_DB if narration_file else 0.0
-        total_db = duck_db + 20 * math.log10(max(bgm_track.volume, 0.01))
-        inputs += ["-stream_loop", "-1", "-i", assets[bgm_track.asset_id].file]
-        # §35 BGM fade：fadeIn/fadeOut（秒）非零时接 afade（先淡入再淡出）
-        chain = (f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
-                 f"volume={total_db:.2f}dB")
-        fin = float(getattr(bgm_track, "fadeIn", 0.0) or 0.0)
-        fout = float(getattr(bgm_track, "fadeOut", 0.0) or 0.0)
-        if fin > 0:
-            chain += f",afade=t=in:st=0:d={min(fin, total):.2f}"
-        if fout > 0:
-            chain += f",afade=t=out:st={max(0.0, total - fout):.2f}:d={min(fout, total):.2f}"
-        chain += f",atrim=0:{total:.3f}[bgm]"
-        filters.append(chain)
-        ref_labels.append("[bgm]")
-        idx += 1
-
-    # ---- SFX（语义时间点插入）----
-    sfx_labels: List[str] = []
-    for t in ir.audio:
-        if t.type != AudioTrackType.sfx:
+    # ---- BGM / 环境音：尊重每条轨的 start、duration、mute、gain、fade ----
+    continuous_tracks = [
+        t for t in ir.audio
+        if t.type in (AudioTrackType.bgm, AudioTrackType.ambience)
+        and not getattr(t, "muted", False)
+        and assets.get(t.asset_id or "")
+    ]
+    continuous_index = {AudioTrackType.bgm: 0, AudioTrackType.ambience: 0}
+    for track in continuous_tracks:
+        asset = assets.get(track.asset_id or "")
+        if not asset:
             continue
-        if getattr(t, "muted", False):
-            continue  # §37 Audio Bus mute
-        a = assets.get(t.asset_id or "")
-        if a is None:
+        track_start = max(0.0, float(track.start or 0.0))
+        clip_duration = min(float(track.duration), max(0.0, total - track_start))
+        if clip_duration <= 0.01:
             continue
-        inputs += ["-i", a.file]
-        delay_ms = int(t.start * 1000)
-        vol_db = 20 * math.log10(max(t.volume, 0.01))
-        label = f"sfx{len(sfx_labels)}"
-        filters.append(
+        inputs += ["-stream_loop", "-1", "-i", asset.file]
+        duck_db = config.DUCKING_DB if (narration_file and track.type == AudioTrackType.bgm) else 0.0
+        chain = (
             f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
-            f"volume={vol_db:.2f}dB,adelay={delay_ms}|{delay_ms}[{label}]"
+            f"{gain_filter(track.volume, duck_db)}"
         )
-        sfx_labels.append(f"[{label}]")
+        fade_in = min(float(getattr(track, "fadeIn", 0.0) or 0.0), clip_duration)
+        fade_out = min(float(getattr(track, "fadeOut", 0.0) or 0.0), clip_duration)
+        if fade_in > 0:
+            chain += f",afade=t=in:st=0:d={fade_in:.3f}"
+        if fade_out > 0:
+            chain += f",afade=t=out:st={max(0.0, clip_duration - fade_out):.3f}:d={fade_out:.3f}"
+        chain += f",atrim=0:{clip_duration:.3f}"
+        delay_ms = int(round(track_start * 1000))
+        if delay_ms:
+            chain += f",adelay={delay_ms}:all=1"
+        prefix = "bgm" if track.type == AudioTrackType.bgm else "ambience"
+        label = f"{prefix}{continuous_index[track.type]}"
+        continuous_index[track.type] += 1
+        chain += f"[{label}]"
+        filters.append(chain)
+        ref_labels.append(f"[{label}]")
         idx += 1
 
-    if not ref_labels and not sfx_labels:
+    # ---- SFX / 对白：一次性片段按 duration 截断，并放到 start 时间点 ----
+    positioned_labels: List[str] = []
+    positioned_index = {AudioTrackType.sfx: 0, AudioTrackType.dialogue: 0}
+    for track in ir.audio:
+        if track.type not in (AudioTrackType.sfx, AudioTrackType.dialogue):
+            continue
+        if getattr(track, "muted", False):
+            continue
+        asset = assets.get(track.asset_id or "")
+        if asset is None:
+            continue
+        track_start = max(0.0, float(track.start or 0.0))
+        clip_duration = min(float(track.duration), max(0.0, total - track_start))
+        if clip_duration <= 0.01:
+            continue
+        inputs += ["-i", asset.file]
+        chain = (
+            f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
+            f"{gain_filter(track.volume)},atrim=0:{clip_duration:.3f}"
+        )
+        fade_in = min(float(getattr(track, "fadeIn", 0.0) or 0.0), clip_duration)
+        fade_out = min(float(getattr(track, "fadeOut", 0.0) or 0.0), clip_duration)
+        if fade_in > 0:
+            chain += f",afade=t=in:st=0:d={fade_in:.3f}"
+        if fade_out > 0:
+            chain += f",afade=t=out:st={max(0.0, clip_duration - fade_out):.3f}:d={fade_out:.3f}"
+        delay_ms = int(round(track_start * 1000))
+        if delay_ms:
+            chain += f",adelay={delay_ms}|{delay_ms}"
+        prefix = "sfx" if track.type == AudioTrackType.sfx else "dialogue"
+        label = f"{prefix}{positioned_index[track.type]}"
+        positioned_index[track.type] += 1
+        chain += f"[{label}]"
+        filters.append(chain)
+        positioned_labels.append(f"[{label}]")
+        idx += 1
+
+    if not ref_labels and not positioned_labels:
         return None  # 无任何音频
 
     # ---- amix 汇总（normalize=0：Narration 是主音轨，不得被均分衰减）----
-    n_inputs = len(ref_labels) + len(sfx_labels)
+    n_inputs = len(ref_labels) + len(positioned_labels)
     filters.append(
-        f"{''.join(ref_labels)}{''.join(sfx_labels)}"
+        f"{''.join(ref_labels)}{''.join(positioned_labels)}"
         f"amix=inputs={n_inputs}:duration=longest:dropout_transition=0:normalize=0,"
-        f"alimiter=limit=0.97,atrim=0:{total:.3f}[aout]"
+        f"alimiter=limit=0.97,apad,atrim=0:{total:.3f}[aout]"
     )
 
     # 混音独立落盘，再与视觉流复制合并（避免一次命令里 -map 紊乱）

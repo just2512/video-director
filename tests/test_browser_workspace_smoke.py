@@ -99,6 +99,66 @@ def test_chromium_loads_unified_editor_workspace():
                     return result;
                 }""")
                 assert abs(stepped - 1 / 24) < 0.00001
+                assert page.evaluate("typeof window.renderPhysicalTimeline") == "function"
+                geometry = page.evaluate("""() => {
+                    const previousComp = ED.comp;
+                    const previousZoom = ED.zoom;
+                    const previousPlayhead = PLAYHEAD.at;
+                    const previousGroups = Object.fromEntries(
+                        Object.entries(TL_GROUPS).map(([key, group]) => [key, group.open])
+                    );
+                    try {
+                        ED.zoom = 1;
+                        PLAYHEAD.at = 0;
+                        Object.values(TL_GROUPS).forEach(group => { group.open = true; });
+                        ED.comp = {
+                            duration: 10,
+                            project: {fps: 30, duration: 10},
+                            scenes: [
+                                {id: 'S01', start: 0, duration: 5, text: 'First',
+                                 layers: [{type: 'image', asset_id: 'img', start: 0, duration: 5}]},
+                                {id: 'S02', start: 5, duration: 5, text: 'Second',
+                                 layers: [
+                                   {type: 'image', asset_id: 'img', start: 0, duration: 3},
+                                   {type: 'broll', role: 'broll', asset_id: 'clip', start: 3, duration: 2}
+                                 ]}
+                            ],
+                            assets: {
+                                img: {name: 'Still', file: 'still.jpg'},
+                                clip: {name: 'B-roll source', file: 'clip.mp4'},
+                                'bgm-1': {name: 'Music', file: 'music.wav'},
+                                'sfx-1': {name: 'Impact', file: 'impact.wav'},
+                                'amb-1': {name: 'Room tone', file: 'room.wav'}
+                            },
+                            audio: [
+                                {type: 'bgm', asset_id: 'bgm-1', start: 3, duration: 2, volume: 0.5},
+                                {type: 'sfx', asset_id: 'sfx-1', start: 7, duration: 1, volume: 0.4},
+                                {type: 'ambience', asset_id: 'amb-1', start: 6, duration: 1, volume: 0.3}
+                            ],
+                            watermarks: [],
+                            subtitle_track: {mode: 'word', cues: []}
+                        };
+                        const host = document.createElement('div');
+                        host.innerHTML = renderPhysicalTimeline();
+                        const clip = label => {
+                            const row = [...host.querySelectorAll('.ed-track')].find(
+                                item => item.querySelector('.ed-track-label')?.textContent === label
+                            );
+                            const node = row && row.querySelector('.ed-track-clip');
+                            return node ? {left: node.style.left, width: node.style.width, title: node.title} : null;
+                        };
+                        return {bgm: clip('背景音乐'), sfx: clip('音效'), ambience: clip('环境音'), broll: clip('B-roll')};
+                    } finally {
+                        ED.comp = previousComp;
+                        ED.zoom = previousZoom;
+                        PLAYHEAD.at = previousPlayhead;
+                        for (const [key, open] of Object.entries(previousGroups)) TL_GROUPS[key].open = open;
+                    }
+                }""")
+                assert geometry["bgm"]["left"] == "30%" and geometry["bgm"]["width"] == "20%"
+                assert geometry["sfx"]["left"] == "70%" and geometry["sfx"]["width"] == "10%"
+                assert geometry["ambience"]["left"] == "60%" and geometry["ambience"]["width"] == "10%"
+                assert geometry["broll"]["left"] == "80%" and geometry["broll"]["width"] == "20%"
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise
