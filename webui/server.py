@@ -2909,6 +2909,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 import uuid as _uuid
                 from video_director.registries import compiler as vd_compiler
+                from video_director.registries.runtime import template_runtime_report
+                from video_director.registries.templates import TemplateRegistry
+                tpl = TemplateRegistry().get(template_id, fields.get("template_version") or None)
+                runtime = template_runtime_report(tpl)
+                if not runtime["can_instantiate"]:
+                    self._send_json({"ok": False, "code": "RUNTIME_BLOCKED",
+                                     "error": "模板运行前置条件未通过，未创建无法兑现的项目。",
+                                     "runtime": runtime}, 422)
+                    return
                 pid = "tpl-" + _uuid.uuid4().hex[:8]
                 base = vd_config.project_dir(pid)
                 dirs = vd_config.init_project_dirs(base)
