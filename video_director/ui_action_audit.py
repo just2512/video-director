@@ -73,6 +73,7 @@ UI_ONLY_PREFIXES = (
     # 轨道点击 → 打开对象上下文（§5.2/§6/§46 纯 UI 导航）
     "projectOverlayOpen(", "originalTrackOpen(", "bgmTrackOpen(",
     "editorAudioVolume(", "editorSubtitleStyleOpen(",
+    "editorAudioClipOpen(", "editorAudioClipApply(", "editorAudioClipClose(",
     # §46 任务中心抽屉（WorkflowRun 渲染层 UI 开关）
     "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(",
     # §52 配置导入导出（设置表单）
