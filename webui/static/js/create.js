@@ -388,7 +388,7 @@ document.addEventListener('click',function(event){
       +'；BGM '+(contract.bgm_volume??'—')
       +'；音效密度 '+(contract.sfx_density||'—');
   }
-}
+});
 
 function cfRefreshAssetSummary(){
   const el = document.getElementById('cf-assets-summary');
