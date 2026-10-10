@@ -297,13 +297,19 @@ def render_watermark_layer(
             return video_in
         font = find_cjk_font()
         if font is None:
-            return video_in
+            raise RuntimeError("无法渲染文字覆盖层：未找到可用字体；请安装中文字体后重试")
         esc_font = _esc_font_path(font)
         size = max(16, int(w * 0.026 * scale))
         # §19 safeArea：像素安全距离 → 边距比例（默认 32px，clamp [0,200]）
         safe = float(getattr(wm, "safe_area", 32) or 0)
         margin = max(0.0, min(safe / max(w, 1), 0.2))
         x_expr, y_expr = _anchor_xy(anchor, w, h, margin)
+        offset_x = int(getattr(wm, "offset_x", 0) or 0)
+        offset_y = int(getattr(wm, "offset_y", 0) or 0)
+        if offset_x:
+            x_expr = f"({x_expr}){offset_x:+d}"
+        if offset_y:
+            y_expr = f"({y_expr}){offset_y:+d}"
         # opacity → fontcolor alpha（§19 opacity 字段语义）
         alpha_hex = f"{int(opacity * 255):02x}"
         # The overlay must follow the timeline interval stored in WatermarkLayer.
@@ -331,6 +337,8 @@ def render_watermark_layer(
             logger.warning(f"watermark image/logo asset 非文件路径，跳过: {asset_id}")
             return video_in
         ow = max(1, int(w * 0.18 * scale))
+        offset_x = int(getattr(wm, "offset_x", 0) or 0)
+        offset_y = int(getattr(wm, "offset_y", 0) or 0)
         # §19 safeArea 同语义用于 image/logo overlay
         safe = int(max(0, min(float(getattr(wm, "safe_area", 32) or 0), 200)))
         xm, ym = safe, safe
@@ -344,6 +352,8 @@ def render_watermark_layer(
             ox, oy = (w - ow) // 2, (h - ow) // 2
         else:
             ox, oy = w - ow - xm, h - (ow * 9 // 16) - ym
+        ox += offset_x
+        oy += offset_y
         # The video overlay is a time-ranged timeline clip too. Apply the same
         # visibility contract as text, rather than burning logos in for the full clip.
         start = max(0.0, float(getattr(wm, "start", 0.0) or 0.0))
