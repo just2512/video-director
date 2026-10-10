@@ -43,6 +43,7 @@ def test_text_watermark_is_visible_only_during_its_timeline_window(monkeypatch, 
     title_engine.render_watermark_layer("input.mp4", watermark, str(tmp_path / "out.mp4"))
 
     vf = calls[0][calls[0].index("-vf") + 1]
+    assert "fontcolor=white@0.750" in vf
     assert "enable='between(t,2.000,5.000)'" in vf
 
 
