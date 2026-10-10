@@ -103,7 +103,7 @@ function _inspectorProject(){
           <span class="hint">${anchorCn[w.anchor] || esc(w.anchor || '')} · 透明 ${w.opacity ?? '—'}</span></span>
           <span class="btn-row">
             <button class="btn-secondary btn-sm" onclick="editorWatermarkMove(${i})">调整</button>
-            <button class="btn-secondary btn-sm" data-action="watermark.remove" data-target="project">删除</button>
+            <button class="btn-secondary btn-sm" onclick="editorWatermarkRemoveAt(${i})">删除</button>
           </span></div>`).join('') : '<div class="hint">还没有 Logo / 水印</div>'}
       <div class="btn-row" style="flex-wrap:wrap">
         <button class="btn-secondary btn-sm" data-action="watermark.add" data-target="project" title="添加品牌 Logo / 文字水印">添加 Logo / 水印</button>
@@ -905,10 +905,116 @@ async function editorWatermarkAdd(){
     const anchor = row.querySelector('#' + id + '-anchor').value;
     row.remove();
     if (!text) { editorToast('水印文字为空，未添加'); return; }
-    editorCmd('set_watermark', {kind: 'text', text, anchor, opacity: 0.75}, '', true);
+    editorCmd('set_watermark', {kind: 'text', text, anchor, opacity: 0.75, createNew: true}, '', true);
   };
   row.querySelector('#' + id + '-text').focus();
 }
+function editorWatermarkClipOpen(index, ev){
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  const wm = (ED.comp && ED.comp.watermarks || [])[index];
+  if (!wm) { editorToast('覆盖层已变化，请刷新时间线', true); return; }
+  const total = Number(ED.comp.duration) || 1;
+  const start = Math.max(0, Number(wm.start) || 0);
+  const duration = wm.duration == null ? Math.max(0.05, total - start)
+    : Math.max(0.05, Number(wm.duration) || 0.05);
+  const label = wm.text || wm.asset_id || wm.kind || '覆盖层';
+  const anchor = wm.anchor || 'bottom_right';
+  const mask = document.createElement('div');
+  mask.id = 'watermark-clip-inspector-mask';
+  mask.className = 'audio-clip-inspector-mask';
+  mask.innerHTML = `
+    <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="watermark-clip-inspector-title">
+      <header>
+        <div><b id="watermark-clip-inspector-title">覆盖层 · 片段设置</b>
+          <div class="hint">${esc(label)} · ${esc(wm.kind || 'text')} · 成片 ${total.toFixed(2)}s</div>
+        </div>
+        <button type="button" class="btn-secondary btn-sm" onclick="editorWatermarkClipClose()" aria-label="关闭覆盖层设置">关闭</button>
+      </header>
+      ${wm.kind === 'text' ? `<label for="watermark-clip-text">显示文字</label>
+        <input id="watermark-clip-text" type="text" value="${esc(wm.text || '')}" maxlength="300">` : `<div class="hint">素材：${esc(wm.asset_id || '未绑定')}（素材引用保持不变）</div>`}
+      <label for="watermark-clip-start">开始时间（秒）</label>
+      <input id="watermark-clip-start" type="number" min="0" max="${total}" step="0.05" value="${start.toFixed(2)}">
+      <label for="watermark-clip-duration">显示时长（秒）</label>
+      <input id="watermark-clip-duration" type="number" min="0.05" max="${Math.max(0.05,total-start).toFixed(2)}" step="0.05" value="${duration.toFixed(2)}">
+      <label for="watermark-clip-anchor">位置</label>
+      <select id="watermark-clip-anchor">${_UI_CN_ANCHORS.map(([v,l]) => `<option value="${v}"${v === anchor ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <label for="watermark-clip-opacity">透明度（0–1）</label>
+      <input id="watermark-clip-opacity" type="number" min="0" max="1" step="0.05" value="${Number(wm.opacity ?? 0.75)}">
+      <footer>
+        <button type="button" class="btn-secondary" onclick="editorWatermarkClipClose()">取消</button>
+        <button type="button" class="btn-secondary" onclick="editorWatermarkRemoveAt(${index})">删除覆盖层</button>
+        <button type="button" class="btn-primary" onclick="editorWatermarkClipApply(${index})">保存修改</button>
+      </footer>
+    </section>`;
+  mask.addEventListener('click', event => {
+    if (event.target === mask) editorWatermarkClipClose();
+  });
+  document.body.appendChild(mask);
+  const first = mask.querySelector('#watermark-clip-start');
+  if (first) first.focus();
+}
+
+function editorWatermarkClipClose(){
+  const mask = document.getElementById('watermark-clip-inspector-mask');
+  if (mask) mask.remove();
+}
+
+async function editorWatermarkClipApply(index){
+  const wm = (ED.comp && ED.comp.watermarks || [])[index];
+  const mask = document.getElementById('watermark-clip-inspector-mask');
+  if (!wm || !mask) { editorWatermarkClipClose(); editorToast('覆盖层已变化，请重新选择', true); return; }
+  const total = Number(ED.comp.duration) || 1;
+  const start = Number(mask.querySelector('#watermark-clip-start').value);
+  const duration = Number(mask.querySelector('#watermark-clip-duration').value);
+  const opacity = Number(mask.querySelector('#watermark-clip-opacity').value);
+  if (![start,duration,opacity].every(Number.isFinite) || start < 0 || duration < 0.05
+      || start + duration > total + 0.001 || opacity < 0 || opacity > 1) {
+    editorToast('参数无效：时间区间须位于成片范围内，时长至少 0.05 秒，透明度在 0–1', true);
+    return;
+  }
+  const payload = {
+    kind: wm.kind || 'text',
+    anchor: mask.querySelector('#watermark-clip-anchor').value,
+    opacity,
+    scale: Number(wm.scale ?? 1),
+    safeArea: Number(wm.safe_area ?? 32),
+    start, duration,
+  };
+  if (wm.kind === 'text') {
+    payload.text = (mask.querySelector('#watermark-clip-text').value || '').trim();
+    if (!payload.text) { editorToast('显示文字不能为空', true); return; }
+  } else {
+    payload.assetId = wm.asset_id;
+  }
+  try {
+    const result = await editorCmd('set_watermark', payload, 'watermark#' + index, true);
+    if (!result || !result.ok) {
+      editorToast('覆盖层未保存：' + ((result && result.error) || '未知错误'), true);
+      return;
+    }
+    editorWatermarkClipClose();
+    editorToast('覆盖层已保存');
+    await refreshWorkspace();
+  } catch (error) {
+    editorToast('覆盖层未保存：' + (error.message || error), true);
+  }
+}
+
+async function editorWatermarkRemoveAt(index){
+  try {
+    const result = await editorCmd('remove_watermark', {}, 'watermark#' + index, true);
+    if (!result || !result.ok) {
+      editorToast('删除覆盖层失败：' + ((result && result.error) || '未知错误'), true);
+      return;
+    }
+    editorWatermarkClipClose();
+    editorToast('覆盖层已删除');
+    await refreshWorkspace();
+  } catch (error) {
+    editorToast('删除覆盖层失败：' + (error.message || error), true);
+  }
+}
+
 async function editorWatermarkRemove(){
   return executeAction('watermark.remove', {}, 'project');
 }
@@ -924,14 +1030,14 @@ function renderWatermarkList(){
     `<span class="btn-row">`+
     `<button class="btn-secondary btn-sm" onclick="editorWatermarkMove(${i})">移位</button>`+
     `<button class="btn-secondary btn-sm" onclick="editorWatermarkOpacity(${i})">透明度</button>`+
-    `<button class="btn-secondary btn-sm" data-action="watermark.remove" data-target="project">删</button></span></div>`).join('');
+    `<button class="btn-secondary btn-sm" onclick="editorWatermarkRemoveAt(${i})">删</button></span></div>`).join('');
 }
 function editorWatermarkMove(i){
   const hostId = 'editor-watermark-list';
   const w = (ED.comp.watermarks || [])[i] || {};
   uiInlineInput(hostId, {type: 'select', options: _UI_CN_ANCHORS, def: w.anchor || 'top_right'},
     (v) => editorCmd('set_watermark', {kind: w.kind || 'text', text: w.text || '水印',
-                                       anchor: v, opacity: w.opacity ?? 0.75}, '', true));
+                                       anchor: v, opacity: w.opacity ?? 0.75}, 'watermark#' + i, true));
 }
 function editorWatermarkOpacity(i){
   const hostId = 'editor-watermark-list';
@@ -939,7 +1045,7 @@ function editorWatermarkOpacity(i){
   uiInlineInput(hostId, {type: 'number', def: 0.75, min: 0, max: 1, step: 0.05},
     (v) => { if (!isNaN(v)) editorCmd('set_watermark',
       {kind: w.kind || 'text', text: w.text || '水印',
-       anchor: w.anchor || 'top_right', opacity: v}, '', true); });
+       anchor: w.anchor || 'top_right', opacity: v}, 'watermark#' + i, true); });
 }
 async function editorSubtitleStyleApply(mode){
   const payload = {};
@@ -1224,3 +1330,4 @@ Object.assign(window, {
   editorMultiOriginal, editorMultiOriginalVolume, _sceneGenBox,
   edVoiceRegenerate, edVoiceReplaceUpload, edVoiceReplaceApply,
 });
+
