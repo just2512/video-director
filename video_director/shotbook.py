@@ -6,11 +6,13 @@ The only operation that changes the actual timeline is the existing Editor Comma
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from video_director import config, editor
 
@@ -50,6 +52,75 @@ def _read_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default
+
+
+@contextmanager
+def _project_plan_lock(project_id: str) -> Iterator[None]:
+    """Cross-process exclusive lock for Shotbook read/validate/write transactions."""
+    path = _plan_path(project_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(".lock")
+    with lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _read_plan(path: Path) -> dict | None:
+    """Read the primary plan, recover from the last valid backup, never silently reset."""
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or not isinstance(value.get("shots"), list):
+            raise ValueError("Shotbook JSON 结构无效")
+        return value
+    except (OSError, json.JSONDecodeError, ValueError) as primary_error:
+        backup = path.with_suffix(".json.bak")
+        try:
+            recovered = json.loads(backup.read_text(encoding="utf-8"))
+            if not isinstance(recovered, dict) or not isinstance(recovered.get("shots"), list):
+                raise ValueError("备份结构无效")
+            _atomic_json_write(path, recovered)
+            return recovered
+        except (OSError, json.JSONDecodeError, ValueError) as backup_error:
+            raise ShotbookError(
+                "CORRUPT_PLAN",
+                "分镜文件已损坏，且没有可用的有效备份；原文件已保留，未自动覆盖。"
+                f" 主文件：{primary_error}；备份：{backup_error}",
+            ) from primary_error
+
+
+def _atomic_json_write(path: Path, value: dict) -> None:
+    tmp = path.with_name(path.name + f".{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\\n") as handle:
+            handle.write(json.dumps(value, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _normal_char(value: str) -> str:
@@ -367,7 +438,7 @@ def get_project_shotbook(project_id: str) -> dict:
     except Exception as exc:
         raise ShotbookError("PROJECT_NOT_FOUND", "无法读取项目时间线：" + str(exc)) from exc
     path = _plan_path(pid)
-    previous = _read_json(path, None)
+    previous = _read_plan(path)
     timing = _read_json(_timing_path(pid), {"source": "missing", "word_timeline": []})
     shots = _build_rows(ir, timing, previous)
     recipes = _recipes()
@@ -439,13 +510,20 @@ def _editable_fields(incoming: dict, generated: dict) -> dict:
 def _write_plan(project_id: str, plan: dict) -> dict:
     path = _plan_path(project_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    # Preserve only a parseable previous plan as the recovery point.
+    if path.is_file():
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(old, dict) and isinstance(old.get("shots"), list):
+                _atomic_json_write(path.with_suffix(".json.bak"), old)
+        except (OSError, json.JSONDecodeError):
+            # Do not overwrite the backup with a corrupt primary.
+            pass
+    _atomic_json_write(path, plan)
     return plan
 
 
-def generate_project_shotbook(project_id: str, base_version: int | None = None) -> dict:
+def _generate_project_shotbook_unlocked(project_id: str, base_version: int | None = None) -> dict:
     current = get_project_shotbook(project_id)
     if base_version is not None and int(base_version) != current["version"]:
         raise ShotbookError("CONFLICT", "分镜草案已被其他操作更新，请重新载入后再生成。")
@@ -458,7 +536,7 @@ def generate_project_shotbook(project_id: str, base_version: int | None = None) 
     return get_project_shotbook(current["project_id"])
 
 
-def save_project_shotbook(project_id: str, payload: dict) -> dict:
+def _save_project_shotbook_unlocked(project_id: str, payload: dict) -> dict:
     pid = _project_id(project_id)
     current = get_project_shotbook(pid)
     try:
@@ -503,3 +581,18 @@ def save_project_shotbook(project_id: str, payload: dict) -> dict:
     }
     _write_plan(pid, plan)
     return get_project_shotbook(pid)
+
+
+
+def generate_project_shotbook(project_id: str, base_version: int | None = None) -> dict:
+    """Serialize generation and version validation across threads and server processes."""
+    pid = _project_id(project_id)
+    with _project_plan_lock(pid):
+        return _generate_project_shotbook_unlocked(pid, base_version)
+
+
+def save_project_shotbook(project_id: str, payload: dict) -> dict:
+    """Serialize save, stale-version check, and atomic replacement as one transaction."""
+    pid = _project_id(project_id)
+    with _project_plan_lock(pid):
+        return _save_project_shotbook_unlocked(pid, payload)
