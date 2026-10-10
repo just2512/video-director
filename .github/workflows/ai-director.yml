@@ -18,10 +18,24 @@ jobs:
       - run: pip install -r requirements.txt
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: python -m playwright install --with-deps chromium
-      - run: python -m compileall video_director webui
-      - run: pytest -q
+      - run: python -m compileall video_director webui tests
       - run: |
           for f in webui/static/js/*.js; do
             node --check "$f"
           done
           node --check third_party/huashu/huashu_motion_bundle.js
+      - name: Run regression suite and retain report
+        env:
+          VIDEO_DIRECTOR_TEST_RESULTS: test-results
+        run: |
+          mkdir -p test-results
+          pytest -q --html=test-results/pytest-report.html --self-contained-html
+      - name: Upload browser traces, MP4 smoke output and test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-director-regression-artifacts
+          path: |
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
