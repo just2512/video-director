@@ -81,6 +81,25 @@ function previewSeek(sec){
   _previewRenderAt(PV.playhead, false);
 }
 
+/** Step one output frame in the same preview/playhead clock used by the timeline. */
+function previewStepFrame(direction){
+  if (!ED.comp) return;
+  previewPause();
+  const fps = Math.max(1, Number((ED.comp.project || {}).fps) || 30);
+  const lastFrame = Math.max(0, Math.round((Number(ED.comp.duration) || 0) * fps));
+  const currentFrame = Math.round((Number(PV.playhead) || 0) * fps);
+  const frame = Math.max(0, Math.min(lastFrame, currentFrame + (Number(direction) < 0 ? -1 : 1)));
+  PV.playhead = frame / fps;
+  if (PV.mode === 'draft') {
+    const v = document.querySelector('#ed-preview-stage video');
+    if (v) v.currentTime = PV.playhead;
+    if (typeof previewUpdateFrameLabel === 'function') previewUpdateFrameLabel();
+    return;
+  }
+  PV.mode = 'live';
+  _previewRenderAt(PV.playhead, false);
+}
+
 /** 选择高亮 Overlay：Selection → Preview 边界框（§19）。
  *  无视频时给出占位画布（场景序号 + 时长条），让 Preview 永不空转。 */
 function previewShowSelectionOverlay(){
@@ -181,7 +200,9 @@ function _previewSyncVideo(v, sc, lay, local){
   const speed = Number(lay.speed || 1);
   const within = Math.max(0, local - Number(lay.start || 0));
   const t = sourceIn + within * speed;
-  if (Number.isFinite(t) && Math.abs((v.currentTime || 0) - t) > 0.12) v.currentTime = t;
+  const fps = Math.max(1, Number((ED.comp && ED.comp.project || {}).fps) || 30);
+  // Half-frame tolerance keeps normal playback stable while allowing one-frame stepping.
+  if (Number.isFinite(t) && Math.abs((v.currentTime || 0) - t) > 0.5 / fps) v.currentTime = t;
 }
 
 /** 叠加层：PiP 框 / 蒙版手柄（mask-editor 已有 overlay 逻辑则不重复挂）。 */
@@ -234,5 +255,5 @@ function previewShowScenePair(fromId, toId){
 Object.assign(window, { previewRenderComposition, previewPlay, previewPause, previewSeek, 
   previewLoadDraft, previewShowVideo, previewPlay, previewPause, previewSeek,
   previewShowSelectionOverlay, previewRenderPlaceholder, previewShowScenePair,
-  PV,
+  previewStepFrame, PV,
 });
