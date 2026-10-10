@@ -158,7 +158,11 @@ def build_studio_catalog() -> dict:
                     missing_recipes.append(str(layer.motion_recipe_id))
         if missing_recipes:
             reasons.append("引用的镜头/动效配方不存在：" + "、".join(sorted(set(missing_recipes))[:8]))
-        status = "PASS" if runtime_status == "PASS" and not missing_caps and not missing_recipes else "MISSING"
+        # Registry metadata and valid recipes do not themselves instantiate a template
+        # into CompositionIR. No canonical Template -> Editor Command adapter currently
+        # exists; keep it discoverable but explicitly non-selectable rather than faking support.
+        reasons.append("当前没有从 TemplateDefinition 到 CompositionIR 的正式实例化执行适配器")
+        status = "MISSING"
         templates.append({
             "id": template.id, "version": template.version, "name": template.name,
             "category": template.category, "supported_ratios": list(template.supported_ratios),
