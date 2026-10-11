@@ -171,7 +171,9 @@ def test_mix_audio_uses_normalized_pcm_and_reencodes_aac(tmp_path, monkeypatch):
     assert len(calls) == 2
     assert calls[0][-1].endswith(".mix.wav")
     assert normalized == [(str(output) + ".mix.wav", str(output) + ".normalized.wav", "ffmpeg")]
-    assert calls[1][calls[1].index("-i") + 2] == str(output) + ".normalized.wav"
+    first_input = calls[1].index("-i")
+    second_input = calls[1].index("-i", first_input + 1)
+    assert calls[1][second_input + 1] == str(output) + ".normalized.wav"
     assert calls[1][calls[1].index("-c:a") + 1] == "aac"
     assert calls[1][calls[1].index("-b:a") + 1] == "192k"
     assert verified == [(str(output), ir.project.duration)]
