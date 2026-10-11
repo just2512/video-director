@@ -454,9 +454,12 @@ async function renderTemplateSample(tid){
     const r = await apiUpload('/api/templates/sample_render', fd);
     if (!r.ok) {
       if (status) status.textContent = (r.error || '样片验证失败');
-      if (resultBox && r.runtime) {
-        const details = [...(r.runtime.blockers || []), ...(r.runtime.warnings || [])]
-          .map(x => x.message).filter(Boolean);
+      if (resultBox) {
+        const details = [
+          ...(r.missing_inputs || []),
+          ...((r.runtime && r.runtime.blockers) || []),
+          ...((r.runtime && r.runtime.warnings) || []),
+        ].map(x => x.message).filter(Boolean);
         resultBox.innerHTML = details.map(x => `<div class="hint">${esc(x)}</div>`).join('');
       }
       return;
@@ -499,6 +502,11 @@ async function instantiateTemplate(tid){
     workspaceOpen(r.project_id);  // §56 pollUntil 确定性等待（不再 setTimeout 赌运气）
   } else {
     document.getElementById('tpl-status').textContent = (r.error || '生成失败');
+    const resultBox = document.getElementById('tpl-sample-result');
+    if (resultBox && r.missing_inputs) {
+      resultBox.innerHTML = r.missing_inputs
+        .map(x => `<div class="hint">${esc(x.message || '')}</div>`).join('');
+    }
   }
 }
 
