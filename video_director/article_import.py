@@ -28,6 +28,7 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_EXTRACTED_CHARS = 80_000
 MIN_ARTICLE_CHARS = 80
 FETCH_TIMEOUT_SECONDS = 12
+MAX_TOTAL_FETCH_SECONDS = 30
 MAX_REDIRECTS = 4
 _USER_AGENT = "VideoDirector-ArticleImporter/1.0 (+public-article-text-only)"
 
@@ -301,6 +302,7 @@ def import_article(url: str) -> dict:
         },
         method="GET",
     )
+    deadline = time.monotonic() + MAX_TOTAL_FETCH_SECONDS
     try:
         with opener.open(req, timeout=FETCH_TIMEOUT_SECONDS) as response:
             final_url, _, _, _ = _validate_public_url(response.geturl())
@@ -315,9 +317,31 @@ def import_article(url: str) -> dict:
                         raise ArticleImportError("网页超过 2 MiB 的读取上限")
                 except ValueError:
                     pass
-            payload = response.read(MAX_RESPONSE_BYTES + 1)
+
+            payload = bytearray()
+            response_socket = None
+            try:
+                response_socket = response.fp.raw._sock
+            except (AttributeError, OSError):
+                response_socket = None
+            while len(payload) <= MAX_RESPONSE_BYTES:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ArticleImportError("网页读取超过 30 秒总时限")
+                if response_socket is not None:
+                    response_socket.settimeout(min(FETCH_TIMEOUT_SECONDS, remaining))
+                try:
+                    chunk = response.read1(min(65536, MAX_RESPONSE_BYTES + 1 - len(payload)))
+                except (TimeoutError, socket.timeout) as exc:
+                    if time.monotonic() >= deadline:
+                        raise ArticleImportError("网页读取超过 30 秒总时限") from exc
+                    raise
+                if not chunk:
+                    break
+                payload.extend(chunk)
             if len(payload) > MAX_RESPONSE_BYTES:
                 raise ArticleImportError("网页超过 2 MiB 的读取上限")
+            payload = bytes(payload)
     except ArticleImportError:
         raise
     except (urllib.error.URLError, TimeoutError, socket.timeout, OSError, http.client.HTTPException) as exc:
