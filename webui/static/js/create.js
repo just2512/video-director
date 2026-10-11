@@ -98,6 +98,9 @@ function _createPanelHtml(){
       <div class="hint" style="margin-top:4px">每集文案用一行 <code>------------</code> 分隔；上面的素材、参考视频和软件项目可作为共享上下文。</div>
     </div>
   </div>
+  <div class="panel" style="margin-top:10px;padding:12px">
+    <div class="btn-row" style="align-items:center;gap:10px"><button id="cf-template-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="templateGalleryOpen()">浏览模板与真实样片</button><span class="hint">查看引擎门禁、必填素材、真实渲染与解码结果；不会把风格名称当成可执行能力。</span></div>
+  </div>
   <details id="cf-manual-options" style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
   <div id="cf-essentials">
@@ -139,7 +142,6 @@ function _createPanelHtml(){
         <input type="text" id="cf-style" placeholder="例：纪录片沉稳"></div>
     </div>
     <div id="cf-style-presets" class="btn-row" style="flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted)"></div>
-    <div class="btn-row" style="align-items:center;margin-top:8px"><button id="cf-template-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="templateGalleryOpen()">浏览模板与真实样片</button><span class="hint">查看引擎门禁、必填素材、真实渲染与解码结果；不会把风格名称当成可执行能力。</span></div>
     <div class="hint">素材已移到上面的「输入上下文」区。</div>
     <div class="btn-row" style="align-items:center;gap:10px;margin-top:8px">
       <div style="flex:1"><label>画面来源</label>
