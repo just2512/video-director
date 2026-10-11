@@ -193,10 +193,28 @@ def _scan_bgm() -> list:
 
 
 def _scan_sfx() -> list:
+    """Expose real SFX IDs, tags and duration without leaking local filesystem paths."""
     try:
         lib = vd_audio.scan_library()
-        return [{"id": a.id, "label": _audio_label(a.id, a.keywords)}
-                for a in lib.values() if a.type == "sfx"]
+        out = []
+        for asset in lib.values():
+            if asset.type != "sfx":
+                continue
+            duration = asset.duration
+            if duration is None:
+                try:
+                    asset = vd_audio.ensure_audio_duration(asset)
+                    duration = asset.duration
+                except Exception:
+                    duration = None
+            out.append({
+                "id": asset.id,
+                "label": _audio_label(asset.id, asset.keywords),
+                "tags": list(asset.keywords or []),
+                "duration": duration,
+                "available": bool(asset.file and Path(asset.file).is_file()),
+            })
+        return out
     except Exception:
         return []
 
