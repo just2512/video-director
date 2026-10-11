@@ -104,27 +104,27 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
         note="当前系统唯一真正接通的 TTS provider；公开端点",
     ),
     ProviderDefinition(
-        "azure", "tts", "Azure Speech", (),
+        "azure", "tts", "Azure Speech", ("tts.speak", "tts.word_boundary", "tts.preview"),
         requires_key=True, implemented=False,
         note="已登记，具体 SDK/voice 路由未接通",
     ),
     ProviderDefinition(
-        "gemini", "tts", "Google Gemini TTS", (),
+        "gemini", "tts", "Google Gemini TTS", ("tts.speak",),
         requires_key=True, implemented=False,
         note="已登记，具体 voice 路由未接通",
     ),
     ProviderDefinition(
-        "elevenlabs", "tts", "ElevenLabs", (),
+        "elevenlabs", "tts", "ElevenLabs", ("tts.speak",),
         requires_key=True, implemented=False,
         note="已登记，具体 voice 路由未接通",
     ),
     ProviderDefinition(
-        "siliconflow", "tts", "SiliconFlow TTS", (),
+        "siliconflow", "tts", "SiliconFlow TTS", ("tts.speak",),
         requires_key=True, implemented=False,
         note="已登记，具体 voice 路由未接通",
     ),
     ProviderDefinition(
-        "kokoro", "tts", "Kokoro 本地", (),
+        "kokoro", "tts", "Kokoro 本地", ("tts.speak",),
         requires_key=False, implemented=False,
         note="已登记，当前未接本地推理执行器",
     ),
@@ -141,7 +141,7 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
         note="官方视频搜索/下载；standalone 商用另受许可证策略约束",
     ),
     ProviderDefinition(
-        "coverr", "stock", "Coverr", (),
+        "coverr", "stock", "Coverr", ("stock.search_video", "stock.download_video"),
         requires_key=True, implemented=False,
         note="自动搜索未开放；商业条款状态保留 REVIEW/UNKNOWN",
     ),
@@ -269,6 +269,20 @@ def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
     )
 
 
+def relevant_operations(role: str, cfg: Optional[Mapping[str, Any]] = None) -> tuple[str, ...]:
+    """该角色当前 provider 声明的能力操作（供设置页逐项展示状态）。"""
+    cfg = _effective_config(role, cfg)
+    provider_id = infer_provider(role, cfg)
+    matrix_role = "stock" if role.startswith("stock_") else role
+    definition = next(
+        (d for d in DEFINITIONS if d.provider_id == provider_id and d.role == matrix_role),
+        None,
+    )
+    if definition is None:
+        return ()
+    return definition.operations
+
+
 def require(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
             *, manual_manifest: str = "") -> CapabilityState:
     result = state(role, operation, cfg, manual_manifest=manual_manifest)
@@ -344,6 +358,7 @@ def matrix_for_frontend() -> list[dict]:
                     op: state_for_provider(
                         provider_id,
                         matrix_role,
+                        op,
                         fake_cfg,
                         manual_manifest="",
                     ).status
