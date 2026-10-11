@@ -187,8 +187,8 @@ def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
         raise RenderError("最终 MP4 缺少 ffprobe，无法验证音频流与成片时长")
     stdout, _ = _run_capture([
         ffprobe, "-v", "error", "-select_streams", "a:0",
-        "-show_entries", "stream=codec_name,sample_rate,channels,duration",
-        "-show_entries", "format=duration", "-of", "json", output_path,
+        "-show_entries", "stream=codec_name,sample_rate,channels,duration:format=duration",
+        "-of", "json", output_path,
     ])
     try:
         media = json.loads(stdout)
