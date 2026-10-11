@@ -430,6 +430,7 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 out.append({
                     "id": t.id, "version": t.version, "name": t.name,
+                    "description": t.item.description,
                     "category": t.category,
                     "supported_ratios": list(t.supported_ratios),
                     "duration_recommended": t.duration_recommended,

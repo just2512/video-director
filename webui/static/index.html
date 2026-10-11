@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="/static/css/workspace.css">
 <link rel="stylesheet" href="/static/css/timeline.css">
 <link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/template-gallery.css">
+<link rel="stylesheet" href="/static/css/shotbook-storyboard.css">
 </head>
 <body>
 <div class="app-shell">
@@ -135,6 +137,8 @@
         <div id="shotbook-status" class="hint" role="status" aria-live="polite">打开项目后，载入或生成分镜草案。</div>
         <div id="shotbook-timing-note" class="hint" style="margin:5px 0"></div>
         <div id="shotbook-gates" class="sb-gates"></div>
+        <h4 style="margin:10px 0 6px">分镜画面总览</h4>
+        <div id="shotbook-storyboard" class="sb-storyboard" aria-label="多帧分镜画面总览"></div>
         <div id="shotbook-list" style="max-height:620px;overflow:auto;margin-top:8px"></div>
       </details>
       <!-- 项目操作抽屉宿主 -->
@@ -364,6 +368,7 @@
 <script src="/static/js/workflow.js"></script>
 <script src="/static/js/project.js"></script>
 <script src="/static/js/create.js"></script>
+<script src="/static/js/template-gallery.js"></script>
 <script src="/static/js/mask-editor.js"></script>
 <script src="/static/js/developer.js"></script>
 <script src="/static/js/app.js"></script>

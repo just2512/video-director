@@ -39,6 +39,19 @@ def template_runtime_report(template: Any) -> dict:
     ffprobe = prober._resolve_ffprobe()
     installed["ffmpeg"] = bool(ffmpeg)
     installed["ffprobe"] = bool(ffprobe)
+    # Registry metadata may name any renderer, but only an adapter that is
+    # actually wired to instantiate + preview + final render may be advertised.
+    # The current execution path always calls the FFmpeg Composition renderer.
+    engine = (getattr(template, "runtime", {}) or {}).get("renderer") or "ffmpeg"
+    if engine != "ffmpeg":
+        blockers.append({
+            "code": "ENGINE_NOT_REGISTERED",
+            "engine": engine,
+            "message": (
+                f"模板声明引擎 {engine!r}，但该引擎尚未接入真实渲染适配器；"
+                "当前只有 FFmpeg 执行链可用，已阻止把引擎元数据误报为可执行。"
+            ),
+        })
     if not ffmpeg:
         blockers.append({
             "code": "ENGINE_NOT_INSTALLED",
@@ -157,7 +170,7 @@ def template_runtime_report(template: Any) -> dict:
     return {
         "template_id": getattr(template, "id", ""),
         "template_version": getattr(template, "version", ""),
-        "engine": (getattr(template, "runtime", {}) or {}).get("renderer") or "ffmpeg",
+        "engine": engine,
         "status": status,
         "can_instantiate": not blockers,
         "can_render": not blockers,

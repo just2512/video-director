@@ -82,14 +82,35 @@ function shotbookRender(){
   const openTiming=new Set(Array.from(document.querySelectorAll('#shotbook-list .sb-char-details[open]')).map(function(item){const card=item.closest('.sb-shot');return card&&card.dataset.sceneKey;}).filter(Boolean));
   const status=document.getElementById('shotbook-status'),meta=document.getElementById('shotbook-meta');
   const gateBox=document.getElementById('shotbook-gates'),list=document.getElementById('shotbook-list');
+  const board=document.getElementById('shotbook-storyboard');
   const note=document.getElementById('shotbook-timing-note');
   if(meta)meta.textContent='V'+SHOTBOOK.version+' · '+(SHOTBOOK.saved?'已保存':'尚未保存')+' · '+SHOTBOOK.shots.length+' 个镜头';
   if(note)note.textContent=SHOTBOOK.timing_note||'字级时间来自当前可用对齐数据。';
   if(gateBox)gateBox.innerHTML=(SHOTBOOK.gates||[]).map(function(g){
     return '<div class="sb-gate"><b>'+sbEsc(g.label)+'</b> <span class="'+sbStatusClass(g.status)+'">'+sbEsc(g.status)+'</span><div class="hint">'+sbEsc(g.detail)+'</div></div>';
   }).join('');
+  if(!SHOTBOOK.shots.length){
+    if(board)board.innerHTML='<div class="hint">当前项目还没有分镜帧。先在时间线上建立场景或导入旁白，再生成分镜。</div>';
+    if(list)list.innerHTML='<div class="hint">当前项目还没有可编辑场景。先在时间线上建立场景或导入旁白。</div>';
+    return;
+  }
+  // Storyboard thumbnails and the editable Shotbook share the saved plan and Composition assets.
+  if(board)board.innerHTML=SHOTBOOK.shots.map(function(s,idx){
+    const imageLayer=(s.editable_layers||[]).find(function(l){return l.asset_id&&l.type==='image';});
+    const asset=imageLayer&&window.ED&&ED.comp&&ED.comp.assets&&ED.comp.assets[imageLayer.asset_id];
+    const rawUrl=asset&&typeof asset.file_url==='string'?asset.file_url:'';
+    const safeUrl=rawUrl.startsWith('/')||/^https?:\/\//i.test(rawUrl);
+    const thumbnail=imageLayer&&asset&&safeUrl
+      ? '<img loading="lazy" src="'+sbEsc(rawUrl)+'" alt="分镜 '+(idx+1)+' 的图片素材">'
+      : '<div class="sb-board-placeholder"><b>'+String(idx+1).padStart(2,'0')+'</b><span>'+sbEsc(SB_SHOT_LABELS[s.shot_type]||s.shot_type||'镜头')+'</span><small>'+sbEsc(imageLayer?'图片缩略图不可用':'无已绑定图片；可在中央预览区查看')+'</small></div>';
+    return '<article class="sb-board-card" data-scene-key="'+sbEsc(s.scene_id)+'"><div class="sb-board-thumb">'+thumbnail+'</div>' +
+      '<div class="sb-board-info"><div class="sb-board-heading"><b>'+String(idx+1).padStart(2,'0')+'. '+sbEsc(s.scene_id)+'</b><span>'+Number(s.start).toFixed(2)+'–'+Number(s.end).toFixed(2)+'s</span></div>' +
+      '<div class="sb-board-role">'+sbEsc(SB_ROLE_LABELS[s.semantic_role]||s.semantic_role||'未分类')+' · '+sbEsc(SB_INTENT_LABELS[s.visual_intent]||s.visual_intent||'未指定意图')+'</div>' +
+      '<p>'+sbEsc(s.text||'暂无旁白/镜头文案')+'</p><div class="sb-board-actions">' +
+      '<button class="btn-sm" type="button" data-shotbook-action="preview" data-scene-key="'+sbEsc(s.scene_id)+'">预览本镜</button>' +
+      '<button class="btn-secondary btn-sm" type="button" data-shotbook-action="locate" data-scene-key="'+sbEsc(s.scene_id)+'">定位</button></div></div></article>';
+  }).join('');
   if(!list)return;
-  if(!SHOTBOOK.shots.length){list.innerHTML='<div class="hint">当前项目还没有可编辑场景。先在时间线上建立场景或导入旁白。</div>';return;}
   list.innerHTML=SHOTBOOK.shots.map(function(s,idx){
     const allChars=s.characters||[],chars=allChars.slice(0,240);
     const timingDetails=chars.length?'<details class="sb-char-details"><summary>校正字级锚点（显示 '+chars.length+(allChars.length>chars.length?' / '+allChars.length:'')+' 字；时间戳不是原生字级对齐）</summary><div class="sb-char-list">'+chars.map(function(c,i){
@@ -157,6 +178,33 @@ async function shotbookApplyRecipe(sceneId){
   if(typeof refreshComposition==='function')await refreshComposition();
   await shotbookSave();
 }
+function shotbookPreviewScene(sceneId){
+  const shot=SHOTBOOK&&SHOTBOOK.shots&&SHOTBOOK.shots.find(function(s){return s.scene_id===sceneId;});
+  const status=document.getElementById('shotbook-status');
+  if(!shot){if(status)status.textContent='找不到这镜的分镜数据；请重新载入分镜。';return;}
+  if(window.SB_PREVIEW_TIMER){clearInterval(window.SB_PREVIEW_TIMER);window.SB_PREVIEW_TIMER=null;}
+  if(typeof previewPause==='function')previewPause();
+  if(typeof shotbookLocate==='function')shotbookLocate(sceneId);
+  const start=Math.max(0,Number(shot.start)||0),end=Math.max(start,Number(shot.end)||start);
+  if(end<=start){if(status)status.textContent='该镜头时间区间无效，无法逐镜预览。';return;}
+  if(typeof previewSeek!=='function'||typeof previewPlay!=='function'){if(status)status.textContent='中央预览控制尚未就绪。';return;}
+  previewSeek(start);
+  previewPlay();
+  if(status)status.textContent='正在预览 '+sceneId+'（'+start.toFixed(2)+'–'+end.toFixed(2)+'s）；到本镜结束时会自动停止。';
+  const begun=Date.now();
+  window.SB_PREVIEW_TIMER=window.setInterval(function(){
+    const pv=window.PV||{};
+    const video=pv.mode==='draft'?document.querySelector('#ed-preview-stage video'):null;
+    const at=video?(Number(video.currentTime)||0):(Number(pv.playhead)||0);
+    const finished=at>=end-0.025;
+    const stopped=Date.now()-begun>200&&(video?video.paused:!pv.playing);
+    if(!finished&&!stopped)return;
+    if(window.SB_PREVIEW_TIMER){clearInterval(window.SB_PREVIEW_TIMER);window.SB_PREVIEW_TIMER=null;}
+    if(finished&&typeof previewPause==='function')previewPause();
+    if(status)status.textContent=finished?'本镜预览结束：'+sceneId+'。可预览下一镜或回到时间线继续编辑。':'本镜预览已停止。';
+  },40);
+}
+
 function shotbookLocate(sceneId){
   if(typeof selectScene==='function')selectScene(sceneId,null,'shotbook');
   if(typeof timelineScrollToScene==='function')timelineScrollToScene(sceneId);
@@ -191,6 +239,7 @@ if(!window.__shotbookDelegated){
     else if(action==='generate')shotbookGenerate();
     else if(action==='save')shotbookSave();
     else if(action==='reload-conflict')shotbookReloadConflict();
+    else if(action==='preview')shotbookPreviewScene(sceneId);
     else if(action==='locate')shotbookLocate(sceneId);
     else if(action==='apply-recipe')shotbookApplyRecipe(sceneId);
     else if(action==='apply-motion')shotbookApplyMotion(sceneId);
@@ -217,4 +266,4 @@ if(!window.__shotbookDelegated){
   window.__shotbookDelegated=true;
 }
 window.addEventListener('beforeunload',function(event){if(SHOTBOOK_DIRTY){event.preventDefault();event.returnValue='';}});
-Object.assign(window,{shotbookLoad,shotbookGenerate,shotbookSave,shotbookApplyRecipe,shotbookApplyMotion,shotbookLocate,shotbookReloadConflict});
+Object.assign(window,{shotbookLoad,shotbookGenerate,shotbookSave,shotbookApplyRecipe,shotbookApplyMotion,shotbookPreviewScene,shotbookLocate,shotbookReloadConflict});
