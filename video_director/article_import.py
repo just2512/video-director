@@ -14,7 +14,7 @@ import ipaddress
 import json
 import re
 import socket
-import time
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -202,7 +202,7 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
 class _PinnedHTTPSConnection(_PinnedHTTPConnection):
     def __init__(self, host, addresses: List[str], context=None, **kwargs):
         super().__init__(host, addresses, **kwargs)
-        self._context = context or urllib.request.ssl.create_default_context()
+        self._context = context or ssl.create_default_context()
 
     def connect(self):
         errors = []
