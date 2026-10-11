@@ -157,6 +157,9 @@ def build_graphic_plan(
     width: int = 1080,
     height: int = 1920,
     fps: float = 30.0,
+    visual_engine: str = "native",
+    visual_provider: str = "huashu",
+    visual_grammar: Optional[str] = None,
 ) -> dict:
     """纯文案 → GraphicPlan（结构化分镜，供前端展示 + 后续编译复用）。
 
@@ -185,6 +188,20 @@ def build_graphic_plan(
         per = max(2.0, min(float(max_stay), float(target_duration) / n))
     else:
         per = scene_duration
+    if visual_engine not in ("native", "procedural"):
+        raise DirectorError("INVALID_VISUAL_ENGINE", f"visual_engine {visual_engine!r} 非法")
+    if visual_engine == "procedural":
+        from video_director.graphics.procedural import get_provider
+        try:
+            provider = get_provider(visual_provider)
+        except Exception as exc:
+            raise DirectorError("PROCEDURAL_PROVIDER_UNAVAILABLE", str(exc)) from exc
+        grammar = visual_grammar or ("t2_keynote_ui" if cat == "product" else "y5_kinetic_type")
+        if grammar not in getattr(provider, "supported_grammars", ()):
+            raise DirectorError("PROCEDURAL_GRAMMAR_UNAVAILABLE", f"{visual_provider}/{grammar} 不可用")
+    else:
+        grammar = None
+
     plan_scenes = []
     for i, (s, role_in) in enumerate(sentences_roles):
         role = role_in if role_in and (cat, role_in) in _ROLE_BINDING else _classify_role(s, i, n, arc)
@@ -194,16 +211,35 @@ def build_graphic_plan(
             fallback_role = arc[1 + (i % max(1, len(arc) - 2))] if len(arc) > 2 else arc[0]
             block_id = _ROLE_BINDING[(cat, fallback_role)]
             role = fallback_role
-        # 长句 → 更长停留（每 20 字约 +0.5s），夹在该块自身上限内
-        blk = _blocks_mod.get_block(block_id)
-        dur = max(2.0, min(blk.duration_max, per + max(0, (len(s) - 20) // 20 * 0.5)))
-        plan_scenes.append({
-            "id": f"scene-{i + 1:02d}",
-            "role": role,
-            "text": s,
-            "duration": round(dur, 2),
-            "block_id": block_id,
-        })
+        if visual_engine == "procedural":
+            dur = max(2.0, min(8.0, per + max(0, (len(s) - 20) // 20 * 0.5)))
+            cue_kind = "title" if i == 0 else "point"
+            if grammar == "t2_keynote_ui" and i > 0:
+                cue_kind = "card"
+            plan_scenes.append({
+                "id": f"scene-{i + 1:02d}",
+                "role": role,
+                "text": s,
+                "duration": round(dur, 2),
+                "block_id": "",
+                "engine": "procedural",
+                "provider_id": visual_provider,
+                "program_id": grammar,
+                "program_data": {"cues": [
+                    {"at": 0.0, "kind": cue_kind, "text": s, "sub": ""}
+                ]},
+            })
+        else:
+            # 长句 → 更长停留（每 20 字约 +0.5s），夹在该块自身上限内
+            blk = _blocks_mod.get_block(block_id)
+            dur = max(2.0, min(blk.duration_max, per + max(0, (len(s) - 20) // 20 * 0.5)))
+            plan_scenes.append({
+                "id": f"scene-{i + 1:02d}",
+                "role": role,
+                "text": s,
+                "duration": round(dur, 2),
+                "block_id": block_id,
+            })
     total = round(sum(s["duration"] for s in plan_scenes), 2)
     return {
         "scene_count": len(plan_scenes),
@@ -214,6 +250,9 @@ def build_graphic_plan(
         "width": width,
         "height": height,
         "fps": fps,
+        "visual_engine": visual_engine,
+        "visual_provider": visual_provider if visual_engine == "procedural" else None,
+        "visual_grammar": grammar,
         "scenes": plan_scenes,
     }
 
@@ -266,20 +305,32 @@ def instantiate_graphic_program(plan: dict, program_id: Optional[str] = None) ->
     scenes: List[GraphicScene] = []
     cursor = 0.0
     for ps in plan["scenes"]:
-        block = blocks_mod.get_block(ps["block_id"])  # 校验块存在（compiler 前的诚实失败点）
-        slot_values = _slot_values_for(ps["block_id"], ps["text"])
-        # §34 用户覆盖优先：motion_id（null=跟随块默认）/ layout / source
-        motion = ps.get("motion_id") or block.motion
-        layout = ps.get("layout")
-        if layout in ("center", "left", "split"):
-            slot_values["layout"] = layout  # blocks 渲染基件消费（排版取向）
-        source = ps.get("source") or "Generated Graphic"
-        slot_values["source"] = source
-        scenes.append(GraphicScene(
-            id=ps["id"], role=ps["role"], start=cursor,
-            duration=ps["duration"], block_id=ps["block_id"],
-            slot_values=slot_values, motion_id=motion,
-        ))
+        engine = ps.get("engine") or ("procedural" if ps.get("provider_id") else "native")
+        if engine == "procedural":
+            scenes.append(GraphicScene(
+                id=ps["id"], role=ps["role"], start=cursor,
+                duration=ps["duration"], block_id="",
+                slot_values={},
+                motion_id=ps.get("motion_id") or "graphics.fade-up",
+                engine="procedural",
+                provider_id=ps.get("provider_id") or plan.get("visual_provider") or "huashu",
+                program_id=ps.get("program_id") or plan.get("visual_grammar"),
+                program_data=ps.get("program_data") or {},
+            ))
+        else:
+            block = blocks_mod.get_block(ps["block_id"])
+            slot_values = _slot_values_for(ps["block_id"], ps["text"])
+            motion = ps.get("motion_id") or block.motion
+            layout = ps.get("layout")
+            if layout in ("center", "left", "split"):
+                slot_values["layout"] = layout
+            source = ps.get("source") or "Generated Graphic"
+            slot_values["source"] = source
+            scenes.append(GraphicScene(
+                id=ps["id"], role=ps["role"], start=cursor,
+                duration=ps["duration"], block_id=ps["block_id"],
+                slot_values=slot_values, motion_id=motion,
+            ))
         cursor += ps["duration"]
 
     return GraphicProgram(

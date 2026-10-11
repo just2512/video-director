@@ -2773,6 +2773,9 @@ class Handler(BaseHTTPRequestHandler):
                     target_duration=float(td) if td else None,
                     width=int(payload.get("width") or 1080),
                     height=int(payload.get("height") or 1920),
+                    visual_engine=payload.get("visual_engine") or "native",
+                    visual_provider=payload.get("visual_provider") or "huashu",
+                    visual_grammar=payload.get("visual_grammar"),
                 )
                 self._send_json({"ok": True, "plan": plan})
             except Exception as exc:
@@ -3231,6 +3234,10 @@ class Handler(BaseHTTPRequestHandler):
                         "style_id": plan.get("style_id") or "editorial",
                         "narration": sc.get("narration") or sc.get("text") or "",
                         "visual_intent": sc.get("visual_intent") or "",
+                        "engine": sc.get("engine") or "native",
+                        "provider_id": sc.get("provider_id"),
+                        "program_id": sc.get("program_id"),
+                        "program_data": sc.get("program_data") or {},
                     }
                     ir_scenes.append(SceneIR.model_validate({
                         "id": f"scene-{len(ir_scenes) + 1:02d}",

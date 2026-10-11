@@ -12,7 +12,7 @@ GraphicBlock + 槽位值 + 一个 entrance motion，渲染器逐帧 scrub。
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -62,9 +62,14 @@ class GraphicScene(BaseModel):
     role: str  # hook/intro/body/feature/proof/outro/cta/conclusion
     start: float = 0.0
     duration: float = 3.0
-    block_id: str
+    block_id: str = ""
     slot_values: Dict[str, str] = Field(default_factory=dict)
+    program_data: Dict[str, Any] = Field(default_factory=dict)
     motion_id: str = "graphics.fade-up"
+    # 渲染引擎：native 使用现有 Graphics Block；procedural 使用注册的 Procedural Provider。
+    engine: str = "native"
+    provider_id: Optional[str] = None
+    program_id: Optional[str] = None
 
     @model_validator(mode="after")
     def _check(self):
@@ -72,6 +77,12 @@ class GraphicScene(BaseModel):
             raise ValueError(f"scene {self.id}: duration 必须为正")
         if self.start < 0:
             raise ValueError(f"scene {self.id}: start 为负")
+        if self.engine not in ("native", "procedural"):
+            raise ValueError(f"scene {self.id}: engine {self.engine!r} 非法")
+        if self.engine == "native" and not self.block_id:
+            raise ValueError(f"scene {self.id}: native scene 必须有 block_id")
+        if self.engine == "procedural" and (not self.provider_id or not self.program_id):
+            raise ValueError(f"scene {self.id}: procedural scene 必须有 provider_id + program_id")
         return self
 
 
