@@ -76,6 +76,22 @@ def test_chromium_loads_unified_editor_workspace():
                 response = page.goto(f"http://127.0.0.1:{port}/", wait_until="domcontentloaded", timeout=15000)
                 assert response is not None and response.status == 200
                 assert page.title()
+
+                # User-facing template gallery must use the real registry/runtime API,
+                # expose its readiness caveats, and refuse actions until assets exist.
+                page.evaluate("openCreate()")
+                page.locator("#cf-template-gallery-btn").wait_for(timeout=10000)
+                page.locator("#cf-template-gallery-btn").click()
+                page.locator("#tg-mask").wait_for(timeout=10000)
+                page.locator(".tg-template-card").first.wait_for(timeout=15000)
+                assert page.locator(".tg-template-card").count() > 0
+                assert page.locator("#tg-detail").inner_text().find("执行前检查") >= 0
+                assert page.locator("#tg-detail").inner_text().find("输出画幅") >= 0
+                assert page.locator("#tg-render").is_disabled()
+                assert page.locator("#tg-instantiate").is_disabled()
+                assert page.locator(".tg-status-chip").count() >= 2
+                page.evaluate("templateGalleryClose(); closeCreate()")
+
                 assert page.locator("#editor-workspace").count() == 1
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
