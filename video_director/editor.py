@@ -1209,7 +1209,9 @@ def _cmd_add_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     if not any(ref.id == asset_id for ref in ir.assets):
         from video_director.models import AssetRef
         ir.assets.append(AssetRef(
-            id=asset.id, type="audio", file=asset.file, duration=source_duration,
+            # The renderer re-resolves bytes by asset_id from the trusted library.
+            # Do not persist or return this machine's absolute filesystem path.
+            id=asset.id, type="audio", file=f"audio-library://{asset_id}", duration=source_duration,
             keywords=list(asset.keywords or []), source=asset.source,
             license_note=asset.license_note,
         ))
