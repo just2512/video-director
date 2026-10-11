@@ -127,6 +127,12 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert page.evaluate("window._cfArticle.title") == "Imported article fixture"
                 assert page.evaluate("window._cfArticle.content_sha256.length") == 64
                 assert "文章已导入" in page.locator("#cf-article-status").inner_text()
+                page.evaluate("closeCreate()")
+                page.evaluate("openCreate()")
+                page.locator("#cf-article-url").wait_for(timeout=10000)
+                assert page.locator("#cf-article-url").input_value() == "https://news.example/article"
+                assert page.get_by_text("Imported article fixture").count() > 0
+                assert "已恢复上一轮导入" in page.locator("#cf-article-status").inner_text()
                 page.evaluate("cfClearArticleSource()")
                 assert page.evaluate("window._cfArticle") is None
                 page.unroute("**/api/source/article")
