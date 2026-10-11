@@ -381,8 +381,21 @@ async function cfLoadStudioCatalog(){
       :'风格契约未通过环境检查，不提供未验证选项。';
     if(templates){
       const all=catalog.templates||[];
-      templates.textContent=all.length
-        ?'模板目录（已检查但当前不可直接套用）：'+all.map(t=>t.name+' — '+t.status+'：'+t.detail).join('；')
+      templates.innerHTML=all.length
+        ?'<div class="cf-studio-template-heading">模板目录 · 点击可执行模板进入素材填写与真实样片验证</div>'+
+          all.map(t=>{
+            const ready=!!t.selectable&&!!t.can_instantiate;
+            const status=t.status==='BLOCKED'?'阻断：依赖/引擎未满足':
+              t.status==='PARTIAL'?'可实例化：部分效果尚未实现':
+              t.status==='READY'?'依赖通过：样片仍需验证':(t.status||'状态未知');
+            const name=esc(t.name||t.id||'未命名模板');
+            const detail=esc(t.detail||'');
+            const button=ready
+              ?'<button type="button" class="btn-secondary btn-sm" data-studio-template="'+esc(t.id)+'" data-template-version="'+esc(t.version||'')+'">使用此模板</button>'
+              :'<button type="button" class="btn-secondary btn-sm" disabled>暂不可用</button>';
+            return '<div class="cf-studio-template-row"><div class="cf-studio-template-title"><strong>'+name+'</strong><span>'+esc(status)+'</span></div>'+
+              '<small>'+detail+'</small>'+button+'</div>';
+          }).join('')
         :'当前没有注册模板';
     }
   }catch(error){
@@ -391,6 +404,32 @@ async function cfLoadStudioCatalog(){
     if(templates)templates.textContent='';
   }
 }
+document.addEventListener('click',function(event){
+  const templateButton=event.target.closest('[data-studio-template]');
+  if(!templateButton)return;
+  cfOpenStudioTemplate(templateButton.dataset.studioTemplate,templateButton.dataset.templateVersion||'');
+});
+
+async function cfOpenStudioTemplate(templateId, templateVersion){
+  const status=document.getElementById('cf-studio-catalog-status');
+  try{
+    if(typeof templateGalleryOpen!=='function'||typeof templateGallerySelectByIndex!=='function'){
+      throw new Error('模板画廊尚未加载');
+    }
+    await templateGalleryOpen();
+    const visible=(window.TG&&window.TG.visible)||[];
+    const index=visible.findIndex(item=>String(item.id)===String(templateId)&&String(item.version||'')===String(templateVersion||''));
+    if(index<0)throw new Error('模板已不在当前清单中，请刷新创建面板后重试');
+    templateGallerySelectByIndex(index);
+    const selected=visible[index];
+    const galleryStatus=document.getElementById('tg-status');
+    if(galleryStatus)galleryStatus.textContent='已定位到 '+(selected.name||selected.id)+'；请填素材并执行真实样片验证。';
+  }catch(error){
+    if(status)status.textContent='打开模板失败：'+(error.message||error);
+    if(typeof editorToast==='function')editorToast('打开模板失败：'+(error.message||error),true);
+  }
+}
+
 document.addEventListener('click',function(event){
   const button=event.target.closest('[data-studio-style]');
   if(!button)return;
