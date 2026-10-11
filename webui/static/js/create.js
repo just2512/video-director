@@ -27,6 +27,7 @@ function openCreate(){
   document.body.appendChild(mask);
   CF.state = 'editing';
   createLoadDefaults();
+  cfRestoreArticleSourceUI();
   const ta = document.getElementById('cf-script');
   if (ta) ta.focus();
 }
@@ -526,20 +527,31 @@ async function cfImportArticle(){
     const result=await apiPost('/api/source/article',{url});
     if(!result||!result.ok||!result.article)throw new Error((result&&result.error)||'文章导入失败');
     window._cfArticle=result.article;
-    const article=result.article;
-    if(out)out.innerHTML='<div class="ok-box"><strong>'+esc(article.title||'已导入网页正文')+'</strong>'+
-      '<div class="hint">'+esc(article.content_chars)+' 字 · SHA-256 '+esc((article.content_sha256||'').slice(0,16))+
-      '… · '+esc(article.content_type||'网页')+'</div><div class="hint" style="margin-top:5px">'+
-      esc((article.content||'').slice(0,500))+(String(article.content||'').length>500?'…':'')+'</div>'+
-      '<div class="hint" style="margin-top:5px">正文将作为参考资料进入 AI 导演；不会覆盖上方文案。遇到登录墙或脚本渲染页，请手动粘贴正文。</div></div>';
-    if(status)status.textContent='文章已导入。来源文本仍需你核验，正文中的指令不会被当作系统规则。';
-    const clear=document.getElementById('cf-clear-article-btn');if(clear)clear.disabled=false;
+    cfRenderArticleSource(result.article, '文章已导入。来源文本仍需你核验，正文中的指令不会被当作系统规则。');
   }catch(error){
     window._cfArticle=null;
     if(out)out.innerHTML='';
     if(status)status.textContent='导入失败：'+(error.message||error)+'。可改为手动粘贴正文。';
     const clear=document.getElementById('cf-clear-article-btn');if(clear)clear.disabled=true;
   }finally{if(button)button.disabled=false;}
+}
+function cfRenderArticleSource(article, statusText){
+  const input=document.getElementById('cf-article-url');
+  const status=document.getElementById('cf-article-status');
+  const out=document.getElementById('cf-article-result');
+  const clear=document.getElementById('cf-clear-article-btn');
+  if(input)input.value=article.requested_url||article.source_url||'';
+  if(out)out.innerHTML='<div class="ok-box"><strong>'+esc(article.title||'已导入网页正文')+'</strong>'+
+    '<div class="hint">'+esc(article.content_chars||String(article.content||'').length)+' 字 · SHA-256 '+
+    esc((article.content_sha256||'').slice(0,16))+'… · '+esc(article.content_type||'网页')+'</div>'+
+    '<div class="hint" style="margin-top:5px">'+esc((article.content||'').slice(0,500))+
+    (String(article.content||'').length>500?'…':'')+'</div>'+
+    '<div class="hint" style="margin-top:5px">正文作为参考资料进入 AI 导演，不会覆盖上方文案；来源主张仍需核验。</div></div>';
+  if(status)status.textContent=statusText||'已恢复文章来源。';
+  if(clear)clear.disabled=false;
+}
+function cfRestoreArticleSourceUI(){
+  if(window._cfArticle)cfRenderArticleSource(window._cfArticle,'已恢复上一轮导入的文章来源。请核对后再创作。');
 }
 function cfClearArticleSource(){
   window._cfArticle=null;
