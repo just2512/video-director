@@ -273,7 +273,6 @@ def _stock_cache_path(provider: str, norm_query: str, orientation: Optional[str]
     """缓存文件：storage/stock_cache/<provider>-<hash>.json（键=归一化查询+方向）。"""
     import hashlib as _hl
     from video_director import config as _config
-from video_director.source_usage_policy import SourcePolicy, UsageState, choose, source_provider
     d = _config.composer_storage_root() / "stock_cache"
     d.mkdir(parents=True, exist_ok=True)
     key = _hl.sha1(f"{provider}:{norm_query}:{orientation or 'any'}".encode("utf-8")).hexdigest()[:16]
@@ -538,6 +537,7 @@ def auto_download_for_scenes(
     queries = []
     used_sources = set()
     wanted = max(0, int(per_scene or 1))
+    from video_director.source_usage_policy import SourcePolicy, UsageState, choose, source_provider
     usage_state = UsageState()
     source_policy = SourcePolicy(
         source_preference="stock_first",

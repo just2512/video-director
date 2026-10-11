@@ -277,7 +277,7 @@ async function _loadMptSceneContext(sceneId){
       : '尚未形成 source-window 使用记录';
     box.innerHTML =
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>创作方案</b> <span class="hint">先选表达方式，再决定用什么素材</span>' +
-      '<button class="btn-secondary btn-sm" onclick="editorSemanticRerank(\\'' + sceneId + '\\')">按画面语义重排候选</button></div>' +
+      '<button class="btn-secondary btn-sm" onclick="editorSemanticRerank(\'' + sceneId + '\')">按画面语义重排候选</button></div>' +
       '<div style="margin-top:4px">' + (candidateHtml || '<span class="hint">暂无候选方案；重新执行 Director 后建立。</span>') + '</div>' +
       '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:7px">检索词（按叙事顺序）</div>' +
       '<div style="margin:3px 0 6px">' + (terms || '<span class="hint">未记录</span>') + '</div>' +

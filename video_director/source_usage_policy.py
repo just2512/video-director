@@ -188,6 +188,30 @@ def decide(
     ):
         return UsageDecision(REJECT, "reuse_policy=never_reuse，素材已经使用过", source, provider)
 
+    # Stock 内细分 provider：Pexels→Pixabay 比 Pexels→Pexels 更有实际意义。
+    # 提前于 asset 连续检查——同一 asset 必同 provider，provider 级复用避免
+    # 对 stock 用户更可操作（"换图库"比"换素材"更能解释决策）。
+    if (
+        source == "stock"
+        and provider
+        and state.last_provider == provider
+        and not allow_relax
+    ):
+        other_provider = any(
+            asset_id(other) != aid
+            and source_kind(other) == "stock"
+            and source_provider(other)
+            and source_provider(other) != provider
+            for other in candidates
+        )
+        if other_provider:
+            return UsageDecision(
+                DEFER,
+                f"存在其他图库 Provider，避免连续使用 {provider}",
+                source,
+                provider,
+            )
+
     if (
         policy.avoid_consecutive_asset
         and state.last_asset_id
@@ -216,22 +240,11 @@ def decide(
                 provider,
             )
 
-        # Stock 内再细分 provider：Pexels→Pixabay 比 Pexels→Pexels 更有实际意义。
-        if source == "stock" and provider and state.last_provider == provider:
-            other_provider = any(
-                asset_id(other) != aid
-                and source_kind(other) == "stock"
-                and source_provider(other)
-                and source_provider(other) != provider
-                for other in candidates
-            )
-            if other_provider and not allow_relax:
-                return UsageDecision(
-                    DEFER,
-                    f"存在其他图库 Provider，避免连续使用 {provider}",
-                    source,
-                    provider,
-                )
+    if (
+        state.used_assets.get(aid, 0) > 0
+        and policy.reuse_policy == REUSE_WHEN_NEEDED
+    ):
+        return UsageDecision(ACCEPT, "素材已使用过，允许按 reuse_when_needed 复用", source, provider)
 
     return UsageDecision(ACCEPT, "满足当前来源与复用规则", source, provider)
 
@@ -258,12 +271,24 @@ def choose(
         )
 
     deferred: list[tuple[Any, UsageDecision]] = []
+    preferred_deferred_reason = ""
     for item in ordered:
         decision = decide(item, state, policy, candidates=ordered)
         if decision.status == ACCEPT:
+            if preferred_deferred_reason:
+                # 首选因来源/复用规则被 defer，最终选了次选——决策原因说明偏离首选的依据，
+                # 避免调用方只看到笼统的"满足规则"而无从解释为什么没选语义首选。
+                decision = UsageDecision(
+                    ACCEPT,
+                    f"首选素材已使用；{preferred_deferred_reason}",
+                    decision.source,
+                    decision.provider,
+                )
             return item, decision
         if decision.status == DEFER:
             deferred.append((item, decision))
+            if preferred_asset_id and asset_id(item) == preferred_asset_id:
+                preferred_deferred_reason = decision.reason
 
     if deferred and policy.reuse_policy == REUSE_WHEN_NEEDED:
         item, decision = deferred[0]
