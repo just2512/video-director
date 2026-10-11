@@ -501,6 +501,19 @@ class Handler(BaseHTTPRequestHandler):
                                  "error": "当前模板的运行依赖/能力门禁未通过，未生成假样片。",
                                  "runtime": runtime}, 422)
                 return
+            from video_director.registries.runtime import template_input_issues
+            uploaded_slots = {
+                item["name"][:-5] for item in files
+                if (item.get("name") or "").endswith("_file") and item.get("data")
+            }
+            input_issues = template_input_issues(template, slot_values, uploaded_slots)
+            if input_issues:
+                self._send_json({
+                    "ok": False, "code": "REQUIRED_INPUT_MISSING",
+                    "error": "必填槽位未完成，尚未运行样片。",
+                    "missing_inputs": input_issues, "runtime": runtime,
+                }, 400)
+                return
 
             assets = {}
             asset_dir = work_dir / "inputs"
@@ -2925,6 +2938,19 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "code": "RUNTIME_BLOCKED",
                                      "error": "模板运行前置条件未通过，未创建无法兑现的项目。",
                                      "runtime": runtime}, 422)
+                    return
+                from video_director.registries.runtime import template_input_issues
+                uploaded_slots = {
+                    item["name"][:-5] for item in files
+                    if (item.get("name") or "").endswith("_file") and item.get("data")
+                }
+                input_issues = template_input_issues(tpl, slot_values, uploaded_slots)
+                if input_issues:
+                    self._send_json({
+                        "ok": False, "code": "REQUIRED_INPUT_MISSING",
+                        "error": "必填槽位未完成，尚未创建项目。",
+                        "missing_inputs": input_issues,
+                    }, 400)
                     return
                 pid = "tpl-" + _uuid.uuid4().hex[:8]
                 base = vd_config.project_dir(pid)
