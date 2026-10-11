@@ -114,7 +114,7 @@ def _normalize_audio_loudness(
     import math
     import re
 
-    ff = ffmpeg_bin or _ffmpeg()
+    ff = ffmpeg_bin or prober._resolve_ffmpeg()
     analysis_filter = (
         f"loudnorm=I={_AUDIO_LOUDNESS_TARGET_I}:TP={_AUDIO_LOUDNESS_TARGET_TP}:"
         f"LRA={_AUDIO_LOUDNESS_TARGET_LRA}:print_format=json"
@@ -181,7 +181,7 @@ def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
     import json
     import math
 
-    ff = _ffmpeg()
+    ff = prober._resolve_ffmpeg()
     ffprobe = prober._resolve_ffprobe()
     stream = {}
     probe_engine = "ffprobe"
