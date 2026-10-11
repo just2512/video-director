@@ -217,7 +217,7 @@ def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
 
     # Decode every mapped video frame and every audio packet through EOF; stream presence alone is insufficient.
     _run([
-        ff, "-hide_banner", "-v", "error", "-i", output_path,
+        ff, "-hide_banner", "-v", "error", "-xerror", "-err_detect", "explode", "-i", output_path,
         "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-",
     ])
     report = {
