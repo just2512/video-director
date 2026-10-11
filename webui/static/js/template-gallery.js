@@ -32,7 +32,7 @@ function templateGalleryOpen() {
   document.body.appendChild(mask);
   document.getElementById("tg-category").addEventListener("change", templateGalleryFilter);
   document.getElementById("tg-ratio-filter").addEventListener("change", templateGalleryFilter);
-  templateGalleryLoad();
+  return templateGalleryLoad();
 }
 function templateGalleryClose() {
   const mask = document.getElementById("tg-mask");
@@ -51,10 +51,12 @@ async function templateGalleryLoad() {
     if (category) category.innerHTML = '<option value="">全部类别</option>' + cats.map(c => '<option value="' + tgEscape(c) + '">' + tgEscape(c) + '</option>').join("");
     templateGalleryFilter();
     if (status) status.textContent = response.length ? "清单已读取。选择模板可查看阻塞项、填写素材并试渲染。" : "当前没有已注册模板。";
+    return true;
   } catch (e) {
     const list = document.getElementById("tg-list");
     if (list) list.innerHTML = '<div class="tg-empty">模板读取失败：' + tgEscape(e.message || e) + ' <button class="btn-secondary btn-sm" onclick="templateGalleryLoad()">重试</button></div>';
     if (status) status.textContent = "读取失败；没有使用本地假数据替代。";
+    return false;
   }
 }
 function templateGalleryFilter() {

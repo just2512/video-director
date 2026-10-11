@@ -72,3 +72,51 @@
   .tg-header { padding: 14px; }
   .tg-filters, .tg-footer { padding-left: 14px; padding-right: 14px; }
 }
+
+
+/* Studio create panel — executable templates are actionable rows, not a disabled text list. */
+.cf-studio-template-heading {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.cf-studio-template-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.cf-studio-template-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.cf-studio-template-title strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.cf-studio-template-title span,
+.cf-studio-template-row small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.cf-studio-template-row small {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+.cf-studio-template-row button {
+  grid-column: 2;
+  grid-row: 1;
+  white-space: nowrap;
+}
+.cf-studio-template-row button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}

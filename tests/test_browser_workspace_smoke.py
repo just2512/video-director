@@ -26,10 +26,22 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def test_chromium_loads_unified_editor_workspace():
+def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
     port = _free_port()
     env = os.environ.copy()
     env.setdefault("PYTHONUNBUFFERED", "1")
+    # Browser-driven uploads and template samples must never touch a user's/default storage.
+    env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(tmp_path / "storage")
+    still = tmp_path / "template-sample-input.png"
+    generated = subprocess.run(
+        [
+            "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+            "color=c=0x284b63:s=96x96:d=1", "-frames:v", "1", str(still),
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert generated.returncode == 0, generated.stderr
+    assert still.is_file() and still.stat().st_size > 100
     results = ROOT / "test-results"
     results.mkdir(exist_ok=True)
     trace_path = results / "workspace-smoke-trace.zip"
@@ -96,6 +108,37 @@ def test_chromium_loads_unified_editor_workspace():
                 assert page.locator("#tg-render").is_disabled()
                 assert page.locator("#tg-instantiate").is_disabled()
                 assert page.locator(".tg-status-chip").count() >= 2
+
+                # True browser-to-renderer loop: upload a real image, fill required slots,
+                # render through the actual multipart endpoint, and inspect the decoded MP4.
+                minimal_index = page.evaluate(
+                    "() => window.TG.visible.findIndex(item => item.id === 'tpl.minimal-editorial')"
+                )
+                assert minimal_index >= 0, "built-in minimal editorial template is not in the real registry"
+                page.locator(".tg-template-card").nth(minimal_index).click()
+                page.locator("#tg-ratio-select").select_option("16:9")
+                page.locator("[data-tg-text-slot='title']").fill("Browser smoke title")
+                page.locator("[data-tg-text-slot='body_text']").fill("Real template render verification")
+                page.locator("[data-tg-file-slot='hero_image']").set_input_files(str(still))
+                page.wait_for_function("() => !document.getElementById('tg-render').disabled")
+                page.locator("#tg-render").click()
+                page.wait_for_function(
+                    "() => { const s = document.getElementById('tg-detail-status')?.textContent || '';"
+                    "return s.includes('真实渲染和 MP4 解码通过') || s.includes('样片未通过验证'); }",
+                    timeout=300000,
+                )
+                render_status = page.locator("#tg-detail-status").inner_text()
+                assert "真实渲染和 MP4 解码通过" in render_status, render_status
+                sample_evidence = page.locator("#tg-sample-result .hint").inner_text()
+                assert '"decode":"PASS"' in sample_evidence, sample_evidence
+                assert '"duration_seconds":' in sample_evidence, sample_evidence
+                page.wait_for_function(
+                    "() => { const v = document.querySelector('#tg-sample-result video');"
+                    "return !!v && v.readyState >= 1 && Number.isFinite(v.duration) && v.duration > 0; }",
+                    timeout=30000,
+                )
+                preview_duration = page.locator("#tg-sample-result video").evaluate("(v) => v.duration")
+                assert preview_duration > 0, f"sample MP4 did not load in the gallery video preview: {preview_duration}"
                 page.evaluate("templateGalleryClose()")
                 page.locator("#cf-style-gallery-btn").wait_for(timeout=10000)
                 page.locator("#cf-style-gallery-btn").click()

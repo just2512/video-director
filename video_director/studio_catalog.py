@@ -14,6 +14,7 @@ from pathlib import Path
 from video_director import capabilities, prober, style
 from video_director.graphics.provider import list_providers
 from video_director.registries.templates import TemplateRegistry
+from video_director.registries.runtime import template_runtime_report
 
 
 def _executable(command: str) -> str | None:
@@ -126,11 +127,9 @@ def build_studio_catalog() -> dict:
     except Exception:
         available_caps = {}
 
-    # Reuse the canonical registries. A valid metadata record alone is not enough.
-    from video_director.shotbook import _motion_recipes, _recipes
-    recipe_ids = {item.get("id") for item in _recipes()}
-    motion_ids = {item.get("id") for item in _motion_recipes()}
-    templates = []
+    # Runtime report is the canonical readiness gate. Keep the Studio catalog in sync
+    # with the same compiler/renderer path used by the Template Gallery and sample-render
+    # endpoint; never hard-code every template as unavailable after CMP-003 landed.
     try:
         candidates = TemplateRegistry().all()
     except Exception as exc:
@@ -139,40 +138,62 @@ def build_studio_catalog() -> dict:
     else:
         registry_error = ""
 
+    templates = []
     for template in candidates:
-        renderer_id = str((template.runtime or {}).get("renderer") or "")
-        runtime_status, reasons = _runtime_status(renderer_id, ffmpeg_status, browser_status)
-        missing_caps = []
-        for name in template.required_capabilities:
-            cap_status = available_caps.get(str(name), "MISSING")
-            if cap_status == "MISSING":
-                missing_caps.append(str(name))
-        if missing_caps:
-            reasons.append("所需能力不可用/未登记：" + "、".join(missing_caps[:8]))
-        missing_recipes = []
-        for scene in template.scenes:
-            if scene.shot_recipe_id and scene.shot_recipe_id not in recipe_ids:
-                missing_recipes.append(str(scene.shot_recipe_id))
-            for layer in scene.layers:
-                if layer.motion_recipe_id and layer.motion_recipe_id not in motion_ids:
-                    missing_recipes.append(str(layer.motion_recipe_id))
-        if missing_recipes:
-            reasons.append("引用的镜头/动效配方不存在：" + "、".join(sorted(set(missing_recipes))[:8]))
-        # Registry metadata and valid recipes do not themselves instantiate a template
-        # into CompositionIR. No canonical Template -> Editor Command adapter currently
-        # exists; keep it discoverable but explicitly non-selectable rather than faking support.
-        reasons.append("当前没有从 TemplateDefinition 到 CompositionIR 的正式实例化执行适配器")
-        status = "MISSING"
+        renderer_id = str((template.runtime or {}).get("renderer") or "ffmpeg")
+        runtime = template_runtime_report(template)
+        engine_status, engine_reasons = _runtime_status(
+            renderer_id, ffmpeg_status, browser_status,
+        )
+
+        blockers = list(runtime.get("blockers") or [])
+        for reason in engine_reasons:
+            blockers.append({
+                "code": "ENGINE_ADAPTER_UNAVAILABLE",
+                "message": reason,
+            })
+
+        # A static, honestly PARTIAL template can still be instantiated and previewed;
+        # unsupported requested animation remains a warning, not a false hard blocker.
+        # Final sample proof is separate: the user must run the actual sample render
+        # endpoint, which decodes the produced MP4 before reporting success.
+        can_instantiate = bool(runtime.get("can_instantiate")) and not engine_reasons
+        can_render = bool(runtime.get("can_render")) and not engine_reasons
+        status = "BLOCKED" if blockers else str(runtime.get("status") or "UNKNOWN")
+        selectable = can_instantiate and status != "BLOCKED"
+
+        details = [item.get("message", item.get("code", "运行时阻塞"))
+                   for item in blockers + list(runtime.get("warnings") or [])]
+        if runtime.get("sample_render") != "PASS":
+            details.append("样片尚未在当前用户素材上完成真实渲染与 MP4 全解码验证")
+
         templates.append({
-            "id": template.id, "version": template.version, "name": template.name,
-            "category": template.category, "supported_ratios": list(template.supported_ratios),
-            "duration": {"min": template.duration_min, "recommended": template.duration_recommended,
-                         "max": template.duration_max},
-            "renderer": renderer_id, "required_capabilities": list(template.required_capabilities),
-            "status": status, "selectable": status == "PASS",
+            "id": template.id,
+            "version": template.version,
+            "name": template.name,
+            "category": template.category,
+            "supported_ratios": list(template.supported_ratios),
+            "duration": {
+                "min": template.duration_min,
+                "recommended": template.duration_recommended,
+                "max": template.duration_max,
+            },
+            "renderer": renderer_id,
+            "required_capabilities": list(template.required_capabilities),
+            "status": status,
+            "selectable": selectable,
+            "can_instantiate": selectable,
+            "can_render": can_render and status != "BLOCKED",
+            "sample_render": runtime.get("sample_render", "NOT_RUN"),
+            "blockers": blockers,
+            "warnings": list(runtime.get("warnings") or []),
+            "installed": runtime.get("installed", {}),
             "commercial_status": template.commercial_status,
             "provenance_ref": template.provenance_ref,
-            "detail": "模板已通过当前环境兼容检查。" if status == "PASS" else "；".join(reasons),
+            "detail": (
+                "可实例化；" + "；".join(details)
+                if selectable else "；".join(details) or "模板当前不可执行"
+            ),
         })
     return {
         "ok": True, "engines": engines, "styles": styles, "templates": templates,

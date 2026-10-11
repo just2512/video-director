@@ -665,7 +665,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.send_response(200)
             self.send_header("Content-Type", "video/mp4")
-            self.send_header("Content-Disposition", f'attachment; filename="template-sample-{sample_id[:8]}.mp4"')
+            # The same URL is embedded in the Gallery <video>; mark it inline so Chromium can preview it.
+            # The same-origin download anchor has a download attribute and still downloads the MP4.
+            self.send_header("Content-Disposition", f'inline; filename="template-sample-{sample_id[:8]}.mp4"')
             self.send_header("Content-Length", str(target.stat().st_size))
             self.end_headers()
             with target.open("rb") as stream:
