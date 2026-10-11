@@ -99,7 +99,8 @@ function _createPanelHtml(){
     </div>
   </div>
   <div class="panel" style="margin-top:10px;padding:12px">
-    <div class="btn-row" style="align-items:center;gap:10px"><button id="cf-template-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="templateGalleryOpen()">浏览模板与真实样片</button><span class="hint">查看引擎门禁、必填素材、真实渲染与解码结果；不会把风格名称当成可执行能力。</span></div>
+    <div class="btn-row" style="align-items:center;gap:10px"><button id="cf-template-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="templateGalleryOpen()">浏览模板与真实样片</button>
+      <button id="cf-style-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="styleGalleryOpen()">浏览创作风格</button><span class="hint">查看引擎门禁、必填素材、真实渲染与解码结果；不会把风格名称当成可执行能力。</span></div>
   </div>
   <details id="cf-manual-options" style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
