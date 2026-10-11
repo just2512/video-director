@@ -212,5 +212,5 @@ def test_add_audio_clip_rejects_invalid_timing_volume_and_stale_version(tmp_path
     assert stale.status == "REJECTED"
     assert stale.errors[0]["code"] == "CONFLICT"
     assert len(load_composition(pid).audio) == 2
-    revisions = [line for line in (plan_dir / "plans" / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
     assert revisions == []
