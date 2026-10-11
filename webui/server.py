@@ -349,6 +349,7 @@ def _editor_asset_preview_map(ir):
                 thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
                 out[aid] = {
                     "asset_id": aid,
+                    "name": entry.get("name") or Path(file_path).name,
                     "type": entry.get("type"),
                     "file_url": ("/file?path=" + urllib_quote(file_path)) if file_path else "",
                     "thumbnail_url": ("/file?path=" + urllib_quote(str(thumb))) if thumb.is_file() else "",
@@ -359,6 +360,44 @@ def _editor_asset_preview_map(ir):
                     "has_audio": entry.get("has_audio"),
                     "source": entry.get("source"),
                 }
+
+        # Audio timeline references are IDs into the trusted audio library. Add
+        # a safe presentation projection (display label + preview endpoint), never
+        # the local file path held by the library manifest.
+        try:
+            from video_director import audio as vd_audio
+            audio_library = vd_audio.scan_library()
+            for track in (ir.audio or []):
+                aid = getattr(track, "asset_id", None)
+                if not aid or aid in out:
+                    continue
+                asset = audio_library.get(aid)
+                if asset is not None and asset.file and Path(asset.file).is_file():
+                    out[aid] = {
+                        "asset_id": aid,
+                        "name": _audio_label(asset.id, asset.keywords),
+                        "type": "audio",
+                        "file_url": "/api/audio_preview?asset_id=" + urllib_quote(aid, safe=""),
+                        "thumbnail_url": "",
+                        "duration": asset.duration,
+                        "source": asset.source,
+                        "keywords": list(asset.keywords or []),
+                    }
+                    continue
+                entry = asset_catalog.get_asset(aid)
+                if entry and entry.get("file"):
+                    out[aid] = {
+                        "asset_id": aid,
+                        "name": entry.get("name") or Path(entry["file"]).name,
+                        "type": "audio",
+                        "file_url": "/file?path=" + urllib_quote(entry["file"]),
+                        "thumbnail_url": "",
+                        "duration": entry.get("duration"),
+                        "source": entry.get("source"),
+                    }
+        except Exception:
+            # A missing audio catalog must not hide visual assets from the editor.
+            pass
         return out
     except Exception:
         return {}
