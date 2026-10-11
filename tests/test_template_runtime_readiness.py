@@ -13,7 +13,9 @@ from types import SimpleNamespace
 from video_director import prober, renderer, title_engine
 from video_director.models import AssetRef
 from video_director.registries.compiler import instantiate_template
-from video_director.registries.runtime import style_runtime_report, template_runtime_report
+from video_director.registries.runtime import (
+    style_runtime_report, template_input_issues, template_runtime_report,
+)
 from video_director.registries.templates import TemplateRegistry
 
 
@@ -141,6 +143,34 @@ def test_template_runtime_blocks_a_required_slot_that_is_not_used():
     assert any(
         item["code"] == "REQUIRED_SLOT_UNUSED"
         and item["slot_id"] == "unreferenced_required_copy"
+        for item in report["blockers"]
+    )
+
+
+def test_required_text_and_file_slots_are_checked_before_instantiation():
+    template = TemplateRegistry().get("tpl.minimal-editorial", "1.0.0")
+    issues = template_input_issues(
+        template,
+        {"title": "A title", "body_text": "A body"},
+        uploaded_slot_ids=set(),
+    )
+    assert {item["slot_id"] for item in issues} == {"hero_image"}
+
+    issues = template_input_issues(
+        template,
+        {"title": "  ", "body_text": ""},
+        uploaded_slot_ids={"hero_image"},
+    )
+    assert {item["slot_id"] for item in issues} == {"title", "body_text"}
+
+
+def test_required_unsupported_slot_type_is_blocked():
+    template = TemplateRegistry().get("tpl.minimal-editorial", "1.0.0")
+    slot = replace(template.slots[0], id="audio", label="背景音", type="audio", required=True)
+    broken = replace(template, slots=template.slots + (slot,))
+    report = template_runtime_report(broken)
+    assert any(
+        item["code"] == "UNSUPPORTED_REQUIRED_SLOT_TYPE" and item["slot_id"] == "audio"
         for item in report["blockers"]
     )
 
