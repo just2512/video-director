@@ -190,18 +190,28 @@ function _tlPct(ev, el){
 function editorRenderTimeline(){
   const box = document.getElementById('editor-timeline');
   const view = ED.timelineView || 'time';
-  if (view === 'semantic') { box.innerHTML = renderSemanticTimeline(); return; }
-  if (view === 'dual') {
-    box.innerHTML = renderSemanticTimeline() + '<div class="hint" style="margin:6px 0">物理时间线</div>' + renderPhysicalTimeline();
-    return;
+  const hasPhysicalTimeline = view !== 'semantic';
+  if (view === 'semantic') {
+    box.innerHTML = renderSemanticTimeline();
+  } else if (view === 'dual') {
+    box.innerHTML = renderSemanticTimeline() +
+      '<div class="hint" style="margin:6px 0">物理时间线</div>' + renderPhysicalTimeline();
+  } else {
+    box.innerHTML = renderPhysicalTimeline();
   }
-  box.innerHTML = renderPhysicalTimeline();
-  _tlBindPlayheadDrag();
-  _tlBindLayerDrag();
-  _tlBindAudioClipDrag();
-  _tlBindWatermarkDrag();
-  _tlBindSceneDrag();
-  if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
+
+  // Dual view still contains the editable physical timeline. Keep all drag,
+  // trim, watermark and session/snap bindings active in both physical views.
+  // Returning early after rendering the semantic half left the physical half
+  // looking editable while every pointer interaction was inert.
+  if (hasPhysicalTimeline) {
+    _tlBindPlayheadDrag();
+    _tlBindLayerDrag();
+    _tlBindAudioClipDrag();
+    _tlBindWatermarkDrag();
+    _tlBindSceneDrag();
+    if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
+  }
   document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
 }
 
