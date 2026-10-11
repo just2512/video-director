@@ -33,6 +33,12 @@ function openCreate(){
 function closeCreate(){
   const m = document.getElementById('cf-mask');
   if (m) m.remove();
+  // 创建页是模板/风格画廊的宿主：创建页关闭时子画廊的 fixed 全屏遮罩必须一并
+  // 移除，否则 sg-mask/tg-mask 会留在 body 上拦截整个工作台的指针事件。
+  for (const id of ['sg-mask', 'tg-mask']) {
+    const child = document.getElementById(id);
+    if (child) child.remove();
+  }
   CF.state = 'idle';
 }
 
