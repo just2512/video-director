@@ -125,7 +125,6 @@ function _createPanelHtml(){
       <div id="cf-style-contract-detail" class="hint" style="margin-top:5px">只显示由现有 StyleContract 执行的风格。</div>
       <div id="cf-studio-template-list" class="hint" style="margin-top:7px"></div>
     </div>
-origin/feat/studio-trust-workspace
   <details id="cf-manual-options" style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
   <div id="cf-essentials">
@@ -331,8 +330,7 @@ async function createLoadDefaults(){
     }
   } catch (e) { /* 预设失败不阻塞 */ }
 
-  await cfLoadStudioCatalog();origin/feat/studio-trust-workspace
-}
+  await cfLoadStudioCatalog();}
 
 const CF_STYLE_NAMES = {
   'documentary-calm':'沉稳纪录片',
