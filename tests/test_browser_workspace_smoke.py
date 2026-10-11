@@ -144,6 +144,7 @@ def test_chromium_loads_unified_editor_workspace():
                         cards: board.querySelectorAll('.sb-board-card').length,
                         thumbnails: board.querySelectorAll('.sb-board-thumb img').length,
                         previewButtons: board.querySelectorAll('[data-shotbook-action="preview"]').length,
+                        sfxButtons: list.querySelectorAll('[data-shotbook-action="open-sfx"]').length,
                         firstText: board.innerText.includes('First visual storyboard frame')
                     };
                     const calls = [];
@@ -170,7 +171,39 @@ def test_chromium_loads_unified_editor_workspace():
                 assert board_result["cards"] == 2
                 assert board_result["thumbnails"] == 1
                 assert board_result["previewButtons"] == 2
+                assert board_result["sfxButtons"] == 2
                 assert board_result["firstText"] is True
+                sfx_picker = page.evaluate("""async () => {
+                    const oldBook = SHOTBOOK, oldComp = ED.comp;
+                    SHOTBOOK = {project_id:'browser-smoke', shots:[
+                        {scene_id:'sfx-scene', start:1, end:3, sfx_cue:'轻微落点'}
+                    ]};
+                    ED.comp = {duration:10, assets:{}};
+                    try {
+                        const assets = await apiGet('/api/sfx');
+                        await shotbookOpenSfx('sfx-scene');
+                        const select = document.getElementById('shotbook-sfx-asset');
+                        const player = document.getElementById('shotbook-sfx-preview');
+                        const result = {
+                            apiAssets: Array.isArray(assets) ? assets.length : -1,
+                            modal: !!document.getElementById('shotbook-sfx-modal'),
+                            hasSelector: !!select,
+                            count: select ? select.options.length : 0,
+                            previewRoute: player ? player.getAttribute('src') : '',
+                            status: (document.getElementById('shotbook-sfx-status') || {}).textContent || ''
+                        };
+                        shotbookSfxModalClose();
+                        return result;
+                    } finally {
+                        SHOTBOOK = oldBook;
+                        ED.comp = oldComp;
+                    }
+                }""")
+                assert sfx_picker["apiAssets"] > 0
+                assert sfx_picker["modal"] is True
+                assert sfx_picker["hasSelector"] is True
+                assert sfx_picker["count"] > 0
+                assert sfx_picker["previewRoute"].startswith("/api/audio_preview?asset_id=")
                 assert ["seek", 0] in board_result["previewCalls"]
                 assert "play" in board_result["previewCalls"]
                 assert ["locate", "smoke-shot-1"] in board_result["previewCalls"]
