@@ -76,8 +76,17 @@ def _validate_public_url(url: str, resolver: Callable = socket.getaddrinfo) -> T
     if not hostname or hostname == "localhost" or hostname.endswith((".localhost", ".local", ".internal", ".lan")):
         raise ArticleImportError("本机/内网/本地域名不允许作为网页来源")
     port = port or (443 if parsed.scheme.lower() == "https" else 80)
-    # The connection's host header and TLS SNI must remain the original hostname.
-    addresses = _public_addresses(hostname, port, resolver=resolver)
+    # Handle IP literals directly so a custom/resolved hostname cannot disguise a private target.
+    try:
+        literal_ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None:
+        if not literal_ip.is_global or literal_ip.is_multicast or literal_ip.is_unspecified or literal_ip.is_loopback or literal_ip.is_link_local:
+            raise ArticleImportError("来源 IP 不是公网地址，已拒绝访问")
+        addresses = [str(literal_ip)]
+    else:
+        addresses = _public_addresses(hostname, port, resolver=resolver)
     clean = urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, ""))
     return clean, hostname, port, addresses
 
