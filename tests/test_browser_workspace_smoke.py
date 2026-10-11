@@ -90,7 +90,16 @@ def test_chromium_loads_unified_editor_workspace():
                 assert page.locator("#tg-render").is_disabled()
                 assert page.locator("#tg-instantiate").is_disabled()
                 assert page.locator(".tg-status-chip").count() >= 2
-                page.evaluate("templateGalleryClose(); closeCreate()")
+                page.evaluate("templateGalleryClose()")
+                page.locator("#cf-style-gallery-btn").wait_for(timeout=10000)
+                page.locator("#cf-style-gallery-btn").click()
+                page.locator("#sg-list .sg-card").first.wait_for(timeout=15000)
+                assert page.locator("#sg-list .sg-card").count() >= 4
+                assert "METADATA_ONLY" in page.locator("#sg-list").inner_text()
+                assert "图片运动倍率" in page.locator("#sg-list").inner_text()
+                page.locator('[data-style-id="style.documentary-calm"]').click()
+                assert page.locator("#cf-style").input_value() == "纪录片、沉稳、专业"
+                page.evaluate("closeCreate()")
 
                 assert page.locator("#editor-workspace").count() == 1
                 assert page.locator("#editor-timeline").count() == 1
