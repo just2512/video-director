@@ -129,6 +129,26 @@ def test_template_runtime_blocks_missing_engine_dependency(monkeypatch):
     assert {"ENGINE_NOT_INSTALLED", "MEDIA_PROBE_MISSING", "TEXT_FONT_MISSING"} <= codes
 
 
+def test_template_runtime_blocks_an_unregistered_renderer_even_if_ffmpeg_exists(monkeypatch):
+    monkeypatch.setattr(prober, "_resolve_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(prober, "_resolve_ffprobe", lambda: "/usr/bin/ffprobe")
+    monkeypatch.setattr(title_engine, "find_cjk_font", lambda: "/usr/share/fonts/cjk.ttf")
+
+    template = TemplateRegistry().get("tpl.minimal-editorial", "1.0.0")
+    declared = replace(template, runtime={"renderer": "remotion", "deterministic": True})
+    report = template_runtime_report(declared)
+
+    assert report["engine"] == "remotion"
+    assert report["status"] == "BLOCKED"
+    assert report["can_render"] is False
+    assert report["can_instantiate"] is False
+    assert any(
+        item["code"] == "ENGINE_NOT_REGISTERED"
+        and item["engine"] == "remotion"
+        for item in report["blockers"]
+    )
+
+
 def test_template_runtime_blocks_a_required_slot_that_is_not_used():
     template = TemplateRegistry().get("tpl.minimal-editorial", "1.0.0")
     orphan = replace(
