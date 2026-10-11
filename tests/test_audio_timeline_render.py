@@ -240,6 +240,7 @@ def test_real_ffmpeg_loudness_normalization_mux_and_full_decode(tmp_path, monkey
     assert normalize_reports[0]["target_i_lufs"] == -16.0
     assert verify_reports and verify_reports[0]["full_decode"] == "PASS"
     assert verify_reports[0]["codec"] == "aac"
+    assert verify_reports[0]["channels"] == 2
     assert math.isclose(verify_reports[0]["audio_duration"], 2.0, abs_tol=0.35)
 
     # Measure the final AAC stream again, rather than asserting only filter arguments.
