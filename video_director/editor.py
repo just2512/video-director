@@ -130,7 +130,7 @@ def _write_composition_version(project_id: str, version: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
-        with tmp.open("w", encoding="utf-8", newline="\\n") as handle:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps({"version": int(version)}))
             handle.flush()
             os.fsync(handle.fileno())
@@ -216,7 +216,7 @@ def _write_undo_state(project_id: str, state: dict) -> None:
         "abandoned": list(dict.fromkeys(state.get("abandoned", [])))[-400:],
     }
     try:
-        with tmp.open("w", encoding="utf-8", newline="\\n") as handle:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False))
             handle.flush()
             os.fsync(handle.fileno())
