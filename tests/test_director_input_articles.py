@@ -24,7 +24,7 @@ def _article(content="Article paragraph contains useful source material."):
 
 
 def test_article_source_is_hashed_persistable_and_visible_to_planning_context():
-    content = "This article says the city opened a new bridge in October. " * 5
+    content = ("This article says the city opened a new bridge in October. " * 5).strip()
     bundle = build_bundle({
         "brief": "Make a short factual explainer",
         "director_inputs": {
