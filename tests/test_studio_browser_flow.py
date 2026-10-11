@@ -44,7 +44,6 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
     results_dir.mkdir(parents=True, exist_ok=True)
     trace_path = results_dir / "studio-workspace-failure-trace.zip"
-    screenshot_path = results_dir / "studio-workspace-failure.png"
 
     import webui.server as web_server
     web_server = importlib.reload(web_server)
@@ -186,10 +185,6 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 # Save browser evidence before leaving sync_playwright; don't let cleanup
                 # errors replace the actual failing assertion/timeout.
                 if page is not None:
-                    try:
-                        page.screenshot(path=str(screenshot_path), full_page=True)
-                    except Exception:
-                        pass
                 if tracing:
                     try:
                         context.tracing.stop(path=str(trace_path))
