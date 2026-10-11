@@ -18,7 +18,7 @@ jobs:
       - run: pip install -r requirements.txt
 - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-wqy-microhei
       - run: python -m playwright install --with-deps chromium
-      - run: python -m compileall video_director webui
+- run: python -m compileall video_director webui
       - name: Run test suite and retain JUnit report
         run: pytest -q --junitxml=junit.xml
       - run: |
@@ -26,9 +26,6 @@ jobs:
             node --check "$f"
           done
           for f in $(find third_party/huashu-art-motion/clip -name '*.js'); do
-            node --check "$f"
-          done
-          node --check third_party/huashu/huashu_motion_bundle.js
             node --check "$f"
           done
           node --check third_party/huashu/huashu_motion_bundle.js
