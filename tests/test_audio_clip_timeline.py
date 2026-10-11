@@ -165,6 +165,15 @@ def test_add_audio_clip_resolves_library_asset_and_persists_editable_sfx(tmp_pat
     assert audio_ref.type == "audio"
     assert audio_ref.file == "audio-library://sfx-whoosh"
     assert str(tmp_path) not in audio_ref.file
+
+    # The frontend receives a name and an audio-preview URL, never the disk path.
+    from types import SimpleNamespace
+    from webui.server import _editor_asset_preview_map
+    preview_map = _editor_asset_preview_map(SimpleNamespace(scenes=[], audio=comp.audio))
+    assert preview_map[sfx.id]["file_url"] == "/api/audio_preview?asset_id=sfx-whoosh"
+    assert preview_map[sfx.id]["name"]
+    assert str(tmp_path) not in repr(preview_map)
+
     revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
     assert len(revisions) == 1
 
