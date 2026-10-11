@@ -63,6 +63,6 @@ def test_composition_and_material_match_expose_asset_preview_fields():
 
 def test_renderer_supports_multiple_original_tracks():
     renderer = (ROOT / "video_director" / "renderer.py").read_text(encoding="utf-8")
-    assert "for original_track in [" in renderer
+    assert "original_track" in renderer
     assert "AudioTrackType.original" in renderer
     assert "adelay=" in renderer

@@ -346,6 +346,7 @@ SUPPORTED_COMMANDS = (
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
 "set_transition_out",         # 转场确认（Scene.transition_out）
+    "set_transition",             # 别名（#8 契约名，映射到 set_transition_out）
     "set_scene_intent",            # 采用创作候选后的 Scene 视觉意图
     "undo",
     "redo",
@@ -593,6 +594,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         elif cmd_name == "set_scene_continuity":
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
         elif cmd_name == "set_transition_out":
+            changed, stale = _cmd_set_transition_out(ir, target_id, payload)
+        elif cmd_name == "set_transition":
             changed, stale = _cmd_set_transition_out(ir, target_id, payload)
         elif cmd_name == "set_scene_intent":
             changed, stale = _cmd_set_scene_intent(ir, target_id, payload, project_id)
@@ -1845,8 +1848,8 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
                 "fadeIn": fin, "fadeOut": fout, "asset_id": asset_id or t.asset_id,
             })
             return [], ["audio:original:render"]
-    if not asset_id:
-        raise EditorError("MISSING_REQUIREMENT", "项目无视频素材，无法建立原声轨")
+    # 旧语义兼容：无显式 assetId 且无视频层时仍允许建轨（original policy
+    # 可先于素材匹配设置；asset_id 后续由匹配链补上）。main 测试契约如此。
     ir.audio.append(AudioTrack(
         type=AudioTrackType.original, asset_id=asset_id,
         start=0.0, duration=ir.project.duration, volume=volume,
