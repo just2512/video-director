@@ -53,7 +53,7 @@ def test_mix_audio_respects_clip_start_duration_fades_and_all_bgm_tracks(tmp_pat
         for aid in ids
     }
     calls = []
-    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffmpeg", lambda: "ffmpeg")
     _patch_audio_postmix(monkeypatch)
     monkeypatch.setattr(renderer, "_run", lambda cmd: calls.append(list(cmd)))
     monkeypatch.setattr(renderer.os, "remove", lambda _path: None)
@@ -88,7 +88,7 @@ def test_muted_narration_is_not_mixed(tmp_path, monkeypatch):
     ir = _audio_composition()
     ir.audio[0].muted = True
     calls = []
-    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffmpeg", lambda: "ffmpeg")
     _patch_audio_postmix(monkeypatch)
     monkeypatch.setattr(renderer, "_run", lambda cmd: calls.append(list(cmd)))
     monkeypatch.setattr(renderer.os, "remove", lambda _path: None)
@@ -114,7 +114,7 @@ def test_trimmed_audio_clips_render_from_their_source_window(tmp_path, monkeypat
         "start": 5.0, "duration": 1.0, "source_in": 2.0, "source_out": 3.0,
     })
     calls = []
-    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffmpeg", lambda: "ffmpeg")
     _patch_audio_postmix(monkeypatch)
     monkeypatch.setattr(renderer, "_run", lambda cmd: calls.append(list(cmd)))
     monkeypatch.setattr(renderer.os, "remove", lambda _path: None)
@@ -148,7 +148,7 @@ def test_mix_audio_uses_normalized_pcm_and_reencodes_aac(tmp_path, monkeypatch):
     calls = []
     normalized = []
     verified = []
-    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffmpeg", lambda: "ffmpeg")
     monkeypatch.setattr(renderer, "_run", lambda cmd: calls.append(list(cmd)))
     monkeypatch.setattr(renderer.os, "remove", lambda _path: None)
 
@@ -188,7 +188,7 @@ def test_real_ffmpeg_loudness_normalization_mux_and_full_decode(tmp_path, monkey
     import pytest
 
     try:
-        ffmpeg = renderer._ffmpeg()
+        ffmpeg = renderer.prober._resolve_ffmpeg()
         ffprobe = renderer.prober._resolve_ffprobe()
     except Exception as exc:
         pytest.skip(f"FFmpeg unavailable in this environment: {exc}")
@@ -290,7 +290,7 @@ def test_final_audio_validation_uses_ffmpeg_probe_fallback_when_ffprobe_is_absen
     from types import SimpleNamespace
 
     commands = []
-    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffmpeg", lambda: "ffmpeg")
     monkeypatch.setattr(renderer.prober, "_resolve_ffprobe", lambda: None)
     monkeypatch.setattr(
         renderer.prober, "probe_media",
@@ -312,7 +312,7 @@ def test_final_audio_validation_rejects_mp4_without_audio_stream(monkeypatch):
     import pytest
     from types import SimpleNamespace
 
-    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffmpeg", lambda: "ffmpeg")
     monkeypatch.setattr(renderer.prober, "_resolve_ffprobe", lambda: None)
     monkeypatch.setattr(
         renderer.prober, "probe_media",
