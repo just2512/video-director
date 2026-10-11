@@ -135,6 +135,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert "已恢复上一轮导入" in page.locator("#cf-article-status").inner_text()
                 page.evaluate("cfClearArticleSource()")
                 assert page.evaluate("window._cfArticle") is None
+                assert page.locator("#cf-article-url").input_value() == ""
                 page.unroute("**/api/source/article")
 
                 # User-facing template gallery must use the real registry/runtime API,
