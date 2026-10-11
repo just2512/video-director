@@ -56,6 +56,18 @@ ROLE_DEFS = {
         "default_base_url": "https://api.openai.com/v1",
         "default_model": "gpt-4o-mini",
     },
+    "semantic_rerank": {
+        "label": "语义检索（Marengo）",
+        "hint": "Twelve Labs Marengo 3.5：用于 Scene ↔ 视频素材语义检索；不配置则保留现有本地匹配",
+        "default_base_url": "https://api.twelvelabs.io",
+        "default_model": "marengo3.5",
+    },
+    "visual_qa": {
+        "label": "视觉验证（Pegasus）",
+        "hint": "Twelve Labs Pegasus 1.5：验证素材是否真的表达当前 Scene；不配置则结果为 UNKNOWN，不阻塞普通剪辑",
+        "default_base_url": "https://api.twelvelabs.io",
+        "default_model": "pegasus1.5",
+    },
     "hyperframes": {
         "label": "云端动效渲染（HyperFrames 高级动效）",
         "hint": "付费云端渲染 API。配置后成片动效走云端高质量渲染；不配置自动用内置 FFmpeg，功能不缺失",

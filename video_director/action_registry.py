@@ -283,6 +283,13 @@ _ACTIONS: List[ActionSpec] = [
     ActionSpec("asset.download", "下载素材", "asset.resolve", "noop",
                targets=["scene", "layer"], undo=False,
                aliases=["下载采用"]),
+    ActionSpec("visual.verify_asset", "视觉验证素材", "visual.qa", "noop",
+               targets=["layer"], undo=False,
+               preconditions=["has_selection"],
+               aliases=["视觉验证", "检查画面", "验证素材"]),
+    ActionSpec("visual.semantic_rerank", "按画面语义重排素材", "visual.semantic_rerank", "noop",
+               targets=["scene"], undo=False, preconditions=["has_selection"],
+               aliases=["按画面语义找素材", "语义重排素材"]),
     # ---- §66 配音扩展（§37 试听=UI 播放型）----
     ActionSpec("voice.preview_full", "完整旁白试听", "tts.preview_narration",
                "noop", targets=["project"], undo=False, preview=True,
@@ -567,6 +574,7 @@ _CONTEXT_KEYS = {
         "ui.open_asset_picker", "ui.open_shot_picker", "ui.generate_scene_visual",
         "ui.move_prompt", "ui.add_broll_prompt", "sfx.add",
         "asset.import_local", "asset.search_stock",
+        "visual.semantic_rerank",
     ],
     ("layer", "video"): [
         "asset.replace", "asset.search",
@@ -576,6 +584,7 @@ _CONTEXT_KEYS = {
         "generate.image", "generate.video",
         "ui.open_asset_picker", "ui.open_motion_picker", "ui.edit_mask",
         "visual.keyframe_add", "visual.keyframe_remove", "visual.mask.remove",
+        "visual.verify_asset",
     ],
     ("layer", "image"): [
         "asset.replace", "asset.search",

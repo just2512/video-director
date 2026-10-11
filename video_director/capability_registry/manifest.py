@@ -204,6 +204,18 @@ def _build_manifest() -> List[Capability]:
         "搜索 Stock 素材（Pexels/Pixabay/Coverr）", input_schema="StockSearchRequest",
         outputs=("StockAsset",), side_effect="", provider_required=True,
         examples=("找两个关于咖啡的 B-roll",)))
+    caps.append(_cap("visual.semantic_rerank", "visual",
+        "用视觉语义模型重新排序当前场景的素材候选；不返回 similarity score",
+        input_schema="VisualSemanticRerankRequest",
+        outputs=("VisualSemanticCandidates",), side_effect="",
+        provider_required=True,
+        examples=("按画面语义重新排序这些候选素材",)))
+    caps.append(_cap("visual.qa", "visual",
+        "验证单个素材是否真的表达当前 Scene；返回离散 verdict 与证据",
+        input_schema="VisualQARequest",
+        outputs=("VisualEvidence",), side_effect="",
+        provider_required=True,
+        examples=("检查这个素材是否适合本场景",)))
     caps.append(_cap("stock.preview", "asset",
         "预览 Stock 素材", input_schema="TargetRequest", outputs=("Preview",),
         side_effect="", provider_required=True, examples=("预览这个素材",)))

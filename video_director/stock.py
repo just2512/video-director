@@ -273,6 +273,7 @@ def _stock_cache_path(provider: str, norm_query: str, orientation: Optional[str]
     """缓存文件：storage/stock_cache/<provider>-<hash>.json（键=归一化查询+方向）。"""
     import hashlib as _hl
     from video_director import config as _config
+from video_director.source_usage_policy import SourcePolicy, UsageState, choose, source_provider
     d = _config.composer_storage_root() / "stock_cache"
     d.mkdir(parents=True, exist_ok=True)
     key = _hl.sha1(f"{provider}:{norm_query}:{orientation or 'any'}".encode("utf-8")).hexdigest()[:16]
@@ -537,6 +538,12 @@ def auto_download_for_scenes(
     queries = []
     used_sources = set()
     wanted = max(0, int(per_scene or 1))
+    usage_state = UsageState()
+    source_policy = SourcePolicy(
+        source_preference="stock_first",
+        reuse_policy="reuse_when_needed",
+        diversity_policy="prefer_unique_source",
+    )
 
     for idx, scene_text in enumerate(scene_texts or []):
         if max_scenes is not None and idx >= max_scenes:
@@ -571,37 +578,56 @@ def auto_download_for_scenes(
                 )
                 continue
 
+            valid_assets = []
+            seen_query_assets = set()
             for candidate in resolve_candidates(
                 hits, target_ratio=target_ratio or "any", target_duration=None
             ):
                 a = candidate.asset
                 key = f"{a.provider}:{a.source_id}"
-                if candidate.status != SUPPORTED or key in used_sources:
+                if candidate.status != SUPPORTED or key in used_sources or key in seen_query_assets:
                     continue
+                seen_query_assets.add(key)
+                valid_assets.append(a)
+
+            while valid_assets and selected < wanted:
+                chosen, decision = choose(
+                    valid_assets,
+                    usage_state,
+                    source_policy,
+                )
+                if chosen is None:
+                    break
+                key = f"{chosen.provider}:{chosen.source_id}"
+                valid_assets = [
+                    a for a in valid_assets
+                    if f"{a.provider}:{a.source_id}" != key
+                ]
                 try:
-                    out = download_asset(a, project_base)
+                    out = download_asset(chosen, project_base)
                 except StockError as exc:
-                    warnings.append(f"{scene_id}：{a.provider} 下载失败（{exc.code}）")
+                    warnings.append(f"{scene_id}：{chosen.provider} 下载失败（{exc.code}）")
                     continue
                 used_sources.add(key)
+                usage_state.record(chosen)
                 files.append(out["file"])
                 metadata[out["file"]] = {
                     "source": "stock",
-                    "license_note": f"{a.provider}·{a.source_page}",
+                    "license_note": f"{chosen.provider}·{chosen.source_page}",
                     "provenance": {
-                        "provider": a.provider,
-                        "sourceId": a.source_id,
-                        "sourcePage": a.source_page,
-                        "creator": a.creator,
+                        "provider": chosen.provider,
+                        "sourceId": chosen.source_id,
+                        "sourcePage": chosen.source_page,
+                        "creator": chosen.creator,
                     },
-                    "rights_status": a.commercial_status,
+                    "rights_status": chosen.commercial_status,
                     "scene_id": scene_id,
                     "query": query,
                     "query_order": len(queries),
+                    "source_policy_status": decision.status,
+                    "source_policy_reason": decision.reason,
                 }
                 selected += 1
-                if selected >= wanted:
-                    break
             if selected >= wanted:
                 break
 

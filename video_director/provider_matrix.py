@@ -98,6 +98,16 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
         note="抽帧后调用 chat/completions 多模态消息",
     ),
     ProviderDefinition(
+        "twelvelabs-marengo", "semantic_rerank", "Twelve Labs Marengo",
+        ("visual.semantic_retrieve",), requires_model=True, requires_base_url=True,
+        note="Marengo 3.5 多模态 embedding；用于语义检索候选生成",
+    ),
+    ProviderDefinition(
+        "twelvelabs-pegasus", "visual_qa", "Twelve Labs Pegasus",
+        ("visual.qa",), requires_model=True, requires_base_url=True,
+        note="Pegasus 1.5 视频理解；用于 Scene 对素材的语义/画面验证",
+    ),
+    ProviderDefinition(
         "edge-tts", "tts", "Edge TTS",
         ("tts.speak", "tts.word_boundary", "tts.preview"),
         requires_key=False, implemented=True,
@@ -198,6 +208,11 @@ def infer_provider(role: str, cfg: Optional[Mapping[str, Any]] = None) -> str:
         return "openai-compatible"
     if "modelscope" in host:
         return "openai-compatible"
+    if "twelvelabs" in host:
+        if role == "semantic_rerank":
+            return "twelvelabs-marengo"
+        if role == "visual_qa":
+            return "twelvelabs-pegasus"
     if role in {"llm", "image", "vision"} and base:
         return "openai-compatible"
     return "unconfigured"
@@ -310,7 +325,7 @@ class ProviderCapabilityError(RuntimeError):
 def matrix_for_frontend() -> list[dict]:
     """不返回 key，只返回当前配置状态与已声明操作。"""
     out = []
-    roles = ("llm", "image", "video", "vision")
+    roles = ("llm", "image", "video", "vision", "semantic_rerank", "visual_qa")
     for role in roles:
         cfg = _effective_config(role)
         provider_id = infer_provider(role, cfg)
