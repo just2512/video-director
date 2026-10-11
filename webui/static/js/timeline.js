@@ -193,9 +193,16 @@ function editorRenderTimeline(){
   if (view === 'semantic') { box.innerHTML = renderSemanticTimeline(); return; }
   if (view === 'dual') {
     box.innerHTML = renderSemanticTimeline() + '<div class="hint" style="margin:6px 0">物理时间线</div>' + renderPhysicalTimeline();
+    // Dual is a presentation mode, not a read-only mode: bind the physical
+    // timeline's pointer/command handlers just as we do in time-only mode.
+    _tlBindPhysicalTimelineInteractions();
     return;
   }
   box.innerHTML = renderPhysicalTimeline();
+  _tlBindPhysicalTimelineInteractions();
+}
+
+function _tlBindPhysicalTimelineInteractions(){
   _tlBindPlayheadDrag();
   _tlBindLayerDrag();
   _tlBindAudioClipDrag();
@@ -204,7 +211,6 @@ function editorRenderTimeline(){
   if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
   document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
 }
-
 function renderPhysicalTimeline(){
   const c = ED.comp;
   const total = c.duration || 1;
