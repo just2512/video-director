@@ -398,6 +398,10 @@ def compile_motion_html(program: MotionProgram) -> str:
   window.__fps = spec.fps;
   window.__size = [spec.width, spec.height];
   window.__gfx_ready = true;
+  // 统一 Graphics Runtime 的就绪标志：graphics/render.py 的
+  // _wait_for_graphics_ready 等 __gfReady（compile_to_html 同款），
+  // 这里保留旧 __gfx_ready 的同时补新标志，避免两条编译路径标志不一致。
+  window.__gfReady = true;
   drawFrame(0);
 })();
 """.replace("__HUASHU_SPEC__", _safe_script_json(spec))

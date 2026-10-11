@@ -120,10 +120,29 @@ SCHEMAS: Dict[str, InputSchema] = {
         "targetId": FieldSpec("str", required=True),
         "assetId": FieldSpec("str", required=True),
     }),
+    "CreativeCandidateSelectRequest": InputSchema("CreativeCandidateSelectRequest", {
+        "targetId": FieldSpec("str", required=True),
+        "candidateId": FieldSpec("str", required=True),
+        "visualIntent": FieldSpec("str", required=True),
+        "approach": FieldSpec("str"),
+        "sourcePreference": FieldSpec("str"),
+    }),
     "StockSearchRequest": InputSchema("StockSearchRequest", {
         "query": FieldSpec("str", required=True),
         "provider": FieldSpec("enum:str", enum=frozenset({"pexels", "pixabay", "coverr"})),
         "orientation": FieldSpec("enum:str", enum=frozenset({"landscape", "portrait", "square"})),
+    }),
+    "VisualSemanticRerankRequest": InputSchema("VisualSemanticRerankRequest", {
+        "sceneId": FieldSpec("str", required=True),
+        "sceneText": FieldSpec("str", required=True),
+        "candidates": FieldSpec("list"),
+        "limit": FieldSpec("int", minimum=1, maximum=10),
+    }),
+    "VisualQARequest": InputSchema("VisualQARequest", {
+        "sceneId": FieldSpec("str", required=True),
+        "sceneText": FieldSpec("str", required=True),
+        "assetId": FieldSpec("str", required=True),
+        "assetFile": FieldSpec("str", required=True),
     }),
     "VoicePreviewRequest": InputSchema("VoicePreviewRequest", {
         "voiceId": FieldSpec("str"),

@@ -193,25 +193,24 @@ def _scan_bgm() -> list:
 
 
 def _scan_sfx() -> list:
-    """Expose real SFX IDs, tags and duration without leaking local filesystem paths."""
+    """Expose real SFX IDs, tags and duration without leaking local filesystem paths.
+
+    duration 缺失时诚实返回 null——不在列表接口里同步探测全部音效（首次冷库
+    149 个文件 × ffmpeg/ffprobe 子进程会把请求拖到 30s+，浏览器端
+    cfLoadDefaults 的 await 链整体卡死）。时长由 probe_cache/manifest 提供；
+    单项需要精确时长时由使用点按需探测。
+    """
     try:
         lib = vd_audio.scan_library()
         out = []
         for asset in lib.values():
             if asset.type != "sfx":
                 continue
-            duration = asset.duration
-            if duration is None:
-                try:
-                    asset = vd_audio.ensure_audio_duration(asset)
-                    duration = asset.duration
-                except Exception:
-                    duration = None
             out.append({
                 "id": asset.id,
                 "label": _audio_label(asset.id, asset.keywords),
                 "tags": list(asset.keywords or []),
-                "duration": duration,
+                "duration": asset.duration,
                 "available": bool(asset.file and Path(asset.file).is_file()),
             })
         return out
@@ -1209,6 +1208,12 @@ class Handler(BaseHTTPRequestHandler):
             self._registry_motions(parsed)
         elif route == "/api/template_sample/download":
             self._template_sample_download(parsed)
+        elif route == "/api/studio/catalog":
+            try:
+                from video_director.studio_catalog import build_studio_catalog
+                self._send_json(build_studio_catalog())
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/registry/templates":
             self._registry_templates(parsed)
         elif route == "/api/registry/templates/runtime":
@@ -1263,6 +1268,33 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/catalog/blocks/resolve" or route == "/api/graphics/blocks/resolve":
             # GFX-010 Block Resolver（POST，见 do_POST）——GET 拒绝
             self._send_json({"error": "POST only"}, 405)
+        elif route == "/api/editor/creative-plan":
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            try:
+                from video_director import editor as vd_editor
+                from video_director import creative_pipeline as creative
+                pid = creative.validate_project_id(pid)
+                ir = vd_editor.load_composition(pid)
+                plan = creative.load_plan(pid)
+                if plan is None:
+                    self._send_json({"ok": True, "exists": False, "plan": None, "stale": False})
+                    return
+                fingerprints = creative.project_fingerprints(pid, ir)
+                stale_reasons = []
+                if plan.script_hash != fingerprints["script_hash"]:
+                    stale_reasons.append("稿件已变化，原语义拍/时间戳失效")
+                if plan.audio_hash and fingerprints["audio_hash"] and plan.audio_hash != fingerprints["audio_hash"]:
+                    stale_reasons.append("配音已变化，原时间戳失效")
+                self._send_json({
+                    "ok": True, "exists": True, "plan": plan.model_dump(mode="json"),
+                    "stale": bool(stale_reasons), "stale_reasons": stale_reasons,
+                    "audio_fingerprint_available": bool(fingerprints["audio_hash"]),
+                })
+            except Exception as exc:
+                from video_director.creative_pipeline import CreativePlanError
+                self._send_json({"ok": False, "error": str(exc)},
+                                400 if isinstance(exc, CreativePlanError) else 500)
         elif route == "/api/editor/composition":
             # ?project_id= → 场景/层时间线数据（Editor 页事实源）
             qs = parse_qs(parsed.query)
@@ -1274,6 +1306,39 @@ class Handler(BaseHTTPRequestHandler):
                 from video_director import editor as vd_editor
                 ir = vd_editor.load_composition(pid)
                 revs = vd_editor.load_revisions(pid)
+                # 素材元数据只读项目 manifest，不在 composition 请求中触发 ffmpeg。
+                manifest_by_id = {}
+                manifest_path = vd_config.project_dir(pid) / "assets" / "manifest.json"
+                if manifest_path.is_file():
+                    try:
+                        for _a in json.loads(manifest_path.read_text(encoding="utf-8")):
+                            if _a.get("id"):
+                                manifest_by_id[_a["id"]] = _a
+                    except (OSError, json.JSONDecodeError):
+                        manifest_by_id = {}
+
+                def _editor_asset_meta(asset_id):
+                    _m = manifest_by_id.get(asset_id or "", {})
+                    _f = _m.get("file") or ""
+                    _safe_f = ""
+                    if _f:
+                        try:
+                            _p = Path(_f).resolve()
+                            _p.relative_to(STORAGE.resolve())
+                            if _p.is_file():
+                                _safe_f = str(_p)
+                        except (OSError, ValueError):
+                            _safe_f = ""
+                    return {
+                        "asset_file": _safe_f,
+                        "asset_type": _m.get("type"),
+                        "asset_duration": _m.get("duration"),
+                        "asset_width": _m.get("width"),
+                        "asset_height": _m.get("height"),
+                        "asset_has_audio": _m.get("has_audio"),
+                        "asset_source": _m.get("source"),
+                        "asset_name": Path(_f).name if _f else "",
+                    }
                 self._send_json({
                     "project_id": pid,
                     "version": len(revs) + 1,
@@ -1292,6 +1357,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "index": i, "type": lay.type.value,
                                     "asset_id": lay.asset_id, "start": lay.start,
                                     "duration": lay.duration,
+                                    **_editor_asset_meta(lay.asset_id),
                                     "motion_recipe_id": lay.motion_recipe_id,
                                     "motion_version": lay.motion_version,
                                     "locked": bool(getattr(lay, "locked", None) or False) or None,
@@ -1343,6 +1409,88 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(vd_shotbook.get_project_shotbook(pid))
             except vd_shotbook.ShotbookError as exc:
                 self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, 404)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+        elif route == "/api/editor/material_match":
+            # AI 导演素材匹配：只生成建议，不直接修改 Composition。
+            qs = parse_qs(parsed.query)
+            pid = (qs.get("project_id") or [""])[0]
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import editor as vd_editor
+                from video_director import matcher as vd_matcher
+                from video_director.models import AssetRef
+
+                ir = vd_editor.load_composition(pid)
+                manifest_path = vd_config.project_dir(pid) / "assets" / "manifest.json"
+                if not manifest_path.is_file():
+                    self._send_json({"ok": True, "matches": [], "unmatched": [s.id for s in ir.scenes],
+                                     "message": "项目没有素材 manifest"}, 200)
+                    return
+                raw_assets = json.loads(manifest_path.read_text(encoding="utf-8"))
+                raw_by_id = {raw.get("id"): raw for raw in raw_assets
+                             if isinstance(raw, dict) and raw.get("id")}
+                assets = {}
+                for raw in raw_assets:
+                    if raw.get("type") != "video" or not raw.get("id") or not raw.get("file"):
+                        continue
+                    try:
+                        assets[raw["id"]] = AssetRef.model_validate(raw)
+                    except Exception:
+                        continue
+
+                scenes = [{"id": s.id, "text": s.text or ""} for s in ir.scenes]
+                llm = vd_llm.get_llm()
+                llm_call = llm.generate if llm is not None else None
+                # 统一走 match_assets（LLM 主路 → 确定性 fallback → 顺序兜底），
+                # 与后端其他匹配路径同一事实源，不另起单场景确定性调用。
+                assignments = vd_matcher.match_assets(scenes, assets, llm_call=llm_call)
+
+                matches = []
+                unmatched = []
+                for sc in ir.scenes:
+                    aid = assignments.get(sc.id)
+                    if not aid:
+                        unmatched.append(sc.id)
+                        continue
+                    layer_idx = next(
+                        (i for i, l in enumerate(sc.layers) if l.type.value == "video"),
+                        None,
+                    )
+                    if layer_idx is None:
+                        unmatched.append(sc.id)
+                        continue
+                    asset = assets.get(aid)
+                    if asset is None:
+                        unmatched.append(sc.id)
+                        continue
+                    # 匹配建议必须能完整覆盖场景，否则替换后会留下非法 source range。
+                    if asset.duration is not None and float(asset.duration) + 0.05 < float(sc.duration):
+                        unmatched.append(sc.id)
+                        continue
+                    source_out = (
+                        min(float(asset.duration), float(sc.duration))
+                        if asset.duration is not None else float(sc.duration)
+                    )
+                    matches.append({
+                        "scene_id": sc.id,
+                        "scene_text": sc.text or "",
+                        "layer_target": f"{sc.id}#{layer_idx}",
+                        "asset_id": aid,
+                        "asset_name": Path(asset.file).name,
+                        "asset_duration": asset.duration,
+                        "asset_has_audio": raw_by_id.get(aid, {}).get("has_audio"),
+                        "source_in": 0.0,
+                        "source_out": source_out,
+                    })
+                self._send_json({
+                    "ok": True,
+                    "matches": matches,
+                    "unmatched": unmatched,
+                    "strategy": "llm_then_deterministic" if llm is not None else "deterministic",
+                })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/editor/revisions":
@@ -1553,6 +1701,17 @@ class Handler(BaseHTTPRequestHandler):
                     if not pid:
                         self._send_json({"error": "缺少 project_id"}, 400)
                         return
+                    # 信任边界：成片渲染前要求 Shotbook 已通过服务端确认
+                    # （用过 Shotbook 的项目才受门约束；legacy 项目兼容放行）。
+                    if kind == "render_final":
+                        try:
+                            from video_director import shotbook as vd_shotbook
+                            vd_shotbook.assert_project_shotbook_confirmed(pid)
+                        except vd_shotbook.ShotbookError as exc:
+                            self._send_json(
+                                {"ok": False, "code": exc.code, "error": str(exc)},
+                                409 if exc.code in ("SHOTBOOK_NOT_CONFIRMED", "CORRUPT_PLAN") else 400)
+                            return
                     run_id = vd_wf.run_render_async(
                         pid, "draft" if kind == "render_draft" else "final")
                 else:
@@ -2773,6 +2932,9 @@ class Handler(BaseHTTPRequestHandler):
                     target_duration=float(td) if td else None,
                     width=int(payload.get("width") or 1080),
                     height=int(payload.get("height") or 1920),
+                    visual_engine=payload.get("visual_engine") or "native",
+                    visual_provider=payload.get("visual_provider") or "huashu",
+                    visual_grammar=payload.get("visual_grammar"),
                 )
                 self._send_json({"ok": True, "plan": plan})
             except Exception as exc:
@@ -3231,6 +3393,10 @@ class Handler(BaseHTTPRequestHandler):
                         "style_id": plan.get("style_id") or "editorial",
                         "narration": sc.get("narration") or sc.get("text") or "",
                         "visual_intent": sc.get("visual_intent") or "",
+                        "engine": sc.get("engine") or "native",
+                        "provider_id": sc.get("provider_id"),
+                        "program_id": sc.get("program_id"),
+                        "program_data": sc.get("program_data") or {},
                     }
                     ir_scenes.append(SceneIR.model_validate({
                         "id": f"scene-{len(ir_scenes) + 1:02d}",
@@ -3396,6 +3562,87 @@ class Handler(BaseHTTPRequestHandler):
             except vd_shotbook.ShotbookError as exc:
                 self._send_json({"ok": False, "code": exc.code, "error": str(exc)},
                                 409 if exc.code == "CONFLICT" else 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/editor/creative-plan":
+            from pydantic import ValidationError as CreativeValidationError
+            from video_director import editor as vd_editor
+            from video_director import creative_pipeline as creative
+            from video_director.creative_contracts import CreativePlan
+
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            try:
+                pid = creative.validate_project_id(payload.get("project_id", ""))
+                action = str(payload.get("action", "")).strip()
+                ir = vd_editor.load_composition(pid)
+                current = creative.load_plan(pid)
+
+                if action == "initialize":
+                    if current is not None and not payload.get("replace"):
+                        self._send_json({"ok": False, "error": "创作计划已存在；确认重建后再覆盖"}, 409)
+                        return
+                    words, source = creative.load_word_timeline(pid)
+                    fingerprints = creative.project_fingerprints(pid, ir)
+                    draft = creative.build_initial_plan(
+                        pid, ir, words, source, fingerprints["audio_hash"],
+                        version=(current.version + 1) if current else 1,
+                    )
+                    saved = creative.save_plan(draft, expected_version=current.version if current else 0)
+                    self._send_json({
+                        "ok": True, "plan": saved.model_dump(mode="json"),
+                        "alignment_source": source, "word_boundary_count": len(words),
+                    })
+                    return
+
+                if action == "save":
+                    plan = CreativePlan.model_validate(payload.get("plan"))
+                    if plan.project_id != pid:
+                        self._send_json({"ok": False, "error": "计划 project_id 与当前项目不一致"}, 400)
+                        return
+                    fingerprints = creative.project_fingerprints(pid, ir)
+                    if plan.script_hash != fingerprints["script_hash"]:
+                        self._send_json({
+                            "ok": False, "stale": True,
+                            "error": "稿件已变化；请重新生成创作草案，不能将旧标注写回新稿件",
+                        }, 409)
+                        return
+                    if plan.audio_hash and fingerprints["audio_hash"] and plan.audio_hash != fingerprints["audio_hash"]:
+                        self._send_json({
+                            "ok": False, "stale": True,
+                            "error": "配音已变化；请重新生成创作草案并重新对齐",
+                        }, 409)
+                        return
+                    expected = payload.get("expected_version")
+                    if not isinstance(expected, int):
+                        self._send_json({"ok": False, "error": "缺少 expected_version，拒绝覆盖未知版本"}, 400)
+                        return
+                    saved = creative.save_plan(plan, expected_version=expected)
+                    self._send_json({"ok": True, "plan": saved.model_dump(mode="json")})
+                    return
+
+                if action == "validate":
+                    if current is None:
+                        self._send_json({"ok": False, "error": "尚未生成创作计划"}, 404)
+                        return
+                    self._send_json({
+                        "ok": True,
+                        "report": creative.validate_creative_plan(current, ir, pid),
+                    })
+                    return
+
+                self._send_json({"ok": False, "error": "未知创作计划动作"}, 400)
+            except CreativeValidationError as exc:
+                self._send_json({"ok": False, "error": f"创作计划契约不合法：{exc}"}, 400)
+            except creative.CreativePlanError as exc:
+                status = 409 if "版本冲突" in str(exc) else 400
+                self._send_json({"ok": False, "error": str(exc)}, status)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return

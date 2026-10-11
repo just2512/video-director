@@ -98,6 +98,13 @@ def select_style(
 
     if user_intent and user_intent.strip():
         intent = user_intent.strip()
+        # Stable IDs emitted by the Studio are an exact choice, not free text.
+        # Resolve them before keyword fallback so a selected native style is truly applied.
+        if intent in _STYLES:
+            contract = _clone_with_reason(_STYLES[intent], [
+                f"用户明确选择已注册并由 StyleContract 执行的风格 {intent}",
+            ])
+            return contract, warnings
         for style_id, words in _DESC_MAP.items():
             if any(w in intent for w in words):
                 contract = _clone_with_reason(_STYLES[style_id], [

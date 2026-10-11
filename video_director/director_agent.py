@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple
 
 from loguru import logger
 
-from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint
+from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint, creative_candidates
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
@@ -243,9 +243,21 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
             "软件项目 VERIFIED 事实。参考视频只借鉴镜头语言，不复制内容。"
             "同时为每个场景生成 3-8 个按叙事顺序排列的 stock 搜索词；"
             "搜索词用于真实图库检索，不能脱离该场景含义。"
-            '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"画面意图",'
+            "每个场景再提供 3 个明显不同的创作候选：直叙表达、细节/B-roll、概念化表达；"
+            "每个候选必须包含 title、approach、visual_intent、search_terms、source_preference、"
+            "generation_type、generation_prompt。"
+            '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"主视觉意图",'
             '"source_preference":"user_asset|reference_style|software_evidence|stock|generated",'
-            '"search_terms":["按叙事顺序的检索词"]}]}\n'
+            '"search_terms":["按叙事顺序的检索词"],'
+            '"candidates":[{"title":"直叙表达","approach":"direct","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"user_asset","generation_type":"",'
+            '"generation_prompt":"..."},'
+            '{"title":"细节补画面","approach":"broll","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"stock","generation_type":"",'
+            '"generation_prompt":"..."},'
+            '{"title":"概念化表达","approach":"concept","visual_intent":"...",'
+            '"search_terms":["..."],"source_preference":"generated","generation_type":"image",'
+            '"generation_prompt":"..."}]}]}\n'
             + json.dumps(di.build_agent_scene_context(state["bundle"], state["script"]),
                          ensure_ascii=False, indent=2),
             system="你是视频 Director，只输出合法 JSON。",
@@ -257,8 +269,19 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
         data = json.loads(raw[a:b + 1])
         if not isinstance(data, dict) or not isinstance(data.get("scenes"), list):
             raise RuntimeError("分镜节点缺少 scenes")
+    candidate_snapshot = creative_candidates.build_candidate_snapshot(
+        data.get("scenes") or []
+    )
+    for scene, row in zip(data.get("scenes") or [], candidate_snapshot["scenes"]):
+        scene["candidates"] = row["candidates"]
+        scene["selected_candidate_id"] = row["selected_candidate_id"]
     state["scene_plan"] = data
+    state["creative_candidates"] = candidate_snapshot
     path = _json_file(config.project_dir(state["project_id"]) / "plans" / "director_scene_plan.json", data)
+    _json_file(
+        config.project_dir(state["project_id"]) / "plans" / "creative_candidates.json",
+        candidate_snapshot,
+    )
     ok = Path(path).is_file() and bool(data.get("scenes"))
     return {
         "ok": ok, "tool": "scene.plan", "status": "APPLIED",
@@ -364,14 +387,54 @@ def _tool_material(spec: dict, state: dict) -> dict:
 
     visual_source = state.get("constraints", {}).get("visual_source") or "auto"
     assignments = {}
+    policy_decisions: List[dict] = []
     match_enabled = bool(spec.get("match_materials_to_script", True))
 
     # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
     scene_plan_items = state.get("scene_plan", {}).get("scenes") or []
+    candidate_sets_by_scene = {
+        str(scene.get("id") or f"S{i + 1:02d}"): scene.get("candidates") or []
+        for i, scene in enumerate(scene_plan_items)
+        if isinstance(scene, dict)
+    }
+    selected_candidate_by_scene = {
+        str(scene.get("id") or f"S{i + 1:02d}"): str(scene.get("selected_candidate_id") or "")
+        for i, scene in enumerate(scene_plan_items)
+        if isinstance(scene, dict)
+    }
+    source_policy_by_scene = {}
+    for i, scene in enumerate(scene_plan_items):
+        if not isinstance(scene, dict):
+            continue
+        sid = str(scene.get("id") or f"S{i + 1:02d}")
+        selected_id = str(scene.get("selected_candidate_id") or "")
+        candidates = scene.get("candidates") or []
+        selected = next(
+            (x for x in candidates if isinstance(x, dict) and x.get("id") == selected_id),
+            None,
+        )
+        source_policy_by_scene[sid] = {
+            "source_preference": str(
+                (selected or {}).get("source_preference")
+                or scene.get("source_preference")
+                or "user_first"
+            ),
+            "reuse_policy": str(scene.get("reuse_policy") or "reuse_when_needed"),
+            "diversity_policy": str(scene.get("diversity_policy") or "prefer_unique_source"),
+        }
     search_terms_by_scene = []
     for i, scene in enumerate(state.get("narration_scenes") or []):
         planned = scene_plan_items[i] if i < len(scene_plan_items) else {}
         raw_terms = planned.get("search_terms") if isinstance(planned, dict) else None
+        selected_id = str(planned.get("selected_candidate_id") or "") if isinstance(planned, dict) else ""
+        candidates = planned.get("candidates") or [] if isinstance(planned, dict) else []
+        if selected_id:
+            selected = next(
+                (x for x in candidates if isinstance(x, dict) and x.get("id") == selected_id),
+                None,
+            )
+            if selected:
+                raw_terms = selected.get("search_terms") or raw_terms
         search_terms_by_scene.append(
             mpt_semantics.normalize_search_terms(raw_terms, scene.get("text", ""), amount=8)
         )
@@ -386,6 +449,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
                 },
                 max_clip_duration=spec.get("clip_duration"),
+                candidate_sets_by_scene=candidate_sets_by_scene,
+                selected_candidate_by_scene=selected_candidate_by_scene,
             ),
             ensure_ascii=False,
             indent=2,
@@ -395,7 +460,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
     if visual_source != "online" and match_enabled and all_assets and state.get("narration_scenes"):
         try:
             assignments = matcher.match_assets(
-                state["narration_scenes"], all_assets, llm_call
+                state["narration_scenes"], all_assets, llm_call,
+                policy_by_scene=source_policy_by_scene,
+                policy_decisions_out=policy_decisions,
             ) or {}
         except Exception as exc:
             warnings.append("本地素材匹配失败：" + str(exc))
@@ -441,7 +508,11 @@ def _tool_material(spec: dict, state: dict) -> dict:
             ii, io = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
             all_assets, order = {**vv, **ii}, vo + io
             assignments = (
-                matcher.match_assets(state["narration_scenes"], all_assets, llm_call)
+                matcher.match_assets(
+                    state["narration_scenes"], all_assets, llm_call,
+                    policy_by_scene=source_policy_by_scene,
+                    policy_decisions_out=policy_decisions,
+                )
                 if match_enabled and visual_source != "online" else {}
             )
         except Exception as exc:
@@ -464,6 +535,29 @@ def _tool_material(spec: dict, state: dict) -> dict:
             "verify": {"ok": False},
         }
 
+    # 当前自动匹配结果只绑定到直叙候选，其余候选保持 INTENT_ONLY，避免把“有方案”误报成“已生成素材”。
+    for row in scene_plan_items:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("id") or "")
+        aid = str(assignments.get(sid) or "")
+        for candidate in row.get("candidates") or []:
+            if candidate.get("approach") == "direct" and aid:
+                candidate["asset_id"] = aid
+                candidate["status"] = "READY"
+            elif not candidate.get("status"):
+                candidate["status"] = "INTENT_ONLY"
+
+    candidate_sets_by_scene = {
+        str(row.get("id") or f"S{i + 1:02d}"): row.get("candidates") or []
+        for i, row in enumerate(scene_plan_items)
+        if isinstance(row, dict)
+    }
+    selected_candidate_by_scene = {
+        str(row.get("id") or f"S{i + 1:02d}"): str(row.get("selected_candidate_id") or "")
+        for i, row in enumerate(scene_plan_items)
+        if isinstance(row, dict)
+    }
     selection_reasons = {
         sid: "场景语义匹配：结合场景文案、素材语义与素材可用性选择"
         for sid in assignments
@@ -477,8 +571,16 @@ def _tool_material(spec: dict, state: dict) -> dict:
         max_clip_duration=spec.get("clip_duration"),
         selected_assets=assignments,
         selection_reasons=selection_reasons,
+        candidate_sets_by_scene=candidate_sets_by_scene,
+        selected_candidate_by_scene=selected_candidate_by_scene,
     )
     intent_path.write_text(json.dumps(intent_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    candidate_snapshot = creative_candidates.build_candidate_snapshot(
+        scene_plan_items,
+        selected_by_scene=selected_candidate_by_scene,
+    )
+    _json_file(base / "plans" / "creative_candidates.json", candidate_snapshot)
+    state["creative_candidates"] = candidate_snapshot
 
     state.update({
         "video_files": videos,
@@ -487,9 +589,18 @@ def _tool_material(spec: dict, state: dict) -> dict:
         "assignments": assignments,
         "material_intents": intent_data,
     })
+    # Step ⑤ 台账：来源策略与本轮实际匹配结果分开记录，后续 compose 可继续派生实际使用情况。
+    policy_path = _json_file(base / "plans" / "source_usage_policy.json", {
+        "version": 1,
+        "policies": source_policy_by_scene,
+        "assignments": assignments,
+        "decisions": policy_decisions,
+        "source_policy": "selection_then_usage",
+    })
     path = _json_file(base / "assets" / "match_assignments.json", {
         "assignments": assignments,
         "selection_reasons": selection_reasons,
+        "source_usage_policy": str(policy_path),
     })
     coverage_ok = (
         all(s["id"] in assignments for s in state["narration_scenes"])
@@ -758,6 +869,7 @@ def _tool_composition(spec: dict, state: dict) -> dict:
             "transition_proposals": str(proposal_path),
             "material_intents": str(dirs["plans"] / "material_intents.json"),
             "material_usage": usage_path,
+            "source_usage_policy": str(dirs["plans"] / "source_usage_policy.json"),
             "build_fingerprint": fingerprint_path,
             "original_audio_segments": sum(
                 1 for sc in ir.scenes for lay in sc.layers
@@ -891,6 +1003,7 @@ def _tool_render(spec: dict, state: dict) -> dict:
         narration_file=state.get("narration_file"),
         subtitle_file=state.get("subtitle_file"),
         title_card=title_card,
+        project_id=pid,
         lower_third_name=(spec.get("lower_third_name") or "").strip() or None,
         lower_third_role=(spec.get("lower_third_role") or "").strip() or None,
     )
@@ -1019,6 +1132,33 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     repo_files = di.materialize_software_project_artifacts(pid, bundle)
     state["video_files"], state["image_files"] = videos, images
     _restore_checkpoint_state(pid, state)
+    # checkpoint 可能来自用户在工作台选择候选之后；以持久化候选文件覆盖内存 Scene Plan，
+    # 防止继续执行时重新加载旧的 AI 规划而丢失用户选择。
+    candidate_path = config.project_dir(pid) / "plans" / "creative_candidates.json"
+    if candidate_path.is_file():
+        try:
+            persisted_candidates = json.loads(candidate_path.read_text(encoding="utf-8"))
+            state["creative_candidates"] = persisted_candidates
+            by_scene = {
+                row.get("scene_id"): row
+                for row in persisted_candidates.get("scenes") or []
+                if isinstance(row, dict) and row.get("scene_id")
+            }
+            plan_data = state.get("scene_plan") or {}
+            for row in plan_data.get("scenes") or []:
+                persisted = by_scene.get(row.get("id") or row.get("scene_id"))
+                if persisted:
+                    row["candidates"] = persisted.get("candidates") or row.get("candidates") or []
+                    row["selected_candidate_id"] = persisted.get("selected_candidate_id") or row.get("selected_candidate_id") or ""
+                    selected = next(
+                        (x for x in row["candidates"] if x.get("id") == row["selected_candidate_id"]),
+                        None,
+                    )
+                    if selected:
+                        row["visual_intent"] = selected.get("visual_intent") or row.get("visual_intent") or ""
+            state["scene_plan"] = plan_data
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Director candidate state restore failed; keeping checkpoint state")
     bundle["materialized"] = {
         "reference_files": refs,
         "software_evidence_files": repo_files,

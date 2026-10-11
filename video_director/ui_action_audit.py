@@ -24,7 +24,7 @@ UI_ONLY_PREFIXES = (
     "toggleLLMPanel(", "toggleCapPanel(", "devToggleMode(", "loadSettings(",
     "loadProjects(", "loadSeries(", "loadInbox(", "inboxAdd(", "inboxAction(",
     "editorInit(", "editorLoad(", "workspaceOpen(", "pmOpenDetail(", "pmShowMore(",
-    "editorSelectScene(", "editorSelectLayer(", "edSelect(", "selectScene(", "selectLayer(",
+    "editorSelectScene(", "editorSelectLayer(", "editorSemanticRerank(", "edSelect(", "selectScene(", "selectLayer(",
     "selectProject(", "selectScenePair(", "clearSelection(", "selectNarration(",
     "tlToggleGroup(", "pmPreviewFinal(", "pmPreviewLegacy(", "pmReopenFailed(",
     "continueProject(", "pmAskDelete(", "pmAskRename(", "pmCloseModal(", "pmShowModal(",
@@ -78,6 +78,8 @@ UI_ONLY_PREFIXES = (
     "editorAudioVolume(", "editorSubtitleStyleOpen(",
     "editorAudioClipOpen(", "editorAudioClipApply(", "editorAudioClipClose(",
     "editorWatermarkClipOpen(", "editorWatermarkClipApply(", "editorWatermarkClipClose(",
+    "edxSelectScene(", "edxDirectorEdit(", "edxMaterialMatch(", "edxApplyMaterialMatch(",
+    "edxProposeTransitions(", "edxApproveTransition(", "edxRejectTransition(",
     "editorWatermarkRemoveAt(",
     # §46 任务中心抽屉（WorkflowRun 渲染层 UI 开关）
     "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(",

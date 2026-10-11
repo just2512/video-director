@@ -95,13 +95,20 @@ _EDGE_VOICES: List[VoiceProfile] = [
 
 
 def list_providers() -> List[dict]:
-    """§13：TTSProvider Registry 状态（edge-tts 可用；其余标注需 key）。"""
+    """§13：TTSProvider Registry + Provider Capability Matrix 状态。"""
+    from video_director import provider_matrix
     out = []
     for pid, meta in TTS_PROVIDERS.items():
+        st = provider_matrix.state_for_provider(
+            pid, "tts", "tts.speak",
+            {"api_key": "configured"} if pid == "edge-tts" else {},
+        )
         out.append({
             "id": pid, "label": meta["label"],
             "requires_key": meta["requires_key"],
-            "available": not meta["requires_key"],  # 无 key provider 默认可用
+            "available": st.status == provider_matrix.READY,
+            "status": st.status,
+            "reason": st.reason,
         })
     return out
 

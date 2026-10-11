@@ -25,6 +25,9 @@ jobs:
           for f in webui/static/js/*.js; do
             node --check "$f"
           done
+          for f in $(find third_party/huashu-art-motion/clip -name '*.js'); do
+            node --check "$f"
+          done
           node --check third_party/huashu/huashu_motion_bundle.js
 
       - name: Upload test reports and browser traces

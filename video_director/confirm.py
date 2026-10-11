@@ -619,6 +619,8 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[
     render_out = renderer.render_composition(
         draft_ir, assets, dirs["render"] / "draft", narration_file=narration,
         subtitle_file=None,  # 草稿不烧字幕（快）
+        project_id=project_id,
+        artifact_kind="draft",
     )
     draft_path = str(dirs["render"] / "draft.mp4")
     # render_composition 产物名是 final.mp4（在传入 work_dir 内），改名到 draft.mp4

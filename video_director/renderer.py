@@ -15,13 +15,13 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from loguru import logger
 
-from video_director import config, prober
+from video_director import artifact_graph, config, prober
 from video_director.models import (
     AssetRef,
     AudioTrack,
@@ -43,6 +43,9 @@ class RenderResult:
     master_path: str
     final_path: str
     segments: List[str]
+    reused_artifacts: List[str] = field(default_factory=list)
+    rebuilt_artifacts: List[str] = field(default_factory=list)
+    artifact_manifest_path: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +933,8 @@ def render_composition(
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
     watermark: Optional[str] = None,
+    project_id: Optional[str] = None,
+    artifact_kind: str = "final",
 ) -> RenderResult:
     """渲染完整 Composition IR。字幕最后烧录（V1 §20/§22 video-use Rule 1）。
 
@@ -942,11 +947,58 @@ def render_composition(
     seg_dir.mkdir(parents=True, exist_ok=True)
     w, h = ir.project.width, ir.project.height
 
+    # Step 2：计算 artifact dependency graph；只有指纹一致且文件存在时才复用。
+    artifact_graph_state = None
+    artifact_reuse = {}
+    if project_id:
+        artifact_graph_state, artifact_reuse = artifact_graph.prepare_render(
+            project_id,
+            ir,
+            assets,
+            runtime={
+                "width": w,
+                "height": h,
+                "fps": ir.project.fps,
+                "kind": artifact_kind,
+                "narration_file": narration_file,
+                "subtitle_file": subtitle_file,
+                "title_card": title_card,
+                "lower_third_name": lower_third_name,
+                "lower_third_role": lower_third_role,
+                "watermark": watermark,
+            },
+        )
+
+    scene_paths = {}
+    reused_artifacts = []
+    rebuilt_artifacts = []
+
     # 1. 逐场景渲染 → 场景 clip（场景内 layers 拼接），保留转场信息
     seq = 0
     scene_clips: List[str] = []
     scene_transitions: List[str] = []
     for scene in ir.scenes:
+        scene_reuse_id = f"scene:{scene.id}:render"
+        reused_scene = artifact_reuse.get(scene_reuse_id)
+        if reused_scene:
+            scene_clip = reused_scene
+            scene_clips.append(scene_clip)
+            scene_paths[scene_reuse_id] = scene_clip
+            reused_artifacts.append(scene_reuse_id)
+            logger.info(f"artifact reuse [{scene.id}] -> {scene_clip}")
+            tr = getattr(scene.transition_out, "type", "cut") if len(scene_clips) < len(ir.scenes) else "cut"
+            if len(ir.scenes) > 1 and len(scene_clips) < len(ir.scenes):
+                from video_director import visual_render as _vr
+                for link in getattr(ir, "continuity_links", []) or []:
+                    if (link.from_scene_id == scene.id
+                            and link.to_scene_id == ir.scenes[len(scene_clips)].id
+                            and link.type.value == "morph"):
+                        tr = "morph"
+                        break
+            scene_transitions.append(tr)
+            continue
+
+        rebuilt_artifacts.append(scene_reuse_id)
         scene_segs: List[str] = []
         for layer in scene.layers:
             asset = assets.get(layer.asset_id or "")
@@ -997,6 +1049,7 @@ def render_composition(
                 scene_clip = cam_out
                 logger.info(f"scene {scene.id} camera applied: {scene.camera.id}")
         scene_clips.append(scene_clip)
+        scene_paths[scene_reuse_id] = scene_clip
         # 场景转出到下一场景的转场类型（最后一个场景的 transition_out 忽略）
         tr = getattr(scene.transition_out, "type", "cut") if len(scene_clips) < len(ir.scenes) else "cut"
         # morph continuity（§16）：相邻场景间的 morph 链 → 'morph' 过渡
@@ -1019,7 +1072,8 @@ def render_composition(
     # 2. 场景间转场拼接（cut=concat，crossfade/fade=xfade）
     visual_path = str(work_dir / "visual.mp4")
     if len(scene_clips) == 1:
-        shutil.move(scene_clips[0], visual_path)
+        # Scene artifact 是可复用缓存，不能 move 走，否则 manifest 记录的缓存路径会失效。
+        shutil.copyfile(scene_clips[0], visual_path)
     else:
         splice_with_transitions(
             scene_clips, scene_transitions[: len(scene_clips) - 1],
@@ -1062,11 +1116,25 @@ def render_composition(
         wm_out = str(work_dir / f"final_watermark_{i}.mp4")
         final_path = title_engine.render_watermark_layer(final_path, render_wm, wm_out)
 
+    artifact_manifest_path = None
+    if project_id and artifact_graph_state is not None:
+        artifact_manifest_path = artifact_graph.record_render(
+            project_id,
+            artifact_graph_state,
+            scene_paths=scene_paths,
+            visual_path=visual_path,
+            master_path=master_path,
+            final_path=final_path,
+        )
+
     return RenderResult(
         visual_path=visual_path,
         master_path=master_path,
         final_path=final_path,
         segments=scene_clips,
+        reused_artifacts=reused_artifacts,
+        rebuilt_artifacts=rebuilt_artifacts,
+        artifact_manifest_path=artifact_manifest_path,
     )
 
 

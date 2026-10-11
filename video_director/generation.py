@@ -82,6 +82,15 @@ def generate_image_variants(
     model_override：§38 Model 选择器的显式模型（None 用角色配置）。
     """
     cfg = _role_cfg("image")
+    try:
+        from video_director import provider_matrix
+        provider_matrix.require("image", "image.generate", cfg)
+    except provider_matrix.ProviderCapabilityError as exc:
+        raise GenerationError(
+            "IMAGE_PROVIDER_UNAVAILABLE" if exc.state.status == provider_matrix.MISSING
+            else "CAPABILITY_UNSUPPORTED",
+            str(exc),
+        ) from exc
     if not (cfg or {}).get("api_key"):
         raise GenerationError(
             "IMAGE_PROVIDER_UNAVAILABLE",
@@ -280,13 +289,18 @@ def generate(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=model)
     elif gen_type == "video":
-        # §29 first_frame/last_frame：provider 协议不支持首末帧时诚实报错
+        # §29：首末帧先问 Provider Capability Matrix，不再由生成器自己猜协议。
         if first_frame or last_frame:
-            raise GenerationError(
-                "FIRST_FRAME_UNSUPPORTED",
-                "当前视频生成 provider 协议不支持首帧/末帧引用（§29）；"
-                "换一个支持 image-to-video 的 provider 后重试",
-            )
+            try:
+                from video_director import provider_matrix
+                provider_matrix.require("video", "video.image_to_video",
+                                       _role_cfg("video"))
+            except provider_matrix.ProviderCapabilityError as exc:
+                raise GenerationError(
+                    "FIRST_FRAME_UNSUPPORTED" if exc.state.status == provider_matrix.UNSUPPORTED
+                    else "VIDEO_PROVIDER_UNAVAILABLE",
+                    str(exc),
+                ) from exc
         results = _generate_video(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=model)
@@ -447,6 +461,15 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                     input_fp, manifest, model=None):
     """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。"""
     cfg = _role_cfg("video")
+    try:
+        from video_director import provider_matrix
+        provider_matrix.require("video", "video.generate", cfg)
+    except provider_matrix.ProviderCapabilityError as exc:
+        raise GenerationError(
+            "VIDEO_PROVIDER_UNAVAILABLE" if exc.state.status == provider_matrix.MISSING
+            else "CAPABILITY_UNSUPPORTED",
+            str(exc),
+        ) from exc
     if not (cfg or {}).get("api_key"):
         raise GenerationError(
             "VIDEO_PROVIDER_UNAVAILABLE",

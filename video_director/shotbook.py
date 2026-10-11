@@ -660,3 +660,29 @@ def save_project_shotbook(project_id: str, payload: dict) -> dict:
     pid = _project_id(project_id)
     with _project_plan_lock(pid):
         return _save_project_shotbook_unlocked(pid, payload)
+
+
+def assert_project_shotbook_confirmed(project_id: str) -> None:
+    """成片前的信任边界：用过 Shotbook 的项目必须先通过分镜确认。
+
+    - 从未保存过分镜（直接创作/legacy 项目）不设门——保持兼容。
+    - 已保存分镜但未全部 reviewed → SHOTBOOK_NOT_CONFIRMED（服务端判定，
+      不信任前端状态字样）；文本/区间/指纹变化导致的 reviewed 重置同样拦截。
+    """
+    pid = _project_id(project_id)
+    path = _plan_path(pid)
+    if not path.exists() and not path.with_suffix(".json.bak").exists():
+        return
+    with _project_plan_lock(pid):
+        current = _get_project_shotbook_unlocked(pid)
+    gates = {g["id"]: g for g in current.get("gates") or []}
+    semantic = gates.get("semantic")
+    timing = gates.get("timing")
+    reviewed_all = semantic is not None and semantic.get("status") == "PASS"
+    timing_ok = timing is not None and timing.get("status") in ("PASS", "PARTIAL")
+    if not (reviewed_all and timing_ok):
+        raise ShotbookError(
+            "SHOTBOOK_NOT_CONFIRMED",
+            "当前分镜尚未通过服务端确认（每镜 reviewed + 时间锚点可用）。"
+            "请返回工作台逐镜确认后再渲染成片。",
+        )

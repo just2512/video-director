@@ -144,6 +144,16 @@ class TestActionsForContext:
         for a in r["actions"]:
             assert "available" in a and "reason" in a and "next_actions" in a
 
+    def test_layer_video_exposes_visual_qa(self):
+        r = ar.actions_for_context({"type": "layer", "id": "s#0", "layer_type": "video"})
+        ids = [a["id"] for a in r["actions"]]
+        assert "visual.verify_asset" in ids
+
+    def test_scene_exposes_visual_semantic_rerank(self):
+        r = ar.actions_for_context({"type": "scene", "id": "s"})
+        ids = [a["id"] for a in r["actions"]]
+        assert "visual.semantic_rerank" in ids
+
 
 class TestSystemContext:
     def test_system_context_fingerprint(self):

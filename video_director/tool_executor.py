@@ -103,6 +103,7 @@ _COMMAND_MAP: Dict[str, str] = {
     "layer.remove": "remove_broll",
     "asset.add_to_timeline": "add_broll",
     "asset.replace": "replace_source",
+    "creative.candidate.select": "set_scene_intent",
     "music.volume": "set_audio_volume",
     "music.duck": "set_audio_volume",
     "music.add": "set_audio_volume",
@@ -139,6 +140,7 @@ _READONLY = {
     "render.verify", "composition.verify",
     # §13 ContinuityVerifier（PPT Detector，只读检查）
     "visual.continuity.verify",
+    "visual.semantic_rerank", "visual.qa",
 }
 
 _REVISION = {"revision.propose", "revision.preview", "revision.apply", "revision.reject"}
@@ -545,6 +547,97 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
     if tool == "timeline.query":
         return _result(tool, True, "OK",
                        result={"timeline": _timeline_summary(project_id)})
+    if tool == "visual.semantic_rerank":
+        from video_director import visual_qa
+        candidates = list(payload.get("candidates") or [])
+        scene_id = str(payload.get("sceneId") or "")
+        # UI/Director 可以只给 sceneId；后端从项目实际 manifest + 当前时间线
+        # 补齐候选，避免客户端自己维护 Asset 文件路径。
+        if not candidates:
+            try:
+                from video_director import asset_catalog
+                ir = editor.load_composition(project_id)
+                target_scene = next((s for s in ir.scenes if s.id == scene_id), None)
+                asset_ids = []
+                if target_scene:
+                    asset_ids.extend(
+                        l.asset_id for l in target_scene.layers
+                        if l.type.value == "video" and l.asset_id
+                    )
+                # 候选方案绑定的 asset 也纳入；保持去重与原顺序。
+                try:
+                    snap = json.loads(
+                        (config.project_dir(project_id) / "plans" / "creative_candidates.json")
+                        .read_text(encoding="utf-8")
+                    )
+                    row = next(
+                        (x for x in snap.get("scenes", []) if x.get("scene_id") == scene_id),
+                        {},
+                    )
+                    asset_ids.extend(
+                        c.get("asset_id") for c in row.get("candidates", [])
+                        if c.get("asset_id")
+                    )
+                except Exception:
+                    pass
+                seen_assets = set()
+                for aid in asset_ids:
+                    if aid in seen_assets:
+                        continue
+                    seen_assets.add(aid)
+                    entry = asset_catalog.get_asset(aid)
+                    if entry and entry.get("type") == "video" and entry.get("file"):
+                        candidates.append({
+                            "asset_id": aid,
+                            "file": entry.get("file"),
+                            "content_hash": entry.get("content_hash", ""),
+                        })
+            except Exception as exc:
+                logger.info(f"visual.semantic_rerank: 自动收集候选失败: {exc}")
+        out, meta = visual_qa.semantic_rerank(
+            payload.get("sceneText", ""),
+            candidates,
+            limit=int(payload.get("limit") or 5),
+        )
+        return _result(tool, True, meta.get("status", "UNKNOWN"),
+                       result={"scene_id": payload.get("sceneId"),
+                               "candidates": out,
+                               "provider": meta.get("provider"),
+                               "reason": meta.get("reason", "")})
+    if tool == "visual.qa":
+        from video_director import visual_qa
+        try:
+            evidence = visual_qa.pegasus_visual_qa(
+                payload.get("sceneId", ""),
+                payload.get("sceneText", ""),
+                payload.get("assetId", ""),
+                payload.get("assetFile", ""),
+            )
+        except visual_qa.VisualAnalysisError as exc:
+            if exc.code in {"PROVIDER_MISSING", "PROVIDER_UNKNOWN"}:
+                return _result(
+                    tool, True, "UNKNOWN",
+                    result={
+                        "scene_id": payload.get("sceneId"),
+                        "asset_id": payload.get("assetId"),
+                        "verdict": "UNKNOWN",
+                        "provider": "twelvelabs-pegasus",
+                        "evidence": "",
+                        "reason": str(exc),
+                    },
+                    verify={"verdict": "UNKNOWN", "evidence_present": False},
+                )
+            return _result(tool, False, exc.code, error=str(exc))
+        evidence_dict = evidence.to_dict()
+        try:
+            visual_qa.save_scene_evidence(project_id, evidence)
+        except Exception as persist_exc:
+            logger.warning(f"visual QA 证据落盘失败（不阻断 QA 结果）: {persist_exc}")
+            evidence_dict["persist_status"] = "UNKNOWN"
+        return _result(tool, True, evidence.verdict,
+                       result=evidence_dict,
+                       verify={"verdict": evidence.verdict,
+                               "evidence_present": bool(evidence.evidence)})
     if tool == "visual.continuity.verify":
         # §13 ContinuityVerifier（PPT Detector）：只读检查相邻场景连续性
         from video_director import continuity as vd_continuity
@@ -603,6 +696,22 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
         except Exception as exc:
             return _result(tool, False, "QC_ERROR", error=str(exc)[:200])
     if tool in ("tts.preview_voice", "tts.preview_narration", "tts.generate"):
+        # Provider Capability Matrix：默认 edge-tts；显式选择其它 provider 时先硬校验。
+        from video_director import provider_matrix
+        tts_provider = payload.get("provider") or "edge-tts"
+        tts_gate = provider_matrix.state_for_provider(
+            tts_provider, "tts", "tts.speak",
+            {"api_key": "configured"} if tts_provider == "edge-tts" else {},
+        )
+        if tts_gate.status != provider_matrix.READY:
+            code = (
+                "CAPABILITY_UNSUPPORTED" if tts_gate.status == provider_matrix.UNSUPPORTED
+                else "PROVIDER_UNKNOWN" if tts_gate.status == provider_matrix.UNKNOWN
+                else "PROVIDER_MISSING"
+            )
+            return _result(tool, False, code, error=str(
+                provider_matrix.ProviderCapabilityError(tts_gate)
+            ))
         # §15 试听三级 Artifact：VoicePreview / NarrationPreview / Narration。
         # 全部走 edge-tts 合成到项目 audio 目录（试听产物非正式 Narration，
         # tts.generate 落 narration_preview.mp3/narration.mp3 由调用方确认后入轨）。

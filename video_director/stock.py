@@ -139,6 +139,14 @@ class AssetCandidate:
         }
 
 
+def _role_cfg_for_provider(provider: str) -> dict:
+    try:
+        from video_director import model_config as _mc
+        return _mc.get_role_config(f"stock_{provider}")
+    except Exception:
+        return {}
+
+
 def _api_key(provider: str) -> Optional[str]:
     """§25：设置中心优先，环境变量向后兼容。"""
     try:
@@ -305,14 +313,39 @@ def search_stock(query: str, provider: Optional[str] = None,
     norm = _normalize_query(query)
     providers = [provider] if provider else list(PROVIDER_POLICY.keys())
     results: List[StockAsset] = []
-    last_error = None
+    last_error: Optional[StockError] = None
+
+    def _record_provider_error(exc: "ProviderCapabilityError") -> None:  # noqa: F821
+        nonlocal last_error
+        status = ("STOCK_UNAVAILABLE"
+                  if exc.state.status == provider_matrix.MISSING
+                  else "CAPABILITY_UNSUPPORTED")
+        # MISSING（有实现、缺 key）比 UNSUPPORTED（未接通）是更可行动的信号，
+        # 汇总错误优先报 MISSING——用户配置 key 即可解，而不是被"能力不支持"误导。
+        if last_error is None or (status == "STOCK_UNAVAILABLE"
+                                  and last_error.code != "STOCK_UNAVAILABLE"):
+            last_error = StockError(status, str(exc))
+        logger.info(f"stock.{p}: {status}")
+
     for p in providers:
-        # §三十 24h 缓存：命中直接用（零 API 消耗）
+        # §三十 24h 缓存：命中直接用（零 API 消耗）。缓存命中不要求 provider
+        # 就绪——命中路径不进 provider，矩阵门只拦真实外呼。
         cache_file = _stock_cache_path(p, norm, orientation)
         cached = _cache_get(cache_file)
         if cached is not None:
             results.extend(StockAsset(**c) for c in cached)
             logger.info(f"stock.{p}: 缓存命中（24h 内同查询不再消耗 API 配额）")
+            continue
+        try:
+            from video_director import provider_matrix
+            cfg = _role_cfg_for_provider(p)
+            provider_matrix.require(
+                f"stock_{p}", "stock.search_video", cfg
+            )
+        except provider_matrix.ProviderCapabilityError as exc:
+            _record_provider_error(exc)
+            if provider:
+                raise last_error
             continue
         try:
             fresh: List[StockAsset] = []
@@ -504,6 +537,13 @@ def auto_download_for_scenes(
     queries = []
     used_sources = set()
     wanted = max(0, int(per_scene or 1))
+    from video_director.source_usage_policy import SourcePolicy, UsageState, choose, source_provider
+    usage_state = UsageState()
+    source_policy = SourcePolicy(
+        source_preference="stock_first",
+        reuse_policy="reuse_when_needed",
+        diversity_policy="prefer_unique_source",
+    )
 
     for idx, scene_text in enumerate(scene_texts or []):
         if max_scenes is not None and idx >= max_scenes:
@@ -538,37 +578,56 @@ def auto_download_for_scenes(
                 )
                 continue
 
+            valid_assets = []
+            seen_query_assets = set()
             for candidate in resolve_candidates(
                 hits, target_ratio=target_ratio or "any", target_duration=None
             ):
                 a = candidate.asset
                 key = f"{a.provider}:{a.source_id}"
-                if candidate.status != SUPPORTED or key in used_sources:
+                if candidate.status != SUPPORTED or key in used_sources or key in seen_query_assets:
                     continue
+                seen_query_assets.add(key)
+                valid_assets.append(a)
+
+            while valid_assets and selected < wanted:
+                chosen, decision = choose(
+                    valid_assets,
+                    usage_state,
+                    source_policy,
+                )
+                if chosen is None:
+                    break
+                key = f"{chosen.provider}:{chosen.source_id}"
+                valid_assets = [
+                    a for a in valid_assets
+                    if f"{a.provider}:{a.source_id}" != key
+                ]
                 try:
-                    out = download_asset(a, project_base)
+                    out = download_asset(chosen, project_base)
                 except StockError as exc:
-                    warnings.append(f"{scene_id}：{a.provider} 下载失败（{exc.code}）")
+                    warnings.append(f"{scene_id}：{chosen.provider} 下载失败（{exc.code}）")
                     continue
                 used_sources.add(key)
+                usage_state.record(chosen)
                 files.append(out["file"])
                 metadata[out["file"]] = {
                     "source": "stock",
-                    "license_note": f"{a.provider}·{a.source_page}",
+                    "license_note": f"{chosen.provider}·{chosen.source_page}",
                     "provenance": {
-                        "provider": a.provider,
-                        "sourceId": a.source_id,
-                        "sourcePage": a.source_page,
-                        "creator": a.creator,
+                        "provider": chosen.provider,
+                        "sourceId": chosen.source_id,
+                        "sourcePage": chosen.source_page,
+                        "creator": chosen.creator,
                     },
-                    "rights_status": a.commercial_status,
+                    "rights_status": chosen.commercial_status,
                     "scene_id": scene_id,
                     "query": query,
                     "query_order": len(queries),
+                    "source_policy_status": decision.status,
+                    "source_policy_reason": decision.reason,
                 }
                 selected += 1
-                if selected >= wanted:
-                    break
             if selected >= wanted:
                 break
 

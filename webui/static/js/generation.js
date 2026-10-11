@@ -19,16 +19,29 @@ async function populateGenModels(){
 /** §12/§31.1 Capability Availability：拉取 generation 可用态并驱动按钮禁用。 */
 async function refreshGenerationAvailability(){
   try {
-    const caps = await apiGet('/api/capabilities');
-    const gen = (Array.isArray(caps) ? caps : []).find(c => c.name === 'generation.availability');
-    if (gen && gen.generation) {
-      CAPS.imageAvailable = !!gen.generation.image.available;
-      CAPS.imageReason = gen.generation.image.reason || '';
-      CAPS.videoAvailable = !!gen.generation.video.available;
-      CAPS.videoReason = gen.generation.video.reason || '';
-      const mo = gen.generation.motion || {};
+    // Provider Capability Matrix：能力态来自同一个 /api/model_config，不再只看「有无 key」。
+    const roles = await apiGet('/api/model_config');
+    const image = Array.isArray(roles) ? roles.find(r => r.role === 'image') : null;
+    const video = Array.isArray(roles) ? roles.find(r => r.role === 'video') : null;
+    const imageState = image && image.capability_states
+      ? image.capability_states['image.generate'] : 'MISSING';
+    const videoState = video && video.capability_states
+      ? video.capability_states['video.generate'] : 'MISSING';
+    CAPS.imageAvailable = imageState === 'READY';
+    CAPS.imageReason = image && image.provider
+      ? `Provider ${image.provider}：${imageState}`
+      : '未配置图片生成服务';
+    CAPS.videoAvailable = videoState === 'READY';
+    CAPS.videoReason = video && video.provider
+      ? `Provider ${video.provider}：${videoState}`
+      : '未配置视频生成服务';
+    // motion 是本地确定性能力，不经外部 Provider gate。
+    try {
+      const caps = await apiGet('/api/capabilities');
+      const gen = (Array.isArray(caps) ? caps : []).find(c => c.name === 'generation.availability');
+      const mo = gen && gen.generation ? gen.generation.motion || {} : {};
       CAPS.motionGrammars = Array.isArray(mo.grammars) ? mo.grammars : [];
-    }
+    } catch (e) { /* motion grammar 无法读取不影响 image/video gate */ }
   } catch (e) { /* 拉取失败保持 null（不误禁用） */ }
   applyGenerationAvailability();
 }

@@ -214,6 +214,61 @@ async function _loadMptSceneContext(sceneId){
     const terms = (intent.search_terms || []).map(function(t){
       return '<span style="display:inline-block;padding:2px 6px;border:1px solid var(--border);border-radius:10px;margin:2px 3px 2px 0">' + esc(t) + '</span>';
     }).join('');
+    const candidateRow = (mpt.creative_candidates || []).find(function(x){ return x.scene_id === sceneId; });
+    const candidates = (candidateRow && candidateRow.candidates) || intent.candidates || [];
+    const selectedCandidate = (candidateRow && candidateRow.selected_candidate_id) ||
+      intent.selected_candidate_id || '';
+    function candidateParam(candidate){
+      return JSON.stringify({
+        candidateId: candidate.id,
+        visualIntent: candidate.visual_intent,
+        approach: candidate.approach || '',
+        sourcePreference: candidate.source_preference || '',
+      }).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;');
+    }
+    const candidateHtml = candidates.map(function(candidate){
+      const selected = candidate.id === selectedCandidate;
+      const sourceText = {
+        user_asset: '优先用我的素材',
+        stock: '按检索词找素材',
+        generated: 'AI 生成画面',
+        reference_style: '参考风格',
+        software_evidence: '项目证据'
+      }[candidate.source_preference] || candidate.source_preference || '未指定';
+      const termPreview = (candidate.search_terms || []).slice(0, 3)
+        .map(function(t){ return '<span class="hint">' + esc(t) + '</span>'; }).join(' · ');
+      const statusText = {
+        READY: '已有可用素材',
+        INTENT_ONLY: '方案已生成，待执行',
+        APPLIED: '已采用',
+        FAILED: '执行失败',
+      }[candidate.status] || candidate.status || '待执行';
+      const executeHtml = candidate.source_preference === 'stock'
+        ? '<button class="btn-secondary btn-sm" data-action="asset.search_stock" data-target="scene" data-params=\'' +
+          JSON.stringify({query: (candidate.search_terms || [])[0] || ''}).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>找素材</button>'
+        : candidate.source_preference === 'generated'
+          ? '<button class="btn-secondary btn-sm" data-action="ui.generate_scene_visual" data-params=\'' +
+            JSON.stringify({
+              prompt: candidate.generation_prompt || candidate.visual_intent || '',
+              type: candidate.generation_type || 'image'
+            }).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>准备生成</button>'
+          : '<button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">选我的素材</button>';
+      return '<div style="border:1px solid ' + (selected ? 'var(--accent)' : 'var(--border)') +
+        ';border-radius:6px;padding:8px;margin:6px 0;background:var(--panel)">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+        '<b>' + esc(candidate.title || candidate.id) + '</b>' +
+        '<div class="btn-row" style="gap:5px">' +
+        '<button class="btn-secondary btn-sm" data-action="creative.select_candidate" data-target="scene" ' +
+        'data-params=\'' + candidateParam(candidate) + '\'' + (selected ? ' disabled' : '') + '>' +
+        (selected ? '当前方案' : '采用') + '</button>' +
+        executeHtml +
+        '</div>' +
+        '</div>' +
+        '<div style="margin-top:4px">' + esc(candidate.visual_intent || '') + '</div>' +
+        '<div style="margin-top:4px">' + esc(sourceText) + (termPreview ? ' · ' + termPreview : '') + '</div>' +
+        '<div class="hint" style="margin-top:4px">状态：' + esc(statusText) + '</div>' +
+        '</div>';
+    }).join('');
     const windows = usage.length
       ? usage.map(function(u){
           return esc(u.asset_id) + ' · ' + Number(u.source_in || 0).toFixed(1) + 's → ' +
@@ -221,7 +276,10 @@ async function _loadMptSceneContext(sceneId){
         }).join('<br>')
       : '尚未形成 source-window 使用记录';
     box.innerHTML =
-      '<div>检索词（按叙事顺序）</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>创作方案</b> <span class="hint">先选表达方式，再决定用什么素材</span>' +
+      '<button class="btn-secondary btn-sm" onclick="editorSemanticRerank(\'' + sceneId + '\')">按画面语义重排候选</button></div>' +
+      '<div style="margin-top:4px">' + (candidateHtml || '<span class="hint">暂无候选方案；重新执行 Director 后建立。</span>') + '</div>' +
+      '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:7px">检索词（按叙事顺序）</div>' +
       '<div style="margin:3px 0 6px">' + (terms || '<span class="hint">未记录</span>') + '</div>' +
       '<div>目标时长：' + Number(intent.target_duration || 0).toFixed(1) + 's' +
       ' · 单段上限：' + (intent.max_clip_duration ? Number(intent.max_clip_duration).toFixed(1) + 's' : '自动') + '</div>' +
@@ -309,6 +367,7 @@ function _secSource({sceneId, idx, lay}){
     <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>` : ''}
     <div class="btn-row">
       <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>
+      ${lay.asset_id && lay.type === 'video' ? "<button class=\"btn-secondary btn-sm\" onclick=\"editorVisualQA('" + sceneId + "'," + idx + ")\">视觉验证</button>" : ''}
       <button class="btn-secondary btn-sm" onclick="editorToggleLock('${sceneId}',${idx})">${lay.locked ? '解锁' : '锁定'}</button>
     </div>
     <div id="ed-asset-inspector" class="hint"></div>`;
@@ -704,6 +763,81 @@ async function loadAssetInspector(assetId){
       (d.license_note ? `<br>许可：${esc(d.license_note)}` : '') +
       (d.used_in && d.used_in.length ? `<br>用于：${esc(d.used_in.slice(0,3).join('、'))}` : '');
   } catch(e) { el.textContent = ''; }
+}
+
+async function editorSemanticRerank(sceneId){
+  const sc = (ED.comp.scenes || []).find(s => s.id === sceneId);
+  const box = document.getElementById('mpt-scene-context');
+  if (!sc || !box) return;
+  const oldText = box.querySelector('.semantic-rerank-result');
+  if (oldText) oldText.remove();
+  const host = document.createElement('div');
+  host.className = 'hint semantic-rerank-result';
+  host.textContent = '语义重排中……';
+  box.appendChild(host);
+  try {
+    const r = await apiPost('/api/action/execute', {
+      project_id: ED.pid || '',
+      action: 'visual.semantic_rerank',
+      target: 'current_selection',
+      params: {sceneId: sceneId, sceneText: sc.text || '', limit: 5},
+      selection: {type:'scene', id:sceneId}
+    });
+    if (r && r.result && Array.isArray(r.result.candidates)) {
+      const items = r.result.candidates.map((x, i) =>
+        '<div>' + (i + 1) + '. <b>' + esc(x.asset_id || x.assetId || '未命名') + '</b>' +
+        (x.semantic_status ? ' · ' + esc(x.semantic_status) : '') +
+        (x.semantic_reason ? ' · ' + esc(x.semantic_reason) : '') + '</div>'
+      ).join('');
+      host.innerHTML = '<b>语义候选顺序</b>' +
+        (items || '<br>没有可供重排的视频素材。') +
+        (r.result.reason ? '<br><span class="hint">' + esc(r.result.reason) + '</span>' : '');
+    } else {
+      host.textContent = '语义重排失败：' + esc((r && (r.error || r.reason)) || '未知原因');
+    }
+  } catch (e) {
+    host.textContent = '语义重排失败：' + esc(e.message || e);
+  }
+}
+
+async function editorVisualQA(sceneId, idx){
+  const sc = (ED.comp.scenes || []).find(s => s.id === sceneId);
+  const lay = sc && sc.layers ? sc.layers[idx] : null;
+  const el = document.getElementById('ed-asset-inspector');
+  if (!lay || !lay.asset_id || !el) return;
+  el.innerHTML = '视觉验证中……';
+  try {
+    const d = await apiGet('/api/asset_detail?asset_id=' + encodeURIComponent(lay.asset_id) +
+      '&project_id=' + encodeURIComponent(ED.pid || ''));
+    if (!d || d.error || !d.file) {
+      el.innerHTML = '<span class="hint">素材文件不可用，无法验证。</span>';
+      return;
+    }
+    const r = await apiPost('/api/action/execute', {
+      project_id: ED.pid || '',
+      action: 'visual.verify_asset',
+      target: 'current_selection',
+      params: {
+        sceneId: sceneId,
+        sceneText: sc.text || '',
+        assetId: lay.asset_id,
+        assetFile: d.file
+      },
+      selection: {type:'layer', id:sceneId + '#' + idx, layer_type:lay.type || 'video'}
+    });
+    if (r && r.result && r.result.verdict) {
+      const verdictCn = {DIRECT_MATCH:'直接匹配', SUPPORTING:'辅助匹配', CONFLICT:'明显冲突', UNKNOWN:'无法确认'};
+      const v = r.result.verdict;
+      el.innerHTML = '<b>视觉验证</b>：<b>' + esc(verdictCn[v] || v) + '</b>' +
+        (r.result.evidence ? '<br>' + esc(r.result.evidence) : '') +
+        (r.result.reason ? '<br><span class="hint">' + esc(r.result.reason) + '</span>' : '') +
+        (!r.ok && r.error ? '<br><span class="hint">' + esc(r.error) + '</span>' : '');
+    } else {
+      el.innerHTML = '<span class="hint">验证失败：' + esc((r && (r.error || r.reason)) || '未知错误') + '</span>';
+    }
+  } catch (e) {
+    el.innerHTML = '<span class="hint">验证失败：' + esc(e.message || e) + '</span>';
+  }
 }
 
 function editorSetVisualTransform(sceneId, idx){
@@ -1309,7 +1443,7 @@ async function editorApplySpeed(sceneId, idx){
 // §8 拆分导出：inline onclick/window 引用兼容
 Object.assign(window, {
   layerTypeCn, edShowInspector, resolveInspector, inspectorOpenSection,
-  inspectorActionsBox, loadAssetInspector, editorSetVisualTransform,
+  inspectorActionsBox, loadAssetInspector, editorSemanticRerank, editorVisualQA, editorSetVisualTransform,
   editorApplyCamera, editorApplyContinuity, edContTypeChanged,
   edMorphFromChanged, editorApplyMorph, editorVerifyContinuity,
   editorApplyPip, editorRemovePip, editorApplyTrim, editorApplySpeed,

@@ -169,6 +169,10 @@ _ACTIONS: List[ActionSpec] = [
                aliases=["去掉水印", "移除 Logo"],
                preconditions=["has_watermark"]),
     # ---- 素材（§八/§九 Asset Picker 统一）----
+    ActionSpec("creative.select_candidate", "采用创作方案", "creative.candidate.select", "set_scene_intent",
+               targets=["scene"],
+               aliases=["采用这个方案", "用这个创作方案", "采用候选方案"],
+               preconditions=["has_selection"]),
     ActionSpec("asset.replace", "换素材", "asset.replace", "replace_source",
                targets=["scene", "layer"],
                aliases=["换画面", "换个素材", "换镜头画面"],
@@ -279,6 +283,13 @@ _ACTIONS: List[ActionSpec] = [
     ActionSpec("asset.download", "下载素材", "asset.resolve", "noop",
                targets=["scene", "layer"], undo=False,
                aliases=["下载采用"]),
+    ActionSpec("visual.verify_asset", "视觉验证素材", "visual.qa", "noop",
+               targets=["layer"], undo=False,
+               preconditions=["has_selection"],
+               aliases=["视觉验证", "检查画面", "验证素材"]),
+    ActionSpec("visual.semantic_rerank", "按画面语义重排素材", "visual.semantic_rerank", "noop",
+               targets=["scene"], undo=False, preconditions=["has_selection"],
+               aliases=["按画面语义找素材", "语义重排素材"]),
     # ---- §66 配音扩展（§37 试听=UI 播放型）----
     ActionSpec("voice.preview_full", "完整旁白试听", "tts.preview_narration",
                "noop", targets=["project"], undo=False, preview=True,
@@ -342,6 +353,8 @@ _ACTIONS: List[ActionSpec] = [
                targets=["layer"], undo=False, ui="edit_mask"),
     ActionSpec("ui.preview_draft", "预览草稿", "render.draft", "noop",
                targets=["project"], undo=False, ui="preview_draft"),
+    ActionSpec("ui.render_draft", "渲染草稿任务", "render.draft", "noop",
+               targets=["project"], undo=False, ui="render_draft"),
     ActionSpec("ui.undo", "撤销", "system.capabilities.list", "noop",
                targets=["project"], undo=False, ui="undo"),
     ActionSpec("ui.redo", "重做", "system.capabilities.list", "noop",
@@ -356,6 +369,17 @@ _ACTIONS: List[ActionSpec] = [
                targets=["scene"], undo=False, ui="move_prompt"),
     ActionSpec("ui.add_broll_prompt", "加素材层（选择素材）", "asset.add_to_timeline",
                "noop", targets=["scene"], undo=False, ui="add_broll_prompt"),
+    # ---- TalkCraft-style creative plan panel: pure UI entry actions ----
+    ActionSpec("ui.creative_plan_toggle", "打开语义拍与分镜", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_toggle"),
+    ActionSpec("ui.creative_plan_reload", "刷新语义拍与分镜", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_reload"),
+    ActionSpec("ui.creative_plan_initialize", "生成创作计划草案", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_initialize"),
+    ActionSpec("ui.creative_plan_save", "保存创作计划", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_save"),
+    ActionSpec("ui.creative_plan_validate", "检查创作计划", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_validate"),
 ]
 
 _BY_ID = {a.id: a for a in _ACTIONS}
@@ -544,8 +568,11 @@ _CONTEXT_KEYS = {
         "watermark.add", "watermark.update", "watermark.remove",
         "voice.change", "voice.preview",
         # §58 UI 交互动作（dispatcher 本地执行；group 暴露 ui 字段）
-        "ui.undo", "ui.redo", "ui.save", "ui.preview_draft", "ui.split_layer",
+        "ui.undo", "ui.redo", "ui.save", "ui.preview_draft", "ui.render_draft",
+        "ui.split_layer",
         "ui.editor_session_snap", "ui.editor_session_box",
+        "ui.creative_plan_toggle", "ui.creative_plan_reload",
+        "ui.creative_plan_initialize", "ui.creative_plan_save", "ui.creative_plan_validate",
         "ui.open_voice_settings", "ui.open_audio_bus", "ui.open_subtitle_style",
         "voice.preview_full", "voice.upload", "content.generate_script",
         "content.rewrite_script", "music.auto_match", "music.preview",
@@ -553,6 +580,7 @@ _CONTEXT_KEYS = {
         "render.draft", "render.final", "verify.run",
     ],
     ("scene", None): [
+        "creative.select_candidate",
         "timeline.split", "timeline.duplicate", "timeline.delete", "timeline.move",
         "ui.split_layer",
         "timeline.duration", "visual.camera",
@@ -562,6 +590,7 @@ _CONTEXT_KEYS = {
         "ui.open_asset_picker", "ui.open_shot_picker", "ui.generate_scene_visual",
         "ui.move_prompt", "ui.add_broll_prompt", "sfx.add",
         "asset.import_local", "asset.search_stock",
+        "visual.semantic_rerank",
     ],
     ("layer", "video"): [
         "asset.replace", "asset.search",
@@ -571,6 +600,7 @@ _CONTEXT_KEYS = {
         "generate.image", "generate.video",
         "ui.open_asset_picker", "ui.open_motion_picker", "ui.edit_mask",
         "visual.keyframe_add", "visual.keyframe_remove", "visual.mask.remove",
+        "visual.verify_asset",
     ],
     ("layer", "image"): [
         "asset.replace", "asset.search",

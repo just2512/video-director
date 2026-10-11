@@ -56,6 +56,18 @@ ROLE_DEFS = {
         "default_base_url": "https://api.openai.com/v1",
         "default_model": "gpt-4o-mini",
     },
+    "semantic_rerank": {
+        "label": "语义检索（Marengo）",
+        "hint": "Twelve Labs Marengo 3.5：用于 Scene ↔ 视频素材语义检索；不配置则保留现有本地匹配",
+        "default_base_url": "https://api.twelvelabs.io",
+        "default_model": "marengo3.5",
+    },
+    "visual_qa": {
+        "label": "视觉验证（Pegasus）",
+        "hint": "Twelve Labs Pegasus 1.5：验证素材是否真的表达当前 Scene；不配置则结果为 UNKNOWN，不阻塞普通剪辑",
+        "default_base_url": "https://api.twelvelabs.io",
+        "default_model": "pegasus1.5",
+    },
     "hyperframes": {
         "label": "云端动效渲染（HyperFrames 高级动效）",
         "hint": "付费云端渲染 API。配置后成片动效走云端高质量渲染；不配置自动用内置 FFmpeg，功能不缺失",
@@ -209,10 +221,13 @@ def sync_llm_provider() -> None:
 
 
 def status_for_frontend() -> list:
-    """前端配置面板数据：每角色 label/hint/是否已配置/来源（不回传 key）。"""
+    """前端配置面板数据：角色配置 + Provider Capability Matrix（不回传 key）。"""
+    from video_director import provider_matrix
+
     out = []
     for role, d in ROLE_DEFS.items():
         cfg = get_role_config(role)
+        provider_id = provider_matrix.infer_provider(role, cfg)
         out.append({
             "role": role,
             "kind": d.get("kind", "model"),
@@ -224,5 +239,10 @@ def status_for_frontend() -> list:
             "source": cfg.get("source", "none"),
             "base_url": cfg.get("base_url") or d.get("default_base_url", ""),
             "model": cfg.get("model") or d.get("default_model", ""),
+            "provider": provider_id,
+            "capability_states": {
+                op: provider_matrix.state(role, op, cfg).status
+                for op in provider_matrix.relevant_operations(role, cfg)
+            },
         })
     return out

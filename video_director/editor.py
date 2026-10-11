@@ -34,6 +34,7 @@ from video_director.models import (
     Layer,
     LayerType,
     SceneIR,
+    TransitionOut,
     SubtitleStyle,
     WatermarkLayer,
 )
@@ -344,7 +345,9 @@ SUPPORTED_COMMANDS = (
     "set_graphic_block",          # 换视觉块（graphic 层 program.block_id）
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
-    "set_transition_out",         # 转场确认（Scene.transition_out）
+"set_transition_out",         # 转场确认（Scene.transition_out）
+    "set_transition",             # 别名（#8 契约名，映射到 set_transition_out）
+    "set_scene_intent",            # 采用创作候选后的 Scene 视觉意图
     "undo",
     "redo",
 )
@@ -360,6 +363,92 @@ class CommandResult:
     stale_artifacts: List[str] = field(default_factory=list)
     errors: List[dict] = field(default_factory=list)
     composition: Optional[dict] = None  # 更新后的 IR（前端重渲染时间线用）
+
+
+def _sync_candidate_views(project_id: str, ir: CompositionIR) -> None:
+    """把 IR 中的 candidate selection 同步到派生计划文件；失败不回滚已成功的 IR Command。"""
+    import json as _json
+
+    base = config.project_dir(project_id)
+    candidate_path = base / "plans" / "creative_candidates.json"
+    if not candidate_path.is_file():
+        return
+    try:
+        snapshot = _json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        logger.warning("candidate cache unreadable; IR selection remains authoritative")
+        return
+
+    selected_by_scene = {
+        sc.id: getattr(sc, "selected_candidate_id", None)
+        for sc in ir.scenes
+    }
+    for row in snapshot.get("scenes") or []:
+        sid = row.get("scene_id")
+        selected = selected_by_scene.get(sid)
+        if selected:
+            row["selected_candidate_id"] = selected
+            for candidate in row.get("candidates") or []:
+                candidate["selected"] = candidate.get("id") == selected
+
+    tmp = candidate_path.with_suffix(".tmp")
+    try:
+        tmp.write_text(_json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(candidate_path)
+    except OSError:
+        logger.warning("candidate cache write failed; IR selection remains authoritative")
+
+    intent_path = base / "plans" / "material_intents.json"
+    if not intent_path.is_file():
+        return
+    try:
+        intents = _json.loads(intent_path.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        return
+
+    for row in intents.get("scenes") or []:
+        sid = row.get("scene_id")
+        selected = selected_by_scene.get(sid)
+        if not selected:
+            continue
+        row["selected_candidate_id"] = selected
+        candidate_row = next(
+            (x for x in snapshot.get("scenes") or [] if x.get("scene_id") == sid),
+            None,
+        )
+        candidates = (candidate_row or {}).get("candidates") or []
+        candidate = next((x for x in candidates if x.get("id") == selected), None)
+        if candidate:
+            row["search_terms"] = list(candidate.get("search_terms") or [])
+            row["search_order"] = list(candidate.get("search_terms") or [])
+            row["source_preference"] = candidate.get("source_preference") or row.get("source_preference")
+            row["selection_reason"] = f"用户采用创作候选：{candidate.get('title') or selected}"
+
+    tmp2 = intent_path.with_suffix(".tmp")
+    try:
+        tmp2.write_text(_json.dumps(intents, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp2.replace(intent_path)
+    except OSError:
+        logger.warning("material intent cache write failed; IR selection remains authoritative")
+
+    plan_path = base / "plans" / "director_scene_plan.json"
+    if plan_path.is_file():
+        try:
+            plan = _json.loads(plan_path.read_text(encoding="utf-8"))
+            for row in plan.get("scenes") or []:
+                sid = row.get("id") or row.get("scene_id")
+                selected = selected_by_scene.get(sid)
+                if not selected:
+                    continue
+                row["selected_candidate_id"] = selected
+                scene = next((sc for sc in ir.scenes if sc.id == sid), None)
+                if scene:
+                    row["visual_intent"] = scene.visual_intent
+            tmp3 = plan_path.with_suffix(".tmp")
+            tmp3.write_text(_json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp3.replace(plan_path)
+        except (OSError, _json.JSONDecodeError):
+            logger.warning("scene plan cache write failed; IR selection remains authoritative")
 
 
 def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
@@ -506,6 +595,10 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
         elif cmd_name == "set_transition_out":
             changed, stale = _cmd_set_transition_out(ir, target_id, payload)
+        elif cmd_name == "set_transition":
+            changed, stale = _cmd_set_transition_out(ir, target_id, payload)
+        elif cmd_name == "set_scene_intent":
+            changed, stale = _cmd_set_scene_intent(ir, target_id, payload, project_id)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -540,6 +633,13 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         "ir_after": _snapshot_for_revision(ir),
     }
     _append_revision(project_id, revision)
+    try:
+        from video_director import artifact_graph
+        artifact_graph.mark_stale(project_id, stale)
+    except Exception as exc:  # noqa: BLE001 失效台账是旁路，不能阻断已成功的编辑命令
+        logger.debug(f"artifact manifest stale 标记失败（忽略）: {exc}")
+    if cmd_name == "set_scene_intent":
+        _sync_candidate_views(project_id, ir)
     logger.info(
         f"editor: {cmd_name} {target_id} → revision {revision_id} "
         f"(changed={changed}, stale={stale})"
@@ -572,6 +672,48 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
 # execute_command 统一 save）
 # ---------------------------------------------------------------------------
 
+
+
+def _cmd_set_scene_intent(
+    ir: CompositionIR,
+    target_id: str,
+    payload: dict,
+    project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """采用一个 Creative Candidate：改 Scene 视觉意图；选择状态随 IR 一起原子落盘。"""
+    _, scene = _find_scene(ir, target_id)
+    candidate_id = str(payload.get("candidateId") or "")
+    visual_intent = str(payload.get("visualIntent") or "").strip()
+    if not candidate_id or not visual_intent:
+        raise EditorError("INVALID_PAYLOAD", "采用候选缺 candidateId 或 visualIntent")
+
+    import json as _json
+    from video_director import creative_candidates
+
+    candidate_path = config.project_dir(project_id) / "plans" / "creative_candidates.json"
+    if not candidate_path.is_file():
+        raise EditorError("CANDIDATE_NOT_FOUND", "当前项目没有创作候选集")
+    try:
+        snapshot = _json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (_json.JSONDecodeError, OSError) as exc:
+        raise EditorError("CANDIDATE_STATE_INVALID", "创作候选集无法读取") from exc
+
+    candidate = creative_candidates.find_candidate(snapshot, scene.id, candidate_id)
+    if candidate is None:
+        raise EditorError("CANDIDATE_NOT_FOUND", f"候选 {candidate_id} 不存在")
+
+    # 只有这里修改 IR；save_composition / revision 会作为同一 Command Transaction 落盘。
+    scene.visual_intent = visual_intent
+    scene.selected_candidate_id = candidate_id
+
+    return [
+        scene.id
+    ], [
+        f"{scene.id}:render",
+        f"{scene.id}:preview",
+        "creative_candidates",
+        "material_intents",
+    ]
 
 def _cmd_replace_motion(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Motion Gallery 应用：Layer.motion_recipe_id 替换（CMP-002 复用）。"""
@@ -1640,8 +1782,7 @@ def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
 
 
 def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """§18：original 轨 policy（preserve/mute/duck）。original 是独立音轨
-    类型，不是渲染开关。绑定素材源：若无显式 assetId，取首场景首视频层的源。"""
+    """原声轨策略。支持全项目旧语义，也支持按视频片段建立多个 original track。"""
     mode = payload.get("mode") or "preserve"
     if mode not in ("preserve", "mute"):
         raise EditorError("INVALID_PAYLOAD", f"set_original_audio 的 mode {mode!r} 非法")
@@ -1649,9 +1790,50 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
     volume = float(_vol if _vol is not None else (0.8 if mode == "preserve" else 0.0))
     if not (0.0 <= volume <= 2.0):
         raise EditorError("INVALID_PARAMETER", f"original volume {volume} 越界 [0,2]")
+
     asset_id = payload.get("assetId")
+    duck = bool(payload.get("duckAgainst") or payload.get("ducking", False))
+    fin = max(0.0, min(float(payload.get("fadeIn") or 0.0), 10.0))
+    fout = max(0.0, min(float(payload.get("fadeOut") or 0.0), 10.0))
+
+    # 新语义：显式 asset + start/duration/source range → 一条独立素材原声轨。
+    # 这样 8 个用户视频可以各自保留现场声音，不再被单一 original 轨覆盖。
+    if asset_id and any(k in payload for k in ("start", "duration", "sourceIn", "sourceOut")):
+        start = float(payload.get("start", 0.0))
+        duration = float(payload.get("duration", 0.0) or 0.0)
+        if duration <= 0.0:
+            raise EditorError("INVALID_PARAMETER", "片段原声 duration 必须 > 0")
+        source_in = max(0.0, float(payload.get("sourceIn", 0.0) or 0.0))
+        raw_out = payload.get("sourceOut")
+        source_out = None if raw_out in (None, "") else float(raw_out)
+        if source_out is not None and source_out <= source_in:
+            raise EditorError("INVALID_PARAMETER", "片段原声 sourceOut 必须 > sourceIn")
+        if start < 0.0 or start + duration > ir.project.duration + 0.05:
+            raise EditorError("INVALID_PARAMETER",
+                               f"原声时间段 {start:.3f}+{duration:.3f} 超出项目时长 {ir.project.duration:.3f}")
+
+        # 同一素材、同一时间段重复应用 = 更新，而不是不断堆重复轨。
+        for i, t in enumerate(ir.audio):
+            if (t.type == AudioTrackType.original and t.asset_id == asset_id
+                    and abs(t.start - start) < 1e-4):
+                ir.audio[i] = t.model_copy(update={
+                    "duration": duration, "source_in": source_in,
+                    "source_out": source_out, "volume": volume,
+                    "muted": mode == "mute", "ducking": duck,
+                    "fadeIn": fin, "fadeOut": fout,
+                })
+                return [], ["audio:original:render"]
+
+        ir.audio.append(AudioTrack(
+            type=AudioTrackType.original, asset_id=asset_id,
+            start=start, duration=duration, source_in=source_in,
+            source_out=source_out, volume=volume, muted=(mode == "mute"),
+            ducking=duck, fadeIn=fin, fadeOut=fout,
+        ))
+        return [], ["audio:original:render"]
+
+    # 旧语义兼容：没有片段时间信息时仍维护唯一全局 original 轨。
     if not asset_id:
-        # 缺显式源 → 取第一个视频层（original 语义：素材原声）
         for sc in ir.scenes:
             for lay in sc.layers:
                 if lay.type == LayerType.video and lay.asset_id:
@@ -1659,21 +1841,19 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
                     break
             if asset_id:
                 break
-    duck = bool(payload.get("duckAgainst") or payload.get("ducking", False))
-    # §18 OriginalAudioPolicy fadeIn/fadeOut（0-10s，诚实边界）
-    fin = max(0.0, min(float(payload.get("fadeIn") or 0.0), 10.0))
-    fout = max(0.0, min(float(payload.get("fadeOut") or 0.0), 10.0))
-    # 幂等：已有 original 轨则更新，否则新建
     for i, t in enumerate(ir.audio):
         if t.type == AudioTrackType.original:
-            ir.audio[i] = t.model_copy(update={"volume": volume, "ducking": duck,
-                                                "fadeIn": fin, "fadeOut": fout,
-                                                "asset_id": asset_id or t.asset_id})
+            ir.audio[i] = t.model_copy(update={
+                "volume": volume, "muted": mode == "mute", "ducking": duck,
+                "fadeIn": fin, "fadeOut": fout, "asset_id": asset_id or t.asset_id,
+            })
             return [], ["audio:original:render"]
+    # 旧语义兼容：无显式 assetId 且无视频层时仍允许建轨（original policy
+    # 可先于素材匹配设置；asset_id 后续由匹配链补上）。main 测试契约如此。
     ir.audio.append(AudioTrack(
         type=AudioTrackType.original, asset_id=asset_id,
-        start=0.0, duration=ir.project.duration, volume=volume, ducking=duck,
-        fadeIn=fin, fadeOut=fout,
+        start=0.0, duration=ir.project.duration, volume=volume,
+        muted=(mode == "mute"), ducking=duck, fadeIn=fin, fadeOut=fout,
     ))
     return [], ["audio:original:render"]
 
@@ -2370,7 +2550,7 @@ def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) ->
     """编辑器转场确认：只修改 Scene.transition_out，不重建场景/图层。"""
     if not target_id:
         raise EditorError("INVALID_TARGET", "set_transition_out 缺少场景 targetId")
-    _, scene = _find_scene(ir, target_id)
+    si, scene = _find_scene(ir, target_id)
     ttype = str(payload.get("type") or "cut")
     duration = float(payload.get("duration", 0.0) or 0.0)
     if duration < 0:
@@ -2381,6 +2561,9 @@ def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) ->
         duration = 0.0
     if duration > scene.duration / 2:
         raise EditorError("INVALID_PARAMETER", "转场时长不能超过当前场景时长的一半")
+    # 最后一镜没有“下一个镜头”，写入没有实际边界的转场只会误导预览/渲染。
+    if si >= len(ir.scenes) - 1 and ttype != "cut":
+        raise EditorError("INVALID_TARGET", "最后一个场景不能设置转场")
     from video_director.models import TransitionOut
     scene.transition_out = TransitionOut(type=ttype, duration=duration)
     return [f"{scene.id}:transition"], [f"{scene.id}:render", f"{scene.id}:preview"]
