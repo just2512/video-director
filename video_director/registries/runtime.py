@@ -92,6 +92,13 @@ def template_runtime_report(template: Any) -> dict:
                 "slot_id": slot.id,
                 "message": f"必填槽位「{slot.label}」没有绑定到任何模板层；用户填写后也不会进入成片。",
             })
+        if getattr(slot, "required", False) and slot.type not in {"text", "image", "video", "product", "person"}:
+            blockers.append({
+                "code": "UNSUPPORTED_REQUIRED_SLOT_TYPE",
+                "slot_id": slot.id,
+                "slot_type": slot.type,
+                "message": f"必填槽位「{slot.label}」类型 {slot.type} 当前没有真实的输入/渲染通道。",
+            })
 
     for scene in getattr(template, "scenes", ()):
         shot_id = getattr(scene, "shot_recipe_id", None)
@@ -165,6 +172,46 @@ def template_runtime_report(template: Any) -> dict:
         "blockers": blockers,
         "contract": "runtime preflight only; READY is not proof of MP4 render/decode until a sample render is run",
     }
+
+
+def template_input_issues(
+    template: Any,
+    slot_values: dict,
+    uploaded_slot_ids,
+) -> List[dict]:
+    """Validate required user inputs before project creation or expensive rendering.
+
+    Slot values from a browser are untrusted: asset slots are satisfied only by
+    an uploaded file bound to that slot, never by a client-supplied asset ID.
+    """
+    uploaded = set(uploaded_slot_ids or ())
+    file_slot_types = {"image", "video", "product", "person"}
+    issues: List[dict] = []
+    for slot in getattr(template, "slots", ()):
+        if not getattr(slot, "required", False):
+            continue
+        value = slot_values.get(slot.id) if isinstance(slot_values, dict) else None
+        if slot.type in file_slot_types:
+            present = slot.id in uploaded
+        elif slot.type == "text":
+            present = isinstance(value, str) and bool(value.strip())
+        else:
+            # Required slot types outside the input/render contract must not pass
+            # validation simply because a string or opaque ID was provided.
+            present = False
+        if not present:
+            issues.append({
+                "code": "REQUIRED_INPUT_MISSING",
+                "slot_id": slot.id,
+                "slot_type": slot.type,
+                "message": (
+                    f"必填项「{slot.label}」未提供有效"
+                    + ("图片/视频素材文件。" if slot.type in file_slot_types
+                       else "文本内容。" if slot.type == "text"
+                       else f"输入（当前不支持槽位类型 {slot.type}）。")
+                ),
+            })
+    return issues
 
 
 def style_runtime_report(style: Any) -> dict:
