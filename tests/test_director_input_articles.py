@@ -77,3 +77,16 @@ def test_article_hash_is_recomputed_if_client_metadata_does_not_match():
     article = bundle["articles"][0]
     assert article["content_sha256"] == hashlib.sha256(article["content"].encode()).hexdigest()
     assert article["provided_hash_matches"] is False
+
+
+def test_article_query_credentials_are_not_sent_to_the_llm_context():
+    article = _article("Source text contains a stable fact and context.")
+    article["source_url"] = "https://news.example/story?id=123&access_token=do-not-send#comments"
+    article["requested_url"] = article["source_url"]
+    bundle = build_bundle({"director_inputs": {"articles": [article]}})
+    prompt_article = build_agent_scene_context(bundle, "")["article_sources"][0]
+    assert prompt_article["source_url"] == "https://news.example/story"
+    assert "access_token" not in prompt_article["source_url"]
+    assert "do-not-send" not in prompt_article["source_url"]
+    # Full URL can remain in the local provenance bundle without being passed to the LLM.
+    assert bundle["articles"][0]["source_url"] == article["source_url"]
