@@ -843,7 +843,7 @@ def mix_audio(
             *inputs,
             "-filter_complex", ";".join(filters),
             "-map", "[aout]",
-            "-c:a", "pcm_s24le", "-ar", "44100",
+            "-c:a", "pcm_s24le", "-ar", "44100", "-ac", "2",
             audio_tmp,
         ])
         loudness_report = _normalize_audio_loudness(audio_tmp, normalized_tmp, ff)
