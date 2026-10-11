@@ -121,6 +121,33 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert page.locator("#shotbook-list .sb-shot").count() == 2
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
+                # Dual view renders a physical timeline too; its edit/scrub bindings
+                # must not be skipped just because the semantic view is prepended.
+                dual_bindings = page.evaluate("""() => {
+                  const names = [
+                    '_tlBindPlayheadDrag', '_tlBindLayerDrag', '_tlBindAudioClipDrag',
+                    '_tlBindWatermarkDrag', '_tlBindSceneDrag', 'editorSessionBindTimeline'
+                  ];
+                  const originals = {};
+                  const calls = [];
+                  for (const name of names) {
+                    originals[name] = window[name];
+                    window[name] = () => calls.push(name);
+                  }
+                  const oldView = ED.timelineView;
+                  ED.timelineView = 'dual';
+                  editorRenderTimeline();
+                  for (const name of names) window[name] = originals[name];
+                  const hasPhysicalTimeline = !!document.querySelector('#editor-timeline .ed-tl-scroll');
+                  ED.timelineView = oldView;
+                  editorRenderTimeline();
+                  return {calls, hasPhysicalTimeline};
+                }""")
+                assert dual_bindings["hasPhysicalTimeline"], dual_bindings
+                assert set(dual_bindings["calls"]) == {
+                    "_tlBindPlayheadDrag", "_tlBindLayerDrag", "_tlBindAudioClipDrag",
+                    "_tlBindWatermarkDrag", "_tlBindSceneDrag", "editorSessionBindTimeline"
+                }, dual_bindings
                 # 布局契约：Shotbook 与编辑器共享同一工作区（main 布局：#editor-body
                 # 与 #editor-workspace 同属 pane-editor；不要求在 .ws-col 三栏列内）。
                 assert page.locator("#shotbook-details").evaluate(
