@@ -38,6 +38,7 @@ const UI_BEHAVIORS = {
   redo: () => (typeof editorRedo === 'function' && editorRedo()),
   save: () => (typeof editorSaveBar === 'function' && editorSaveBar()),
   preview_draft: () => (typeof editorPreviewBar === 'function' && editorPreviewBar()),
+  render_draft: () => (typeof edxRenderDraft === 'function' && edxRenderDraft()),
   move_prompt: () => (typeof editorMovePrompt === 'function' && editorMovePrompt()),
   add_broll_prompt: () => (typeof editorAddBrollPrompt === 'function' && editorAddBrollPrompt()),
   editor_session_snap: () => (typeof editorSessionToggleSnap === 'function' && editorSessionToggleSnap()),

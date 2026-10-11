@@ -1274,6 +1274,39 @@ class Handler(BaseHTTPRequestHandler):
                 from video_director import editor as vd_editor
                 ir = vd_editor.load_composition(pid)
                 revs = vd_editor.load_revisions(pid)
+                # 素材元数据只读项目 manifest，不在 composition 请求中触发 ffmpeg。
+                manifest_by_id = {}
+                manifest_path = vd_config.project_dir(pid) / "assets" / "manifest.json"
+                if manifest_path.is_file():
+                    try:
+                        for _a in json.loads(manifest_path.read_text(encoding="utf-8")):
+                            if _a.get("id"):
+                                manifest_by_id[_a["id"]] = _a
+                    except (OSError, json.JSONDecodeError):
+                        manifest_by_id = {}
+
+                def _editor_asset_meta(asset_id):
+                    _m = manifest_by_id.get(asset_id or "", {})
+                    _f = _m.get("file") or ""
+                    _safe_f = ""
+                    if _f:
+                        try:
+                            _p = Path(_f).resolve()
+                            _p.relative_to(STORAGE.resolve())
+                            if _p.is_file():
+                                _safe_f = str(_p)
+                        except (OSError, ValueError):
+                            _safe_f = ""
+                    return {
+                        "asset_file": _safe_f,
+                        "asset_type": _m.get("type"),
+                        "asset_duration": _m.get("duration"),
+                        "asset_width": _m.get("width"),
+                        "asset_height": _m.get("height"),
+                        "asset_has_audio": _m.get("has_audio"),
+                        "asset_source": _m.get("source"),
+                        "asset_name": Path(_f).name if _f else "",
+                    }
                 self._send_json({
                     "project_id": pid,
                     "version": len(revs) + 1,
@@ -1292,6 +1325,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "index": i, "type": lay.type.value,
                                     "asset_id": lay.asset_id, "start": lay.start,
                                     "duration": lay.duration,
+                                    **_editor_asset_meta(lay.asset_id),
                                     "motion_recipe_id": lay.motion_recipe_id,
                                     "motion_version": lay.motion_version,
                                     "locked": bool(getattr(lay, "locked", None) or False) or None,
@@ -1343,6 +1377,89 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(vd_shotbook.get_project_shotbook(pid))
             except vd_shotbook.ShotbookError as exc:
                 self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, 404)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+        elif route == "/api/editor/material_match":
+            # AI 导演素材匹配：只生成建议，不直接修改 Composition。
+            qs = parse_qs(parsed.query)
+            pid = (qs.get("project_id") or [""])[0]
+            if not pid:
+                self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import editor as vd_editor
+                from video_director import matcher as vd_matcher
+                from video_director import llm_provider as vd_llm
+                from video_director.models import AssetRef
+
+                ir = vd_editor.load_composition(pid)
+                manifest_path = vd_config.project_dir(pid) / "assets" / "manifest.json"
+                if not manifest_path.is_file():
+                    self._send_json({"ok": True, "matches": [], "unmatched": [s.id for s in ir.scenes],
+                                     "message": "项目没有素材 manifest"}, 200)
+                    return
+                raw_assets = json.loads(manifest_path.read_text(encoding="utf-8"))
+                raw_by_id = {raw.get("id"): raw for raw in raw_assets
+                             if isinstance(raw, dict) and raw.get("id")}
+                assets = {}
+                for raw in raw_assets:
+                    if raw.get("type") != "video" or not raw.get("id") or not raw.get("file"):
+                        continue
+                    try:
+                        assets[raw["id"]] = AssetRef.model_validate(raw)
+                    except Exception:
+                        continue
+
+                scenes = [{"id": s.id, "text": s.text or ""} for s in ir.scenes]
+                llm = vd_llm.get_llm()
+                llm_call = llm.generate if llm is not None else None
+                # 统一走 match_assets（LLM 主路 → 确定性 fallback → 顺序兜底），
+                # 与后端其他匹配路径同一事实源，不另起单场景确定性调用。
+                assignments = vd_matcher.match_assets(scenes, assets, llm_call=llm_call)
+
+                matches = []
+                unmatched = []
+                for sc in ir.scenes:
+                    aid = assignments.get(sc.id)
+                    if not aid:
+                        unmatched.append(sc.id)
+                        continue
+                    layer_idx = next(
+                        (i for i, l in enumerate(sc.layers) if l.type.value == "video"),
+                        None,
+                    )
+                    if layer_idx is None:
+                        unmatched.append(sc.id)
+                        continue
+                    asset = assets.get(aid)
+                    if asset is None:
+                        unmatched.append(sc.id)
+                        continue
+                    # 匹配建议必须能完整覆盖场景，否则替换后会留下非法 source range。
+                    if asset.duration is not None and float(asset.duration) + 0.05 < float(sc.duration):
+                        unmatched.append(sc.id)
+                        continue
+                    source_out = (
+                        min(float(asset.duration), float(sc.duration))
+                        if asset.duration is not None else float(sc.duration)
+                    )
+                    matches.append({
+                        "scene_id": sc.id,
+                        "scene_text": sc.text or "",
+                        "layer_target": f"{sc.id}#{layer_idx}",
+                        "asset_id": aid,
+                        "asset_name": Path(asset.file).name,
+                        "asset_duration": asset.duration,
+                        "asset_has_audio": raw_by_id.get(aid, {}).get("has_audio"),
+                        "source_in": 0.0,
+                        "source_out": source_out,
+                    })
+                self._send_json({
+                    "ok": True,
+                    "matches": matches,
+                    "unmatched": unmatched,
+                    "strategy": "llm_then_deterministic" if llm is not None else "deterministic",
+                })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/editor/revisions":

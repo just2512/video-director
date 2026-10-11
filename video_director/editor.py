@@ -34,6 +34,7 @@ from video_director.models import (
     Layer,
     LayerType,
     SceneIR,
+    TransitionOut,
     SubtitleStyle,
     WatermarkLayer,
 )
@@ -344,7 +345,7 @@ SUPPORTED_COMMANDS = (
     "set_graphic_block",          # 换视觉块（graphic 层 program.block_id）
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
-    "set_transition_out",         # 转场确认（Scene.transition_out）
+"set_transition_out",         # 转场确认（Scene.transition_out）
     "set_scene_intent",            # 采用创作候选后的 Scene 视觉意图
     "undo",
     "redo",
@@ -1778,8 +1779,7 @@ def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
 
 
 def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """§18：original 轨 policy（preserve/mute/duck）。original 是独立音轨
-    类型，不是渲染开关。绑定素材源：若无显式 assetId，取首场景首视频层的源。"""
+    """原声轨策略。支持全项目旧语义，也支持按视频片段建立多个 original track。"""
     mode = payload.get("mode") or "preserve"
     if mode not in ("preserve", "mute"):
         raise EditorError("INVALID_PAYLOAD", f"set_original_audio 的 mode {mode!r} 非法")
@@ -1787,9 +1787,50 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
     volume = float(_vol if _vol is not None else (0.8 if mode == "preserve" else 0.0))
     if not (0.0 <= volume <= 2.0):
         raise EditorError("INVALID_PARAMETER", f"original volume {volume} 越界 [0,2]")
+
     asset_id = payload.get("assetId")
+    duck = bool(payload.get("duckAgainst") or payload.get("ducking", False))
+    fin = max(0.0, min(float(payload.get("fadeIn") or 0.0), 10.0))
+    fout = max(0.0, min(float(payload.get("fadeOut") or 0.0), 10.0))
+
+    # 新语义：显式 asset + start/duration/source range → 一条独立素材原声轨。
+    # 这样 8 个用户视频可以各自保留现场声音，不再被单一 original 轨覆盖。
+    if asset_id and any(k in payload for k in ("start", "duration", "sourceIn", "sourceOut")):
+        start = float(payload.get("start", 0.0))
+        duration = float(payload.get("duration", 0.0) or 0.0)
+        if duration <= 0.0:
+            raise EditorError("INVALID_PARAMETER", "片段原声 duration 必须 > 0")
+        source_in = max(0.0, float(payload.get("sourceIn", 0.0) or 0.0))
+        raw_out = payload.get("sourceOut")
+        source_out = None if raw_out in (None, "") else float(raw_out)
+        if source_out is not None and source_out <= source_in:
+            raise EditorError("INVALID_PARAMETER", "片段原声 sourceOut 必须 > sourceIn")
+        if start < 0.0 or start + duration > ir.project.duration + 0.05:
+            raise EditorError("INVALID_PARAMETER",
+                               f"原声时间段 {start:.3f}+{duration:.3f} 超出项目时长 {ir.project.duration:.3f}")
+
+        # 同一素材、同一时间段重复应用 = 更新，而不是不断堆重复轨。
+        for i, t in enumerate(ir.audio):
+            if (t.type == AudioTrackType.original and t.asset_id == asset_id
+                    and abs(t.start - start) < 1e-4):
+                ir.audio[i] = t.model_copy(update={
+                    "duration": duration, "source_in": source_in,
+                    "source_out": source_out, "volume": volume,
+                    "muted": mode == "mute", "ducking": duck,
+                    "fadeIn": fin, "fadeOut": fout,
+                })
+                return [], ["audio:original:render"]
+
+        ir.audio.append(AudioTrack(
+            type=AudioTrackType.original, asset_id=asset_id,
+            start=start, duration=duration, source_in=source_in,
+            source_out=source_out, volume=volume, muted=(mode == "mute"),
+            ducking=duck, fadeIn=fin, fadeOut=fout,
+        ))
+        return [], ["audio:original:render"]
+
+    # 旧语义兼容：没有片段时间信息时仍维护唯一全局 original 轨。
     if not asset_id:
-        # 缺显式源 → 取第一个视频层（original 语义：素材原声）
         for sc in ir.scenes:
             for lay in sc.layers:
                 if lay.type == LayerType.video and lay.asset_id:
@@ -1797,21 +1838,19 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
                     break
             if asset_id:
                 break
-    duck = bool(payload.get("duckAgainst") or payload.get("ducking", False))
-    # §18 OriginalAudioPolicy fadeIn/fadeOut（0-10s，诚实边界）
-    fin = max(0.0, min(float(payload.get("fadeIn") or 0.0), 10.0))
-    fout = max(0.0, min(float(payload.get("fadeOut") or 0.0), 10.0))
-    # 幂等：已有 original 轨则更新，否则新建
     for i, t in enumerate(ir.audio):
         if t.type == AudioTrackType.original:
-            ir.audio[i] = t.model_copy(update={"volume": volume, "ducking": duck,
-                                                "fadeIn": fin, "fadeOut": fout,
-                                                "asset_id": asset_id or t.asset_id})
+            ir.audio[i] = t.model_copy(update={
+                "volume": volume, "muted": mode == "mute", "ducking": duck,
+                "fadeIn": fin, "fadeOut": fout, "asset_id": asset_id or t.asset_id,
+            })
             return [], ["audio:original:render"]
+    if not asset_id:
+        raise EditorError("MISSING_REQUIREMENT", "项目无视频素材，无法建立原声轨")
     ir.audio.append(AudioTrack(
         type=AudioTrackType.original, asset_id=asset_id,
-        start=0.0, duration=ir.project.duration, volume=volume, ducking=duck,
-        fadeIn=fin, fadeOut=fout,
+        start=0.0, duration=ir.project.duration, volume=volume,
+        muted=(mode == "mute"), ducking=duck, fadeIn=fin, fadeOut=fout,
     ))
     return [], ["audio:original:render"]
 
@@ -2508,7 +2547,7 @@ def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) ->
     """编辑器转场确认：只修改 Scene.transition_out，不重建场景/图层。"""
     if not target_id:
         raise EditorError("INVALID_TARGET", "set_transition_out 缺少场景 targetId")
-    _, scene = _find_scene(ir, target_id)
+    si, scene = _find_scene(ir, target_id)
     ttype = str(payload.get("type") or "cut")
     duration = float(payload.get("duration", 0.0) or 0.0)
     if duration < 0:
@@ -2519,6 +2558,9 @@ def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) ->
         duration = 0.0
     if duration > scene.duration / 2:
         raise EditorError("INVALID_PARAMETER", "转场时长不能超过当前场景时长的一半")
+    # 最后一镜没有“下一个镜头”，写入没有实际边界的转场只会误导预览/渲染。
+    if si >= len(ir.scenes) - 1 and ttype != "cut":
+        raise EditorError("INVALID_TARGET", "最后一个场景不能设置转场")
     from video_director.models import TransitionOut
     scene.transition_out = TransitionOut(type=ttype, duration=duration)
     return [f"{scene.id}:transition"], [f"{scene.id}:render", f"{scene.id}:preview"]

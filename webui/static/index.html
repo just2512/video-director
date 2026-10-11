@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/static/css/style-gallery.css">
 <link rel="stylesheet" href="/static/css/shotbook-storyboard.css">
 <link rel="stylesheet" href="/static/css/shotbook-sfx.css">
+<link rel="stylesheet" href="/static/css/editor-enhanced.css">
 </head>
 <body>
 <div class="app-shell">
@@ -122,7 +123,7 @@
         <span class="tb-sep"></span>
         <button class="btn-secondary btn-sm" data-action="ui.save" title="保存项目状态">保存</button>
         <button class="btn-secondary btn-sm" data-action="ui.preview_draft" title="预览当前草稿">预览</button>
-        <button class="btn-secondary btn-sm" data-action="render.draft" data-target="project" title="快速渲染低清草稿">渲染草稿</button>
+        <button class="btn-secondary btn-sm" id="edx-render-draft" data-action="ui.render_draft" data-target="project" title="生成草稿并自动打开中央预览">渲染草稿</button>
         <button class="btn-sm" data-action="render.final" data-target="project" title="商用预检通过后渲染正式成片">渲染成片</button>
       </div>
       <!-- Shotbook Workbench: editable semantic beats, character timing and recipe application -->
@@ -218,6 +219,7 @@
         <div id="director-plan-nodes" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0 2px"></div>
         <div id="director-plan-detail" class="hint"></div>
       </div>
+      <div id="director-control-grid" class="panel" style="padding:0"></div>
       <!-- AI Command Bar：当前对象的修改器（上下文行 + 输入 + 结果区） -->
       <div class="panel" id="director-bar-card" style="padding:10px">
         <div class="btn-row" style="align-items:center;margin-top:0">
@@ -257,6 +259,7 @@
           <input type="checkbox" id="ed-snap" checked style="display:none" aria-hidden="true">
           <span class="hint" id="editor-selection-count">未选中</span>
         </div>
+        <div id="editor-storyboard" class="panel" style="padding:8px 10px"></div>
         <div id="editor-timeline"></div>
       </div>
       <div id="editor-preflight-box"></div>
@@ -375,5 +378,6 @@
 <script src="/static/js/mask-editor.js"></script>
 <script src="/static/js/developer.js"></script>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/editor-enhanced.js"></script>
 </body>
 </html>
