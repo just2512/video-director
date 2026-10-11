@@ -555,6 +555,8 @@ function cfRestoreArticleSourceUI(){
 }
 function cfClearArticleSource(){
   window._cfArticle=null;
+  const input=document.getElementById('cf-article-url');
+  if(input)input.value='';
   const out=document.getElementById('cf-article-result');
   const status=document.getElementById('cf-article-status');
   const clear=document.getElementById('cf-clear-article-btn');
