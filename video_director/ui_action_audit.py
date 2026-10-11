@@ -64,7 +64,7 @@ UI_ONLY_PREFIXES = (
     "templateGalleryOpen(", "templateGalleryClose(", "templateGalleryLoad(",
     "styleGalleryOpen(", "styleGalleryClose(", "styleGalleryLoad(",
     "templateGallerySelectByIndex(", "templateGalleryRenderSample(", "templateGalleryInstantiate(",
-    "cfMakeGraphicPlan(", "cfAnalyzeReference(", "cfScanRepo(", "editorGenerate(",
+    "cfMakeGraphicPlan(", "cfAnalyzeReference(", "cfImportArticle(", "cfClearArticleSource(", "cfScanRepo(", "editorGenerate(",
     # Inspector 表单收集器（读输入框收集 → 内部 executeAction）
     "editorApplyMask(", "editorSubtitleWhiteOnBlack(",
     # Library Picker 采用按钮（收集器：内部 executeAction）
