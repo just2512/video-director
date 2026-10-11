@@ -177,31 +177,47 @@ def _normalize_audio_loudness(
 
 
 def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
-    """Require an audio stream, a bounded duration, and full audio+video decode after mux."""
+    """Require an audio stream, bounded media duration, and full audio+video decode."""
     import json
     import math
 
     ff = _ffmpeg()
     ffprobe = prober._resolve_ffprobe()
-    if not ffprobe:
-        raise RenderError("最终 MP4 缺少 ffprobe，无法验证音频流与成片时长")
-    stdout, _ = _run_capture([
-        ffprobe, "-v", "error", "-select_streams", "a:0",
-        "-show_entries", "stream=codec_name,sample_rate,channels,duration:format=duration",
-        "-of", "json", output_path,
-    ])
-    try:
-        media = json.loads(stdout)
-        streams = media.get("streams") or []
-        if not streams:
+    stream = {}
+    probe_engine = "ffprobe"
+    if ffprobe:
+        stdout, _ = _run_capture([
+            ffprobe, "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=codec_name,sample_rate,channels,duration:format=duration",
+            "-of", "json", output_path,
+        ])
+        try:
+            media = json.loads(stdout)
+            streams = media.get("streams") or []
+            if not streams:
+                raise RenderError("最终 MP4 没有音频流")
+            stream = streams[0]
+            raw_duration = stream.get("duration") or (media.get("format") or {}).get("duration")
+            audio_duration = float(raw_duration)
+            channels = int(stream.get("channels") or 0)
+            codec = str(stream.get("codec_name") or "")
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            raise RenderError(f"无法读取最终 MP4 音频流信息: {exc}") from exc
+        if not codec or channels < 1:
+            raise RenderError("最终 MP4 音频流缺少编码器或声道信息")
+    else:
+        # Portable distributions may ship ffmpeg without ffprobe. Use the project's
+        # established ffmpeg-stderr probe fallback rather than disabling final export.
+        try:
+            probe = prober.probe_media(output_path)
+        except Exception as exc:
+            raise RenderError(f"无法探测最终 MP4（ffprobe 不可用且 ffmpeg 回退失败）: {exc}") from exc
+        if not probe.has_audio_stream:
             raise RenderError("最终 MP4 没有音频流")
-        stream = streams[0]
-        raw_duration = stream.get("duration") or (media.get("format") or {}).get("duration")
-        audio_duration = float(raw_duration)
-        channels = int(stream.get("channels") or 0)
-        codec = str(stream.get("codec_name") or "")
-    except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        raise RenderError(f"无法读取最终 MP4 音频流信息: {exc}") from exc
+        audio_duration = float(probe.duration or 0.0)
+        codec = "unknown (ffmpeg-stderr fallback)"
+        channels = None
+        probe_engine = probe.engine
 
     if not math.isfinite(audio_duration) or audio_duration <= 0:
         raise RenderError("最终 MP4 的音频时长无效")
@@ -209,11 +225,9 @@ def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
     tolerance = max(0.35, config.RENDER_DURATION_TOLERANCE)
     if abs(audio_duration - float(expected_duration)) > tolerance:
         raise RenderError(
-            f"最终 MP4 音频时长不匹配: actual={audio_duration:.3f}s, "
+            f"最终 MP4 音频/容器时长不匹配: actual={audio_duration:.3f}s, "
             f"expected={float(expected_duration):.3f}s, tolerance={tolerance:.3f}s"
         )
-    if not codec or channels < 1:
-        raise RenderError("最终 MP4 音频流缺少编码器或声道信息")
 
     # Decode every mapped video frame and every audio packet through EOF; stream presence alone is insufficient.
     _run([
@@ -222,18 +236,18 @@ def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
     ])
     report = {
         "codec": codec,
-        "sample_rate": stream.get("sample_rate"),
+        "sample_rate": stream.get("sample_rate") if stream else None,
         "channels": channels,
         "audio_duration": audio_duration,
         "expected_duration": float(expected_duration),
+        "probe_engine": probe_engine,
         "full_decode": "PASS",
     }
     logger.info(
         f"final mux validation: audio={codec}, channels={channels}, "
-        f"duration={audio_duration:.3f}s, full audio+video decode=PASS"
+        f"duration={audio_duration:.3f}s, probe={probe_engine}, full audio+video decode=PASS"
     )
     return report
-
 
 # ---------------------------------------------------------------------------
 # 画幅适配（cover 模式：填充裁剪，V1 video.py _fit_clip_to_canvas 同语义）
