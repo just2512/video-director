@@ -284,3 +284,41 @@ def test_loudness_normalization_uses_explicit_fallback_for_unmeasurable_audio(tm
     assert "loudnorm=I=-16.0:TP=-1.5:LRA=11.0" in filter_expr
     assert "measured_I=" not in filter_expr
     assert calls[0][-1].endswith("normalized.wav")
+
+
+def test_final_audio_validation_uses_ffmpeg_probe_fallback_when_ffprobe_is_absent(monkeypatch):
+    from types import SimpleNamespace
+
+    commands = []
+    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffprobe", lambda: None)
+    monkeypatch.setattr(
+        renderer.prober, "probe_media",
+        lambda _path: SimpleNamespace(
+            has_audio_stream=True, duration=2.0, engine="ffmpeg-stderr"
+        ),
+    )
+    monkeypatch.setattr(renderer, "_run", lambda cmd: commands.append(list(cmd)))
+
+    report = renderer._verify_muxed_audio("final.mp4", 2.0)
+    assert report["probe_engine"] == "ffmpeg-stderr"
+    assert report["codec"] == "unknown (ffmpeg-stderr fallback)"
+    assert report["channels"] is None
+    assert report["full_decode"] == "PASS"
+    assert commands and "-xerror" in commands[0]
+
+
+def test_final_audio_validation_rejects_mp4_without_audio_stream(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(renderer, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(renderer.prober, "_resolve_ffprobe", lambda: None)
+    monkeypatch.setattr(
+        renderer.prober, "probe_media",
+        lambda _path: SimpleNamespace(
+            has_audio_stream=False, duration=2.0, engine="ffmpeg-stderr"
+        ),
+    )
+    with pytest.raises(renderer.RenderError, match="没有音频流"):
+        renderer._verify_muxed_audio("silent.mp4", 2.0)
