@@ -193,10 +193,28 @@ def _scan_bgm() -> list:
 
 
 def _scan_sfx() -> list:
+    """Expose real SFX IDs, tags and duration without leaking local filesystem paths."""
     try:
         lib = vd_audio.scan_library()
-        return [{"id": a.id, "label": _audio_label(a.id, a.keywords)}
-                for a in lib.values() if a.type == "sfx"]
+        out = []
+        for asset in lib.values():
+            if asset.type != "sfx":
+                continue
+            duration = asset.duration
+            if duration is None:
+                try:
+                    asset = vd_audio.ensure_audio_duration(asset)
+                    duration = asset.duration
+                except Exception:
+                    duration = None
+            out.append({
+                "id": asset.id,
+                "label": _audio_label(asset.id, asset.keywords),
+                "tags": list(asset.keywords or []),
+                "duration": duration,
+                "available": bool(asset.file and Path(asset.file).is_file()),
+            })
+        return out
     except Exception:
         return []
 
@@ -331,6 +349,7 @@ def _editor_asset_preview_map(ir):
                 thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
                 out[aid] = {
                     "asset_id": aid,
+                    "name": entry.get("name") or Path(file_path).name,
                     "type": entry.get("type"),
                     "file_url": ("/file?path=" + urllib_quote(file_path)) if file_path else "",
                     "thumbnail_url": ("/file?path=" + urllib_quote(str(thumb))) if thumb.is_file() else "",
@@ -341,6 +360,44 @@ def _editor_asset_preview_map(ir):
                     "has_audio": entry.get("has_audio"),
                     "source": entry.get("source"),
                 }
+
+        # Audio timeline references are IDs into the trusted audio library. Add
+        # a safe presentation projection (display label + preview endpoint), never
+        # the local file path held by the library manifest.
+        try:
+            from video_director import audio as vd_audio
+            audio_library = vd_audio.scan_library()
+            for track in (ir.audio or []):
+                aid = getattr(track, "asset_id", None)
+                if not aid or aid in out:
+                    continue
+                asset = audio_library.get(aid)
+                if asset is not None and asset.file and Path(asset.file).is_file():
+                    out[aid] = {
+                        "asset_id": aid,
+                        "name": _audio_label(asset.id, asset.keywords),
+                        "type": "audio",
+                        "file_url": "/api/audio_preview?asset_id=" + urllib_quote(aid, safe=""),
+                        "thumbnail_url": "",
+                        "duration": asset.duration,
+                        "source": asset.source,
+                        "keywords": list(asset.keywords or []),
+                    }
+                    continue
+                entry = asset_catalog.get_asset(aid)
+                if entry and entry.get("file"):
+                    out[aid] = {
+                        "asset_id": aid,
+                        "name": entry.get("name") or Path(entry["file"]).name,
+                        "type": "audio",
+                        "file_url": "/file?path=" + urllib_quote(entry["file"]),
+                        "thumbnail_url": "",
+                        "duration": entry.get("duration"),
+                        "source": entry.get("source"),
+                    }
+        except Exception:
+            # A missing audio catalog must not hide visual assets from the editor.
+            pass
         return out
     except Exception:
         return {}
@@ -655,7 +712,30 @@ class Handler(BaseHTTPRequestHandler):
                     "source_layer": loader.layer_of(it.id, it.version),
                 }
                 if kind == "style":
+                    # Generic style records remain metadata-only. Where an ID maps
+                    # to a real built-in StyleContract, expose the exact parameters
+                    # separately; do not claim the registry record is an executable pack.
                     item["runtime"] = style_runtime_report(it)
+                    item["builtin_contract"] = None
+                    if it.id.startswith("style."):
+                        try:
+                            from video_director import style as vd_style
+                            contract = vd_style.get_style(it.id[len("style."):])
+                        except Exception:
+                            contract = None
+                        if contract is not None:
+                            item["builtin_contract"] = {
+                                "style_id": contract.style_id,
+                                "subtitle_position": contract.subtitle_position,
+                                "subtitle_font_size": contract.subtitle_font_size,
+                                "subtitle_max_lines": contract.subtitle_max_lines,
+                                "image_motion_intensity": contract.image_motion_intensity,
+                                "transition_budget": contract.transition_budget,
+                                "bgm_volume": contract.bgm_volume,
+                                "sfx_density": contract.sfx_density,
+                                "application_mode": "create_style_intent",
+                                "message": "参数来自现有内置 StyleContract；选择时交给当前创作链路。独立导入风格包尚未验证。",
+                            }
                 out.append(item)
             self._send_json(out)
         except Exception as exc:
