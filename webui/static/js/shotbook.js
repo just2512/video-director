@@ -376,6 +376,12 @@ async function shotbookAddSfx() {
 function shotbookLocate(sceneId){
   if(typeof selectScene==='function')selectScene(sceneId,null,'shotbook');
   if(typeof timelineScrollToScene==='function')timelineScrollToScene(sceneId);
+  // 定位=播放头也跳到该场景起点（预览帧与时间轴一起指到用户定位的镜头）
+  if(typeof previewSeek==='function'){
+    const sc=(window.ED&&ED.comp&&ED.comp.scenes||[]).find(function(s){return s.id===sceneId;});
+    if(sc&&typeof previewPause==='function')previewPause();
+    if(sc)previewSeek(Number(sc.start)||0);
+  }
   if(typeof edShowInspector==='function')edShowInspector();
 }
 async function shotbookReloadConflict(){if(SHOTBOOK_DIRTY&&!window.confirm('重新载入会丢弃当前未保存修改。是否继续？'))return;SHOTBOOK_DIRTY=false;const button=document.getElementById('shotbook-reload-conflict');if(button)button.style.display='none';await shotbookLoad(true);}

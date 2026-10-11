@@ -108,16 +108,30 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert page.locator("#shotbook-list .sb-shot").count() == 2
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
+                # 布局契约：Shotbook 与编辑器共享同一工作区（main 布局：#editor-body
+                # 与 #editor-workspace 同属 pane-editor；不要求在 .ws-col 三栏列内）。
                 assert page.locator("#shotbook-details").evaluate(
-                    "(element) => !!element.closest('.ws-col')"
-                ), "Shotbook must live inside the shared workspace column"
+                    "(element) => !!element.closest('#editor-body') && !!document.getElementById('editor-workspace')"
+                ), "Shotbook must live inside the shared editor workspace"
 
                 page.locator(
-                    '[data-shotbook-action="locate"][data-scene-key="S002"]'
+                    '#shotbook-list [data-shotbook-action="locate"][data-scene-key="S002"]'
                 ).click()
                 page.wait_for_function(
                     "() => Math.abs((window.PV && window.PV.playhead || 0) - 1) < 0.02"
                 )
+                # 信任边界：生成分镜草案落盘（未逐镜确认）→ render_final 被服务端
+                # 409 拦截。门语义=「保存过 Shotbook 的项目须确认后成片」——
+                # 仅打开过工作台（纯 GET load）不落盘、不设门，legacy 项目兼容。
+                gen = page.evaluate("""async (projectId) => {
+                  const r = await fetch('/api/editor/shotbook', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({project_id: projectId, action: 'generate',
+                                          base_version: 0})
+                  });
+                  return {status: r.status, body: await r.json()};
+                }""", pid)
+                assert gen["body"].get("ok"), gen
                 response = page.evaluate("""async (projectId) => {
                   const result = await fetch('/api/workflows', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},

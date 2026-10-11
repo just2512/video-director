@@ -193,25 +193,24 @@ def _scan_bgm() -> list:
 
 
 def _scan_sfx() -> list:
-    """Expose real SFX IDs, tags and duration without leaking local filesystem paths."""
+    """Expose real SFX IDs, tags and duration without leaking local filesystem paths.
+
+    duration 缺失时诚实返回 null——不在列表接口里同步探测全部音效（首次冷库
+    149 个文件 × ffmpeg/ffprobe 子进程会把请求拖到 30s+，浏览器端
+    cfLoadDefaults 的 await 链整体卡死）。时长由 probe_cache/manifest 提供；
+    单项需要精确时长时由使用点按需探测。
+    """
     try:
         lib = vd_audio.scan_library()
         out = []
         for asset in lib.values():
             if asset.type != "sfx":
                 continue
-            duration = asset.duration
-            if duration is None:
-                try:
-                    asset = vd_audio.ensure_audio_duration(asset)
-                    duration = asset.duration
-                except Exception:
-                    duration = None
             out.append({
                 "id": asset.id,
                 "label": _audio_label(asset.id, asset.keywords),
                 "tags": list(asset.keywords or []),
-                "duration": duration,
+                "duration": asset.duration,
                 "available": bool(asset.file and Path(asset.file).is_file()),
             })
         return out
@@ -1209,6 +1208,12 @@ class Handler(BaseHTTPRequestHandler):
             self._registry_motions(parsed)
         elif route == "/api/template_sample/download":
             self._template_sample_download(parsed)
+        elif route == "/api/studio/catalog":
+            try:
+                from video_director.studio_catalog import build_studio_catalog
+                self._send_json(build_studio_catalog())
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
         elif route == "/api/registry/templates":
             self._registry_templates(parsed)
         elif route == "/api/registry/templates/runtime":
@@ -1416,7 +1421,6 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 from video_director import editor as vd_editor
                 from video_director import matcher as vd_matcher
-                from video_director import llm_provider as vd_llm
                 from video_director.models import AssetRef
 
                 ir = vd_editor.load_composition(pid)
@@ -1697,6 +1701,17 @@ class Handler(BaseHTTPRequestHandler):
                     if not pid:
                         self._send_json({"error": "缺少 project_id"}, 400)
                         return
+                    # 信任边界：成片渲染前要求 Shotbook 已通过服务端确认
+                    # （用过 Shotbook 的项目才受门约束；legacy 项目兼容放行）。
+                    if kind == "render_final":
+                        try:
+                            from video_director import shotbook as vd_shotbook
+                            vd_shotbook.assert_project_shotbook_confirmed(pid)
+                        except vd_shotbook.ShotbookError as exc:
+                            self._send_json(
+                                {"ok": False, "code": exc.code, "error": str(exc)},
+                                409 if exc.code in ("SHOTBOOK_NOT_CONFIRMED", "CORRUPT_PLAN") else 400)
+                            return
                     run_id = vd_wf.run_render_async(
                         pid, "draft" if kind == "render_draft" else "final")
                 else:
