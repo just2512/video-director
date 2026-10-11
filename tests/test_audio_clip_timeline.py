@@ -161,7 +161,10 @@ def test_add_audio_clip_resolves_library_asset_and_persists_editable_sfx(tmp_pat
     assert clip.start == 2.5 and clip.duration == 0.5
     assert clip.source_in == 0.0 and clip.source_out == 0.5
     assert clip.volume == 0.35 and clip.fadeIn == 0.1 and clip.fadeOut == 0.15
-    assert any(asset.id == sfx.id and asset.type == "audio" for asset in comp.assets)
+    audio_ref = next(asset for asset in comp.assets if asset.id == sfx.id)
+    assert audio_ref.type == "audio"
+    assert audio_ref.file == "audio-library://sfx-whoosh"
+    assert str(tmp_path) not in audio_ref.file
     revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
     assert len(revisions) == 1
 
