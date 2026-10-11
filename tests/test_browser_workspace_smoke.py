@@ -95,6 +95,72 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert response is not None and response.status == 200
                 assert page.title()
 
+                # Adversarial regression: the dual view must bind the physical ruler.
+                dual_scrub = page.evaluate("""() => {
+                    const pane = document.getElementById('pane-editor');
+                    const body = document.getElementById('editor-body');
+                    const timeline = document.getElementById('editor-timeline');
+                    const old = {
+                        paneDisplay: pane.style.display, bodyDisplay: body.style.display,
+                        html: timeline.innerHTML, comp: ED.comp, view: ED.timelineView,
+                        at: PLAYHEAD.at, dragging: PLAYHEAD.dragging,
+                        seek: window.previewSeek, pause: window.previewPause
+                    };
+                    try {
+                        pane.style.display = '';
+                        body.style.display = '';
+                        ED.comp = {
+                            version: 1, duration: 10, assets: {}, audio: [], watermarks: [],
+                            scenes: [{
+                                id: 'dual-smoke-scene', start: 0, duration: 10,
+                                text: 'dual timeline interaction check', layers: [{
+                                    type: 'image', asset_id: 'dual-smoke-image',
+                                    start: 0, duration: 10
+                                }]
+                            }]
+                        };
+                        ED.timelineView = 'dual';
+                        PLAYHEAD.at = 0;
+                        PLAYHEAD.dragging = false;
+                        window.previewSeek = () => {};
+                        window.previewPause = () => {};
+                        editorRenderTimeline();
+                        const scroll = timeline.querySelector('.ed-tl-scroll');
+                        if (!scroll) throw new Error('dual view did not render its physical timeline');
+                        const rect = scroll.getBoundingClientRect();
+                        if (rect.width <= 0) throw new Error('dual timeline has no interactive width');
+                        scroll.dispatchEvent(new PointerEvent('pointerdown', {
+                            bubbles: true, cancelable: true, pointerId: 41,
+                            pointerType: 'mouse', button: 0,
+                            clientX: rect.left + rect.width * 0.6, clientY: rect.top + 3
+                        }));
+                        const at = PLAYHEAD.at;
+                        document.dispatchEvent(new PointerEvent('pointerup', {
+                            bubbles: true, cancelable: true, pointerId: 41,
+                            pointerType: 'mouse', button: 0,
+                            clientX: rect.left + rect.width * 0.6, clientY: rect.top + 3
+                        }));
+                        return {
+                            at, width: rect.width,
+                            semanticRows: timeline.querySelectorAll('.ed-semantic-row').length,
+                            physicalRuler: !!timeline.querySelector('.ed-tl-scroll')
+                        };
+                    } finally {
+                        ED.comp = old.comp;
+                        ED.timelineView = old.view;
+                        PLAYHEAD.at = old.at;
+                        PLAYHEAD.dragging = old.dragging;
+                        window.previewSeek = old.seek;
+                        window.previewPause = old.pause;
+                        timeline.innerHTML = old.html;
+                        pane.style.display = old.paneDisplay;
+                        body.style.display = old.bodyDisplay;
+                    }
+                }""")
+                assert 5.0 <= dual_scrub["at"] <= 7.0, dual_scrub
+                assert dual_scrub["semanticRows"] == 1, dual_scrub
+                assert dual_scrub["physicalRuler"], dual_scrub
+
                 # User-facing template gallery must use the real registry/runtime API,
                 # expose its readiness caveats, and refuse actions until assets exist.
                 page.evaluate("openCreate()")
