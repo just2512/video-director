@@ -369,6 +369,17 @@ _ACTIONS: List[ActionSpec] = [
                targets=["scene"], undo=False, ui="move_prompt"),
     ActionSpec("ui.add_broll_prompt", "加素材层（选择素材）", "asset.add_to_timeline",
                "noop", targets=["scene"], undo=False, ui="add_broll_prompt"),
+    # ---- TalkCraft-style creative plan panel: pure UI entry actions ----
+    ActionSpec("ui.creative_plan_toggle", "打开语义拍与分镜", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_toggle"),
+    ActionSpec("ui.creative_plan_reload", "刷新语义拍与分镜", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_reload"),
+    ActionSpec("ui.creative_plan_initialize", "生成创作计划草案", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_initialize"),
+    ActionSpec("ui.creative_plan_save", "保存创作计划", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_save"),
+    ActionSpec("ui.creative_plan_validate", "检查创作计划", "system.capabilities.list",
+               "noop", targets=["project"], undo=False, ui="creative_plan_validate"),
 ]
 
 _BY_ID = {a.id: a for a in _ACTIONS}
@@ -560,6 +571,8 @@ _CONTEXT_KEYS = {
         "ui.undo", "ui.redo", "ui.save", "ui.preview_draft", "ui.render_draft",
         "ui.split_layer",
         "ui.editor_session_snap", "ui.editor_session_box",
+        "ui.creative_plan_toggle", "ui.creative_plan_reload",
+        "ui.creative_plan_initialize", "ui.creative_plan_save", "ui.creative_plan_validate",
         "ui.open_voice_settings", "ui.open_audio_bus", "ui.open_subtitle_style",
         "voice.preview_full", "voice.upload", "content.generate_script",
         "content.rewrite_script", "music.auto_match", "music.preview",

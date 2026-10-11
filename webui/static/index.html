@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="/static/css/shotbook-storyboard.css">
 <link rel="stylesheet" href="/static/css/shotbook-sfx.css">
 <link rel="stylesheet" href="/static/css/editor-enhanced.css">
+<link rel="stylesheet" href="/static/css/creative-plan.css">
 </head>
 <body>
 <div class="app-shell">
@@ -255,12 +256,27 @@
           <label style="font-size:12px;margin:0 0 0 8px">缩放</label>
           <input type="range" id="ed-zoom" min="0.5" max="2" step="0.1" value="1"
                  style="width:100px;margin:0" oninput="ED.zoom=parseFloat(this.value);editorRenderTimeline()">
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_toggle">语义拍 / 分镜</button>
           <span class="hint">连续时间轴：调时长/删除后，后续场景与关联音轨自动跟随</span>
           <input type="checkbox" id="ed-snap" checked style="display:none" aria-hidden="true">
           <span class="hint" id="editor-selection-count">未选中</span>
         </div>
         <div id="editor-storyboard" class="panel" style="padding:8px 10px"></div>
         <div id="editor-timeline"></div>
+      <div class="panel creative-plan-panel" id="creative-plan-panel" style="display:none;margin-top:10px">
+        <div class="btn-row" style="align-items:center;margin-top:0">
+          <b>语义拍与镜头计划</b>
+          <span class="hint">字级锚点 → 语义需求 → 镜头画面层</span>
+          <span class="tb-sep"></span>
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_reload">刷新</button>
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_initialize">从当前稿件生成草案</button>
+          <button class="btn-secondary btn-sm" data-action="ui.creative_plan_save">保存标注</button>
+          <button class="btn-sm" data-action="ui.creative_plan_validate">运行预检</button>
+        </div>
+        <div id="creative-plan-status" class="hint" style="margin:6px 0">打开项目后可生成语义拍与镜头计划。</div>
+        <div id="creative-plan-content"></div>
+        <div id="creative-plan-report"></div>
+      </div>
       </div>
       <div id="editor-preflight-box"></div>
     </div>
@@ -361,6 +377,7 @@
 <script src="/static/js/workspace.js"></script>
 <script src="/static/js/timeline.js"></script>
 <script src="/static/js/editor-session.js"></script>
+<script src="/static/js/creative-plan.js"></script>
 <script src="/static/js/inspector.js"></script>
 <script src="/static/js/library.js"></script>
 <script src="/static/js/asset-picker.js"></script>

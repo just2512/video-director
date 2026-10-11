@@ -43,6 +43,11 @@ const UI_BEHAVIORS = {
   add_broll_prompt: () => (typeof editorAddBrollPrompt === 'function' && editorAddBrollPrompt()),
   editor_session_snap: () => (typeof editorSessionToggleSnap === 'function' && editorSessionToggleSnap()),
   editor_session_box: () => (typeof editorSessionToggleBox === 'function' && editorSessionToggleBox()),
+  creative_plan_toggle: () => (typeof window.creativePlanToggle === 'function' && window.creativePlanToggle()),
+  creative_plan_reload: () => (typeof window.creativePlanReload === 'function' && window.creativePlanReload()),
+  creative_plan_initialize: () => (typeof window.creativePlanInitialize === 'function' && window.creativePlanInitialize()),
+  creative_plan_save: () => (typeof window.creativePlanSave === 'function' && window.creativePlanSave()),
+  creative_plan_validate: () => (typeof window.creativePlanValidate === 'function' && window.creativePlanValidate()),
   open_asset_picker: () => {
     const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
     const id = (sel && sel.id) || '';

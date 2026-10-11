@@ -1263,6 +1263,33 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/catalog/blocks/resolve" or route == "/api/graphics/blocks/resolve":
             # GFX-010 Block Resolver（POST，见 do_POST）——GET 拒绝
             self._send_json({"error": "POST only"}, 405)
+        elif route == "/api/editor/creative-plan":
+            qs = parse_qs(parsed.query)
+            pid = qs.get("project_id", [""])[0]
+            try:
+                from video_director import editor as vd_editor
+                from video_director import creative_pipeline as creative
+                pid = creative.validate_project_id(pid)
+                ir = vd_editor.load_composition(pid)
+                plan = creative.load_plan(pid)
+                if plan is None:
+                    self._send_json({"ok": True, "exists": False, "plan": None, "stale": False})
+                    return
+                fingerprints = creative.project_fingerprints(pid, ir)
+                stale_reasons = []
+                if plan.script_hash != fingerprints["script_hash"]:
+                    stale_reasons.append("稿件已变化，原语义拍/时间戳失效")
+                if plan.audio_hash and fingerprints["audio_hash"] and plan.audio_hash != fingerprints["audio_hash"]:
+                    stale_reasons.append("配音已变化，原时间戳失效")
+                self._send_json({
+                    "ok": True, "exists": True, "plan": plan.model_dump(mode="json"),
+                    "stale": bool(stale_reasons), "stale_reasons": stale_reasons,
+                    "audio_fingerprint_available": bool(fingerprints["audio_hash"]),
+                })
+            except Exception as exc:
+                from video_director.creative_pipeline import CreativePlanError
+                self._send_json({"ok": False, "error": str(exc)},
+                                400 if isinstance(exc, CreativePlanError) else 500)
         elif route == "/api/editor/composition":
             # ?project_id= → 场景/层时间线数据（Editor 页事实源）
             qs = parse_qs(parsed.query)
@@ -3520,6 +3547,87 @@ class Handler(BaseHTTPRequestHandler):
             except vd_shotbook.ShotbookError as exc:
                 self._send_json({"ok": False, "code": exc.code, "error": str(exc)},
                                 409 if exc.code == "CONFLICT" else 400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/editor/creative-plan":
+            from pydantic import ValidationError as CreativeValidationError
+            from video_director import editor as vd_editor
+            from video_director import creative_pipeline as creative
+            from video_director.creative_contracts import CreativePlan
+
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            try:
+                pid = creative.validate_project_id(payload.get("project_id", ""))
+                action = str(payload.get("action", "")).strip()
+                ir = vd_editor.load_composition(pid)
+                current = creative.load_plan(pid)
+
+                if action == "initialize":
+                    if current is not None and not payload.get("replace"):
+                        self._send_json({"ok": False, "error": "创作计划已存在；确认重建后再覆盖"}, 409)
+                        return
+                    words, source = creative.load_word_timeline(pid)
+                    fingerprints = creative.project_fingerprints(pid, ir)
+                    draft = creative.build_initial_plan(
+                        pid, ir, words, source, fingerprints["audio_hash"],
+                        version=(current.version + 1) if current else 1,
+                    )
+                    saved = creative.save_plan(draft, expected_version=current.version if current else 0)
+                    self._send_json({
+                        "ok": True, "plan": saved.model_dump(mode="json"),
+                        "alignment_source": source, "word_boundary_count": len(words),
+                    })
+                    return
+
+                if action == "save":
+                    plan = CreativePlan.model_validate(payload.get("plan"))
+                    if plan.project_id != pid:
+                        self._send_json({"ok": False, "error": "计划 project_id 与当前项目不一致"}, 400)
+                        return
+                    fingerprints = creative.project_fingerprints(pid, ir)
+                    if plan.script_hash != fingerprints["script_hash"]:
+                        self._send_json({
+                            "ok": False, "stale": True,
+                            "error": "稿件已变化；请重新生成创作草案，不能将旧标注写回新稿件",
+                        }, 409)
+                        return
+                    if plan.audio_hash and fingerprints["audio_hash"] and plan.audio_hash != fingerprints["audio_hash"]:
+                        self._send_json({
+                            "ok": False, "stale": True,
+                            "error": "配音已变化；请重新生成创作草案并重新对齐",
+                        }, 409)
+                        return
+                    expected = payload.get("expected_version")
+                    if not isinstance(expected, int):
+                        self._send_json({"ok": False, "error": "缺少 expected_version，拒绝覆盖未知版本"}, 400)
+                        return
+                    saved = creative.save_plan(plan, expected_version=expected)
+                    self._send_json({"ok": True, "plan": saved.model_dump(mode="json")})
+                    return
+
+                if action == "validate":
+                    if current is None:
+                        self._send_json({"ok": False, "error": "尚未生成创作计划"}, 404)
+                        return
+                    self._send_json({
+                        "ok": True,
+                        "report": creative.validate_creative_plan(current, ir, pid),
+                    })
+                    return
+
+                self._send_json({"ok": False, "error": "未知创作计划动作"}, 400)
+            except CreativeValidationError as exc:
+                self._send_json({"ok": False, "error": f"创作计划契约不合法：{exc}"}, 400)
+            except creative.CreativePlanError as exc:
+                status = 409 if "版本冲突" in str(exc) else 400
+                self._send_json({"ok": False, "error": str(exc)}, status)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
