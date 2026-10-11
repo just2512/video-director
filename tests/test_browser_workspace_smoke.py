@@ -96,6 +96,76 @@ def test_chromium_loads_unified_editor_workspace():
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
                 assert page.locator("#shotbook-list").count() == 1
+                assert page.locator("#shotbook-storyboard").count() == 1
+                assert page.evaluate("typeof window.shotbookPreviewScene") == "function"
+                board_result = page.evaluate("""async () => {
+                    const board = document.getElementById('shotbook-storyboard');
+                    const list = document.getElementById('shotbook-list');
+                    const status = document.getElementById('shotbook-status');
+                    const meta = document.getElementById('shotbook-meta');
+                    const note = document.getElementById('shotbook-timing-note');
+                    const gates = document.getElementById('shotbook-gates');
+                    const old = {
+                        book: SHOTBOOK, comp: ED.comp, board: board.innerHTML, list: list.innerHTML,
+                        status: status.textContent, meta: meta.textContent, note: note.textContent,
+                        gates: gates.innerHTML, mode: PV.mode, playhead: PV.playhead, playing: PV.playing,
+                        pause: window.previewPause, seek: window.previewSeek, play: window.previewPlay,
+                        locate: window.shotbookLocate
+                    };
+                    const base = {
+                        semantic_role: 'hook', visual_intent: 'establish', shot_type: 'still',
+                        shot_recipe_id: '', motion_recipe_id: '', motion_layer_target: '',
+                        overlay_text: '', evidence_ref: '', sfx_cue: '', notes: '',
+                        reviewed: false, characters: [], applied_motion_recipe_id: ''
+                    };
+                    SHOTBOOK = {
+                        project_id: 'browser-smoke', version: 4, saved: true, timing_note: 'smoke',
+                        gates: [], recipes: [], motions: [], shots: [
+                            Object.assign({}, base, {scene_id: 'smoke-shot-1', start: 0, end: 2,
+                                text: 'First visual storyboard frame',
+                                editable_layers: [{target_id:'smoke-shot-1#0',type:'image',asset_id:'test-image',locked:false}],
+                                has_bound_asset: true}),
+                            Object.assign({}, base, {scene_id: 'smoke-shot-2', start: 2, end: 5,
+                                text: 'Second visual storyboard frame', editable_layers: [], has_bound_asset: false})
+                        ]
+                    };
+                    ED.comp = {assets: { 'test-image': {type:'image', file_url:'/file?path=storybook-smoke.png'} }};
+                    shotbookRender();
+                    const result = {
+                        cards: board.querySelectorAll('.sb-board-card').length,
+                        thumbnails: board.querySelectorAll('.sb-board-thumb img').length,
+                        previewButtons: board.querySelectorAll('[data-shotbook-action="preview"]').length,
+                        firstText: board.innerText.includes('First visual storyboard frame')
+                    };
+                    const calls = [];
+                    window.previewPause = () => { calls.push('pause'); PV.playing = false; };
+                    window.previewSeek = at => { calls.push(['seek', at]); PV.mode = 'live'; PV.playhead = at; };
+                    window.previewPlay = () => { calls.push('play'); PV.playhead = 2; PV.playing = true; };
+                    window.shotbookLocate = id => calls.push(['locate', id]);
+                    PV.mode = 'live'; PV.playhead = 0; PV.playing = false;
+                    shotbookPreviewScene('smoke-shot-1');
+                    await new Promise(resolve => setTimeout(resolve, 70));
+                    result.previewCalls = calls;
+                    result.stoppedAtShotEnd = window.SB_PREVIEW_TIMER === null;
+                    if (window.SB_PREVIEW_TIMER) clearInterval(window.SB_PREVIEW_TIMER);
+                    window.SB_PREVIEW_TIMER = null;
+                    SHOTBOOK = old.book; ED.comp = old.comp;
+                    board.innerHTML = old.board; list.innerHTML = old.list;
+                    status.textContent = old.status; meta.textContent = old.meta;
+                    note.textContent = old.note; gates.innerHTML = old.gates;
+                    PV.mode = old.mode; PV.playhead = old.playhead; PV.playing = old.playing;
+                    window.previewPause = old.pause; window.previewSeek = old.seek;
+                    window.previewPlay = old.play; window.shotbookLocate = old.locate;
+                    return result;
+                }""")
+                assert board_result["cards"] == 2
+                assert board_result["thumbnails"] == 1
+                assert board_result["previewButtons"] == 2
+                assert board_result["firstText"] is True
+                assert ["seek", 0] in board_result["previewCalls"]
+                assert "play" in board_result["previewCalls"]
+                assert ["locate", "smoke-shot-1"] in board_result["previewCalls"]
+                assert board_result["stoppedAtShotEnd"] is True
                 assert page.locator("#pane-editor").count() == 1
                 assert page.locator('button[title="上一帧"]').count() == 1
                 assert page.locator('button[title="下一帧"]').count() == 1
