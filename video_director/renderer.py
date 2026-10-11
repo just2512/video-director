@@ -71,6 +71,13 @@ def _run(cmd: List[str], timeout: int = 600) -> str:
     return completed.stdout
 
 
+def _ffmpeg() -> str:
+    """FFmpeg binary resolution. Kept as the module-level entry point because
+    narration.py and the smoke tests call renderer._ffmpeg() directly; removing
+    it broke them with NameError/AttributeError chains."""
+    return prober._resolve_ffmpeg()
+
+
 def _run_capture(cmd: List[str], timeout: int = 600) -> tuple[str, str]:
     """Run an FFmpeg/ffprobe command and preserve stderr for machine-readable probe output."""
     logger.debug(f"exec-capture: {' '.join(str(c) for c in cmd[:12])}{' ...' if len(cmd) > 12 else ''}")
