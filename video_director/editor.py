@@ -305,6 +305,7 @@ SUPPORTED_COMMANDS = (
     "set_opacity",               # 层透明度（折叠为 motion opacity 近似）
     "set_style",                 # 项目级风格（§20）
     "set_transform",             # 层静态变换（scale/opacity，§20）
+    "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
     "set_audio_clip_properties", # §17 独立音频片段混音/淡入淡出
@@ -433,6 +434,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_style(ir, target_id, payload)
         elif cmd_name == "set_transform":
             changed, stale = _cmd_set_transform(ir, target_id, payload)
+        elif cmd_name == "add_audio_clip":
+            changed, stale = _cmd_add_audio_clip(ir, target_id, payload)
         elif cmd_name == "move_audio_clip":
             changed, stale = _cmd_move_audio_clip(ir, target_id, payload)
         elif cmd_name == "trim_audio_clip":
@@ -1142,6 +1145,84 @@ def _audio_clip_index(ir: CompositionIR, target_id: str) -> int:
     if index < 0 or index >= len(ir.audio):
         raise EditorError("NOT_FOUND", f"音频片段 {target_id} 不存在", recoverable=False)
     return index
+
+
+def _cmd_add_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Add a real, user-selected SFX asset as an independently editable timeline clip.
+
+    The write boundary resolves asset IDs from the trusted local audio library;
+    free-form cue text and arbitrary filesystem paths are never rendered directly.
+    """
+    if target_id != "sfx":
+        raise EditorError("INVALID_TARGET", "add_audio_clip 目前只接受 targetId=sfx")
+    asset_id = str(payload.get("assetId") or "").strip()
+    if not asset_id:
+        raise EditorError("INVALID_PAYLOAD", "必须选择音效素材 assetId")
+
+    from video_director import audio as vd_audio
+    library = vd_audio.scan_library()
+    asset = library.get(asset_id)
+    if asset is None:
+        raise EditorError("ASSET_NOT_FOUND", f"音效库不存在素材 {asset_id!r}", recoverable=False)
+    if str(asset.type).lower() != "sfx":
+        raise EditorError("ASSET_TYPE_MISMATCH", f"素材 {asset_id!r} 不是音效（SFX）", recoverable=False)
+    if not asset.file or not Path(asset.file).is_file():
+        raise EditorError("ASSET_NOT_FOUND", f"音效文件不可用：{asset_id!r}", recoverable=False)
+
+    duration_from_asset = getattr(asset, "duration", None)
+    if duration_from_asset is None:
+        try:
+            asset = vd_audio.ensure_audio_duration(asset)
+            duration_from_asset = asset.duration
+        except Exception as exc:
+            raise EditorError("ASSET_PROBE_FAILED", f"无法读取音效时长：{exc}") from exc
+    try:
+        source_duration = float(duration_from_asset)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("ASSET_PROBE_FAILED", "音效缺少有效时长") from exc
+    if not math.isfinite(source_duration) or source_duration <= 0:
+        raise EditorError("ASSET_PROBE_FAILED", "音效缺少有效时长")
+
+    def _number(key: str, default: float, minimum: float, maximum: Optional[float] = None) -> float:
+        raw = payload.get(key, default)
+        if isinstance(raw, bool):
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是有限数字")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是有限数字") from exc
+        if not math.isfinite(value) or value < minimum or (maximum is not None and value > maximum):
+            raise EditorError("INVALID_PARAMETER", f"{key} 超出允许范围")
+        return value
+
+    total = float(ir.project.duration)
+    start = _number("start", 0.0, 0.0)
+    if start >= total:
+        raise EditorError("INVALID_PARAMETER", "音效起点必须位于项目时间范围内")
+    clip_duration = _number("duration", min(source_duration, total - start), 0.01, source_duration)
+    if start + clip_duration > total + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "音效片段不能超出项目总时长")
+    volume = _number("volume", 0.6, 0.0, 2.0)
+    fade_in = _number("fadeIn", 0.0, 0.0, clip_duration)
+    fade_out = _number("fadeOut", 0.0, 0.0, clip_duration)
+
+    if not any(ref.id == asset_id for ref in ir.assets):
+        from video_director.models import AssetRef
+        ir.assets.append(AssetRef(
+            id=asset.id, type="audio", file=asset.file, duration=source_duration,
+            keywords=list(asset.keywords or []), source=asset.source,
+            license_note=asset.license_note,
+        ))
+
+    index = len(ir.audio)
+    ir.audio.append(AudioTrack(
+        type=AudioTrackType.sfx, asset_id=asset_id, start=round(start, 3),
+        duration=round(clip_duration, 3), source_in=0.0,
+        source_out=round(clip_duration, 3), volume=volume,
+        fadeIn=fade_in, fadeOut=fade_out, muted=False,
+    ))
+    key = f"audio:sfx:{index}"
+    return [key], [f"{key}:render", "project:audio:render"]
 
 
 def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
