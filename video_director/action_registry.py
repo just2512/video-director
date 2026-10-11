@@ -169,6 +169,10 @@ _ACTIONS: List[ActionSpec] = [
                aliases=["去掉水印", "移除 Logo"],
                preconditions=["has_watermark"]),
     # ---- 素材（§八/§九 Asset Picker 统一）----
+    ActionSpec("creative.select_candidate", "采用创作方案", "creative.candidate.select", "set_scene_intent",
+               targets=["scene"],
+               aliases=["采用这个方案", "用这个创作方案", "采用候选方案"],
+               preconditions=["has_selection"]),
     ActionSpec("asset.replace", "换素材", "asset.replace", "replace_source",
                targets=["scene", "layer"],
                aliases=["换画面", "换个素材", "换镜头画面"],
@@ -553,6 +557,7 @@ _CONTEXT_KEYS = {
         "render.draft", "render.final", "verify.run",
     ],
     ("scene", None): [
+        "creative.select_candidate",
         "timeline.split", "timeline.duplicate", "timeline.delete", "timeline.move",
         "ui.split_layer",
         "timeline.duration", "visual.camera",

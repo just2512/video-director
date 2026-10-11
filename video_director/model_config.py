@@ -209,10 +209,13 @@ def sync_llm_provider() -> None:
 
 
 def status_for_frontend() -> list:
-    """前端配置面板数据：每角色 label/hint/是否已配置/来源（不回传 key）。"""
+    """前端配置面板数据：角色配置 + Provider Capability Matrix（不回传 key）。"""
+    from video_director import provider_matrix
+
     out = []
     for role, d in ROLE_DEFS.items():
         cfg = get_role_config(role)
+        provider_id = provider_matrix.infer_provider(role, cfg)
         out.append({
             "role": role,
             "kind": d.get("kind", "model"),
@@ -224,5 +227,10 @@ def status_for_frontend() -> list:
             "source": cfg.get("source", "none"),
             "base_url": cfg.get("base_url") or d.get("default_base_url", ""),
             "model": cfg.get("model") or d.get("default_model", ""),
+            "provider": provider_id,
+            "capability_states": {
+                op: provider_matrix.state(role, op, cfg).status
+                for op in provider_matrix.relevant_operations(role, cfg)
+            },
         })
     return out

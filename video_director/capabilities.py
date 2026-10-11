@@ -148,8 +148,12 @@ def _check_audio_library_nonempty() -> bool:
 
 
 def _has_vision_api_key() -> bool:
-    """Vision API key 是否配置（FrameVisionProvider 主路径前提）。"""
-    return bool(os.environ.get(VISION_API_KEY_ENV))
+    """Vision 主路径是否真实可用：统一读取 Provider Capability Matrix。"""
+    try:
+        from video_director import provider_matrix
+        return provider_matrix.state("vision", "vision.frame_analyze").status == provider_matrix.READY
+    except Exception:
+        return bool(os.environ.get(VISION_API_KEY_ENV))
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +282,9 @@ def _build_renderer() -> Capability:
         runtime="service",
         note="开发参考实现（仅本机，不打包进产品）",
     )
+    # HyperFrames 目前只有配置角色，没有实际成片执行器。
+    # Provider Capability Matrix 因而明确标记为不可用，不能因填 key 就显示 READY。
     hyper_configured = False
-    try:
-        from video_director import model_config as _mc
-        hyper_configured = _mc.is_role_enabled("hyperframes")
-    except Exception:
-        hyper_configured = False
     hyper = Provider(
         name="HyperFrames（云端动效）",
         available=hyper_configured,

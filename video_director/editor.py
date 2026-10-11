@@ -345,6 +345,7 @@ SUPPORTED_COMMANDS = (
     "set_graphic_layout",         # 换布局（graphic 层 program.layout）
     "set_scene_continuity",       # 连续性修改（Scene.continuity_in + Composition links）
     "set_transition_out",         # 转场确认（Scene.transition_out）
+    "set_scene_intent",            # 采用创作候选后的 Scene 视觉意图
     "undo",
     "redo",
 )
@@ -360,6 +361,92 @@ class CommandResult:
     stale_artifacts: List[str] = field(default_factory=list)
     errors: List[dict] = field(default_factory=list)
     composition: Optional[dict] = None  # 更新后的 IR（前端重渲染时间线用）
+
+
+def _sync_candidate_views(project_id: str, ir: CompositionIR) -> None:
+    """把 IR 中的 candidate selection 同步到派生计划文件；失败不回滚已成功的 IR Command。"""
+    import json as _json
+
+    base = config.project_dir(project_id)
+    candidate_path = base / "plans" / "creative_candidates.json"
+    if not candidate_path.is_file():
+        return
+    try:
+        snapshot = _json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        logger.warning("candidate cache unreadable; IR selection remains authoritative")
+        return
+
+    selected_by_scene = {
+        sc.id: getattr(sc, "selected_candidate_id", None)
+        for sc in ir.scenes
+    }
+    for row in snapshot.get("scenes") or []:
+        sid = row.get("scene_id")
+        selected = selected_by_scene.get(sid)
+        if selected:
+            row["selected_candidate_id"] = selected
+            for candidate in row.get("candidates") or []:
+                candidate["selected"] = candidate.get("id") == selected
+
+    tmp = candidate_path.with_suffix(".tmp")
+    try:
+        tmp.write_text(_json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(candidate_path)
+    except OSError:
+        logger.warning("candidate cache write failed; IR selection remains authoritative")
+
+    intent_path = base / "plans" / "material_intents.json"
+    if not intent_path.is_file():
+        return
+    try:
+        intents = _json.loads(intent_path.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        return
+
+    for row in intents.get("scenes") or []:
+        sid = row.get("scene_id")
+        selected = selected_by_scene.get(sid)
+        if not selected:
+            continue
+        row["selected_candidate_id"] = selected
+        candidate_row = next(
+            (x for x in snapshot.get("scenes") or [] if x.get("scene_id") == sid),
+            None,
+        )
+        candidates = (candidate_row or {}).get("candidates") or []
+        candidate = next((x for x in candidates if x.get("id") == selected), None)
+        if candidate:
+            row["search_terms"] = list(candidate.get("search_terms") or [])
+            row["search_order"] = list(candidate.get("search_terms") or [])
+            row["source_preference"] = candidate.get("source_preference") or row.get("source_preference")
+            row["selection_reason"] = f"用户采用创作候选：{candidate.get('title') or selected}"
+
+    tmp2 = intent_path.with_suffix(".tmp")
+    try:
+        tmp2.write_text(_json.dumps(intents, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp2.replace(intent_path)
+    except OSError:
+        logger.warning("material intent cache write failed; IR selection remains authoritative")
+
+    plan_path = base / "plans" / "director_scene_plan.json"
+    if plan_path.is_file():
+        try:
+            plan = _json.loads(plan_path.read_text(encoding="utf-8"))
+            for row in plan.get("scenes") or []:
+                sid = row.get("id") or row.get("scene_id")
+                selected = selected_by_scene.get(sid)
+                if not selected:
+                    continue
+                row["selected_candidate_id"] = selected
+                scene = next((sc for sc in ir.scenes if sc.id == sid), None)
+                if scene:
+                    row["visual_intent"] = scene.visual_intent
+            tmp3 = plan_path.with_suffix(".tmp")
+            tmp3.write_text(_json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp3.replace(plan_path)
+        except (OSError, _json.JSONDecodeError):
+            logger.warning("scene plan cache write failed; IR selection remains authoritative")
 
 
 def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
@@ -506,6 +593,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_scene_continuity(ir, target_id, payload)
         elif cmd_name == "set_transition_out":
             changed, stale = _cmd_set_transition_out(ir, target_id, payload)
+        elif cmd_name == "set_scene_intent":
+            changed, stale = _cmd_set_scene_intent(ir, target_id, payload, project_id)
     except EditorError as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -540,6 +629,13 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         "ir_after": _snapshot_for_revision(ir),
     }
     _append_revision(project_id, revision)
+    try:
+        from video_director import artifact_graph
+        artifact_graph.mark_stale(project_id, stale)
+    except Exception as exc:  # noqa: BLE001 失效台账是旁路，不能阻断已成功的编辑命令
+        logger.debug(f"artifact manifest stale 标记失败（忽略）: {exc}")
+    if cmd_name == "set_scene_intent":
+        _sync_candidate_views(project_id, ir)
     logger.info(
         f"editor: {cmd_name} {target_id} → revision {revision_id} "
         f"(changed={changed}, stale={stale})"
@@ -572,6 +668,48 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
 # execute_command 统一 save）
 # ---------------------------------------------------------------------------
 
+
+
+def _cmd_set_scene_intent(
+    ir: CompositionIR,
+    target_id: str,
+    payload: dict,
+    project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """采用一个 Creative Candidate：改 Scene 视觉意图；选择状态随 IR 一起原子落盘。"""
+    _, scene = _find_scene(ir, target_id)
+    candidate_id = str(payload.get("candidateId") or "")
+    visual_intent = str(payload.get("visualIntent") or "").strip()
+    if not candidate_id or not visual_intent:
+        raise EditorError("INVALID_PAYLOAD", "采用候选缺 candidateId 或 visualIntent")
+
+    import json as _json
+    from video_director import creative_candidates
+
+    candidate_path = config.project_dir(project_id) / "plans" / "creative_candidates.json"
+    if not candidate_path.is_file():
+        raise EditorError("CANDIDATE_NOT_FOUND", "当前项目没有创作候选集")
+    try:
+        snapshot = _json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (_json.JSONDecodeError, OSError) as exc:
+        raise EditorError("CANDIDATE_STATE_INVALID", "创作候选集无法读取") from exc
+
+    candidate = creative_candidates.find_candidate(snapshot, scene.id, candidate_id)
+    if candidate is None:
+        raise EditorError("CANDIDATE_NOT_FOUND", f"候选 {candidate_id} 不存在")
+
+    # 只有这里修改 IR；save_composition / revision 会作为同一 Command Transaction 落盘。
+    scene.visual_intent = visual_intent
+    scene.selected_candidate_id = candidate_id
+
+    return [
+        scene.id
+    ], [
+        f"{scene.id}:render",
+        f"{scene.id}:preview",
+        "creative_candidates",
+        "material_intents",
+    ]
 
 def _cmd_replace_motion(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Motion Gallery 应用：Layer.motion_recipe_id 替换（CMP-002 复用）。"""

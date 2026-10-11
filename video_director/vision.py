@@ -132,14 +132,24 @@ class FrameVisionProvider(VisionProvider):
         )
 
     def available(self) -> bool:
-        return bool(self._api_key)
+        try:
+            from video_director import provider_matrix
+            cfg = {"api_key": self._api_key, "base_url": self._base_url, "model": self._model}
+            return provider_matrix.state("vision", "vision.frame_analyze", cfg).status == provider_matrix.READY
+        except Exception:
+            return bool(self._api_key)
 
     def analyze(self, asset: AssetRef, frame_dir: Path) -> dict:
         import base64
         import urllib.request
 
-        if not self.available():
-            raise VisionError("FrameVisionProvider 未配置 API key")
+        try:
+            from video_director import provider_matrix
+            provider_matrix.require("vision", "vision.frame_analyze", {
+                "api_key": self._api_key, "base_url": self._base_url, "model": self._model
+            })
+        except provider_matrix.ProviderCapabilityError as exc:
+            raise VisionError(str(exc)) from exc
         frames = extract_frames(asset.file, frame_dir / asset.id, frames=4)
         content = [{"type": "text", "text": ANALYZE_PROMPT.format(frame_count=len(frames))}]
         for fp in frames:

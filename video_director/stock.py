@@ -139,6 +139,14 @@ class AssetCandidate:
         }
 
 
+def _role_cfg_for_provider(provider: str) -> dict:
+    try:
+        from video_director import model_config as _mc
+        return _mc.get_role_config(f"stock_{provider}")
+    except Exception:
+        return {}
+
+
 def _api_key(provider: str) -> Optional[str]:
     """§25：设置中心优先，环境变量向后兼容。"""
     try:
@@ -307,6 +315,19 @@ def search_stock(query: str, provider: Optional[str] = None,
     results: List[StockAsset] = []
     last_error = None
     for p in providers:
+        try:
+            from video_director import provider_matrix
+            cfg = _role_cfg_for_provider(p)
+            provider_matrix.require(
+                f"stock_{p}", "stock.search_video", cfg
+            )
+        except provider_matrix.ProviderCapabilityError as exc:
+            status = "STOCK_UNAVAILABLE" if exc.state.status == provider_matrix.MISSING else "CAPABILITY_UNSUPPORTED"
+            last_error = StockError(status, str(exc))
+            logger.info(f"stock.{p}: {status}")
+            if provider:
+                raise last_error
+            continue
         # §三十 24h 缓存：命中直接用（零 API 消耗）
         cache_file = _stock_cache_path(p, norm, orientation)
         cached = _cache_get(cache_file)

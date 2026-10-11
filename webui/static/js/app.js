@@ -142,6 +142,11 @@ function renderModelRoles(){
         <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '已配置' : '未配置（走兜底）'}</span>
       </div>
       <div class="hint">${esc(r.hint)}</div>
+      <div class="hint">Provider：<b>${esc(r.provider || '未识别')}</b>${
+        r.capability_states
+          ? ' · ' + Object.entries(r.capability_states).map(([k,v]) => `${esc(k)}=${esc(v)}`).join(' · ')
+          : ''
+      }</div>
       <label>密钥（服务方提供的一串字符）</label>
       <input type="password" id="mc-${r.role}-key" placeholder="sk-…（留空=该角色走内置兜底）" value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">
       <label>服务地址（不填用默认）</label>
@@ -193,6 +198,11 @@ function renderStockRoles(){
         <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '已配置' : '未配置'}</span>
       </div>
       <div class="hint">${esc(r.hint)}</div>
+      <div class="hint">Provider：<b>${esc(r.provider || r.role || '未识别')}</b>${
+        r.capability_states
+          ? ' · ' + Object.entries(r.capability_states).map(([k,v]) => `${esc(k)}=${esc(v)}`).join(' · ')
+          : ''
+      }</div>
       <label>API Key</label>
       <input type="password" id="mc-${r.role}-key" placeholder="留空=未配置"
         value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">

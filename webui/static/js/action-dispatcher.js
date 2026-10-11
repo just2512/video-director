@@ -68,10 +68,25 @@ const UI_BEHAVIORS = {
   open_voice_settings: () => (typeof editorVoiceOpen === 'function' && editorVoiceOpen()),
   open_audio_bus: () => (typeof editorAudioBusOpen === 'function' && editorAudioBusOpen()),
   open_subtitle_style: () => (typeof editorSubtitleStyleOpen === 'function' && editorSubtitleStyleOpen()),
-  generate_scene_visual: () => {
+  generate_scene_visual: (params = {}) => {
     const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
     const sceneId = (sel && (sel.type === 'scene' ? sel.id : (sel.id || '').split('#')[0])) || '';
     if (typeof editorSceneGenerate === 'function') editorSceneGenerate(sceneId);
+    if (params.prompt) {
+      setTimeout(() => {
+        const prompt = document.getElementById('gen-prompt');
+        const type = document.getElementById('gen-type');
+        const box = document.getElementById('gen-inline-box');
+        const details = box && box.querySelector('details');
+        if (prompt) prompt.value = params.prompt;
+        if (type && params.type && ['image','video','graphic','motion'].includes(params.type)) {
+          type.value = params.type;
+          if (typeof applyGenerationAvailability === 'function') applyGenerationAvailability();
+        }
+        if (details) details.open = true;
+        if (prompt) prompt.focus();
+      }, 0);
+    }
   },
   edit_mask: () => {
     const sel = (typeof SEL !== 'undefined' && SEL.selection) || null;
@@ -84,8 +99,17 @@ const UI_BEHAVIORS = {
   },
   open_local_import: () => (typeof editorOpenAssetPicker === 'function'
     && editorOpenAssetPicker((SEL.selection && SEL.selection.id || '').split('#')[0] || '', 0, 'import')),
-  open_stock_search: () => {
+  open_stock_search: (params = {}) => {
     if (typeof edLibDomain === 'function') edLibDomain('content', 'stock');
+    if (params.query) {
+      setTimeout(() => {
+        const q = document.getElementById('ed-stock-q');
+        if (q) {
+          q.value = params.query;
+          if (typeof edLibStockSearch === 'function') edLibStockSearch();
+        }
+      }, 0);
+    }
   },
   play_full_preview: () => (typeof edVoiceFullPreview === 'function' && edVoiceFullPreview()),
   play_music_preview: () => (typeof edLibAudioTry === 'function' && edLibAudioTry('bgm-demo')),

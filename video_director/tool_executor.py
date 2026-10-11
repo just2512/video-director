@@ -103,6 +103,7 @@ _COMMAND_MAP: Dict[str, str] = {
     "layer.remove": "remove_broll",
     "asset.add_to_timeline": "add_broll",
     "asset.replace": "replace_source",
+    "creative.candidate.select": "set_scene_intent",
     "music.volume": "set_audio_volume",
     "music.duck": "set_audio_volume",
     "music.add": "set_audio_volume",
@@ -603,6 +604,22 @@ def _execute_readonly(project_id: str, tool: str, payload: dict, target_id) -> d
         except Exception as exc:
             return _result(tool, False, "QC_ERROR", error=str(exc)[:200])
     if tool in ("tts.preview_voice", "tts.preview_narration", "tts.generate"):
+        # Provider Capability Matrix：默认 edge-tts；显式选择其它 provider 时先硬校验。
+        from video_director import provider_matrix
+        tts_provider = payload.get("provider") or "edge-tts"
+        tts_gate = provider_matrix.state_for_provider(
+            tts_provider, "tts", "tts.speak",
+            {"api_key": "configured"} if tts_provider == "edge-tts" else {},
+        )
+        if tts_gate.status != provider_matrix.READY:
+            code = (
+                "CAPABILITY_UNSUPPORTED" if tts_gate.status == provider_matrix.UNSUPPORTED
+                else "PROVIDER_UNKNOWN" if tts_gate.status == provider_matrix.UNKNOWN
+                else "PROVIDER_MISSING"
+            )
+            return _result(tool, False, code, error=str(
+                provider_matrix.ProviderCapabilityError(tts_gate)
+            ))
         # §15 试听三级 Artifact：VoicePreview / NarrationPreview / Narration。
         # 全部走 edge-tts 合成到项目 audio 目录（试听产物非正式 Narration，
         # tts.generate 落 narration_preview.mp3/narration.mp3 由调用方确认后入轨）。
