@@ -655,7 +655,30 @@ class Handler(BaseHTTPRequestHandler):
                     "source_layer": loader.layer_of(it.id, it.version),
                 }
                 if kind == "style":
+                    # Generic style records remain metadata-only. Where an ID maps
+                    # to a real built-in StyleContract, expose the exact parameters
+                    # separately; do not claim the registry record is an executable pack.
                     item["runtime"] = style_runtime_report(it)
+                    item["builtin_contract"] = None
+                    if it.id.startswith("style."):
+                        try:
+                            from video_director import style as vd_style
+                            contract = vd_style.get_style(it.id[len("style."):])
+                        except Exception:
+                            contract = None
+                        if contract is not None:
+                            item["builtin_contract"] = {
+                                "style_id": contract.style_id,
+                                "subtitle_position": contract.subtitle_position,
+                                "subtitle_font_size": contract.subtitle_font_size,
+                                "subtitle_max_lines": contract.subtitle_max_lines,
+                                "image_motion_intensity": contract.image_motion_intensity,
+                                "transition_budget": contract.transition_budget,
+                                "bgm_volume": contract.bgm_volume,
+                                "sfx_density": contract.sfx_density,
+                                "application_mode": "create_style_intent",
+                                "message": "参数来自现有内置 StyleContract；选择时交给当前创作链路。独立导入风格包尚未验证。",
+                            }
                 out.append(item)
             self._send_json(out)
         except Exception as exc:
