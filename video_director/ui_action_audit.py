@@ -62,6 +62,7 @@ UI_ONLY_PREFIXES = (
     "deleteProject(", "projectAction(",
     # Create 表单收集器/预填
     "templateGalleryOpen(", "templateGalleryClose(", "templateGalleryLoad(",
+    "styleGalleryOpen(", "styleGalleryClose(", "styleGalleryLoad(",
     "templateGallerySelectByIndex(", "templateGalleryRenderSample(", "templateGalleryInstantiate(",
     "cfMakeGraphicPlan(", "cfAnalyzeReference(", "cfScanRepo(", "editorGenerate(",
     # Inspector 表单收集器（读输入框收集 → 内部 executeAction）
