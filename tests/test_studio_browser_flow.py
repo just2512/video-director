@@ -94,7 +94,20 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 first_style.click()
                 assert page.locator("#cf-style").input_value() == selected_style
                 assert page.locator("#cf-studio-template-list").inner_text().startswith("模板目录")
-                assert page.locator("[data-studio-template]").count() == 0
+                usable_templates = page.locator("[data-studio-template]")
+                assert usable_templates.count() > 0, "catalog must expose at least one genuinely instantiable built-in template"
+                selected_template = usable_templates.first.evaluate(
+                    "(el) => ({id: el.dataset.studioTemplate, version: el.dataset.templateVersion, text: el.innerText})"
+                )
+                usable_templates.first.click()
+                page.locator("#tg-mask").wait_for(state="visible")
+                page.wait_for_function(
+                    "(key) => window.TG && window.TG.selectedKey === key",
+                    arg=selected_template["id"] + "@" + selected_template["version"],
+                )
+                assert selected_template["text"] or selected_template["id"]
+                assert page.locator("#tg-detail").inner_text().find("使用自己的素材") >= 0
+                page.evaluate("templateGalleryClose()")
 
                 page.locator('#cf-panel button:has-text("关闭")').first.click()
                 page.wait_for_function(
