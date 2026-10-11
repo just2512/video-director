@@ -128,3 +128,89 @@ def test_audio_clip_inspector_is_connected_to_per_instance_command():
     assert "editorAudioClipOpen" in js
     assert "set_audio_clip_properties" in js
     assert "audio-clip-muted" in js and "audio-clip-fade-in" in js
+
+
+
+def _fake_sfx(tmp_path, asset_id="sfx-whoosh", asset_type="sfx", duration=0.8):
+    from video_director.models import AssetRef
+
+    audio_file = tmp_path / (asset_id + ".wav")
+    audio_file.write_bytes(b"test audio fixture")
+    return AssetRef(
+        id=asset_id, type=asset_type, file=str(audio_file), duration=duration,
+        keywords=["whoosh", "transition"], source="uploaded",
+        license_note="test fixture",
+    )
+
+
+def test_add_audio_clip_resolves_library_asset_and_persists_editable_sfx(tmp_path, monkeypatch):
+    from video_director import audio as vd_audio
+
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    sfx = _fake_sfx(tmp_path)
+    monkeypatch.setattr(vd_audio, "scan_library", lambda: {sfx.id: sfx})
+    result = _apply(pid, "add_audio_clip", "sfx", {
+        "assetId": sfx.id, "start": 2.5, "duration": 0.5,
+        "volume": 0.35, "fadeIn": 0.1, "fadeOut": 0.15,
+    })
+    assert result.status == "APPLIED", result.errors
+    comp = load_composition(pid)
+    clip = comp.audio[-1]
+    assert clip.type.value == "sfx"
+    assert clip.asset_id == sfx.id
+    assert clip.start == 2.5 and clip.duration == 0.5
+    assert clip.source_in == 0.0 and clip.source_out == 0.5
+    assert clip.volume == 0.35 and clip.fadeIn == 0.1 and clip.fadeOut == 0.15
+    assert any(asset.id == sfx.id and asset.type == "audio" for asset in comp.assets)
+    revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 1
+
+
+def test_add_audio_clip_rejects_path_injection_unknown_asset_and_wrong_type(tmp_path, monkeypatch):
+    from video_director import audio as vd_audio
+
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    sfx = _fake_sfx(tmp_path)
+    bgm = _fake_sfx(tmp_path, "bgm-not-sfx", asset_type="bgm")
+    monkeypatch.setattr(vd_audio, "scan_library", lambda: {sfx.id: sfx, bgm.id: bgm})
+
+    unknown = _apply(pid, "add_audio_clip", "sfx", {
+        "assetId": str(sfx.file), "start": 1.0, "duration": 0.2,
+    })
+    wrong_type = _apply(pid, "add_audio_clip", "sfx", {
+        "assetId": bgm.id, "start": 1.0, "duration": 0.2,
+    })
+    assert unknown.status == "REJECTED"
+    assert unknown.errors[0]["code"] == "ASSET_NOT_FOUND"
+    assert wrong_type.status == "REJECTED"
+    assert wrong_type.errors[0]["code"] == "ASSET_TYPE_MISMATCH"
+    assert len(load_composition(pid).audio) == 2
+    revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert revisions == []
+
+
+def test_add_audio_clip_rejects_invalid_timing_volume_and_stale_version(tmp_path, monkeypatch):
+    from video_director import audio as vd_audio
+
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    sfx = _fake_sfx(tmp_path)
+    monkeypatch.setattr(vd_audio, "scan_library", lambda: {sfx.id: sfx})
+
+    invalid = _apply(pid, "add_audio_clip", "sfx", {
+        "assetId": sfx.id, "start": 9.8, "duration": 0.5, "volume": 0.3,
+    })
+    assert invalid.status == "REJECTED"
+    assert invalid.errors[0]["code"] == "INVALID_PARAMETER"
+    bad_volume = _apply(pid, "add_audio_clip", "sfx", {
+        "assetId": sfx.id, "start": 2.0, "duration": 0.5, "volume": 3.0,
+    })
+    assert bad_volume.status == "REJECTED"
+    assert bad_volume.errors[0]["code"] == "INVALID_PARAMETER"
+    stale = _apply(pid, "add_audio_clip", "sfx", {
+        "assetId": sfx.id, "start": 2.0, "duration": 0.5, "volume": 0.3,
+    }, version=2)
+    assert stale.status == "REJECTED"
+    assert stale.errors[0]["code"] == "CONFLICT"
+    assert len(load_composition(pid).audio) == 2
+    revisions = [line for line in (plan_dir / "plans" / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert revisions == []
