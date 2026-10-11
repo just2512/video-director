@@ -30,18 +30,21 @@ def test_chromium_loads_unified_editor_workspace():
     port = _free_port()
     env = os.environ.copy()
     env.setdefault("PYTHONUNBUFFERED", "1")
-    proc = subprocess.Popen(
-        [sys.executable, str(ROOT / "webui" / "server.py"), str(port)],
-        cwd=ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
     results = ROOT / "test-results"
     results.mkdir(exist_ok=True)
     trace_path = results / "workspace-smoke-trace.zip"
     server_log = results / "workspace-smoke-server.log"
+    # stdout 落盘而不是 PIPE：服务端每个请求都打日志，不读取的 PIPE 填满
+    # 64KB 缓冲后写阻塞 → HTTP 处理线程挂死 → 前端 API 永久超时（画廊卡
+    # .tg-template-card 实测复现）。落盘保留完整日志供失败诊断。
+    log_handle = open(server_log, "wb")
+    proc = subprocess.Popen(
+        [sys.executable, str(ROOT / "webui" / "server.py"), str(port)],
+        cwd=ROOT,
+        env=env,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+    )
     deadline = time.monotonic() + 30
     ready = False
     try:
@@ -63,8 +66,11 @@ def test_chromium_loads_unified_editor_workspace():
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait(timeout=5)
-            output = proc.stdout.read() if proc.stdout else ""
-            server_log.write_text(output or "Server did not become ready within 30 seconds.", encoding="utf-8")
+            log_handle.close()
+            if not server_log.stat().st_size:
+                server_log.write_text(
+                    "Server did not become ready within 30 seconds (empty log).",
+                    encoding="utf-8")
             pytest.fail("WebUI server did not become ready; see test-results/workspace-smoke-server.log")
 
         with sync_playwright() as playwright:
@@ -434,8 +440,5 @@ def test_chromium_loads_unified_editor_workspace():
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
-        if proc.stdout:
-            output = proc.stdout.read()
-            if output:
-                server_log.write_text(output, encoding="utf-8")
+        log_handle.close()  # 日志已全程落盘，句柄收尾
 

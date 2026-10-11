@@ -72,8 +72,189 @@ def _run(cmd: List[str], timeout: int = 600) -> str:
 
 
 def _ffmpeg() -> str:
+    """FFmpeg binary resolution. Kept as the module-level entry point because
+    narration.py and the smoke tests call renderer._ffmpeg() directly; removing
+    it broke them with NameError/AttributeError chains."""
     return prober._resolve_ffmpeg()
 
+
+def _run_capture(cmd: List[str], timeout: int = 600) -> tuple[str, str]:
+    """Run an FFmpeg/ffprobe command and preserve stderr for machine-readable probe output."""
+    logger.debug(f"exec-capture: {' '.join(str(c) for c in cmd[:12])}{' ...' if len(cmd) > 12 else ''}")
+    try:
+        completed = subprocess.run(
+            [str(c) for c in cmd],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RenderError(f"媒体检查超时({timeout}s): {' '.join(map(str, cmd[:6]))}") from exc
+    if completed.returncode != 0:
+        raise RenderError(
+            f"媒体检查失败(exit={completed.returncode}): "
+            f"{(completed.stderr or '')[-1200:]}"
+        )
+    return completed.stdout or "", completed.stderr or ""
+
+
+_AUDIO_LOUDNESS_TARGET_I = -16.0
+_AUDIO_LOUDNESS_TARGET_TP = -1.5
+_AUDIO_LOUDNESS_TARGET_LRA = 11.0
+
+
+def _normalize_audio_loudness(
+    mixed_path: str,
+    normalized_path: str,
+    ffmpeg_bin: Optional[str] = None,
+) -> dict:
+    """Apply EBU R128 two-pass loudness normalization to the completed timeline mix.
+
+    Analysis runs against the mixed waveform (not individual tracks), so narration,
+    music and sound effects retain their timeline gain/fade relationships. Truly silent
+    or unmeasurable input uses FFmpeg's single-pass fallback rather than inventing
+    measurements. The output is lossless PCM until the final MP4 AAC mux.
+    """
+    import json
+    import math
+    import re
+
+    ff = ffmpeg_bin or prober._resolve_ffmpeg()
+    analysis_filter = (
+        f"loudnorm=I={_AUDIO_LOUDNESS_TARGET_I}:TP={_AUDIO_LOUDNESS_TARGET_TP}:"
+        f"LRA={_AUDIO_LOUDNESS_TARGET_LRA}:print_format=json"
+    )
+    _, stderr = _run_capture([
+        ff, "-hide_banner", "-nostats", "-i", mixed_path,
+        "-map", "0:a:0", "-af", analysis_filter, "-f", "null", "-",
+    ])
+    match = re.search(r'\{\s*"input_i".*?\}', stderr, re.S)
+    measured = None
+    if match:
+        try:
+            candidate = json.loads(match.group(0))
+            required = ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")
+            numeric = {key: float(candidate[key]) for key in required}
+            if all(math.isfinite(value) for value in numeric.values()) and numeric["input_i"] > -99:
+                measured = numeric
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            measured = None
+
+    if measured:
+        filter_expr = (
+            f"loudnorm=I={_AUDIO_LOUDNESS_TARGET_I}:TP={_AUDIO_LOUDNESS_TARGET_TP}:"
+            f"LRA={_AUDIO_LOUDNESS_TARGET_LRA}:"
+            f"measured_I={measured['input_i']:.4f}:"
+            f"measured_TP={measured['input_tp']:.4f}:"
+            f"measured_LRA={measured['input_lra']:.4f}:"
+            f"measured_thresh={measured['input_thresh']:.4f}:"
+            f"offset={measured['target_offset']:.4f}:linear=true:print_format=summary"
+        )
+        mode = "two-pass"
+    else:
+        filter_expr = (
+            f"loudnorm=I={_AUDIO_LOUDNESS_TARGET_I}:TP={_AUDIO_LOUDNESS_TARGET_TP}:"
+            f"LRA={_AUDIO_LOUDNESS_TARGET_LRA}:print_format=summary"
+        )
+        mode = "single-pass-fallback"
+        logger.warning("混音响度分析无有效测量值（静音或极低电平），使用单遍 loudnorm 保持可解码输出")
+
+    _run([
+        ff, "-y", "-hide_banner", "-loglevel", "warning",
+        "-i", mixed_path, "-map", "0:a:0", "-af", filter_expr,
+        "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le", normalized_path,
+    ])
+    report = {
+        "mode": mode,
+        "target_i_lufs": _AUDIO_LOUDNESS_TARGET_I,
+        "target_true_peak_dbtp": _AUDIO_LOUDNESS_TARGET_TP,
+        "target_lra_lu": _AUDIO_LOUDNESS_TARGET_LRA,
+    }
+    if measured:
+        report["measured_input_i_lufs"] = measured["input_i"]
+        report["measured_input_tp_dbtp"] = measured["input_tp"]
+        report["measured_input_lra_lu"] = measured["input_lra"]
+    logger.info(
+        f"audio loudness normalization: mode={mode}, "
+        f"target={_AUDIO_LOUDNESS_TARGET_I} LUFS / {_AUDIO_LOUDNESS_TARGET_TP} dBTP"
+    )
+    return report
+
+
+def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
+    """Require an audio stream, bounded media duration, and full audio+video decode."""
+    import json
+    import math
+
+    ff = prober._resolve_ffmpeg()
+    ffprobe = prober._resolve_ffprobe()
+    stream = {}
+    probe_engine = "ffprobe"
+    if ffprobe:
+        stdout, _ = _run_capture([
+            ffprobe, "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=codec_name,sample_rate,channels,duration:format=duration",
+            "-of", "json", output_path,
+        ])
+        try:
+            media = json.loads(stdout)
+            streams = media.get("streams") or []
+            if not streams:
+                raise RenderError("最终 MP4 没有音频流")
+            stream = streams[0]
+            raw_duration = stream.get("duration") or (media.get("format") or {}).get("duration")
+            audio_duration = float(raw_duration)
+            channels = int(stream.get("channels") or 0)
+            codec = str(stream.get("codec_name") or "")
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            raise RenderError(f"无法读取最终 MP4 音频流信息: {exc}") from exc
+        if not codec or channels < 1:
+            raise RenderError("最终 MP4 音频流缺少编码器或声道信息")
+    else:
+        # Portable distributions may ship ffmpeg without ffprobe. Use the project's
+        # established ffmpeg-stderr probe fallback rather than disabling final export.
+        try:
+            probe = prober.probe_media(output_path)
+        except Exception as exc:
+            raise RenderError(f"无法探测最终 MP4（ffprobe 不可用且 ffmpeg 回退失败）: {exc}") from exc
+        if not probe.has_audio_stream:
+            raise RenderError("最终 MP4 没有音频流")
+        audio_duration = float(probe.duration or 0.0)
+        codec = "unknown (ffmpeg-stderr fallback)"
+        channels = None
+        probe_engine = probe.engine
+
+    if not math.isfinite(audio_duration) or audio_duration <= 0:
+        raise RenderError("最终 MP4 的音频时长无效")
+    # AAC priming/padding may add a few milliseconds; a materially truncated track fails.
+    tolerance = max(0.35, config.RENDER_DURATION_TOLERANCE)
+    if abs(audio_duration - float(expected_duration)) > tolerance:
+        raise RenderError(
+            f"最终 MP4 音频/容器时长不匹配: actual={audio_duration:.3f}s, "
+            f"expected={float(expected_duration):.3f}s, tolerance={tolerance:.3f}s"
+        )
+
+    # Decode every mapped video frame and every audio packet through EOF; stream presence alone is insufficient.
+    _run([
+        ff, "-hide_banner", "-v", "error", "-xerror", "-err_detect", "explode", "-i", output_path,
+        "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-",
+    ])
+    report = {
+        "codec": codec,
+        "sample_rate": stream.get("sample_rate") if stream else None,
+        "channels": channels,
+        "audio_duration": audio_duration,
+        "expected_duration": float(expected_duration),
+        "probe_engine": probe_engine,
+        "full_decode": "PASS",
+    }
+    logger.info(
+        f"final mux validation: audio={codec}, channels={channels}, "
+        f"duration={audio_duration:.3f}s, probe={probe_engine}, full audio+video decode=PASS"
+    )
+    return report
 
 # ---------------------------------------------------------------------------
 # 画幅适配（cover 模式：填充裁剪，V1 video.py _fit_clip_to_canvas 同语义）
@@ -674,29 +855,40 @@ def mix_audio(
         f"alimiter=limit=0.97,apad,atrim=0:{total:.3f}[aout]"
     )
 
-    # 混音独立落盘，再与视觉流复制合并（避免一次命令里 -map 紊乱）
-    audio_tmp = out_path + ".mix.m4a"
-    _run([
-        ff, "-y", "-loglevel", "error",
-        *inputs,
-        "-filter_complex", ";".join(filters),
-        "-map", "[aout]",
-        "-c:a", "aac", "-b:a", "192k",
-        audio_tmp,
-    ])
+    # Mix to lossless PCM first; normalize the complete mix in two passes, then encode AAC once.
+    audio_tmp = out_path + ".mix.wav"
+    normalized_tmp = out_path + ".normalized.wav"
+    try:
+        _run([
+            ff, "-y", "-hide_banner", "-loglevel", "error",
+            *inputs,
+            "-filter_complex", ";".join(filters),
+            "-map", "[aout]",
+            "-c:a", "pcm_s24le", "-ar", "44100", "-ac", "2",
+            audio_tmp,
+        ])
+        loudness_report = _normalize_audio_loudness(audio_tmp, normalized_tmp, ff)
 
-    _run([
-        ff, "-y", "-loglevel", "error",
-        "-i", visual_path,
-        "-i", audio_tmp,
-        "-map", "0:v", "-map", "1:a",
-        "-c:v", "copy",
-        "-c:a", "copy",
-        "-shortest",
-        out_path,
-    ])
-    os.remove(audio_tmp)
-    return out_path
+        _run([
+            ff, "-y", "-hide_banner", "-loglevel", "error",
+            "-i", visual_path,
+            "-i", normalized_tmp,
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            out_path,
+        ])
+        mux_report = _verify_muxed_audio(out_path, total)
+        logger.info(f"final audio contract: loudness={loudness_report}; mux={mux_report}")
+        return out_path
+    finally:
+        for temp_path in (audio_tmp, normalized_tmp):
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError as exc:
+                logger.warning(f"无法清理临时音频文件 {temp_path}: {exc}")
 
 
 # ---------------------------------------------------------------------------
