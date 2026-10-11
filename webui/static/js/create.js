@@ -614,7 +614,14 @@ async function cfScanRepo(){
 async function createProject(){
   const btn = document.getElementById('cf-go');
   const scope = (document.querySelector('input[name="cf-scope"]:checked') || {}).value || 'single';
-  if (scope === 'series') return createSeriesFromCreatePanel();
+  if (scope === 'series') {
+    if (window._cfArticle) {
+      const seriesStatus = document.getElementById('cf-status');
+      if (seriesStatus) seriesStatus.textContent = '已导入的文章来源目前尚未接入系列批量 API；未提交任务。请切回“单条视频”，或移除文章来源后再批量创作。';
+      return;
+    }
+    return createSeriesFromCreatePanel();
+  }
   const status = document.getElementById('cf-status');
   const script = (document.getElementById('cf-script') || {}).value || '';
   const brief = (document.getElementById('cf-director-brief') || {}).value || '';
