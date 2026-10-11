@@ -418,6 +418,7 @@ class Handler(BaseHTTPRequestHandler):
         """GET /api/registry/templates：模板清单（Template Gallery 数据源）。"""
         try:
             from video_director.registries.templates import TemplateRegistry
+            from video_director.registries.runtime import template_runtime_report
             qs = parse_qs(parsed.query)
             category = qs.get("category", [""])[0]
             ratio = qs.get("ratio", [""])[0]
@@ -439,25 +440,222 @@ class Handler(BaseHTTPRequestHandler):
                     ],
                     "scene_count": len(t.scenes),
                     "commercial_status": t.commercial_status,
+                    "runtime": template_runtime_report(t),
                 })
             self._send_json(out)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+    def _template_sample_render(self):
+        """Render and fully decode a template sample from the user's slot inputs."""
+        import shutil as _shutil
+        import subprocess as _subprocess
+        import uuid as _uuid
+        from video_director import renderer as vd_renderer
+        from video_director.models import AssetRef
+        from video_director.registries.compiler import instantiate_template
+        from video_director.registries.runtime import template_runtime_report
+        from video_director.registries.templates import TemplateRegistry
+
+        sample_id = _uuid.uuid4().hex
+        sample_root = COMPOSER_ROOT / "template-samples"
+        sample_root.mkdir(parents=True, exist_ok=True)
+        # Keep generated sample storage bounded; only artifacts older than 72 hours expire.
+        expiry = time.time() - 72 * 60 * 60
+        for stale in sample_root.glob("*.mp4"):
+            try:
+                if stale.stat().st_mtime < expiry:
+                    stale.unlink()
+            except OSError:
+                pass
+        work_dir = sample_root / (sample_id + ".work")
+        try:
+            mp = _parse_multipart(self)
+            fields, files = mp["fields"], mp["files"]
+            template_id = (fields.get("template_id") or "").strip()
+            if not template_id:
+                self._send_json({"ok": False, "code": "MISSING_TEMPLATE_ID",
+                                 "error": "缺少 template_id"}, 400)
+                return
+            try:
+                slot_values = json.loads(fields.get("slot_values_json", "{}"))
+            except (TypeError, json.JSONDecodeError):
+                self._send_json({"ok": False, "code": "INVALID_SLOT_VALUES",
+                                 "error": "槽位数据不是合法 JSON"}, 400)
+                return
+            if not isinstance(slot_values, dict):
+                self._send_json({"ok": False, "code": "INVALID_SLOT_VALUES",
+                                 "error": "槽位数据必须是对象"}, 400)
+                return
+
+            registry = TemplateRegistry()
+            try:
+                template = registry.get(template_id, fields.get("template_version") or None)
+            except Exception as exc:
+                self._send_json({"ok": False, "code": "TEMPLATE_NOT_FOUND",
+                                 "error": str(exc)}, 404)
+                return
+            runtime = template_runtime_report(template)
+            if not runtime["can_render"]:
+                self._send_json({"ok": False, "code": "RUNTIME_BLOCKED",
+                                 "error": "当前模板的运行依赖/能力门禁未通过，未生成假样片。",
+                                 "runtime": runtime}, 422)
+                return
+            from video_director.registries.runtime import template_input_issues
+            uploaded_slots = {
+                item["name"][:-5] for item in files
+                if (item.get("name") or "").endswith("_file") and item.get("data")
+            }
+            input_issues = template_input_issues(template, slot_values, uploaded_slots)
+            if input_issues:
+                self._send_json({
+                    "ok": False, "code": "REQUIRED_INPUT_MISSING",
+                    "error": "必填槽位未完成，尚未运行样片。",
+                    "missing_inputs": input_issues, "runtime": runtime,
+                }, 400)
+                return
+
+            assets = {}
+            asset_dir = work_dir / "inputs"
+            asset_dir.mkdir(parents=True, exist_ok=True)
+            for item in files:
+                field_name = item.get("name") or ""
+                if not field_name.endswith("_file"):
+                    continue
+                slot_key = field_name[:-5]
+                original = item.get("filename") or "slot.bin"
+                safe = re.sub(r"[^\w.\-]+", "_", Path(original).name).strip("._") or "slot.bin"
+                dest = asset_dir / (slot_key + "-" + safe)
+                dest.write_bytes(item.get("data") or b"")
+                probe = vd_prober.probe_media(str(dest))
+                is_image = safe.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp"))
+                if not is_image and not probe.has_video_stream:
+                    raise ValueError(f"槽位 {slot_key} 不是可用图片/视频素材：{original}")
+                aid = f"sample-asset-{len(assets) + 1:02d}"
+                assets[aid] = AssetRef(
+                    id=aid, type="image" if is_image else "video",
+                    file=str(dest), duration=probe.duration,
+                    width=probe.width, height=probe.height, fps=probe.fps,
+                    source="uploaded",
+                )
+                slot_values[slot_key] = aid
+
+            if not assets:
+                self._send_json({"ok": False, "code": "MISSING_SAMPLE_ASSET",
+                                 "error": "样片验证至少需要上传一个模板图片/视频素材。",
+                                 "runtime": runtime}, 400)
+                return
+
+            ir = instantiate_template(
+                template_id, fields.get("template_version") or None,
+                fields.get("ratio") or "9:16", slot_values, assets, "sample-" + sample_id[:12],
+            )
+            render_dir = work_dir / "render"
+            result = vd_renderer.render_composition(ir, assets, render_dir)
+            final_mp4 = Path(result.final_path)
+            if not final_mp4.is_file() or final_mp4.stat().st_size < 1024:
+                raise RuntimeError("渲染器未生成有效 MP4 文件。")
+            probe = vd_prober.probe_media(str(final_mp4))
+            if not probe.has_video_stream or not probe.duration or probe.duration <= 0:
+                raise RuntimeError("输出容器缺少有效视频流或时长。")
+            ffmpeg = vd_prober._resolve_ffmpeg()
+            if not ffmpeg:
+                raise RuntimeError("无法解析 FFmpeg，不能进行完整解码验证。")
+            decoded = _subprocess.run(
+                [ffmpeg, "-v", "error", "-i", str(final_mp4), "-f", "null", "-"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=300,
+            )
+            if decoded.returncode != 0:
+                raise RuntimeError("MP4 完整解码失败：" + (decoded.stderr or "")[-900:])
+
+            published = sample_root / (sample_id + ".mp4")
+            _shutil.copy2(final_mp4, published)
+            runtime["sample_render"] = "PASS"
+            runtime["sample_mp4"] = {
+                "decode": "PASS",
+                "duration_seconds": round(float(probe.duration), 3),
+                "width": probe.width,
+                "height": probe.height,
+                "bytes": published.stat().st_size,
+            }
+            self._send_json({
+                "ok": True, "sample_id": sample_id,
+                "template_id": template.id, "template_version": template.version,
+                "download_url": "/api/template_sample/download?id=" + sample_id,
+                "runtime": runtime,
+                "message": "真实渲染和 MP4 完整解码均通过；文字动效等未实现项仍按 runtime.warnings 列明。",
+            })
+        except Exception as exc:
+            self._send_json({"ok": False, "code": "SAMPLE_RENDER_FAILED",
+                             "error": str(exc)}, 422)
+        finally:
+            _shutil.rmtree(work_dir, ignore_errors=True)
+
+    def _template_sample_download(self, parsed):
+        """Download only a sample MP4 created by the sample-render endpoint."""
+        import shutil as _shutil
+        qs = parse_qs(parsed.query)
+        sample_id = (qs.get("id", [""])[0] or "").strip()
+        if not re.fullmatch(r"[a-f0-9]{32}", sample_id):
+            self._send_json({"ok": False, "error": "样片 ID 格式无效"}, 400)
+            return
+        root = (COMPOSER_ROOT / "template-samples").resolve()
+        target = (root / (sample_id + ".mp4")).resolve()
+        if target.parent != root or not target.is_file():
+            self._send_json({"ok": False, "error": "样片不存在或已清理"}, 404)
+            return
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Disposition", f'attachment; filename="template-sample-{sample_id[:8]}.mp4"')
+            self.send_header("Content-Length", str(target.stat().st_size))
+            self.end_headers()
+            with target.open("rb") as stream:
+                _shutil.copyfileobj(stream, self.wfile)
+        except (BrokenPipeError, ConnectionError):
+            pass
+
+    def _registry_template_runtime(self, parsed):
+        """GET /api/registry/templates/runtime：可执行前置条件报告。"""
+        try:
+            from video_director.registries.templates import TemplateRegistry
+            from video_director.registries.runtime import template_runtime_report
+            qs = parse_qs(parsed.query)
+            only_id = (qs.get("id", [""])[0] or "").strip()
+            reports = []
+            for template in TemplateRegistry().all():
+                if only_id and template.id != only_id:
+                    continue
+                reports.append(template_runtime_report(template))
+            if only_id and not reports:
+                self._send_json({"ok": False, "code": "TEMPLATE_NOT_FOUND",
+                                 "error": f"未找到模板：{only_id}"}, 404)
+                return
+            self._send_json({"ok": True, "templates": reports})
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, 500)
+
     def _generic_registry(self, parsed, kind: str):
         """GET /api/registry/{transitions|styles|...}：§三十四 通用 Registry 清单。"""
         try:
             from video_director.registries.core import LayeredRegistryLoader
+            from video_director.registries.runtime import style_runtime_report
             sub = GENERIC_REGISTRY_SUBDIR[kind]
             loader = LayeredRegistryLoader(kind, sub)
-            out = [{
-                "id": it.id, "version": it.version, "name": it.name,
-                "kind": it.kind, "tags": list(it.tags),
-                "description": it.description,
-                "commercial_status": it.commercial_status,
-                "provenance_ref": it.provenance_ref,
-                "source_layer": loader.layer_of(it.id, it.version),
-            } for it in loader.load_all()]
+            out = []
+            for it in loader.load_all():
+                item = {
+                    "id": it.id, "version": it.version, "name": it.name,
+                    "kind": it.kind, "tags": list(it.tags),
+                    "description": it.description,
+                    "commercial_status": it.commercial_status,
+                    "provenance_ref": it.provenance_ref,
+                    "source_layer": loader.layer_of(it.id, it.version),
+                }
+                if kind == "style":
+                    item["runtime"] = style_runtime_report(it)
+                out.append(item)
             self._send_json(out)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
@@ -928,8 +1126,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/registry/motions":
             self._registry_motions(parsed)
+        elif route == "/api/template_sample/download":
+            self._template_sample_download(parsed)
         elif route == "/api/registry/templates":
             self._registry_templates(parsed)
+        elif route == "/api/registry/templates/runtime":
+            self._registry_template_runtime(parsed)
         elif route in GENERIC_REGISTRY_KINDS:
             self._generic_registry(parsed, GENERIC_REGISTRY_KINDS[route])
         elif route == "/api/style_dna/behaviors":
@@ -2707,6 +2909,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        if parsed.path == "/api/templates/sample_render":
+            self._template_sample_render()
+            return
+
         if parsed.path == "/api/templates/instantiate":
             # 模板试用：Template → Composition → 建项目（可编辑实例，非 MP4）
             # multipart：template_id/ratio/slot_values_json 文本域 + <slot>_file 文件域
@@ -2724,6 +2930,28 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 import uuid as _uuid
                 from video_director.registries import compiler as vd_compiler
+                from video_director.registries.runtime import template_runtime_report
+                from video_director.registries.templates import TemplateRegistry
+                tpl = TemplateRegistry().get(template_id, fields.get("template_version") or None)
+                runtime = template_runtime_report(tpl)
+                if not runtime["can_instantiate"]:
+                    self._send_json({"ok": False, "code": "RUNTIME_BLOCKED",
+                                     "error": "模板运行前置条件未通过，未创建无法兑现的项目。",
+                                     "runtime": runtime}, 422)
+                    return
+                from video_director.registries.runtime import template_input_issues
+                uploaded_slots = {
+                    item["name"][:-5] for item in files
+                    if (item.get("name") or "").endswith("_file") and item.get("data")
+                }
+                input_issues = template_input_issues(tpl, slot_values, uploaded_slots)
+                if input_issues:
+                    self._send_json({
+                        "ok": False, "code": "REQUIRED_INPUT_MISSING",
+                        "error": "必填槽位未完成，尚未创建项目。",
+                        "missing_inputs": input_issues,
+                    }, 400)
+                    return
                 pid = "tpl-" + _uuid.uuid4().hex[:8]
                 base = vd_config.project_dir(pid)
                 dirs = vd_config.init_project_dirs(base)

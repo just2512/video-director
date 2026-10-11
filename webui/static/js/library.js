@@ -205,11 +205,22 @@ async function edLibLoad(){
       window.TPLS = tpls;
       const q = ((document.getElementById('ed-lib-search')||{}).value || '').toLowerCase();
       const list = tpls.filter(t => !q || (t.name + t.id).toLowerCase().includes(q));
-      box.innerHTML = list.map(t =>
-        `<div class="proj-row"><span><b>${esc(t.name)}</b>`+
-        `<span class="hint">画幅 ${t.supported_ratios.join('/')} · ${t.scene_count} 场景</span></span>`+
-        `<button class="btn-secondary btn-sm" onclick="edLibOpenTemplate('${esc(t.id)}')">试用</button></div>`).join('')
-        || '<div class="hint">无匹配模板</div>';
+      box.innerHTML = list.map(t => {
+        const rt = t.runtime || {};
+        const status = rt.status || 'UNKNOWN';
+        const label = status === 'BLOCKED' ? '不可执行' :
+          (status === 'PARTIAL' ? '可生成样片 · 部分效果未实现' :
+          (status === 'READY' ? '运行前检查通过' : '状态未知'));
+        const notes = [...(rt.blockers || []), ...(rt.warnings || [])]
+          .map(x => x.message).filter(Boolean).slice(0, 2).join('；');
+        const statusClass = status === 'BLOCKED' ? 'cap-off' :
+          (status === 'PARTIAL' ? 'cap-warn' : 'cap-ok');
+        return `<div class="proj-row"><span><b>${esc(t.name)}</b>`+
+          `<span class="hint">画幅 ${t.supported_ratios.join('/')} · ${t.scene_count} 场景</span>`+
+          `<span class="${statusClass}">${esc(label)}</span>`+
+          (notes ? `<span class="hint">${esc(notes)}</span>` : '')+`</span>`+
+          `<button class="btn-secondary btn-sm" onclick="edLibOpenTemplate('${esc(t.id)}')">${status === 'BLOCKED' ? '查看原因' : '试用'}</button></div>`;
+      }).join('') || '<div class="hint">无匹配模板</div>';
     } else if (sub === 'motions') {
       if (!SEL.selection || SEL.selection.type !== 'layer') {
         box.innerHTML = '<div class="hint">先在时间线选中一个图层，再换动效。</div>'; return;
@@ -398,14 +409,76 @@ function edLibOpenTemplate(tid){
       ? `<input type="file" id="tpl-slot-${s.id}" accept=".mp4,.jpg,.jpeg,.png,.webp,.mov">`
       : `<input type="text" id="tpl-slot-${s.id}" placeholder="填入${esc(s.label)}">`)
   ).join('');
+  const rt = t.runtime || {};
+  const blocked = rt.status === 'BLOCKED';
+  const rtLabel = blocked ? '当前环境不可执行' :
+    (rt.status === 'PARTIAL' ? '可渲染静态样片；部分模板动效尚未实现' : '运行前检查通过');
+  const rtNotes = [...(rt.blockers || []), ...(rt.warnings || [])]
+    .map(x => x.message).filter(Boolean);
+  const rtBoxClass = blocked ? 'err-box' : (rt.status === 'PARTIAL' ? 'hint' : 'cap-ok');
   box.innerHTML = `<div><b>试用模板：${esc(t.name)}</b>`+
+    `<div class="${rtBoxClass}" id="tpl-runtime-status"><b>${esc(rtLabel)}</b>`+
+    (rtNotes.length ? `<ul>${rtNotes.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '')+
+    `<div class="hint">依赖状态/模板绑定不等于渲染证据。需运行样片并完成 MP4 全解码，才会显示 PASS。</div></div>`+
     `<label>画幅</label><select id="tpl-ratio">${ratioOpts}</select>`+slotInputs+
-    `<div class="btn-row"><button class="btn" onclick="instantiateTemplate('${t.id}')">生成可编辑项目</button>`+
+    `<div class="btn-row"><button class="btn" onclick="instantiateTemplate('${t.id}')"${blocked?' disabled':''}>生成可编辑项目</button>`+
+    `<button class="btn-secondary" onclick="renderTemplateSample('${t.id}')"${blocked?' disabled':''}>运行样片并验证 MP4</button>`+
     `<button class="btn-secondary btn-sm" onclick="edLibSub('templates')">返回模板列表</button></div>`+
-    `<div class="hint" id="tpl-status"></div></div>`;
+    `<div class="hint" id="tpl-status"></div><div id="tpl-sample-result"></div></div>`;
 }
+async function renderTemplateSample(tid){
+  const t = TPLS.find(x=>x.id===tid);
+  if (!t) { editorToast('模板不存在，请刷新模板清单', true); return; }
+  const rt = t.runtime || {};
+  if (rt.status === 'BLOCKED') { editorToast('模板运行前置检查未通过，不能伪造样片', true); return; }
+  const status = document.getElementById('tpl-status');
+  const resultBox = document.getElementById('tpl-sample-result');
+  if (status) status.textContent = '正在运行真实 FFmpeg 样片并完整解码 MP4……';
+  if (resultBox) resultBox.innerHTML = '';
+  const slotValues = {};
+  for (const s of t.slots) {
+    const el = document.getElementById('tpl-slot-' + s.id);
+    if (!el || el.type === 'file') continue;
+    if (el.value.trim()) slotValues[s.id] = el.value.trim();
+  }
+  const fd = new FormData();
+  fd.append('template_id', tid);
+  fd.append('template_version', t.version);
+  fd.append('ratio', document.getElementById('tpl-ratio').value);
+  fd.append('slot_values_json', JSON.stringify(slotValues));
+  for (const s of t.slots) {
+    const el = document.getElementById('tpl-slot-' + s.id);
+    if (el && el.type === 'file' && el.files.length) fd.append(s.id + '_file', el.files[0], el.files[0].name);
+  }
+  try {
+    const r = await apiUpload('/api/templates/sample_render', fd);
+    if (!r.ok) {
+      if (status) status.textContent = (r.error || '样片验证失败');
+      if (resultBox) {
+        const details = [
+          ...(r.missing_inputs || []),
+          ...((r.runtime && r.runtime.blockers) || []),
+          ...((r.runtime && r.runtime.warnings) || []),
+        ].map(x => x.message).filter(Boolean);
+        resultBox.innerHTML = details.map(x => `<div class="hint">${esc(x)}</div>`).join('');
+      }
+      return;
+    }
+    const m = r.runtime && r.runtime.sample_mp4 || {};
+    if (status) status.textContent =
+      `MP4 验证 PASS · ${m.duration_seconds || '?'} 秒 · ${m.width || '?'}×${m.height || '?'} · ${m.bytes || '?'} 字节`;
+    if (resultBox) resultBox.innerHTML =
+      `<a href="${esc(r.download_url)}">下载已验证的样片 MP4</a>`+
+      `<div class="hint">视频完整解码：PASS。模板运行状态：${esc(r.runtime.status)}；未实现的效果见上方提示。</div>`+
+      [...(r.runtime.warnings || [])].map(x => `<div class="hint">${esc(x.message || '')}</div>`).join('');
+  } catch (error) {
+    if (status) status.textContent = '样片验证失败：' + (error.message || error);
+  }
+}
+
 async function instantiateTemplate(tid){
   const t = TPLS.find(x=>x.id===tid);
+  if (!t) { editorToast('模板不存在，请刷新模板清单', true); return; }
   const slotValues = {};
   for (const s of t.slots) {
     const el = document.getElementById('tpl-slot-' + s.id);
@@ -415,6 +488,7 @@ async function instantiateTemplate(tid){
   }
   const fd = new FormData();
   fd.append('template_id', tid);
+  fd.append('template_version', t.version);
   fd.append('ratio', document.getElementById('tpl-ratio').value);
   fd.append('slot_values_json', JSON.stringify(slotValues));
   for (const s of t.slots) {
@@ -428,6 +502,11 @@ async function instantiateTemplate(tid){
     workspaceOpen(r.project_id);  // §56 pollUntil 确定性等待（不再 setTimeout 赌运气）
   } else {
     document.getElementById('tpl-status').textContent = (r.error || '生成失败');
+    const resultBox = document.getElementById('tpl-sample-result');
+    if (resultBox && r.missing_inputs) {
+      resultBox.innerHTML = r.missing_inputs
+        .map(x => `<div class="hint">${esc(x.message || '')}</div>`).join('');
+    }
   }
 }
 

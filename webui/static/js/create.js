@@ -298,8 +298,9 @@ async function createLoadDefaults(){
     const styles = await apiGet('/api/registry/styles');
     if (Array.isArray(styles) && styles.length) {
       const box = document.getElementById('cf-style-presets');
-      box.innerHTML = '<span>风格：</span>' + styles.slice(0, 5).map(s =>
-        `<button class="btn-secondary btn-sm" onclick="document.getElementById('cf-style').value='${esc(s.name)}'" title="${esc(s.description || '')}">${esc(s.name)}</button>`).join('');
+      box.innerHTML = '<span>风格参考：</span>' + styles.slice(0, 5).map(s =>
+        `<button class="btn-secondary btn-sm" onclick="document.getElementById('cf-style').value='${esc(s.name)}'" title="${esc((s.description || '') + '；这是创作参考元数据，不是已经验证可执行的风格包。')}">${esc(s.name)}</button>`).join('') +
+        '<span class="hint">这些是创作参考描述，不是已验证可执行的风格包。</span>';
     }
   } catch (e) { /* 预设失败不阻塞 */ }
 }

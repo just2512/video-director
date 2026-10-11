@@ -45,7 +45,7 @@ UI_ONLY_PREFIXES = (
     "editorMultiOriginalVolume(", "edVoicePreview(", "edVoiceFullPreview(",
     "edVoiceRegenerate(", "edVoiceReplaceUpload(", "edVoiceReplaceApply(",
     "edVoiceTry(", "edLibAudioTry(", "edLibStockSearch(", "assetPickerStockSearch(",
-    "assetPickerStockDownload(", "edLibOpenTemplate(", "instantiateTemplate(",
+    "assetPickerStockDownload(", "edLibOpenTemplate(", "instantiateTemplate(", "renderTemplateSample(",
     "pickerPreviewStage(", "pickerApply(", "pickerCancel(",
     "maskEditorSave(", "maskEditorCancel(", "maskEditorUndo(", "maskEditorRedo(",
     "editorToggleLock(", "editorRunMatting(", "editorRemoveKeyframe(",

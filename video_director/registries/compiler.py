@@ -25,6 +25,7 @@ from video_director.models import (
     ProjectSpec,
     SceneIR,
     TransitionOut,
+    WatermarkLayer,
 )
 from video_director.registries.core import RegistryError
 from video_director.registries.recipes import (
@@ -274,6 +275,10 @@ def instantiate_template(
             )
 
     scenes: List[SceneIR] = []
+    # Text slots in template grammar must become visible runtime objects, not
+    # merely scene metadata. The current FFmpeg renderer supports static timed
+    # text overlays; motion requests remain visible as PARTIAL in runtime readiness.
+    template_text_overlays: List[WatermarkLayer] = []
     cursor = 0.0
     for tsc in tpl.scenes:
         scene_id = f"{project_id[:12]}-{tsc.id}"
@@ -362,16 +367,53 @@ def instantiate_template(
             )
         # 模板层的 motion_recipe_id 应用（覆盖 shot recipe 默认）
         for tlay in tsc.layers:
-            if tlay.motion_recipe_id:
-                for i, ilayer in enumerate(scene.layers):
-                    try:
-                        scene.layers[i] = apply_motion_to_layer(
-                            ilayer, tlay.motion_recipe_id
-                        )
-                        break
-                    except CompileError as exc:
-                        if exc.code != "LAYER_INCOMPATIBLE":
-                            raise
+            if not tlay.motion_recipe_id or tlay.type not in ("image", "video"):
+                # Text/title currently compile to timed WatermarkLayer overlays;
+                # applying their motion recipe to the first image was a semantic
+                # mismatch (e.g. word-relay could overwrite the hero image motion).
+                # Runtime readiness reports these requested text motions as PARTIAL.
+                continue
+            bound_asset_id = slot_values.get(tlay.slot_id or "")
+            if bound_asset_id not in assets:
+                continue
+            for i, ilayer in enumerate(scene.layers):
+                if ilayer.asset_id != bound_asset_id:
+                    continue
+                try:
+                    scene.layers[i] = apply_motion_to_layer(
+                        ilayer, tlay.motion_recipe_id
+                    )
+                    break
+                except CompileError as exc:
+                    if exc.code != "LAYER_INCOMPATIBLE":
+                        raise
+        # Compile template text layers into real, time-ranged overlays. This is
+        # deliberately limited to static text; a requested motion is not simulated
+        # and is reported separately by runtime readiness instead of being faked.
+        for text_index, tlay in enumerate(tsc.layers):
+            if tlay.type not in ("text", "title") or not tlay.slot_id:
+                continue
+            value = slot_values.get(tlay.slot_id)
+            if not isinstance(value, str) or not value.strip() or value in assets:
+                continue
+            slot_name = tlay.slot_id.lower()
+            if slot_name in ("title", "brand_name", "cta_text", "chapter_title"):
+                anchor, scale, offset_y = "center", 1.55, (text_index - 0.5) * 64
+            elif slot_name in ("subtitle", "body_text", "selling_points"):
+                anchor, scale, offset_y = "bottom_left", 1.15, -text_index * 48
+            else:
+                anchor, scale, offset_y = "bottom_right", 1.15, -text_index * 48
+            template_text_overlays.append(WatermarkLayer(
+                id=f"tpl-{tsc.id}-{tlay.id}",
+                kind="text",
+                text=value.strip(),
+                anchor=anchor,
+                scale=scale,
+                offset_y=int(offset_y),
+                start=cursor,
+                duration=scene_duration,
+                opacity=0.95,
+            ))
         scenes.append(scene)
         cursor += scene_duration
 
@@ -381,6 +423,7 @@ def instantiate_template(
                              fps=config.DEFAULT_FPS, duration=total),
         style_id=tpl.style_contract.get("style_id"),
         scenes=scenes,
+        watermarks=template_text_overlays,
         origin_template_id=tpl.id,
         origin_template_version=tpl.version,
     )
