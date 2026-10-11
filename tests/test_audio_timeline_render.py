@@ -258,3 +258,28 @@ def test_real_ffmpeg_loudness_normalization_mux_and_full_decode(tmp_path, monkey
     integrated_lufs = float(measured["input_i"])
     assert math.isfinite(integrated_lufs)
     assert -18.0 <= integrated_lufs <= -14.0, integrated_lufs
+
+
+def test_loudness_normalization_uses_explicit_fallback_for_unmeasurable_audio(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        renderer, "_run_capture",
+        lambda _cmd, timeout=600: ("", '''{
+          "input_i": "-inf",
+          "input_tp": "-inf",
+          "input_lra": "0.00",
+          "input_thresh": "-70.00",
+          "target_offset": "inf"
+        }'''),
+    )
+    monkeypatch.setattr(renderer, "_run", lambda cmd: calls.append(list(cmd)))
+
+    report = renderer._normalize_audio_loudness(
+        str(tmp_path / "silent.wav"), str(tmp_path / "normalized.wav"), "ffmpeg"
+    )
+    assert report["mode"] == "single-pass-fallback"
+    assert len(calls) == 1
+    filter_expr = calls[0][calls[0].index("-af") + 1]
+    assert "loudnorm=I=-16.0:TP=-1.5:LRA=11.0" in filter_expr
+    assert "measured_I=" not in filter_expr
+    assert calls[0][-1].endswith("normalized.wav")
