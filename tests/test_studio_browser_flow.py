@@ -398,71 +398,101 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
 
                 # Real Chromium interaction: a horizontal drag inside the main picture
                 # lane uses the drop time, not the pointer's vertical half of the target bar.
-                horizontal_layer_drag = page.evaluate("""async () => {
-                  const original = {
+                horizontal_drag_setup = page.evaluate("""() => {
+                  window.__horizontalDragOriginal = {
                     comp: ED.comp, view: ED.timelineView, zoom: ED.zoom,
                     executeCommand: window.executeCommand,
                     refreshWorkspace: window.refreshWorkspace,
                     editorToast: window.editorToast
                   };
-                  const commands = [];
-                  try {
-                    const comp = JSON.parse(JSON.stringify(original.comp));
-                    comp.duration = 10;
-                    comp.assets = {
-                      "drag-a": {id:"drag-a",type:"image",name:"Clip A",file:"/a.png",duration:2},
-                      "drag-b": {id:"drag-b",type:"image",name:"Clip B",file:"/b.png",duration:1},
-                      "drag-c": {id:"drag-c",type:"image",name:"Clip C",file:"/c.png",duration:3}
-                    };
-                    comp.scenes[0].start = 0;
-                    comp.scenes[0].duration = 6;
-                    comp.scenes[0].layers = [
-                      {type:"image",asset_id:"drag-a",start:0,duration:2},
-                      {type:"image",asset_id:"drag-b",start:2,duration:1},
-                      {type:"image",asset_id:"drag-c",start:3,duration:3}
-                    ];
-                    if (comp.scenes[1]) {
-                      comp.scenes[1].start = 6;
-                      comp.scenes[1].duration = 4;
-                    }
-                    ED.comp = comp;
-                    ED.timelineView = "dual";
-                    // Keep the target time reachable in Chromium even with a wide timeline.
-                    ED.zoom = 0.5;
-                    window.executeCommand = async command => {
-                      commands.push(command);
-                      return {ok:false,error:"captured by browser regression"};
-                    };
-                    window.refreshWorkspace = async () => {};
-                    window.editorToast = () => {};
-                    editorRenderTimeline();
-                    const source = document.querySelector('.ed-layer[data-scene="' + comp.scenes[0].id + '"][data-idx="0"]');
-                    const body = source && source.closest('.ed-scene').querySelector('.ed-scene-body');
-                    if (!source || !body) return {error:"main clip or scene body missing", commands};
-                    const sourceRect = source.getBoundingClientRect();
-                    const bodyRect = body.getBoundingClientRect();
-                    const x = sourceRect.left + sourceRect.width / 2;
-                    const y = sourceRect.top + sourceRect.height / 2;
-                    const dropX = bodyRect.left + bodyRect.width * 0.92;
-                    if (dropX < 0 || dropX >= window.innerWidth) {
-                      return {error:"time drop is outside the visible Chromium viewport", commands, dropX, viewportWidth:window.innerWidth, bodyRect:{left:bodyRect.left,width:bodyRect.width}};
-                    }
-                    source.dispatchEvent(new PointerEvent("pointerdown", {bubbles:true,cancelable:true,pointerId:91,button:0,clientX:x,clientY:y}));
-                    document.dispatchEvent(new PointerEvent("pointermove", {bubbles:true,cancelable:true,pointerId:91,buttons:1,clientX:dropX,clientY:y}));
-                    document.dispatchEvent(new PointerEvent("pointerup", {bubbles:true,cancelable:true,pointerId:91,button:0,clientX:dropX,clientY:y}));
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                    return {commands, expectedToIndex:2};
-                  } finally {
-                    ED.comp = original.comp;
-                    ED.timelineView = original.view;
-                    ED.zoom = original.zoom;
-                    window.executeCommand = original.executeCommand;
-                    window.refreshWorkspace = original.refreshWorkspace;
-                    window.editorToast = original.editorToast;
-                    editorRenderTimeline();
+                  const original = window.__horizontalDragOriginal;
+                  const comp = JSON.parse(JSON.stringify(original.comp));
+                  comp.duration = 10;
+                  comp.assets = {
+                    "drag-a": {id:"drag-a",type:"image",name:"Clip A",file:"/a.png",duration:2},
+                    "drag-b": {id:"drag-b",type:"image",name:"Clip B",file:"/b.png",duration:1},
+                    "drag-c": {id:"drag-c",type:"image",name:"Clip C",file:"/c.png",duration:3}
+                  };
+                  comp.scenes[0].start = 0;
+                  comp.scenes[0].duration = 6;
+                  comp.scenes[0].layers = [
+                    {type:"image",asset_id:"drag-a",start:0,duration:2},
+                    {type:"image",asset_id:"drag-b",start:2,duration:1},
+                    {type:"image",asset_id:"drag-c",start:3,duration:3}
+                  ];
+                  if (comp.scenes[1]) {
+                    comp.scenes[1].start = 6;
+                    comp.scenes[1].duration = 4;
                   }
+                  ED.comp = comp;
+                  ED.timelineView = "dual";
+                  ED.zoom = 0.5;
+                  window.__horizontalDragCommands = [];
+                  window.executeCommand = async command => {
+                    window.__horizontalDragCommands.push(command);
+                    return {ok:false,error:"captured by browser regression"};
+                  };
+                  window.refreshWorkspace = async () => {};
+                  window.editorToast = () => {};
+                  editorRenderTimeline();
+
+                  // Scope the source clip to the physical timeline canvas. Semantic
+                  // storyboard rows are not draggable timeline clips.
+                  const canvas = document.querySelector("#editor-timeline .ed-tl-canvas");
+                  const selector = '.ed-layer[data-scene="' + comp.scenes[0].id + '"][data-idx="0"]';
+                  const source = canvas && canvas.querySelector(selector);
+                  const scene = source && source.closest(".ed-scene");
+                  const body = scene && scene.querySelector(".ed-scene-body");
+                  if (!source || !body) return {error:"physical main clip or scene body missing"};
+                  const sr = source.getBoundingClientRect(), br = body.getBoundingClientRect();
+                  const x = sr.left + sr.width / 2;
+                  const y = sr.top + sr.height / 2;
+                  const dropX = br.left + br.width * 0.92;
+                  const dropTarget = document.elementFromPoint(dropX, y);
+                  if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight ||
+                      dropX < 0 || dropX >= innerWidth || y < 0 || y >= innerHeight) {
+                    return {error:"real mouse drag coordinates are outside viewport",
+                      x,y,dropX,viewport:{width:innerWidth,height:innerHeight}};
+                  }
+                  return {
+                    x,y,dropX,viewport:{width:innerWidth,height:innerHeight},
+                    sourceRect:{left:sr.left,top:sr.top,width:sr.width,height:sr.height},
+                    bodyRect:{left:br.left,top:br.top,width:br.width,height:br.height},
+                    sceneRect:(() => { const r=scene.getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}; })(),
+                    dropTarget:dropTarget ? {tag:dropTarget.tagName,className:String(dropTarget.className)} : null
+                  };
                 }""")
-                assert "error" not in horizontal_layer_drag, horizontal_layer_drag
+                try:
+                    assert "error" not in horizontal_drag_setup, horizontal_drag_setup
+                    # Use Playwright's real Chromium mouse input rather than dispatching
+                    # synthetic PointerEvents on document. This exercises pointer capture,
+                    # hit testing, and the same event path used by a person dragging a clip.
+                    page.mouse.move(horizontal_drag_setup["x"], horizontal_drag_setup["y"])
+                    page.mouse.down()
+                    page.mouse.move(horizontal_drag_setup["dropX"], horizontal_drag_setup["y"], steps=12)
+                    page.mouse.up()
+                    page.wait_for_timeout(50)
+                    captured_commands = page.evaluate("window.__horizontalDragCommands || []")
+                    horizontal_layer_drag = {
+                        "commands": captured_commands,
+                        "expectedToIndex": 2,
+                        "geometry": horizontal_drag_setup,
+                    }
+                finally:
+                    page.evaluate("""() => {
+                      const original = window.__horizontalDragOriginal;
+                      if (original) {
+                        ED.comp = original.comp;
+                        ED.timelineView = original.view;
+                        ED.zoom = original.zoom;
+                        window.executeCommand = original.executeCommand;
+                        window.refreshWorkspace = original.refreshWorkspace;
+                        window.editorToast = original.editorToast;
+                      }
+                      delete window.__horizontalDragOriginal;
+                      delete window.__horizontalDragCommands;
+                      editorRenderTimeline();
+                    }""")
                 assert horizontal_layer_drag["commands"], horizontal_layer_drag
                 assert horizontal_layer_drag["commands"][0]["command"] == "reorder_layer", horizontal_layer_drag
                 assert horizontal_layer_drag["commands"][0]["payload"]["toIndex"] == 2, horizontal_layer_drag
