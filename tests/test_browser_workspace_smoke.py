@@ -583,10 +583,14 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 # Overlay clips must be visually identifiable and the Inspector's
                 # cut-at-playhead control must reach the versioned Editor Command API.
                 overlay_ui = page.evaluate("""() => {
+                    ED.comp.visual_tracks = [
+                        {id:'overlay-main', name:'画面叠加', order:0},
+                        {id:'vtrack-ui-smoke', name:'证据画面', order:1}
+                    ];
                     ED.comp.visual_overlays = [{
-                        id: 'overlay-ui-smoke', asset_id: 'img', start: 2, duration: 4,
-                        source_in: 0, x: 0.65, y: 0.1, width: 0.3, height: 0.3,
-                        opacity: 1, z_index: 0
+                        id: 'overlay-ui-smoke', asset_id: 'img', track_id:'overlay-main',
+                        start: 2, duration: 4, source_in: 0, x: 0.65, y: 0.1,
+                        width: 0.3, height: 0.3, opacity: 1, z_index: 0
                     }];
                     ED.comp.assets.img.type = 'image';
                     ED.comp.assets.img.thumbnail_url = '/overlay-smoke-thumb.svg';
@@ -595,6 +599,8 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     const clip = document.querySelector('#editor-timeline .ed-visual-overlay-clip');
                     return {
                         count: document.querySelectorAll('#editor-timeline .ed-visual-overlay-clip').length,
+                        trackRows: document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').length,
+                        defaultTrack: clip && clip.closest('.ed-track').dataset.visualTrackId,
                         thumbnail: clip && clip.querySelector('img.ed-clip-thumb')?.getAttribute('src'),
                         label: clip && clip.querySelector('.ed-track-clip-label')?.textContent
                     };
@@ -602,6 +608,8 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert overlay_ui["count"] == 1
                 assert overlay_ui["thumbnail"] == "/overlay-smoke-thumb.svg"
                 assert overlay_ui["label"] == "Still"
+                assert overlay_ui["trackRows"] == 2
+                assert overlay_ui["defaultTrack"] == "overlay-main"
 
                 page.route(
                     "**/overlay-smoke-thumb.svg",
@@ -610,7 +618,24 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                         body='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="24"><rect width="40" height="24" fill="#284b63"/></svg>',
                     ),
                 )
-                overlay_clip = page.locator("#editor-timeline .ed-visual-overlay-clip")
+                source_clip = page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-visual-overlay-clip')
+                target_track = page.locator('#editor-timeline .ed-track[data-visual-track-id="vtrack-ui-smoke"] .ed-track-body')
+                source_box = source_clip.bounding_box()
+                target_box = target_track.bounding_box()
+                assert source_box and target_box
+                captured_commands.clear()
+                page.mouse.move(source_box["x"] + source_box["width"] * 0.55, source_box["y"] + source_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(source_box["x"] + source_box["width"] * 0.55, target_box["y"] + target_box["height"] / 2, steps=5)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                cross_track_cmd = next((c for c in captured_commands if c.get("command") == "move_visual_overlay"), None)
+                assert cross_track_cmd is not None, "dragging a visual clip to another track did not POST move_visual_overlay"
+                assert cross_track_cmd["payload"]["trackId"] == "vtrack-ui-smoke"
+                # The test endpoint rejects edits, so the original track remains the source of truth.
+                assert page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-visual-overlay-clip').count() == 1
+
+                overlay_clip = page.locator("#editor-timeline .ed-track[data-visual-track-id='overlay-main'] .ed-visual-overlay-clip")
                 overlay_clip.scroll_into_view_if_needed()
                 overlay_clip.click()
                 inspector = page.locator("#visual-overlay-inspector-mask")
