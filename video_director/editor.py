@@ -1571,8 +1571,11 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
     """
     index = _visual_overlay_index(ir, target_id)
     clip = ir.visual_overlays[index]
+    raw_at = payload.get("at")
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "split_visual_overlay 的 at 不能是布尔值")
     try:
-        at = float(payload.get("at"))
+        at = float(raw_at)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "split_visual_overlay 需要数字 at") from exc
 
@@ -1585,11 +1588,12 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
             "切分播放头必须位于叠加片段内部，且切分两侧至少保留 0.05 秒",
         )
 
-    # Quantize once, then derive both sides from the same boundary so there is
-    # neither a gap nor overlap after persistence/round-trip.
+    # Snap the cut boundary once to millisecond precision, but derive both
+    # durations from the unrounded original interval. This avoids accumulating
+    # a gap/overlap when old project IR contains sub-millisecond timestamps.
     split_at = round(at, 3)
-    left_duration = round(split_at - start, 3)
-    right_duration = round(end - split_at, 3)
+    left_duration = split_at - start
+    right_duration = end - split_at
     if left_duration < minimum_half or right_duration < minimum_half:
         raise EditorError(
             "SPLIT_OUTSIDE_CLIP",
@@ -1598,7 +1602,7 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
 
     asset = next((item for item in ir.assets if item.id == clip.asset_id), None)
     is_video = bool(asset and str(getattr(asset.type, "value", asset.type)).lower() == "video")
-    right_source_in = round(float(clip.source_in) + left_duration, 3) if is_video else float(clip.source_in)
+    right_source_in = float(clip.source_in) + left_duration if is_video else float(clip.source_in)
     if is_video and asset:
         source_duration = float(asset.duration or 0.0)
         if source_duration > 0 and right_source_in + right_duration > source_duration + 0.05:
