@@ -618,6 +618,33 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                         body='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="24"><rect width="40" height="24" fill="#284b63"/></svg>',
                     ),
                 )
+                create_track_button = page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] button[title="新增画面轨道"]')
+                assert create_track_button.count() == 1
+                captured_commands.clear()
+                create_track_button.click()
+                create_mask = page.locator("#visual-track-create-mask")
+                create_mask.wait_for(timeout=3000)
+                create_mask.get_by_role("button", name="创建轨道").click()
+                page.wait_for_timeout(100)
+                add_track_cmd = next((c for c in captured_commands if c.get("command") == "add_visual_track"), None)
+                assert add_track_cmd is not None, "create track UI did not POST add_visual_track"
+                assert add_track_cmd["targetId"] == "visual-tracks"
+                assert add_track_cmd["payload"]["name"] == "画面轨 3"
+                assert create_mask.count() == 1  # rejected response must not pretend that the track was created
+                create_mask.get_by_role("button", name="关闭").click()
+
+                main_track_row = page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"]')
+                main_track_row.locator('button[title="轨道名称、顺序与删除"]').click()
+                track_menu = page.locator("#visual-track-menu-mask")
+                track_menu.wait_for(timeout=3000)
+                captured_commands.clear()
+                track_menu.get_by_role("button", name="上移一层").click()
+                page.wait_for_timeout(100)
+                reorder_cmd = next((c for c in captured_commands if c.get("command") == "reorder_visual_track"), None)
+                assert reorder_cmd is not None, "track menu did not POST reorder_visual_track"
+                assert reorder_cmd["targetId"] == "overlay-main"
+                assert reorder_cmd["payload"]["toIndex"] == 1
+
                 source_clip = page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-visual-overlay-clip')
                 target_track = page.locator('#editor-timeline .ed-track[data-visual-track-id="vtrack-ui-smoke"] .ed-track-body')
                 source_box = source_clip.bounding_box()
