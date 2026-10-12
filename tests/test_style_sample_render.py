@@ -93,6 +93,36 @@ def test_native_style_sample_renders_valid_mp4_without_mutating_project(tmp_path
         assert len(mp4) > 1024, len(mp4)
         after = hashlib.sha256(editor.load_composition(pid).model_dump_json().encode("utf-8")).hexdigest()
         assert after == before, "sample rendering mutated the saved project CompositionIR"
+
+        # Exercise the user-visible path, not just the HTTP handler.
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page.set_default_timeout(120000)
+            page_errors = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            try:
+                page.goto(base, wait_until="networkidle")
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                assert opened and opened.get("ok"), opened
+                page.locator("#tb-style-sample").click()
+                button = page.locator('[data-style-sample="style.documentary-calm"]')
+                button.wait_for(state="visible")
+                button.click()
+                page.wait_for_selector("#sg-sample-result video")
+                page.wait_for_function(
+                    "() => document.querySelector('#sg-status')?.textContent.includes('完整解码均通过')",
+                    timeout=120000,
+                )
+                src = page.locator("#sg-sample-result video").get_attribute("src")
+                assert src and src.startswith("/api/style_sample/download?id="), src
+                assert "已实际应用：" in page.locator("#sg-sample-result").inner_text()
+                assert "本版尚未应用" in page.locator("#sg-sample-result").inner_text()
+                assert not page_errors, page_errors
+            finally:
+                page.close()
+                browser.close()
     finally:
         server.shutdown()
         server.server_close()
