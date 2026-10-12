@@ -1218,3 +1218,24 @@ def test_source_track_insert_extends_actual_tail_layer_when_scene_layers_are_uno
     assert saved.scenes[0].duration == pytest.approx(12.0)
     layers = saved.scenes[0].layers
     assert [(layer.start, layer.duration) for layer in layers] == [(5.0, 7.0), (0.0, 5.0)]
+
+
+def test_source_track_insert_preserves_single_frame_at_24_fps(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    ir = load_composition(pid)
+    ir.project = ir.project.model_copy(update={"fps": 24})
+    save_composition(pid, ir)
+
+    one_frame = 1.0 / 24.0
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": one_frame, "duration": one_frame,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    clip = next(item for item in saved.visual_overlays if item.track_id == "overlay-main")
+    assert clip.start == pytest.approx(0.041667, abs=1e-7)
+    assert clip.duration == pytest.approx(0.041667, abs=1e-7)
+    assert saved.project.duration == pytest.approx(10.041667, abs=1e-6)
+    assert saved.scenes[0].duration == pytest.approx(10.041667, abs=1e-6)

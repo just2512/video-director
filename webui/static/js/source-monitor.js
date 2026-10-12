@@ -183,7 +183,7 @@ function editorSourceMonitorMarkIn() {
     return;
   }
   const at = _smFrameTime(video.currentTime);
-  _smNode("ed-source-in").value = at.toFixed(3);
+  _smNode("ed-source-in").value = at.toFixed(6);
   _smStatus("源入点已标记：" + at.toFixed(3) + "s。", false);
 }
 function editorSourceMonitorMarkOut() {
@@ -193,7 +193,7 @@ function editorSourceMonitorMarkOut() {
     return;
   }
   const at = _smFrameTime(video.currentTime);
-  _smNode("ed-source-out").value = at.toFixed(3);
+  _smNode("ed-source-out").value = at.toFixed(6);
   _smStatus("源出点已标记：" + at.toFixed(3) + "s。", false);
 }
 async function editorSourceMonitorAddToTimeline() {
