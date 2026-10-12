@@ -400,7 +400,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 # lane uses the drop time, not the pointer's vertical half of the target bar.
                 horizontal_layer_drag = page.evaluate("""async () => {
                   const original = {
-                    comp: ED.comp, view: ED.timelineView,
+                    comp: ED.comp, view: ED.timelineView, zoom: ED.zoom,
                     executeCommand: window.executeCommand,
                     refreshWorkspace: window.refreshWorkspace,
                     editorToast: window.editorToast
@@ -427,6 +427,8 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     }
                     ED.comp = comp;
                     ED.timelineView = "dual";
+                    // Keep the target time reachable in Chromium even with a wide timeline.
+                    ED.zoom = 0.5;
                     window.executeCommand = async command => {
                       commands.push(command);
                       return {ok:false,error:"captured by browser regression"};
@@ -442,6 +444,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     const x = sourceRect.left + sourceRect.width / 2;
                     const y = sourceRect.top + sourceRect.height / 2;
                     const dropX = bodyRect.left + bodyRect.width * 0.92;
+                    if (dropX < 0 || dropX >= window.innerWidth) {
+                      return {error:"time drop is outside the visible Chromium viewport", commands, dropX, viewportWidth:window.innerWidth, bodyRect:{left:bodyRect.left,width:bodyRect.width}};
+                    }
                     source.dispatchEvent(new PointerEvent("pointerdown", {bubbles:true,cancelable:true,pointerId:91,button:0,clientX:x,clientY:y}));
                     document.dispatchEvent(new PointerEvent("pointermove", {bubbles:true,cancelable:true,pointerId:91,buttons:1,clientX:dropX,clientY:y}));
                     document.dispatchEvent(new PointerEvent("pointerup", {bubbles:true,cancelable:true,pointerId:91,button:0,clientX:dropX,clientY:y}));
@@ -450,6 +455,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   } finally {
                     ED.comp = original.comp;
                     ED.timelineView = original.view;
+                    ED.zoom = original.zoom;
                     window.executeCommand = original.executeCommand;
                     window.refreshWorkspace = original.refreshWorkspace;
                     window.editorToast = original.editorToast;
