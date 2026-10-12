@@ -794,20 +794,21 @@ function _tlBindLayerDrag(){
     }
     // A layer drag must never invoke the scene-reorder command.
     // Same-scene drop reorders visual segments; cross-scene drop without a track is rejected.
+    const targetScene = hit && hit.closest ? hit.closest('#editor-timeline .ed-scene') : null;
     const targetLayer = hit && hit.closest ? hit.closest('#editor-timeline .ed-layer') : null;
-    if (targetLayer && targetLayer.dataset.scene === d.sceneId) {
+    if (targetScene && targetScene.dataset.scene === d.sceneId) {
       const scene = ED.comp.scenes.find(s => s.id === d.sceneId);
       if (!scene || !Array.isArray(scene.layers) || !scene.layers.length) return;
       const dx = ev.clientX - d.startX;
       const dy = ev.clientY - (d.startY ?? ev.clientY);
-      const targetSceneEl = targetLayer.closest('.ed-scene');
-      const sceneBody = targetSceneEl && targetSceneEl.querySelector('.ed-scene-body');
+      const sceneBody = targetScene.querySelector('.ed-scene-body');
       const bodyRect = sceneBody && sceneBody.getBoundingClientRect();
-      // Inside the main-picture lane, horizontal drags mean ripple-reorder by the
-      // requested time position; vertical drags keep the existing before/after drop
-      // behavior. SceneIR remains contiguous, so this is the native main-track mode.
+      // The main picture row is a time target, not only a set of existing clip
+      // hitboxes. Users must be able to drop at the requested time even when the
+      // pointer lands on padding/empty lane space rather than another clip element.
+      // Vertical drops retain before/after semantics and therefore need a target clip.
       const horizontalTimeDrop = d.mode === 'move' && Math.abs(dx) > 8
-        && Math.abs(dy) <= Math.max(12, targetLayer.getBoundingClientRect().height * 0.5)
+        && Math.abs(dy) <= Math.max(12, d.el.getBoundingClientRect().height * 0.5)
         && bodyRect && bodyRect.width > 0;
       let toIndex;
       if (horizontalTimeDrop) {
@@ -821,6 +822,7 @@ function _tlBindLayerDrag(){
         toIndex = timeTargetIndex + (afterTarget ? 1 : 0);
         if (d.idx < toIndex) toIndex -= 1;
       } else {
+        if (!targetLayer || targetLayer.dataset.scene !== d.sceneId) return;
         const rect = targetLayer.getBoundingClientRect();
         const targetIdx = Number.parseInt(targetLayer.dataset.idx, 10);
         toIndex = targetIdx + (ev.clientY > rect.top + rect.height / 2 ? 1 : 0);
@@ -833,7 +835,6 @@ function _tlBindLayerDrag(){
         .then(r => editorToast(r && r.ok ? '片段顺序已更新' : '片段顺序未更改：' + ((r && r.error) || '请检查片段'), !(r && r.ok)));
       return;
     }
-    const targetScene = hit && hit.closest ? hit.closest('#editor-timeline .ed-scene') : null;
     if (targetScene && targetScene.dataset.scene !== d.sceneId) {
       editorToast('未更改：当前分镜要求内部片段无缝铺满；跨分镜移动需要独立物理轨道，不能用重排分镜代替。', true);
     }
