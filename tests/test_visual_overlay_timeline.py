@@ -1395,8 +1395,11 @@ def test_detach_overlay_reuses_exact_matching_original_audio_without_duplicating
 
     result = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
     assert result.status == "APPLIED", result.errors
+    assert result.composition_version == 2
     saved = load_composition(pid)
-    assert saved.version == 2
+    # CompositionIR.version is the schema version; edit revisions are tracked
+    # separately by result.composition_version / revisions.jsonl.
+    assert saved.version == 1
     assert len(saved.audio) == 1
     assert saved.audio[0].id == "existing-source-audio"
     assert saved.audio[0].type == AudioTrackType.original
