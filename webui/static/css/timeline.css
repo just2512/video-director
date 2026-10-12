@@ -96,6 +96,18 @@
 }
 .audio-clip-inspector .audio-clip-check input { width: 16px; height: 16px; }
 .audio-clip-inspector footer { justify-content: flex-end; margin-top: 18px; }
+.audio-clip-split-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.audio-clip-split-row .hint { flex: 1; line-height: 1.45; }
+.audio-clip-split-row button { flex: 0 0 auto; }
+.audio-clip-split-row button:disabled { opacity: .55; cursor: not-allowed; }
 
 
 /* Subtitle cues share the CompositionIR time ruler; clip edges trim cue timing. */
