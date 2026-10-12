@@ -611,6 +611,67 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert overlay_ui["trackRows"] == 2
                 assert overlay_ui["defaultTrack"] == "overlay-main"
 
+                # Live preview and FFmpeg export must agree on visual-track stacking.
+                # A lower track with a high local z_index must still sit below a higher track.
+                preview_order = page.evaluate("""() => {
+                    const stage = document.getElementById('ed-preview-stage');
+                    if (!stage) return {available:false};
+                    let media = stage.querySelector('.pv-live-media');
+                    let createdMedia = false;
+                    if (!media) {
+                        media = document.createElement('div');
+                        media.className = 'pv-live-media';
+                        media.style.width = '400px';
+                        media.style.height = '220px';
+                        stage.appendChild(media);
+                        createdMedia = true;
+                    }
+                    const saved = {
+                        tracks: ED.comp.visual_tracks, overlays: ED.comp.visual_overlays,
+                        mode: PV.mode, fileUrl: ED.comp.assets.img.file_url
+                    };
+                    try {
+                        ED.comp.assets.img.type = 'image';
+                        ED.comp.assets.img.file_url = '/overlay-smoke-thumb.svg';
+                        PV.mode = 'live';
+                        ED.comp.visual_tracks = [
+                            {id:'overlay-main', name:'底层', order:0},
+                            {id:'vtrack-ui-smoke', name:'上层', order:1}
+                        ];
+                        ED.comp.visual_overlays = [
+                            {id:'bottom-high-z',asset_id:'img',track_id:'overlay-main',start:2,duration:4,
+                             source_in:0,x:0.1,y:0.1,width:0.3,height:0.3,opacity:1,z_index:100},
+                            {id:'top-low-z',asset_id:'img',track_id:'vtrack-ui-smoke',start:2,duration:4,
+                             source_in:0,x:0.1,y:0.1,width:0.3,height:0.3,opacity:1,z_index:-100}
+                        ];
+                        _previewRenderVisualOverlays(3);
+                        const read = () => [...media.querySelectorAll('[data-overlay-index]')].map(node => ({
+                            index:Number(node.dataset.overlayIndex), z:Number(node.style.zIndex)
+                        }));
+                        const initial = read();
+                        ED.comp.visual_tracks = [
+                            {id:'overlay-main', name:'底层', order:1},
+                            {id:'vtrack-ui-smoke', name:'上层', order:0}
+                        ];
+                        _previewRenderVisualOverlays(3);
+                        const reordered = read();
+                        return {available:true,initial,reordered};
+                    } finally {
+                        ED.comp.visual_tracks = saved.tracks;
+                        ED.comp.visual_overlays = saved.overlays;
+                        ED.comp.assets.img.file_url = saved.fileUrl;
+                        PV.mode = saved.mode;
+                        const host = media.querySelector('.pv-live-overlays');
+                        if (host) host.remove();
+                        if (createdMedia) media.remove();
+                    }
+                }""")
+                assert preview_order["available"] is True
+                assert [c["index"] for c in preview_order["initial"]] == [0, 1]
+                assert preview_order["initial"][1]["z"] > preview_order["initial"][0]["z"]
+                assert [c["index"] for c in preview_order["reordered"]] == [1, 0]
+                assert preview_order["reordered"][1]["z"] > preview_order["reordered"][0]["z"]
+
                 page.route(
                     "**/overlay-smoke-thumb.svg",
                     lambda route: route.fulfill(
