@@ -78,7 +78,7 @@ UI_ONLY_PREFIXES = (
     "editorAudioVolume(", "editorSubtitleStyleOpen(",
     "editorAudioClipOpen(", "editorAudioClipApply(", "editorAudioClipClose(", "editorAudioClipSplit(",
     "editorAudioTrackAdd(", "editorAudioTrackMenu(", "editorAudioTrackMenuClose(",
-    "editorAudioTrackApplyName(", "editorAudioTrackRemove(", "editorSubtitleCueSelect(",
+    "editorAudioTrackApplyName(", "editorAudioTrackRemove(", "editorAudioTrackToggleLock(", "editorSubtitleCueSelect(",
     "editorWatermarkClipOpen(", "editorWatermarkClipApply(", "editorWatermarkClipClose(",
     "edxSelectScene(", "edxDirectorEdit(", "edxMaterialMatch(", "edxApplyMaterialMatch(",
     "edxProposeTransitions(", "edxApproveTransition(", "edxRejectTransition(",
@@ -88,7 +88,7 @@ UI_ONLY_PREFIXES = (
     "editorVisualOverlayPick(", "editorPromoteLayerToTrack(",
     "editorVisualTrackCreate(", "editorVisualTrackCreateClose(", "editorVisualTrackConfirm(",
     "editorVisualTrackMenu(", "editorVisualTrackMenuClose(", "editorVisualTrackMove(",
-    "editorVisualTrackRename(", "editorVisualTrackRemove(",
+    "editorVisualTrackRename(", "editorVisualTrackRemove(", "editorVisualTrackToggleLock(",
     # §46 任务中心抽屉（WorkflowRun 渲染层 UI 开关）
     "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(",
     # §52 配置导入导出（设置表单）

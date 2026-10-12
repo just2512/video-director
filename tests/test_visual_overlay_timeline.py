@@ -889,3 +889,77 @@ def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_pat
     assert saved.scenes[0].layers[0].type == LayerType.video
     assert saved.visual_overlays == []
     assert saved.project.duration == 1.0
+
+
+
+def test_locked_visual_track_rejects_add_move_trim_split_property_and_delete(tmp_path, monkeypatch):
+    pid, plans = _editor_project(tmp_path, monkeypatch)
+    added = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 2.0, "duration": 3.0,
+    }, 1)
+    assert added.status == "APPLIED", added.errors
+    locked = _apply(pid, "set_track_locked", "overlay-main", {"trackType": "visual", "locked": True}, 2)
+    assert locked.status == "APPLIED", locked.errors
+    assert locked.composition_version == 3
+    original = load_composition(pid).visual_overlays[0].model_dump(mode="json")
+    assert next(track for track in load_composition(pid).visual_tracks if track.id == "overlay-main").locked is True
+
+    attempts = [
+        ("move_visual_overlay", "overlay#0", {"start": 3.0}),
+        ("trim_visual_overlay", "overlay#0", {"start": 2.5, "sourceIn": 0.0, "duration": 2.0}),
+        ("split_visual_overlay", "overlay#0", {"at": 3.5}),
+        ("set_visual_overlay", "overlay#0", {"opacity": 0.4}),
+        ("remove_visual_overlay", "overlay#0", {}),
+        ("add_visual_overlay", "overlays", {"assetId": "overlay-image", "start": 1.0, "duration": 1.0, "trackId": "overlay-main"}),
+    ]
+    for command, target, payload in attempts:
+        result = _apply(pid, command, target, payload, version=3)
+        assert result.status == "REJECTED", (command, result.status, result.errors)
+        assert result.errors[0]["code"] == "TRACK_LOCKED", (command, result.errors)
+        assert result.composition_version == 3, (command, result.composition_version)
+        assert load_composition(pid).visual_overlays[0].model_dump(mode="json") == original
+
+    revisions = [line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 2, "only the add and lock commands should create revisions"
+
+
+def test_legacy_visual_track_defaults_to_unlocked_and_lock_controls_are_accessible():
+    import copy
+    from pathlib import Path
+    from tests.fixtures.fixture_data import RECIPE_PROJECT
+    from video_director.models import CompositionIR
+
+    comp = CompositionIR(**copy.deepcopy(RECIPE_PROJECT["composition"]))
+    dumped = comp.model_dump(mode="json")
+    for track in dumped.get("visual_tracks", []):
+        track.pop("locked", None)
+    migrated = CompositionIR.model_validate(dumped)
+    assert all(track.locked is False for track in migrated.visual_tracks)
+
+    root = Path(__file__).resolve().parents[1]
+    timeline = (root / "webui/static/js/timeline.js").read_text(encoding="utf-8")
+    visual_ui = (root / "webui/static/js/visual-overlay-editor.js").read_text(encoding="utf-8")
+    audit = (root / "video_director/ui_action_audit.py").read_text(encoding="utf-8")
+    assert 'aria-pressed="${t.locked ?' in timeline
+    assert "editorVisualTrackToggleLock(event" in timeline
+    assert "set_track_locked" in visual_ui
+    assert "editorVisualTrackToggleLock(" in audit
+
+
+
+def test_add_edit_all_tracks_skips_locked_visual_overlay_but_cuts_other_tracks(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    added = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 2.0, "duration": 4.0,
+    }, 1)
+    assert added.status == "APPLIED", added.errors
+    locked = _apply(pid, "set_track_locked", "overlay-main", {"trackType": "visual", "locked": True}, 2)
+    assert locked.status == "APPLIED", locked.errors
+
+    result = _apply(pid, "add_edit_all_tracks", "timeline", {"at": 3.0}, 3)
+    assert result.status == "APPLIED", result.errors
+    assert any("TRACK_LOCKED" in warning for warning in result.warnings), result.warnings
+    comp = load_composition(pid)
+    assert len(comp.visual_overlays) == 1
+    assert (comp.visual_overlays[0].start, comp.visual_overlays[0].duration) == (2.0, 4.0)
+    assert len(comp.scenes[0].layers) == 2, "unlocked main picture still receives the add edit"

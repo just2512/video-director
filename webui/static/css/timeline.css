@@ -153,3 +153,12 @@
 .ed-subtitle-cue::before { left: 0; }
 .ed-subtitle-cue::after { right: 0; }
 .ed-subtitle-cue.tl-dragging { opacity: .78; }
+
+/* FilmCraft-style track lock: visible state, clips remain selectable for inspection. */
+.ed-track-lock { min-width: 24px; padding: 2px 4px; line-height: 1; flex: 0 0 auto; }
+.ed-track-lock::before { content: "🔓"; }
+.ed-track-lock[aria-pressed="true"]::before { content: "🔒"; }
+.ed-track-locked .ed-track-label { border-left: 2px solid var(--border, #737373); }
+.ed-track-locked .ed-track-body { opacity: .78; }
+.ed-track-locked .ed-track-clip { cursor: not-allowed; }
+.ed-audio-track-label .ed-track-lock { margin-inline: 1px; }
