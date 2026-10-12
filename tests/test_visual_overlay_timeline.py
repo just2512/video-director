@@ -1237,3 +1237,22 @@ def test_source_track_insert_preserves_single_frame_at_24_fps(tmp_path, monkeypa
     assert clip.duration == pytest.approx(0.041667, abs=1e-7)
     assert saved.project.duration == pytest.approx(10.041667, abs=1e-6)
     assert saved.scenes[0].duration == pytest.approx(10.041667, abs=1e-6)
+
+def test_source_track_insert_half_frame_rounding_matches_browser_math_round(tmp_path, monkeypatch):
+    """Server-side timeline snapping must match the browser at exact half-frame inputs."""
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 1.25, "duration": 1.25,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+
+    saved = load_composition(pid)
+    clip = next(c for c in saved.visual_overlays if c.asset_id == "overlay-image")
+    # 1.25s at 10fps is exactly halfway between frames 12 and 13. The browser's
+    # Math.round selects frame 13; Python's built-in round() would select frame 12.
+    assert clip.start == pytest.approx(1.3)
+    assert clip.duration == pytest.approx(1.3)
+    assert saved.project.duration == pytest.approx(11.3)
+
