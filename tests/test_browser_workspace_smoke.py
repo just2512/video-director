@@ -527,6 +527,21 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert promoted_command["targetId"] == "S01#0"
                 assert not promoted_command["payload"].get("trackId"), "button should ask the server to create a dedicated track atomically"
                 captured_commands.clear()
+
+                locked_state = page.evaluate("""() => {
+                    ED.comp.scenes[0].layers[0] = {
+                        type: 'video', asset_id: 'video-source', start: 0, duration: 10,
+                        source_in: 0, source_out: 10, speed: 1, fit_mode: 'cover', locked: true
+                    };
+                    SEL.selection = {type: 'layer', id: 'S01#0'};
+                    edShowInspector();
+                    const button = [...document.querySelectorAll('#editor-inspector button')]
+                        .find(item => item.textContent.includes('提升到独立画面轨道'));
+                    return {exists: !!button, disabled: button && button.disabled, title: button && button.title};
+                }""")
+                assert locked_state["exists"] and locked_state["disabled"]
+                assert "锁定" in locked_state["title"]
+
                 page.evaluate("""() => {
                     ED.comp.scenes[0].layers[0] = {
                         type: 'image', asset_id: 'img', start: 0, duration: 10
