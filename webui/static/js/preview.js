@@ -187,7 +187,11 @@ function _previewRenderAt(sec, keepPlaying){
   const lay = _previewLayerAt(sc, local);
   const asset = lay && _previewAsset(lay.asset_id);
   const key = (lay && lay.asset_id) || '';
-  const changed = PV.activeSceneId !== sc.id || PV.activeLayerId !== key;
+  // Another preview workflow may replace stage.innerHTML without changing the IR ids.
+  // Rebuild the live media host when that happens; otherwise overlays/subtitles are
+  // silently detached and subsequent playhead seeks cannot restore the preview.
+  const liveMediaMissing = !stage.querySelector('.pv-live-media');
+  const changed = PV.activeSceneId !== sc.id || PV.activeLayerId !== key || liveMediaMissing;
   if (changed) {
     PV.activeSceneId = sc.id;
     PV.activeLayerId = key;
