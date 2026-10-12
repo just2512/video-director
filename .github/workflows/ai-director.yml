@@ -23,7 +23,29 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-wqy-microhei
+      - name: Ensure FFmpeg and the Chinese subtitle font
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          command -v ffmpeg >/dev/null 2>&1 || missing+=(ffmpeg)
+          if ! command -v fc-list >/dev/null 2>&1 || ! fc-list : family | grep -Eiq 'WenQuanYi Micro Hei'; then
+            missing+=(fonts-wqy-microhei)
+          fi
+          if (("${#missing[@]}")); then
+            # Bound network stalls before the test suite. Do not silently continue
+            # if a required render dependency is genuinely absent.
+            sudo timeout 120s apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 update
+            sudo timeout 180s apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 install -y "${missing[@]}"
+          else
+            echo "FFmpeg and WenQuanYi Micro Hei are already installed; skipping apt network access."
+          fi
       - run: python -m playwright install --with-deps chromium
       - run: python -m compileall video_director webui
       - name: Run test suite and retain JUnit report
