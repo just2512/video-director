@@ -413,6 +413,15 @@ function renderPhysicalTimeline(){
 
   // ---- 渲染（组标题可折叠 §16）----
   const GROUP_ORDER = ['picture', 'language', 'sound', 'temporal'];
+  // Do not stack overlapping clips in one DOM row: later nodes cover earlier
+  // hit targets, making clips impossible to select/drag. Expand a logical track
+  // into the minimum number of visible lanes while preserving each clip's IDs.
+  if (window.TimelineEditMath && typeof window.TimelineEditMath.splitOverlappingTrack === 'function') {
+    for (const group of GROUP_ORDER) {
+      tracks[group] = (tracks[group] || []).flatMap(track =>
+        window.TimelineEditMath.splitOverlappingTrack(track));
+    }
+  }
   let html = `<div class="ed-tl-ruler"><span id="tl-playhead-label">${PLAYHEAD.at.toFixed(1)}s</span></div>
     <div class="ed-tl-scroll"><div class="ed-tl-canvas" style="width:${canvasWidth}px">`;
   const trackRow = (t) => {
