@@ -67,5 +67,26 @@
     }));
   }
 
-  root.TimelineEditMath = Object.freeze({trimEndDelta, splitOverlappingTrack});
+  function visualOverlayStackingZIndex(clip, visualTracks) {
+    const tracks = Array.isArray(visualTracks) && visualTracks.length
+      ? visualTracks.slice()
+      : [{id: "overlay-main", order: 0}];
+    tracks.sort((a, b) => {
+      const ao = Number.isFinite(Number(a && a.order)) ? Number(a.order) : 0;
+      const bo = Number.isFinite(Number(b && b.order)) ? Number(b.order) : 0;
+      return ao - bo || String(a && a.id || "").localeCompare(String(b && b.id || ""));
+    });
+    const trackId = String(clip && clip.track_id || "overlay-main");
+    let rank = tracks.findIndex(track => String(track && track.id || "") === trackId);
+    if (rank < 0) rank = 0;
+    const rawZ = Number(clip && clip.z_index);
+    const z = Number.isFinite(rawZ) ? Math.max(-100, Math.min(100, Math.trunc(rawZ))) : 0;
+    // Each higher track must render above every clip in lower tracks, even when
+    // its local z_index is smaller. +101 keeps all normal overlays above base video.
+    return rank * 1000 + z + 101;
+  }
+
+  root.TimelineEditMath = Object.freeze({
+    trimEndDelta, splitOverlappingTrack, visualOverlayStackingZIndex
+  });
 })(typeof window !== "undefined" ? window : globalThis);
