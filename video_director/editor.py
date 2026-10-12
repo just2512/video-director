@@ -1562,9 +1562,28 @@ def _cmd_promote_layer_to_visual_track(
     if transition not in ("cut", None) and float(layer.start) + float(layer.duration) >= float(scene.duration) - 0.45:
         raise EditorError("LIFT_UNSUPPORTED_TRANSITION", "该片段跨越分镜转场区域；请先将转场改为硬切再提升")
 
-    track_id = str(payload.get("trackId") or "overlay-main").strip()
-    if not any(track.id == track_id for track in ir.visual_tracks):
-        raise EditorError("NOT_FOUND", f"画面轨道 {track_id!r} 不存在", recoverable=False)
+    requested_track_id = str(payload.get("trackId") or "").strip()
+    if requested_track_id:
+        if not any(track.id == requested_track_id for track in ir.visual_tracks):
+            raise EditorError("NOT_FOUND", f"画面轨道 {requested_track_id!r} 不存在", recoverable=False)
+        track_id = requested_track_id
+    else:
+        # This UI action is called "promote to independent track": create a real
+        # track in the same atomic revision instead of silently dropping the clip
+        # into a generic overlay row. Keep existing overlays above it.
+        names = {track.name.strip().casefold() for track in ir.visual_tracks}
+        track_number = 1
+        while f"独立视频 {track_number}".casefold() in names:
+            track_number += 1
+        track_id = f"lifted-video-{uuid.uuid4().hex[:10]}"
+        previous_tracks = sorted(ir.visual_tracks, key=lambda track: track.order)
+        ir.visual_tracks = [
+            track.model_copy(update={"order": index + 1})
+            for index, track in enumerate(previous_tracks)
+        ]
+        ir.visual_tracks.append(VisualTrack(
+            id=track_id, name=f"独立视频 {track_number}", order=0,
+        ))
     if not layer.asset_id:
         raise EditorError("ASSET_NOT_FOUND", "主画面视频缺少 asset_id，不能提升", recoverable=False)
 
