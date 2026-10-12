@@ -20,8 +20,8 @@ function editorVisualOverlayPick(ev) {
   mask.id = 'visual-overlay-inspector-mask';
   mask.className = 'audio-clip-inspector-mask';
   mask.innerHTML = `
-    <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="visual-overlay-title">
-      <header><div><b id="visual-overlay-title">添加画面叠加</b><div class="hint">独立视频/图片轨道，可与主画面重叠</div></div>
+    <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="visual-overlay-create-title">
+      <header><div><b id="visual-overlay-create-title">添加画面叠加</b><div class="hint">独立视频/图片轨道，可与主画面重叠</div></div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
       <label for="visual-overlay-asset">项目素材</label>
       <select id="visual-overlay-asset">${assets.map(([id, a]) => {
@@ -83,8 +83,8 @@ function editorVisualOverlayOpen(index, ev) {
   mask.id = 'visual-overlay-inspector-mask';
   mask.className = 'audio-clip-inspector-mask';
   mask.innerHTML = `
-    <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="visual-overlay-title">
-      <header><div><b id="visual-overlay-title">画面叠加 · 设置</b><div class="hint">${esc(clip.asset_id)} · ${fmt(clip.start)}–${fmt(Number(clip.start)+Number(clip.duration))}s</div></div>
+    <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="visual-overlay-edit-title">
+      <header><div><b id="visual-overlay-edit-title">画面叠加 · 设置</b><div class="hint">${esc(clip.asset_id)} · ${fmt(clip.start)}–${fmt(Number(clip.start)+Number(clip.duration))}s</div></div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；在此调整画面位置、尺寸和透明度。</p>
       <div class="audio-clip-field-row">
