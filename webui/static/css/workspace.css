@@ -164,6 +164,11 @@
 .ed-layer::before { left:0; cursor:ew-resize; }
 .ed-layer::after { right:0; cursor:ew-resize; }
 .pv-live-media { width:100%; height:100%; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:var(--radius-sm); background:#000; }
+/* The live preview's overlay track is a visual projection of global CompositionIR clips. */
+.pv-live-overlays { position:absolute; inset:0; z-index:2; overflow:hidden; pointer-events:none; border-radius:inherit; }
+.pv-live-overlay-image, .pv-live-overlay-video { position:absolute; display:block; max-width:none; max-height:none; object-fit:contain; border:0; border-radius:0; }
+.pv-live-overlay-missing { position:absolute; display:flex; align-items:center; justify-content:center; min-width:64px; min-height:28px; overflow:hidden; padding:3px; box-sizing:border-box; color:#fff; font-size:11px; text-align:center; background:rgba(150,35,35,.82); border:1px dashed rgba(255,255,255,.8); }
+
 .pv-live-media video, .pv-live-image { max-width:100%; max-height:360px; width:100%; height:100%; object-fit:contain; border-radius:var(--radius-sm); }
 .pv-live-caption { position:absolute; left:10px; right:10px; bottom:10px; padding:7px 9px; background:rgba(0,0,0,.58); color:#fff; border-radius:5px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; pointer-events:none; }
 .pv-live-transition { padding:2px 5px; border:1px solid rgba(255,255,255,.35); border-radius:3px; font-size:11px; }
