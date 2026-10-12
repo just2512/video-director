@@ -6,7 +6,7 @@ import subprocess
 import pytest
 from pathlib import Path
 
-from video_director import renderer
+from video_director import qc, renderer
 from video_director.editor import execute_command, load_composition, save_composition
 from video_director.models import (
     AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
@@ -497,6 +497,10 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "visual_tracks" in timeline_js and "data-visual-track-id" in timeline_js
     assert "presentationMode" in overlay_js and "full_frame" in overlay_js and "picture_in_picture" in overlay_js
     assert "source_audio_enabled" in overlay_js and "保留此视频素材自身的声音" in overlay_js and "保留视频源音轨" in overlay_js
+    inspector_js = (js_dir / "inspector.js").read_text(encoding="utf-8")
+    assert "editorPromoteLayerToTrack" in inspector_js
+    assert "promote_layer_to_visual_track" in inspector_js
+    assert "提升到独立画面轨道" in inspector_js
     assert "editorVisualTrackCreate" in timeline_js and "editorVisualTrackMenu" in timeline_js
     assert "trackId:nextTrackId" in overlay_js and "reorder_visual_track" in overlay_js
 
@@ -644,3 +648,140 @@ def test_visual_overlay_rejects_unknown_presentation_and_invalid_source_gain():
             id="bad-volume", asset_id="asset", start=0, duration=1,
             source_audio_volume=2.1,
         )
+
+
+def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keeps_source_audio(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    video_path = tmp_path / "main-red-video-with-sine.mp4"
+    base_path = tmp_path / "base-green.png"
+    _make_video_with_audio(ffmpeg, video_path)
+    _make_still(ffmpeg, base_path, "green")
+
+    project_id = "promote-main-video-test"
+    plans = tmp_path / project_id / "plans"
+    plans.mkdir(parents=True)
+    video_asset = AssetRef(
+        id="main-video", type="video", file=str(video_path), duration=2.0,
+        width=40, height=40, fps=10,
+    )
+    base_asset = AssetRef(id="base-image", type="image", file=str(base_path), width=40, height=40)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=4.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=4.0, text="promote main footage",
+            layers=[
+                Layer(
+                    type=LayerType.video, asset_id="main-video",
+                    start=0.0, duration=2.0, source_in=0.0, source_out=2.0, speed=1.0,
+                ),
+                Layer(type=LayerType.image, asset_id="base-image", start=2.0, duration=2.0),
+            ],
+        )],
+        assets=[video_asset, base_asset],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(project_id, composition)
+    (plans / "revisions.jsonl").write_text("", encoding="utf-8")
+
+    lifted = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
+    assert lifted.status == "APPLIED", lifted.errors
+
+    undone = execute_command(
+        project_id, {"command": "undo", "expectedVersion": lifted.composition_version},
+    )
+    assert undone.status == "APPLIED", undone.errors
+    restored = load_composition(project_id)
+    assert restored.scenes[0].layers[0].type == LayerType.video
+    assert restored.visual_overlays == []
+
+    redone = execute_command(
+        project_id, {"command": "redo", "expectedVersion": undone.composition_version},
+    )
+    assert redone.status == "APPLIED", redone.errors
+
+    saved = load_composition(project_id)
+    gap = saved.scenes[0].layers[0]
+    clip = saved.visual_overlays[0]
+    assert gap.type == LayerType.gap and gap.asset_id is None
+    assert (gap.start, gap.duration) == (0.0, 2.0)
+    assert saved.scenes[0].duration == 4.0
+    assert (clip.start, clip.duration, clip.source_in) == (0.0, 2.0, 0.0)
+    assert clip.presentation_mode == "full_frame"
+    assert clip.source_audio_enabled is True
+    lifted_track = next(track for track in saved.visual_tracks if track.id == clip.track_id)
+    assert (lifted_track.name, lifted_track.order) == ("独立视频 1", 0)
+    assert next(track for track in saved.visual_tracks if track.id == "overlay-main").order == 1
+    assert saved.audio == [], "source audio remains a derived render input, not a duplicate stored track"
+
+    # Reposition the lifted clip away from the gap, then verify the encoded MP4
+    # shows black in the uncovered gap, red video at the new position, and green
+    # footage after the lifted clip leaves. This tests rendered output, not just IR.
+    moved = _apply(project_id, "move_visual_overlay", "overlay#0", {"start": 0.5}, redone.composition_version)
+    assert moved.status == "APPLIED", moved.errors
+    saved = load_composition(project_id)
+    assets = {asset.id: asset for asset in saved.assets}
+    result = renderer.render_composition(saved, assets, tmp_path / "promote-render")
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    gap_pixel = _pixel_at(ffmpeg, output, 0.2, 10, 10)
+    clip_pixel = _pixel_at(ffmpeg, output, 0.8, 10, 10)
+    base_pixel = _pixel_at(ffmpeg, output, 2.8, 10, 10)
+    assert max(gap_pixel) < 35, f"uncovered timeline region should be black, got {gap_pixel}"
+    assert clip_pixel[0] > clip_pixel[1] * 1.5, f"lifted red clip was not rendered at its new position: {clip_pixel}"
+    assert base_pixel[1] > base_pixel[0] * 1.4, f"the following base picture was altered: {base_pixel}"
+    audio_report = renderer._verify_muxed_audio(str(output), expected_duration=4.0)
+    assert audio_report.get("codec") == "aac", audio_report
+    assert audio_report.get("full_decode") == "PASS", audio_report
+    pre_roll_db = _audio_window_mean_volume(ffmpeg, output, 0.1, 0.25)
+    active_db = _audio_window_mean_volume(ffmpeg, output, 0.8, 0.25)
+    assert pre_roll_db < -65, f"lifted source audio leaked before the clip start: {pre_roll_db} dB"
+    assert active_db > -35, f"lifted source audio is missing from the clip window: {active_db} dB"
+
+    # Move the lifted footage to cover the end of the project. Black pixels in
+    # the now-uncovered explicit gap must not fail output QC, while all sampled
+    # non-gap intervals remain required to contain real visual content.
+    moved_again = _apply(
+        project_id, "move_visual_overlay", "overlay#0", {"start": 2.0},
+        moved.composition_version,
+    )
+    assert moved_again.status == "APPLIED", moved_again.errors
+    qc_ir = load_composition(project_id)
+    qc_result = renderer.render_composition(
+        qc_ir, {asset.id: asset for asset in qc_ir.assets}, tmp_path / "promote-render-qc",
+    )
+    qc_ok, qc_detail = qc._detect_black_frames(qc_result.final_path, ir=qc_ir)
+    assert qc_ok, qc_detail
+    assert "个 IR 明确声明的空隙点" in qc_detail, qc_detail
+    assert "个非 gap 采样点无意外黑帧" in qc_detail, qc_detail
+
+
+def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    video_path = tmp_path / "sped-up-video.mp4"
+    _make_video_with_audio(ffmpeg, video_path)
+    project_id = "promote-main-video-speed-test"
+    plans = tmp_path / project_id / "plans"
+    plans.mkdir(parents=True)
+    asset = AssetRef(id="main-video", type="video", file=str(video_path), duration=2.0, width=40, height=40)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=1.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=1.0, text="unsupported speed",
+            layers=[Layer(
+                type=LayerType.video, asset_id="main-video",
+                start=0.0, duration=1.0, source_in=0.0, source_out=2.0, speed=2.0,
+            )],
+        )],
+        assets=[asset],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(project_id, composition)
+    (plans / "revisions.jsonl").write_text("", encoding="utf-8")
+
+    rejected = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
+    assert rejected.status == "REJECTED"
+    assert rejected.errors[0]["code"] == "LIFT_UNSUPPORTED_SPEED"
+    saved = load_composition(project_id)
+    assert saved.scenes[0].layers[0].type == LayerType.video
+    assert saved.visual_overlays == []
+    assert saved.project.duration == 1.0

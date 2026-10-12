@@ -6,7 +6,7 @@
 //   scene_pair → 八类型镜头关系 + 预览/应用 + 连续性检查
 // 多选 → 批量操作聚合视图。
 
-const LAY_TYPE_CN = {video:'视频', image:'图片', person:'人物', text:'文本', title:'标题', subtitle:'字幕', lowerThird:'人物条', shape:'形状', svg:'图形', icon:'图标', chart:'图表', diagram:'示意图', graphic:'图形', background:'背景', logo:'标识', lottie:'动画', pip:'画中画', html:'网页', canvas:'画布', webgl:'3D', three_scene:'3D场景', broll:'B-roll'};
+const LAY_TYPE_CN = {video:'视频', image:'图片', gap:'空隙', person:'人物', text:'文本', title:'标题', subtitle:'字幕', lowerThird:'人物条', shape:'形状', svg:'图形', icon:'图标', chart:'图表', diagram:'示意图', graphic:'图形', background:'背景', logo:'标识', lottie:'动画', pip:'画中画', html:'网页', canvas:'画布', webgl:'3D', three_scene:'3D场景', broll:'B-roll'};
 function layerTypeCn(t){ return LAY_TYPE_CN[t] || t; }
 const MOTION_TYPE_CN = {enter:'入场', emphasis:'强调', exit:'出场', transition:'转场', idle:'静态', ambient:'环境'};
 const COMMERCIAL_CN = {CLEAR:'可商用', UNKNOWN:'待确认', BLOCKED:'禁止商用', REVIEW:'需复核'};
@@ -356,6 +356,16 @@ function _inspectorLayer(layerId){
 
 // ---- section 内容工厂（§61：每 section 一个纯函数，ctx = {sceneId, idx, layerId, lay}）----
 function _secSource({sceneId, idx, lay}){
+  const scene = (ED.comp.scenes || []).find(item => item.id === sceneId);
+  let liftBlockedReason = '';
+  if (lay.type === 'video') {
+    if (lay.locked) liftBlockedReason = '当前片段已锁定，请先解锁';
+    else if (!lay.asset_id) liftBlockedReason = '当前片段没有绑定视频素材';
+    else if (Math.abs(Number(lay.speed || 1) - 1) > 0.001) liftBlockedReason = '当前片段必须是 1.0x 原速';
+    else if (lay.motion || lay.motion_recipe_id || lay.motion_version || lay.motion_instance || lay.transform || (lay.keyframes || []).length || lay.mask || (lay.fit_mode && lay.fit_mode !== 'cover')) liftBlockedReason = '请先移除变换、蒙版、关键帧或动效';
+    else if (scene && scene.camera) liftBlockedReason = '所在分镜使用了场景镜头运动';
+    else if (scene && scene.transition_out && !['cut', 'hard_cut'].includes(typeof scene.transition_out === 'string' ? scene.transition_out : scene.transition_out.type) && Number(lay.start) + Number(lay.duration) >= Number(scene.duration) - 0.45) liftBlockedReason = '片段跨越分镜转场区域';
+  }
   return `<b>素材</b>
     <div class="hint">${esc(lay.asset_id || '程序化画面（无外部素材）')} · 层时长 ${lay.duration.toFixed(1)}s · 场景内起点 ${lay.start.toFixed(1)}s</div>
     ${lay.type === 'video' ? `
@@ -364,7 +374,11 @@ function _secSource({sceneId, idx, lay}){
     <input type="number" id="ed-trim-out" placeholder="终点秒" step="0.5" min="0" style="width:76px">
     <button class="btn-secondary btn-sm" onclick="editorApplyTrim('${sceneId}',${idx})">应用裁剪</button>
     <select id="ed-speed" style="width:70px">${[0.5,1,1.5,2].map(s2=>`<option value="${s2}"${Math.abs(lay.speed-s2)<0.01?' selected':''}>${s2}x</option>`).join('')}</select>
-    <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>` : ''}
+    <button class="btn-secondary btn-sm" onclick="editorApplySpeed('${sceneId}',${idx})">应用速度</button></div>
+    <div class="btn-row" style="margin-top:6px">
+      <button class="btn-secondary btn-sm" onclick="editorPromoteLayerToTrack('${sceneId}',${idx})" ${liftBlockedReason ? 'disabled title="' + esc(liftBlockedReason) + '"' : ''}>提升到独立画面轨道</button>
+    </div>
+    <div class="hint">转换后原位置保留黑色空隙；新片段可跨轨移动、修剪、切分。支持撤销。${liftBlockedReason ? ' 当前不可提升：' + esc(liftBlockedReason) + '。' : ''}</div>` : ''}
     <div class="btn-row">
       <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>
       ${lay.asset_id && lay.type === 'video' ? "<button class=\"btn-secondary btn-sm\" onclick=\"editorVisualQA('" + sceneId + "'," + idx + ")\">视觉验证</button>" : ''}
@@ -1440,13 +1454,37 @@ async function editorApplySpeed(sceneId, idx){
   else editorToast('速度调整失败：' + (r.error || ''), true);
 }
 
+async function editorPromoteLayerToTrack(sceneId, idx){
+  const scene = (ED.comp && ED.comp.scenes || []).find(item => item.id === sceneId);
+  const layer = scene && scene.layers && scene.layers[idx];
+  if (!layer || layer.type !== 'video') {
+    editorToast('只能提升选中的主画面视频片段', true);
+    return;
+  }
+  const r = await executeCommand({
+    command: 'promote_layer_to_visual_track',
+    targetId: `${sceneId}#${idx}`,
+    payload: {},
+  });
+  if (r.ok) {
+    editorToast('已提升到新建的独立视频轨道；原时间位置保留黑色空隙。');
+    await refreshWorkspace();
+    if (typeof editorVisualOverlayPick === 'function') {
+      const overlays = ED.comp && ED.comp.visual_overlays || [];
+      if (overlays.length) editorVisualOverlayPick(overlays.length - 1);
+    }
+  } else {
+    editorToast('提升失败：' + (r.error || '未知错误'), true);
+  }
+}
+
 // §8 拆分导出：inline onclick/window 引用兼容
 Object.assign(window, {
   layerTypeCn, edShowInspector, resolveInspector, inspectorOpenSection,
   inspectorActionsBox, loadAssetInspector, editorSemanticRerank, editorVisualQA, editorSetVisualTransform,
   editorApplyCamera, editorApplyContinuity, edContTypeChanged,
   edMorphFromChanged, editorApplyMorph, editorVerifyContinuity,
-  editorApplyPip, editorRemovePip, editorApplyTrim, editorApplySpeed,
+  editorApplyPip, editorRemovePip, editorApplyTrim, editorApplySpeed, editorPromoteLayerToTrack,
   renderKeyframeList, editorAddKeyframe, editorRemoveKeyframe,
   maskShapeCn, editorApplyMask, editorRunMatting,
   editorToggleLock, uiInlineInput, _ensureInlineHost, editorAudioVolume,

@@ -300,7 +300,7 @@ def _static_transform(layer: Layer) -> Optional[dict]:
 
 def render_layer_segment(
     layer: Layer,
-    asset: AssetRef,
+    asset: Optional[AssetRef],
     out_path: str,
     width: int,
     height: int,
@@ -326,6 +326,22 @@ def render_layer_segment(
         "-crf", str(config.DEFAULT_CRF),
         "-pix_fmt", config.DEFAULT_PIXEL_FORMAT,
     ]
+
+    # An explicit gap is a first-class renderable segment, not a missing asset.
+    # Encoding it through the same codec/fps contract keeps concat deterministic.
+    if layer.type == LayerType.gap:
+        _run([
+            ff, "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i",
+            f"color=c=black:s={width}x{height}:r={fps}:d={layer.duration:.3f}",
+            "-t", f"{layer.duration:.3f}",
+            *out_common,
+            out_path,
+        ])
+        return _verify_segment_duration(out_path, layer.duration)
+
+    if asset is None:
+        raise RenderError(f"layer {layer.type.value} 缺少素材，不能渲染")
 
     # Motion Recipe 编译（无 recipe → None 走原逻辑）
     motion_comp = None
@@ -1121,8 +1137,8 @@ def render_composition(
         rebuilt_artifacts.append(scene_reuse_id)
         scene_segs: List[str] = []
         for layer in scene.layers:
-            asset = assets.get(layer.asset_id or "")
-            if asset is None:
+            asset = assets.get(layer.asset_id or "") if layer.type != LayerType.gap else None
+            if layer.type != LayerType.gap and asset is None:
                 raise RenderError(f"素材不存在: {layer.asset_id}")
             seq += 1
             seg_path = str(seg_dir / f"{seq:04d}.mp4")

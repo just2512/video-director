@@ -101,6 +101,10 @@ def validate_composition(
     # 4. 逐场景资产/速度/源区间
     for scene in ir.scenes:
         for layer in scene.layers:
+            # Explicit editor gaps have no source asset by design; the renderer
+            # materializes them as black segments at the exact persisted duration.
+            if layer.type == LayerType.gap:
+                continue
             asset = assets.get(layer.asset_id or "")
             if asset is None:
                 add(scene.id, "ASSET_NOT_FOUND", f"素材 {layer.asset_id} 不在资产清单")
