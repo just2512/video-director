@@ -517,7 +517,24 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                       delete window.__horizontalDragEvents;
                       editorRenderTimeline();
                     }""")
-                assert horizontal_layer_drag["commands"], horizontal_layer_drag
+                assert horizontal_layer_drag["commands"], json.dumps({
+                    "commands": captured_commands,
+                    "expectedToIndex": 2,
+                    "geometry": horizontal_drag_setup,
+                    # Emit complete, compact real-input evidence. A dict repr is
+                    # pytest-truncated and hid the one event that determines why
+                    # a human-style drag did not reach the command path.
+                    "pointerEvents": [
+                        {
+                            "type": item.get("type"), "x": item.get("x"), "y": item.get("y"),
+                            "button": item.get("button"), "pointerId": item.get("pointerId"),
+                            "target": item.get("target"), "under": item.get("under"),
+                        }
+                        for item in captured_events
+                        if str(item.get("type", "")).startswith("pointer")
+                        or item.get("type") in ("mousedown", "mouseup")
+                    ],
+                }, ensure_ascii=False, indent=2)
                 assert horizontal_layer_drag["commands"][0]["command"] == "reorder_layer", horizontal_layer_drag
                 assert horizontal_layer_drag["commands"][0]["payload"]["toIndex"] == 2, horizontal_layer_drag
 
