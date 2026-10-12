@@ -355,3 +355,5 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "trim_visual_overlay" in overlay_js and "editorVisualOverlayOpen" in js
     assert "split_visual_overlay" in overlay_js and "editorVisualOverlaySplit" in overlay_js
     assert "在播放头切分" in overlay_js
+    assert "thumbnailUrl" in timeline_js and "ed-clip-thumb" in timeline_js
+    assert "api/asset_thumbnail?asset_id=" in timeline_js
