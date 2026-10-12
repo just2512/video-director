@@ -171,16 +171,19 @@
           previewShowVideo(PV.draftPath,'草稿预览');
         }else{
           PV.draftPath='';
-          liveSceneAt(Number(PV.playhead||0));
+          if(typeof previewRenderComposition==='function') previewRenderComposition();
+          else liveSceneAt(Number(PV.playhead||0));
         }
       }catch(e){
         PV.draftPath='';
-        liveSceneAt(Number(PV.playhead||0));
+        if(typeof previewRenderComposition==='function') previewRenderComposition();
+        else liveSceneAt(Number(PV.playhead||0));
       }
     }else{
       // Composition 有任何编辑后，旧 draft 视为潜在过期，不继续冒充当前状态。
       PV.draftPath='';
-      liveSceneAt(Number(PV.playhead||0));
+      if(typeof previewRenderComposition==='function') previewRenderComposition();
+      else liveSceneAt(Number(PV.playhead||0));
     }
     renderStoryboard();
     decorateTimeline();
@@ -192,16 +195,26 @@
     window.__edxPreviewPatched=true;
     const oldSeek=window.previewSeek, oldSelectOverlay=window.previewShowSelectionOverlay;
     window.previewSeek=function(sec){
-      if(oldSeek) oldSeek(sec);
+      if(oldSeek){
+        // One renderer owns the live stage. The old implementation called liveSceneAt()
+        // after oldSeek(), replacing .pv-live-media and silently discarding overlays/subtitles.
+        if(!PV.draftPath) PV.mode='live';
+        oldSeek(sec);
+        PV.playhead=Number(sec)||0;
+        return;
+      }
       PV.playhead=Number(sec)||0;
-      if(!PV.draftPath) liveSceneAt(PV.playhead);
+      liveSceneAt(PV.playhead);
     };
     window.previewShowSelectionOverlay=function(){
-      if(PV.draftPath && oldSelectOverlay) return oldSelectOverlay();
-      const s=window.SEL&&SEL.selection;
-      const c=comp();
-      const sc=s&&s.type==='scene'?sceneOf(s.id):(s&&s.type==='layer'?sceneOf(String(s.id).split('#')[0]):null);
-      if(sc) liveSceneAt(Number(sc.start||0));
+      // Preserve the selected-object affordance, but never replace the central live
+      // CompositionIR stage with the legacy edx-live-empty/image renderer.
+      if(oldSelectOverlay){
+        if(!PV.draftPath) PV.mode='live';
+        oldSelectOverlay();
+        return;
+      }
+      if(typeof previewRenderComposition==='function') previewRenderComposition();
       else liveSceneAt(Number(PV.playhead||0));
     };
   }
