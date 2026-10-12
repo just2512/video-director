@@ -103,3 +103,69 @@ def test_move_audio_clip_rejects_unknown_lane_without_mutation(tmp_path, monkeyp
     assert comp.audio[0].track_id == "audio-bgm"
     assert comp.audio[0].start == 1.0
     assert (plan_dir / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+
+def test_locked_audio_track_rejects_all_clip_timing_and_property_edits(tmp_path, monkeypatch):
+    pid, plan_dir = _project(tmp_path, monkeypatch)
+    locked = _apply(pid, "set_track_locked", "audio-bgm", {"trackType": "audio", "locked": True}, version=1)
+    assert locked.status == "APPLIED", locked.errors
+    assert locked.composition_version == 2
+    comp = load_composition(pid)
+    lane = next(item for item in comp.audio_tracks if item.id == "audio-bgm")
+    assert lane.locked is True
+    original = comp.audio[0].model_dump(mode="json")
+
+    attempts = [
+        ("move_audio_clip", {"start": 2.0}),
+        ("trim_audio_clip", {"start": 2.0, "sourceIn": 0.5, "sourceOut": 2.5}),
+        ("split_audio_clip", {"at": 3.0}),
+        ("set_audio_clip_properties", {"volume": 0.3}),
+    ]
+    for command, payload in attempts:
+        result = _apply(pid, command, "audio#0", payload, version=2)
+        assert result.status == "REJECTED", (command, result.status, result.errors)
+        assert result.errors[0]["code"] == "TRACK_LOCKED", (command, result.errors)
+        assert load_composition(pid).audio[0].model_dump(mode="json") == original
+        assert result.composition_version == 2
+
+    revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 1, "rejected edits must not create revision history"
+
+
+def test_locked_audio_destination_rejects_cross_track_move_without_mutation(tmp_path, monkeypatch):
+    pid, _plan_dir = _project(tmp_path, monkeypatch)
+    created = _apply(pid, "add_audio_track", "audio-tracks", {"name": "锁定目标"}, version=1)
+    assert created.status == "APPLIED", created.errors
+    lane_id = next(lane.id for lane in load_composition(pid).audio_tracks if lane.name == "锁定目标")
+    locked = _apply(pid, "set_track_locked", lane_id, {"trackType": "audio", "locked": True}, version=2)
+    assert locked.status == "APPLIED", locked.errors
+
+    before = load_composition(pid).audio[1].model_dump(mode="json")
+    result = _apply(pid, "move_audio_clip", "audio#1", {"start": 5.5, "trackId": lane_id}, version=3)
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "TRACK_LOCKED"
+    assert load_composition(pid).audio[1].model_dump(mode="json") == before
+
+
+def test_legacy_audio_lane_defaults_to_unlocked_and_track_lock_controls_are_wired(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    pid, _ = _project(tmp_path, monkeypatch)
+    legacy = load_composition(pid).model_dump(mode="json")
+    for lane in legacy.get("audio_tracks", []):
+        lane.pop("locked", None)
+    migrated = CompositionIR.model_validate(legacy)
+    assert all(lane.locked is False for lane in migrated.audio_tracks)
+
+    root = Path(__file__).resolve().parents[1]
+    timeline = (root / "webui/static/js/timeline.js").read_text(encoding="utf-8")
+    visual = (root / "webui/static/js/visual-overlay-editor.js").read_text(encoding="utf-8")
+    audit = (root / "video_director/ui_action_audit.py").read_text(encoding="utf-8")
+    assert "editorAudioTrackToggleLock(event" in timeline
+    assert "if (lane && lane.locked)" in timeline
+    assert "editorVisualTrackToggleLock(event" in timeline
+    assert "if (lane && lane.locked)" in visual
+    assert "set_track_locked" in timeline and "set_track_locked" in visual
+    assert "editorAudioTrackToggleLock(" in audit
+    assert "editorVisualTrackToggleLock(" in audit
