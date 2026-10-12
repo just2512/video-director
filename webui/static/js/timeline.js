@@ -484,7 +484,7 @@ function renderPhysicalTimeline(){
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
     const empty = (!t.clips || !t.clips.length) && !t.isSceneTrack && !(t.kfPoints || []).length;
     const labelHtml = t.audioTrackId
-      ? '<div class="ed-track-label ed-audio-track-label"><span title="' + esc(t.label) + '">' + esc(t.label) + '</span><button type="button" class="btn-secondary btn-sm ed-audio-track-menu" title="音轨名称与删除" onclick="editorAudioTrackMenu(event, &quot;' + esc(t.audioTrackId) + '&quot;)">⋯</button></div>'
+      ? '<div class="ed-track-label ed-audio-track-label"><span title="' + esc(t.label) + '">' + esc(t.label) + '</span><button type="button" class="btn-secondary btn-sm ed-audio-track-menu" title="音轨名称与删除" aria-label="编辑音轨" onclick="editorAudioTrackMenu(event, &quot;' + esc(t.audioTrackId) + '&quot;)"></button></div>'
       : t.visualTrackId && t.showTrackControls !== false
       ? `<div class="ed-track-label ed-visual-track-label"><span class="ed-visual-track-name" title="${esc(t.label)}">${esc(t.label)}</span><div class="ed-visual-track-actions"><button type="button" class="btn-secondary btn-sm ed-track-add" title="从项目素材库向此轨道添加片段" onclick="editorVisualOverlayPick(event, '${esc(t.visualTrackId)}')">＋</button><button type="button" class="btn-secondary btn-sm" title="轨道名称、顺序与删除" onclick="editorVisualTrackMenu(event, '${esc(t.visualTrackId)}')">⋯</button>${t.newTrackAction ? `<button type="button" class="btn-secondary btn-sm" title="新增画面轨道" onclick="editorVisualTrackCreate(event)">＋轨</button>` : ''}</div></div>`
       : t.visualTrackId
@@ -504,7 +504,7 @@ function renderPhysicalTimeline(){
         : g === 'language' ? '旁白 / 对白 / 字幕'
         : g === 'sound' ? '原声 / 背景音乐 / 音效' : '关键帧';
       html += `<div class="ed-track-group ed-group-closed" onclick="tlToggleGroup('${g}')">
-        <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span>` + (g === 'sound' ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增音轨" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>' : '') + '</div>';
+        <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span></div>';
     } else {
       html += `<div class="ed-track-group" onclick="tlToggleGroup('${g}')">
         <span class="ed-group-caret">▾</span> ${G.label}` + (g === 'sound' ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增音轨" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>' : '') + '</div>';
