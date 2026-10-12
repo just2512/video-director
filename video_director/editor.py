@@ -1835,6 +1835,120 @@ def _cmd_promote_layer_to_visual_track(
     return [key, f"{scene.id}#{idx}"], stale
 
 
+def _overwrite_visual_track_range(
+    ir: CompositionIR, track_id: str, start: float, duration: float,
+) -> None:
+    """Replace only the selected visual lane's intersecting clip windows.
+
+    Left and right survivors keep their original media mapping; the right survivor
+    advances source_in by the amount removed from the head. Source audio stays
+    attached to each surviving video clip, so rendering follows the edited windows.
+    """
+    end = round(start + duration, 3)
+    updated: List[VisualOverlayClip] = []
+    for clip in ir.visual_overlays:
+        clip_start = float(clip.start)
+        clip_end = clip_start + float(clip.duration)
+        if clip.track_id != track_id or clip_end <= start or clip_start >= end:
+            updated.append(clip)
+            continue
+
+        left_duration = round(min(clip_end, start) - clip_start, 3)
+        right_start = max(clip_start, end)
+        right_duration = round(clip_end - right_start, 3)
+        has_left = left_duration > 0.001
+        has_right = right_duration > 0.001
+
+        if has_left:
+            updated.append(clip.model_copy(update={"duration": left_duration}))
+        if has_right:
+            right_patch = {
+                "start": round(right_start, 3),
+                "duration": right_duration,
+                "source_in": round(float(clip.source_in) + (right_start - clip_start), 3),
+            }
+            if has_left:
+                right_patch["id"] = f"{clip.id}-right-{uuid.uuid4().hex[:8]}"
+            updated.append(clip.model_copy(update=right_patch))
+    ir.visual_overlays = updated
+
+
+def _insert_visual_track_gap(
+    ir: CompositionIR, track_id: str, start: float, duration: float,
+) -> None:
+    """Open a gap on one visual lane; split any clip crossed by the insertion point."""
+    updated: List[VisualOverlayClip] = []
+    for clip in ir.visual_overlays:
+        clip_start = float(clip.start)
+        clip_end = clip_start + float(clip.duration)
+        if clip.track_id != track_id or clip_end <= start:
+            updated.append(clip)
+            continue
+
+        if clip_start < start < clip_end:
+            left_duration = round(start - clip_start, 3)
+            right_duration = round(clip_end - start, 3)
+            if left_duration > 0.001:
+                updated.append(clip.model_copy(update={"duration": left_duration}))
+            if right_duration > 0.001:
+                updated.append(clip.model_copy(update={
+                    "id": f"{clip.id}-right-{uuid.uuid4().hex[:8]}",
+                    "start": round(start + duration, 3),
+                    "duration": right_duration,
+                    "source_in": round(float(clip.source_in) + (start - clip_start), 3),
+                }))
+            continue
+
+        # A clip beginning at the edit point is downstream material and moves too.
+        updated.append(clip.model_copy(update={
+            "start": round(clip_start + duration, 3),
+        }))
+    ir.visual_overlays = updated
+
+
+def _extend_project_for_visual_insert(ir: CompositionIR, duration: float) -> str:
+    """Extend the project by an inserted clip and keep the scene timeline valid.
+
+    Static stills and explicit gaps may safely extend in place. A moving video
+    layer is never stretched beyond its source range; it receives an explicit
+    black tail scene instead. Other tracks keep their timing by design.
+    """
+    old_total = float(ir.project.duration)
+    amount = round(duration, 3)
+    new_total = round(old_total + amount, 3)
+    last_scene = ir.scenes[-1]
+    last_layer = last_scene.layers[-1]
+    can_hold_still = (
+        last_layer.type == LayerType.image
+        and not any((
+            last_layer.motion, last_layer.motion_recipe_id, last_layer.motion_version,
+            last_layer.motion_instance, last_layer.transform, last_layer.keyframes, last_layer.mask,
+        ))
+    )
+    if last_layer.type == LayerType.gap or can_hold_still:
+        scene_data = last_scene.model_dump()
+        scene_data["duration"] = round(float(last_scene.duration) + amount, 3)
+        new_layers = list(last_scene.layers)
+        new_layers[-1] = last_layer.model_copy(update={
+            "duration": round(float(last_layer.duration) + amount, 3),
+        })
+        scene_data["layers"] = [layer.model_dump() for layer in new_layers]
+        ir.scenes[-1] = SceneIR.model_validate(scene_data)
+        extended_scene_id = last_scene.id
+    else:
+        tail = SceneIR(
+            id=f"timeline-tail-{uuid.uuid4().hex[:10]}",
+            start=old_total,
+            duration=amount,
+            text="插入操作延长的空白尾段",
+            layers=[Layer(type=LayerType.gap, start=0.0, duration=amount)],
+        )
+        ir.scenes.append(tail)
+        extended_scene_id = tail.id
+    ir.project = ir.project.model_copy(update={"duration": new_total})
+    return extended_scene_id
+
+
 def _cmd_add_visual_overlay(
     ir: CompositionIR, target_id: str, payload: dict, project_id: str,
 ) -> Tuple[List[str], List[str]]:
@@ -1865,6 +1979,9 @@ def _cmd_add_visual_overlay(
     presentation_mode = str(payload.get("presentationMode") or payload.get("presentation_mode") or "picture_in_picture")
     if presentation_mode not in {"full_frame", "picture_in_picture", "sticker"}:
         raise EditorError("INVALID_PARAMETER", "presentationMode 必须是 full_frame、picture_in_picture 或 sticker")
+    placement_mode = str(payload.get("placementMode") or payload.get("placement_mode") or "overlay").strip().lower()
+    if placement_mode not in {"overlay", "overwrite", "insert"}:
+        raise EditorError("INVALID_PARAMETER", "placementMode 必须是 overlay、overwrite 或 insert")
     presets = {
         "full_frame": (0.0, 0.0, 1.0, 1.0),
         "picture_in_picture": (0.65, 0.1, 0.3, 0.3),
@@ -1883,17 +2000,30 @@ def _cmd_add_visual_overlay(
         raise EditorError("INVALID_PARAMETER", "只有视频素材可以保留源音轨")
     total = float(ir.project.duration)
     start = number("start", 0.0, 0.0)
-    if start >= total:
-        raise EditorError("INVALID_PARAMETER", "覆盖层起点必须在项目时长内")
+    if placement_mode == "insert":
+        if start > total + 1e-6:
+            raise EditorError("INVALID_PARAMETER", "插入点不能晚于当前项目末尾")
+    elif start >= total:
+        raise EditorError("INVALID_PARAMETER", "放置点必须在项目时长内")
     source_in = number("sourceIn", 0.0, 0.0)
-    default_duration = min(3.0, total - start)
+    remaining = max(0.05, total - start) if placement_mode == "insert" else total - start
+    default_duration = min(3.0, remaining)
     if str(asset.type).lower() == "video":
         default_duration = min(default_duration, source_duration - source_in)
     duration = number("duration", default_duration, 0.05)
-    if start + duration > total + 1e-6:
-        raise EditorError("INVALID_PARAMETER", "覆盖层不能超出项目总时长")
+    if placement_mode != "insert" and start + duration > total + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "所选轨道的放置区间不能超出项目总时长；Insert 可延长时间线")
     if str(asset.type).lower() == "video" and source_in + duration > source_duration + 0.05:
-        raise EditorError("INVALID_SOURCE_RANGE", "覆盖层视频源区间超出素材时长")
+        raise EditorError("INVALID_SOURCE_RANGE", "视频源区间超出素材时长")
+    # Use the same millisecond coordinates in the new clip and every clip split by
+    # Insert / Overwrite, avoiding a visible one-frame sliver from float drift.
+    start, source_in, duration = round(start, 3), round(source_in, 3), round(duration, 3)
+    if placement_mode != "insert" and (start >= total or start + duration > total + 1e-6):
+        raise EditorError("INVALID_PARAMETER", "所选轨道的放置区间不能超出项目总时长")
+    if placement_mode == "insert" and start > total + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "插入点不能晚于当前项目末尾")
+    if str(asset.type).lower() == "video" and source_in + duration > source_duration + 0.05:
+        raise EditorError("INVALID_SOURCE_RANGE", "视频源区间超出素材时长")
 
     x = number("x", default_x, 0.0, 1.0)
     y = number("y", default_y, 0.0, 1.0)
@@ -1927,9 +2057,19 @@ def _cmd_add_visual_overlay(
         x=x, y=y, width=box_width, height=box_height, opacity=opacity,
         z_index=int(z_index_value),
     )
+    extended_scene_id = None
+    if placement_mode == "overwrite":
+        _overwrite_visual_track_range(ir, track_id, start, duration)
+    elif placement_mode == "insert":
+        _insert_visual_track_gap(ir, track_id, start, duration)
+        extended_scene_id = _extend_project_for_visual_insert(ir, duration)
     ir.visual_overlays.append(overlay)
     key = f"visual-overlay:{overlay.id}"
-    return [key], [f"{key}:render", f"project:visual-overlays:render", "project:preview"]
+    stale = [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+    if extended_scene_id:
+        stale.extend(_stale_of_scene(project_id="", scene_id=extended_scene_id))
+        stale.append("project:timeline:render")
+    return [key, f"visual-track:{track_id}"], list(dict.fromkeys(stale))
 
 
 def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:

@@ -15,6 +15,7 @@ def test_source_monitor_marks_source_range_and_places_it_on_selected_unlocked_tr
       <button id="ed-source-mark-out" onclick="editorSourceMonitorMarkOut()">Mark Out</button>
       <input id="ed-source-out" type="number" value="3">
       <select id="ed-source-target-track"></select>
+      <select id="ed-source-operation"><option value="overlay">Overlay</option><option value="overwrite">Overwrite</option><option value="insert">Insert</option></select>
       <select id="ed-source-presentation"><option value="full_frame">Full frame</option><option value="sticker">Sticker</option></select>
       <div id="ed-source-audio-row"><input id="ed-source-audio-enabled" type="checkbox"></div>
       <button id="ed-source-add" onclick="editorSourceMonitorAddToTimeline()">Place at playhead</button>
@@ -79,6 +80,7 @@ def test_source_monitor_marks_source_range_and_places_it_on_selected_unlocked_tr
         assert result["payload"]["trackId"] == "visual-top"
         assert result["payload"]["presentationMode"] == "sticker"
         assert result["payload"]["sourceAudioEnabled"] is True
+        assert result["payload"]["placementMode"] == "overlay"
 
         # An invalid interval must not dispatch another edit command.
         page.locator("#ed-source-in").fill("4")
@@ -90,8 +92,10 @@ def test_source_monitor_marks_source_range_and_places_it_on_selected_unlocked_tr
         # A valid zero-second playhead must win over a stale non-zero preview clock.
         page.locator("#ed-source-in").fill("1.25")
         page.locator("#ed-source-out").fill("3.75")
+        page.locator("#ed-source-operation").select_option("insert")
         page.evaluate("window.PLAYHEAD.at = 0; window.PV.playhead = 5")
         page.locator("#ed-source-add").click()
         page.wait_for_function("window.__commandCount === 2")
         assert page.evaluate("window.__command.payload.start") == 0
+        assert page.evaluate("window.__command.payload.placementMode") == "insert"
         browser.close()

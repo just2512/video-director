@@ -223,12 +223,21 @@
                 <div class="ed-source-placement">
                   <label for="ed-source-target-track">目标画面轨</label>
                   <select id="ed-source-target-track" onfocus="editorSourceMonitorRefreshTracks()" aria-label="目标画面轨道"><option value="">先打开项目</option></select>
-                  <label for="ed-source-presentation">放置方式</label>
+                  <label for="ed-source-operation">剪辑操作</label>
+                  <select id="ed-source-operation" aria-label="源区间放置操作">
+                    <option value="overlay">叠加（保留底层画面）</option>
+                    <option value="overwrite">覆盖所选轨道</option>
+                    <option value="insert">插入并推后此轨后续片段</option>
+                  </select>
+                  <label for="ed-source-presentation">画面呈现</label>
                   <select id="ed-source-presentation">
-                    <option value="full_frame">全画幅覆盖</option>
+                    <option value="full_frame">全画幅</option>
                     <option value="picture_in_picture">画中画</option>
                     <option value="sticker">贴纸 / 图层</option>
                   </select>
+                  <small class="hint" style="grid-column:1/-1">
+                    Insert 只推后所选画面轨及其片段源音频；其他画面轨、旁白、BGM、SFX 不移动。覆盖只替换该轨的相交片段。
+                  </small>
                 </div>
                 <label class="ed-source-audio" id="ed-source-audio-row">
                   <input id="ed-source-audio-enabled" type="checkbox">
