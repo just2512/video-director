@@ -252,7 +252,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     window.refreshWorkspace = async () => {};
                     window.editorToast = () => {};
                     editorRenderTimeline();
-                    const trackExists = !!document.querySelector(".ed-visual-overlay-clip[data-visual-overlay-index=\"0\"]");
+                    const trackExists = !!document.querySelector('.ed-visual-overlay-clip[data-visual-overlay-index="0"]');
                     const addButtonExists = !!document.querySelector(".ed-track-add");
                     editorVisualOverlayOpen(0);
                     document.getElementById("visual-overlay-x").value = "0.4";
@@ -265,7 +265,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     await editorVisualOverlayCreate();
                     await editorVisualOverlayRemove(0);
                     editorRenderTimeline();
-                    const clip = document.querySelector(".ed-visual-overlay-clip[data-visual-overlay-index=\"0\"]");
+                    const clip = document.querySelector('.ed-visual-overlay-clip[data-visual-overlay-index="0"]');
                     const rect = clip.getBoundingClientRect();
                     const body = clip.closest(".ed-track-body").getBoundingClientRect();
                     const x = rect.left + rect.width / 2;
