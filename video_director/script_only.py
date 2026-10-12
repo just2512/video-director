@@ -71,7 +71,7 @@ LINE_SPACING_RATIO = 0.42
 # ---------------------------------------------------------------------------
 
 #: SCRIPT_ONLY 渲染能力集：text（本模式）+ 第一阶段的 video/image
-_RENDERABLE = {LayerType.video, LayerType.image, LayerType.text}
+_RENDERABLE = {LayerType.video, LayerType.image, LayerType.text, LayerType.gap}
 
 
 def is_renderable(layer: Layer) -> bool:
