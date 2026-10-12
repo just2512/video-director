@@ -1789,13 +1789,27 @@ def _cmd_promote_layer_to_visual_track(
     ):
         raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
 
-    # Avoid mixing the same source twice when the project already has an original
-    # track for this asset. In that case the existing audio track remains authoritative.
-    has_existing_original_track = any(
-        track.type == AudioTrackType.original and track.asset_id == layer.asset_id
+    # An asset may be reused by multiple clips at different timeline positions.
+    # Only suppress derived source audio when an original-audio clip represents the
+    # same asset and the same timeline/source window. Matching by asset_id alone
+    # silently muted otherwise unrelated occurrences of that asset.
+    audio_match_tolerance = max(0.005, 0.5 / max(1, int(ir.project.fps)))
+    has_matching_original_audio = any(
+        track.type == AudioTrackType.original
+        and track.asset_id == layer.asset_id
+        and abs(float(track.start) - absolute_start) <= audio_match_tolerance
+        and abs(float(track.duration) - duration) <= audio_match_tolerance
+        and abs(float(track.source_in or 0.0) - source_in) <= audio_match_tolerance
+        and abs(
+            float(
+                track.source_out
+                if track.source_out is not None
+                else float(track.source_in or 0.0) + float(track.duration)
+            ) - source_out
+        ) <= audio_match_tolerance
         for track in ir.audio
     )
-    source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_existing_original_track
+    source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_matching_original_audio
 
     asset_index = next((i for i, item in enumerate(ir.assets) if item.id == layer.asset_id), None)
     resolved_asset = asset.model_copy(update={
