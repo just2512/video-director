@@ -307,6 +307,11 @@ SUPPORTED_COMMANDS = (
     "set_opacity",               # 层透明度（折叠为 motion opacity 近似）
     "set_style",                 # 项目级风格（§20）
     "set_transform",             # 层静态变换（scale/opacity，§20）
+    "add_visual_overlay",
+    "move_visual_overlay",
+    "trim_visual_overlay",
+    "set_visual_overlay",
+    "remove_visual_overlay",
     "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
