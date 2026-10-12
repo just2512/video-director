@@ -1392,6 +1392,16 @@ class Handler(BaseHTTPRequestHandler):
                          "anchor": w.anchor, "opacity": w.opacity, "scale": w.scale}
                         for w in (ir.watermarks or [])
                     ],
+                    "visual_overlays": [
+                        {
+                            "id": clip.id, "asset_id": clip.asset_id, "start": clip.start,
+                            "duration": clip.duration, "source_in": clip.source_in,
+                            "x": clip.x, "y": clip.y, "width": clip.width,
+                            "height": clip.height, "opacity": clip.opacity, "z_index": clip.z_index,
+                            **_editor_asset_meta(clip.asset_id),
+                        }
+                        for clip in (getattr(ir, "visual_overlays", None) or [])
+                    ],
                     "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
                     "references": ir.references.to_dict()["references"] if ir.references else [],
                     "assets": _editor_asset_preview_map(ir),
