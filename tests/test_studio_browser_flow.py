@@ -153,6 +153,55 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert dual_scrub["hasPhysicalTimeline"], dual_scrub
                 assert 1.2 < dual_scrub["after"] < 1.8, dual_scrub
 
+                # Zoom must change the actual shared time-axis width; clip geometry,
+                # pointer-to-time mapping and playhead coordinates must stay aligned.
+                zoom_geometry = page.evaluate("""() => {
+                  const previousZoom = ED.zoom;
+                  const previousView = ED.timelineView;
+                  const result = [];
+                  ED.timelineView = 'dual';
+                  for (const zoom of [0.5, 1, 2]) {
+                    ED.zoom = zoom;
+                    editorRenderTimeline();
+                    const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
+                    const canvas = scroll && scroll.querySelector('.ed-tl-canvas');
+                    const body = canvas && canvas.querySelector('.ed-track-body');
+                    const playhead = document.getElementById('tl-playhead');
+                    if (!scroll || !canvas || !body || !playhead) {
+                      result.push({zoom, missing: true});
+                      continue;
+                    }
+                    const cr = canvas.getBoundingClientRect();
+                    const br = body.getBoundingClientRect();
+                    const expectedLeft = br.left - cr.left +
+                      (window.PLAYHEAD.at / (ED.comp.duration || 1)) * br.width;
+                    const mapped = _tlPct({clientX: br.left + br.width * 0.75}, scroll);
+                    result.push({
+                      zoom,
+                      axisWidth: br.width,
+                      canvasWidth: cr.width,
+                      viewportWidth: scroll.clientWidth,
+                      playheadLeft: parseFloat(playhead.style.left),
+                      expectedLeft,
+                      mapped,
+                      scrollable: scroll.scrollWidth > scroll.clientWidth
+                    });
+                  }
+                  ED.zoom = previousZoom;
+                  ED.timelineView = previousView;
+                  editorRenderTimeline();
+                  return result;
+                }""")
+                assert len(zoom_geometry) == 3, zoom_geometry
+                assert all("missing" not in item for item in zoom_geometry), zoom_geometry
+                base_axis = zoom_geometry[1]["axisWidth"]
+                assert 0.45 < zoom_geometry[0]["axisWidth"] / base_axis < 0.55, zoom_geometry
+                assert 0.98 < zoom_geometry[1]["axisWidth"] / base_axis < 1.02, zoom_geometry
+                assert 1.9 < zoom_geometry[2]["axisWidth"] / base_axis < 2.1, zoom_geometry
+                assert all(abs(item["playheadLeft"] - item["expectedLeft"]) < 2 for item in zoom_geometry), zoom_geometry
+                assert all(abs(item["mapped"] - 0.75) < 0.01 for item in zoom_geometry), zoom_geometry
+                assert zoom_geometry[2]["scrollable"], zoom_geometry
+
                 # Re-rendering the physical timeline must not attach another pair
                 # of document-level layer-drag handlers. Count real registrations.
                 layer_handler_count = page.evaluate("""() => {
