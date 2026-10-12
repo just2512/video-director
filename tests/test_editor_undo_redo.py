@@ -105,3 +105,56 @@ def test_undo_on_snapshotless_revision_honest(pid):
     r = editor.execute_command(pid, {"command": "undo"})
     assert r.status == "REJECTED"
     assert r.errors[0]["code"] == "UNDO_UNAVAILABLE"
+
+
+
+def test_new_edit_after_undo_invalidates_redo_branch(pid):
+    """A divergent edit must never be overwritten by redo of the abandoned branch."""
+    scene_id = editor.load_composition(pid).scenes[0].id
+    initial = _scene_duration(pid)
+    first = editor.execute_command(pid, {
+        "command": "set_duration", "targetId": scene_id,
+        "payload": {"duration": 2.5}})
+    assert first.status == "APPLIED"
+    assert editor.execute_command(pid, {"command": "undo"}).status == "APPLIED"
+    assert abs(_scene_duration(pid) - initial) < 0.01
+
+    branch_edit = editor.execute_command(pid, {
+        "command": "set_duration", "targetId": scene_id,
+        "payload": {"duration": 3.5}})
+    assert branch_edit.status == "APPLIED"
+    assert abs(_scene_duration(pid) - 3.5) < 0.01
+
+    redo = editor.execute_command(pid, {"command": "redo"})
+    assert redo.status == "REJECTED"
+    assert redo.errors[0]["code"] == "NOTHING_TO_REDO"
+    assert abs(_scene_duration(pid) - 3.5) < 0.01
+
+    undo_branch_edit = editor.execute_command(pid, {"command": "undo"})
+    assert undo_branch_edit.status == "APPLIED"
+    assert abs(_scene_duration(pid) - initial) < 0.01
+
+
+def test_undo_advances_version_and_rejects_pre_undo_browser_write(pid):
+    """Undo changes content but must also advance the optimistic concurrency token."""
+    scene_id = editor.load_composition(pid).scenes[0].id
+    first_version = editor.composition_version(pid)
+    applied = editor.execute_command(pid, {
+        "command": "set_duration", "targetId": scene_id,
+        "expectedVersion": first_version,
+        "payload": {"duration": 2.5}})
+    assert applied.status == "APPLIED"
+    assert applied.composition_version == first_version + 1
+
+    undone = editor.execute_command(pid, {
+        "command": "undo", "expectedVersion": applied.composition_version})
+    assert undone.status == "APPLIED"
+    assert undone.composition_version == applied.composition_version + 1
+
+    stale = editor.execute_command(pid, {
+        "command": "set_duration", "targetId": scene_id,
+        "expectedVersion": applied.composition_version,
+        "payload": {"duration": 3.25}})
+    assert stale.status == "REJECTED"
+    assert stale.errors[0]["code"] == "CONFLICT"
+    assert editor.composition_version(pid) == undone.composition_version
