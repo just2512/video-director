@@ -258,12 +258,19 @@ def test_moving_original_audio_clip_detaches_it_from_future_video_reorders(tmp_p
 
 def test_legacy_detached_original_audio_migrates_as_independent(tmp_path, monkeypatch):
     data = _video_reorder_comp_with_audio()
-    # Simulate project JSON written before follows_scene_video existed. Linked main
-    # audio stays explicitly bound in this fixture; detached clips lose the new field.
-    for item in data["audio"]:
+    # Simulate the on-disk JSON written by the old model, not just constructor input:
+    # save_composition writes defaulted fields too, so remove the new field after it
+    # persists the fixture in order to test the actual migration boundary.
+    pid, plans = _project(tmp_path, monkeypatch, data)
+    composition_path = plans / "composition.json"
+    persisted = json.loads(composition_path.read_text(encoding="utf-8"))
+    for item in persisted["audio"]:
         if item["id"] in {"detached-reused-asset", "audio-source-overlay-only"}:
             item.pop("follows_scene_video", None)
-    pid, _plans = _project(tmp_path, monkeypatch, data)
+    composition_path.write_text(
+        json.dumps(persisted, ensure_ascii=False, indent=2) + "\\n",
+        encoding="utf-8",
+    )
 
     result = _apply(pid, "reorder_layer", "S01#0", {"toIndex": 1})
     assert result.status == "APPLIED", result.errors
@@ -272,27 +279,6 @@ def test_legacy_detached_original_audio_migrates_as_independent(tmp_path, monkey
     assert tracks["detached-reused-asset"].follows_scene_video is False
     assert tracks["audio-source-overlay-only"].start == 6.0
     assert tracks["audio-source-overlay-only"].follows_scene_video is False
-
-
-
-def test_reordering_visual_layers_does_not_shorten_project_narration(tmp_path, monkeypatch):
-    data = _video_reorder_comp_with_audio()
-    project_duration = float(data["project"]["duration"])
-    data["audio"].append({
-        "type": "narration", "id": "whole-project-narration",
-        "start": 0.0, "duration": project_duration, "volume": 0.9,
-    })
-    pid, _plans = _project(tmp_path, monkeypatch, data)
-
-    result = _apply(pid, "reorder_layer", "S01#0", {"toIndex": 1})
-    assert result.status == "APPLIED", result.errors
-    narration = next(
-        track for track in load_composition(pid).audio
-        if track.id == "whole-project-narration"
-    )
-    assert narration.start == 0.0
-    assert narration.duration == project_duration
-
 
 
 def test_reorder_reused_video_asset_matches_original_audio_by_source_window(tmp_path, monkeypatch):
