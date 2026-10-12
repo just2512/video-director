@@ -230,8 +230,8 @@ function editorVisualTrackMenu(ev, trackId) {
       <header><div><b id="visual-track-menu-title">${esc(track.name)}</b><div class="hint">画面轨道 · 顺序 ${index + 1}</div></div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualTrackMenuClose()">关闭</button></header>
       <div class="ed-visual-track-menu-actions">
-        <button type="button" class="btn-secondary" ${index === 0 ? 'disabled' : ''} onclick="editorVisualTrackMove(event, '${id}', ${index - 1})">上移一层</button>
-        <button type="button" class="btn-secondary" ${index === tracks.length - 1 ? 'disabled' : ''} onclick="editorVisualTrackMove(event, '${id}', ${index + 1})">下移一层</button>
+        <button type="button" class="btn-secondary" ${index === tracks.length - 1 ? 'disabled' : ''} onclick="editorVisualTrackMove(event, '${id}', ${index + 1})">上移一层</button>
+        <button type="button" class="btn-secondary" ${index === 0 ? 'disabled' : ''} onclick="editorVisualTrackMove(event, '${id}', ${index - 1})">下移一层</button>
         <button type="button" class="btn-secondary" onclick="editorVisualTrackRename(event, '${id}')">重命名</button>
         <button type="button" class="btn-danger" ${tracks.length <= 1 || hasClips ? 'disabled' : ''} onclick="editorVisualTrackRemove(event, '${id}')">删除空轨道</button>
       </div>
