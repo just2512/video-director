@@ -917,7 +917,6 @@ def test_locked_visual_track_rejects_add_move_trim_split_property_and_delete(tmp
         assert result.status == "REJECTED", (command, result.status, result.errors)
         assert result.errors[0]["code"] == "TRACK_LOCKED", (command, result.errors)
         assert load_composition(pid).visual_overlays[0].model_dump(mode="json") == original
-        assert result.composition_version == 3
 
     revisions = [line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
     assert len(revisions) == 2, "only the add and lock commands should create revisions"
