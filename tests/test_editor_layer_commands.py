@@ -102,3 +102,80 @@ def test_layer_edit_buttons_and_cross_scene_drop_no_longer_reorders_scene():
     assert "reorder_layer" in js
     assert "跨分镜移动需要独立物理轨道" in js
     assert 'data-action="ui.split_layer" title="在播放头处切分选中的视频/图片片段"' in html
+
+
+def _all_track_edit_comp():
+    data = _video_comp()
+    data["assets"] = [
+        {"id": "vid1", "type": "video", "file": "sample-assets/clip.mp4", "duration": 8},
+        {"id": "aud1", "type": "audio", "file": "sample-assets/music.wav", "duration": 5},
+    ]
+    data["audio_tracks"] = [{"id": "sfx-lane", "name": "细节音效", "order": 0}]
+    data["audio"] = [{
+        "id": "sfx-before-cut", "type": "sfx", "track_id": "sfx-lane",
+        "asset_id": "aud1", "start": 0.5, "duration": 4.0,
+        "source_in": 0.0, "source_out": 4.0, "volume": 0.5,
+    }]
+    data["visual_tracks"] = [{"id": "overlay-main", "name": "视觉叠加", "order": 0}]
+    data["visual_overlays"] = [{
+        "id": "overlay-before-cut", "asset_id": "vid1", "start": 1.0, "duration": 3.0,
+        "source_in": 0.0, "track_id": "overlay-main", "presentation_mode": "full_frame",
+        "source_audio_enabled": False, "source_audio_volume": 1.0,
+        "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0, "opacity": 1.0, "z_index": 0,
+    }]
+    data["watermarks"] = [{
+        "id": "wm-before-cut", "kind": "text", "text": "TEST",
+        "start": 1.0, "duration": 3.0,
+    }]
+    data["subtitle_track"] = {
+        "mode": "word", "source": "asr",
+        "cues": [{"start": 2.0, "end": 3.0, "text": "测试"}],
+    }
+    return data
+
+
+def test_add_edit_all_tracks_splits_all_safe_tracks_in_one_undoable_revision(tmp_path, monkeypatch):
+    pid, plans = _project(tmp_path, monkeypatch, _all_track_edit_comp())
+    before = load_composition(pid).model_dump(mode="json")
+    result = _apply(pid, "add_edit_all_tracks", "timeline", {"at": 2.5})
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    base = comp.scenes[0].layers
+    assert [(round(x.start, 3), round(x.duration, 3)) for x in base] == [(0.0, 2.5), (2.5, 2.5)]
+    assert [(round(x.source_in, 3), round(x.source_out, 3)) for x in base] == [(0.0, 2.5), (2.5, 5.0)]
+
+    overlays = sorted(comp.visual_overlays, key=lambda x: x.start)
+    assert [(round(x.start, 3), round(x.duration, 3), round(x.source_in, 3)) for x in overlays] == [
+        (1.0, 1.5, 0.0), (2.5, 1.5, 1.5),
+    ]
+    audio = sorted(comp.audio, key=lambda x: x.start)
+    assert [(round(x.start, 3), round(x.duration, 3), round(x.source_in, 3), round(x.source_out, 3)) for x in audio] == [
+        (0.5, 2.0, 0.0, 2.0), (2.5, 2.0, 2.0, 4.0),
+    ]
+    watermarks = sorted(comp.watermarks, key=lambda x: x.start)
+    assert [(round(x.start, 3), round(x.duration, 3)) for x in watermarks] == [(1.0, 1.5), (2.5, 1.5)]
+
+    revisions = [json.loads(line) for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 1, "whole operation must be one revision, not one save per track"
+    assert revisions[0]["command"] == "add_edit_all_tracks"
+    assert result.composition_version == 2
+    assert any("字幕/字级时间锚点" in warning for warning in result.warnings)
+    assert revisions[0]["warnings"] == result.warnings
+
+    undone = execute_command(pid, {
+        "command": "undo", "targetId": "", "payload": {},
+        "expectedVersion": result.composition_version,
+    })
+    assert undone.status == "APPLIED", undone.errors
+    assert load_composition(pid).model_dump(mode="json") == before
+
+
+def test_add_edit_all_tracks_rejects_boundary_without_writing_revision(tmp_path, monkeypatch):
+    pid, plans = _project(tmp_path, monkeypatch, _all_track_edit_comp())
+    before = load_composition(pid).model_dump(mode="json")
+    result = _apply(pid, "add_edit_all_tracks", "timeline", {"at": 5.0})
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "NO_SPLITTABLE_CLIP_AT_PLAYHEAD"
+    assert load_composition(pid).model_dump(mode="json") == before
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
