@@ -398,7 +398,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
 
                 # Real Chromium interaction: a horizontal drag inside the main picture
                 # lane uses the drop time, not the pointer's vertical half of the target bar.
-                horizontal_drag_setup = page.evaluate("""() => {
+                horizontal_drag_setup = page.evaluate("""async () => {
                   window.__horizontalDragOriginal = {
                     comp: ED.comp, view: ED.timelineView, zoom: ED.zoom,
                     executeCommand: window.executeCommand,
