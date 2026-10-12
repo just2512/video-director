@@ -1403,6 +1403,7 @@ class Handler(BaseHTTPRequestHandler):
                         for clip in (getattr(ir, "visual_overlays", None) or [])
                     ],
                     "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
+                    "subtitle_track": ir.subtitle_track.model_dump() if ir.subtitle_track else None,
                     "references": ir.references.to_dict()["references"] if ir.references else [],
                     "assets": _editor_asset_preview_map(ir),
                     "transition_proposals": _load_transition_proposals(pid),
