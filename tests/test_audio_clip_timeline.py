@@ -306,6 +306,6 @@ def test_audio_clip_inspector_exposes_safe_split_at_playhead_action():
     assert "editorAudioClipSplit" in js
     assert 'id="audio-clip-split-at-playhead"' in js
     assert "split_audio_clip" in js
-    assert "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW" in js
-    assert "SPLIT_UNSUPPORTED_NARRATION_PIPELINE" in js
+    assert "循环背景音需先裁出明确源区间" in js
+    assert "旁白由独立渲染链路处理，当前版本暂不能切分" in js
     assert ".audio-clip-split-row" in css
