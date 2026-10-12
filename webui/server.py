@@ -2288,6 +2288,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        # Public article input: bounded fetch, SSRF guards, extracted text and hash snapshot.
+        if parsed.path == "/api/source/article":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length <= 0 or length > 8192:
+                self._send_json({"ok": False, "code": "INVALID_REQUEST_SIZE",
+                                 "error": "文章导入请求体为空或超过 8 KiB"}, 413)
+                return
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="strict"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json({"ok": False, "code": "INVALID_JSON",
+                                 "error": "请求体不是合法 UTF-8 JSON"}, 400)
+                return
+            if not isinstance(payload, dict):
+                self._send_json({"ok": False, "code": "INVALID_REQUEST",
+                                 "error": "请求体必须是 JSON 对象"}, 400)
+                return
+            try:
+                from video_director.article_import import ArticleImportError, import_article
+                article = import_article(str(payload.get("url") or ""))
+                self._send_json({"ok": True, "article": article})
+            except Exception as exc:
+                from video_director.article_import import ArticleImportError
+                is_input_error = isinstance(exc, ArticleImportError)
+                self._send_json({
+                    "ok": False,
+                    "code": "ARTICLE_IMPORT_REJECTED" if is_input_error else "ARTICLE_FETCH_FAILED",
+                    "error": str(exc)[:320] if is_input_error else "文章抓取失败；请检查网址可访问性，或手动粘贴正文。",
+                }, 422 if is_input_error else 502)
+            return
+
         # 参考视频分析（风格重构非内容复制）：multipart 上传参考视频 → 镜头语法报告
         if parsed.path == "/api/reference":
             mp = _parse_multipart(self)
@@ -2392,6 +2423,7 @@ class Handler(BaseHTTPRequestHandler):
                 script
                 or (assets.get("asset_refs") if isinstance(assets, dict) else [])
                 or (inputs.get("references") if isinstance(inputs, dict) else [])
+                or (inputs.get("articles") if isinstance(inputs, dict) else [])
                 or (inputs.get("software_project") if isinstance(inputs, dict) else {})
             )
             if not brief and not script and not has_sources:

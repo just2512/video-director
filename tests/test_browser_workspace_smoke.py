@@ -4,6 +4,8 @@ On failure, retain a Playwright trace under test-results/ for CI artifact upload
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import socket
 import subprocess
@@ -95,9 +97,49 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert response is not None and response.status == 200
                 assert page.title()
 
+                # Article URL import is a first-class Director input, but the UI test uses
+                # a deterministic intercepted response rather than depending on an external site.
+                page.route(
+                    "**/api/source/article",
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "ok": True,
+                            "article": {
+                                "source_url": "https://news.example/article",
+                                "requested_url": "https://news.example/article",
+                                "title": "Imported article fixture",
+                                "content": "An imported article contains an explained fact. " * 5,
+                                "content_sha256": hashlib.sha256(("An imported article contains an explained fact. " * 5).encode()).hexdigest(),
+                                "content_chars": len("An imported article contains an explained fact. " * 5),
+                                "content_type": "text/html",
+                                "fetched_at": "2026-10-11T12:00:00+00:00",
+                                "extraction_status": "EXTRACTED",
+                            },
+                        }),
+                    ),
+                )
+                page.evaluate("openCreate()")
+                page.locator("#cf-article-url").fill("https://news.example/article")
+                page.locator("#cf-import-article-btn").click()
+                page.get_by_text("Imported article fixture").wait_for(timeout=10000)
+                assert page.evaluate("window._cfArticle.title") == "Imported article fixture"
+                assert page.evaluate("window._cfArticle.content_sha256.length") == 64
+                assert "文章已导入" in page.locator("#cf-article-status").inner_text()
+                page.evaluate("closeCreate()")
+                page.evaluate("openCreate()")
+                page.locator("#cf-article-url").wait_for(timeout=10000)
+                assert page.locator("#cf-article-url").input_value() == "https://news.example/article"
+                assert page.get_by_text("Imported article fixture").count() > 0
+                assert "已恢复上一轮导入" in page.locator("#cf-article-status").inner_text()
+                page.evaluate("cfClearArticleSource()")
+                assert page.evaluate("window._cfArticle") is None
+                assert page.locator("#cf-article-url").input_value() == ""
+                page.unroute("**/api/source/article")
+
                 # User-facing template gallery must use the real registry/runtime API,
                 # expose its readiness caveats, and refuse actions until assets exist.
-                page.evaluate("openCreate()")
                 page.locator("#cf-template-gallery-btn").wait_for(timeout=10000)
                 page.locator("#cf-template-gallery-btn").click()
                 page.locator("#tg-mask").wait_for(timeout=10000)

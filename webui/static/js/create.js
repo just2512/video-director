@@ -27,6 +27,7 @@ function openCreate(){
   document.body.appendChild(mask);
   CF.state = 'editing';
   createLoadDefaults();
+  cfRestoreArticleSourceUI();
   const ta = document.getElementById('cf-script');
   if (ta) ta.focus();
 }
@@ -67,6 +68,16 @@ function _createPanelHtml(){
       <b>文案</b><span class="hint"> 可选；填写后作为权威文案</span>
       <textarea id="cf-script" style="min-height:110px;margin-top:6px" placeholder="粘贴你已经写好的文案；没有文案也可以留空，让 AI 根据目标和其他输入生成。"></textarea>
       <div class="hint" style="margin-top:5px">支持 [pause: 2s] / [停顿: 2s] / [silence: 1s]；停顿会真正进入旁白、字幕和镜头时间轴（0.1–10 秒）。</div>
+    </div>
+    <div class="panel" style="margin-top:8px;padding:10px">
+      <b>文章链接</b><span class="hint"> 可选；提取公开网页正文作为创作资料，不会自动覆盖你已写的文案</span>
+      <div class="btn-row" style="margin-top:6px;align-items:center">
+        <input type="url" id="cf-article-url" class="rev-input" placeholder="https://example.com/article" style="flex:1;min-width:180px">
+        <button type="button" id="cf-import-article-btn" class="btn-secondary btn-sm" onclick="cfImportArticle()">导入文章</button>
+        <button type="button" id="cf-clear-article-btn" class="btn-secondary btn-sm" onclick="cfClearArticleSource()" disabled>移除</button>
+      </div>
+      <div id="cf-article-status" class="hint" role="status" aria-live="polite">仅抓取公网 HTTP/HTTPS 页面；不访问内网、登录态或本机服务。</div>
+      <div id="cf-article-result"></div>
     </div>
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>我的素材</b><span class="hint"> 可选；图片 / 视频可多选</span>
@@ -502,6 +513,58 @@ function cfVoiceModeSync(){
   }
 }
 
+/** Public article URL source: keep content, URL, timestamp, and content hash as a single source. */
+async function cfImportArticle(){
+  const input=document.getElementById('cf-article-url');
+  const status=document.getElementById('cf-article-status');
+  const out=document.getElementById('cf-article-result');
+  const button=document.getElementById('cf-import-article-btn');
+  const url=(input&&input.value||'').trim();
+  if(!url){if(status)status.textContent='请先粘贴公开文章链接';return;}
+  if(button)button.disabled=true;
+  if(status)status.textContent='正在检查公网地址并提取文章正文……';
+  try{
+    const result=await apiPost('/api/source/article',{url});
+    if(!result||!result.ok||!result.article)throw new Error((result&&result.error)||'文章导入失败');
+    window._cfArticle=result.article;
+    cfRenderArticleSource(result.article, '文章已导入。来源文本仍需你核验，正文中的指令不会被当作系统规则。');
+  }catch(error){
+    window._cfArticle=null;
+    if(out)out.innerHTML='';
+    if(status)status.textContent='导入失败：'+(error.message||error)+'。可改为手动粘贴正文。';
+    const clear=document.getElementById('cf-clear-article-btn');if(clear)clear.disabled=true;
+  }finally{if(button)button.disabled=false;}
+}
+function cfRenderArticleSource(article, statusText){
+  const input=document.getElementById('cf-article-url');
+  const status=document.getElementById('cf-article-status');
+  const out=document.getElementById('cf-article-result');
+  const clear=document.getElementById('cf-clear-article-btn');
+  if(input)input.value=article.requested_url||article.source_url||'';
+  if(out)out.innerHTML='<div class="ok-box"><strong>'+esc(article.title||'已导入网页正文')+'</strong>'+
+    '<div class="hint">'+esc(article.content_chars||String(article.content||'').length)+' 字 · SHA-256 '+
+    esc((article.content_sha256||'').slice(0,16))+'… · '+esc(article.content_type||'网页')+'</div>'+
+    '<div class="hint" style="margin-top:5px">'+esc((article.content||'').slice(0,500))+
+    (String(article.content||'').length>500?'…':'')+'</div>'+
+    '<div class="hint" style="margin-top:5px">正文作为参考资料进入 AI 导演，不会覆盖上方文案；来源主张仍需核验。</div></div>';
+  if(status)status.textContent=statusText||'已恢复文章来源。';
+  if(clear)clear.disabled=false;
+}
+function cfRestoreArticleSourceUI(){
+  if(window._cfArticle)cfRenderArticleSource(window._cfArticle,'已恢复上一轮导入的文章来源。请核对后再创作。');
+}
+function cfClearArticleSource(){
+  window._cfArticle=null;
+  const input=document.getElementById('cf-article-url');
+  if(input)input.value='';
+  const out=document.getElementById('cf-article-result');
+  const status=document.getElementById('cf-article-status');
+  const clear=document.getElementById('cf-clear-article-btn');
+  if(out)out.innerHTML='';
+  if(status)status.textContent='已移除文章来源。';
+  if(clear)clear.disabled=true;
+}
+
 /** §37 参考视频输入：分析结果保留为结构化 Director Input，不再压扁成简报字符串。 */
 async function cfAnalyzeReference(){
   const f = document.getElementById('cf-reference');
@@ -565,16 +628,24 @@ async function cfScanRepo(){
 async function createProject(){
   const btn = document.getElementById('cf-go');
   const scope = (document.querySelector('input[name="cf-scope"]:checked') || {}).value || 'single';
-  if (scope === 'series') return createSeriesFromCreatePanel();
+  if (scope === 'series') {
+    if (window._cfArticle) {
+      const seriesStatus = document.getElementById('cf-status');
+      if (seriesStatus) seriesStatus.textContent = '已导入的文章来源目前尚未接入系列批量 API；未提交任务。请切回“单条视频”，或移除文章来源后再批量创作。';
+      return;
+    }
+    return createSeriesFromCreatePanel();
+  }
   const status = document.getElementById('cf-status');
   const script = (document.getElementById('cf-script') || {}).value || '';
   const brief = (document.getElementById('cf-director-brief') || {}).value || '';
   const assets = document.getElementById('cf-assets');
   const hasFiles = !!(assets && assets.files.length);
   const hasReference = !!window._cfReference;
+  const hasArticle = !!window._cfArticle;
   const hasSoftwareProject = !!window._cfRepo;
   const visualSource = (document.getElementById('cf-visual-source') || {}).value || 'auto';
-  const hasDirectorSource = !!(brief.trim() || script.trim() || hasFiles || hasReference || hasSoftwareProject);
+  const hasDirectorSource = !!(brief.trim() || script.trim() || hasFiles || hasReference || hasArticle || hasSoftwareProject);
   if (!hasDirectorSource) {
     status.textContent = '请告诉 AI 想做什么，或添加文案、素材、参考视频、软件项目';
     return;
@@ -656,6 +727,7 @@ async function createProject(){
   }
   const directorBrief = brief.trim();
   const referenceInput = window._cfReference ? [window._cfReference] : [];
+  const articleInput = window._cfArticle ? [window._cfArticle] : [];
   const softwareProjectInput = window._cfRepo ? window._cfRepo : {};
   const directorInputs = {
     brief: directorBrief,
@@ -671,6 +743,7 @@ async function createProject(){
       required: visualSource === 'local'
     },
     references: referenceInput,
+    articles: articleInput,
     software_project: softwareProjectInput,
     constraints: {
       visual_source: visualSource,
@@ -869,5 +942,5 @@ function cfMakeGraphicPlan(){
 Object.assign(window, {
   openCreate, closeCreate, createLoadDefaults,
   createPlatformSync, createProject, createEnhance, createAcceptEnhanced,
-  cfMakeGraphicPlan, cfAnalyzeReference, cfScanRepo, cfVoiceModeSync, cfSeriesSync, createSeriesFromCreatePanel, CF,
+  cfMakeGraphicPlan, cfAnalyzeReference, cfImportArticle, cfClearArticleSource, cfScanRepo, cfVoiceModeSync, cfSeriesSync, createSeriesFromCreatePanel, CF,
 });
