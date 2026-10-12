@@ -406,6 +406,21 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     editorToast: window.editorToast
                   };
                   const original = window.__horizontalDragOriginal;
+                  window.__horizontalDragEvents = [];
+                  for (const type of ["pointerdown","pointermove","pointerup","pointercancel","mousedown","mousemove","mouseup"]) {
+                    document.addEventListener(type, event => {
+                      if (window.__horizontalDragEvents.length < 80) {
+                        const target = event.target;
+                        const under = document.elementFromPoint(event.clientX || 0, event.clientY || 0);
+                        window.__horizontalDragEvents.push({
+                          type, x:event.clientX, y:event.clientY, button:event.button,
+                          pointerId:event.pointerId,
+                          target:target ? {tag:target.tagName,cls:String(target.className),scene:target.dataset && target.dataset.scene,idx:target.dataset && target.dataset.idx} : null,
+                          under:under ? {tag:under.tagName,cls:String(under.className),scene:under.dataset && under.dataset.scene,idx:under.dataset && under.dataset.idx} : null
+                        });
+                      }
+                    }, true);
+                  }
                   const comp = JSON.parse(JSON.stringify(original.comp));
                   comp.duration = 10;
                   comp.assets = {
@@ -452,6 +467,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   const y = sr.top + sr.height / 2;
                   const dropX = br.left + br.width * 0.92;
                   const dropTarget = document.elementFromPoint(dropX, y);
+                  const sourceHit = document.elementFromPoint(x, y);
                   if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight ||
                       dropX < 0 || dropX >= innerWidth || y < 0 || y >= innerHeight) {
                     return {error:"real mouse drag coordinates are outside viewport",
@@ -462,7 +478,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     sourceRect:{left:sr.left,top:sr.top,width:sr.width,height:sr.height},
                     bodyRect:{left:br.left,top:br.top,width:br.width,height:br.height},
                     sceneRect:(() => { const r=scene.getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}; })(),
-                    dropTarget:dropTarget ? {tag:dropTarget.tagName,className:String(dropTarget.className)} : null
+                    sourceHit:sourceHit ? {tag:sourceHit.tagName,className:String(sourceHit.className),scene:sourceHit.dataset && sourceHit.dataset.scene,idx:sourceHit.dataset && sourceHit.dataset.idx} : null,
+                    dropTarget:dropTarget ? {tag:dropTarget.tagName,className:String(dropTarget.className),scene:dropTarget.dataset && dropTarget.dataset.scene,idx:dropTarget.dataset && dropTarget.dataset.idx} : null,
+                    handlersBound:!!window.__tlLayerDragHandlers
                   };
                 }""")
                 try:
@@ -476,8 +494,10 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     page.mouse.up()
                     page.wait_for_timeout(50)
                     captured_commands = page.evaluate("window.__horizontalDragCommands || []")
+                    captured_events = page.evaluate("window.__horizontalDragEvents || []")
                     horizontal_layer_drag = {
                         "commands": captured_commands,
+                        "events": captured_events,
                         "expectedToIndex": 2,
                         "geometry": horizontal_drag_setup,
                     }
@@ -494,6 +514,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                       }
                       delete window.__horizontalDragOriginal;
                       delete window.__horizontalDragCommands;
+                      delete window.__horizontalDragEvents;
                       editorRenderTimeline();
                     }""")
                 assert horizontal_layer_drag["commands"], horizontal_layer_drag
