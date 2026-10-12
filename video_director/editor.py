@@ -2114,9 +2114,12 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
             "切分播放头必须位于音频片段内部，且切分两侧至少保留 0.05 秒",
         )
 
+    # Snap only the requested cut point. Derive both output durations from
+    # that single boundary and the original endpoints; rounding both durations
+    # independently can create a gap/overlap for sub-millisecond source IR.
     split_at = round(at, 3)
-    left_duration = round(split_at - start, 3)
-    right_duration = round(end - split_at, 3)
+    left_duration = split_at - start
+    right_duration = end - split_at
     if left_duration < minimum_half or right_duration < minimum_half:
         raise EditorError(
             "SPLIT_OUTSIDE_CLIP",
@@ -2139,8 +2142,9 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
                 "音频源区间与片段输出时长不一致，不能安全切分",
             )
 
-    right_source_in = round(source_in + left_duration, 3)
-    left_source_out = round(source_in + left_duration, 3) if source_out is not None else None
+    source_boundary = source_in + left_duration
+    right_source_in = source_boundary
+    left_source_out = source_boundary if source_out is not None else None
     fade_in = max(0.0, float(getattr(track, "fadeIn", 0.0) or 0.0))
     fade_out = max(0.0, float(getattr(track, "fadeOut", 0.0) or 0.0))
     left = track.model_copy(update={
@@ -2154,7 +2158,7 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
         "start": split_at,
         "duration": right_duration,
         "source_in": right_source_in,
-        "source_out": round(source_out, 3) if source_out is not None else None,
+        "source_out": source_out,
         "fadeIn": 0.0,
         "fadeOut": min(fade_out, right_duration),
         "keyframes": [],
