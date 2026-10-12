@@ -996,7 +996,7 @@ def composite_visual_overlays(
         composed_label = f"comp{index}"
         filters.append(
             f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
-            f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
+            f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,format=rgba,"
             f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
             f"format=rgba,colorchannelmixer=aa={float(overlay.opacity):.6f}[{overlay_label}]"
         )
