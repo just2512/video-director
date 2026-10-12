@@ -687,6 +687,20 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
         "trackId": "overlay-main",
     }, 1)
     assert lifted.status == "APPLIED", lifted.errors
+
+    undone = __import__("video_director.editor", fromlist=["execute_command"]).execute_command(
+        project_id, {"command": "undo", "expectedVersion": lifted.composition_version},
+    )
+    assert undone.status == "APPLIED", undone.errors
+    restored = load_composition(project_id)
+    assert restored.scenes[0].layers[0].type == LayerType.video
+    assert restored.visual_overlays == []
+
+    redone = __import__("video_director.editor", fromlist=["execute_command"]).execute_command(
+        project_id, {"command": "redo", "expectedVersion": undone.composition_version},
+    )
+    assert redone.status == "APPLIED", redone.errors
+
     saved = load_composition(project_id)
     gap = saved.scenes[0].layers[0]
     clip = saved.visual_overlays[0]
@@ -701,7 +715,7 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     # Reposition the lifted clip away from the gap, then verify the encoded MP4
     # shows black in the uncovered gap, red video at the new position, and green
     # footage after the lifted clip leaves. This tests rendered output, not just IR.
-    moved = _apply(project_id, "move_visual_overlay", "overlay#0", {"start": 0.5}, lifted.composition_version)
+    moved = _apply(project_id, "move_visual_overlay", "overlay#0", {"start": 0.5}, redone.composition_version)
     assert moved.status == "APPLIED", moved.errors
     saved = load_composition(project_id)
     assets = {asset.id: asset for asset in saved.assets}
