@@ -574,6 +574,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     if cmd_name not in SUPPORTED_COMMANDS:
         return CommandResult(
             status="REJECTED",
+            composition_version=composition_version(project_id),
             errors=[{"code": "COMMAND_NOT_SUPPORTED", "message": f"命令 {cmd_name!r} 不支持"}],
         )
     if cmd_name == "select":
@@ -587,6 +588,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     if expected is not None and int(expected) != current:
         return CommandResult(
             status="REJECTED",
+            composition_version=current,
             errors=[{
                 "code": "CONFLICT",
                 "message": f"版本冲突：客户端 {expected} != 服务端 {current}，请刷新后重试",
@@ -748,11 +750,11 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         elif cmd_name == "set_scene_intent":
             changed, stale = _cmd_set_scene_intent(ir, target_id, payload, project_id)
     except EditorError as exc:
-        return CommandResult(status="REJECTED", errors=[{
+        return CommandResult(status="REJECTED", composition_version=current, errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
         }])
     except CompileError as exc:
-        return CommandResult(status="REJECTED", errors=[{
+        return CommandResult(status="REJECTED", composition_version=current, errors=[{
             "code": exc.code, "message": str(exc), "recoverable": True,
         }])
 

@@ -430,9 +430,15 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                         const host = document.createElement('div');
                         host.innerHTML = renderPhysicalTimeline();
                         const clip = label => {
-                            const row = [...host.querySelectorAll('.ed-track')].find(
-                                item => item.querySelector('.ed-track-label')?.textContent === label
-                            );
+                            const row = [...host.querySelectorAll('.ed-track')].find(item => {
+                                // Track controls must not be part of the semantic label lookup.
+                                const name = item.querySelector(
+                                    '.ed-audio-track-label > span, .ed-visual-track-name, .ed-track-label > span'
+                                )?.textContent?.trim();
+                                const firstText = [...(item.querySelector('.ed-track-label')?.childNodes || [])]
+                                    .find(node => node.nodeType === Node.TEXT_NODE)?.textContent?.trim();
+                                return (name || firstText || '') === label;
+                            });
                             const node = row && row.querySelector('.ed-track-clip');
                             return node ? {left: node.style.left, width: node.style.width, title: node.title} : null;
                         };
