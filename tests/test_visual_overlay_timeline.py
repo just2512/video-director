@@ -255,8 +255,12 @@ def test_real_ffmpeg_video_overlay_honors_source_in_and_output_window(tmp_path):
 
 def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     root = Path(__file__).resolve().parents[1]
-    js = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
+    js_dir = root / "webui" / "static" / "js"
+    timeline_js = (js_dir / "timeline.js").read_text(encoding="utf-8")
+    overlay_js = (js_dir / "visual-overlay-editor.js").read_text(encoding="utf-8")
+    js = timeline_js + "\n" + overlay_js
     assert "visual_overlays" in js
-    assert "_tlBindVisualOverlayDrag" in js
-    assert "add_visual_overlay" in js and "move_visual_overlay" in js
-    assert "trim_visual_overlay" in js and "editorVisualOverlayOpen" in js
+    assert "_tlBindVisualOverlayDrag" in timeline_js
+    assert "editorVisualOverlayPick" in timeline_js
+    assert "add_visual_overlay" in overlay_js and "move_visual_overlay" in overlay_js
+    assert "trim_visual_overlay" in overlay_js and "editorVisualOverlayOpen" in js
