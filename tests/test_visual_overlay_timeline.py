@@ -9,7 +9,7 @@ from pathlib import Path
 from video_director import qc, renderer
 from video_director.editor import execute_command, load_composition, save_composition
 from video_director.models import (
-    AssetRef, AudioTrackType, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
+    AssetRef, AudioTrack, AudioTrackType, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
 )
 
 
@@ -1365,3 +1365,68 @@ def test_detach_overlay_source_audio_fails_closed_for_disabled_or_silent_source(
     saved = load_composition(pid)
     assert saved.version == 1 and saved.audio == []
     assert saved.visual_overlays[0].source_audio_enabled is True
+
+
+def _add_existing_source_audio(pid: str, *, role: AudioTrackType = AudioTrackType.original, volume: float = 0.7, start: float = 0.5, duration: float = 1.0, source_in: float = 0.25, source_out: float = 1.25) -> None:
+    ir = load_composition(pid)
+    ir.audio.append(AudioTrack(
+        type=role,
+        id="existing-source-audio",
+        track_id="audio-original" if role == AudioTrackType.original else "audio-dialogue",
+        asset_id="source-audio-video",
+        start=start,
+        duration=duration,
+        source_in=source_in,
+        source_out=source_out,
+        volume=volume,
+    ))
+    save_composition(pid, ir)
+
+
+def test_detach_overlay_reuses_exact_matching_original_audio_without_duplicating(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "reuse-source-audio-base.png"
+    video_path = tmp_path / "reuse-source-audio-video.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_video_with_audio(ffmpeg, video_path)
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    _save_detachable_source_audio_project(pid, base_path, video_path, enabled=True)
+    _add_existing_source_audio(pid)
+
+    result = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    assert saved.version == 2
+    assert len(saved.audio) == 1
+    assert saved.audio[0].id == "existing-source-audio"
+    assert saved.audio[0].type == AudioTrackType.original
+    assert saved.visual_overlays[0].source_audio_enabled is False
+
+
+def test_detach_overlay_rejects_overlapping_dialogue_or_mismatched_original_audio(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "conflict-source-audio-base.png"
+    video_path = tmp_path / "conflict-source-audio-video.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_video_with_audio(ffmpeg, video_path)
+
+    for role, volume in (
+        (AudioTrackType.dialogue, 0.7),
+        (AudioTrackType.original, 0.35),
+    ):
+        case_root = tmp_path / f"case-{role.value}-{volume}"
+        case_root.mkdir(parents=True)
+        monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(case_root))
+        pid, _ = _editor_project(case_root, monkeypatch)
+        # Keep the actual generated media outside each isolated project directory.
+        _save_detachable_source_audio_project(pid, base_path, video_path, enabled=True)
+        _add_existing_source_audio(pid, role=role, volume=volume)
+
+        result = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
+        assert result.status == "REJECTED", result.errors
+        assert result.errors[0]["code"] == "SOURCE_AUDIO_DUPLICATE_CONFLICT"
+        saved = load_composition(pid)
+        assert saved.version == 1
+        assert len(saved.audio) == 1
+        assert saved.audio[0].volume == pytest.approx(volume)
+        assert saved.visual_overlays[0].source_audio_enabled is True
