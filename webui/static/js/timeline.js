@@ -412,6 +412,14 @@ function renderPhysicalTimeline(){
 
   // ---- 渲染（组标题可折叠 §16）----
   const GROUP_ORDER = ['picture', 'language', 'sound', 'temporal'];
+  // Clips sharing a time interval must not overlap their own DOM hit targets.
+  // Split only busy tracks; preserve command indices on every copied clip.
+  if (window.TimelineEditMath && typeof window.TimelineEditMath.splitOverlappingTrack === 'function') {
+    for (const group of GROUP_ORDER) {
+      tracks[group] = (tracks[group] || []).flatMap(track =>
+        window.TimelineEditMath.splitOverlappingTrack(track));
+    }
+  }
   let html = `<div class="ed-tl-ruler"><span id="tl-playhead-label">${PLAYHEAD.at.toFixed(1)}s</span></div>
     <div class="ed-tl-scroll"><div class="ed-tl-canvas" style="width:${canvasWidth}px">`;
   const trackRow = (t) => {
