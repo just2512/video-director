@@ -2084,6 +2084,11 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
             "SPLIT_UNSUPPORTED_AUTOMATION",
             "该音频片段带有关键帧自动化；暂不能切分，避免丢失音量曲线",
         )
+    if track.type == AudioTrackType.narration:
+        raise EditorError(
+            "SPLIT_UNSUPPORTED_NARRATION_PIPELINE",
+            "旁白由独立渲染链路按单条旁白轨处理；当前版本暂不支持切分旁白，以免成片遗漏右段",
+        )
     if track.type in (AudioTrackType.bgm, AudioTrackType.ambience) and track.source_out is None:
         raise EditorError(
             "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW",
