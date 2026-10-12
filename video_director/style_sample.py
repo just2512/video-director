@@ -49,8 +49,9 @@ def _write_subtitles(ir: CompositionIR, output: Path, font_size: int) -> tuple[s
                 continue
             entries.extend([str(len(entries) // 4 + 1), f"{_srt_time(start)} --> {_srt_time(end)}", text, ""])
         if entries:
-            output.write_text("\n".join(entries), encoding="utf-8")
-            return str(output), True
+            srt_output = output.with_suffix(".srt")
+            srt_output.write_text("\n".join(entries), encoding="utf-8")
+            return str(srt_output), True
 
     scene_rows = [
         {"start": float(scene.start), "duration": float(scene.duration), "text": str(scene.text or "")}
@@ -60,11 +61,12 @@ def _write_subtitles(ir: CompositionIR, output: Path, font_size: int) -> tuple[s
         return None, False
     from video_director.subtitle import build_ass_plain
 
-    output.write_text(
+    ass_output = output.with_suffix(".ass")
+    ass_output.write_text(
         build_ass_plain(scene_rows, width=ir.project.width, height=ir.project.height, font_size=font_size),
         encoding="utf-8",
     )
-    return str(output), True
+    return str(ass_output), True
 
 
 def _safe_file(value: Any, trusted_roots: list[Path], project_dir: Path) -> Path | None:
