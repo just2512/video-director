@@ -1148,3 +1148,30 @@ def test_real_ffmpeg_source_track_insert_preserves_pixels_and_linked_audio_timin
     assert _audio_window_mean_volume(ffmpeg, output, 0.8, 0.2) > -35
     assert _audio_window_mean_volume(ffmpeg, output, 1.65, 0.2) < -65
     assert _audio_window_mean_volume(ffmpeg, output, 2.5, 0.2) > -35
+
+
+def test_source_track_insert_extends_actual_tail_layer_when_scene_layers_are_unordered(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    ir = load_composition(pid)
+    # SceneIR permits non-canonical list order but validates the time-sorted spans.
+    # The latest segment is deliberately stored at index 0, not index -1.
+    ir.scenes[0] = SceneIR(
+        id="S01", start=0.0, duration=10.0, text="unordered scene layers",
+        layers=[
+            Layer(type=LayerType.image, asset_id="overlay-image", start=5.0, duration=5.0),
+            Layer(type=LayerType.image, asset_id="overlay-image", start=0.0, duration=5.0),
+        ],
+    )
+    save_composition(pid, ir)
+
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 9.0, "duration": 2.0,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    assert saved.project.duration == pytest.approx(12.0)
+    assert saved.scenes[0].duration == pytest.approx(12.0)
+    layers = saved.scenes[0].layers
+    assert [(layer.start, layer.duration) for layer in layers] == [(5.0, 7.0), (0.0, 5.0)]

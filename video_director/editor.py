@@ -1917,7 +1917,13 @@ def _extend_project_for_visual_insert(ir: CompositionIR, duration: float) -> str
     amount = round(duration, 3)
     new_total = round(old_total + amount, 3)
     last_scene = ir.scenes[-1]
-    last_layer = last_scene.layers[-1]
+    # SceneIR validates layers in time order but preserves their input list order.
+    # Locate the actual trailing layer by its timeline end; never assume [-1] is last.
+    tail_index = max(
+        range(len(last_scene.layers)),
+        key=lambda index: float(last_scene.layers[index].start) + float(last_scene.layers[index].duration),
+    )
+    last_layer = last_scene.layers[tail_index]
     can_hold_still = (
         last_layer.type == LayerType.image
         and not any((
@@ -1929,7 +1935,7 @@ def _extend_project_for_visual_insert(ir: CompositionIR, duration: float) -> str
         scene_data = last_scene.model_dump()
         scene_data["duration"] = round(float(last_scene.duration) + amount, 3)
         new_layers = list(last_scene.layers)
-        new_layers[-1] = last_layer.model_copy(update={
+        new_layers[tail_index] = last_layer.model_copy(update={
             "duration": round(float(last_layer.duration) + amount, 3),
         })
         scene_data["layers"] = [layer.model_dump() for layer in new_layers]
