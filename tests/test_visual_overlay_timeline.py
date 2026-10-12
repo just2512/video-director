@@ -150,7 +150,7 @@ def _make_still(ffmpeg: str, path: Path, color: str):
 def _pixel_at(ffmpeg: str, video: Path, at: float, x: int, y: int):
     run = subprocess.run([
         ffmpeg, "-v", "error", "-ss", f"{at:.3f}", "-i", str(video),
-        "-frames:v", "1", "-vf", f"crop=1:1:{x}:{y},format=rgb24",
+        "-frames:v", "1", "-vf", f"format=rgb24,crop=1:1:{x}:{y}:exact=1",
         "-f", "rawvideo", "-",
     ], capture_output=True, timeout=30)
     assert run.returncode == 0, run.stderr.decode("utf-8", errors="replace")
