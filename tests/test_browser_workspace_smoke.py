@@ -495,6 +495,46 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     )
                 page.route("**/api/editor/command", capture_editor_command)
 
+                # Browser-level contract for lifting a main video clip into the same
+                # independently editable global visual track shown in the timeline.
+                promotion_setup = page.evaluate("""() => {
+                    ED.comp.visual_tracks = [{id: 'overlay-main', name: '画面叠加', order: 0}];
+                    ED.comp.scenes[0].layers[0] = {
+                        type: 'video', asset_id: 'video-source', start: 0, duration: 10,
+                        source_in: 0, source_out: 10, speed: 1, fit_mode: 'cover'
+                    };
+                    ED.comp.assets['video-source'] = {name: 'Source video', file: 'video.mp4'};
+                    SEL.selection = {type: 'layer', id: 'S01#0'};
+                    edShowInspector();
+                    return {
+                        buttonCount: [...document.querySelectorAll('#editor-inspector button')]
+                            .filter(button => button.textContent.includes('提升到独立画面轨道')).length,
+                        disabled: [...document.querySelectorAll('#editor-inspector button')]
+                            .find(button => button.textContent.includes('提升到独立画面轨道'))?.disabled
+                    };
+                }""")
+                assert promotion_setup["buttonCount"] == 1 and promotion_setup["disabled"] is False
+                promote_button = page.get_by_role("button", name="提升到独立画面轨道")
+                promote_button.scroll_into_view_if_needed()
+                promote_button.click()
+                page.wait_for_timeout(100)
+                promoted_command = next(
+                    (command for command in captured_commands
+                     if command.get("command") == "promote_layer_to_visual_track"),
+                    None,
+                )
+                assert promoted_command is not None, "browser click did not dispatch promote_layer_to_visual_track"
+                assert promoted_command["targetId"] == "S01#0"
+                assert promoted_command["payload"]["trackId"] == "overlay-main"
+                captured_commands.clear()
+                page.evaluate("""() => {
+                    ED.comp.scenes[0].layers[0] = {
+                        type: 'image', asset_id: 'img', start: 0, duration: 10
+                    };
+                    SEL.selection = {type: 'project'};
+                    editorRenderTimeline();
+                }""")
+
                 audio_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
                 # The timeline lives below the fold in this full-workspace browser test.
                 # Playwright's mouse API sends page coordinates; never click a valid but
