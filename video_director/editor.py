@@ -412,6 +412,7 @@ SUPPORTED_COMMANDS = (
     "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
+    "split_audio_clip",           # 在播放头切分单条音频片段，保留连续源区间
     "set_audio_clip_properties", # §17 独立音频片段混音/淡入淡出
     "set_audio_volume",          # 音轨音量（§20 / §37 Audio Bus gain）
     "set_audio_mute",            # §37 Audio Bus：轨级静音（mute 一等操作）
@@ -654,6 +655,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_move_audio_clip(ir, target_id, payload)
         elif cmd_name == "trim_audio_clip":
             changed, stale = _cmd_trim_audio_clip(ir, target_id, payload)
+        elif cmd_name == "split_audio_clip":
+            changed, stale = _cmd_split_audio_clip(ir, target_id, payload)
         elif cmd_name == "set_audio_clip_properties":
             changed, stale = _cmd_set_audio_clip_properties(ir, target_id, payload)
         elif cmd_name == "set_audio_volume":
@@ -2064,6 +2067,103 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     })
     key = f"audio:{track.type.value}:{index}"
     return [key], [f"{key}:render"]
+
+
+def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Split one editable audio clip at an absolute project playhead time.
+
+    The two clips keep the same source sequence and mix settings. Fade-in remains
+    on the left head, fade-out remains on the right tail. Looping BGM/ambience
+    without an explicit source window is rejected because splitting it naïvely
+    would restart the loop at the cut instead of preserving source continuity.
+    """
+    index = _audio_clip_index(ir, target_id)
+    track = ir.audio[index]
+    if getattr(track, "keyframes", None):
+        raise EditorError(
+            "SPLIT_UNSUPPORTED_AUTOMATION",
+            "该音频片段带有关键帧自动化；暂不能切分，避免丢失音量曲线",
+        )
+    if track.type in (AudioTrackType.bgm, AudioTrackType.ambience) and track.source_out is None:
+        raise EditorError(
+            "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW",
+            "背景音乐/环境音当前按循环模式播放。请先修剪出明确的源区间，再在播放头处分割",
+        )
+
+    raw_at = payload.get("at")
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "split_audio_clip 的 at 不能是布尔值")
+    try:
+        at = float(raw_at)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "split_audio_clip 需要数字 at") from exc
+    if not math.isfinite(at):
+        raise EditorError("INVALID_PARAMETER", "切分播放头必须是有限时间")
+    start = float(track.start)
+    duration = float(track.duration)
+    end = start + duration
+    minimum_half = 0.05
+    if at <= start + minimum_half or at >= end - minimum_half:
+        raise EditorError(
+            "SPLIT_OUTSIDE_CLIP",
+            "切分播放头必须位于音频片段内部，且切分两侧至少保留 0.05 秒",
+        )
+
+    split_at = round(at, 3)
+    left_duration = round(split_at - start, 3)
+    right_duration = round(end - split_at, 3)
+    if left_duration < minimum_half or right_duration < minimum_half:
+        raise EditorError(
+            "SPLIT_OUTSIDE_CLIP",
+            "切分后两侧片段都必须至少保留 0.05 秒",
+        )
+
+    source_in = float(track.source_in or 0.0)
+    source_out = track.source_out
+    if not math.isfinite(source_in) or source_in < 0:
+        raise EditorError("INVALID_SOURCE_RANGE", "音频源起点必须为有限非负时间")
+    if source_out is not None:
+        source_out = float(source_out)
+        if (
+            not math.isfinite(source_out)
+            or source_out <= source_in
+            or abs((source_out - source_in) - duration) > 0.05
+        ):
+            raise EditorError(
+                "INVALID_SOURCE_RANGE",
+                "音频源区间与片段输出时长不一致，不能安全切分",
+            )
+
+    right_source_in = round(source_in + left_duration, 3)
+    left_source_out = round(source_in + left_duration, 3) if source_out is not None else None
+    fade_in = max(0.0, float(getattr(track, "fadeIn", 0.0) or 0.0))
+    fade_out = max(0.0, float(getattr(track, "fadeOut", 0.0) or 0.0))
+    left = track.model_copy(update={
+        "duration": left_duration,
+        "source_out": left_source_out,
+        "fadeIn": min(fade_in, left_duration),
+        "fadeOut": 0.0,
+    })
+    right = track.model_copy(update={
+        "id": f"audio-{uuid.uuid4().hex[:12]}",
+        "start": split_at,
+        "duration": right_duration,
+        "source_in": right_source_in,
+        "source_out": round(source_out, 3) if source_out is not None else None,
+        "fadeIn": 0.0,
+        "fadeOut": min(fade_out, right_duration),
+        "keyframes": [],
+    })
+    ir.audio[index] = left
+    ir.audio.insert(index + 1, right)
+    left_key = f"audio:{track.type.value}:{index}"
+    right_key = f"audio:{track.type.value}:{index + 1}"
+    return [left_key, right_key], [
+        f"{left_key}:render",
+        f"{right_key}:render",
+        "project:audio:render",
+        "project:preview",
+    ]
 
 
 def _cmd_set_audio_clip_properties(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
