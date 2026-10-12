@@ -768,16 +768,16 @@ def test_promote_main_video_uses_global_drop_position_and_rejects_out_of_range(t
     composition = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=10, duration=10.0),
         scenes=[SceneIR(
-            id="S01", start=0.0, duration=4.0, text="drop position",
+            id="S01", start=0.0, duration=10.0, text="drop position",
             layers=[
                 Layer(type=LayerType.video, asset_id="source", start=0.0, duration=2.0,
                       source_in=0.0, source_out=2.0, speed=1.0),
-                Layer(type=LayerType.image, asset_id="base", start=2.0, duration=2.0),
+                Layer(type=LayerType.image, asset_id="base", start=2.0, duration=8.0),
             ],
         )],
         assets=[
             AssetRef(id="source", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
-            AssetRef(id="base", type="image", file=str(base_path), duration=2.0, width=40, height=40),
+            AssetRef(id="base", type="image", file=str(base_path), duration=8.0, width=40, height=40),
         ],
         visual_tracks=[VisualTrack(id="overlay-main", name="画面叠加", order=0)],
     )
@@ -820,16 +820,16 @@ def test_promote_main_video_honors_drop_start_on_existing_track(tmp_path, monkey
     composition = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=10, duration=10.0),
         scenes=[SceneIR(
-            id="S01", start=0.0, duration=4.0, text="drop start",
+            id="S01", start=0.0, duration=10.0, text="drop start",
             layers=[
                 Layer(type=LayerType.video, asset_id="source", start=0.0, duration=2.0,
                       source_in=0.0, source_out=2.0, speed=1.0),
-                Layer(type=LayerType.image, asset_id="base", start=2.0, duration=2.0),
+                Layer(type=LayerType.image, asset_id="base", start=2.0, duration=8.0),
             ],
         )],
         assets=[
             AssetRef(id="source", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
-            AssetRef(id="base", type="image", file=str(base_path), duration=2.0, width=40, height=40),
+            AssetRef(id="base", type="image", file=str(base_path), duration=8.0, width=40, height=40),
         ],
         visual_tracks=[VisualTrack(id="overlay-main", name="画面叠加", order=0)],
     )
