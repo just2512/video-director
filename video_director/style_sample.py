@@ -234,7 +234,6 @@ def render_style_sample(project_id: str, style_id: str, sample_root: Path) -> di
         # Use that actual renderer base, not the ASS generator's separate 56px default.
         style_values["size"] = contract.subtitle_font_size / 18.0
         ir.subtitle_style = SubtitleStyle.model_validate(style_values)
-        applied.extend(["字幕位置", "字幕字号"])
         if any(getattr(track.type, "value", track.type) == "bgm" and not track.muted for track in ir.audio):
             ir.audio = [
                 track.model_copy(update={"volume": contract.bgm_volume})
@@ -258,6 +257,11 @@ def render_style_sample(project_id: str, style_id: str, sample_root: Path) -> di
         if not subtitles_present:
             not_applied.append("字幕样式：当前项目没有可渲染的字幕文本/时间锚点")
             subtitle_path = None
+        else:
+            # Only report subtitle style as applied when the rendered artifact
+            # actually contains subtitles; a style field in an empty IR is not
+            # evidence that the output video used it.
+            applied.extend(["字幕位置", "字幕字号"])
 
         project_dir = vd_config.project_dir(project_id).resolve()
         narration_candidates = [

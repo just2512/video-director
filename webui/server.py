@@ -604,9 +604,30 @@ class Handler(BaseHTTPRequestHandler):
                                  "runtime": runtime}, 422)
                 return
             from video_director.registries.runtime import template_input_issues
+            # Multipart field names are untrusted. Only declared image/video slots may
+            # receive files; otherwise a crafted name such as "../../outside_file"
+            # could escape the sample work directory when used in a destination path.
+            file_uploads = [
+                item for item in files
+                if (item.get("name") or "").endswith("_file")
+            ]
+            file_slots = {
+                slot.id: slot for slot in template.slots
+                if slot.type in ("image", "video")
+            }
+            unknown_upload_slots = sorted({
+                item["name"][:-5] for item in file_uploads
+                if item["name"][:-5] not in file_slots
+            })
+            if unknown_upload_slots:
+                self._send_json({
+                    "ok": False, "code": "INVALID_UPLOAD_SLOT",
+                    "error": "上传字段必须对应当前模板声明的图片/视频槽位。",
+                    "invalid_slots": unknown_upload_slots,
+                }, 400)
+                return
             uploaded_slots = {
-                item["name"][:-5] for item in files
-                if (item.get("name") or "").endswith("_file") and item.get("data")
+                item["name"][:-5] for item in file_uploads if item.get("data")
             }
             input_issues = template_input_issues(template, slot_values, uploaded_slots)
             if input_issues:
@@ -620,14 +641,23 @@ class Handler(BaseHTTPRequestHandler):
             assets = {}
             asset_dir = work_dir / "inputs"
             asset_dir.mkdir(parents=True, exist_ok=True)
-            for item in files:
+            asset_root = asset_dir.resolve()
+            for item in file_uploads:
                 field_name = item.get("name") or ""
-                if not field_name.endswith("_file"):
-                    continue
                 slot_key = field_name[:-5]
                 original = item.get("filename") or "slot.bin"
                 safe = re.sub(r"[^\w.\-]+", "_", Path(original).name).strip("._") or "slot.bin"
-                dest = asset_dir / (slot_key + "-" + safe)
+                # Defense in depth: slot allowlisting is the primary check, but
+                # no upload path is allowed outside the isolated sample inputs root.
+                dest = (asset_dir / (slot_key + "-" + safe)).resolve()
+                try:
+                    dest.relative_to(asset_root)
+                except ValueError:
+                    self._send_json({
+                        "ok": False, "code": "INVALID_UPLOAD_PATH",
+                        "error": "上传素材路径超出样片临时目录。",
+                    }, 400)
+                    return
                 dest.write_bytes(item.get("data") or b"")
                 probe = vd_prober.probe_media(str(dest))
                 is_image = safe.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp"))
