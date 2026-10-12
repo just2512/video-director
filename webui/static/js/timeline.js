@@ -626,8 +626,18 @@ function _tlBindSceneDrag(){
 function _tlBindLayerDrag(){
   document.querySelectorAll('#editor-timeline .ed-layer').forEach(el => {
     el.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
+      const scene = ED.comp && ED.comp.scenes.find(item => item.id === el.dataset.scene);
+      const layer = scene && scene.layers[parseInt(el.dataset.idx, 10)];
+      if (!layer || layer.locked) return;
+      // Layer bars can contain thumbnails/text. Prevent Chromium's native
+      // image/text drag from issuing pointercancel before our cross-track drop,
+      // and capture the pointer so pointerup still reaches the editor after the
+      // pointer leaves the source layer.
+      ev.preventDefault();
+      try { el.setPointerCapture(ev.pointerId); } catch (_) {}
       _layerDrag = {el, sceneId: el.dataset.scene, idx: parseInt(el.dataset.idx),
-                    startX: ev.clientX, moved: false, mode: null};
+                    startX: ev.clientX, startY: ev.clientY, moved: false, mode: null};
       // §17 边缘 Trim：按下点在层带左/右 8px → trim 手势；中间 → move 手势
       const r = el.getBoundingClientRect();
       const edge = 8;
@@ -642,9 +652,24 @@ function _tlBindLayerDrag(){
   window.__tlLayerDragHandlers = true;
   document.addEventListener('pointermove', ev => {
     if (!_layerDrag || !_layerDrag.el.isConnected) { _layerDrag = null; return; }
-    if (Math.abs(ev.clientX - _layerDrag.startX) > 8) {
+    const dx = ev.clientX - _layerDrag.startX;
+    const dy = ev.clientY - (_layerDrag.startY ?? ev.clientY);
+    // A vertical drop onto a global visual track is stronger intent than the
+    // horizontal edge-trim affordance. Small clips can be narrower than the
+    // 8px trim hit-zone, so relying on the initial pointerdown mode makes them
+    // impossible to lift by dragging. Promote the gesture to "move" as soon as
+    // the pointer enters a track after meaningful vertical movement.
+    const hover = document.elementFromPoint(ev.clientX, ev.clientY);
+    const targetTrack = hover && hover.closest
+      ? hover.closest('#editor-timeline .ed-track[data-visual-track-id]') : null;
+    if (targetTrack && Math.abs(dy) > 8) _layerDrag.mode = 'move';
+    if (Math.abs(dx) > 8 || (_layerDrag.mode === 'move' && Math.abs(dy) > 8)) {
       _layerDrag.moved = true;
       _layerDrag.el.classList.add('tl-dragging');
+      if (_layerDrag.mode === 'move') {
+        document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').forEach(row => row.classList.remove('tl-track-drop-target'));
+        if (targetTrack) targetTrack.classList.add('tl-track-drop-target');
+      }
       if (_layerDrag.mode.startsWith('trim')) {
         // Trim Local Preview：层带宽度实时跟随（改 width%）；指示方向
         const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === _layerDrag.sceneId);
@@ -664,12 +689,28 @@ function _tlBindLayerDrag(){
       }
     }
   });
+  document.addEventListener('pointercancel', () => {
+    if (_layerDrag && _layerDrag.el) _layerDrag.el.classList.remove('tl-dragging');
+    _layerDrag = null;
+    document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]')
+      .forEach(row => row.classList.remove('tl-track-drop-target'));
+  });
   document.addEventListener('pointerup', ev => {
     if (!_layerDrag) return;
     const d = _layerDrag;
     _layerDrag = null;
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+    const targetVisualTrack = hit && hit.closest
+      ? hit.closest('#editor-timeline .ed-track[data-visual-track-id]') : null;
+    // Finalize the gesture from the actual drop target too. This protects against
+    // pointermove coalescing and ensures a track drop wins over edge-trim mode.
+    if (targetVisualTrack && Math.abs(ev.clientY - (d.startY ?? ev.clientY)) > 8) {
+      d.mode = 'move';
+      d.moved = true;
+    }
     if (!d.moved) return;  // 纯点击走 onclick
     d.el.classList.remove('tl-dragging');
+    document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').forEach(row => row.classList.remove('tl-track-drop-target'));
     const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === d.sceneId);
                          return sc && sc.layers[d.idx]; })();
     if (!lay) return;
@@ -700,9 +741,35 @@ function _tlBindLayerDrag(){
         });
       return;
     }
+    // Dragging a normal main-video layer directly into a global visual track is
+    // an edit command: the server atomically creates the overlay clip and leaves a
+    // renderable gap in the original scene. X determines global start; Y selects track.
+    if (d.mode === 'move' && targetVisualTrack) {
+      const trackBody = targetVisualTrack.querySelector('.ed-track-body');
+      const rect = trackBody && trackBody.getBoundingClientRect();
+      if (!rect || rect.width <= 0) { editorRenderTimeline(); return; }
+      const start = Math.round(Math.max(0, Math.min(total - lay.duration,
+        ((ev.clientX - rect.left) / rect.width) * total)) * 1000) / 1000;
+      const trackId = String(targetVisualTrack.dataset.visualTrackId || '');
+      editorToast('正在将主画面片段移入画面轨道……');
+      executeCommand({
+        command: 'promote_layer_to_visual_track',
+        targetId: `${d.sceneId}#${d.idx}`,
+        payload: {trackId, start}
+      }).then(result => {
+        editorToast(result && result.ok
+          ? `片段已放入画面轨道，位置 ${start.toFixed(2)}s；原位置保留可编辑空隙`
+          : '片段未移动：' + ((result && result.error) || '请检查片段效果与时间范围'), !(result && result.ok));
+        if (result && result.ok) return refreshWorkspace();
+        editorRenderTimeline();
+      }).catch(error => {
+        editorToast('片段未移动：' + (error.message || error), true);
+        editorRenderTimeline();
+      });
+      return;
+    }
     // A layer drag must never invoke the scene-reorder command.
-    // Same-scene drop reorders visual segments; cross-scene drop is explicitly rejected.
-    const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+    // Same-scene drop reorders visual segments; cross-scene drop without a track is rejected.
     const targetLayer = hit && hit.closest ? hit.closest('#editor-timeline .ed-layer') : null;
     if (targetLayer && targetLayer.dataset.scene === d.sceneId) {
       const targetIdx = Number.parseInt(targetLayer.dataset.idx, 10);

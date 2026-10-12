@@ -1609,8 +1609,16 @@ def _cmd_promote_layer_to_visual_track(
         raise EditorError("ASSET_PROBE_FAILED", f"提升前无法验证视频流：{exc}") from exc
     if not getattr(probe, "has_video_stream", False):
         raise EditorError("ASSET_PROBE_FAILED", "素材没有可解码的视频流，不能提升")
-    absolute_start = float(scene.start) + float(layer.start)
-    if absolute_start < 0 or absolute_start + duration > float(ir.project.duration) + 0.05:
+    # A drag-and-drop into a global visual track may supply an explicit global
+    # start. Without it, preserve the source layer's current absolute timeline time.
+    try:
+        absolute_start = float(payload.get("start", float(scene.start) + float(layer.start)))
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PARAMETER", "start 必须是全局时间线秒数") from exc
+    if (
+        not math.isfinite(absolute_start) or absolute_start < 0
+        or absolute_start + duration > float(ir.project.duration) + 0.001
+    ):
         raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
 
     # Avoid mixing the same source twice when the project already has an original

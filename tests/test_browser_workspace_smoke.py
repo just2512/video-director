@@ -544,11 +544,128 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert locked_state["exists"] and locked_state["disabled"]
                 assert "锁定" in locked_state["title"]
 
+                # Real pointer gesture: drag a normal main-track video vertically
+                # onto an existing global visual track. The payload must carry both
+                # the selected destination track and the time under the drop pointer.
+                drag_boxes = page.evaluate("""async () => {
+                    ED.comp.duration = 20;
+                    if (ED.comp.project) ED.comp.project.duration = 20;
+                    ED.comp.visual_tracks = [{id: 'overlay-main', name: '画面叠加', order: 0}];
+                    ED.comp.visual_overlays = [];
+                    ED.comp.scenes[0].start = 0;
+                    ED.comp.scenes[0].duration = 10;
+                    ED.comp.scenes[0].layers[0] = {
+                        type: 'video', asset_id: 'video-source', start: 0, duration: 10,
+                        source_in: 0, source_out: 10, speed: 1, fit_mode: 'cover'
+                    };
+                    editorRenderTimeline();
+                    const source = document.querySelector('#editor-timeline .ed-layer[data-scene="S01"][data-idx="0"]');
+                    const target = document.querySelector('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-track-body');
+                    if (!source || !target) return null;
+                    // scrollIntoView can be animated by the app's global smooth-scroll
+                    // CSS. Read geometry only after disabling smooth scroll on the
+                    // relevant ancestor chain and allowing layout to settle.
+                    for (const item of [source, target]) {
+                        for (let node = item; node; node = node.parentElement) {
+                            node.style.scrollBehavior = 'auto';
+                        }
+                        item.scrollIntoView({block: item === source ? 'center' : 'nearest', behavior: 'instant'});
+                    }
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    const s = source.getBoundingClientRect(), t = target.getBoundingClientRect();
+                    const startHit = document.elementFromPoint(s.left + s.width / 2, s.top + s.height / 2);
+                    const endHit = document.elementFromPoint(t.left + t.width * 0.30, t.top + t.height / 2);
+                    return {
+                        source: {x:s.x, y:s.y, w:s.width, h:s.height},
+                        target: {x:t.x, y:t.y, w:t.width, h:t.height},
+                        viewport: {w:window.innerWidth, h:window.innerHeight},
+                        startHit: startHit ? (startHit.tagName + '.' + String(startHit.className || '')) : null,
+                        startHitIsSource: !!startHit && (startHit === source || source.contains(startHit)),
+                        endHit: endHit ? (endHit.tagName + '.' + String(endHit.className || '')) : null
+                    };
+                }""")
+                assert drag_boxes is not None, "timeline source clip or visual track drop target is missing"
+                for key in ("source", "target"):
+                    box = drag_boxes[key]
+                    assert 0 <= box["y"] and box["y"] + box["h"] <= drag_boxes["viewport"]["h"], (
+                        f"main clip and destination track must be simultaneously visible for drag: {drag_boxes}"
+                    )
+                # Preserve pointer lifecycle evidence on failure. This runs in Chromium
+                # against the actual editor listeners; it is intentionally diagnostic
+                # rather than a mocked unit test so event retargeting/cancellation is visible.
                 page.evaluate("""() => {
+                    window.__mainClipDragEvents = [];
+                    const describe = (phase, ev) => {
+                        const target = ev.target instanceof Element ? ev.target : null;
+                        const under = Number.isFinite(ev.clientX) && Number.isFinite(ev.clientY)
+                            ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
+                        let state = null;
+                        try {
+                            const d = typeof _layerDrag !== 'undefined' ? _layerDrag : null;
+                            state = d ? {
+                                sceneId: d.sceneId, idx: d.idx, mode: d.mode, moved: d.moved,
+                                connected: !!(d.el && d.el.isConnected),
+                                hasCapture: !!(d.el && d.el.hasPointerCapture && d.el.hasPointerCapture(ev.pointerId))
+                            } : null;
+                        } catch (error) { state = {readError: String(error)}; }
+                        window.__mainClipDragEvents.push({
+                            phase, type: ev.type, pointerId: ev.pointerId,
+                            x: ev.clientX, y: ev.clientY, defaultPrevented: ev.defaultPrevented,
+                            target: target ? target.tagName + '.' + String(target.className || '') : String(ev.target),
+                            source: target && target.closest('.ed-layer')
+                                ? target.closest('.ed-layer').dataset.scene + '#' + target.closest('.ed-layer').dataset.idx : null,
+                            underTrack: under && under.closest('.ed-track[data-visual-track-id]')
+                                ? under.closest('.ed-track[data-visual-track-id]').dataset.visualTrackId : null,
+                            state
+                        });
+                    };
+                    for (const type of ['pointerdown','pointermove','pointerup','pointercancel','gotpointercapture','lostpointercapture','dragstart','dragend']) {
+                        document.addEventListener(type, ev => describe('capture', ev), true);
+                        document.addEventListener(type, ev => describe('bubble', ev), false);
+                    }
+                }""")
+                drag_start_x = drag_boxes["source"]["x"] + drag_boxes["source"]["w"] / 2
+                drag_start_y = drag_boxes["source"]["y"] + drag_boxes["source"]["h"] / 2
+                drag_target_x = drag_boxes["target"]["x"] + drag_boxes["target"]["w"] * 0.30
+                drag_target_y = drag_boxes["target"]["y"] + drag_boxes["target"]["h"] / 2
+                page.mouse.move(drag_start_x, drag_start_y)
+                start_hit = page.evaluate("""coords => {
+                    const source = document.querySelector('#editor-timeline .ed-layer[data-scene="S01"][data-idx="0"]');
+                    const hit = document.elementFromPoint(coords.x, coords.y);
+                    return {sourceConnected: !!source && source.isConnected,
+                            hit: hit ? hit.tagName + '.' + String(hit.className || '') : null,
+                            hitIsSource: !!source && !!hit && (hit === source || source.contains(hit))};
+                }""", {"x": drag_start_x, "y": drag_start_y})
+                assert drag_boxes["startHitIsSource"] and start_hit["hitIsSource"], (
+                    f"drag must start on the source clip; geometry={drag_boxes}, hit={start_hit}"
+                )
+                page.mouse.down()
+                page.mouse.move(drag_target_x, drag_target_y, steps=8)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                drag_command = next(
+                    (command for command in captured_commands
+                     if command.get("command") == "promote_layer_to_visual_track"),
+                    None,
+                )
+                drag_debug = page.evaluate("window.__mainClipDragEvents")
+                assert drag_command is not None, (
+                    "dropping a main-video clip onto a track did not dispatch promotion; "
+                    f"pointer trace={json.dumps(drag_debug, ensure_ascii=False)}"
+                )
+                assert drag_command["targetId"] == "S01#0"
+                assert drag_command["payload"]["trackId"] == "overlay-main"
+                assert abs(float(drag_command["payload"]["start"]) - 6.0) < 0.2, drag_command["payload"]
+                captured_commands.clear()
+
+                page.evaluate("""() => {
+                    ED.comp.duration = 10;
+                    if (ED.comp.project) ED.comp.project.duration = 10;
                     ED.comp.scenes[0].layers[0] = {
                         type: 'image', asset_id: 'img', start: 0, duration: 10
                     };
                     SEL.selection = {type: 'project'};
+                    SEL.selectionSet = new Set();
                     editorRenderTimeline();
                 }""")
 
