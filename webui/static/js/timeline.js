@@ -344,8 +344,13 @@ function renderPhysicalTimeline(){
       const sourceAssets = c.assets || {};
       const asset = Array.isArray(sourceAssets) ? sourceAssets.find(item => item.id === clip.asset_id) : sourceAssets[clip.asset_id];
       const assetName = asset && (asset.name || (asset.file && String(asset.file).split(/[\\/]/).pop())) || clip.asset_id || '素材';
+      // Resolve only IDs from the server's trusted catalog projection. The
+      // thumbnail endpoint lazily generates a cached JPEG for known media.
+      const thumbnailUrl = asset
+        ? (asset.thumbnail_url || ('/api/asset_thumbnail?asset_id=' + encodeURIComponent(clip.asset_id)))
+        : '';
       return {
-        positioned: true, leftPct, pct, visualOverlayIndex: index,
+        positioned: true, leftPct, pct, visualOverlayIndex: index, thumbnailUrl,
         text: String(assetName).slice(0, 12),
         title: `画面叠加 · ${assetName} · ${start.toFixed(2)}–${(start + duration).toFixed(2)}s · 拖动移动、边缘修剪、点击编辑`,
         onclick: `editorVisualOverlayOpen(${index}, event)`
@@ -433,6 +438,9 @@ function renderPhysicalTimeline(){
           const clipClass = hasAudioIndex ? ' ed-audio-clip' :
             (hasWatermarkIndex ? ' ed-watermark-clip' :
             (hasVisualOverlayIndex ? ' ed-visual-overlay-clip' : (hasSubtitleCueIndex ? ' ed-subtitle-cue' : '')));
+          const thumbnailHtml = hasVisualOverlayIndex && cl.thumbnailUrl
+            ? `<img class="ed-clip-thumb" src="${esc(cl.thumbnailUrl)}" alt="" loading="lazy" decoding="async"><span class="ed-track-clip-label">${esc(cl.text)}</span>`
+            : esc(cl.text);
           const clickAttr = hasAudioIndex
             ? ` onclick="editorAudioClipOpen(${cl.audioIndex}, event)"`
             : (hasWatermarkIndex
@@ -442,7 +450,7 @@ function renderPhysicalTimeline(){
                     : (hasSubtitleCueIndex
                         ? ` onclick="editorSubtitleCueSelect(${cl.subtitleCueIndex}, event)"`
                         : (cl.onclick ? ` onclick="${cl.onclick}"` : ''))));
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${subtitleCueAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${subtitleCueAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${thumbnailHtml}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
