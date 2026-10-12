@@ -39,6 +39,7 @@ from video_director.models import (
     SubtitleStyle,
     WatermarkLayer,
     VisualOverlayClip,
+    VisualTrack,
 )
 from video_director.registries.compiler import (
     CompileError,
@@ -403,6 +404,10 @@ SUPPORTED_COMMANDS = (
     "split_visual_overlay",
     "set_visual_overlay",
     "remove_visual_overlay",
+    "add_visual_track",
+    "rename_visual_track",
+    "reorder_visual_track",
+    "remove_visual_track",
     "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
@@ -632,6 +637,14 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_visual_overlay(ir, target_id, payload)
         elif cmd_name == "remove_visual_overlay":
             changed, stale = _cmd_remove_visual_overlay(ir, target_id, payload)
+        elif cmd_name == "add_visual_track":
+            changed, stale = _cmd_add_visual_track(ir, target_id, payload)
+        elif cmd_name == "rename_visual_track":
+            changed, stale = _cmd_rename_visual_track(ir, target_id, payload)
+        elif cmd_name == "reorder_visual_track":
+            changed, stale = _cmd_reorder_visual_track(ir, target_id, payload)
+        elif cmd_name == "remove_visual_track":
+            changed, stale = _cmd_remove_visual_track(ir, target_id, payload)
         elif cmd_name == "add_audio_clip":
             changed, stale = _cmd_add_audio_clip(ir, target_id, payload)
         elif cmd_name == "move_audio_clip":
@@ -1398,6 +1411,69 @@ def _visual_overlay_index(ir: CompositionIR, target_id: str) -> int:
     return index
 
 
+def _visual_track_index(ir: CompositionIR, target_id: str) -> int:
+    index = next((i for i, track in enumerate(ir.visual_tracks) if track.id == target_id), -1)
+    if index < 0:
+        raise EditorError("NOT_FOUND", f"画面轨道 {target_id!r} 不存在", recoverable=False)
+    return index
+
+
+def _cmd_add_visual_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    if target_id != "visual-tracks":
+        raise EditorError("INVALID_TARGET", "add_visual_track 的 targetId 必须是 visual-tracks")
+    name = str(payload.get("name") or "").strip()
+    if not name or len(name) > 60:
+        raise EditorError("INVALID_PAYLOAD", "轨道名称必须为 1–60 个字符")
+    track = VisualTrack(
+        id=f"vtrack-{uuid.uuid4().hex[:12]}",
+        name=name,
+        order=max((item.order for item in ir.visual_tracks), default=-1) + 1,
+    )
+    ir.visual_tracks.append(track)
+    return [f"visual-track:{track.id}"], ["project:visual-tracks", "project:preview"]
+
+
+def _cmd_rename_visual_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _visual_track_index(ir, target_id)
+    name = str(payload.get("name") or "").strip()
+    if not name or len(name) > 60:
+        raise EditorError("INVALID_PAYLOAD", "轨道名称必须为 1–60 个字符")
+    ir.visual_tracks[index] = ir.visual_tracks[index].model_copy(update={"name": name})
+    return [f"visual-track:{target_id}"], ["project:visual-tracks", "project:preview"]
+
+
+def _cmd_reorder_visual_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _visual_track_index(ir, target_id)
+    raw = payload.get("toIndex")
+    if isinstance(raw, bool):
+        raise EditorError("INVALID_PAYLOAD", "toIndex 必须是整数")
+    try:
+        to_index = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "toIndex 必须是整数") from exc
+    ordered = sorted(ir.visual_tracks, key=lambda item: item.order)
+    if to_index < 0 or to_index >= len(ordered):
+        raise EditorError("INVALID_PARAMETER", "目标轨道顺序越界")
+    track = ordered.index(next(t for t in ir.visual_tracks if t.id == target_id))
+    if track == to_index:
+        raise EditorError("NOOP", "轨道已处于目标位置")
+    ordered.insert(to_index, ordered.pop(track))
+    ir.visual_tracks = [item.model_copy(update={"order": pos}) for pos, item in enumerate(ordered)]
+    return [f"visual-track:{target_id}"], ["project:visual-tracks", "project:visual-overlays:render", "project:preview"]
+
+
+def _cmd_remove_visual_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _visual_track_index(ir, target_id)
+    if len(ir.visual_tracks) <= 1:
+        raise EditorError("LAST_VISUAL_TRACK", "项目至少需要保留一条画面轨道")
+    if any(clip.track_id == target_id for clip in ir.visual_overlays):
+        raise EditorError("VISUAL_TRACK_NOT_EMPTY", "该轨道仍有片段，请先移动或删除片段")
+    ir.visual_tracks.pop(index)
+    ordered = sorted(ir.visual_tracks, key=lambda item: item.order)
+    ir.visual_tracks = [item.model_copy(update={"order": pos}) for pos, item in enumerate(ordered)]
+    return [f"visual-track:{target_id}"], ["project:visual-tracks", "project:preview"]
+
+
 def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optional[str] = None) -> Tuple[AssetRef, str, float]:
     asset = next((item for item in ir.assets if item.id == asset_id), None)
     if asset is None:
@@ -1453,6 +1529,9 @@ def _cmd_add_visual_overlay(
     """Add an independent picture-in-picture clip from the project's trusted asset catalog."""
     if target_id != "overlays":
         raise EditorError("INVALID_TARGET", "add_visual_overlay 的 targetId 必须是 overlays")
+    track_id = str(payload.get("trackId") or "overlay-main").strip()
+    if not any(track.id == track_id for track in ir.visual_tracks):
+        raise EditorError("NOT_FOUND", f"画面轨道 {track_id!r} 不存在", recoverable=False)
     asset_id = str(payload.get("assetId") or "").strip()
     if not asset_id:
         raise EditorError("INVALID_PAYLOAD", "必须先从项目素材库选择视频或图片")
@@ -1511,7 +1590,7 @@ def _cmd_add_visual_overlay(
     overlay = VisualOverlayClip(
         id=f"overlay-{uuid.uuid4().hex[:12]}", asset_id=asset_id,
         start=round(start, 3), duration=round(duration, 3), source_in=round(source_in, 3),
-        x=x, y=y, width=box_width, height=box_height, opacity=opacity,
+        track_id=track_id, x=x, y=y, width=box_width, height=box_height, opacity=opacity,
         z_index=int(z_index_value),
     )
     ir.visual_overlays.append(overlay)
@@ -1528,7 +1607,10 @@ def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
         raise EditorError("INVALID_PAYLOAD", "move_visual_overlay 需要数字 start") from exc
     if not math.isfinite(start) or start < 0 or start + clip.duration > float(ir.project.duration) + 1e-6:
         raise EditorError("INVALID_PARAMETER", "覆盖层的新位置超出项目时长")
-    ir.visual_overlays[index] = clip.model_copy(update={"start": round(start, 3)})
+    track_id = str(payload.get("trackId", clip.track_id) or "").strip()
+    if not any(track.id == track_id for track in ir.visual_tracks):
+        raise EditorError("NOT_FOUND", f"画面轨道 {track_id!r} 不存在", recoverable=False)
+    ir.visual_overlays[index] = clip.model_copy(update={"start": round(start, 3), "track_id": track_id})
     key = f"visual-overlay:{clip.id}"
     return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
 
