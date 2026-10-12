@@ -823,13 +823,15 @@ function editorAudioClipOpen(index, ev){
   const splitEnd = splitStart + duration;
   const loopedBackground = (type === 'bgm' || type === 'ambience' || type === 'ambient')
     && clip.source_out == null;
+  const narrationUnsupported = type === 'narration';
   const automatedClip = Array.isArray(clip.keyframes) && clip.keyframes.length > 0;
   const canSplitAtPlayhead = splitAt > splitStart + 0.05 && splitAt < splitEnd - 0.05
-    && !loopedBackground && !automatedClip;
-  const splitHint = loopedBackground
-    ? '循环背景音需先裁出明确源区间'
-    : (automatedClip ? '带关键帧的音频片段暂不能切分' :
-      (canSplitAtPlayhead ? '左右两段各保留至少 0.05 秒' : '请先将播放头放在片段内部，再打开此设置'));
+    && !loopedBackground && !narrationUnsupported && !automatedClip;
+  const splitHint = narrationUnsupported
+    ? '旁白由独立渲染链路处理，当前版本暂不能切分'
+    : (loopedBackground ? '循环背景音需先裁出明确源区间'
+      : (automatedClip ? '带关键帧的音频片段暂不能切分' :
+        (canSplitAtPlayhead ? '左右两段各保留至少 0.05 秒' : '请先将播放头放在片段内部，再打开此设置')));
   const mask = document.createElement('div');
   mask.id = 'audio-clip-inspector-mask';
   mask.className = 'audio-clip-inspector-mask';
@@ -884,6 +886,10 @@ async function editorAudioClipSplit(index){
     return;
   }
   const type = String(clip.type || '');
+  if (type === 'narration') {
+    editorToast('旁白由独立渲染链路处理，当前版本暂不能切分', true);
+    return;
+  }
   if ((type === 'bgm' || type === 'ambience' || type === 'ambient') && clip.source_out == null) {
     editorToast('循环背景音需先裁出明确源区间，再进行切分', true);
     return;
