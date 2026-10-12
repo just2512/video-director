@@ -1556,6 +1556,25 @@ def _cmd_add_visual_overlay(
             raise EditorError("INVALID_PARAMETER", f"{key} 超出允许范围")
         return value
 
+    presentation_mode = str(payload.get("presentationMode") or payload.get("presentation_mode") or "picture_in_picture")
+    if presentation_mode not in {"full_frame", "picture_in_picture", "sticker"}:
+        raise EditorError("INVALID_PARAMETER", "presentationMode 必须是 full_frame、picture_in_picture 或 sticker")
+    presets = {
+        "full_frame": (0.0, 0.0, 1.0, 1.0),
+        "picture_in_picture": (0.65, 0.1, 0.3, 0.3),
+        "sticker": (0.4, 0.4, 0.2, 0.2),
+    }
+    default_x, default_y, default_width, default_height = presets[presentation_mode]
+    raw_audio_enabled = payload.get("sourceAudioEnabled", payload.get("source_audio_enabled", False))
+    if not isinstance(raw_audio_enabled, bool):
+        raise EditorError("INVALID_PARAMETER", "sourceAudioEnabled 必须是布尔值")
+    source_audio_volume = number(
+        "sourceAudioVolume",
+        number("source_audio_volume", 1.0, 0.0, 2.0),
+        0.0, 2.0,
+    )
+    if raw_audio_enabled and str(asset.type).lower() != "video":
+        raise EditorError("INVALID_PARAMETER", "只有视频素材可以保留源音轨")
     total = float(ir.project.duration)
     start = number("start", 0.0, 0.0)
     if start >= total:
@@ -1570,10 +1589,10 @@ def _cmd_add_visual_overlay(
     if str(asset.type).lower() == "video" and source_in + duration > source_duration + 0.05:
         raise EditorError("INVALID_SOURCE_RANGE", "覆盖层视频源区间超出素材时长")
 
-    x = number("x", 0.65, 0.0, 1.0)
-    y = number("y", 0.1, 0.0, 1.0)
-    box_width = number("width", 0.3, 0.05, 1.0)
-    box_height = number("height", 0.3, 0.05, 1.0)
+    x = number("x", default_x, 0.0, 1.0)
+    y = number("y", default_y, 0.0, 1.0)
+    box_width = number("width", default_width, 0.05, 1.0)
+    box_height = number("height", default_height, 0.05, 1.0)
     opacity = number("opacity", 1.0, 0.0, 1.0)
     if x + box_width > 1.000001 or y + box_height > 1.000001:
         raise EditorError("INVALID_PARAMETER", "覆盖层的位置和尺寸不能超出画面边界")
@@ -1597,7 +1616,9 @@ def _cmd_add_visual_overlay(
     overlay = VisualOverlayClip(
         id=f"overlay-{uuid.uuid4().hex[:12]}", asset_id=asset_id,
         start=round(start, 3), duration=round(duration, 3), source_in=round(source_in, 3),
-        track_id=track_id, x=x, y=y, width=box_width, height=box_height, opacity=opacity,
+        track_id=track_id, presentation_mode=presentation_mode,
+        source_audio_enabled=raw_audio_enabled, source_audio_volume=source_audio_volume,
+        x=x, y=y, width=box_width, height=box_height, opacity=opacity,
         z_index=int(z_index_value),
     )
     ir.visual_overlays.append(overlay)
@@ -1720,10 +1741,27 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
 def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     index = _visual_overlay_index(ir, target_id)
     clip = ir.visual_overlays[index]
-    allowed = {"x", "y", "width", "height", "opacity", "z_index"}
+    allowed = {
+        "x", "y", "width", "height", "opacity", "z_index", "presentation_mode",
+        "source_audio_enabled", "source_audio_volume",
+    }
     patch = {key: payload[key] for key in allowed if key in payload}
     if not patch:
         raise EditorError("INVALID_PAYLOAD", "没有可更新的覆盖层属性")
+    if "presentation_mode" in patch and patch["presentation_mode"] not in {"full_frame", "picture_in_picture", "sticker"}:
+        raise EditorError("INVALID_PARAMETER", "presentation_mode 不受支持")
+    if "source_audio_enabled" in patch and not isinstance(patch["source_audio_enabled"], bool):
+        raise EditorError("INVALID_PARAMETER", "source_audio_enabled 必须是布尔值")
+    if patch.get("source_audio_enabled"):
+        source_asset = next((asset for asset in ir.assets if asset.id == clip.asset_id), None)
+        if source_asset is None or str(source_asset.type).lower() != "video":
+            raise EditorError("INVALID_PARAMETER", "只有视频素材可以保留源音轨")
+    if "presentation_mode" in patch and not any(key in patch for key in ("x", "y", "width", "height")):
+        patch.update({
+            "full_frame": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+            "picture_in_picture": {"x": 0.65, "y": 0.1, "width": 0.3, "height": 0.3},
+            "sticker": {"x": 0.4, "y": 0.4, "width": 0.2, "height": 0.2},
+        }[patch["presentation_mode"]])
     try:
         updated = VisualOverlayClip(**{**clip.model_dump(), **patch})
     except Exception as exc:

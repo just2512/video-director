@@ -34,7 +34,17 @@ function editorVisualOverlayPick(ev, trackId) {
         <div><label for="visual-overlay-start">起点（秒）</label><input id="visual-overlay-start" type="number" min="0" max="${total}" step="0.05" value="${start.toFixed(2)}"></div>
         <div><label for="visual-overlay-duration">时长（秒）</label><input id="visual-overlay-duration" type="number" min="0.05" max="${total-start}" step="0.05" value="${Math.min(3, total-start).toFixed(2)}"></div>
       </div>
-      <p class="hint">默认放在右上角。添加后可拖动片段移动，并拖动左右边缘修剪。</p>
+      <label for="visual-overlay-presentation-mode">画面用途</label>
+      <select id="visual-overlay-presentation-mode">
+        <option value="full_frame">全画幅镜头（覆盖当前画面）</option>
+        <option value="picture_in_picture" selected>画中画（小窗叠加）</option>
+        <option value="sticker">贴纸 / 图层（小尺寸叠加）</option>
+      </select>
+      <div id="visual-overlay-create-audio-row" style="margin-top:8px">
+        <label><input id="visual-overlay-source-audio" type="checkbox"> 保留此视频素材自身的声音</label>
+        <div class="hint">只对有音轨的视频生效；启用后与旁白、BGM、音效进入同一混音流程。</div>
+      </div>
+      <p class="hint">选择用途后会设置合适的画面尺寸；添加后可在时间线拖动、换轨、修剪与切分。</p>
       <footer><button type="button" class="btn-secondary" onclick="editorVisualOverlayClose()">取消</button>
         <button type="button" class="btn-primary" onclick="editorVisualOverlayCreate()">添加到时间线</button></footer>
     </section>`;
@@ -43,13 +53,20 @@ function editorVisualOverlayPick(ev, trackId) {
   const select = mask.querySelector('#visual-overlay-asset');
   const startInput = mask.querySelector('#visual-overlay-start');
   const durationInput = mask.querySelector('#visual-overlay-duration');
+  const audioRow = mask.querySelector('#visual-overlay-create-audio-row');
   const adjustDuration = () => {
     const a = assets.find(([id]) => id === select.value)?.[1];
     let max = total - Number(startInput.value || 0);
-    if (a && String(a.type).toLowerCase() === 'video' && Number(a.duration) > 0) max = Math.min(max, Number(a.duration));
+    const isVideo = a && String(a.type).toLowerCase() === 'video';
+    if (isVideo && Number(a.duration) > 0) max = Math.min(max, Number(a.duration));
     max = Math.max(0.05, max);
     durationInput.max = String(max);
     if (Number(durationInput.value) > max) durationInput.value = max.toFixed(2);
+    if (audioRow) audioRow.style.display = isVideo ? '' : 'none';
+    if (!isVideo) {
+      const audioToggle = mask.querySelector('#visual-overlay-source-audio');
+      if (audioToggle) audioToggle.checked = false;
+    }
   };
   select.addEventListener('change', adjustDuration);
   startInput.addEventListener('change', adjustDuration);
@@ -67,20 +84,45 @@ async function editorVisualOverlayCreate() {
     editorToast('时间参数无效：片段必须处于项目时长内且不少于 0.05 秒', true); return;
   }
   try {
+    const presentationMode = mask.querySelector('#visual-overlay-presentation-mode').value;
+    const sourceAudioEnabled = !!mask.querySelector('#visual-overlay-source-audio')?.checked;
     const result = await executeCommand({command:'add_visual_overlay', targetId:'overlays',
-      payload:{assetId, start, duration, trackId:window.VISUAL_OVERLAY_TARGET_TRACK_ID || 'overlay-main', x:0.65, y:0.1, width:0.3, height:0.3, opacity:1}});
+      payload:{assetId, start, duration, trackId:window.VISUAL_OVERLAY_TARGET_TRACK_ID || 'overlay-main',
+        presentationMode, sourceAudioEnabled}});
     if (!result || !result.ok) { editorToast('添加失败：' + ((result && result.error) || '未知错误'), true); return; }
     editorVisualOverlayClose();
-    editorToast('画面叠加已加入时间线');
+    editorToast(presentationMode === 'full_frame' ? '全画幅镜头已加入时间线' : (presentationMode === 'sticker' ? '贴纸图层已加入时间线' : '画中画已加入时间线'));
     await refreshWorkspace();
   } catch (error) { editorToast('画面叠加添加失败：' + (error.message || error), true); }
 }
+function editorVisualOverlayApplyPreset() {
+  const mask = document.getElementById('visual-overlay-inspector-mask');
+  if (!mask) return;
+  const mode = mask.querySelector('#visual-overlay-edit-presentation-mode')?.value;
+  const preset = mode === 'full_frame' ? [0, 0, 1, 1]
+    : mode === 'sticker' ? [0.4, 0.4, 0.2, 0.2] : [0.65, 0.1, 0.3, 0.3];
+  ['x', 'y', 'width', 'height'].forEach((key, index) => {
+    const input = mask.querySelector('#visual-overlay-' + key);
+    if (input) input.value = String(preset[index]);
+  });
+}
+
 function editorVisualOverlayOpen(index, ev) {
   if (ev) { ev.preventDefault(); ev.stopPropagation(); }
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
   if (!clip) { editorToast('画面叠加片段已变化，请重新选择', true); return; }
   editorVisualOverlayClose();
   const fmt = n => Number(n || 0).toFixed(2);
+  const sourceAsset = _visualOverlayAssets().find(([id]) => id === clip.asset_id)?.[1];
+  const isVideoAsset = sourceAsset && String(sourceAsset.type).toLowerCase() === 'video';
+  const sourceAudioSettings = isVideoAsset ? `
+      <div class="audio-clip-field-row">
+        <label><input id="visual-overlay-edit-source-audio" type="checkbox" ${clip.source_audio_enabled ? 'checked' : ''}> 保留视频源音轨</label>
+        <div><label for="visual-overlay-edit-source-audio-volume">源音量（0–2）</label>
+          <input id="visual-overlay-edit-source-audio-volume" type="number" min="0" max="2" step="0.05" value="${Number(clip.source_audio_volume ?? 1)}"></div>
+      </div>
+      <p class="hint">启用后会将该视频原声与旁白、BGM、SFX 一起混音；没有音轨的源视频会在渲染时明确报错。</p>`
+    : '<p class="hint">该素材为图片，没有可保留的源音轨。</p>';
   const mask = document.createElement('div');
   mask.id = 'visual-overlay-inspector-mask';
   mask.className = 'audio-clip-inspector-mask';
@@ -88,7 +130,14 @@ function editorVisualOverlayOpen(index, ev) {
     <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="visual-overlay-edit-title">
       <header><div><b id="visual-overlay-edit-title">画面叠加 · 设置</b><div class="hint">${esc(clip.asset_id)} · ${fmt(clip.start)}–${fmt(Number(clip.start)+Number(clip.duration))}s</div></div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
-      <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；在此调整画面位置、尺寸和透明度。</p>
+      <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；全画幅、画中画和贴纸共用同一可编辑片段模型。</p>
+      <label for="visual-overlay-edit-presentation-mode">画面用途</label>
+      <select id="visual-overlay-edit-presentation-mode" onchange="editorVisualOverlayApplyPreset()">
+        <option value="full_frame" ${clip.presentation_mode === 'full_frame' ? 'selected' : ''}>全画幅镜头</option>
+        <option value="picture_in_picture" ${!clip.presentation_mode || clip.presentation_mode === 'picture_in_picture' ? 'selected' : ''}>画中画</option>
+        <option value="sticker" ${clip.presentation_mode === 'sticker' ? 'selected' : ''}>贴纸 / 图层</option>
+      </select>
+      ${sourceAudioSettings}
       <div class="audio-clip-field-row">
         <div><label for="visual-overlay-x">X 位置（0–1）</label><input id="visual-overlay-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.x ?? 0.65)}"></div>
         <div><label for="visual-overlay-y">Y 位置（0–1）</label><input id="visual-overlay-y" type="number" min="0" max="1" step="0.01" value="${Number(clip.y ?? 0.1)}"></div>
@@ -146,13 +195,20 @@ async function editorVisualOverlayApply(index) {
     width:Number(mask.querySelector('#visual-overlay-width').value),
     height:Number(mask.querySelector('#visual-overlay-height').value),
     opacity:Number(mask.querySelector('#visual-overlay-opacity').value),
-    z_index:Number(mask.querySelector('#visual-overlay-z-index').value)
+    z_index:Number(mask.querySelector('#visual-overlay-z-index').value),
+    presentation_mode:mask.querySelector('#visual-overlay-edit-presentation-mode').value,
+    source_audio_enabled:!!mask.querySelector('#visual-overlay-edit-source-audio')?.checked,
+    source_audio_volume:Number(mask.querySelector('#visual-overlay-edit-source-audio-volume')?.value ?? clip.source_audio_volume ?? 1)
   };
-  if (!Object.values(payload).every(Number.isFinite) || payload.x < 0 || payload.y < 0 ||
+  const numericValues = [payload.x, payload.y, payload.width, payload.height, payload.opacity,
+    payload.z_index, payload.source_audio_volume];
+  if (!numericValues.every(Number.isFinite) || payload.x < 0 || payload.y < 0 ||
       payload.width < 0.05 || payload.height < 0.05 || payload.width > 1 || payload.height > 1 ||
       payload.opacity < 0 || payload.opacity > 1 || !Number.isInteger(payload.z_index) || payload.z_index < -100 || payload.z_index > 100 ||
+      payload.source_audio_volume < 0 || payload.source_audio_volume > 2 ||
+      !['full_frame', 'picture_in_picture', 'sticker'].includes(payload.presentation_mode) ||
       payload.x + payload.width > 1 || payload.y + payload.height > 1) {
-    editorToast('位置/尺寸必须在画面边界内，透明度必须为 0–1', true); return;
+    editorToast('位置/尺寸必须在画面边界内；透明度为 0–1，源音量为 0–2', true); return;
   }
   try {
     const result = await executeCommand({command:'set_visual_overlay', targetId:'overlay#' + index, payload});

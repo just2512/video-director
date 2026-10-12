@@ -495,5 +495,152 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "thumbnailUrl" in timeline_js and "ed-clip-thumb" in timeline_js
     assert "api/asset_thumbnail?asset_id=" in timeline_js
     assert "visual_tracks" in timeline_js and "data-visual-track-id" in timeline_js
+    assert "presentationMode" in overlay_js and "full_frame" in overlay_js and "picture_in_picture" in overlay_js
+    assert "source_audio_enabled" in overlay_js and "保留此视频素材自身的声音" in overlay_js and "保留视频源音轨" in overlay_js
     assert "editorVisualTrackCreate" in timeline_js and "editorVisualTrackMenu" in timeline_js
     assert "trackId:nextTrackId" in overlay_js and "reorder_visual_track" in overlay_js
+
+
+def test_overlay_presentation_mode_presets_and_source_audio_gate(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    added = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 1.0, "duration": 2.0,
+        "presentationMode": "full_frame",
+    }, 1)
+    assert added.status == "APPLIED", added.errors
+    saved = load_composition(pid)
+    clip = saved.visual_overlays[0]
+    assert clip.presentation_mode == "full_frame"
+    assert (clip.x, clip.y, clip.width, clip.height) == (0.0, 0.0, 1.0, 1.0)
+    assert clip.source_audio_enabled is False
+
+    denied = _apply(pid, "set_visual_overlay", "overlay#0", {
+        "source_audio_enabled": True,
+    }, added.composition_version)
+    assert denied.status == "REJECTED"
+    assert denied.errors[0]["code"] == "INVALID_PARAMETER"
+
+    sticker = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 4.0, "duration": 1.0,
+        "presentationMode": "sticker",
+    }, added.composition_version)
+    assert sticker.status == "APPLIED", sticker.errors
+    clips = load_composition(pid).visual_overlays
+    assert clips[1].presentation_mode == "sticker"
+    assert (clips[1].x, clips[1].y, clips[1].width, clips[1].height) == (0.4, 0.4, 0.2, 0.2)
+
+
+def _make_video_with_audio(ffmpeg: str, path: Path):
+    run = subprocess.run([
+        ffmpeg, "-y", "-v", "error",
+        "-f", "lavfi", "-i", "color=c=red:s=40x40:r=10:d=2",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=2",
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-t", "2", str(path),
+    ], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert path.is_file() and path.stat().st_size > 1000
+
+
+def _audio_window_mean_volume(ffmpeg: str, path: Path, start: float, duration: float) -> float:
+    """Measure a decoded audio window so timeline placement is tested, not just stream presence."""
+    run = subprocess.run([
+        ffmpeg, "-hide_banner", "-nostats", "-loglevel", "info",
+        "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(path),
+        "-vn", "-af", "volumedetect", "-f", "null", "-",
+    ], capture_output=True, text=True, timeout=45)
+    assert run.returncode == 0, run.stderr
+    line = next((line for line in run.stderr.splitlines() if "mean_volume:" in line), None)
+    assert line is not None, run.stderr[-2000:]
+    raw = line.split("mean_volume:", 1)[1].strip().split()[0]
+    return float("-inf") if raw == "-inf" else float(raw)
+
+
+def test_real_ffmpeg_mixes_opted_in_video_overlay_source_audio(tmp_path):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "source-audio-base.png"
+    overlay_path = tmp_path / "red-video-with-sine.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_video_with_audio(ffmpeg, overlay_path)
+    base = AssetRef(id="source-audio-base", type="image", file=str(base_path), width=40, height=40)
+    overlay = AssetRef(id="source-audio-video", type="video", file=str(overlay_path), duration=2.0,
+                       width=40, height=40, fps=10)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=2.0, text="base picture",
+            layers=[Layer(type=LayerType.image, asset_id="source-audio-base", duration=2.0)],
+        )],
+        assets=[base, overlay],
+        visual_overlays=[VisualOverlayClip(
+            id="overlay-with-audio", asset_id="source-audio-video", start=0.5, duration=1.5,
+            presentation_mode="full_frame", source_audio_enabled=True, source_audio_volume=0.7,
+            x=0.0, y=0.0, width=1.0, height=1.0,
+        )],
+    )
+    result = renderer.render_composition(
+        composition, {"source-audio-base": base, "source-audio-video": overlay},
+        tmp_path / "rendered-source-audio",
+    )
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    # The base still image has no audio; AAC can only come from the opted-in overlay.
+    report = renderer._verify_muxed_audio(str(output), expected_duration=2.0)
+    assert report.get("codec") == "aac", report
+    assert report.get("full_decode") == "PASS", report
+    # Full-frame presentation uses cover/crop: no base blue should leak through the
+    # corner even though the portrait-ish source was encoded as a square.
+    corner = _pixel_at(ffmpeg, output, 0.8, 5, 5)
+    assert corner[0] > corner[2] * 1.5, corner
+    assert composition.audio == [], "render-time derived clips must not mutate saved CompositionIR"
+    probe = renderer.prober.probe_media(str(output))
+    assert probe.has_audio_stream and probe.has_video_stream
+
+    # Source audio must follow the overlay's timeline start, not leak to t=0.
+    pre_roll_db = _audio_window_mean_volume(ffmpeg, output, 0.1, 0.25)
+    active_db = _audio_window_mean_volume(ffmpeg, output, 0.8, 0.25)
+    assert pre_roll_db < -65, f"source audio leaked before its timeline start: {pre_roll_db} dB"
+    assert active_db > -35, f"source audio is missing during its timeline window: {active_db} dB"
+
+
+def test_source_audio_opt_in_fails_closed_when_video_has_no_audio(tmp_path):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "silent-overlay-base.png"
+    silent_video = tmp_path / "silent-overlay-source.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_two_color_video(ffmpeg, silent_video)
+    base = AssetRef(id="silent-base", type="image", file=str(base_path), width=40, height=40)
+    overlay = AssetRef(id="silent-video", type="video", file=str(silent_video), duration=2.0,
+                       width=40, height=40, fps=10)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=2.0, text="base picture",
+            layers=[Layer(type=LayerType.image, asset_id="silent-base", duration=2.0)],
+        )],
+        assets=[base, overlay],
+        visual_overlays=[VisualOverlayClip(
+            id="silent-overlay-with-audio-enabled", asset_id="silent-video", start=0.0, duration=1.0,
+            source_audio_enabled=True, presentation_mode="picture_in_picture",
+        )],
+    )
+    with pytest.raises(renderer.RenderError, match="没有音频流"):
+        renderer.render_composition(
+            composition, {"silent-base": base, "silent-video": overlay},
+            tmp_path / "rendered-silent-source",
+        )
+    assert composition.audio == [], "a failed render must not mutate the saved project audio timeline"
+
+
+def test_visual_overlay_rejects_unknown_presentation_and_invalid_source_gain():
+    with pytest.raises(ValueError, match="presentation_mode"):
+        VisualOverlayClip(
+            id="bad-mode", asset_id="asset", start=0, duration=1,
+            presentation_mode="magic-mode",
+        )
+    with pytest.raises(ValueError, match="source_audio_volume"):
+        VisualOverlayClip(
+            id="bad-volume", asset_id="asset", start=0, duration=1,
+            source_audio_volume=2.1,
+        )
