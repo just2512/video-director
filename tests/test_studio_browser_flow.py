@@ -12,7 +12,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from video_director.models import (
-    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR,
+    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip,
 )
 from video_director import editor, store, shotbook
 
@@ -36,6 +36,11 @@ def _test_composition(media_file: Path) -> CompositionIR:
     return CompositionIR(
         project=ProjectSpec(width=160, height=90, fps=10, duration=2.0),
         scenes=scenes, assets=[asset],
+        visual_overlays=[VisualOverlayClip(
+            id="e2e-overlay", asset_id="e2e-still", start=0.25, duration=0.5,
+            source_in=0.0, x=0.6, y=0.1, width=0.3, height=0.3,
+            opacity=0.8, z_index=1,
+        )],
     )
 
 
@@ -114,6 +119,21 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 )
                 opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
                 assert opened.get("ok"), f"workspace did not open: {opened}"
+                # The actual composition endpoint must round-trip persisted overlay
+                # clips and expose the referenced source, not just an in-memory UI mock.
+                api_composition = page.evaluate("""async (projectId) => {
+                  const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+                  return {status: response.status, body: await response.json()};
+                }""", pid)
+                assert api_composition["status"] == 200, api_composition
+                assert api_composition["body"]["visual_overlays"] == [{
+                    "id": "e2e-overlay", "asset_id": "e2e-still", "start": 0.25,
+                    "duration": 0.5, "source_in": 0.0, "x": 0.6, "y": 0.1,
+                    "width": 0.3, "height": 0.3, "opacity": 0.8, "z_index": 1,
+                    "asset_file": "", "asset_type": None, "asset_duration": None,
+                    "asset_width": None, "asset_height": None, "asset_has_audio": None,
+                    "asset_source": None, "asset_name": "",
+                }], api_composition
                 loaded = page.evaluate("() => shotbookLoad()")
                 assert loaded, "Shotbook did not load through the real HTTP handler"
                 page.locator("#shotbook-details").evaluate("(element) => { element.open = true; }")
