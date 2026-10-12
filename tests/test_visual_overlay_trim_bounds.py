@@ -92,3 +92,34 @@ sameNonoverlapTrack:nonoverlap[0].id==='sfx', invalidCount:invalid.length}));
     assert result["rows"][1]["showTrackControls"] is False
     assert result["nonoverlapCount"] == 1 and result["sameNonoverlapTrack"]
     assert result["invalidCount"] == 1
+
+
+def test_live_preview_overlay_stack_order_matches_export_track_order():
+    root = Path(__file__).resolve().parents[1]
+    helper = root / "webui" / "static" / "js" / "timeline-edit-math.js"
+    preview = (root / "webui" / "static" / "js" / "preview.js").read_text(encoding="utf-8")
+    assert "visualOverlayStackingZIndex" in preview
+    assert "clip.track_id || 'overlay-main'" in preview
+    script = """
+const fs = require('node:fs');
+const vm = require('node:vm');
+const sandbox = {window: {}};
+vm.runInNewContext(fs.readFileSync(%s, 'utf8'), sandbox);
+const fn = sandbox.window.TimelineEditMath.visualOverlayStackingZIndex;
+const tracks = [{id:'overlay-main',order:0},{id:'evidence',order:1}];
+const bottomTrackHighZ = fn({track_id:'overlay-main',z_index:100}, tracks);
+const upperTrackLowZ = fn({track_id:'evidence',z_index:-100}, tracks);
+const reorderedBottom = fn({track_id:'overlay-main',z_index:100}, [
+  {id:'overlay-main',order:1},{id:'evidence',order:0}
+]);
+const reorderedUpper = fn({track_id:'evidence',z_index:-100}, [
+  {id:'overlay-main',order:1},{id:'evidence',order:0}
+]);
+console.log(JSON.stringify({bottomTrackHighZ,upperTrackLowZ,reorderedBottom,reorderedUpper}));
+""" % (json.dumps(str(helper)))
+    run = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert run.returncode == 0, run.stderr
+    result = json.loads(run.stdout)
+    assert result["upperTrackLowZ"] > result["bottomTrackHighZ"]
+    assert result["reorderedBottom"] > result["upperTrackLowZ"]
+    assert result["bottomTrackHighZ"] > result["reorderedUpper"]
