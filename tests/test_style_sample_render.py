@@ -141,3 +141,45 @@ def test_external_metadata_style_is_not_executed_or_marked_renderable(tmp_path):
     else:
         raise AssertionError("external metadata-only style was incorrectly treated as executable")
     assert not list(root.glob("*.mp4")) if root.exists() else True
+
+
+def test_style_sample_does_not_claim_subtitle_parameters_when_output_has_no_subtitles(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    from video_director import asset_catalog, config
+    from video_director.style_sample import render_style_sample
+
+    project_id = "style-no-subtitle"
+    asset_root = asset_catalog.library_root() / "local"
+    asset_root.mkdir(parents=True, exist_ok=True)
+    still = asset_root / (project_id + ".png")
+    still.write_bytes(_PNG)
+
+    store.create_project(project_id, "No subtitles", {"name": "No subtitles"})
+    composition = _test_composition(still)
+    composition = composition.model_copy(update={
+        "scenes": [scene.model_copy(update={"text": ""}) for scene in composition.scenes],
+        "subtitle_track": None,
+    })
+    editor.save_composition(project_id, composition)
+    project_dir = config.project_dir(project_id)
+    manifest = project_dir / "assets" / "manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps([{
+        "id": "e2e-still",
+        "type": "image",
+        "file": str(still.resolve()),
+        "width": 1,
+        "height": 1,
+        "source": "uploaded",
+    }]), encoding="utf-8")
+
+    result = render_style_sample(project_id, "style.documentary-calm", tmp_path / "samples")
+    assert result["runtime"]["sample_render"] == "PASS", result
+    assert result["runtime"]["mp4_decode"] == "PASS", result
+    applied = result["runtime"]["applied_parameters"]
+    not_applied = result["runtime"]["not_applied_parameters"]
+    assert "字幕位置" not in applied, applied
+    assert "字幕字号" not in applied, applied
+    assert "字幕样式：当前项目没有可渲染的字幕文本/时间锚点" in not_applied, not_applied
