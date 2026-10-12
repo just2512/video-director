@@ -647,13 +647,20 @@ function _tlBindLayerDrag(){
     if (!_layerDrag || !_layerDrag.el.isConnected) { _layerDrag = null; return; }
     const dx = ev.clientX - _layerDrag.startX;
     const dy = ev.clientY - (_layerDrag.startY ?? ev.clientY);
+    // A vertical drop onto a global visual track is stronger intent than the
+    // horizontal edge-trim affordance. Small clips can be narrower than the
+    // 8px trim hit-zone, so relying on the initial pointerdown mode makes them
+    // impossible to lift by dragging. Promote the gesture to "move" as soon as
+    // the pointer enters a track after meaningful vertical movement.
+    const hover = document.elementFromPoint(ev.clientX, ev.clientY);
+    const targetTrack = hover && hover.closest
+      ? hover.closest('#editor-timeline .ed-track[data-visual-track-id]') : null;
+    if (targetTrack && Math.abs(dy) > 8) _layerDrag.mode = 'move';
     if (Math.abs(dx) > 8 || (_layerDrag.mode === 'move' && Math.abs(dy) > 8)) {
       _layerDrag.moved = true;
       _layerDrag.el.classList.add('tl-dragging');
       if (_layerDrag.mode === 'move') {
         document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').forEach(row => row.classList.remove('tl-track-drop-target'));
-        const hover = document.elementFromPoint(ev.clientX, ev.clientY);
-        const targetTrack = hover && hover.closest ? hover.closest('#editor-timeline .ed-track[data-visual-track-id]') : null;
         if (targetTrack) targetTrack.classList.add('tl-track-drop-target');
       }
       if (_layerDrag.mode.startsWith('trim')) {
@@ -679,11 +686,17 @@ function _tlBindLayerDrag(){
     if (!_layerDrag) return;
     const d = _layerDrag;
     _layerDrag = null;
-    if (!d.moved) return;  // 纯点击走 onclick
-    d.el.classList.remove('tl-dragging');
     const hit = document.elementFromPoint(ev.clientX, ev.clientY);
     const targetVisualTrack = hit && hit.closest
       ? hit.closest('#editor-timeline .ed-track[data-visual-track-id]') : null;
+    // Finalize the gesture from the actual drop target too. This protects against
+    // pointermove coalescing and ensures a track drop wins over edge-trim mode.
+    if (targetVisualTrack && Math.abs(ev.clientY - (d.startY ?? ev.clientY)) > 8) {
+      d.mode = 'move';
+      d.moved = true;
+    }
+    if (!d.moved) return;  // 纯点击走 onclick
+    d.el.classList.remove('tl-dragging');
     document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').forEach(row => row.classList.remove('tl-track-drop-target'));
     const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === d.sceneId);
                          return sc && sc.layers[d.idx]; })();
