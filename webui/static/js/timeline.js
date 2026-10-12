@@ -228,6 +228,7 @@ function editorRenderTimeline(){
     _tlBindAudioClipDrag();
     _tlBindWatermarkDrag();
     _tlBindVisualOverlayDrag();
+    _tlBindSubtitleCueDrag();
     _tlBindSceneDrag();
     if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
   }
@@ -274,12 +275,31 @@ function renderPhysicalTimeline(){
   const dialogue = audioOf('dialogue');
   tracks.language.push({id: 'dialogue', label: '对白', readOnly: false,
     clips: dialogue.length ? [{pct: 100, text: '对白', title: '对白轨'}] : []});
-  const hasSub = !!(c.subtitle_track && c.subtitle_track.cues && c.subtitle_track.cues.length);
+  // Render each subtitle cue as a timed clip on the shared CompositionIR clock.
+  const subtitleTrack = c.subtitle_track || null;
+  const subtitleCues = subtitleTrack && Array.isArray(subtitleTrack.cues) ? subtitleTrack.cues : [];
   tracks.language.push({id: 'subtitle', label: '字幕', readOnly: false,
-    clips: hasSub ? [{pct: 100,
-      text: `${c.subtitle_track.mode === 'word' ? '逐词' : '句子'} ${c.subtitle_track.cues.length} 条`,
-      title: '字幕轨（点开字幕设置）',
-      onclick: "editorSubtitleStyleOpen()"}] : []});
+    clips: subtitleCues.map((cue, index) => {
+      const start = Number(cue && cue.start);
+      const end = Number(cue && cue.end);
+      const valid = Number.isFinite(start) && Number.isFinite(end)
+        && end > start && end > 0 && start < total;
+      const visibleStart = valid ? Math.max(0, start) : total * 0.992;
+      const visibleEnd = valid ? Math.min(total, end) : total;
+      const leftPct = Math.max(0, Math.min(100, visibleStart / total * 100));
+      const pct = valid
+        ? Math.max(0, Math.min(100 - leftPct, (visibleEnd - visibleStart) / total * 100))
+        : 0.8;
+      const text = String((cue && cue.text) || '（空字幕）');
+      const kind = subtitleTrack.mode === 'word' ? '词级' : '句级';
+      return {
+        positioned: true, leftPct, pct, outOfRange: !valid, subtitleCueIndex: index,
+        text: text.slice(0, 12),
+        title: `${kind}字幕 · ${text} · ${Number.isFinite(start) ? start.toFixed(2) : '?'}–${Number.isFinite(end) ? end.toFixed(2) : '?'}s · 拖动移动、两端修剪`,
+        onclick: `editorSubtitleCueSelect(${index}, event)`
+      };
+    })
+  });
   // 画面组：主视觉（场景块 §14 hitbox 分离）
   tracks.picture.push({id: 'main', label: '主视觉', isSceneTrack: true});
   const brollLayers = [], graphicLayers = [];
@@ -401,22 +421,28 @@ function renderPhysicalTimeline(){
           const hasAudioIndex = Number.isInteger(cl.audioIndex) && cl.audioIndex >= 0;
           const hasWatermarkIndex = Number.isInteger(cl.watermarkIndex) && cl.watermarkIndex >= 0;
           const hasVisualOverlayIndex = Number.isInteger(cl.visualOverlayIndex) && cl.visualOverlayIndex >= 0;
+          const hasSubtitleCueIndex = Number.isInteger(cl.subtitleCueIndex) && cl.subtitleCueIndex >= 0;
           const audioAttr = hasAudioIndex
             ? ` data-audio-index="${cl.audioIndex}" aria-label="${esc(cl.text)}：拖动移动，边缘裁剪；点击打开片段设置"` : '';
           const watermarkAttr = hasWatermarkIndex
             ? ` data-watermark-index="${cl.watermarkIndex}" aria-label="${esc(cl.text)}：拖动移动、边缘修剪；点击编辑覆盖层"` : '';
           const visualOverlayAttr = hasVisualOverlayIndex
             ? ` data-visual-overlay-index="${cl.visualOverlayIndex}" aria-label="${esc(cl.text)}：拖动移动、边缘修剪；点击编辑画面叠加"` : '';
+          const subtitleCueAttr = hasSubtitleCueIndex
+            ? ` data-subtitle-cue-index="${cl.subtitleCueIndex}" aria-label="${esc(cl.text)}：拖动移动，两端修剪时间锚点"` : '';
           const clipClass = hasAudioIndex ? ' ed-audio-clip' :
-            (hasWatermarkIndex ? ' ed-watermark-clip' : (hasVisualOverlayIndex ? ' ed-visual-overlay-clip' : ''));
+            (hasWatermarkIndex ? ' ed-watermark-clip' :
+            (hasVisualOverlayIndex ? ' ed-visual-overlay-clip' : (hasSubtitleCueIndex ? ' ed-subtitle-cue' : '')));
           const clickAttr = hasAudioIndex
             ? ` onclick="editorAudioClipOpen(${cl.audioIndex}, event)"`
             : (hasWatermarkIndex
                 ? ` onclick="editorWatermarkClipOpen(${cl.watermarkIndex}, event)"`
                 : (hasVisualOverlayIndex
                     ? ` onclick="editorVisualOverlayOpen(${cl.visualOverlayIndex}, event)"`
-                    : (cl.onclick ? ` onclick="${cl.onclick}"` : '')));
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
+                    : (hasSubtitleCueIndex
+                        ? ` onclick="editorSubtitleCueSelect(${cl.subtitleCueIndex}, event)"`
+                        : (cl.onclick ? ` onclick="${cl.onclick}"` : ''))));
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${subtitleCueAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
@@ -918,6 +944,122 @@ function _tlBindAudioClipDrag(){
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// Subtitle cues share the same CompositionIR timing and revision-safe command path.
+let _subtitleCueDrag = null;
+let _subtitleCueSuppressClick = null;
+
+function editorSubtitleCueSelect(index, ev) {
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  const track = ED.comp && ED.comp.subtitle_track;
+  const cue = track && Array.isArray(track.cues) ? track.cues[index] : null;
+  if (!cue) return;
+  if (typeof previewPause === 'function') previewPause();
+  const at = Math.max(0, Math.min(Number(ED.comp.duration) || 0, Number(cue.start) || 0));
+  if (typeof previewSeek === 'function') previewSeek(at);
+  else PLAYHEAD.at = at;
+  if (typeof editorToast === 'function') editorToast(`已定位字幕锚点：${String(cue.text || '').slice(0, 20)} · ${at.toFixed(2)}s`);
+}
+
+function _tlBindSubtitleCueDrag() {
+  document.querySelectorAll('#editor-timeline .ed-subtitle-cue[data-subtitle-cue-index]').forEach(el => {
+    el.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 || !ED.comp || !ED.comp.subtitle_track) return;
+      const index = Number.parseInt(el.dataset.subtitleCueIndex, 10);
+      const track = ED.comp.subtitle_track;
+      const cue = (track.cues || [])[index];
+      if (!cue) return;
+      const start = Number(cue.start), end = Number(cue.end);
+      const total = Number(ED.comp.duration) || 1;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end <= 0 || start >= total) return;
+      const rect = el.getBoundingClientRect();
+      const edge = Math.min(8, rect.width / 4);
+      const mode = ev.clientX - rect.left <= edge ? 'trim-left'
+        : rect.right - ev.clientX <= edge ? 'trim-right' : 'move';
+      _subtitleCueDrag = {el, index, mode, startX: ev.clientX, moved: false, start, end, previewStart: start, previewEnd: end};
+      try { el.setPointerCapture(ev.pointerId); } catch (_) {}
+    }, true);
+  });
+  if (window.__tlSubtitleCueDragHandlers) return;
+  window.__tlSubtitleCueDragHandlers = true;
+  document.addEventListener('pointermove', ev => {
+    const d = _subtitleCueDrag;
+    if (!d || !d.el.isConnected) { _subtitleCueDrag = null; return; }
+    const body = d.el.closest('.ed-track-body');
+    const width = body ? body.getBoundingClientRect().width : 0;
+    if (width <= 0) return;
+    const dx = ev.clientX - d.startX;
+    if (Math.abs(dx) <= 8 && !d.moved) return;
+    d.moved = true;
+    ev.preventDefault();
+    d.el.classList.add('tl-dragging');
+    const total = Number(ED.comp.duration) || 1;
+    const delta = dx / width * total;
+    let start = d.start, end = d.end;
+    if (d.mode === 'move') {
+      const duration = d.end - d.start;
+      start = Math.max(0, Math.min(total - duration, d.start + delta));
+      end = start + duration;
+    } else if (d.mode === 'trim-left') {
+      start = Math.max(0, Math.min(d.end - 0.05, d.start + delta));
+    } else {
+      end = Math.max(d.start + 0.05, Math.min(total, d.end + delta));
+    }
+    d.previewStart = start;
+    d.previewEnd = end;
+    d.el.style.left = (start / total * 100) + '%';
+    d.el.style.width = Math.max(0, (end - start) / total * 100) + '%';
+    d.el.title = d.mode === 'move' ? '松开以移动字幕时间锚点'
+      : (d.mode === 'trim-left' ? '松开以修剪字幕起点' : '松开以修剪字幕终点');
+  }, true);
+  document.addEventListener('pointerup', () => {
+    const d = _subtitleCueDrag;
+    if (!d) return;
+    _subtitleCueDrag = null;
+    d.el.classList.remove('tl-dragging');
+    if (!d.moved || !d.el.isConnected || !ED.comp || !ED.comp.subtitle_track) return;
+    _subtitleCueSuppressClick = d.el;
+    const track = ED.comp.subtitle_track;
+    const round = value => Math.round(value * 1000) / 1000;
+    const start = round(d.previewStart), end = round(d.previewEnd);
+    if (end - start < 0.05) {
+      editorToast('字幕时间段需至少 0.05 秒，未修改', true);
+      editorRenderTimeline();
+      return;
+    }
+    const cues = (track.cues || []).map((cue, index) => index === d.index ? {...cue, start, end} : {...cue});
+    executeCommand({
+      command: 'set_subtitle_track',
+      targetId: 'subtitle',
+      payload: {mode: track.mode || 'sentence', source: track.source || 'manual', cues},
+    }).then(result => {
+      if (result && result.ok) {
+        editorToast('字幕时间锚点已保存');
+        return refreshWorkspace();
+      }
+      editorToast('字幕时间锚点未保存：' + ((result && result.error) || '未知错误'), true);
+      editorRenderTimeline();
+    }).catch(error => {
+      editorToast('字幕时间锚点未保存：' + (error.message || error), true);
+      editorRenderTimeline();
+    });
+  }, true);
+  document.addEventListener('pointercancel', () => {
+    const d = _subtitleCueDrag;
+    if (!d) return;
+    _subtitleCueDrag = null;
+    if (d.el && d.el.isConnected) editorRenderTimeline();
+  }, true);
+  document.addEventListener('click', ev => {
+    if (!_subtitleCueSuppressClick) return;
+    const hit = ev.target && ev.target.closest ? ev.target.closest('.ed-subtitle-cue') : null;
+    if (hit === _subtitleCueSuppressClick) {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      _subtitleCueSuppressClick = null;
+    }
+  }, true);
+}
+
 // §18 Timeline overlays: timed text/logo layers use the same global time ruler.
 // Edits preview locally while dragging, then persist through Editor Command/Revision.
 let _watermarkDrag = null;

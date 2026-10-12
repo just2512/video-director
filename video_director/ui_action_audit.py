@@ -76,7 +76,7 @@ UI_ONLY_PREFIXES = (
     # 轨道点击 → 打开对象上下文（§5.2/§6/§46 纯 UI 导航）
     "projectOverlayOpen(", "originalTrackOpen(", "bgmTrackOpen(",
     "editorAudioVolume(", "editorSubtitleStyleOpen(",
-    "editorAudioClipOpen(", "editorAudioClipApply(", "editorAudioClipClose(",
+    "editorAudioClipOpen(", "editorAudioClipApply(", "editorAudioClipClose(", "editorSubtitleCueSelect(",
     "editorWatermarkClipOpen(", "editorWatermarkClipApply(", "editorWatermarkClipClose(",
     "edxSelectScene(", "edxDirectorEdit(", "edxMaterialMatch(", "edxApplyMaterialMatch(",
     "edxProposeTransitions(", "edxApproveTransition(", "edxRejectTransition(",
