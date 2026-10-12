@@ -169,3 +169,44 @@ def test_legacy_audio_lane_defaults_to_unlocked_and_track_lock_controls_are_wire
     assert "set_track_locked" in timeline and "set_track_locked" in visual
     assert "editorAudioTrackToggleLock(" in audit
     assert "editorVisualTrackToggleLock(" in audit
+
+
+
+def test_locked_audio_track_blocks_audio_bus_alias_commands_atomically(tmp_path, monkeypatch):
+    pid, _ = _project(tmp_path, monkeypatch)
+    locked = _apply(pid, "set_track_locked", "audio-bgm", {"trackType": "audio", "locked": True}, version=1)
+    assert locked.status == "APPLIED", locked.errors
+    before = {clip.id: clip.model_dump(mode="json") for clip in load_composition(pid).audio}
+
+    commands = [
+        ("set_audio_volume", "bgm", {"volume": 0.2}),
+        ("set_audio_mute", "bgm", {"muted": True}),
+        ("set_audio_fade", "bgm", {"fadeIn": 0.5}),
+        ("add_audio_keyframe", "bgm", {"at": 2.0, "volume": 0.4}),
+        ("audio_mix", "", {"tracks": {"sfx": {"volume": 0.25}, "bgm": {"volume": 0.1}}}),
+        ("set_original_audio_volume", "original", {"volume": 0.3}),
+        ("set_original_audio", "original", {"mode": "mute"}),
+    ]
+    for command, target, payload in commands:
+        result = _apply(pid, command, target, payload, version=2)
+        assert result.status == "REJECTED", (command, result.status, result.errors)
+        assert result.errors[0]["code"] == "TRACK_LOCKED", (command, result.errors)
+        current = {clip.id: clip.model_dump(mode="json") for clip in load_composition(pid).audio}
+        assert current == before, f"{command} partially mutated audio clips despite a locked lane"
+        assert result.composition_version == 2
+
+
+def test_add_edit_all_tracks_skips_locked_audio_clip_but_cuts_other_tracks(tmp_path, monkeypatch):
+    pid, _ = _project(tmp_path, monkeypatch)
+    locked = _apply(pid, "set_track_locked", "audio-bgm", {"trackType": "audio", "locked": True}, version=1)
+    assert locked.status == "APPLIED", locked.errors
+
+    result = _apply(pid, "add_edit_all_tracks", "timeline", {"at": 3.0}, version=2)
+    assert result.status == "APPLIED", result.errors
+    assert any("TRACK_LOCKED" in warning for warning in result.warnings), result.warnings
+
+    comp = load_composition(pid)
+    bgm = [clip for clip in comp.audio if clip.type.value == "bgm"]
+    assert len(bgm) == 1
+    assert (bgm[0].start, bgm[0].duration, bgm[0].source_in, bgm[0].source_out) == (1.0, 4.0, 0.0, 4.0)
+    assert len(comp.scenes[0].layers) == 2, "unlocked main picture still receives the add edit"
