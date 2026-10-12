@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 from tests.fixtures.fixture_data import RECIPE_PROJECT
 from video_director.editor import execute_command, load_composition, save_composition
