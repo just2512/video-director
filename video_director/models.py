@@ -474,6 +474,7 @@ class AudioLane(BaseModel):
     id: str
     name: str
     order: int = 0
+    locked: bool = False  # 锁轨：阻止对轨内片段进行时间线编辑
 
     @model_validator(mode="after")
     def _check_audio_lane(self):
@@ -598,6 +599,7 @@ class VisualTrack(BaseModel):
     id: str
     name: str
     order: int = 0
+    locked: bool = False  # 锁轨：阻止对轨内片段进行时间线编辑
 
     @model_validator(mode="after")
     def _check_visual_track(self):
