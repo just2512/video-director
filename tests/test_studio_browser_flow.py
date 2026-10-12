@@ -267,7 +267,10 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     await editorVisualOverlayApply(0);
                     const editPayload = commands.find(command => command.command === "set_visual_overlay").payload;
                     editorVisualOverlayPick();
-                    document.getElementById("visual-overlay-asset").value = "overlay-test-video";
+                    const overlayAssetSelect = document.getElementById("visual-overlay-asset");
+                    overlayAssetSelect.value = "overlay-test-video";
+                    overlayAssetSelect.dispatchEvent(new Event("change", {bubbles:true}));
+                    const createAudioControlVisible = getComputedStyle(document.getElementById("visual-overlay-create-audio-row")).display !== "none";
                     document.getElementById("visual-overlay-presentation-mode").value = "full_frame";
                     document.getElementById("visual-overlay-source-audio").checked = true;
                     document.getElementById("visual-overlay-start").value = "0.5";
@@ -288,7 +291,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     await new Promise(resolve => setTimeout(resolve, 0));
                     return {
                       trackExists, addButtonExists, commands,
-                      editControlsUnique, editPayload, createPayload,
+                      editControlsUnique, editPayload, createPayload, createAudioControlVisible,
                       dialogRemoved:!document.getElementById("visual-overlay-inspector-mask")
                     };
                   } finally {
@@ -312,6 +315,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert overlay_ui["editPayload"]["source_audio_volume"] == 0.8, overlay_ui
                 assert overlay_ui["createPayload"]["presentationMode"] == "full_frame", overlay_ui
                 assert overlay_ui["createPayload"]["sourceAudioEnabled"] is True, overlay_ui
+                assert overlay_ui["createAudioControlVisible"], overlay_ui
                 assert overlay_ui["commands"][1]["payload"]["start"] == 0.5, overlay_ui
                 assert overlay_ui["editControlsUnique"], overlay_ui
                 assert overlay_ui["dialogRemoved"], overlay_ui
