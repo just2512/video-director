@@ -68,7 +68,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
             page = None
             tracing = False
             try:
-                context.tracing.start(screenshots=True, snapshots=True, sources=True)
+                context.tracing.start(screenshots=False, snapshots=True, sources=True)
                 tracing = True
                 page = context.new_page()
                 page_errors: list[str] = []
@@ -120,33 +120,38 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert page.locator("#shotbook-list .sb-shot").count() == 2
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
-                # Dual view renders a physical timeline too; its edit/scrub bindings
-                # must not be skipped just because the semantic view is prepended.
-                dual_bindings = page.evaluate("""() => {
-                  const names = [
-                    '_tlBindPlayheadDrag', '_tlBindLayerDrag', '_tlBindAudioClipDrag',
-                    '_tlBindWatermarkDrag', '_tlBindSceneDrag', 'editorSessionBindTimeline'
-                  ];
-                  const originals = {};
-                  const calls = [];
-                  for (const name of names) {
-                    originals[name] = window[name];
-                    window[name] = () => calls.push(name);
-                  }
+                # Dual view must not merely render the physical timeline: the
+                # playhead must react to pointer input on the real timeline element.
+                dual_scrub = page.evaluate("""() => {
                   const oldView = ED.timelineView;
                   ED.timelineView = 'dual';
                   editorRenderTimeline();
-                  for (const name of names) window[name] = originals[name];
-                  const hasPhysicalTimeline = !!document.querySelector('#editor-timeline .ed-tl-scroll');
+                  const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
+                  if (!scroll) return {hasPhysicalTimeline: false, before: 0, after: 0};
+                  const rect = scroll.getBoundingClientRect();
+                  const x = rect.left + rect.width * 0.75;
+                  const y = rect.top + Math.min(12, rect.height / 2);
+                  const before = window.PLAYHEAD.at;
+                  scroll.dispatchEvent(new PointerEvent('pointerdown', {
+                    bubbles: true, cancelable: true, pointerId: 7, button: 0,
+                    clientX: x, clientY: y
+                  }));
+                  scroll.dispatchEvent(new PointerEvent('pointermove', {
+                    bubbles: true, cancelable: true, pointerId: 7, buttons: 1,
+                    clientX: x, clientY: y
+                  }));
+                  document.dispatchEvent(new PointerEvent('pointerup', {
+                    bubbles: true, cancelable: true, pointerId: 7, button: 0,
+                    clientX: x, clientY: y
+                  }));
+                  const after = window.PLAYHEAD.at;
+                  const hasPhysicalTimeline = !!scroll.isConnected;
                   ED.timelineView = oldView;
                   editorRenderTimeline();
-                  return {calls, hasPhysicalTimeline};
+                  return {hasPhysicalTimeline, before, after};
                 }""")
-                assert dual_bindings["hasPhysicalTimeline"], dual_bindings
-                assert set(dual_bindings["calls"]) == {
-                    "_tlBindPlayheadDrag", "_tlBindLayerDrag", "_tlBindAudioClipDrag",
-                    "_tlBindWatermarkDrag", "_tlBindSceneDrag", "editorSessionBindTimeline"
-                }, dual_bindings
+                assert dual_scrub["hasPhysicalTimeline"], dual_scrub
+                assert 1.2 < dual_scrub["after"] < 1.8, dual_scrub
                 # 布局契约：Shotbook 与编辑器共享同一工作区（main 布局：#editor-body
                 # 与 #editor-workspace 同属 pane-editor；不要求在 .ws-col 三栏列内）。
                 assert page.locator("#shotbook-details").evaluate(
