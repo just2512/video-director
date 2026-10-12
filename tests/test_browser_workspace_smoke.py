@@ -629,13 +629,13 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 drag_target_x = drag_boxes["target"]["x"] + drag_boxes["target"]["w"] * 0.30
                 drag_target_y = drag_boxes["target"]["y"] + drag_boxes["target"]["h"] / 2
                 page.mouse.move(drag_start_x, drag_start_y)
-                start_hit = page.evaluate("""() => {
+                start_hit = page.evaluate("""coords => {
                     const source = document.querySelector('#editor-timeline .ed-layer[data-scene="S01"][data-idx="0"]');
-                    const hit = document.elementFromPoint(0, 0);
+                    const hit = document.elementFromPoint(coords.x, coords.y);
                     return {sourceConnected: !!source && source.isConnected,
                             hit: hit ? hit.tagName + '.' + String(hit.className || '') : null,
                             hitIsSource: !!source && !!hit && (hit === source || source.contains(hit))};
-                }""".replace("${0}", String(drag_start_x)).replace("${0}", String(drag_start_y)))
+                }""", {"x": drag_start_x, "y": drag_start_y})
                 assert drag_boxes["startHitIsSource"] and start_hit["hitIsSource"], (
                     f"drag must start on the source clip; geometry={drag_boxes}, hit={start_hit}"
                 )
