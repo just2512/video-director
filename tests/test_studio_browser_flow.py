@@ -150,6 +150,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 audio_drag_boundary = page.evaluate("""async () => {
                   const previousComp = ED.comp;
                   const previousView = ED.timelineView;
+                  const previousSoundOpen = TL_GROUPS.sound.open;
                   const previousExecute = window.executeCommand;
                   const commands = [];
                   try {
@@ -164,6 +165,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     }];
                     ED.comp = comp;
                     ED.timelineView = 'dual';
+                    // The editor intentionally collapses the sound group by default.
+                    // Expand it so this regression exercises an actual visible clip.
+                    TL_GROUPS.sound.open = true;
                     window.executeCommand = async command => {
                       commands.push(command);
                       return {ok:false, error:'command captured by browser regression'};
@@ -192,6 +196,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     window.executeCommand = previousExecute;
                     ED.comp = previousComp;
                     ED.timelineView = previousView;
+                    TL_GROUPS.sound.open = previousSoundOpen;
                     editorRenderTimeline();
                   }
                 }""")
