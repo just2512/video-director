@@ -108,10 +108,10 @@ function editorVisualOverlayOpen(index, ev) {
   document.body.appendChild(mask);
   mask.querySelector('#visual-overlay-x').focus();
 }
-async async function editorVisualOverlaySplit(index) {
+async function editorVisualOverlaySplit(index) {
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
   if (!clip) { editorToast('画面叠加片段已变化，请重新选择', true); return; }
-  const at = Number(window.PLAYHEAD && PLAYHEAD.at);
+  const at = Number(typeof PLAYHEAD !== 'undefined' && PLAYHEAD ? PLAYHEAD.at : NaN);
   const start = Number(clip.start) || 0;
   const end = start + (Number(clip.duration) || 0);
   if (!Number.isFinite(at) || at <= start + 0.05 || at >= end - 0.05) {
