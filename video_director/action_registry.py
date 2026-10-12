@@ -571,7 +571,7 @@ _CONTEXT_KEYS = {
         "voice.change", "voice.preview",
         # §58 UI 交互动作（dispatcher 本地执行；group 暴露 ui 字段）
         "ui.undo", "ui.redo", "ui.save", "ui.preview_draft", "ui.render_draft",
-        "ui.split_layer",
+        "ui.split_layer", "ui.add_edit_all_tracks",
         "ui.editor_session_snap", "ui.editor_session_box",
         "ui.creative_plan_toggle", "ui.creative_plan_reload",
         "ui.creative_plan_initialize", "ui.creative_plan_save", "ui.creative_plan_validate",
@@ -584,7 +584,7 @@ _CONTEXT_KEYS = {
     ("scene", None): [
         "creative.select_candidate",
         "timeline.split", "timeline.duplicate", "timeline.delete", "timeline.move",
-        "ui.split_layer",
+        "ui.split_layer", "ui.add_edit_all_tracks",
         "timeline.duration", "visual.camera",
         "asset.replace", "asset.search", "asset.add_broll",
         "generate.image", "generate.video",
