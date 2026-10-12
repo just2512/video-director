@@ -444,6 +444,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   const scene = source && source.closest(".ed-scene");
                   const body = scene && scene.querySelector(".ed-scene-body");
                   if (!source || !body) return {error:"physical main clip or scene body missing"};
+                  // Studio has several stacked workflow panes; the timeline can sit
+                  // below the initial viewport. A human must scroll to it before drag.
+                  source.scrollIntoView({block:"center", inline:"nearest"});
                   const sr = source.getBoundingClientRect(), br = body.getBoundingClientRect();
                   const x = sr.left + sr.width / 2;
                   const y = sr.top + sr.height / 2;
