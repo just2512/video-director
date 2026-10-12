@@ -412,11 +412,25 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                       if (window.__horizontalDragEvents.length < 80) {
                         const target = event.target;
                         const under = document.elementFromPoint(event.clientX || 0, event.clientY || 0);
+                        const source = window.__horizontalDragSelector
+                          ? document.querySelector(window.__horizontalDragSelector) : null;
+                        const sr = source && source.getBoundingClientRect();
+                        const scroll = source && source.closest('.ed-tl-scroll');
+                        const css = source && getComputedStyle(source);
                         window.__horizontalDragEvents.push({
                           type, x:event.clientX, y:event.clientY, button:event.button,
                           pointerId:event.pointerId,
                           target:target ? {tag:target.tagName,cls:String(target.className),scene:target.dataset && target.dataset.scene,idx:target.dataset && target.dataset.idx} : null,
-                          under:under ? {tag:under.tagName,cls:String(under.className),scene:under.dataset && under.dataset.scene,idx:under.dataset && under.dataset.idx} : null
+                          under:under ? {tag:under.tagName,cls:String(under.className),scene:under.dataset && under.dataset.scene,idx:under.dataset && under.dataset.idx} : null,
+                          sourceState:source ? {
+                            connected:source.isConnected,
+                            rect:{left:sr.left,top:sr.top,right:sr.right,bottom:sr.bottom,width:sr.width,height:sr.height},
+                            pointerEvents:css.pointerEvents,display:css.display,visibility:css.visibility,
+                            parentRect:(() => {const r=source.parentElement.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};})(),
+                            scroll:scroll ? {left:scroll.scrollLeft,top:scroll.scrollTop,rect:(() => {const r=scroll.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};})()} : null,
+                            hitContains:!!(under && (under===source || source.contains(under)))
+                          } : null,
+                          windowScroll:{x:window.scrollX,y:window.scrollY}
                         });
                       }
                     }, true);
@@ -459,9 +473,11 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   const scene = source && source.closest(".ed-scene");
                   const body = scene && scene.querySelector(".ed-scene-body");
                   if (!source || !body) return {error:"physical main clip or scene body missing"};
-                  // Studio has several stacked workflow panes; the timeline can sit
-                  // below the initial viewport. A human must scroll to it before drag.
-                  source.scrollIntoView({block:"center", inline:"nearest"});
+                  window.__horizontalDragSelector = selector;
+                  // Make scroll deterministic: smooth/intermediate scrolling can
+                  // invalidate getBoundingClientRect coordinates before real input.
+                  source.scrollIntoView({block:"center", inline:"nearest", behavior:"instant"});
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                   const sr = source.getBoundingClientRect(), br = body.getBoundingClientRect();
                   const x = sr.left + sr.width / 2;
                   const y = sr.top + sr.height / 2;
@@ -515,6 +531,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                       delete window.__horizontalDragOriginal;
                       delete window.__horizontalDragCommands;
                       delete window.__horizontalDragEvents;
+                      delete window.__horizontalDragSelector;
                       editorRenderTimeline();
                     }""")
                 assert horizontal_layer_drag["commands"], json.dumps({
