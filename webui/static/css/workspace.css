@@ -267,3 +267,22 @@
 .sb-motion-note{margin:5px 0 8px}
 
 .ed-track-clip.tl-out-of-range { border-color: var(--danger, #b42318); color: var(--danger, #b42318); background: color-mix(in srgb, var(--danger, #b42318) 10%, transparent); }
+
+
+/* Independent visual overlay clips share the global timeline axis. */
+.ed-visual-overlay-clip {
+  background: color-mix(in srgb, var(--accent) 30%, var(--surface-2));
+  border: 1px solid var(--accent);
+  cursor: grab;
+  user-select: none;
+}
+.ed-visual-overlay-clip.tl-dragging { cursor: grabbing; opacity: .82; }
+.ed-track-add {
+  min-width: 20px !important;
+  min-height: 20px;
+  margin: 0 0 0 3px !important;
+  padding: 0 4px !important;
+  font-size: 11px !important;
+  line-height: 18px;
+  vertical-align: middle;
+}
