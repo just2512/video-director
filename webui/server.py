@@ -335,30 +335,31 @@ def _editor_asset_preview_map(ir):
         from video_director import asset_catalog
         out = {}
         seen = set()
-        for sc in ir.scenes:
-            for lay in sc.layers:
-                aid = getattr(lay, "asset_id", None)
-                if not aid or aid in seen:
-                    continue
-                seen.add(aid)
-                entry = asset_catalog.get_asset(aid)
-                if not entry:
-                    continue
-                file_path = entry.get("file") or ""
-                thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
-                out[aid] = {
-                    "asset_id": aid,
-                    "name": entry.get("name") or Path(file_path).name,
-                    "type": entry.get("type"),
-                    "file_url": ("/file?path=" + urllib_quote(file_path)) if file_path else "",
-                    "thumbnail_url": ("/file?path=" + urllib_quote(str(thumb))) if thumb.is_file() else "",
-                    "width": entry.get("width"),
-                    "height": entry.get("height"),
-                    "duration": entry.get("duration"),
-                    "fps": entry.get("fps"),
-                    "has_audio": entry.get("has_audio"),
-                    "source": entry.get("source"),
-                }
+        # Keep overlay-only sources visible after reloading a saved project.
+        referenced_ids = [getattr(lay, 'asset_id', None) for sc in ir.scenes for lay in sc.layers]
+        referenced_ids.extend(getattr(item, 'asset_id', None) for item in (getattr(ir, 'visual_overlays', None) or []))
+        for aid in referenced_ids:
+            if not aid or aid in seen:
+                continue
+            seen.add(aid)
+            entry = asset_catalog.get_asset(aid)
+            if not entry:
+                continue
+            file_path = entry.get("file") or ""
+            thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
+            out[aid] = {
+                "asset_id": aid,
+                "name": entry.get("name") or Path(file_path).name,
+                "type": entry.get("type"),
+                "file_url": ("/file?path=" + urllib_quote(file_path)) if file_path else "",
+                "thumbnail_url": ("/file?path=" + urllib_quote(str(thumb))) if thumb.is_file() else "",
+                "width": entry.get("width"),
+                "height": entry.get("height"),
+                "duration": entry.get("duration"),
+                "fps": entry.get("fps"),
+                "has_audio": entry.get("has_audio"),
+                "source": entry.get("source"),
+            }
 
         # Audio timeline references are IDs into the trusted audio library. Add
         # a safe presentation projection (display label + preview endpoint), never
@@ -1390,6 +1391,16 @@ class Handler(BaseHTTPRequestHandler):
                         {"kind": w.kind, "text": w.text, "asset_id": w.asset_id,
                          "anchor": w.anchor, "opacity": w.opacity, "scale": w.scale}
                         for w in (ir.watermarks or [])
+                    ],
+                    "visual_overlays": [
+                        {
+                            "id": clip.id, "asset_id": clip.asset_id, "start": clip.start,
+                            "duration": clip.duration, "source_in": clip.source_in,
+                            "x": clip.x, "y": clip.y, "width": clip.width,
+                            "height": clip.height, "opacity": clip.opacity, "z_index": clip.z_index,
+                            **_editor_asset_meta(clip.asset_id),
+                        }
+                        for clip in (getattr(ir, "visual_overlays", None) or [])
                     ],
                     "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
                     "references": ir.references.to_dict()["references"] if ir.references else [],

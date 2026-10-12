@@ -923,6 +923,111 @@ def _resolve_watermark_asset(wm, assets: Dict[str, AssetRef]):
 # 主入口
 # ---------------------------------------------------------------------------
 
+def composite_visual_overlays(
+    base_path: str,
+    ir: CompositionIR,
+    assets: Dict[str, AssetRef],
+    out_path: str,
+) -> str:
+    """Composite independent global video/image clips over the base picture.
+
+    Main SceneIR layers remain sequential. These clips live on a separate
+    global track, can overlap each other, and are enabled only in their own
+    timeline interval. Audio is deliberately excluded; mix_audio runs after
+    this stage so the final audio is mixed exactly once.
+    """
+    overlays = sorted(
+        list(getattr(ir, "visual_overlays", []) or []),
+        key=lambda item: (int(item.z_index), float(item.start), str(item.id)),
+    )
+    if not overlays:
+        return base_path
+
+    ff = _ffmpeg()
+    width, height = int(ir.project.width), int(ir.project.height)
+    fps = max(1, int(ir.project.fps))
+    total = float(ir.project.duration)
+    command = [ff, "-y", "-loglevel", "error", "-i", str(base_path)]
+    filters = ["[0:v]settb=AVTB,format=rgba[base0]"]
+    current = "base0"
+
+    for index, overlay in enumerate(overlays, start=1):
+        asset = assets.get(overlay.asset_id)
+        if asset is None:
+            raise RenderError(
+                f"visual overlay {overlay.id}: asset not found: {overlay.asset_id}"
+            )
+        if not asset.file or not Path(asset.file).is_file():
+            raise RenderError(
+                f"visual overlay {overlay.id}: asset file unavailable: {asset.file}"
+            )
+        media_type = str(asset.type or "").lower()
+        if media_type not in {"image", "video"}:
+            raise RenderError(
+                f"visual overlay {overlay.id}: unsupported asset type {media_type!r}; expected image/video"
+            )
+
+        start = float(overlay.start)
+        duration = float(overlay.duration)
+        source_in = float(overlay.source_in)
+        if start < 0 or duration <= 0 or start + duration > total + 0.01:
+            raise RenderError(f"visual overlay {overlay.id}: invalid output time range")
+        if media_type == "video":
+            probe = prober.probe_media(str(asset.file))
+            if probe.duration is not None and source_in + duration > float(probe.duration) + 0.05:
+                raise RenderError(
+                    f"visual overlay {overlay.id}: source window "
+                    f"{source_in:.3f}–{source_in + duration:.3f}s exceeds source duration "
+                    f"{float(probe.duration):.3f}s"
+                )
+            command.extend(["-ss", f"{source_in:.6f}", "-t", f"{duration:.6f}", "-i", str(asset.file)])
+        else:
+            command.extend([
+                "-loop", "1", "-framerate", str(fps), "-t", f"{duration:.6f}",
+                "-i", str(asset.file),
+            ])
+
+        box_w = max(2, int(width * float(overlay.width)) // 2 * 2)
+        box_h = max(2, int(height * float(overlay.height)) // 2 * 2)
+        x_px = max(0, min(width - box_w, int(round(width * float(overlay.x)))))
+        y_px = max(0, min(height - box_h, int(round(height * float(overlay.y)))))
+        end = min(total, start + duration)
+        overlay_label = f"ov{index}"
+        composed_label = f"comp{index}"
+        filters.append(
+            f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
+            f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,format=rgba,"
+            f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
+            f"format=rgba,colorchannelmixer=aa={float(overlay.opacity):.6f}[{overlay_label}]"
+        )
+        filters.append(
+            f"[{current}][{overlay_label}]overlay=x={x_px}:y={y_px}:"
+            f"eof_action=pass:shortest=0:enable='between(t,{start:.6f},{end:.6f})'"
+            f"[{composed_label}]"
+        )
+        current = composed_label
+
+    filters.append(f"[{current}]format=yuv420p[vout]")
+    command.extend([
+        "-filter_complex", ";".join(filters),
+        "-map", "[vout]", "-an",
+        "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-preset", "veryfast", "-crf", str(config.DEFAULT_CRF),
+        "-pix_fmt", config.DEFAULT_PIXEL_FORMAT,
+        "-t", f"{total:.6f}", "-movflags", "+faststart", str(out_path),
+    ])
+    _run(command, timeout=900)
+    decoded = subprocess.run(
+        [ff, "-v", "error", "-i", str(out_path), "-f", "null", "-"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+    )
+    if decoded.returncode != 0:
+        raise RenderError(
+            f"visual overlay output failed full decode: {(decoded.stderr or '')[-1200:]}"
+        )
+    return str(out_path)
+
+
 def render_composition(
     ir: CompositionIR,
     assets: Dict[str, AssetRef],
@@ -1079,6 +1184,13 @@ def render_composition(
             scene_clips, scene_transitions[: len(scene_clips) - 1],
             visual_path, w, h, ir.project.fps,
         )
+
+    # Parallel global visual track is composited over the main picture, never
+    # concatenated as another full-screen scene. It becomes the input to preview,
+    # audio mixing, subtitles and final MP4, keeping edit and export semantics aligned.
+    if getattr(ir, "visual_overlays", None):
+        overlay_path = str(work_dir / "visual_overlays.mp4")
+        visual_path = composite_visual_overlays(visual_path, ir, assets, overlay_path)
 
     # 3. 音频
     master_path = str(work_dir / "master.mp4")

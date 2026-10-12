@@ -30,6 +30,7 @@ from video_director.project_lock import project_lock, validate_project_id
 from video_director.models import (
     AudioTrack,
     AudioTrackType,
+    AssetRef,
     CompositionIR,
     Layer,
     LayerType,
@@ -37,6 +38,7 @@ from video_director.models import (
     TransitionOut,
     SubtitleStyle,
     WatermarkLayer,
+    VisualOverlayClip,
 )
 from video_director.registries.compiler import (
     CompileError,
@@ -395,6 +397,11 @@ SUPPORTED_COMMANDS = (
     "set_opacity",               # 层透明度（折叠为 motion opacity 近似）
     "set_style",                 # 项目级风格（§20）
     "set_transform",             # 层静态变换（scale/opacity，§20）
+    "add_visual_overlay",
+    "move_visual_overlay",
+    "trim_visual_overlay",
+    "set_visual_overlay",
+    "remove_visual_overlay",
     "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
@@ -612,6 +619,16 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_style(ir, target_id, payload)
         elif cmd_name == "set_transform":
             changed, stale = _cmd_set_transform(ir, target_id, payload)
+        elif cmd_name == "add_visual_overlay":
+            changed, stale = _cmd_add_visual_overlay(ir, target_id, payload, project_id)
+        elif cmd_name == "move_visual_overlay":
+            changed, stale = _cmd_move_visual_overlay(ir, target_id, payload)
+        elif cmd_name == "trim_visual_overlay":
+            changed, stale = _cmd_trim_visual_overlay(ir, target_id, payload)
+        elif cmd_name == "set_visual_overlay":
+            changed, stale = _cmd_set_visual_overlay(ir, target_id, payload)
+        elif cmd_name == "remove_visual_overlay":
+            changed, stale = _cmd_remove_visual_overlay(ir, target_id, payload)
         elif cmd_name == "add_audio_clip":
             changed, stale = _cmd_add_audio_clip(ir, target_id, payload)
         elif cmd_name == "move_audio_clip":
@@ -1364,6 +1381,207 @@ def _cmd_set_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     scene.layers[idx] = layer.model_copy(update={"motion_instance": inst})
     layer_id = f"{scene.id}#{idx}"
     return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
+
+
+def _visual_overlay_index(ir: CompositionIR, target_id: str) -> int:
+    if not target_id.startswith("overlay#"):
+        raise EditorError("INVALID_TARGET", "覆盖层 targetId 必须为 overlay#<index>")
+    try:
+        index = int(target_id.split("#", 1)[1])
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_TARGET", f"覆盖层索引非法：{target_id}") from exc
+    if index < 0 or index >= len(ir.visual_overlays):
+        raise EditorError("NOT_FOUND", f"覆盖层 {target_id} 不存在", recoverable=False)
+    return index
+
+
+def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optional[str] = None) -> Tuple[AssetRef, str, float]:
+    asset = next((item for item in ir.assets if item.id == asset_id), None)
+    if asset is None:
+        # The editor asset chooser is backed by the trusted asset catalog, while
+        # CompositionIR.assets may contain only sources already used by scenes.
+        # Promote the selected catalog entry into the persisted IR instead of
+        # exposing an add button that silently rejects legitimate library assets.
+        from video_director import asset_catalog
+        entry = asset_catalog.get_asset(asset_id)
+        if not entry:
+            raise EditorError("ASSET_NOT_FOUND", f"项目素材库没有素材 {asset_id!r}", recoverable=False)
+        media_type = str(entry.get("type") or "").lower()
+        if media_type not in ("video", "image"):
+            raise EditorError("ASSET_TYPE_MISMATCH", "独立画面覆盖层只接受视频或图片素材", recoverable=False)
+        file_value = str(entry.get("file") or "")
+        if not file_value:
+            raise EditorError("ASSET_NOT_FOUND", f"素材 {asset_id!r} 没有可用文件", recoverable=False)
+        catalog_path = Path(file_value).resolve()
+        if not catalog_path.is_file():
+            raise EditorError("ASSET_NOT_FOUND", f"素材文件不可用：{asset_id!r}", recoverable=False)
+        asset = AssetRef(
+            id=asset_id, type=media_type, file=str(catalog_path),
+            duration=entry.get("duration"), width=entry.get("width"), height=entry.get("height"),
+            fps=entry.get("fps"), source=entry.get("source") or "uploaded",
+            license_note=entry.get("license_note"), provenance=entry.get("provenance"),
+            rights_status=entry.get("rights_status"),
+        )
+        ir.assets.append(asset)
+    media_type = str(asset.type or "").lower()
+    if media_type not in ("video", "image"):
+        raise EditorError("ASSET_TYPE_MISMATCH", "独立画面覆盖层只接受视频或图片素材", recoverable=False)
+    candidate = Path(asset.file)
+    if not candidate.is_file() and not candidate.is_absolute() and project_id:
+        candidate = config.project_dir(project_id) / candidate
+    candidate = candidate.resolve()
+    if not candidate.is_file():
+        raise EditorError("ASSET_NOT_FOUND", f"项目素材文件不可用：{asset_id!r}", recoverable=False)
+    duration = float(asset.duration or 0.0)
+    if media_type == "video" and (not math.isfinite(duration) or duration <= 0):
+        from video_director import prober
+        try:
+            probe = prober.probe_media(str(candidate))
+            duration = float(probe.duration or 0.0)
+        except Exception as exc:
+            raise EditorError("ASSET_PROBE_FAILED", f"无法读取视频素材时长：{exc}") from exc
+    if media_type == "video" and (not math.isfinite(duration) or duration <= 0):
+        raise EditorError("ASSET_PROBE_FAILED", "视频覆盖素材缺少有效时长")
+    return asset, str(candidate), duration
+
+def _cmd_add_visual_overlay(
+    ir: CompositionIR, target_id: str, payload: dict, project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """Add an independent picture-in-picture clip from the project's trusted asset catalog."""
+    if target_id != "overlays":
+        raise EditorError("INVALID_TARGET", "add_visual_overlay 的 targetId 必须是 overlays")
+    asset_id = str(payload.get("assetId") or "").strip()
+    if not asset_id:
+        raise EditorError("INVALID_PAYLOAD", "必须先从项目素材库选择视频或图片")
+    asset, resolved_file, source_duration = _overlay_source_duration(ir, asset_id, project_id)
+
+    def number(key: str, default: float, minimum: float, maximum: Optional[float] = None) -> float:
+        raw = payload.get(key, default)
+        if isinstance(raw, bool):
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是有限数字")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是有限数字") from exc
+        if not math.isfinite(value) or value < minimum or (maximum is not None and value > maximum):
+            raise EditorError("INVALID_PARAMETER", f"{key} 超出允许范围")
+        return value
+
+    total = float(ir.project.duration)
+    start = number("start", 0.0, 0.0)
+    if start >= total:
+        raise EditorError("INVALID_PARAMETER", "覆盖层起点必须在项目时长内")
+    source_in = number("sourceIn", 0.0, 0.0)
+    default_duration = min(3.0, total - start)
+    if str(asset.type).lower() == "video":
+        default_duration = min(default_duration, source_duration - source_in)
+    duration = number("duration", default_duration, 0.05)
+    if start + duration > total + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层不能超出项目总时长")
+    if str(asset.type).lower() == "video" and source_in + duration > source_duration + 0.05:
+        raise EditorError("INVALID_SOURCE_RANGE", "覆盖层视频源区间超出素材时长")
+
+    x = number("x", 0.65, 0.0, 1.0)
+    y = number("y", 0.1, 0.0, 1.0)
+    box_width = number("width", 0.3, 0.05, 1.0)
+    box_height = number("height", 0.3, 0.05, 1.0)
+    opacity = number("opacity", 1.0, 0.0, 1.0)
+    if x + box_width > 1.000001 or y + box_height > 1.000001:
+        raise EditorError("INVALID_PARAMETER", "覆盖层的位置和尺寸不能超出画面边界")
+
+    # Paths are resolved only from the known project AssetRef; never accept a
+    # client-supplied path as a render input. Persist the project's canonical asset file.
+    asset_index = next((i for i, item in enumerate(ir.assets) if item.id == asset_id), None)
+    if asset_index is None:
+        ir.assets.append(asset.model_copy(update={"file": resolved_file, "duration": source_duration or asset.duration}))
+    else:
+        ir.assets[asset_index] = asset.model_copy(update={"file": resolved_file, "duration": source_duration or asset.duration})
+    raw_z_index = payload.get("zIndex", 0)
+    if isinstance(raw_z_index, bool):
+        raise EditorError("INVALID_PARAMETER", "zIndex 必须是整数")
+    try:
+        z_index_value = float(raw_z_index)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PARAMETER", "zIndex 必须是整数") from exc
+    if not math.isfinite(z_index_value) or not z_index_value.is_integer() or not -100 <= z_index_value <= 100:
+        raise EditorError("INVALID_PARAMETER", "zIndex 必须是 -100 到 100 的整数")
+    overlay = VisualOverlayClip(
+        id=f"overlay-{uuid.uuid4().hex[:12]}", asset_id=asset_id,
+        start=round(start, 3), duration=round(duration, 3), source_in=round(source_in, 3),
+        x=x, y=y, width=box_width, height=box_height, opacity=opacity,
+        z_index=int(z_index_value),
+    )
+    ir.visual_overlays.append(overlay)
+    key = f"visual-overlay:{overlay.id}"
+    return [key], [f"{key}:render", f"project:visual-overlays:render", "project:preview"]
+
+
+def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _visual_overlay_index(ir, target_id)
+    clip = ir.visual_overlays[index]
+    try:
+        start = float(payload.get("start"))
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "move_visual_overlay 需要数字 start") from exc
+    if not math.isfinite(start) or start < 0 or start + clip.duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层的新位置超出项目时长")
+    ir.visual_overlays[index] = clip.model_copy(update={"start": round(start, 3)})
+    key = f"visual-overlay:{clip.id}"
+    return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+
+
+def _cmd_trim_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _visual_overlay_index(ir, target_id)
+    clip = ir.visual_overlays[index]
+    try:
+        start = float(payload.get("start", clip.start))
+        source_in = float(payload.get("sourceIn", clip.source_in))
+        duration = float(payload.get("duration", clip.duration))
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "trim_visual_overlay 需要数字 start/sourceIn/duration") from exc
+    if not all(math.isfinite(v) for v in (start, source_in, duration)):
+        raise EditorError("INVALID_PARAMETER", "覆盖层裁剪参数必须为有限数字")
+    if start < 0 or source_in < 0 or duration < 0.05 or start + duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层裁剪区间无效或超出项目时长")
+    if source_in != clip.source_in or duration != clip.duration:
+        asset = next((item for item in ir.assets if item.id == clip.asset_id), None)
+        if asset and asset.type == "video":
+            source_duration = float(asset.duration or 0.0)
+            if source_duration <= 0:
+                from video_director import prober
+                source_duration = float(prober.probe_media(asset.file).duration or 0.0)
+            if source_in + duration > source_duration + 0.05:
+                raise EditorError("INVALID_SOURCE_RANGE", "覆盖层视频源区间超出素材时长")
+    ir.visual_overlays[index] = clip.model_copy(update={
+        "start": round(start, 3), "source_in": round(source_in, 3), "duration": round(duration, 3),
+    })
+    key = f"visual-overlay:{clip.id}"
+    return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+
+
+def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _visual_overlay_index(ir, target_id)
+    clip = ir.visual_overlays[index]
+    allowed = {"x", "y", "width", "height", "opacity", "z_index"}
+    patch = {key: payload[key] for key in allowed if key in payload}
+    if not patch:
+        raise EditorError("INVALID_PAYLOAD", "没有可更新的覆盖层属性")
+    try:
+        updated = VisualOverlayClip(**{**clip.model_dump(), **patch})
+    except Exception as exc:
+        raise EditorError("INVALID_PARAMETER", f"覆盖层属性无效：{exc}") from exc
+    if updated.start + updated.duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层时间区间超出项目时长")
+    ir.visual_overlays[index] = updated
+    key = f"visual-overlay:{clip.id}"
+    return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+
+
+def _cmd_remove_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _visual_overlay_index(ir, target_id)
+    clip = ir.visual_overlays.pop(index)
+    key = f"visual-overlay:{clip.id}"
+    return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
 
 
 def _audio_clip_index(ir: CompositionIR, target_id: str) -> int:

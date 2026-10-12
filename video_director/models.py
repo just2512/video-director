@@ -18,6 +18,7 @@ Narration Timeline 仍是主时间轴（V2 §10）：所有 Layer/Audio 挂在�
 
 from __future__ import annotations
 
+import math
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -561,6 +562,45 @@ class Variant(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class VisualOverlayClip(BaseModel):
+    """Independent global visual-track clip composited over the main picture.
+
+    Coordinates are normalized to the project frame. Unlike SceneIR.layers,
+    overlays may overlap any scene or one another and never extend the base edit.
+    """
+    id: str
+    asset_id: str
+    start: float
+    duration: float
+    source_in: float = 0.0
+    x: float = 0.65
+    y: float = 0.1
+    width: float = 0.3
+    height: float = 0.3
+    opacity: float = 1.0
+    z_index: int = 0
+
+    @model_validator(mode="after")
+    def _check_overlay(self):
+        for name in ("start", "duration", "source_in", "x", "y", "width", "height", "opacity"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value):
+                raise ValueError(f"visual overlay {name} must be finite")
+        if not self.id.strip() or not self.asset_id.strip():
+            raise ValueError("visual overlay id and asset_id are required")
+        if self.start < 0 or self.duration <= 0 or self.source_in < 0:
+            raise ValueError("visual overlay has a negative start/source or non-positive duration")
+        if not (0.0 <= self.x <= 1.0 and 0.0 <= self.y <= 1.0):
+            raise ValueError("visual overlay x/y must be in [0,1]")
+        if not (0.05 <= self.width <= 1.0 and 0.05 <= self.height <= 1.0):
+            raise ValueError("visual overlay width/height must be in [0.05,1]")
+        if self.x + self.width > 1.000001 or self.y + self.height > 1.000001:
+            raise ValueError("visual overlay rectangle exceeds the project frame")
+        if not (0.0 <= self.opacity <= 1.0):
+            raise ValueError("visual overlay opacity must be in [0,1]")
+        return self
+
+
 class CompositionIR(BaseModel):
     """最终 Composition IR：AI 规划唯一产物，渲染唯一输入。
 
@@ -575,6 +615,8 @@ class CompositionIR(BaseModel):
     audio: List[AudioTrack] = Field(default_factory=list)
     # ---- MPT 吸收方案 §十九/§三十一：水印与字幕样式是一等 IR 字段 ----
     watermarks: List[WatermarkLayer] = Field(default_factory=list)
+    # Independent picture-in-picture / overlay clips on their own global timeline.
+    visual_overlays: List[VisualOverlayClip] = Field(default_factory=list)
     subtitle_style: Optional[SubtitleStyle] = None
     # ---- §31/§33：字幕是 Timeline Track（句级/逐词 cues + 对齐来源 lineage）----
     subtitle_track: Optional["SubtitleTrack"] = None
@@ -612,6 +654,17 @@ class CompositionIR(BaseModel):
             raise ValueError(
                 f"IR 总长 {last_end:.3f} 与 project.duration {self.project.duration} 不一致"
             )
+        overlay_ids = set()
+        for overlay in self.visual_overlays:
+            if overlay.id in overlay_ids:
+                raise ValueError(f"duplicate visual overlay id: {overlay.id}")
+            overlay_ids.add(overlay.id)
+            if overlay.start + overlay.duration > self.project.duration + 0.01:
+                raise ValueError(
+                    f"visual overlay {overlay.id} extends beyond project duration"
+                )
+            if not any(asset.id == overlay.asset_id for asset in self.assets):
+                raise ValueError(f"visual overlay {overlay.id} references unknown asset {overlay.asset_id}")
         return self
 
     # ------------------------------------------------------------------

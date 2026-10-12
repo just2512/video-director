@@ -227,6 +227,7 @@ function editorRenderTimeline(){
     _tlBindLayerDrag();
     _tlBindAudioClipDrag();
     _tlBindWatermarkDrag();
+    _tlBindVisualOverlayDrag();
     _tlBindSceneDrag();
     if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
   }
@@ -311,7 +312,27 @@ function renderPhysicalTimeline(){
         onclick: `editorWatermarkClipOpen(${index}, event)`
       };
     })});
-  // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位。
+  const visualOverlays = c.visual_overlays || [];
+  const totalVisualDuration = Number(c.duration) || 1;
+  tracks.picture.push({
+    id: 'visual-overlay', label: '画面叠加', addAction: 'editorVisualOverlayPick',
+    clips: visualOverlays.map((clip, index) => {
+      const start = Math.max(0, Number(clip.start) || 0);
+      const duration = Math.max(0, Number(clip.duration) || 0);
+      const leftPct = Math.min(100, start / totalVisualDuration * 100);
+      const pct = Math.max(0, Math.min(100 - leftPct, duration / totalVisualDuration * 100));
+      const sourceAssets = c.assets || {};
+      const asset = Array.isArray(sourceAssets) ? sourceAssets.find(item => item.id === clip.asset_id) : sourceAssets[clip.asset_id];
+      const assetName = asset && (asset.name || (asset.file && String(asset.file).split(/[\\/]/).pop())) || clip.asset_id || '素材';
+      return {
+        positioned: true, leftPct, pct, visualOverlayIndex: index,
+        text: String(assetName).slice(0, 12),
+        title: `画面叠加 · ${assetName} · ${start.toFixed(2)}–${(start + duration).toFixed(2)}s · 拖动移动、边缘修剪、点击编辑`,
+        onclick: `editorVisualOverlayOpen(${index}, event)`
+      };
+    })
+  });
+  // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位.
   // 之前每类声音只显示第一条记录并绘制为 100% 全长，和实际渲染时间语义不一致。
   const audioClip = (a, label, onclick) => {
     const start = Math.max(0, Number(a.start) || 0);
@@ -379,22 +400,31 @@ function renderPhysicalTimeline(){
           const outOfRangeClass = cl.outOfRange ? ' tl-out-of-range' : '';
           const hasAudioIndex = Number.isInteger(cl.audioIndex) && cl.audioIndex >= 0;
           const hasWatermarkIndex = Number.isInteger(cl.watermarkIndex) && cl.watermarkIndex >= 0;
+          const hasVisualOverlayIndex = Number.isInteger(cl.visualOverlayIndex) && cl.visualOverlayIndex >= 0;
           const audioAttr = hasAudioIndex
             ? ` data-audio-index="${cl.audioIndex}" aria-label="${esc(cl.text)}：拖动移动，边缘裁剪；点击打开片段设置"` : '';
           const watermarkAttr = hasWatermarkIndex
             ? ` data-watermark-index="${cl.watermarkIndex}" aria-label="${esc(cl.text)}：拖动移动、边缘修剪；点击编辑覆盖层"` : '';
-          const clipClass = hasAudioIndex ? ' ed-audio-clip' : (hasWatermarkIndex ? ' ed-watermark-clip' : '');
+          const visualOverlayAttr = hasVisualOverlayIndex
+            ? ` data-visual-overlay-index="${cl.visualOverlayIndex}" aria-label="${esc(cl.text)}：拖动移动、边缘修剪；点击编辑画面叠加"` : '';
+          const clipClass = hasAudioIndex ? ' ed-audio-clip' :
+            (hasWatermarkIndex ? ' ed-watermark-clip' : (hasVisualOverlayIndex ? ' ed-visual-overlay-clip' : ''));
           const clickAttr = hasAudioIndex
             ? ` onclick="editorAudioClipOpen(${cl.audioIndex}, event)"`
             : (hasWatermarkIndex
                 ? ` onclick="editorWatermarkClipOpen(${cl.watermarkIndex}, event)"`
-                : (cl.onclick ? ` onclick="${cl.onclick}"` : ''));
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
+                : (hasVisualOverlayIndex
+                    ? ` onclick="editorVisualOverlayOpen(${cl.visualOverlayIndex}, event)"`
+                    : (cl.onclick ? ` onclick="${cl.onclick}"` : '')));
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
     const empty = (!t.clips || !t.clips.length) && !t.isSceneTrack && !(t.kfPoints || []).length;
-    return `<div class="ed-track"><div class="ed-track-label">${esc(t.label)}</div>`+
+    const labelHtml = t.addAction
+      ? `<div class="ed-track-label">${esc(t.label)} <button type="button" class="btn-secondary btn-sm ed-track-add" title="从项目素材库添加画面叠加" onclick="${t.addAction}(event)">＋</button></div>`
+      : `<div class="ed-track-label">${esc(t.label)}</div>`;
+    return `<div class="ed-track">${labelHtml}`+
       `<div class="ed-track-body">${bodyInner}${kfHtml}${empty ? '<span class="hint tl-empty-hint">无</span>' : ''}</div></div>`;
   };
   for (const g of GROUP_ORDER) {

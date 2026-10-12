@@ -12,7 +12,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from video_director.models import (
-    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR,
+    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip,
 )
 from video_director import editor, store, shotbook
 
@@ -36,6 +36,11 @@ def _test_composition(media_file: Path) -> CompositionIR:
     return CompositionIR(
         project=ProjectSpec(width=160, height=90, fps=10, duration=2.0),
         scenes=scenes, assets=[asset],
+        visual_overlays=[VisualOverlayClip(
+            id="e2e-overlay", asset_id="e2e-still", start=0.25, duration=0.5,
+            source_in=0.0, x=0.6, y=0.1, width=0.3, height=0.3,
+            opacity=0.8, z_index=1,
+        )],
     )
 
 
@@ -114,6 +119,24 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 )
                 opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
                 assert opened.get("ok"), f"workspace did not open: {opened}"
+                # The actual composition endpoint must round-trip persisted overlay
+                # clips and expose the referenced source, not just an in-memory UI mock.
+                api_composition = page.evaluate("""async (projectId) => {
+                  const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+                  return {status: response.status, body: await response.json()};
+                }""", pid)
+                assert api_composition["status"] == 200, api_composition
+                api_overlays = api_composition["body"]["visual_overlays"]
+                assert len(api_overlays) == 1, api_composition
+                api_overlay = api_overlays[0]
+                assert {key: api_overlay.get(key) for key in (
+                    "id", "asset_id", "start", "duration", "source_in", "x", "y",
+                    "width", "height", "opacity", "z_index",
+                )} == {
+                    "id": "e2e-overlay", "asset_id": "e2e-still", "start": 0.25,
+                    "duration": 0.5, "source_in": 0.0, "x": 0.6, "y": 0.1,
+                    "width": 0.3, "height": 0.3, "opacity": 0.8, "z_index": 1,
+                }, api_composition
                 loaded = page.evaluate("() => shotbookLoad()")
                 assert loaded, "Shotbook did not load through the real HTTP handler"
                 page.locator("#shotbook-details").evaluate("(element) => { element.open = true; }")
@@ -201,6 +224,229 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert all(abs(item["playheadLeft"] - item["expectedLeft"]) < 2 for item in zoom_geometry), zoom_geometry
                 assert all(abs(item["mapped"] - 0.75) < 0.01 for item in zoom_geometry), zoom_geometry
                 assert zoom_geometry[2]["scrollable"], zoom_geometry
+
+                # Real user-facing overlay lane: render, edit inspector, add from project
+                # assets, delete, and drag a clip. Commands are captured at the same
+                # frontend command boundary used by the real API so no disk data changes.
+                overlay_ui = page.evaluate("""async () => {
+                  const original = {
+                    comp: ED.comp, view: ED.timelineView,
+                    executeCommand: window.executeCommand,
+                    refreshWorkspace: window.refreshWorkspace,
+                    editorToast: window.editorToast
+                  };
+                  const commands = [];
+                  try {
+                    ED.comp = Object.assign({}, original.comp, {
+                      duration: 5,
+                      assets: {
+                        "overlay-test-image": {id:"overlay-test-image", type:"image", name:"Test overlay image", file:"/fake.png", duration:1}
+                      },
+                      visual_overlays: [{
+                        id:"overlay-test", asset_id:"overlay-test-image", start:1, duration:2, source_in:0,
+                        x:0.65, y:0.1, width:0.3, height:0.3, opacity:1, z_index:0
+                      }]
+                    });
+                    ED.timelineView = "dual";
+                    window.executeCommand = async command => { commands.push(command); return {ok:true}; };
+                    window.refreshWorkspace = async () => {};
+                    window.editorToast = () => {};
+                    editorRenderTimeline();
+                    const trackExists = !!document.querySelector('.ed-visual-overlay-clip[data-visual-overlay-index="0"]');
+                    const addButtonExists = !!document.querySelector(".ed-track-add");
+                    editorVisualOverlayOpen(0);
+                    document.getElementById("visual-overlay-x").value = "0.4";
+                    document.getElementById("visual-overlay-y").value = "0.2";
+                    document.getElementById("visual-overlay-z-index").value = "3";
+                    await editorVisualOverlayApply(0);
+                    editorVisualOverlayPick();
+                    document.getElementById("visual-overlay-start").value = "0.5";
+                    document.getElementById("visual-overlay-duration").value = "1";
+                    await editorVisualOverlayCreate();
+                    await editorVisualOverlayRemove(0);
+                    editorRenderTimeline();
+                    const clip = document.querySelector('.ed-visual-overlay-clip[data-visual-overlay-index="0"]');
+                    const rect = clip.getBoundingClientRect();
+                    const body = clip.closest(".ed-track-body").getBoundingClientRect();
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    clip.dispatchEvent(new PointerEvent("pointerdown", {bubbles:true, cancelable:true, pointerId:27, button:0, clientX:x, clientY:y}));
+                    document.dispatchEvent(new PointerEvent("pointermove", {bubbles:true, cancelable:true, pointerId:27, buttons:1, clientX:x + body.width * 0.1, clientY:y}));
+                    document.dispatchEvent(new PointerEvent("pointerup", {bubbles:true, cancelable:true, pointerId:27, button:0, clientX:x + body.width * 0.1, clientY:y}));
+                    await Promise.resolve();
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    return {trackExists, addButtonExists, commands, dialogRemoved:!document.getElementById("visual-overlay-inspector-mask")};
+                  } finally {
+                    ED.comp = original.comp;
+                    ED.timelineView = original.view;
+                    window.executeCommand = original.executeCommand;
+                    window.refreshWorkspace = original.refreshWorkspace;
+                    window.editorToast = original.editorToast;
+                    editorRenderTimeline();
+                  }
+                }""")
+                assert overlay_ui["trackExists"], overlay_ui
+                assert overlay_ui["addButtonExists"], overlay_ui
+                overlay_commands = [command.get("command") for command in overlay_ui["commands"]]
+                assert overlay_commands == [
+                    "set_visual_overlay", "add_visual_overlay", "remove_visual_overlay", "move_visual_overlay"
+                ], overlay_ui
+                assert overlay_ui["commands"][0]["payload"]["z_index"] == 3, overlay_ui
+                assert overlay_ui["commands"][1]["payload"]["start"] == 0.5, overlay_ui
+                assert overlay_ui["dialogRemoved"], overlay_ui
+
+                # Live preview must paint the same global overlay clip only inside its
+                # output interval, and apply the timeline's geometry/opacity to the frame.
+                live_overlay_preview = page.evaluate("""() => {
+                  const originalComp = ED.comp;
+                  const originalPV = {
+                    mode: PV.mode, playing: PV.playing, playhead: PV.playhead,
+                    activeSceneId: PV.activeSceneId, activeLayerId: PV.activeLayerId
+                  };
+                  try {
+                    ED.comp = Object.assign({}, originalComp, {
+                      duration: 5,
+                      project: Object.assign({}, originalComp.project || {}, {fps: 30, width: 320, height: 180}),
+                      scenes: [{
+                        id: 'PV-preview-scene', start: 0, duration: 5, text: 'Preview fixture',
+                        layers: [{id: 'PV-base-layer', type: 'image', asset_id: 'PV-base-asset', start: 0, duration: 5}]
+                      }],
+                      assets: {
+                        'PV-base-asset': {id: 'PV-base-asset', type: 'image', file_url: '/preview-base.png'},
+                        'PV-overlay-asset': {id: 'PV-overlay-asset', type: 'image', file_url: '/preview-overlay.png'}
+                      },
+                      visual_overlays: [{
+                        id: 'PV-overlay', asset_id: 'PV-overlay-asset', start: 1, duration: 2,
+                        source_in: 0, x: 0.65, y: 0.1, width: 0.3, height: 0.3, opacity: 0.8, z_index: 4
+                      }]
+                    });
+                    PV.mode = 'live';
+                    PV.playing = false;
+                    PV.playhead = 1.5;
+                    PV.activeSceneId = '';
+                    PV.activeLayerId = '';
+                    previewRenderComposition();
+                    const previewState = (label) => {
+                      const stage = document.querySelector('#ed-preview-stage');
+                      const media = stage && stage.querySelector('.pv-live-media');
+                      const host = stage && stage.querySelector('.pv-live-overlays');
+                      return {
+                        label, mode: PV.mode, playhead: PV.playhead,
+                        stageExists: !!stage, mediaExists: !!media, hostExists: !!host,
+                        activeSceneId: PV.activeSceneId, activeLayerId: PV.activeLayerId,
+                        stageMarkup: stage ? stage.innerHTML.slice(0, 260) : ''
+                      };
+                    };
+                    const stateAfterRender = previewState('after-render');
+                    const host = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const active = host && host.querySelector('[data-overlay-index="0"]');
+                    const activeStyle = active ? {
+                      tag: active.tagName, left: active.style.left, top: active.style.top,
+                      width: active.style.width, height: active.style.height,
+                      opacity: active.style.opacity, zIndex: active.style.zIndex,
+                      hostPosition: getComputedStyle(host).position
+                    } : null;
+                    previewSeek(0.5);
+                    const stateAfterOutsideStart = previewState('outside-start');
+                    const outsideHost = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const outsideStartCount = outsideHost ? outsideHost.children.length : -1;
+                    previewSeek(2.5);
+                    const stateInside = previewState('inside');
+                    const insideHost = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const insideCount = insideHost ? insideHost.children.length : -1;
+                    previewSeek(3.0);
+                    const stateAtEnd = previewState('at-end');
+                    const endHost = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const atEndCount = endHost ? endHost.children.length : -1;
+                    return {activeStyle, outsideStartCount, insideCount, atEndCount,
+                      diagnostics: [stateAfterRender, stateAfterOutsideStart, stateInside, stateAtEnd]};
+                  } finally {
+                    ED.comp = originalComp;
+                    PV.mode = originalPV.mode;
+                    PV.playing = originalPV.playing;
+                    PV.playhead = originalPV.playhead;
+                    PV.activeSceneId = '';
+                    PV.activeLayerId = '';
+                    previewRenderComposition();
+                    PV.activeSceneId = originalPV.activeSceneId;
+                    PV.activeLayerId = originalPV.activeLayerId;
+                  }
+                }""")
+                assert live_overlay_preview["activeStyle"] == {
+                    "tag": "IMG", "left": "65%", "top": "10%", "width": "30%",
+                    "height": "30%", "opacity": "0.8", "zIndex": "4", "hostPosition": "absolute"
+                }, live_overlay_preview
+                assert live_overlay_preview["outsideStartCount"] == 0, json.dumps(live_overlay_preview.get("diagnostics", []), ensure_ascii=False)
+                assert live_overlay_preview["insideCount"] == 1, live_overlay_preview
+                assert live_overlay_preview["atEndCount"] == 0, live_overlay_preview
+
+                # The word-level subtitle track is time-aligned too: preserve the
+                # phrase around the current word, highlight that word, and apply style.
+                live_subtitle_preview = page.evaluate("""() => {
+                  const originalComp = ED.comp;
+                  const originalPV = {
+                    mode: PV.mode, playing: PV.playing, playhead: PV.playhead,
+                    activeSceneId: PV.activeSceneId, activeLayerId: PV.activeLayerId
+                  };
+                  try {
+                    ED.comp = Object.assign({}, originalComp, {
+                      duration: 5,
+                      project: Object.assign({}, originalComp.project || {}, {fps: 30, width: 320, height: 180}),
+                      scenes: [{
+                        id: 'PV-subtitle-scene', start: 0, duration: 5, text: 'Subtitle fixture',
+                        layers: [{id: 'PV-subtitle-base', type: 'image', asset_id: 'PV-subtitle-base-asset', start: 0, duration: 5}]
+                      }],
+                      assets: {'PV-subtitle-base-asset': {id: 'PV-subtitle-base-asset', type: 'image', file_url: '/preview-subtitle-base.png'}},
+                      subtitle_track: {
+                        mode: 'word', source: 'asr', cues: [
+                          {start: 1.0, end: 1.25, text: 'I'},
+                          {start: 1.25, end: 1.5, text: 'love'},
+                          {start: 1.5, end: 1.8, text: 'editing.'}
+                        ]
+                      },
+                      subtitle_style: {
+                        font: 'Arial', size: 1.25, color: '#FFFFFF', stroke_color: '#000000',
+                        stroke_width: 2, background: '#000000@0.5', background_opacity: 0.5,
+                        position: 'bottom', alignment: 'center', max_width: 0.9, animation: 'none', mode: 'word'
+                      }
+                    });
+                    PV.mode = 'live'; PV.playing = false; PV.playhead = 1.35;
+                    PV.activeSceneId = ''; PV.activeLayerId = '';
+                    previewRenderComposition();
+                    const host = document.querySelector('#ed-preview-stage .pv-live-subtitle');
+                    const active = host && host.querySelector('.pv-live-subtitle-word.is-active');
+                    const initial = {
+                      text: host ? host.textContent : '',
+                      activeWord: active ? active.textContent : '',
+                      fontSize: host ? host.style.fontSize : '',
+                      maxWidth: host ? host.style.maxWidth : '',
+                      background: host ? host.style.backgroundColor : '',
+                      bottom: host ? host.style.bottom : ''
+                    };
+                    previewSeek(0.5);
+                    const outsideCount = host ? host.childElementCount : -1;
+                    previewSeek(1.6);
+                    const activeWordLater = host && host.querySelector('.pv-live-subtitle-word.is-active');
+                    const later = activeWordLater ? activeWordLater.textContent : '';
+                    previewSeek(2.0);
+                    const atEndCount = host ? host.childElementCount : -1;
+                    return {initial, outsideCount, later, atEndCount};
+                  } finally {
+                    ED.comp = originalComp;
+                    PV.mode = originalPV.mode; PV.playing = originalPV.playing; PV.playhead = originalPV.playhead;
+                    PV.activeSceneId = ''; PV.activeLayerId = '';
+                    previewRenderComposition();
+                    PV.activeSceneId = originalPV.activeSceneId; PV.activeLayerId = originalPV.activeLayerId;
+                  }
+                }""")
+                assert live_subtitle_preview["initial"] == {
+                    "text": "I love editing.", "activeWord": "love",
+                    "fontSize": "22.5px", "maxWidth": "90%", "background": "rgba(0, 0, 0, 0.5)",
+                    "bottom": "8%"
+                }, live_subtitle_preview
+                assert live_subtitle_preview["outsideCount"] == 0, live_subtitle_preview
+                assert live_subtitle_preview["later"] == "editing.", live_subtitle_preview
+                assert live_subtitle_preview["atEndCount"] == 0, live_subtitle_preview
 
                 # Re-rendering the physical timeline must not attach another pair
                 # of document-level layer-drag handlers. Count real registrations.
