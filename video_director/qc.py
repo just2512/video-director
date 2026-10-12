@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 
 from video_director import config, prober
-from video_director.models import AssetRef, CompositionIR
+from video_director.models import AssetRef, CompositionIR, LayerType
 
 
 class QCError(Exception):
@@ -91,14 +91,47 @@ def run_qc(
         _check(report, "audio_stream", probe.has_audio_stream,
                "存在音轨" if probe.has_audio_stream else "缺少音轨（narration 预期存在）")
 
-    # 7. 黑帧抽检（三个时间点亮度均值，第一版 ffmpeg signalstats 近似）
-    blackframe_ok, black_detail = _detect_black_frames(final_path)
-    _check(report, "no_black_frames", blackframe_ok, black_detail)
+    # 7. 黑帧抽检。只允许 CompositionIR 中明确留下的空隙出现黑画面；
+    #    若此时有不透明全画幅片段覆盖，仍须检验最终帧，防止渲染漏片被 gap 掩盖。
+    blackframe_ok, black_detail = _detect_black_frames(final_path, ir=ir)
+    _check(report, "no_unexpected_black_frames", blackframe_ok, black_detail)
 
     return report
 
 
-def _detect_black_frames(video_path: str, samples: int = 5) -> tuple:
+def _is_expected_empty_gap(ir: Optional[CompositionIR], at: float) -> bool:
+    """True only when the timeline explicitly contains an uncovered gap at this global time.
+
+    An opaque full-frame visual clip makes that point testable again: if its rendered
+    image is black/missing, QC must still catch it rather than masking the failure.
+    """
+    if ir is None:
+        return False
+    in_gap = any(
+        layer.type == LayerType.gap
+        and scene.start + layer.start - 0.001 <= at < scene.start + layer.start + layer.duration - 0.001
+        for scene in ir.scenes
+        for layer in scene.layers
+    )
+    if not in_gap:
+        return False
+    for clip in ir.visual_overlays:
+        if (
+            clip.presentation_mode == "full_frame"
+            and clip.opacity >= 0.98
+            and clip.x <= 0.001 and clip.y <= 0.001
+            and clip.width >= 0.999 and clip.height >= 0.999
+            and clip.start <= at < clip.start + clip.duration
+        ):
+            return False
+    return True
+
+
+def _detect_black_frames(
+    video_path: str,
+    samples: int = 5,
+    ir: Optional[CompositionIR] = None,
+) -> tuple:
     """确定性黑帧检测：均匀采样 N 帧，Python 端计算灰度均值。
 
     均值 < 8（0-255 域）判黑帧。避开首尾 5% 容易出 fade 边缘的区域。
@@ -110,10 +143,13 @@ def _detect_black_frames(video_path: str, samples: int = 5) -> tuple:
     if dur <= 0:
         return False, "无法探测时长"
     w, h = 32, 32  # 缩到 32x32 灰度足以判断黑帧
-    bad, checked = 0, 0
+    bad, checked, expected_gaps = 0, 0, 0
     for i in range(samples):
         # 采样点落在 5%~95% 区间
         t = dur * 0.05 + (dur * 0.9) * (i + 0.5) / samples
+        if _is_expected_empty_gap(ir, t):
+            expected_gaps += 1
+            continue
         cmd = [
             prober._resolve_ffmpeg(), "-ss", f"{t:.2f}", "-i", video_path,
             "-frames:v", "1",
@@ -134,7 +170,11 @@ def _detect_black_frames(video_path: str, samples: int = 5) -> tuple:
         if mean < 8:
             bad += 1
     if checked == 0:
+        if expected_gaps:
+            return False, f"{expected_gaps} 个采样点均位于 IR 声明的 gap；没有非 gap 样本，不能证明画面可用"
         return False, "无有效采样帧"
     if bad:
-        return False, f"{bad}/{checked} 个采样点为黑帧(灰度均值<8)"
-    return True, f"{checked} 个采样点无黑帧"
+        suffix = f"；另有 {expected_gaps} 个抽样点落在 IR 声明的空隙内" if expected_gaps else ""
+        return False, f"{bad}/{checked} 个非 gap 采样点为黑帧(灰度均值<8){suffix}"
+    suffix = f"；跳过 {expected_gaps} 个 IR 明确声明的空隙点" if expected_gaps else ""
+    return True, f"{checked} 个非 gap 采样点无意外黑帧{suffix}"
