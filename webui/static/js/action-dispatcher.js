@@ -35,6 +35,7 @@ function _dispatchParams(el){
 const UI_BEHAVIORS = {
   undo: () => (typeof editorUndo === 'function' && editorUndo()),
   split_layer: () => (typeof editorSplitSelectedLayer === 'function' && editorSplitSelectedLayer()),
+  add_edit_all_tracks: () => (typeof editorAddEditAllTracks === 'function' && editorAddEditAllTracks()),
   redo: () => (typeof editorRedo === 'function' && editorRedo()),
   save: () => (typeof editorSaveBar === 'function' && editorSaveBar()),
   preview_draft: () => (typeof editorPreviewBar === 'function' && editorPreviewBar()),
