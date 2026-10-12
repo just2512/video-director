@@ -1196,9 +1196,36 @@ def render_composition(
         overlay_path = str(work_dir / "visual_overlays.mp4")
         visual_path = composite_visual_overlays(visual_path, ir, assets, overlay_path)
 
-    # 3. 音频
+    # 3. 音频：可选择把视频叠加片段的源音轨并入同一混音链。
+    # 使用临时 IR 副本，避免渲染时向用户已保存的 CompositionIR 偷写音轨。
+    render_audio_ir = ir
+    overlay_audio_tracks = []
+    for overlay in getattr(ir, "visual_overlays", []) or []:
+        if not getattr(overlay, "source_audio_enabled", False):
+            continue
+        source_asset = assets.get(overlay.asset_id)
+        if source_asset is None or str(source_asset.type).lower() != "video" or not source_asset.file or not os.path.isfile(source_asset.file):
+            raise RenderError(f"visual overlay {overlay.id}: 源音轨已启用，但视频素材不可用")
+        try:
+            source_probe = prober.probe_media(str(source_asset.file))
+        except Exception as exc:
+            raise RenderError(f"visual overlay {overlay.id}: 无法检查视频源音轨：{exc}") from exc
+        if not source_probe.has_audio_stream:
+            raise RenderError(f"visual overlay {overlay.id}: 已请求保留源音轨，但该视频没有音频流")
+        overlay_audio_tracks.append(AudioTrack(
+            type=AudioTrackType.original,
+            asset_id=overlay.asset_id,
+            start=float(overlay.start),
+            duration=float(overlay.duration),
+            source_in=float(overlay.source_in),
+            source_out=float(overlay.source_in) + float(overlay.duration),
+            volume=float(overlay.source_audio_volume),
+            muted=False,
+        ))
+    if overlay_audio_tracks:
+        render_audio_ir = ir.model_copy(update={"audio": [*ir.audio, *overlay_audio_tracks]})
     master_path = str(work_dir / "master.mp4")
-    audio_result = mix_audio(visual_path, ir, assets, narration_file, master_path)
+    audio_result = mix_audio(visual_path, render_audio_ir, assets, narration_file, master_path)
     if audio_result is None:
         master_path = visual_path  # 纯视觉
 

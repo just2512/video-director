@@ -593,6 +593,11 @@ class VisualOverlayClip(BaseModel):
     duration: float
     source_in: float = 0.0
     track_id: str = "overlay-main"
+    # Full frame, picture-in-picture and sticker are presentation presets on the
+    # same editable clip contract; old project JSON defaults to picture-in-picture.
+    presentation_mode: str = "picture_in_picture"  # full_frame | picture_in_picture | sticker
+    source_audio_enabled: bool = False
+    source_audio_volume: float = 1.0
     x: float = 0.65
     y: float = 0.1
     width: float = 0.3
@@ -602,12 +607,16 @@ class VisualOverlayClip(BaseModel):
 
     @model_validator(mode="after")
     def _check_overlay(self):
-        for name in ("start", "duration", "source_in", "x", "y", "width", "height", "opacity"):
+        for name in ("start", "duration", "source_in", "x", "y", "width", "height", "opacity", "source_audio_volume"):
             value = float(getattr(self, name))
             if not math.isfinite(value):
                 raise ValueError(f"visual overlay {name} must be finite")
         if not self.id.strip() or not self.asset_id.strip():
             raise ValueError("visual overlay id and asset_id are required")
+        if self.presentation_mode not in {"full_frame", "picture_in_picture", "sticker"}:
+            raise ValueError(f"unsupported visual overlay presentation_mode: {self.presentation_mode!r}")
+        if not (0.0 <= self.source_audio_volume <= 2.0):
+            raise ValueError("visual overlay source_audio_volume must be in [0,2]")
         if self.start < 0 or self.duration <= 0 or self.source_in < 0:
             raise ValueError("visual overlay has a negative start/source or non-positive duration")
         if not (0.0 <= self.x <= 1.0 and 0.0 <= self.y <= 1.0):
