@@ -15,7 +15,7 @@ function styleGalleryOpen() {
     '<button class="btn-secondary btn-sm" type="button" onclick="styleGalleryClose()">关闭</button></header>' +
     '<div class="sg-notice">边界说明：Registry 风格记录的独立运行状态仍是 METADATA_ONLY。下列内置风格参数可以进入当前创作链路，但这不代表任意外部风格包已经可执行、拥有独立样片或完整移植了参考项目的模板运行时。</div>' +
     '<div id="sg-status" class="hint" role="status" aria-live="polite">正在读取创作风格……</div>' +
-    '<div id="sg-list" class="sg-list"></div></section>';
+    '<div id="sg-sample-result"></div><div id="sg-list" class="sg-list"></div></section>';
   mask.addEventListener("click", e => { if (e.target === mask) styleGalleryClose(); });
   document.body.appendChild(mask);
   styleGalleryLoad();
@@ -32,6 +32,8 @@ async function styleGalleryLoad() {
     SG.styles = data;
     const list = document.getElementById("sg-list");
     if (!list) return;
+    const editorPane = document.getElementById("pane-editor");
+    const canSampleCurrent = !!(window.ED && ED.pid && ED.comp && editorPane && editorPane.style.display !== "none");
     if (!data.length) {
       list.innerHTML = '<div class="sg-empty">当前没有风格注册项。</div>';
     } else {
@@ -49,16 +51,22 @@ async function styleGalleryLoad() {
           ["音效密度", contract.sfx_density]
         ] : [];
         const values = params.map(p => '<div class="sg-param"><span>' + sgEsc(p[0]) + '</span><b>' + sgEsc(p[1]) + '</b></div>').join("");
+        const sampleAction = (canSampleCurrent && usable)
+          ? '<button class="btn-secondary btn-sm" type="button" data-style-sample="' + sgEsc(style.id) + '">渲染当前时间线样片</button>'
+          : '';
         return '<article class="sg-card"><div class="sg-card-head"><div><h3>' + sgEsc(style.name || style.id) + '</h3><p>' + sgEsc(style.description || "") + '</p></div>' +
           '<span class="sg-chip">' + sgEsc(runtime.status || "UNKNOWN") + '</span></div>' +
           '<div class="sg-meta">' + sgEsc(style.id) + '@' + sgEsc(style.version) + ' · 授权：' + sgEsc(style.commercial_status || "UNKNOWN") +
           ' · 来源层：' + sgEsc(style.source_layer || "unknown") + '</div>' +
           (contract ? '<div class="sg-params">' + values + '</div><p class="sg-contract-note">' + sgEsc(contract.message || "") + '</p>' :
             '<p class="sg-blocked">没有与当前内置执行链匹配的 StyleContract；此记录仅供参考，不能在这里应用。</p>') +
-          '<div class="sg-actions"><button class="btn-sm" type="button" ' + (usable ? 'data-style-id="' + sgEsc(style.id) + '" data-style-apply="1"' : 'disabled') + '>采用此内置创作风格</button></div></article>';
+          '<div class="sg-actions"><button class="btn-sm" type="button" ' + (usable ? 'data-style-id="' + sgEsc(style.id) + '" data-style-apply="1"' : 'disabled') + '>采用此内置创作风格</button>' + sampleAction + '</div></article>';
       }).join("");
     }
     if (status) status.textContent = "已读取 " + data.length + " 个注册项。请区分内置创作契约与独立风格包运行状态。";
+    list.querySelectorAll("[data-style-sample]").forEach(button => button.addEventListener("click", () => {
+      styleGalleryRenderSample(button.dataset.styleSample, button);
+    }));
     list.querySelectorAll("[data-style-apply]").forEach(button => button.addEventListener("click", () => {
       const style = SG.styles.find(x => x.id === button.dataset.styleId);
       if (!style || !style.builtin_contract) return;
