@@ -1725,6 +1725,8 @@ def _cmd_promote_layer_to_visual_track(
 
     requested_track_id = str(payload.get("trackId") or "").strip()
     if requested_track_id:
+        _ensure_visual_track_unlocked(ir, requested_track_id)
+    if requested_track_id:
         if not any(track.id == requested_track_id for track in ir.visual_tracks):
             raise EditorError("NOT_FOUND", f"画面轨道 {requested_track_id!r} 不存在", recoverable=False)
         track_id = requested_track_id
@@ -2192,6 +2194,24 @@ def _cmd_set_track_locked(ir: CompositionIR, target_id: str, payload: dict) -> T
         return [key], ["project:visual-tracks", "project:visual-overlays:render", "project:preview"]
     raise EditorError("INVALID_PAYLOAD", "trackType 必须是 audio 或 visual")
 
+def _ensure_audio_roles_unlocked(ir: CompositionIR, track_types):
+    """Reject Audio Bus changes if any affected physical lane is locked."""
+    roles = {str(value) for value in track_types}
+    if "ambient" in roles or "ambience" in roles:
+        roles.update({"ambient", "ambience"})
+    defaults = {
+        "narration": "audio-narration", "dialogue": "audio-dialogue",
+        "original": "audio-original", "bgm": "audio-bgm", "sfx": "audio-sfx",
+        "ambient": "audio-ambience", "ambience": "audio-ambience",
+    }
+    affected_ids = {defaults[role] for role in roles if role in defaults}
+    for clip in ir.audio:
+        if clip.type.value in roles:
+            affected_ids.add(clip.track_id or defaults.get(clip.type.value, ""))
+    for lane in ir.audio_tracks:
+        if lane.id in affected_ids and lane.locked:
+            raise EditorError("TRACK_LOCKED", f"音频轨道“{lane.name}”已锁定，音轨混音命令不能修改它")
+
 def _cmd_add_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Add a real, user-selected SFX asset as an independently editable timeline clip.
 
@@ -2515,6 +2535,7 @@ def _cmd_set_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> T
     track_type = target_id or payload.get("track_type") or ""
     if track_type not in ("narration", "dialogue", "bgm", "sfx", "ambient", "ambience"):
         raise EditorError("INVALID_TARGET", f"set_audio_volume 目标音轨 {track_type!r} 非法")
+    _ensure_audio_roles_unlocked(ir, {track_type})
     # §37 duck 语义：volume 不传（None）= 保留当前音量，只更新其他字段
     volume_raw = payload.get("volume")
     volume = float(volume_raw) if volume_raw is not None else None
@@ -2563,6 +2584,7 @@ def _cmd_set_audio_mute(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     track_type = target_id or payload.get("track_type") or ""
     if track_type not in _VALID_AUDIO_TRACKS:
         raise EditorError("INVALID_TARGET", f"set_audio_mute 目标音轨 {track_type!r} 非法")
+    _ensure_audio_roles_unlocked(ir, {track_type})
     muted = bool(payload.get("muted", True))
     changed = False
     for i, t in enumerate(ir.audio):
@@ -2583,6 +2605,7 @@ def _cmd_set_audio_fade(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     track_type = target_id or payload.get("track_type") or ""
     if track_type not in _VALID_AUDIO_TRACKS:
         raise EditorError("INVALID_TARGET", f"set_audio_fade 目标音轨 {track_type!r} 非法")
+    _ensure_audio_roles_unlocked(ir, {track_type})
     fade_in = float(payload.get("fadeIn", payload.get("fade_in", 0.0)) or 0.0)
     fade_out = float(payload.get("fadeOut", payload.get("fade_out", 0.0)) or 0.0)
     if fade_in < 0 or fade_out < 0:
@@ -2613,6 +2636,10 @@ def _cmd_audio_mix(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[Li
     tracks = payload.get("tracks") or {}
     if not isinstance(tracks, dict) or not tracks:
         raise EditorError("INVALID_PAYLOAD", "audio_mix 需要 tracks 映射（如 {bgm: {volume: 0.1}}）")
+    invalid_roles = [name for name in tracks if name not in _VALID_AUDIO_TRACKS]
+    if invalid_roles:
+        raise EditorError("INVALID_TARGET", f"audio_mix 音轨 {invalid_roles[0]!r} 非法")
+    _ensure_audio_roles_unlocked(ir, set(tracks))
     stale: List[str] = []
     for track_type, opts in tracks.items():
         if track_type not in _VALID_AUDIO_TRACKS:
@@ -2662,6 +2689,7 @@ def _cmd_add_audio_keyframe(ir: CompositionIR, target_id: str, payload: dict) ->
     if track_type not in _VALID_AUDIO_TRACKS:
         raise EditorError("INVALID_TARGET",
                           f"add_audio_keyframe 目标音轨 {track_type!r} 非法")
+    _ensure_audio_roles_unlocked(ir, {track_type})
     at = float(payload.get("at", -1))
     value = payload.get("volume", payload.get("value"))
     if at < 0 or value is None:
@@ -2824,6 +2852,7 @@ def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
 
 def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """原声轨策略。支持全项目旧语义，也支持按视频片段建立多个 original track。"""
+    _ensure_audio_roles_unlocked(ir, {"original"})
     mode = payload.get("mode") or "preserve"
     if mode not in ("preserve", "mute"):
         raise EditorError("INVALID_PAYLOAD", f"set_original_audio 的 mode {mode!r} 非法")
@@ -2901,6 +2930,7 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
 
 def _cmd_set_original_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """§18：original 轨音量。无 original 轨时新建（AI 首次调 volume 也应生效）。"""
+    _ensure_audio_roles_unlocked(ir, {"original"})
     volume = float(payload.get("volume", 1.0))
     if not (0.0 <= volume <= 2.0):
         raise EditorError("INVALID_PARAMETER", f"original volume {volume} 越界 [0,2]")
