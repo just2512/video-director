@@ -796,14 +796,39 @@ function _tlBindLayerDrag(){
     // Same-scene drop reorders visual segments; cross-scene drop without a track is rejected.
     const targetLayer = hit && hit.closest ? hit.closest('#editor-timeline .ed-layer') : null;
     if (targetLayer && targetLayer.dataset.scene === d.sceneId) {
-      const targetIdx = Number.parseInt(targetLayer.dataset.idx, 10);
-      const rect = targetLayer.getBoundingClientRect();
-      let toIndex = targetIdx + (ev.clientY > rect.top + rect.height / 2 ? 1 : 0);
-      if (d.idx < toIndex) toIndex -= 1;
       const scene = ED.comp.scenes.find(s => s.id === d.sceneId);
-      toIndex = Math.max(0, Math.min(toIndex, scene ? scene.layers.length - 1 : 0));
+      if (!scene || !Array.isArray(scene.layers) || !scene.layers.length) return;
+      const dx = ev.clientX - d.startX;
+      const dy = ev.clientY - (d.startY ?? ev.clientY);
+      const targetSceneEl = targetLayer.closest('.ed-scene');
+      const sceneBody = targetSceneEl && targetSceneEl.querySelector('.ed-scene-body');
+      const bodyRect = sceneBody && sceneBody.getBoundingClientRect();
+      // Inside the main-picture lane, horizontal drags mean ripple-reorder by the
+      // requested time position; vertical drags keep the existing before/after drop
+      // behavior. SceneIR remains contiguous, so this is the native main-track mode.
+      const horizontalTimeDrop = d.mode === 'move' && Math.abs(dx) > 8
+        && Math.abs(dy) <= Math.max(12, targetLayer.getBoundingClientRect().height * 0.5)
+        && bodyRect && bodyRect.width > 0;
+      let toIndex;
+      if (horizontalTimeDrop) {
+        const ratio = Math.max(0, Math.min(1, (ev.clientX - bodyRect.left) / bodyRect.width));
+        const targetLocalTime = ratio * Number(scene.duration || 0);
+        let timeTargetIndex = scene.layers.findIndex(layer =>
+          targetLocalTime < Number(layer.start || 0) + Number(layer.duration || 0) / 2);
+        if (timeTargetIndex < 0) timeTargetIndex = scene.layers.length - 1;
+        const timeTarget = scene.layers[timeTargetIndex];
+        const afterTarget = targetLocalTime >= Number(timeTarget.start || 0) + Number(timeTarget.duration || 0) / 2;
+        toIndex = timeTargetIndex + (afterTarget ? 1 : 0);
+        if (d.idx < toIndex) toIndex -= 1;
+      } else {
+        const rect = targetLayer.getBoundingClientRect();
+        const targetIdx = Number.parseInt(targetLayer.dataset.idx, 10);
+        toIndex = targetIdx + (ev.clientY > rect.top + rect.height / 2 ? 1 : 0);
+        if (d.idx < toIndex) toIndex -= 1;
+      }
+      toIndex = Math.max(0, Math.min(toIndex, scene.layers.length - 1));
       if (toIndex === d.idx) return;
-      editorToast('正在调整片段顺序……');
+      editorToast(horizontalTimeDrop ? '正在按时间位置重排片段（后续片段随之移位）……' : '正在调整片段顺序……');
       editorCmd('reorder_layer', {toIndex}, `${d.sceneId}#${d.idx}`, true)
         .then(r => editorToast(r && r.ok ? '片段顺序已更新' : '片段顺序未更改：' + ((r && r.error) || '请检查片段'), !(r && r.ok)));
       return;

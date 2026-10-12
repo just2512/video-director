@@ -180,3 +180,76 @@ def test_add_edit_all_tracks_rejects_boundary_without_writing_revision(tmp_path,
     assert result.errors[0]["code"] == "NO_SPLITTABLE_CLIP_AT_PLAYHEAD"
     assert load_composition(pid).model_dump(mode="json") == before
     assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+def _video_reorder_comp_with_audio():
+    data = _video_comp()
+    data["assets"] = [
+        {"id": "vid1", "type": "video", "file": "sample-assets/clip-a.mp4", "duration": 8},
+        {"id": "vid2", "type": "video", "file": "sample-assets/clip-b.mp4", "duration": 8},
+        {"id": "overlay-only", "type": "video", "file": "sample-assets/overlay-only.mp4", "duration": 3},
+    ]
+    data["scenes"][0]["layers"] = [
+        {"type": "video", "asset_id": "vid1", "start": 0.0, "duration": 2.0,
+         "speed": 1.0, "source_in": 0.0, "source_out": 2.0},
+        {"type": "video", "asset_id": "vid2", "start": 2.0, "duration": 3.0,
+         "speed": 1.0, "source_in": 1.0, "source_out": 4.0},
+    ]
+    data["audio_tracks"] = [{"id": "audio-original", "name": "原声", "order": 0}]
+    data["audio"] = [
+        {"type": "original", "id": "linked-vid1", "asset_id": "vid1",
+         "track_id": "audio-original", "start": 0.0, "duration": 2.0,
+         "source_in": 0.0, "source_out": 2.0, "follows_scene_video": True},
+        {"type": "original", "id": "linked-vid2", "asset_id": "vid2",
+         "track_id": "audio-original", "start": 2.0, "duration": 3.0,
+         "source_in": 1.0, "source_out": 4.0, "follows_scene_video": True},
+        {"type": "original", "id": "detached-reused-asset", "asset_id": "vid1",
+         "track_id": "audio-original", "start": 7.0, "duration": 1.0,
+         "source_in": 3.0, "source_out": 4.0, "follows_scene_video": False},
+        {"type": "original", "id": "audio-source-overlay-only", "asset_id": "overlay-only",
+         "track_id": "audio-original", "start": 6.0, "duration": 1.0,
+         "source_in": 0.5, "source_out": 1.5, "follows_scene_video": False},
+    ]
+    return data
+
+
+def test_reorder_video_layers_moves_linked_original_audio_but_preserves_detached_clips(tmp_path, monkeypatch):
+    pid, _plans = _project(tmp_path, monkeypatch, _video_reorder_comp_with_audio())
+    result = _apply(pid, "reorder_layer", "S01#0", {"toIndex": 1})
+    assert result.status == "APPLIED", result.errors
+    comp = load_composition(pid)
+    scene = comp.scenes[0]
+    assert [layer.asset_id for layer in scene.layers] == ["vid2", "vid1"]
+    assert [(round(layer.start, 3), round(layer.duration, 3)) for layer in scene.layers] == [
+        (0.0, 3.0), (3.0, 2.0)
+    ]
+    audio_by_id = {track.id: track for track in comp.audio}
+    assert (audio_by_id["linked-vid1"].start, audio_by_id["linked-vid1"].duration) == (3.0, 2.0)
+    assert (audio_by_id["linked-vid2"].start, audio_by_id["linked-vid2"].duration) == (0.0, 3.0)
+    assert (audio_by_id["linked-vid1"].source_in, audio_by_id["linked-vid1"].source_out) == (0.0, 2.0)
+    assert audio_by_id["detached-reused-asset"].start == 7.0
+    assert audio_by_id["detached-reused-asset"].follows_scene_video is False
+    assert audio_by_id["audio-source-overlay-only"].start == 6.0
+    assert audio_by_id["audio-source-overlay-only"].asset_id == "overlay-only"
+    assert audio_by_id["audio-source-overlay-only"].follows_scene_video is False
+
+
+def test_moving_original_audio_clip_detaches_it_from_future_video_reorders(tmp_path, monkeypatch):
+    pid, _plans = _project(tmp_path, monkeypatch, _video_reorder_comp_with_audio())
+    moved = execute_command(pid, {
+        "command": "move_audio_clip", "targetId": "audio#0",
+        "payload": {"start": 7.0, "trackId": "audio-original"},
+        "expectedVersion": 1,
+    })
+    assert moved.status == "APPLIED", moved.errors
+    moved_comp = load_composition(pid)
+    moved_track_id = moved_comp.audio[0].id
+    moved_track = next(track for track in moved_comp.audio if track.id == moved_track_id)
+    assert moved_track.follows_scene_video is False
+    reordered = execute_command(pid, {
+        "command": "reorder_layer", "targetId": "S01#0", "payload": {"toIndex": 1},
+        "expectedVersion": moved.composition_version,
+    })
+    assert reordered.status == "APPLIED", reordered.errors
+    final_tracks = {track.id: track for track in load_composition(pid).audio}
+    assert final_tracks[moved_track_id].start == 7.0

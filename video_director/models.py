@@ -503,6 +503,10 @@ class AudioTrack(BaseModel):
     id: Optional[str] = None
     # Physical timeline ownership; AudioTrackType remains the renderer's semantic mix role.
     track_id: Optional[str] = None
+    # Legacy original tracks follow their corresponding SceneIR video occurrence during
+    # structural edits. Once the user moves/trims/splits or explicitly detaches source
+    # audio, this is false: subsequent picture edits must not move or delete that audio.
+    follows_scene_video: bool = True
     asset_id: Optional[str] = None
     start: float = 0.0
     duration: float
