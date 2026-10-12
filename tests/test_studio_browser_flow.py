@@ -361,6 +361,74 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert live_overlay_preview["insideCount"] == 1, live_overlay_preview
                 assert live_overlay_preview["atEndCount"] == 0, live_overlay_preview
 
+                # The word-level subtitle track is time-aligned too: preserve the
+                # phrase around the current word, highlight that word, and apply style.
+                live_subtitle_preview = page.evaluate("""() => {
+                  const originalComp = ED.comp;
+                  const originalPV = {
+                    mode: PV.mode, playing: PV.playing, playhead: PV.playhead,
+                    activeSceneId: PV.activeSceneId, activeLayerId: PV.activeLayerId
+                  };
+                  try {
+                    ED.comp = Object.assign({}, originalComp, {
+                      duration: 5,
+                      project: Object.assign({}, originalComp.project || {}, {fps: 30, width: 320, height: 180}),
+                      scenes: [{
+                        id: 'PV-subtitle-scene', start: 0, duration: 5, text: 'Subtitle fixture',
+                        layers: [{id: 'PV-subtitle-base', type: 'image', asset_id: 'PV-subtitle-base-asset', start: 0, duration: 5}]
+                      }],
+                      assets: {'PV-subtitle-base-asset': {id: 'PV-subtitle-base-asset', type: 'image', file_url: '/preview-subtitle-base.png'}},
+                      subtitle_track: {
+                        mode: 'word', source: 'asr', cues: [
+                          {start: 1.0, end: 1.25, text: 'I'},
+                          {start: 1.25, end: 1.5, text: 'love'},
+                          {start: 1.5, end: 1.8, text: 'editing.'}
+                        ]
+                      },
+                      subtitle_style: {
+                        font: 'Arial', size: 1.25, color: '#FFFFFF', stroke_color: '#000000',
+                        stroke_width: 2, background: '#000000@0.5', background_opacity: 0.5,
+                        position: 'bottom', alignment: 'center', max_width: 0.9, animation: 'none', mode: 'word'
+                      }
+                    });
+                    PV.mode = 'live'; PV.playing = false; PV.playhead = 1.35;
+                    PV.activeSceneId = ''; PV.activeLayerId = '';
+                    previewRenderComposition();
+                    const host = document.querySelector('#ed-preview-stage .pv-live-subtitle');
+                    const active = host && host.querySelector('.pv-live-subtitle-word.is-active');
+                    const initial = {
+                      text: host ? host.textContent : '',
+                      activeWord: active ? active.textContent : '',
+                      fontSize: host ? host.style.fontSize : '',
+                      maxWidth: host ? host.style.maxWidth : '',
+                      background: host ? host.style.backgroundColor : '',
+                      bottom: host ? host.style.bottom : ''
+                    };
+                    previewSeek(0.5);
+                    const outsideCount = host ? host.childElementCount : -1;
+                    previewSeek(1.6);
+                    const activeWordLater = host && host.querySelector('.pv-live-subtitle-word.is-active');
+                    const later = activeWordLater ? activeWordLater.textContent : '';
+                    previewSeek(2.0);
+                    const atEndCount = host ? host.childElementCount : -1;
+                    return {initial, outsideCount, later, atEndCount};
+                  } finally {
+                    ED.comp = originalComp;
+                    PV.mode = originalPV.mode; PV.playing = originalPV.playing; PV.playhead = originalPV.playhead;
+                    PV.activeSceneId = ''; PV.activeLayerId = '';
+                    previewRenderComposition();
+                    PV.activeSceneId = originalPV.activeSceneId; PV.activeLayerId = originalPV.activeLayerId;
+                  }
+                }""")
+                assert live_subtitle_preview["initial"] == {
+                    "text": "I love editing.", "activeWord": "love",
+                    "fontSize": "22.5px", "maxWidth": "90%", "background": "rgba(0, 0, 0, 0.5)",
+                    "bottom": "8%"
+                }, live_subtitle_preview
+                assert live_subtitle_preview["outsideCount"] == 0, live_subtitle_preview
+                assert live_subtitle_preview["later"] == "editing.", live_subtitle_preview
+                assert live_subtitle_preview["atEndCount"] == 0, live_subtitle_preview
+
                 # Re-rendering the physical timeline must not attach another pair
                 # of document-level layer-drag handlers. Count real registrations.
                 layer_handler_count = page.evaluate("""() => {
