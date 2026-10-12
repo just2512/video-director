@@ -61,7 +61,7 @@
       ...track,
       id: String(track.id || "track") + "-lane-" + (index + 1),
       label: index === 0 ? track.label : String(track.label || "轨道") + " " + (index + 1),
-      addAction: index === 0 ? track.addAction : undefined,
+      addAction: index === 0 ? track.addAction : null,
       showTrackControls: index === 0,
       clips: lane.items.map(item => item.clip)
     }));
