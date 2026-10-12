@@ -1424,6 +1424,8 @@ def _cmd_add_visual_track(ir: CompositionIR, target_id: str, payload: dict) -> T
     name = str(payload.get("name") or "").strip()
     if not name or len(name) > 60:
         raise EditorError("INVALID_PAYLOAD", "轨道名称必须为 1–60 个字符")
+    if any(item.name.casefold() == name.casefold() for item in ir.visual_tracks):
+        raise EditorError("DUPLICATE_TRACK_NAME", f"画面轨道名称已存在：{name}")
     track = VisualTrack(
         id=f"vtrack-{uuid.uuid4().hex[:12]}",
         name=name,
@@ -1438,6 +1440,8 @@ def _cmd_rename_visual_track(ir: CompositionIR, target_id: str, payload: dict) -
     name = str(payload.get("name") or "").strip()
     if not name or len(name) > 60:
         raise EditorError("INVALID_PAYLOAD", "轨道名称必须为 1–60 个字符")
+    if any(item.id != target_id and item.name.casefold() == name.casefold() for item in ir.visual_tracks):
+        raise EditorError("DUPLICATE_TRACK_NAME", f"画面轨道名称已存在：{name}")
     ir.visual_tracks[index] = ir.visual_tracks[index].model_copy(update={"name": name})
     return [f"visual-track:{target_id}"], ["project:visual-tracks", "project:preview"]
 
@@ -1448,9 +1452,12 @@ def _cmd_reorder_visual_track(ir: CompositionIR, target_id: str, payload: dict) 
     if isinstance(raw, bool):
         raise EditorError("INVALID_PAYLOAD", "toIndex 必须是整数")
     try:
-        to_index = int(raw)
+        numeric_index = float(raw)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "toIndex 必须是整数") from exc
+    if not math.isfinite(numeric_index) or not numeric_index.is_integer():
+        raise EditorError("INVALID_PAYLOAD", "toIndex 必须是整数")
+    to_index = int(numeric_index)
     ordered = sorted(ir.visual_tracks, key=lambda item: item.order)
     if to_index < 0 or to_index >= len(ordered):
         raise EditorError("INVALID_PARAMETER", "目标轨道顺序越界")
