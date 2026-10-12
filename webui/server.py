@@ -343,23 +343,23 @@ def _editor_asset_preview_map(ir):
                 continue
             seen.add(aid)
             entry = asset_catalog.get_asset(aid)
-                if not entry:
-                    continue
-                file_path = entry.get("file") or ""
-                thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
-                out[aid] = {
-                    "asset_id": aid,
-                    "name": entry.get("name") or Path(file_path).name,
-                    "type": entry.get("type"),
-                    "file_url": ("/file?path=" + urllib_quote(file_path)) if file_path else "",
-                    "thumbnail_url": ("/file?path=" + urllib_quote(str(thumb))) if thumb.is_file() else "",
-                    "width": entry.get("width"),
-                    "height": entry.get("height"),
-                    "duration": entry.get("duration"),
-                    "fps": entry.get("fps"),
-                    "has_audio": entry.get("has_audio"),
-                    "source": entry.get("source"),
-                }
+            if not entry:
+                continue
+            file_path = entry.get("file") or ""
+            thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
+            out[aid] = {
+                "asset_id": aid,
+                "name": entry.get("name") or Path(file_path).name,
+                "type": entry.get("type"),
+                "file_url": ("/file?path=" + urllib_quote(file_path)) if file_path else "",
+                "thumbnail_url": ("/file?path=" + urllib_quote(str(thumb))) if thumb.is_file() else "",
+                "width": entry.get("width"),
+                "height": entry.get("height"),
+                "duration": entry.get("duration"),
+                "fps": entry.get("fps"),
+                "has_audio": entry.get("has_audio"),
+                "source": entry.get("source"),
+            }
 
         # Audio timeline references are IDs into the trusted audio library. Add
         # a safe presentation projection (display label + preview endpoint), never
