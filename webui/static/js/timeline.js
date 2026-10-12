@@ -333,10 +333,13 @@ function renderPhysicalTimeline(){
       };
     })});
   const visualOverlays = c.visual_overlays || [];
+  const visualTracks = (Array.isArray(c.visual_tracks) && c.visual_tracks.length
+    ? c.visual_tracks : [{id:'overlay-main', name:'画面叠加', order:0}])
+    .slice().sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
   const totalVisualDuration = Number(c.duration) || 1;
-  tracks.picture.push({
-    id: 'visual-overlay', label: '画面叠加', addAction: 'editorVisualOverlayPick',
-    clips: visualOverlays.map((clip, index) => {
+  visualTracks.forEach((track) => {
+    const trackId = String(track.id || 'overlay-main');
+    const clips = visualOverlays.map((clip, index) => {
       const start = Math.max(0, Number(clip.start) || 0);
       const duration = Math.max(0, Number(clip.duration) || 0);
       const leftPct = Math.min(100, start / totalVisualDuration * 100);
@@ -344,18 +347,14 @@ function renderPhysicalTimeline(){
       const sourceAssets = c.assets || {};
       const asset = Array.isArray(sourceAssets) ? sourceAssets.find(item => item.id === clip.asset_id) : sourceAssets[clip.asset_id];
       const assetName = asset && (asset.name || (asset.file && String(asset.file).split(/[\\/]/).pop())) || clip.asset_id || '素材';
-      // Resolve only IDs from the server's trusted catalog projection. The
-      // thumbnail endpoint lazily generates a cached JPEG for known media.
-      const thumbnailUrl = asset
-        ? (asset.thumbnail_url || ('/api/asset_thumbnail?asset_id=' + encodeURIComponent(clip.asset_id)))
-        : '';
-      return {
-        positioned: true, leftPct, pct, visualOverlayIndex: index, thumbnailUrl,
-        text: String(assetName).slice(0, 12),
-        title: `画面叠加 · ${assetName} · ${start.toFixed(2)}–${(start + duration).toFixed(2)}s · 拖动移动、边缘修剪、点击编辑`,
-        onclick: `editorVisualOverlayOpen(${index}, event)`
-      };
-    })
+      const thumbnailUrl = asset ? (asset.thumbnail_url || ('/api/asset_thumbnail?asset_id=' + encodeURIComponent(clip.asset_id))) : '';
+      return { positioned:true, leftPct, pct, visualOverlayIndex:index, visualTrackId:trackId, thumbnailUrl,
+        text:String(assetName).slice(0, 12),
+        title:'画面轨道 · ' + (track.name || '画面叠加') + ' · ' + assetName + ' · ' + start.toFixed(2) + '–' + (start + duration).toFixed(2) + 's · 横拖移动，纵拖换轨，边缘修剪',
+        onclick:'editorVisualOverlayOpen(' + index + ', event)' };
+    }).filter(item => String((visualOverlays[item.visualOverlayIndex] || {}).track_id || 'overlay-main') === trackId);
+    tracks.picture.push({ id:'visual-overlay-' + trackId, label:track.name || '画面叠加',
+      visualTrackId:trackId, trackOrder:Number(track.order) || 0, addAction:'editorVisualOverlayPick', newTrackAction:(Number(track.order) === 0 ? 'editorVisualTrackCreate' : null), clips });
   });
   // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位.
   // 之前每类声音只显示第一条记录并绘制为 100% 全长，和实际渲染时间语义不一致。
@@ -455,10 +454,12 @@ function renderPhysicalTimeline(){
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
     const empty = (!t.clips || !t.clips.length) && !t.isSceneTrack && !(t.kfPoints || []).length;
-    const labelHtml = t.addAction
-      ? `<div class="ed-track-label">${esc(t.label)} <button type="button" class="btn-secondary btn-sm ed-track-add" title="从项目素材库添加画面叠加" onclick="${t.addAction}(event)">＋</button></div>`
-      : `<div class="ed-track-label">${esc(t.label)}</div>`;
-    return `<div class="ed-track">${labelHtml}`+
+    const labelHtml = t.visualTrackId
+      ? `<div class="ed-track-label ed-visual-track-label"><span class="ed-visual-track-name" title="${esc(t.label)}">${esc(t.label)}</span><div class="ed-visual-track-actions"><button type="button" class="btn-secondary btn-sm ed-track-add" title="从项目素材库向此轨道添加片段" onclick="${t.addAction}(event, '${esc(t.visualTrackId)}')">＋</button><button type="button" class="btn-secondary btn-sm" title="轨道名称、顺序与删除" onclick="editorVisualTrackMenu(event, '${esc(t.visualTrackId)}')">⋯</button>${t.newTrackAction ? `<button type="button" class="btn-secondary btn-sm" title="新增画面轨道" onclick="${t.newTrackAction}(event)">＋轨</button>` : ''}</div></div>`
+      : t.addAction
+        ? `<div class="ed-track-label">${esc(t.label)} <button type="button" class="btn-secondary btn-sm ed-track-add" title="添加片段" onclick="${t.addAction}(event)">＋</button></div>`
+        : `<div class="ed-track-label">${esc(t.label)}</div>`;
+    return '<div class="ed-track"' + (t.visualTrackId ? ' data-visual-track-id="' + esc(t.visualTrackId) + '"' : '') + '>' + labelHtml +
       `<div class="ed-track-body">${bodyInner}${kfHtml}${empty ? '<span class="hint tl-empty-hint">无</span>' : ''}</div></div>`;
   };
   for (const g of GROUP_ORDER) {
