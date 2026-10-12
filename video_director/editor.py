@@ -1034,7 +1034,7 @@ def _cmd_reorder_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     ir.scenes[si] = SceneIR(**scene_data)
     # A ripple reorder changes linked source-audio timing as well as picture order.
     # Do not run the scene-level narration reflow: this command did not change scenes.
-    _resync_audio_to_scenes(ir, sync_narration=False)
+    _resync_audio_to_scenes(ir, sync_narration=False, match_original_by_source=True)
     stale = _stale_of_scene(project_id="", scene_id=scene.id)
     stale.extend(["project:audio:render", "project:audio-tracks", "project:preview"])
     return [f"{scene.id}#{to_index}"], list(dict.fromkeys(stale))
@@ -1407,7 +1407,9 @@ def _renumber_starts(ir: CompositionIR) -> None:
         cursor += sc.duration
 
 
-def _resync_audio_to_scenes(ir: CompositionIR, *, sync_narration: bool = True) -> None:
+def _resync_audio_to_scenes(
+    ir: CompositionIR, *, sync_narration: bool = True, match_original_by_source: bool = False,
+) -> None:
     """场景结构编辑后的音频时间同步。
 
     original 轨不再简单按 asset_id 取第一个窗口，而是：
@@ -1486,17 +1488,54 @@ def _resync_audio_to_scenes(ir: CompositionIR, *, sync_narration: bool = True) -
     for aid, tracks in original_by_asset.items():
         wins = asset_windows.get(aid, [])
         tracks = sorted(tracks, key=lambda t: float(t.start or 0.0))
-        for i, t in enumerate(tracks):
-            if i >= len(wins):
-                continue
-            w_start, w_dur, w_src_in, w_src_out = wins[i]
-            # source 窗口随配对图层走：重配对后轨播的必须是该层实际消费的
-            # 源区间，否则同素材多实例在结构编辑后原声播错源片段（多场景移动
-            # 只动 start/duration 时，轨道 #1 的 0-5s 源窗会被接到消费 10-15s
-            # 的图层窗口上）。音量/ducking/淡入淡出仍是轨道自身属性。
-            new_audio.append(t.model_copy(update={
+        if match_original_by_source:
+            # A source may be reused several times in one project. Reorder changes
+            # timeline order but not source ranges, so bind by source window first;
+            # otherwise sorted-by-time pairing transfers volume/fades between clips.
+            remaining = list(enumerate(wins))
+            matched = []
+            tolerance = max(0.05, 0.5 / max(1.0, float(ir.project.fps or 1.0)))
+            for track in tracks:
+                source_in = float(track.source_in or 0.0)
+                source_out = (
+                    float(track.source_out)
+                    if track.source_out is not None
+                    else source_in + float(track.duration)
+                )
+                exact = [
+                    (index, window)
+                    for index, window in remaining
+                    if window[2] is not None
+                    and abs(float(window[2]) - source_in) <= tolerance
+                    and window[3] is not None
+                    and abs(float(window[3]) - source_out) <= tolerance
+                ]
+                if exact:
+                    # Duplicate uses of an identical source window are ambiguous in
+                    # legacy data; retain nearest old timeline position deterministically.
+                    chosen = min(exact, key=lambda item: abs(float(item[1][0]) - float(track.start)))
+                elif remaining:
+                    # Old projects may have incomplete source anchors. Keep the historic
+                    # ordinal fallback for the unmatched remainder rather than dropping it.
+                    chosen = remaining[0]
+                else:
+                    continue
+                matched.append((track, chosen[1]))
+                remaining = [item for item in remaining if item[0] != chosen[0]]
+            pairs = matched
+        else:
+            pairs = [
+                (track, wins[index])
+                for index, track in enumerate(tracks)
+                if index < len(wins)
+            ]
+        for track, window in pairs:
+            w_start, w_dur, w_src_in, w_src_out = window
+            # Audio gain/fades belong to the clip instance; only linked timing/source
+            # fields follow the matching video occurrence.
+            new_audio.append(track.model_copy(update={
                 "start": round(float(w_start), 3),
-                "duration": round(min(float(t.duration), float(w_dur)), 3),
+                "duration": round(min(float(track.duration), float(w_dur)), 3),
                 "source_in": round(float(w_src_in if w_src_in is not None else 0.0), 3),
                 "source_out": round(float(w_src_out), 3) if w_src_out is not None else None,
             }))

@@ -292,3 +292,30 @@ def test_reordering_visual_layers_does_not_shorten_project_narration(tmp_path, m
     )
     assert narration.start == 0.0
     assert narration.duration == project_duration
+
+
+
+def test_reorder_reused_video_asset_matches_original_audio_by_source_window(tmp_path, monkeypatch):
+    data = _video_reorder_comp_with_audio()
+    # Two different excerpts from the same source asset are two editable clip
+    # instances. Their source ranges and individual gain values must travel together.
+    data["scenes"][0]["layers"][1]["asset_id"] = "vid1"
+    data["scenes"][0]["layers"][1]["source_in"] = 4.0
+    data["scenes"][0]["layers"][1]["source_out"] = 7.0
+    data["audio"][0]["volume"] = 0.25
+    data["audio"][1].update({
+        "asset_id": "vid1", "source_in": 4.0, "source_out": 7.0, "volume": 0.85,
+    })
+    pid, _plans = _project(tmp_path, monkeypatch, data)
+
+    result = _apply(pid, "reorder_layer", "S01#0", {"toIndex": 1})
+    assert result.status == "APPLIED", result.errors
+    tracks = {track.id: track for track in load_composition(pid).audio}
+    first_source = tracks["linked-vid1"]
+    second_source = tracks["linked-vid2"]
+    assert (first_source.start, first_source.source_in, first_source.source_out, first_source.volume) == (
+        3.0, 0.0, 2.0, 0.25,
+    )
+    assert (second_source.start, second_source.source_in, second_source.source_out, second_source.volume) == (
+        0.0, 4.0, 7.0, 0.85,
+    )
