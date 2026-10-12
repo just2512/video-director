@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import subprocess
+
+import pytest
 from pathlib import Path
 
 from video_director import renderer
