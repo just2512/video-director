@@ -335,13 +335,14 @@ def _editor_asset_preview_map(ir):
         from video_director import asset_catalog
         out = {}
         seen = set()
-        for sc in ir.scenes:
-            for lay in sc.layers:
-                aid = getattr(lay, "asset_id", None)
-                if not aid or aid in seen:
-                    continue
-                seen.add(aid)
-                entry = asset_catalog.get_asset(aid)
+        # Keep overlay-only sources visible after reloading a saved project.
+        referenced_ids = [getattr(lay, 'asset_id', None) for sc in ir.scenes for lay in sc.layers]
+        referenced_ids.extend(getattr(item, 'asset_id', None) for item in (getattr(ir, 'visual_overlays', None) or []))
+        for aid in referenced_ids:
+            if not aid or aid in seen:
+                continue
+            seen.add(aid)
+            entry = asset_catalog.get_asset(aid)
                 if not entry:
                     continue
                 file_path = entry.get("file") or ""
