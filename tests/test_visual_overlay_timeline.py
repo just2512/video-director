@@ -755,6 +755,58 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     assert "个非 gap 采样点无意外黑帧" in qc_detail, qc_detail
 
 
+def test_promote_main_video_uses_global_drop_position_and_rejects_out_of_range(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    video_path = tmp_path / "drop-position-video.mp4"
+    base_path = tmp_path / "drop-position-base.png"
+    _make_video_with_audio(ffmpeg, video_path)
+    _make_still(ffmpeg, base_path, "green")
+
+    project_id = "promote-main-video-drop-position"
+    plans = tmp_path / project_id / "plans"
+    plans.mkdir(parents=True)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=10.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=4.0, text="drop position",
+            layers=[
+                Layer(type=LayerType.video, asset_id="source", start=0.0, duration=2.0,
+                      source_in=0.0, source_out=2.0, speed=1.0),
+                Layer(type=LayerType.image, asset_id="base", start=2.0, duration=2.0),
+            ],
+        )],
+        assets=[
+            AssetRef(id="source", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
+            AssetRef(id="base", type="image", file=str(base_path), duration=2.0, width=40, height=40),
+        ],
+        visual_tracks=[VisualTrack(id="overlay-main", name="画面叠加", order=0)],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(project_id, composition)
+    (plans / "revisions.jsonl").write_text("", encoding="utf-8")
+
+    rejected = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {
+        "trackId": "overlay-main", "start": 9.0,
+    }, 1)
+    assert rejected.status == "REJECTED"
+    assert rejected.errors[0]["code"] == "INVALID_TIMELINE_RANGE"
+    saved_after_reject = load_composition(project_id)
+    assert saved_after_reject.scenes[0].layers[0].type == LayerType.video
+    assert saved_after_reject.visual_overlays == []
+    assert [(track.id, track.order) for track in saved_after_reject.visual_tracks] == [("overlay-main", 0)]
+
+    applied = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {
+        "trackId": "overlay-main", "start": 3.0,
+    }, 1)
+    assert applied.status == "APPLIED", applied.errors
+    saved = load_composition(project_id)
+    assert saved.visual_overlays[0].start == 3.0
+    assert saved.visual_overlays[0].track_id == "overlay-main"
+    assert saved.scenes[0].layers[0].type == LayerType.gap
+    assert saved.scenes[0].layers[0].duration == 2.0
+    assert [(track.id, track.order) for track in saved.visual_tracks] == [("overlay-main", 0)]
+
+
 def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_path, monkeypatch):
     ffmpeg = renderer._ffmpeg()
     video_path = tmp_path / "sped-up-video.mp4"
