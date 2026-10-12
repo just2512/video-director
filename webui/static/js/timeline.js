@@ -231,6 +231,22 @@ function editorRenderTimeline(){
     if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
   }
   document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
+  if (!window.__tlViewportResizeBound) {
+    window.__tlViewportResizeBound = true;
+    let resizeFrame = 0;
+    window.addEventListener('resize', () => {
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        const current = document.querySelector('#editor-timeline .ed-tl-scroll');
+        if (!current || !ED.comp) return;
+        const left = current.scrollLeft;
+        editorRenderTimeline();
+        const next = document.querySelector('#editor-timeline .ed-tl-scroll');
+        if (next) next.scrollLeft = left;
+      });
+    });
+  }
 }
 
 function renderPhysicalTimeline(){
