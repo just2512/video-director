@@ -65,6 +65,8 @@ def test_word_subtitle_cues_move_trim_preview_and_persist(tmp_path, monkeypatch)
                 )
                 opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
                 assert opened and opened.get("ok"), f"workspace did not open: {opened}"
+                loaded = page.evaluate("() => shotbookLoad()")
+                assert loaded, "Shotbook did not load the persisted CompositionIR"
                 page.wait_for_function(
                     "() => ED.comp && ED.comp.subtitle_track && ED.comp.subtitle_track.cues.length === 2",
                     timeout=10000,
