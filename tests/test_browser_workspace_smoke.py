@@ -509,6 +509,54 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert trimmed_overlay is not None, "overlay edge trim did not POST trim_watermark"
                 assert trimmed_overlay["targetId"] == "watermark#0"
                 assert trimmed_overlay["payload"]["duration"] < 3
+
+                # Overlay clips must be visually identifiable and the Inspector's
+                # cut-at-playhead control must reach the versioned Editor Command API.
+                overlay_ui = page.evaluate("""() => {
+                    ED.comp.visual_overlays = [{
+                        id: 'overlay-ui-smoke', asset_id: 'img', start: 2, duration: 4,
+                        source_in: 0, x: 0.65, y: 0.1, width: 0.3, height: 0.3,
+                        opacity: 1, z_index: 0
+                    }];
+                    ED.comp.assets.img.type = 'image';
+                    ED.comp.assets.img.thumbnail_url = '/overlay-smoke-thumb.svg';
+                    PLAYHEAD.at = 4;
+                    editorRenderTimeline();
+                    const clip = document.querySelector('#editor-timeline .ed-visual-overlay-clip');
+                    return {
+                        count: document.querySelectorAll('#editor-timeline .ed-visual-overlay-clip').length,
+                        thumbnail: clip && clip.querySelector('img.ed-clip-thumb')?.getAttribute('src'),
+                        label: clip && clip.querySelector('.ed-track-clip-label')?.textContent
+                    };
+                }""")
+                assert overlay_ui["count"] == 1
+                assert overlay_ui["thumbnail"] == "/overlay-smoke-thumb.svg"
+                assert overlay_ui["label"] == "Still"
+
+                page.route(
+                    "**/overlay-smoke-thumb.svg",
+                    lambda route: route.fulfill(
+                        status=200, content_type="image/svg+xml",
+                        body='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="24"><rect width="40" height="24" fill="#284b63"/></svg>',
+                    ),
+                )
+                overlay_clip = page.locator("#editor-timeline .ed-visual-overlay-clip")
+                overlay_clip.scroll_into_view_if_needed()
+                overlay_clip.click()
+                inspector = page.locator("#visual-overlay-inspector-mask")
+                inspector.wait_for(timeout=5000)
+                assert inspector.get_by_role("button", name="在播放头切分").is_visible()
+                captured_commands.clear()
+                inspector.get_by_role("button", name="在播放头切分").click()
+                page.wait_for_timeout(100)
+                split_cmd = next((c for c in captured_commands if c.get("command") == "split_visual_overlay"), None)
+                assert split_cmd is not None, "cut-at-playhead button did not POST split_visual_overlay"
+                assert split_cmd["targetId"] == "overlay#0"
+                assert split_cmd["payload"]["at"] == pytest.approx(4.0)
+                # The intercepted endpoint deliberately rejects the command; the UI
+                # must keep the Inspector open and must not claim the split succeeded.
+                assert page.locator("#visual-overlay-inspector-mask").count() == 1
+                page.evaluate("editorVisualOverlayClose()")
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise
