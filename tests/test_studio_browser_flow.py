@@ -211,7 +211,6 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     if (type === 'pointermove' || type === 'pointerup') registrations.push(type);
                     return originalAdd.call(this, type, listener, options);
                   };
-                  window.__tlLayerDragHandlers = false;
                   const view = ED.timelineView;
                   ED.timelineView = 'dual';
                   editorRenderTimeline();
@@ -220,11 +219,12 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   ED.timelineView = view;
                   editorRenderTimeline();
                   return {
+                    guardBound: window.__tlLayerDragHandlers === true,
                     pointermove: registrations.filter(type => type === 'pointermove').length,
                     pointerup: registrations.filter(type => type === 'pointerup').length
                   };
                 }""")
-                assert layer_handler_count == {"pointermove": 1, "pointerup": 1}, layer_handler_count
+                assert layer_handler_count == {"guardBound": True, "pointermove": 0, "pointerup": 0}, layer_handler_count
                 # 布局契约：Shotbook 与编辑器共享同一工作区（main 布局：#editor-body
                 # 与 #editor-workspace 同属 pane-editor；不要求在 .ws-col 三栏列内）。
                 assert page.locator("#shotbook-details").evaluate(
