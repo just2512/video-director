@@ -525,7 +525,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 )
                 assert promoted_command is not None, "browser click did not dispatch promote_layer_to_visual_track"
                 assert promoted_command["targetId"] == "S01#0"
-                assert promoted_command["payload"]["trackId"] == "overlay-main"
+                assert not promoted_command["payload"].get("trackId"), "button should ask the server to create a dedicated track atomically"
                 captured_commands.clear()
                 page.evaluate("""() => {
                     ED.comp.scenes[0].layers[0] = {
