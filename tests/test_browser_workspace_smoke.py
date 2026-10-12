@@ -544,11 +544,67 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert locked_state["exists"] and locked_state["disabled"]
                 assert "锁定" in locked_state["title"]
 
+                # Real pointer gesture: drag a normal main-track video vertically
+                # onto an existing global visual track. The payload must carry both
+                # the selected destination track and the time under the drop pointer.
+                drag_boxes = page.evaluate("""() => {
+                    ED.comp.duration = 20;
+                    if (ED.comp.project) ED.comp.project.duration = 20;
+                    ED.comp.visual_tracks = [{id: 'overlay-main', name: '画面叠加', order: 0}];
+                    ED.comp.visual_overlays = [];
+                    ED.comp.scenes[0].start = 0;
+                    ED.comp.scenes[0].duration = 10;
+                    ED.comp.scenes[0].layers[0] = {
+                        type: 'video', asset_id: 'video-source', start: 0, duration: 10,
+                        source_in: 0, source_out: 10, speed: 1, fit_mode: 'cover'
+                    };
+                    editorRenderTimeline();
+                    const source = document.querySelector('#editor-timeline .ed-layer[data-scene="S01"][data-idx="0"]');
+                    const target = document.querySelector('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-track-body');
+                    if (!source || !target) return null;
+                    source.scrollIntoView({block: 'center'});
+                    target.scrollIntoView({block: 'nearest'});
+                    const s = source.getBoundingClientRect(), t = target.getBoundingClientRect();
+                    return {
+                        source: {x:s.x, y:s.y, w:s.width, h:s.height},
+                        target: {x:t.x, y:t.y, w:t.width, h:t.height},
+                        viewport: {w:window.innerWidth, h:window.innerHeight}
+                    };
+                }""")
+                assert drag_boxes is not None, "timeline source clip or visual track drop target is missing"
+                for key in ("source", "target"):
+                    box = drag_boxes[key]
+                    assert 0 <= box["y"] and box["y"] + box["h"] <= drag_boxes["viewport"]["h"], (
+                        f"main clip and destination track must be simultaneously visible for drag: {drag_boxes}"
+                    )
+                drag_start_x = drag_boxes["source"]["x"] + drag_boxes["source"]["w"] / 2
+                drag_start_y = drag_boxes["source"]["y"] + drag_boxes["source"]["h"] / 2
+                drag_target_x = drag_boxes["target"]["x"] + drag_boxes["target"]["w"] * 0.30
+                drag_target_y = drag_boxes["target"]["y"] + drag_boxes["target"]["h"] / 2
+                page.mouse.move(drag_start_x, drag_start_y)
+                page.mouse.down()
+                page.mouse.move(drag_target_x, drag_target_y, steps=8)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                drag_command = next(
+                    (command for command in captured_commands
+                     if command.get("command") == "promote_layer_to_visual_track"),
+                    None,
+                )
+                assert drag_command is not None, "dropping a main-video clip onto a track did not dispatch promotion"
+                assert drag_command["targetId"] == "S01#0"
+                assert drag_command["payload"]["trackId"] == "overlay-main"
+                assert abs(float(drag_command["payload"]["start"]) - 6.0) < 0.2, drag_command["payload"]
+                captured_commands.clear()
+
                 page.evaluate("""() => {
+                    ED.comp.duration = 10;
+                    if (ED.comp.project) ED.comp.project.duration = 10;
                     ED.comp.scenes[0].layers[0] = {
                         type: 'image', asset_id: 'img', start: 0, duration: 10
                     };
                     SEL.selection = {type: 'project'};
+                    SEL.selectionSet = new Set();
                     editorRenderTimeline();
                 }""")
 
