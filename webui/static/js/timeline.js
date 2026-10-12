@@ -49,6 +49,7 @@ async function editorLoad(){
     return {ok: false, error: comp.error};
   }
   ED.pid = pid; ED.comp = comp; ED.version = comp.version;
+  if (typeof editorSourceMonitorRefreshTracks === 'function') editorSourceMonitorRefreshTracks();
   clearSelection('load');
   document.getElementById('editor-body').style.display = '';
   const empty = document.getElementById('editor-empty');

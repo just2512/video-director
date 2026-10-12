@@ -324,3 +324,24 @@
   line-height: 18px;
   vertical-align: middle;
 }
+
+
+/* FilmCraft-style Source/Program workflow, fused into the existing preview column. */
+.ed-monitor-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:var(--sp-2); min-width:0; }
+.ed-monitor-card { display:flex; flex-direction:column; gap:6px; min-width:0; border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px; background:var(--surface-1); }
+.ed-monitor-head { gap:5px; flex-wrap:wrap; margin-top:0; min-height:28px; }
+.ed-monitor-head b { white-space:nowrap; }
+.ed-monitor-head .hint { min-width:0; overflow-wrap:anywhere; }
+.ed-source-label, .ed-source-placement label { color:var(--muted); font-size:11px; }
+.ed-source-stage { display:flex; align-items:center; justify-content:center; min-height:150px; aspect-ratio:16 / 9; overflow:hidden; background:#000; color:var(--muted); border-radius:var(--radius-sm); font-size:12px; }
+.ed-source-stage video, .ed-source-stage img { display:block; width:100%; height:100%; max-height:280px; object-fit:contain; }
+.ed-source-marks { display:grid; grid-template-columns:auto minmax(55px,1fr); gap:5px 6px; align-items:center; }
+.ed-source-marks button { width:100%; margin-top:0; white-space:nowrap; }
+.ed-source-marks input { width:100%; min-width:0; box-sizing:border-box; }
+.ed-source-placement { display:grid; grid-template-columns:auto minmax(0,1fr); gap:5px 6px; align-items:center; }
+.ed-source-placement select, #ed-source-asset { width:100%; min-width:0; box-sizing:border-box; }
+.ed-source-audio { display:flex; gap:6px; align-items:center; margin-top:2px; font-size:11px; color:var(--muted); }
+.ed-source-audio input { margin:0; }
+#ed-source-status { min-width:0; overflow-wrap:anywhere; }
+#ed-source-add:disabled { opacity:.45; cursor:not-allowed; }
+@media (max-width:1080px) { .ed-monitor-grid { grid-template-columns:minmax(0,1fr); } .ed-source-stage { min-height:180px; } }

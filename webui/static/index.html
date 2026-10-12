@@ -190,16 +190,56 @@
             <div class="hint" style="font-size:11px">选中场景/图层后，点候选项「预览→应用」改到当前对象。</div>
           </div>
         </div>
-        <!-- 中栏 Preview（唯一视觉事实） -->
+        <!-- 中栏：Source / Program monitor，共享项目时间线与轨道模型 -->
         <div class="ws-col">
           <div class="ed-preview-pane">
-            <div class="btn-row" style="align-items:center">
-              <b style="font-size:13px">预览</b>
-              <button class="btn-secondary btn-sm" type="button" onclick="previewStepFrame(-1)" title="上一帧">◀ 帧</button>
-              <button class="btn-secondary btn-sm" type="button" onclick="previewStepFrame(1)" title="下一帧">帧 ▶</button>
-              <span class="hint" id="ed-preview-meta">打开项目后显示画面</span>
+            <div class="ed-monitor-grid">
+              <section class="ed-monitor-card" aria-label="节目监视器">
+                <div class="btn-row ed-monitor-head" style="align-items:center">
+                  <b style="font-size:13px">节目监视器</b>
+                  <button class="btn-secondary btn-sm" type="button" onclick="previewStepFrame(-1)" title="上一帧">◀ 帧</button>
+                  <button class="btn-secondary btn-sm" type="button" onclick="previewStepFrame(1)" title="下一帧">帧 ▶</button>
+                  <span class="hint" id="ed-preview-meta">打开项目后显示画面</span>
+                </div>
+                <div class="ed-preview-stage" id="ed-preview-stage">未加载预览</div>
+              </section>
+              <section class="ed-monitor-card" aria-label="源监视器">
+                <div class="btn-row ed-monitor-head" style="align-items:center">
+                  <b style="font-size:13px">源监视器</b>
+                  <button class="btn-secondary btn-sm" type="button" onclick="editorSourceMonitorRefresh()">刷新素材</button>
+                  <span class="hint" id="ed-source-meta">先选择项目素材</span>
+                </div>
+                <label class="ed-source-label" for="ed-source-asset">素材箱 · 视频 / 图片</label>
+                <select id="ed-source-asset" onchange="editorSourceMonitorSelectAsset()" aria-label="选择源素材">
+                  <option value="">正在读取素材库…</option>
+                </select>
+                <div class="ed-source-stage" id="ed-source-stage" aria-live="polite">选择素材后在此监看源画面。</div>
+                <div class="ed-source-marks">
+                  <button class="btn-secondary btn-sm" type="button" id="ed-source-mark-in" onclick="editorSourceMonitorMarkIn()">标记入点</button>
+                  <input id="ed-source-in" type="number" min="0" step="0.04" value="0" aria-label="源入点秒">
+                  <button class="btn-secondary btn-sm" type="button" id="ed-source-mark-out" onclick="editorSourceMonitorMarkOut()">标记出点</button>
+                  <input id="ed-source-out" type="number" min="0.05" step="0.04" value="3" aria-label="源出点秒或静帧时长">
+                </div>
+                <div class="ed-source-placement">
+                  <label for="ed-source-target-track">目标画面轨</label>
+                  <select id="ed-source-target-track" onfocus="editorSourceMonitorRefreshTracks()" aria-label="目标画面轨道"><option value="">先打开项目</option></select>
+                  <label for="ed-source-presentation">放置方式</label>
+                  <select id="ed-source-presentation">
+                    <option value="full_frame">全画幅覆盖</option>
+                    <option value="picture_in_picture">画中画</option>
+                    <option value="sticker">贴纸 / 图层</option>
+                  </select>
+                </div>
+                <label class="ed-source-audio" id="ed-source-audio-row">
+                  <input id="ed-source-audio-enabled" type="checkbox">
+                  保留视频源音轨（与旁白 / BGM / SFX 一起混音）
+                </label>
+                <div class="btn-row ed-source-actions" style="align-items:center">
+                  <button class="btn-sm" type="button" id="ed-source-add" onclick="editorSourceMonitorAddToTimeline()">放置到播放头</button>
+                  <span class="hint" id="ed-source-status" role="status" aria-live="polite">标记源区间，选择目标轨，再放置到当前播放头。</span>
+                </div>
+              </section>
             </div>
-            <div class="ed-preview-stage" id="ed-preview-stage">未加载预览</div>
           </div>
         </div>
         <!-- 右栏 Inspector（上下文唯一：§4/§5/§6/§7 声音/水印/字幕全部入对象上下文，
@@ -381,6 +421,7 @@
 <script src="/static/js/timeline.js"></script>
 <script src="/static/js/timeline-edit-math.js"></script>
 <script src="/static/js/visual-overlay-editor.js"></script>
+<script src="/static/js/source-monitor.js"></script>
 <script src="/static/js/editor-session.js"></script>
 <script src="/static/js/creative-plan.js"></script>
 <script src="/static/js/inspector.js"></script>
