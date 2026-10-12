@@ -1186,8 +1186,7 @@ def test_real_ffmpeg_source_track_insert_preserves_pixels_and_linked_audio_timin
     overwrite_audio = renderer._verify_muxed_audio(str(overwritten_mp4), expected_duration=3.5)
     assert overwrite_audio.get("codec") == "aac", overwrite_audio
     assert overwrite_audio.get("full_decode") == "PASS", overwrite_audio
-    # Sample inside the overwritten interval, not exactly on the cut boundary:
-    # decoding an AAC packet at a cut can include pre-roll from the preceding segment.
+    # Probe 100ms into the replaced interval, away from exact AAC/seek boundaries.
     assert _audio_window_mean_volume(ffmpeg, overwritten_mp4, 0.9, 0.2) < -65
     assert _audio_window_mean_volume(ffmpeg, overwritten_mp4, 1.3, 0.15) > -35
     assert _audio_window_mean_volume(ffmpeg, overwritten_mp4, 2.5, 0.2) > -35
