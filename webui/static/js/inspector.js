@@ -1465,7 +1465,6 @@ async function editorPromoteLayerToTrack(sceneId, idx){
     payload: {},
   });
   if (r.ok) {
-    const createdTrack = (ED.comp.visual_tracks || []).find(track => track.name && track.name.startsWith('独立视频 '));
     editorToast('已提升到新建的独立视频轨道；原时间位置保留黑色空隙。');
     await refreshWorkspace();
     if (typeof editorVisualOverlayPick === 'function') {
