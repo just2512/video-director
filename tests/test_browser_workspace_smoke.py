@@ -720,6 +720,8 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 cross_track_cmd = next((c for c in captured_commands if c.get("command") == "move_visual_overlay"), None)
                 assert cross_track_cmd is not None, "dragging a visual clip to another track did not POST move_visual_overlay"
                 assert cross_track_cmd["payload"]["trackId"] == "vtrack-ui-smoke"
+                # Dragging a clip must not bubble into the timeline scrub handler.
+                assert page.evaluate("PLAYHEAD.at") == pytest.approx(4.0)
                 # The test endpoint rejects edits, so the original track remains the source of truth.
                 assert page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-visual-overlay-clip').count() == 1
 
