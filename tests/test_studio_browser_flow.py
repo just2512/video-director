@@ -18,7 +18,13 @@ from video_director.models import (
 from video_director import editor, store, shotbook
 
 
-def _test_composition(media_file: Path) -> CompositionIR:
+def _test_composition(media_file: Path, *, include_extended_tracks: bool = False) -> CompositionIR:
+    """Build the shared render fixture; browser-only lane metadata is opt-in.
+
+    The native-style MP4 tests reuse this helper. Keep their default CompositionIR
+    self-contained (every referenced asset must resolve) instead of leaking the
+    browser-only placeholder audio ids into unrelated real-render tests.
+    """
     layer1 = Layer(type=LayerType.image, asset_id="e2e-still", start=0, duration=1.0)
     layer2 = Layer(type=LayerType.image, asset_id="e2e-still", start=0, duration=1.0)
     recipes = shotbook._recipes()
@@ -34,46 +40,52 @@ def _test_composition(media_file: Path) -> CompositionIR:
         source="uploaded", rights_status="CLEAR",
         provenance={"source": "Playwright regression fixture"},
     )
+    timeline_extensions = {}
+    if include_extended_tracks:
+        timeline_extensions = {
+            "audio_tracks": [
+                AudioLane(id="audio-custom-music", name="自定义配乐", order=0),
+                AudioLane(id="audio-custom-foley", name="细节音效", order=1),
+            ],
+            "audio": [
+                AudioTrack(
+                    id="e2e-music-clip", type=AudioTrackType.bgm,
+                    track_id="audio-custom-music", asset_id="e2e-music",
+                    start=0.2, duration=1.2, source_in=0.1, source_out=1.3,
+                    volume=0.65, fadeIn=0.15, fadeOut=0.25,
+                ),
+                AudioTrack(
+                    id="e2e-foley-clip", type=AudioTrackType.sfx,
+                    track_id="audio-custom-foley", asset_id="e2e-foley",
+                    start=1.0, duration=0.25, source_in=0.0, source_out=0.25,
+                    volume=0.45,
+                ),
+            ],
+            "watermarks": [
+                WatermarkLayer(
+                    id="e2e-timed-watermark", kind="text", text="BRAND",
+                    anchor="top_right", offset_x=12, offset_y=8, safe_area=16,
+                    opacity=0.7, scale=0.9, start=0.25, duration=0.75,
+                ),
+            ],
+            "visual_tracks": [
+                VisualTrack(id="overlay-main", name="品牌叠加", order=0),
+                VisualTrack(id="overlay-callouts", name="动态字卡", order=1),
+            ],
+            "visual_overlays": [
+                VisualOverlayClip(
+                    id="e2e-overlay", asset_id="e2e-still", start=0.25, duration=0.5,
+                    source_in=0.0, track_id="overlay-callouts",
+                    presentation_mode="sticker", source_audio_enabled=False,
+                    source_audio_volume=0.42,
+                    x=0.6, y=0.1, width=0.3, height=0.3,
+                    opacity=0.8, z_index=1,
+                ),
+            ],
+        }
     return CompositionIR(
         project=ProjectSpec(width=160, height=90, fps=10, duration=2.0),
-        scenes=scenes, assets=[asset],
-        audio_tracks=[
-            AudioLane(id="audio-custom-music", name="自定义配乐", order=0),
-            AudioLane(id="audio-custom-foley", name="细节音效", order=1),
-        ],
-        audio=[
-            AudioTrack(
-                id="e2e-music-clip", type=AudioTrackType.bgm,
-                track_id="audio-custom-music", asset_id="e2e-music",
-                start=0.2, duration=1.2, source_in=0.1, source_out=1.3,
-                volume=0.65, fadeIn=0.15, fadeOut=0.25,
-            ),
-            AudioTrack(
-                id="e2e-foley-clip", type=AudioTrackType.sfx,
-                track_id="audio-custom-foley", asset_id="e2e-foley",
-                start=1.0, duration=0.25, source_in=0.0, source_out=0.25,
-                volume=0.45,
-            ),
-        ],
-        watermarks=[
-            WatermarkLayer(
-                id="e2e-timed-watermark", kind="text", text="BRAND",
-                anchor="top_right", offset_x=12, offset_y=8, safe_area=16,
-                opacity=0.7, scale=0.9, start=0.25, duration=0.75,
-            ),
-        ],
-        visual_tracks=[
-            VisualTrack(id="overlay-main", name="品牌叠加", order=0),
-            VisualTrack(id="overlay-callouts", name="动态字卡", order=1),
-        ],
-        visual_overlays=[VisualOverlayClip(
-            id="e2e-overlay", asset_id="e2e-still", start=0.25, duration=0.5,
-            source_in=0.0, track_id="overlay-callouts",
-            presentation_mode="sticker", source_audio_enabled=False,
-            source_audio_volume=0.42,
-            x=0.6, y=0.1, width=0.3, height=0.3,
-            opacity=0.8, z_index=1,
-        )],
+        scenes=scenes, assets=[asset], **timeline_extensions,
     )
 
 
@@ -94,7 +106,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
         "lYkAAAAASUVORK5CYII="
     ))
     store.create_project(pid, "Playwright 工作台回归", {"name": "Playwright 工作台回归"})
-    editor.save_composition(pid, _test_composition(still))
+    editor.save_composition(pid, _test_composition(still, include_extended_tracks=True))
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
