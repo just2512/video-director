@@ -123,6 +123,11 @@ function editorVisualOverlayOpen(index, ev) {
       </div>
       <p class="hint">启用后会将该视频原声与旁白、BGM、SFX 一起混音；没有音轨的源视频会在渲染时明确报错。</p>`
     : '<p class="hint">该素材为图片，没有可保留的源音轨。</p>';
+  const sourceAudioDetachAction = clip.source_audio_enabled ? `
+      <div class="audio-clip-field-row">
+        <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayDetachAudio(${index})">拆分为独立原声轨</button>
+      </div>
+      <p class="hint">拆分后，原声会出现在下方时间线的“原声”轨，可独立移动、修剪、静音和混音；视频片段不再重复播放这份声音。可用“撤销”恢复。</p>` : '';
   const mask = document.createElement('div');
   mask.id = 'visual-overlay-inspector-mask';
   mask.className = 'audio-clip-inspector-mask';
@@ -138,6 +143,7 @@ function editorVisualOverlayOpen(index, ev) {
         <option value="sticker" ${clip.presentation_mode === 'sticker' ? 'selected' : ''}>贴纸 / 图层</option>
       </select>
       ${sourceAudioSettings}
+      ${sourceAudioDetachAction}
       <div class="audio-clip-field-row">
         <div><label for="visual-overlay-x">X 位置（0–1）</label><input id="visual-overlay-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.x ?? 0.65)}"></div>
         <div><label for="visual-overlay-y">Y 位置（0–1）</label><input id="visual-overlay-y" type="number" min="0" max="1" step="0.01" value="${Number(clip.y ?? 0.1)}"></div>
@@ -182,6 +188,37 @@ async function editorVisualOverlaySplit(index) {
     await refreshWorkspace();
   } catch (error) {
     editorToast('画面叠加切分失败：' + (error.message || error), true);
+  }
+}
+
+
+async function editorVisualOverlayDetachAudio(index) {
+  const mask = document.getElementById('visual-overlay-inspector-mask');
+  const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
+  if (!mask || !clip || !clip.source_audio_enabled) {
+    editorToast('该片段当前没有可拆分的内嵌源音频', true);
+    return;
+  }
+  const checkbox = mask.querySelector('#visual-overlay-edit-source-audio');
+  if (checkbox && !checkbox.checked) {
+    editorToast('你已关闭源音频但尚未保存；请先保存当前设置，再重新打开片段执行拆分。', true);
+    return;
+  }
+  try {
+    const result = await executeCommand({
+      command: 'separate_visual_overlay_source_audio',
+      targetId: 'overlay#' + index,
+      payload: {}
+    });
+    if (!result || !result.ok) {
+      editorToast('源音频拆分未完成：' + ((result && result.error) || '未知错误'), true);
+      return;
+    }
+    editorVisualOverlayClose();
+    editorToast('原声已拆分到“原声”轨，可独立移动、修剪和混音；可用撤销还原。');
+    await refreshWorkspace();
+  } catch (error) {
+    editorToast('源音频拆分失败：' + (error.message || error), true);
   }
 }
 

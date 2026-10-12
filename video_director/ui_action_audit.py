@@ -85,6 +85,7 @@ UI_ONLY_PREFIXES = (
     "editorWatermarkRemoveAt(",
     "editorVisualOverlayOpen(", "editorVisualOverlayApply(", "editorVisualOverlayCreate(",
     "editorVisualOverlayRemove(", "editorVisualOverlayClose(", "editorVisualOverlaySplit(",
+    "editorVisualOverlayDetachAudio(",
     "editorVisualOverlayPick(", "editorPromoteLayerToTrack(",
     "editorVisualTrackCreate(", "editorVisualTrackCreateClose(", "editorVisualTrackConfirm(",
     "editorVisualTrackMenu(", "editorVisualTrackMenuClose(", "editorVisualTrackMove(",
