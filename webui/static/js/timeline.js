@@ -519,10 +519,12 @@ function _sceneTrackHtml(c, total){
       if (lay.type === 'broll' || lay.role === 'broll' || lay.type === 'graphic') return; // 分轨展示
       const lsel = edIsSelected('layer', `${sc.id}#${li}`) ? ' ed-sel' : '';
       const lock = lay.locked ? '<span title="已锁定">锁</span>' : '';
+      const gapCls = lay.type === 'gap' ? ' ed-layer-gap' : '';
+      const gapTitle = lay.type === 'gap' ? ' title="该位置为空隙；已提升的视频片段可在独立轨道移动、修剪或切分"' : '';
       const mtag = lay.motion_recipe_id ? `<span class="ed-motion-tag">${esc(motionCnName(lay.motion_recipe_id))}</span>` : '';
       // §14 层窄带：data 属性驱动拖动（不用 stopPropagation——hitbox 物理分离）
-      mInner += `<div class="ed-layer${lsel}" data-scene="${sc.id}" data-idx="${li}" data-dur="${lay.duration}"
-        onclick="editorSelectLayer('${sc.id}',${li}, event)">${lock}${layerTypeCn(lay.type)}${mtag}</div>`;
+      mInner += `<div class="ed-layer${lsel}${gapCls}" data-scene="${sc.id}" data-idx="${li}" data-dur="${lay.duration}" data-type="${esc(lay.type)}"${gapTitle}
+        onclick="editorSelectLayer('${sc.id}',${li}, event)">${lock}${lay.type === 'gap' ? '空隙' : layerTypeCn(lay.type)}${mtag}</div>`;
     });
     mInner += '</div></div>';
   });
