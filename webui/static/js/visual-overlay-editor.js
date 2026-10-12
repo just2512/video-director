@@ -98,6 +98,7 @@ function editorVisualOverlayOpen(index, ev) {
       <label for="visual-overlay-opacity">不透明度（0–1）</label><input id="visual-overlay-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.opacity ?? 1)}">
   <label for="visual-overlay-z-index">叠加层级（数值越大越靠前）</label><input id="visual-overlay-z-index" type="number" min="-100" max="100" step="1" value="${Number(clip.z_index ?? 0)}">
       <footer><button type="button" class="btn-danger" onclick="editorVisualOverlayRemove(${index})">删除叠加</button>
+        <button type="button" class="btn-secondary" onclick="editorVisualOverlaySplit(${index})">在播放头切分</button>
         <button type="button" class="btn-secondary" onclick="editorVisualOverlayClose()">取消</button>
         <button type="button" class="btn-primary" onclick="editorVisualOverlayApply(${index})">保存设置</button></footer>
     </section>`;
@@ -105,6 +106,34 @@ function editorVisualOverlayOpen(index, ev) {
   document.body.appendChild(mask);
   mask.querySelector('#visual-overlay-x').focus();
 }
+async function editorVisualOverlaySplit(index) {
+  const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
+  if (!clip) { editorToast('画面叠加片段已变化，请重新选择', true); return; }
+  const at = Number(window.PLAYHEAD && PLAYHEAD.at);
+  const start = Number(clip.start) || 0;
+  const end = start + (Number(clip.duration) || 0);
+  if (!Number.isFinite(at) || at <= start + 0.05 || at >= end - 0.05) {
+    editorToast('请先把播放头放到片段内部，且切分两侧至少保留 0.05 秒', true);
+    return;
+  }
+  try {
+    const result = await executeCommand({
+      command: 'split_visual_overlay',
+      targetId: 'overlay#' + index,
+      payload: {at}
+    });
+    if (!result || !result.ok) {
+      editorToast('切分未完成：' + ((result && result.error) || '未知错误'), true);
+      return;
+    }
+    editorVisualOverlayClose();
+    editorToast('画面叠加已在播放头切分；源素材未改写');
+    await refreshWorkspace();
+  } catch (error) {
+    editorToast('画面叠加切分失败：' + (error.message || error), true);
+  }
+}
+
 async function editorVisualOverlayApply(index) {
   const mask = document.getElementById('visual-overlay-inspector-mask');
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
