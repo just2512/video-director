@@ -300,6 +300,20 @@ function editorVisualTrackMenuClose() {
   const mask = document.getElementById('visual-track-menu-mask');
   if (mask) mask.remove();
 }
+async function editorVisualTrackToggleLock(ev, trackId) {
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  const track = (ED.comp && ED.comp.visual_tracks || []).find(item => String(item.id) === String(trackId));
+  if (!track) { editorToast('画面轨道已变化，请刷新后重试', true); return; }
+  const locked = !Boolean(track.locked);
+  editorVisualTrackMenuClose();
+  try {
+    const result = await executeCommand({command:'set_track_locked', targetId:trackId, payload:{trackType:'visual', locked}});
+    if (!result || !result.ok) { editorToast('画面轨道锁定状态未修改：' + ((result && result.error) || '未知错误'), true); return; }
+    await refreshWorkspace();
+    editorToast(locked ? '画面轨道已锁定：全轨切分、拖动和修剪会跳过该轨' : '画面轨道已解锁：可继续编辑');
+  } catch (error) { editorToast('画面轨道锁定状态未修改：' + (error.message || error), true); }
+}
+
 async function editorVisualTrackMove(ev, trackId, toIndex) {
   if (ev) { ev.preventDefault(); ev.stopPropagation(); }
   editorVisualTrackMenuClose();
@@ -347,6 +361,8 @@ function _tlBindVisualOverlayDrag() {
       const index = Number.parseInt(el.dataset.visualOverlayIndex, 10);
       const clip = (ED.comp.visual_overlays || [])[index];
       if (!clip) return;
+      const lane = (ED.comp.visual_tracks || []).find(item => String(item.id) === String(clip.track_id || 'overlay-main'));
+      if (lane && lane.locked) { editorToast('画面轨道已锁定，先解锁后才能移动或修剪片段。', true); return; }
       const rect = el.getBoundingClientRect();
       const edge = Math.min(8, rect.width / 4);
       const mode = ev.clientX - rect.left <= edge ? 'trim-left'
