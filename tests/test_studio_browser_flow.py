@@ -326,6 +326,18 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     PV.activeSceneId = '';
                     PV.activeLayerId = '';
                     previewRenderComposition();
+                    const previewState = (label) => {
+                      const stage = document.querySelector('#ed-preview-stage');
+                      const media = stage && stage.querySelector('.pv-live-media');
+                      const host = stage && stage.querySelector('.pv-live-overlays');
+                      return {
+                        label, mode: PV.mode, playhead: PV.playhead,
+                        stageExists: !!stage, mediaExists: !!media, hostExists: !!host,
+                        activeSceneId: PV.activeSceneId, activeLayerId: PV.activeLayerId,
+                        stageMarkup: stage ? stage.innerHTML.slice(0, 260) : ''
+                      };
+                    };
+                    const stateAfterRender = previewState('after-render');
                     const host = document.querySelector('#ed-preview-stage .pv-live-overlays');
                     const active = host && host.querySelector('[data-overlay-index="0"]');
                     const activeStyle = active ? {
@@ -335,12 +347,19 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                       hostPosition: getComputedStyle(host).position
                     } : null;
                     previewSeek(0.5);
-                    const outsideStartCount = document.querySelector('#ed-preview-stage .pv-live-overlays').children.length;
+                    const stateAfterOutsideStart = previewState('outside-start');
+                    const outsideHost = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const outsideStartCount = outsideHost ? outsideHost.children.length : -1;
                     previewSeek(2.5);
-                    const insideCount = document.querySelector('#ed-preview-stage .pv-live-overlays').children.length;
+                    const stateInside = previewState('inside');
+                    const insideHost = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const insideCount = insideHost ? insideHost.children.length : -1;
                     previewSeek(3.0);
-                    const atEndCount = document.querySelector('#ed-preview-stage .pv-live-overlays').children.length;
-                    return {activeStyle, outsideStartCount, insideCount, atEndCount};
+                    const stateAtEnd = previewState('at-end');
+                    const endHost = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const atEndCount = endHost ? endHost.children.length : -1;
+                    return {activeStyle, outsideStartCount, insideCount, atEndCount,
+                      diagnostics: [stateAfterRender, stateAfterOutsideStart, stateInside, stateAtEnd]};
                   } finally {
                     ED.comp = originalComp;
                     PV.mode = originalPV.mode;
