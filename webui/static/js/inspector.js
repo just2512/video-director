@@ -6,7 +6,7 @@
 //   scene_pair → 八类型镜头关系 + 预览/应用 + 连续性检查
 // 多选 → 批量操作聚合视图。
 
-const LAY_TYPE_CN = {video:'视频', image:'图片', person:'人物', text:'文本', title:'标题', subtitle:'字幕', lowerThird:'人物条', shape:'形状', svg:'图形', icon:'图标', chart:'图表', diagram:'示意图', graphic:'图形', background:'背景', logo:'标识', lottie:'动画', pip:'画中画', html:'网页', canvas:'画布', webgl:'3D', three_scene:'3D场景', broll:'B-roll'};
+const LAY_TYPE_CN = {video:'视频', image:'图片', gap:'空隙', person:'人物', text:'文本', title:'标题', subtitle:'字幕', lowerThird:'人物条', shape:'形状', svg:'图形', icon:'图标', chart:'图表', diagram:'示意图', graphic:'图形', background:'背景', logo:'标识', lottie:'动画', pip:'画中画', html:'网页', canvas:'画布', webgl:'3D', three_scene:'3D场景', broll:'B-roll'};
 function layerTypeCn(t){ return LAY_TYPE_CN[t] || t; }
 const MOTION_TYPE_CN = {enter:'入场', emphasis:'强调', exit:'出场', transition:'转场', idle:'静态', ambient:'环境'};
 const COMMERCIAL_CN = {CLEAR:'可商用', UNKNOWN:'待确认', BLOCKED:'禁止商用', REVIEW:'需复核'};
