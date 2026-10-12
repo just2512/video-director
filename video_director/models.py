@@ -468,6 +468,26 @@ class SubtitleStyle(BaseModel):
         return self
 
 
+class AudioLane(BaseModel):
+    """Named global audio lane. Lane ownership is independent from mix role."""
+
+    id: str
+    name: str
+    order: int = 0
+
+    @model_validator(mode="after")
+    def _check_audio_lane(self):
+        if not self.id.strip() or len(self.id) > 80 or not self.id.isascii() or any(
+            not (char.isalnum() or char in "_-") for char in self.id
+        ):
+            raise ValueError("audio lane id must use only ASCII letters, digits, underscore, or hyphen")
+        if not self.name.strip() or len(self.name.strip()) > 60:
+            raise ValueError("audio lane name must contain 1–60 characters")
+        if isinstance(self.order, bool) or self.order < 0:
+            raise ValueError("audio lane order must be a non-negative integer")
+        return self
+
+
 class AudioTrack(BaseModel):
     """V2 §30/§58：BGM/SFX 是正式时间轴资源。
 
@@ -480,6 +500,8 @@ class AudioTrack(BaseModel):
     # Optional stable ID preserves compatibility with existing project JSON while
     # allowing individually selectable, undoable event clips (e.g. per-shot SFX).
     id: Optional[str] = None
+    # Physical timeline ownership; AudioTrackType remains the renderer's semantic mix role.
+    track_id: Optional[str] = None
     asset_id: Optional[str] = None
     start: float = 0.0
     duration: float
@@ -500,6 +522,12 @@ class AudioTrack(BaseModel):
             raise ValueError(f"audio track({self.type}): volume {self.volume} 非法")
         if self.start < 0:
             raise ValueError(f"audio track({self.type}): start {self.start} 为负")
+        if self.track_id is not None:
+            lane_id = str(self.track_id).strip()
+            if not lane_id or len(lane_id) > 80 or not lane_id.isascii() or any(
+                not (char.isalnum() or char in "_-") for char in lane_id
+            ):
+                raise ValueError("audio track_id must reference a valid audio lane id")
         return self
 
 
@@ -645,6 +673,8 @@ class CompositionIR(BaseModel):
     style_id: Optional[str] = None
     scenes: List[SceneIR]
     audio: List[AudioTrack] = Field(default_factory=list)
+    # Named physical audio lanes; type on each AudioTrack still controls mix semantics.
+    audio_tracks: List[AudioLane] = Field(default_factory=list)
     # ---- MPT 吸收方案 §十九/§三十一：水印与字幕样式是一等 IR 字段 ----
     watermarks: List[WatermarkLayer] = Field(default_factory=list)
     # Named, ordered global picture tracks; old project JSON migrates to overlay-main.
@@ -673,6 +703,44 @@ class CompositionIR(BaseModel):
 
     @model_validator(mode="after")
     def _check_continuity(self):
+        # Backward-compatible migration from role-based audio lists to physical lanes.
+        default_audio_lanes = [
+            ("audio-narration", "旁白音频", "narration"),
+            ("audio-dialogue", "对白", "dialogue"),
+            ("audio-original", "原声", "original"),
+            ("audio-bgm", "背景音乐", "bgm"),
+            ("audio-sfx", "音效", "sfx"),
+            ("audio-ambience", "环境音", "ambience"),
+        ]
+        if not self.audio_tracks:
+            self.audio_tracks = [
+                AudioLane(id=lane_id, name=name, order=index)
+                for index, (lane_id, name, _role) in enumerate(default_audio_lanes)
+            ]
+        role_to_lane = {role: lane_id for lane_id, _name, role in default_audio_lanes}
+        role_to_name = {role: name for _lane_id, name, role in default_audio_lanes}
+        migrated_audio = []
+        for audio_clip in self.audio:
+            role = str(getattr(audio_clip.type, "value", audio_clip.type))
+            lane_id = str(audio_clip.track_id or "").strip() or role_to_lane.get(role, "audio-" + role)
+            if not any(lane.id == lane_id for lane in self.audio_tracks):
+                name = role_to_name.get(role, "")
+                if not name or lane_id != role_to_lane.get(role):
+                    name = f"音轨 {len(self.audio_tracks) + 1}"
+                self.audio_tracks.append(AudioLane(
+                    id=lane_id,
+                    name=name,
+                    order=max((lane.order for lane in self.audio_tracks), default=-1) + 1,
+                ))
+            migrated_audio.append(audio_clip.model_copy(update={"track_id": lane_id}))
+        self.audio = migrated_audio
+        lane_ids = [lane.id for lane in self.audio_tracks]
+        lane_orders = [lane.order for lane in self.audio_tracks]
+        if len(lane_ids) != len(set(lane_ids)):
+            raise ValueError("duplicate audio lane id")
+        if len(lane_orders) != len(set(lane_orders)):
+            raise ValueError("duplicate audio lane order")
+
         # Backward-compatible migration: older compositions had one implicit overlay row.
         if not self.visual_tracks:
             self.visual_tracks = [VisualTrack(id="overlay-main", name="画面叠加", order=0)]

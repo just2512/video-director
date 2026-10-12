@@ -251,6 +251,35 @@ function editorRenderTimeline(){
   }
 }
 
+function _timelineAudioTracks(comp){
+  const roleLanes = [
+    {id:'audio-narration', name:'旁白音频', order:0, role:'narration'},
+    {id:'audio-dialogue', name:'对白', order:1, role:'dialogue'},
+    {id:'audio-original', name:'原声', order:2, role:'original'},
+    {id:'audio-bgm', name:'背景音乐', order:3, role:'bgm'},
+    {id:'audio-sfx', name:'音效', order:4, role:'sfx'},
+    {id:'audio-ambience', name:'环境音', order:5, role:'ambience'},
+  ];
+  const roleByType = Object.fromEntries(roleLanes.map(lane => [lane.role, lane.id]));
+  roleByType.ambient = roleByType.ambience;
+  const lanes = Array.isArray(comp.audio_tracks) && comp.audio_tracks.length
+    ? comp.audio_tracks.map(lane => ({...lane}))
+    : roleLanes.map(lane => ({id:lane.id, name:lane.name, order:lane.order}));
+  const ensureLane = (id, role) => {
+    if (lanes.some(lane => lane.id === id)) return;
+    const fallback = roleLanes.find(lane => lane.id === id || lane.role === role);
+    lanes.push({id, name: fallback && id === fallback.id ? fallback.name : ('音轨 ' + (lanes.length + 1)),
+      order: Math.max(-1, ...lanes.map(lane => Number(lane.order) || 0)) + 1});
+  };
+  (comp.audio || []).forEach(clip => {
+    const role = String(clip.type || 'sfx').toLowerCase();
+    const laneId = String(clip.track_id || clip.trackId || roleByType[role] || ('audio-' + role));
+    ensureLane(laneId, role);
+    if (!clip.track_id) clip.track_id = laneId; // legacy UI state only; the server migrates on save/load.
+  });
+  return lanes.sort((a,b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
 function renderPhysicalTimeline(){
   const c = ED.comp;
   const total = c.duration || 1;
@@ -272,9 +301,6 @@ function renderPhysicalTimeline(){
   tracks.language.push({id: 'narration', label: '旁白', readOnly: false,
     clips: narration.map((n, i) => ({pct: n.pct, text: n.text, title: n.title,
       onclick: `selectNarration(${i})`}))});
-  const dialogue = audioOf('dialogue');
-  tracks.language.push({id: 'dialogue', label: '对白', readOnly: false,
-    clips: dialogue.length ? [{pct: 100, text: '对白', title: '对白轨'}] : []});
   // Render each subtitle cue as a timed clip on the shared CompositionIR clock.
   const subtitleTrack = c.subtitle_track || null;
   const subtitleCues = subtitleTrack && Array.isArray(subtitleTrack.cues) ? subtitleTrack.cues : [];
@@ -378,25 +404,20 @@ function renderPhysicalTimeline(){
       onclick
     };
   };
-  const original = audioOf('original');
-  tracks.sound.push({id: 'original', label: '原声',
-    clips: original.map((a, i) => audioClip(a, original.length > 1 ? `原声 ${i+1}` : '原声',
-      "originalTrackOpen()"))});
-  const bgms = audioOf('bgm');
-  tracks.sound.push({id: 'bgm', label: '背景音乐',
-    clips: bgms.map((a, i) => audioClip(a, bgms.length > 1 ? `BGM ${i+1}` : '背景音乐',
-      "bgmTrackOpen()"))});
-  const sfxs = audioOf('sfx');
-  tracks.sound.push({id: 'sfx', label: '音效',
-    clips: sfxs.map((a, i) => audioClip(a, sfxs.length > 1 ? `音效 ${i+1}` : '音效',
-      "editorAudioVolume('sfx')"))});
-  const dialogueTracks = audioOf('dialogue');
-  tracks.language.find(t => t.id === 'dialogue').clips = dialogueTracks.map((a, i) =>
-    audioClip(a, dialogueTracks.length > 1 ? `对白 ${i+1}` : '对白', null));
-  const ambienceTracks = audioOf('ambience');
-  tracks.sound.push({id: 'ambience', label: '环境音',
-    clips: ambienceTracks.map((a, i) => audioClip(a, ambienceTracks.length > 1 ? `环境音 ${i+1}` : '环境音',
-      "editorAudioVolume('ambience')"))});
+  const roleLabels = {narration:'旁白音频', dialogue:'对白', original:'原声', bgm:'BGM', sfx:'SFX', ambience:'环境音', ambient:'环境音'};
+  _timelineAudioTracks(c).forEach(lane => {
+    const indexed = (c.audio || []).map((clip, index) => ({clip, index})).filter(item => String(item.clip.track_id || '') === String(lane.id));
+    const counts = {}, seen = {};
+    indexed.forEach(item => { const role = String(item.clip.type || 'sfx').toLowerCase(); counts[role] = (counts[role] || 0) + 1; });
+    const clips = indexed.map(item => {
+      const role = String(item.clip.type || 'sfx').toLowerCase();
+      seen[role] = (seen[role] || 0) + 1;
+      const label = roleLabels[role] || role;
+      return audioClip(item.clip, counts[role] > 1 ? label + ' ' + seen[role] : label, null);
+    });
+    tracks.sound.push({id:'audio-track-' + String(lane.id), label:lane.name || '音轨', audioTrackId:String(lane.id), clips});
+  });
+
   // 时间关系组：关键帧
   const kfPoints = [];
   c.scenes.forEach(sc => (sc.layers || []).forEach((lay, li) => {
@@ -462,14 +483,16 @@ function renderPhysicalTimeline(){
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
     const empty = (!t.clips || !t.clips.length) && !t.isSceneTrack && !(t.kfPoints || []).length;
-    const labelHtml = t.visualTrackId && t.showTrackControls !== false
+    const labelHtml = t.audioTrackId
+      ? '<div class="ed-track-label ed-audio-track-label"><span title="' + esc(t.label) + '">' + esc(t.label) + '</span><button type="button" class="btn-secondary btn-sm ed-audio-track-menu" title="音轨名称与删除" aria-label="编辑音轨" onclick="editorAudioTrackMenu(event, &quot;' + esc(t.audioTrackId) + '&quot;)"></button></div>'
+      : t.visualTrackId && t.showTrackControls !== false
       ? `<div class="ed-track-label ed-visual-track-label"><span class="ed-visual-track-name" title="${esc(t.label)}">${esc(t.label)}</span><div class="ed-visual-track-actions"><button type="button" class="btn-secondary btn-sm ed-track-add" title="从项目素材库向此轨道添加片段" onclick="editorVisualOverlayPick(event, '${esc(t.visualTrackId)}')">＋</button><button type="button" class="btn-secondary btn-sm" title="轨道名称、顺序与删除" onclick="editorVisualTrackMenu(event, '${esc(t.visualTrackId)}')">⋯</button>${t.newTrackAction ? `<button type="button" class="btn-secondary btn-sm" title="新增画面轨道" onclick="editorVisualTrackCreate(event)">＋轨</button>` : ''}</div></div>`
       : t.visualTrackId
         ? `<div class="ed-track-label"><span title="${esc(t.label)}">${esc(t.label)}</span></div>`
         : t.addAction
         ? `<div class="ed-track-label">${esc(t.label)} <button type="button" class="btn-secondary btn-sm ed-track-add" title="添加片段" onclick="${t.addAction}(event)">＋</button></div>`
         : `<div class="ed-track-label">${esc(t.label)}</div>`;
-    return '<div class="ed-track"' + (t.visualTrackId ? ' data-visual-track-id="' + esc(t.visualTrackId) + '"' : '') + '>' + labelHtml +
+    return '<div class="ed-track"' + (t.visualTrackId ? ' data-visual-track-id="' + esc(t.visualTrackId) + '"' : '') + (t.audioTrackId ? ' data-audio-track-id="' + esc(t.audioTrackId) + '"' : '') + '>' + labelHtml +
       `<div class="ed-track-body">${bodyInner}${kfHtml}${empty ? '<span class="hint tl-empty-hint">无</span>' : ''}</div></div>`;
   };
   for (const g of GROUP_ORDER) {
@@ -484,7 +507,7 @@ function renderPhysicalTimeline(){
         <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span></div>`;
     } else {
       html += `<div class="ed-track-group" onclick="tlToggleGroup('${g}')">
-        <span class="ed-group-caret">▾</span> ${G.label}</div>`;
+        <span class="ed-group-caret">▾</span> ${G.label}` + (g === 'sound' ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增音轨" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>' : '') + '</div>';
       for (const t of tracks[g] || []) html += trackRow(t);
     }
   }
@@ -958,6 +981,77 @@ async function editorAudioClipApply(index){
   }
 }
 
+function editorAudioTrackMenuClose(ev){
+  if (ev) ev.stopPropagation();
+  const mask = document.getElementById('audio-track-inspector-mask');
+  if (mask) mask.remove();
+}
+
+async function editorAudioTrackAdd(ev){
+  if (ev) ev.stopPropagation();
+  if (!ED.pid || !ED.comp) { editorToast('先打开项目'); return; }
+  const lanes = _timelineAudioTracks(ED.comp);
+  const used = new Set(lanes.map(lane => String(lane.name || '').trim().toLocaleLowerCase()));
+  let number = 1;
+  while (used.has(('音轨 ' + number).toLocaleLowerCase())) number += 1;
+  try {
+    const result = await executeCommand({command:'add_audio_track', targetId:'audio-tracks', payload:{name:'音轨 ' + number}});
+    if (!result || !result.ok) { editorToast('新增音轨失败：' + ((result && result.error) || '未知错误'), true); return; }
+    await refreshWorkspace();
+    editorToast('已新增音轨 ' + number);
+  } catch (error) { editorToast('新增音轨失败：' + (error.message || error), true); }
+}
+
+function editorAudioTrackMenu(ev, trackId){
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  if (!ED.comp) return;
+  editorAudioTrackMenuClose();
+  const lane = _timelineAudioTracks(ED.comp).find(item => item.id === trackId);
+  if (!lane) { editorToast('音轨已变化，请刷新后重试', true); return; }
+  const clipCount = (ED.comp.audio || []).filter(clip => clip.track_id === trackId).length;
+  const mask = document.createElement('div');
+  mask.id = 'audio-track-inspector-mask';
+  mask.className = 'audio-track-inspector-mask';
+  mask.innerHTML = '<section class="audio-track-inspector" role="dialog" aria-modal="true" aria-label="音轨设置">' +
+    '<header><b>音轨设置</b><button type="button" class="btn-secondary btn-sm" onclick="editorAudioTrackMenuClose(event)">关闭</button></header>' +
+    '<label for="audio-track-name">名称</label>' +
+    '<input id="audio-track-name" type="text" maxlength="60" value="' + esc(lane.name || '') + '" autocomplete="off">' +
+    '<p class="hint">此轨道有 ' + clipCount + ' 个片段。移动片段只改变轨道归属，不改变 BGM、SFX、原声等混音角色。</p>' +
+    '<footer><button type="button" class="btn-secondary btn-sm" ' + (clipCount ? 'disabled title="请先移动或删除片段"' : '') + ' onclick="editorAudioTrackRemove(\'' + esc(trackId) + '\', event)">删除空轨道</button>' +
+    '<button type="button" class="btn-primary btn-sm" onclick="editorAudioTrackApplyName(\'' + esc(trackId) + '\', event)">保存名称</button></footer></section>';
+  mask.addEventListener('click', event => { if (event.target === mask) editorAudioTrackMenuClose(); });
+  document.body.appendChild(mask);
+  const input = mask.querySelector('#audio-track-name');
+  if (input) { input.focus(); input.select(); }
+}
+
+async function editorAudioTrackApplyName(trackId, ev){
+  if (ev) ev.stopPropagation();
+  const input = document.querySelector('#audio-track-name');
+  const name = input ? input.value.trim() : '';
+  if (!name || name.length > 60) { editorToast('音轨名称必须为 1–60 个字符', true); return; }
+  try {
+    const result = await executeCommand({command:'rename_audio_track', targetId:trackId, payload:{name}});
+    if (!result || !result.ok) { editorToast('音轨名称未保存：' + ((result && result.error) || '未知错误'), true); return; }
+    editorAudioTrackMenuClose();
+    await refreshWorkspace();
+    editorToast('音轨名称已保存');
+  } catch (error) { editorToast('音轨名称未保存：' + (error.message || error), true); }
+}
+
+async function editorAudioTrackRemove(trackId, ev){
+  if (ev) ev.stopPropagation();
+  const clips = (ED.comp && ED.comp.audio || []).filter(clip => clip.track_id === trackId);
+  if (clips.length) { editorToast('该音轨仍有片段，请先移动或删除片段', true); return; }
+  try {
+    const result = await executeCommand({command:'remove_audio_track', targetId:trackId, payload:{}});
+    if (!result || !result.ok) { editorToast('删除音轨失败：' + ((result && result.error) || '未知错误'), true); return; }
+    editorAudioTrackMenuClose();
+    await refreshWorkspace();
+    editorToast('空音轨已删除');
+  } catch (error) { editorToast('删除音轨失败：' + (error.message || error), true); }
+}
+
 function _tlBindAudioClipDrag(){
   document.querySelectorAll('#editor-timeline .ed-audio-clip[data-audio-index]').forEach(el => {
     el.addEventListener('pointerdown', ev => {
@@ -979,6 +1073,7 @@ function _tlBindAudioClipDrag(){
         sourceOut: track.source_out == null
           ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
           : Number(track.source_out),
+        startTrackId: String(track.track_id || (((el.closest('.ed-track[data-audio-track-id]') || {}).dataset || {}).audioTrackId) || ''),
         baseLeft: Number.parseFloat(el.style.left) || 0,
         baseWidth: Number.parseFloat(el.style.width) || 0,
       };
@@ -1043,7 +1138,12 @@ function _tlBindAudioClipDrag(){
     let command, payload;
     if (d.mode === 'move') {
       command = 'move_audio_clip';
+      const hit = Number.isFinite(ev.clientX) && Number.isFinite(ev.clientY)
+        ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
+      const targetRow = hit && hit.closest ? hit.closest('.ed-track[data-audio-track-id]') : null;
+      const targetTrackId = targetRow ? String(targetRow.dataset.audioTrackId || '') : d.startTrackId;
       payload = {start: round(Math.max(0, Math.min(total - 0.001, d.start + delta)))};
+      if (targetTrackId && targetTrackId !== d.startTrackId) payload.trackId = targetTrackId;
     } else if (d.mode === 'trim-left') {
       const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
       const sourceIn = d.sourceIn + dt;
@@ -1515,6 +1615,8 @@ Object.assign(window, {
 
   editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
+  editorAudioTrackAdd, editorAudioTrackMenu, editorAudioTrackMenuClose,
+  editorAudioTrackApplyName, editorAudioTrackRemove,
   selectNarration, projectOverlayOpen, originalTrackOpen, bgmTrackOpen,
   editorUndo, editorRedo, editorSaveBar, editorPreviewBar, editorTopbarRefresh,
   versionDrawerToggle, projectDrawerToggle, editorLoadVersions,
