@@ -6,7 +6,7 @@ import subprocess
 import pytest
 from pathlib import Path
 
-from video_director import renderer
+from video_director import qc, renderer
 from video_director.editor import execute_command, load_composition, save_composition
 from video_director.models import (
     AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
@@ -736,6 +736,22 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     active_db = _audio_window_mean_volume(ffmpeg, output, 0.8, 0.25)
     assert pre_roll_db < -65, f"lifted source audio leaked before the clip start: {pre_roll_db} dB"
     assert active_db > -35, f"lifted source audio is missing from the clip window: {active_db} dB"
+
+    # Move the lifted footage to cover the end of the project. Black pixels in
+    # the now-uncovered explicit gap must not fail output QC, while all sampled
+    # non-gap intervals remain required to contain real visual content.
+    moved_again = _apply(
+        project_id, "move_visual_overlay", "overlay#0", {"start": 2.0},
+        moved.composition_version,
+    )
+    assert moved_again.status == "APPLIED", moved_again.errors
+    qc_ir = load_composition(project_id)
+    qc_result = renderer.render_composition(
+        qc_ir, {asset.id: asset for asset in qc_ir.assets}, tmp_path / "promote-render-qc",
+    )
+    qc_ok, qc_detail = qc._detect_black_frames(qc_result.final_path, ir=qc_ir)
+    assert qc_ok, qc_detail
+    assert "跳过 2 个 IR 明确声明的空隙点" in qc_detail, qc_detail
 
 
 def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_path, monkeypatch):
