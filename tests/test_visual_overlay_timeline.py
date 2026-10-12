@@ -1433,3 +1433,77 @@ def test_detach_overlay_rejects_overlapping_dialogue_or_mismatched_original_audi
         assert len(saved.audio) == 1
         assert saved.audio[0].volume == pytest.approx(volume)
         assert saved.visual_overlays[0].source_audio_enabled is True
+
+
+
+def _promotable_main_video_with_original_audio(
+    tmp_path, monkeypatch, *, original_start: float, original_duration: float,
+    original_source_in: float, original_source_out: float,
+):
+    ffmpeg = renderer._ffmpeg()
+    video_path = tmp_path / "reused-main-source.mp4"
+    base_path = tmp_path / "reused-main-base.png"
+    _make_video_with_audio(ffmpeg, video_path)
+    _make_still(ffmpeg, base_path, "green")
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    ir = load_composition(pid)
+    ir.project = ir.project.model_copy(update={"duration": 6.0})
+    ir.scenes = [SceneIR(
+        id="S01", start=0.0, duration=6.0, text="reused source audio",
+        layers=[
+            Layer(type=LayerType.video, asset_id="reused-video", start=0.0, duration=2.0,
+                  source_in=0.0, source_out=2.0, speed=1.0),
+            Layer(type=LayerType.image, asset_id="reused-base", start=2.0, duration=4.0),
+        ],
+    )]
+    ir.assets = [
+        AssetRef(id="reused-video", type="video", file=str(video_path), duration=2.0,
+                 width=40, height=40, fps=10),
+        AssetRef(id="reused-base", type="image", file=str(base_path), width=40, height=40),
+    ]
+    ir.audio = [AudioTrack(
+        type=AudioTrackType.original, id="later-original-audio", track_id="audio-original",
+        asset_id="reused-video", start=original_start, duration=original_duration,
+        source_in=original_source_in, source_out=original_source_out, volume=0.7,
+    )]
+    save_composition(pid, ir)
+    return ffmpeg, pid
+
+
+def test_promoting_reused_video_keeps_source_audio_when_existing_original_is_elsewhere(tmp_path, monkeypatch):
+    ffmpeg, pid = _promotable_main_video_with_original_audio(
+        tmp_path, monkeypatch,
+        original_start=3.0, original_duration=1.0,
+        original_source_in=0.25, original_source_out=1.25,
+    )
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {"start": 0.0}, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    assert saved.visual_overlays[0].source_audio_enabled is True, (
+        "an original-audio clip at 3–4s must not mute the promoted video's distinct 0–2s source window"
+    )
+
+    rendered = renderer.render_composition(
+        saved, {asset.id: asset for asset in saved.assets}, tmp_path / "promoted-reused-source-audio",
+    )
+    output = Path(rendered.final_path)
+    report = renderer._verify_muxed_audio(str(output), expected_duration=6.0)
+    assert report.get("codec") == "aac" and report.get("full_decode") == "PASS", report
+    promoted_window_db = _audio_window_mean_volume(ffmpeg, output, 0.8, 0.25)
+    existing_window_db = _audio_window_mean_volume(ffmpeg, output, 3.3, 0.25)
+    assert promoted_window_db > -35, f"promoted clip source audio was unexpectedly silent: {promoted_window_db} dB"
+    assert existing_window_db > -38, f"existing original clip stopped rendering: {existing_window_db} dB"
+
+
+def test_promoting_video_suppresses_exactly_duplicated_original_audio_window(tmp_path, monkeypatch):
+    _, pid = _promotable_main_video_with_original_audio(
+        tmp_path, monkeypatch,
+        original_start=0.0, original_duration=2.0,
+        original_source_in=0.0, original_source_out=2.0,
+    )
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {"start": 0.0}, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    assert saved.visual_overlays[0].source_audio_enabled is False, (
+        "an exact original-audio duplicate must remain single-mixed"
+    )
