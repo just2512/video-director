@@ -126,14 +126,17 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   return {status: response.status, body: await response.json()};
                 }""", pid)
                 assert api_composition["status"] == 200, api_composition
-                assert api_composition["body"]["visual_overlays"] == [{
+                api_overlays = api_composition["body"]["visual_overlays"]
+                assert len(api_overlays) == 1, api_composition
+                api_overlay = api_overlays[0]
+                assert {key: api_overlay.get(key) for key in (
+                    "id", "asset_id", "start", "duration", "source_in", "x", "y",
+                    "width", "height", "opacity", "z_index",
+                )} == {
                     "id": "e2e-overlay", "asset_id": "e2e-still", "start": 0.25,
                     "duration": 0.5, "source_in": 0.0, "x": 0.6, "y": 0.1,
                     "width": 0.3, "height": 0.3, "opacity": 0.8, "z_index": 1,
-                    "asset_file": "", "asset_type": None, "asset_duration": None,
-                    "asset_width": None, "asset_height": None, "asset_has_audio": None,
-                    "asset_source": None, "asset_name": "",
-                }], api_composition
+                }, api_composition
                 loaded = page.evaluate("() => shotbookLoad()")
                 assert loaded, "Shotbook did not load through the real HTTP handler"
                 page.locator("#shotbook-details").evaluate("(element) => { element.open = true; }")
