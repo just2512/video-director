@@ -664,9 +664,13 @@ function _tlBindLayerDrag(){
                     startX: ev.clientX, startY: ev.clientY, moved: false, mode: null};
       // §17 边缘 Trim：按下点在层带左/右 8px → trim 手势；中间 → move 手势
       const r = el.getBoundingClientRect();
-      const edge = 8;
-      if (ev.clientX - r.left <= edge) _layerDrag.mode = 'trim-left';
-      else if (r.right - ev.clientX <= edge) _layerDrag.mode = 'trim-right';
+      // Fixed 8px edge zones consumed the entire hit area of short clips at low
+      // zoom, so a center drag was misclassified as a trim and never reordered.
+      // Keep edge handles proportional to the clip width; sub-8px clips remain
+      // movable by pointer and can be trimmed precisely in the clip inspector.
+      const edge = Math.min(8, r.width * 0.25);
+      if (r.width >= 8 && ev.clientX - r.left <= edge) _layerDrag.mode = 'trim-left';
+      else if (r.width >= 8 && r.right - ev.clientX <= edge) _layerDrag.mode = 'trim-right';
       else _layerDrag.mode = 'move';
     });
   });
