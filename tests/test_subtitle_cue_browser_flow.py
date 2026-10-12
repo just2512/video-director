@@ -65,6 +65,11 @@ def test_word_subtitle_cues_move_trim_preview_and_persist(tmp_path, monkeypatch)
                 )
                 opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
                 assert opened and opened.get("ok"), f"workspace did not open: {opened}"
+                page.wait_for_function(
+                    "() => ED.comp && ED.comp.subtitle_track && ED.comp.subtitle_track.cues.length === 2",
+                    timeout=10000,
+                )
+                page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
                 page.wait_for_selector("#editor-timeline .ed-subtitle-cue[data-subtitle-cue-index='0']")
                 page.wait_for_selector("#editor-timeline .ed-subtitle-cue[data-subtitle-cue-index='1']")
 
