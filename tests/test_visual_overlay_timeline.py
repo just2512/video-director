@@ -751,7 +751,8 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     )
     qc_ok, qc_detail = qc._detect_black_frames(qc_result.final_path, ir=qc_ir)
     assert qc_ok, qc_detail
-    assert "跳过 2 个 IR 明确声明的空隙点" in qc_detail, qc_detail
+    assert "个 IR 明确声明的空隙点" in qc_detail, qc_detail
+    assert "个非 gap 采样点无意外黑帧" in qc_detail, qc_detail
 
 
 def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_path, monkeypatch):
