@@ -109,6 +109,35 @@ def test_visual_overlay_commands_reject_unknown_assets_stale_versions_and_out_of
     assert load_composition(pid).visual_overlays[0].start == 1.0
 
 
+
+def test_visual_overlay_add_promotes_trusted_catalog_asset_into_composition(tmp_path, monkeypatch):
+    from video_director import asset_catalog
+
+    pid, plans = _editor_project(tmp_path, monkeypatch)
+    # The asset is selectable from the editor catalog but has never been used by
+    # a SceneIR layer, so it is intentionally absent from CompositionIR.assets.
+    comp = load_composition(pid)
+    comp.assets = []
+    save_composition(pid, comp)
+    external_overlay = tmp_path / "catalog-red.png"
+    external_overlay.write_bytes(b"trusted catalog fixture")
+    monkeypatch.setattr(asset_catalog, "get_asset", lambda asset_id: {
+        "id": asset_id, "type": "image", "file": str(external_overlay),
+        "name": "Catalog Red", "duration": None, "width": 40, "height": 40,
+        "fps": None, "source": "uploaded", "license_note": "test fixture",
+        "provenance": {"source": "test"}, "rights_status": "CLEAR",
+    } if asset_id == "catalog-only" else None)
+
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "catalog-only", "start": 1.0, "duration": 2.0,
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+    reloaded = load_composition(pid)
+    assert any(asset.id == "catalog-only" and Path(asset.file).resolve() == external_overlay.resolve()
+               for asset in reloaded.assets)
+    assert reloaded.visual_overlays[0].asset_id == "catalog-only"
+
+
 def _make_still(ffmpeg: str, path: Path, color: str):
     run = subprocess.run([
         ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i",
