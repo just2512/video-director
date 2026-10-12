@@ -96,6 +96,7 @@ function editorVisualOverlayOpen(index, ev) {
         <div><label for="visual-overlay-height">高度（0.05–1）</label><input id="visual-overlay-height" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.height ?? 0.3)}"></div>
       </div>
       <label for="visual-overlay-opacity">不透明度（0–1）</label><input id="visual-overlay-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.opacity ?? 1)}">
+  <label for="visual-overlay-z-index">叠加层级（数值越大越靠前）</label><input id="visual-overlay-z-index" type="number" min="-100" max="100" step="1" value="${Number(clip.z_index ?? 0)}">
       <footer><button type="button" class="btn-danger" onclick="editorVisualOverlayRemove(${index})">删除叠加</button>
         <button type="button" class="btn-secondary" onclick="editorVisualOverlayClose()">取消</button>
         <button type="button" class="btn-primary" onclick="editorVisualOverlayApply(${index})">保存设置</button></footer>
@@ -113,11 +114,13 @@ async function editorVisualOverlayApply(index) {
     y:Number(mask.querySelector('#visual-overlay-y').value),
     width:Number(mask.querySelector('#visual-overlay-width').value),
     height:Number(mask.querySelector('#visual-overlay-height').value),
-    opacity:Number(mask.querySelector('#visual-overlay-opacity').value)
+    opacity:Number(mask.querySelector('#visual-overlay-opacity').value),
+    z_index:Number(mask.querySelector('#visual-overlay-z-index').value)
   };
   if (!Object.values(payload).every(Number.isFinite) || payload.x < 0 || payload.y < 0 ||
       payload.width < 0.05 || payload.height < 0.05 || payload.width > 1 || payload.height > 1 ||
-      payload.opacity < 0 || payload.opacity > 1 || payload.x + payload.width > 1 || payload.y + payload.height > 1) {
+      payload.opacity < 0 || payload.opacity > 1 || !Number.isInteger(payload.z_index) || payload.z_index < -100 || payload.z_index > 100 ||
+      payload.x + payload.width > 1 || payload.y + payload.height > 1) {
     editorToast('位置/尺寸必须在画面边界内，透明度必须为 0–1', true); return;
   }
   try {
