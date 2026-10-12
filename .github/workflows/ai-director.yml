@@ -6,6 +6,13 @@ on:
   push:
     branches: [main]
 
+# Keep only the latest full regression run for a given PR/ref. Each run installs
+# Chromium and executes the full pytest suite, so superseded commits should not
+# compete with the head commit's browser/render checks.
+concurrency:
+  group: ai-director-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ai-director:
     runs-on: ubuntu-latest
