@@ -625,6 +625,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_style(ir, target_id, payload)
         elif cmd_name == "set_transform":
             changed, stale = _cmd_set_transform(ir, target_id, payload)
+        elif cmd_name == "promote_layer_to_visual_track":
+            changed, stale = _cmd_promote_layer_to_visual_track(ir, target_id, payload, project_id)
         elif cmd_name == "add_visual_overlay":
             changed, stale = _cmd_add_visual_overlay(ir, target_id, payload, project_id)
         elif cmd_name == "move_visual_overlay":
@@ -1529,6 +1531,117 @@ def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optio
     if media_type == "video" and (not math.isfinite(duration) or duration <= 0):
         raise EditorError("ASSET_PROBE_FAILED", "视频覆盖素材缺少有效时长")
     return asset, str(candidate), duration
+
+def _cmd_promote_layer_to_visual_track(
+    ir: CompositionIR, target_id: str, payload: dict, project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """Lift a compatible main-video layer into an independent full-frame track clip.
+
+    The source layer is replaced with an explicit gap of the same duration, keeping
+    scene timing and narration anchors unchanged. Unsupported scene/layer effects are
+    rejected rather than silently discarded by the global overlay renderer.
+    """
+    si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    if layer.type != LayerType.video:
+        raise EditorError("INVALID_TARGET", "只有视频主画面片段可以提升到独立轨道")
+    if abs(float(layer.speed) - 1.0) > 0.001:
+        raise EditorError("LIFT_UNSUPPORTED_SPEED", "当前转换要求 1.0x 原速；请先恢复原速再提升")
+    if (
+        layer.motion or layer.motion_recipe_id or layer.motion_version
+        or layer.motion_instance or layer.transform or layer.keyframes or layer.mask
+        or (getattr(layer, "fit_mode", "cover") or "cover") != "cover"
+    ):
+        raise EditorError(
+            "LIFT_UNSUPPORTED_EFFECT",
+            "当前片段带有变换、蒙版、关键帧或动效；请先移除这些效果，避免提升后丢失画面语义",
+        )
+    if getattr(scene, "camera", None) is not None:
+        raise EditorError("LIFT_UNSUPPORTED_SCENE_CAMERA", "所在分镜使用了场景镜头运动，暂不能单独提升其中一段")
+    transition = getattr(getattr(scene, "transition_out", None), "type", "cut")
+    if transition not in ("cut", None) and float(layer.start) + float(layer.duration) >= float(scene.duration) - 0.45:
+        raise EditorError("LIFT_UNSUPPORTED_TRANSITION", "该片段跨越分镜转场区域；请先将转场改为硬切再提升")
+
+    track_id = str(payload.get("trackId") or "overlay-main").strip()
+    if not any(track.id == track_id for track in ir.visual_tracks):
+        raise EditorError("NOT_FOUND", f"画面轨道 {track_id!r} 不存在", recoverable=False)
+    if not layer.asset_id:
+        raise EditorError("ASSET_NOT_FOUND", "主画面视频缺少 asset_id，不能提升", recoverable=False)
+
+    asset, resolved_file, source_duration = _overlay_source_duration(ir, layer.asset_id, project_id)
+    if str(asset.type).lower() != "video":
+        raise EditorError("ASSET_TYPE_MISMATCH", "主画面图层引用的素材不是视频", recoverable=False)
+    source_in = float(layer.source_in)
+    source_out = float(layer.source_out or 0.0)
+    duration = float(layer.duration)
+    if (
+        not math.isfinite(source_in) or not math.isfinite(source_out)
+        or source_in < 0 or source_out <= source_in
+        or source_out > source_duration + 0.05
+        or abs((source_out - source_in) - duration) > 0.05
+    ):
+        raise EditorError("INVALID_SOURCE_RANGE", "视频源区间与片段输出时长不一致，不能提升")
+
+    from video_director import prober
+    try:
+        probe = prober.probe_media(resolved_file)
+    except Exception as exc:
+        raise EditorError("ASSET_PROBE_FAILED", f"提升前无法验证视频流：{exc}") from exc
+    if not getattr(probe, "has_video_stream", False):
+        raise EditorError("ASSET_PROBE_FAILED", "素材没有可解码的视频流，不能提升")
+    absolute_start = float(scene.start) + float(layer.start)
+    if absolute_start < 0 or absolute_start + duration > float(ir.project.duration) + 0.05:
+        raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
+
+    # Avoid mixing the same source twice when the project already has an original
+    # track for this asset. In that case the existing audio track remains authoritative.
+    has_existing_original_track = any(
+        track.type == AudioTrackType.original and track.asset_id == layer.asset_id
+        for track in ir.audio
+    )
+    source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_existing_original_track
+
+    asset_index = next((i for i, item in enumerate(ir.assets) if item.id == layer.asset_id), None)
+    resolved_asset = asset.model_copy(update={
+        "file": resolved_file,
+        "duration": source_duration or asset.duration,
+    })
+    if asset_index is None:
+        ir.assets.append(resolved_asset)
+    else:
+        ir.assets[asset_index] = resolved_asset
+
+    clip_id = f"overlay-{uuid.uuid4().hex[:12]}"
+    clip = VisualOverlayClip(
+        id=clip_id,
+        asset_id=layer.asset_id,
+        start=round(absolute_start, 3),
+        duration=round(duration, 3),
+        source_in=round(source_in, 3),
+        track_id=track_id,
+        presentation_mode="full_frame",
+        source_audio_enabled=source_audio_enabled,
+        source_audio_volume=1.0,
+        x=0.0, y=0.0, width=1.0, height=1.0,
+        opacity=1.0, z_index=0,
+    )
+    ir.visual_overlays.append(clip)
+
+    # Preserve the old timeline footprint explicitly. The renderer turns this into
+    # a black video segment, so moving the promoted clip reveals a real gap rather
+    # than silently stretching neighboring footage or changing scene duration.
+    gap = Layer(type=LayerType.gap, start=layer.start, duration=layer.duration)
+    updated_layers = list(scene.layers)
+    updated_layers[idx] = gap
+    scene_data = scene.model_dump()
+    scene_data["layers"] = [item.model_dump() for item in updated_layers]
+    ir.scenes[si] = SceneIR(**scene_data)
+
+    key = f"visual-overlay:{clip.id}"
+    stale = _stale_of_scene(project_id="", scene_id=scene.id)
+    stale.extend([f"{key}:render", "project:visual-overlays:render", "project:preview"])
+    return [key, f"{scene.id}#{idx}"], stale
+
 
 def _cmd_add_visual_overlay(
     ir: CompositionIR, target_id: str, payload: dict, project_id: str,
