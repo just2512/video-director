@@ -1353,7 +1353,7 @@ def _cmd_add_visual_overlay(
         raise EditorError("INVALID_PARAMETER", "覆盖层起点必须在项目时长内")
     source_in = number("sourceIn", 0.0, 0.0)
     default_duration = min(3.0, total - start)
-    if asset.type == "video":
+    if str(asset.type).lower() == "video":
         default_duration = min(default_duration, source_duration - source_in)
     duration = number("duration", default_duration, 0.05)
     if start + duration > total + 1e-6:
@@ -1373,11 +1373,20 @@ def _cmd_add_visual_overlay(
     # client-supplied path as a render input. Persist the project's canonical asset file.
     asset_index = next(i for i, item in enumerate(ir.assets) if item.id == asset_id)
     ir.assets[asset_index] = asset.model_copy(update={"file": resolved_file, "duration": source_duration or asset.duration})
+    raw_z_index = payload.get("zIndex", 0)
+    if isinstance(raw_z_index, bool):
+        raise EditorError("INVALID_PARAMETER", "zIndex 必须是整数")
+    try:
+        z_index_value = float(raw_z_index)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PARAMETER", "zIndex 必须是整数") from exc
+    if not math.isfinite(z_index_value) or not z_index_value.is_integer() or not -100 <= z_index_value <= 100:
+        raise EditorError("INVALID_PARAMETER", "zIndex 必须是 -100 到 100 的整数")
     overlay = VisualOverlayClip(
         id=f"overlay-{uuid.uuid4().hex[:12]}", asset_id=asset_id,
         start=round(start, 3), duration=round(duration, 3), source_in=round(source_in, 3),
         x=x, y=y, width=box_width, height=box_height, opacity=opacity,
-        z_index=int(payload.get("zIndex", 0)),
+        z_index=int(z_index_value),
     )
     ir.visual_overlays.append(overlay)
     key = f"visual-overlay:{overlay.id}"
