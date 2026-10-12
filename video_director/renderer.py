@@ -998,11 +998,22 @@ def composite_visual_overlays(
         end = min(total, start + duration)
         overlay_label = f"ov{index}"
         composed_label = f"comp{index}"
+        if getattr(overlay, "presentation_mode", "picture_in_picture") == "full_frame":
+            # Full-frame clips must cover the full output frame. Picture-in-picture
+            # and stickers retain their source aspect ratio with transparent padding.
+            fit_filter = (
+                f"scale={box_w}:{box_h}:force_original_aspect_ratio=increase,"
+                f"crop={box_w}:{box_h}"
+            )
+        else:
+            fit_filter = (
+                f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
+                f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+            )
         filters.append(
             f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
-            f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,format=rgba,"
-            f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
-            f"format=rgba,colorchannelmixer=aa={float(overlay.opacity):.6f}[{overlay_label}]"
+            f"{fit_filter},format=rgba,"
+            f"colorchannelmixer=aa={float(overlay.opacity):.6f}[{overlay_label}]"
         )
         filters.append(
             f"[{current}][{overlay_label}]overlay=x={x_px}:y={y_px}:"

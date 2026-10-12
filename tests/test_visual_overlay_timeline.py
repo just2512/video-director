@@ -575,6 +575,10 @@ def test_real_ffmpeg_mixes_opted_in_video_overlay_source_audio(tmp_path):
     report = renderer._verify_muxed_audio(str(output), expected_duration=2.0)
     assert report.get("codec") == "aac", report
     assert report.get("full_decode") == "PASS", report
+    # Full-frame presentation uses cover/crop: no base blue should leak through the
+    # corner even though the portrait-ish source was encoded as a square.
+    corner = _pixel_at(ffmpeg, output, 0.5, 5, 5)
+    assert corner[0] > corner[2] * 1.5, corner
     assert composition.audio == [], "render-time derived clips must not mutate saved CompositionIR"
     probe = renderer.prober.probe_media(str(output))
     assert probe.has_audio_stream and probe.has_video_stream
