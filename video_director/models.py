@@ -572,6 +572,8 @@ class VisualTrack(BaseModel):
     def _check_visual_track(self):
         if not self.id.strip():
             raise ValueError("visual track id is required")
+        if len(self.id) > 80 or not self.id.isascii() or any(not (char.isalnum() or char in "_-") for char in self.id):
+            raise ValueError("visual track id must use only ASCII letters, digits, underscore, or hyphen")
         if not self.name.strip() or len(self.name.strip()) > 60:
             raise ValueError("visual track name must contain 1–60 characters")
         if isinstance(self.order, bool) or self.order < 0:
@@ -648,9 +650,10 @@ class CompositionIR(BaseModel):
     # ---- §17 Asset Reference Graph：首帧/末帧/参考图/风格/连续性/遮罩引用 ----
     references: Optional[ReferenceGraph] = None
     # ---- 视觉语义归一：Composition 顶层结构升级（§十六/§七十⑤，后向兼容）----
-    # §十七 Track 不新造成平行模型：现有 audio（narration/dialogue/original/bgm/
-    #   sfx/ambience 六型）+ Scene.layers（video/image/pip/title/lower_third/graphic
-    #   等 Layer.type）已覆盖 16 种轨道的语义，避免同一物两套表达造成新割裂。
+    # Audio buses and per-scene layers keep their existing semantic contracts. The
+    # global VisualTrack collection is intentionally scoped to visual_overlays, whose
+    # clips can overlap across scene boundaries; it is not yet a generic Track/Clip
+    # model for main-scene footage, audio, subtitles, captions, and effects.
     style_contract: Optional[StyleContract] = None          # §十六 styleContract
     camera_tracks: List[CameraTrack] = Field(default_factory=list)       # §十六 cameraTracks
     continuity_links: List[ContinuityLink] = Field(default_factory=list)  # §十六 continuityLinks
