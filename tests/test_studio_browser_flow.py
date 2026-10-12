@@ -152,6 +152,30 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 }""")
                 assert dual_scrub["hasPhysicalTimeline"], dual_scrub
                 assert 1.2 < dual_scrub["after"] < 1.8, dual_scrub
+
+                # Re-rendering the physical timeline must not attach another pair
+                # of document-level layer-drag handlers. Count real registrations.
+                layer_handler_count = page.evaluate("""() => {
+                  const originalAdd = document.addEventListener;
+                  const registrations = [];
+                  document.addEventListener = function(type, listener, options) {
+                    if (type === 'pointermove' || type === 'pointerup') registrations.push(type);
+                    return originalAdd.call(this, type, listener, options);
+                  };
+                  window.__tlLayerDragHandlers = false;
+                  const view = ED.timelineView;
+                  ED.timelineView = 'dual';
+                  editorRenderTimeline();
+                  editorRenderTimeline();
+                  document.addEventListener = originalAdd;
+                  ED.timelineView = view;
+                  editorRenderTimeline();
+                  return {
+                    pointermove: registrations.filter(type => type === 'pointermove').length,
+                    pointerup: registrations.filter(type => type === 'pointerup').length
+                  };
+                }""")
+                assert layer_handler_count == {"pointermove": 1, "pointerup": 1}, layer_handler_count
                 # 布局契约：Shotbook 与编辑器共享同一工作区（main 布局：#editor-body
                 # 与 #editor-workspace 同属 pane-editor；不要求在 .ws-col 三栏列内）。
                 assert page.locator("#shotbook-details").evaluate(
