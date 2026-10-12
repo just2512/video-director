@@ -1175,16 +1175,14 @@ def test_real_ffmpeg_source_track_insert_preserves_pixels_and_linked_audio_timin
     )
     overwritten_mp4 = Path(overwritten_result.final_path)
     assert overwritten_mp4.is_file() and overwritten_mp4.stat().st_size > 1000
-    assert _pixel_at(ffmpeg, overwritten_mp4, 0.6, 160, 90)[0] > 1.5 * _pixel_at(
-        ffmpeg, overwritten_mp4, 0.6, 160, 90
-    )[2]
+    red_left = _pixel_at(ffmpeg, overwritten_mp4, 0.6, 160, 90)
+    assert red_left[0] > 1.5 * red_left[2], red_left
     overwrite_pixel = _pixel_at(ffmpeg, overwritten_mp4, 1.0, 160, 90)
     assert overwrite_pixel[1] > overwrite_pixel[0] * 1.3, overwrite_pixel
     restored_red = _pixel_at(ffmpeg, overwritten_mp4, 1.35, 160, 90)
     assert restored_red[0] > restored_red[1] * 1.5, restored_red
-    assert _pixel_at(ffmpeg, overwritten_mp4, 1.75, 160, 90)[1] > 1.3 * _pixel_at(
-        ffmpeg, overwritten_mp4, 1.75, 160, 90
-    )[0]
+    existing_insert = _pixel_at(ffmpeg, overwritten_mp4, 1.75, 160, 90)
+    assert existing_insert[1] > 1.3 * existing_insert[0], existing_insert
     overwrite_audio = renderer._verify_muxed_audio(str(overwritten_mp4), expected_duration=3.5)
     assert overwrite_audio.get("codec") == "aac", overwrite_audio
     assert overwrite_audio.get("full_decode") == "PASS", overwrite_audio
