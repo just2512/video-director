@@ -187,8 +187,8 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     "opacity": 0.8, "z_index": 1,
                 }, api_composition
                 assert api_composition["body"]["audio_tracks"] == [
-                    {"id": "audio-custom-music", "name": "自定义配乐", "order": 0},
-                    {"id": "audio-custom-foley", "name": "细节音效", "order": 1},
+                    {"id": "audio-custom-music", "name": "自定义配乐", "order": 0, "locked": False},
+                    {"id": "audio-custom-foley", "name": "细节音效", "order": 1, "locked": False},
                 ], api_composition
                 assert [
                     {key: lane.get(key) for key in ("id", "type", "track_id", "asset_id", "start",
@@ -206,8 +206,8 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                      "muted": False, "fadeIn": 0.0, "fadeOut": 0.0},
                 ], api_composition
                 assert api_composition["body"]["visual_tracks"] == [
-                    {"id": "overlay-main", "name": "品牌叠加", "order": 0},
-                    {"id": "overlay-callouts", "name": "动态字卡", "order": 1},
+                    {"id": "overlay-main", "name": "品牌叠加", "order": 0, "locked": False},
+                    {"id": "overlay-callouts", "name": "动态字卡", "order": 1, "locked": False},
                 ], api_composition
                 assert api_composition["body"]["watermarks"] == [{
                     "id": "e2e-timed-watermark", "kind": "text", "text": "BRAND",
@@ -246,6 +246,55 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     (lane["id"], lane["name"]) for lane in restored_tracks["visualLanes"]
                 ], restored_tracks
                 assert restored_tracks["musicClip"] and restored_tracks["foleyClip"] and restored_tracks["overlayClip"], restored_tracks
+
+                # Real Chromium lock/unlock round trip: click the actual track-header
+                # controls, wait for the versioned Editor Command to refresh state, and
+                # confirm the persisted API state. Unlock after the assertion so later
+                # independent drag tests keep their original preconditions.
+                page.evaluate("""() => {
+                  TL_GROUPS.sound.open = true;
+                  editorRenderTimeline();
+                }""")
+                audio_lock_button = page.locator(
+                    '#editor-timeline .ed-track[data-audio-track-id="audio-custom-music"] .ed-track-lock'
+                )
+                visual_lock_button = page.locator(
+                    '#editor-timeline .ed-track[data-visual-track-id="overlay-callouts"] .ed-track-lock'
+                )
+                assert audio_lock_button.count() == 1
+                assert visual_lock_button.count() == 1
+                audio_lock_button.click()
+                page.wait_for_function(
+                    "() => ED.comp.audio_tracks.find(t => t.id === 'audio-custom-music')?.locked === true"
+                )
+                visual_lock_button.click()
+                page.wait_for_function(
+                    "() => ED.comp.visual_tracks.find(t => t.id === 'overlay-callouts')?.locked === true"
+                )
+                locked_api = page.evaluate("""async (projectId) => {
+                  const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+                  const body = await response.json();
+                  return {
+                    status: response.status,
+                    audio: body.audio_tracks.find(t => t.id === 'audio-custom-music')?.locked,
+                    visual: body.visual_tracks.find(t => t.id === 'overlay-callouts')?.locked
+                  };
+                }""", pid)
+                assert locked_api == {"status": 200, "audio": True, "visual": True}, locked_api
+                audio_lock_button = page.locator(
+                    '#editor-timeline .ed-track[data-audio-track-id="audio-custom-music"] .ed-track-lock'
+                )
+                visual_lock_button = page.locator(
+                    '#editor-timeline .ed-track[data-visual-track-id="overlay-callouts"] .ed-track-lock'
+                )
+                audio_lock_button.click()
+                page.wait_for_function(
+                    "() => ED.comp.audio_tracks.find(t => t.id === 'audio-custom-music')?.locked === false"
+                )
+                visual_lock_button.click()
+                page.wait_for_function(
+                    "() => ED.comp.visual_tracks.find(t => t.id === 'overlay-callouts')?.locked === false"
+                )
 
                 # Real Chromium regression: dragging a 2s audio clip past the
                 # 10s project end must submit start=8s, keeping the full clip in
