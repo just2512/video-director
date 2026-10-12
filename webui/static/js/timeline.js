@@ -1142,7 +1142,8 @@ function _tlBindAudioClipDrag(){
         ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
       const targetRow = hit && hit.closest ? hit.closest('.ed-track[data-audio-track-id]') : null;
       const targetTrackId = targetRow ? String(targetRow.dataset.audioTrackId || '') : d.startTrackId;
-      payload = {start: round(Math.max(0, Math.min(total - 0.001, d.start + delta)))};
+      // Keep the clip's full duration inside the project; the server enforces the same invariant.
+      payload = {start: round(Math.max(0, Math.min(Math.max(0, total - d.duration), d.start + delta)))};
       if (targetTrackId && targetTrackId !== d.startTrackId) payload.trackId = targetTrackId;
     } else if (d.mode === 'trim-left') {
       const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
@@ -1157,7 +1158,8 @@ function _tlBindAudioClipDrag(){
       command = 'trim_audio_clip';
       payload = {start: round(start), sourceIn: round(sourceIn), sourceOut: round(sourceOut)};
     } else {
-      const dt = Math.max(delta, -(d.duration - 0.05));
+      // A right trim may shorten freely, but must not extend beyond the project end.
+      const dt = Math.max(-(d.duration - 0.05), Math.min(delta, total - d.start - d.duration));
       const sourceIn = d.sourceIn;
       const sourceOut = d.sourceOut + dt;
       if (sourceOut - sourceIn < 0.05) {

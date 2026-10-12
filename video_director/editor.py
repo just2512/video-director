@@ -2096,8 +2096,11 @@ def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
         start = float(payload.get("start"))
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "move_audio_clip 需要数字 start") from exc
-    if not math.isfinite(start) or start < 0 or start >= float(ir.project.duration):
+    total = float(ir.project.duration)
+    if not math.isfinite(start) or start < 0 or start >= total:
         raise EditorError("INVALID_PARAMETER", "音频片段起点必须位于项目时间范围内")
+    if start + float(track.duration) > total + 1e-6:
+        raise EditorError("INVALID_TIMELINE_RANGE", "移动后的音频片段不能超出项目总时长")
     lane_id = str(payload.get("trackId", track.track_id or "") or "").strip()
     if not lane_id:
         lane_id = track.track_id or ""
@@ -2126,10 +2129,13 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     if not all(math.isfinite(value) for value in (start, source_in, source_out)):
         raise EditorError("INVALID_PARAMETER", "音频裁剪参数必须是有限数字")
     duration = source_out - source_in
-    if start < 0 or start >= float(ir.project.duration):
+    total = float(ir.project.duration)
+    if start < 0 or start >= total:
         raise EditorError("INVALID_PARAMETER", "裁剪后的音频起点必须位于项目时间范围内")
     if source_in < 0 or duration < 0.05:
         raise EditorError("INVALID_SOURCE_RANGE", "音频源区间必须非负且至少 0.05 秒")
+    if start + duration > total + 1e-6:
+        raise EditorError("INVALID_TIMELINE_RANGE", "裁剪后的音频片段不能超出项目总时长")
     ir.audio[index] = track.model_copy(update={
         "start": round(start, 3),
         "source_in": round(source_in, 3),

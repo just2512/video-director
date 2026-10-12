@@ -143,6 +143,67 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert page.locator("#shotbook-list .sb-shot").count() == 2
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
+
+                # Real Chromium regression: dragging a 2s audio clip past the
+                # 10s project end must submit start=8s, keeping the full clip in
+                # the project instead of relying on the renderer to truncate it.
+                audio_drag_boundary = page.evaluate("""async () => {
+                  const previousComp = ED.comp;
+                  const previousView = ED.timelineView;
+                  const previousSoundOpen = TL_GROUPS.sound.open;
+                  const previousExecute = window.executeCommand;
+                  const commands = [];
+                  try {
+                    const comp = JSON.parse(JSON.stringify(previousComp));
+                    comp.duration = 10;
+                    comp.audio_tracks = [{id:'test-audio-lane', name:'测试音轨', order:0}];
+                    comp.audio = [{
+                      id:'boundary-audio', type:'sfx', asset_id:'synthetic-audio',
+                      track_id:'test-audio-lane', start:5, duration:2,
+                      source_in:0, source_out:2, volume:0.5, muted:false,
+                      fadeIn:0, fadeOut:0, ducking:false
+                    }];
+                    ED.comp = comp;
+                    ED.timelineView = 'dual';
+                    // The editor intentionally collapses the sound group by default.
+                    // Expand it so this regression exercises an actual visible clip.
+                    TL_GROUPS.sound.open = true;
+                    window.executeCommand = async command => {
+                      commands.push(command);
+                      return {ok:false, error:'command captured by browser regression'};
+                    };
+                    editorRenderTimeline();
+                    const clip = document.querySelector('.ed-audio-clip[data-audio-index="0"]');
+                    const body = clip && clip.closest('.ed-track-body');
+                    if (!clip || !body) return {error:'audio clip or track body missing', commands};
+                    const clipRect = clip.getBoundingClientRect();
+                    const bodyRect = body.getBoundingClientRect();
+                    const x = clipRect.left + clipRect.width / 2;
+                    const y = clipRect.top + clipRect.height / 2;
+                    const farX = x + bodyRect.width * 2;
+                    clip.dispatchEvent(new PointerEvent('pointerdown', {
+                      bubbles:true, cancelable:true, pointerId:42, button:0, clientX:x, clientY:y
+                    }));
+                    document.dispatchEvent(new PointerEvent('pointermove', {
+                      bubbles:true, cancelable:true, pointerId:42, button:0, clientX:farX, clientY:y
+                    }));
+                    document.dispatchEvent(new PointerEvent('pointerup', {
+                      bubbles:true, cancelable:true, pointerId:42, button:0, clientX:farX, clientY:y
+                    }));
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    return {commands, expectedStart:8, duration:2, projectDuration:10};
+                  } finally {
+                    window.executeCommand = previousExecute;
+                    ED.comp = previousComp;
+                    ED.timelineView = previousView;
+                    TL_GROUPS.sound.open = previousSoundOpen;
+                    editorRenderTimeline();
+                  }
+                }""")
+                assert "error" not in audio_drag_boundary, audio_drag_boundary
+                assert audio_drag_boundary["commands"], audio_drag_boundary
+                assert audio_drag_boundary["commands"][0]["command"] == "move_audio_clip", audio_drag_boundary
+                assert audio_drag_boundary["commands"][0]["payload"]["start"] == 8, audio_drag_boundary
                 # Dual view must not merely render the physical timeline: the
                 # playhead must react to pointer input on the real timeline element.
                 dual_scrub = page.evaluate("""() => {
