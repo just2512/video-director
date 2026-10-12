@@ -683,9 +683,7 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     save_composition(project_id, composition)
     (plans / "revisions.jsonl").write_text("", encoding="utf-8")
 
-    lifted = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {
-        "trackId": "overlay-main",
-    }, 1)
+    lifted = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
     assert lifted.status == "APPLIED", lifted.errors
 
     undone = execute_command(
@@ -710,6 +708,9 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     assert (clip.start, clip.duration, clip.source_in) == (0.0, 2.0, 0.0)
     assert clip.presentation_mode == "full_frame"
     assert clip.source_audio_enabled is True
+    lifted_track = next(track for track in saved.visual_tracks if track.id == clip.track_id)
+    assert (lifted_track.name, lifted_track.order) == ("独立视频 1", 0)
+    assert next(track for track in saved.visual_tracks if track.id == "overlay-main").order == 1
     assert saved.audio == [], "source audio remains a derived render input, not a duplicate stored track"
 
     # Reposition the lifted clip away from the gap, then verify the encoded MP4
