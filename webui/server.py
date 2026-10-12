@@ -504,6 +504,50 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+    def _style_sample_render(self):
+        """Render the current CompositionIR using a bounded native style contract."""
+        import json as _json
+        from video_director.style_sample import StyleSampleError, render_style_sample
+
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0 or length > 1024 * 1024:
+            self._send_json({"ok": False, "code": "INVALID_REQUEST", "error": "请求体为空或超过 1 MiB。"}, 400)
+            return
+        try:
+            payload = _json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+        except _json.JSONDecodeError:
+            self._send_json({"ok": False, "code": "INVALID_JSON", "error": "请求体不是合法 JSON。"}, 400)
+            return
+        if not isinstance(payload, dict):
+            self._send_json({"ok": False, "code": "INVALID_REQUEST", "error": "请求体必须是 JSON 对象。"}, 400)
+            return
+        try:
+            result = render_style_sample(payload.get("project_id", ""), payload.get("style_id", ""), COMPOSER_ROOT / "style-samples")
+            self._send_json(result)
+        except StyleSampleError as exc:
+            status = 404 if exc.code == "COMPOSITION_NOT_FOUND" else (400 if exc.code in ("INVALID_PROJECT_ID", "METADATA_ONLY") else 422)
+            self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, status)
+        except Exception as exc:
+            self._send_json({"ok": False, "code": "SAMPLE_RENDER_FAILED", "error": str(exc)}, 500)
+
+    def _style_sample_download(self, parsed):
+        """Download only an MP4 created by the style sample-render route."""
+        sample_id = (parse_qs(parsed.query).get("id", [""])[0] or "").strip()
+        if not re.fullmatch(r"[a-f0-9]{32}", sample_id):
+            self._send_json({"ok": False, "code": "INVALID_SAMPLE_ID", "error": "样片 ID 格式无效。"}, 400)
+            return
+        root = (COMPOSER_ROOT / "style-samples").resolve()
+        target = (root / (sample_id + ".mp4")).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            self._send_json({"ok": False, "code": "INVALID_SAMPLE_PATH", "error": "样片路径无效。"}, 400)
+            return
+        if not target.is_file():
+            self._send_json({"ok": False, "code": "SAMPLE_NOT_FOUND", "error": "样片不存在或已过期。"}, 404)
+            return
+        self._send_bytes(target.read_bytes(), "video/mp4")
+
     def _template_sample_render(self):
         """Render and fully decode a template sample from the user's slot inputs."""
         import shutil as _shutil
@@ -1209,6 +1253,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, 500)
         elif route == "/api/registry/motions":
             self._registry_motions(parsed)
+        elif route == "/api/style_sample/download":
+            self._style_sample_download(parsed)
         elif route == "/api/template_sample/download":
             self._template_sample_download(parsed)
         elif route == "/api/studio/catalog":
@@ -1690,6 +1736,10 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
     def do_POST(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/styles/sample_render":
+            self._style_sample_render()
+            return
 
         # §52 POST /api/workflows：发起 WorkflowRun → 立即返回 run_id（不阻塞）。
         #   kind: compose（spec 同 /api/compose 字段）| render_draft | render_final
