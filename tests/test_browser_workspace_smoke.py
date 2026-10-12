@@ -547,7 +547,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 # Real pointer gesture: drag a normal main-track video vertically
                 # onto an existing global visual track. The payload must carry both
                 # the selected destination track and the time under the drop pointer.
-                drag_boxes = page.evaluate("""() => {
+                drag_boxes = page.evaluate("""async () => {
                     ED.comp.duration = 20;
                     if (ED.comp.project) ED.comp.project.duration = 20;
                     ED.comp.visual_tracks = [{id: 'overlay-main', name: '画面叠加', order: 0}];
@@ -562,13 +562,26 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     const source = document.querySelector('#editor-timeline .ed-layer[data-scene="S01"][data-idx="0"]');
                     const target = document.querySelector('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-track-body');
                     if (!source || !target) return null;
-                    source.scrollIntoView({block: 'center'});
-                    target.scrollIntoView({block: 'nearest'});
+                    // scrollIntoView can be animated by the app's global smooth-scroll
+                    // CSS. Read geometry only after disabling smooth scroll on the
+                    // relevant ancestor chain and allowing layout to settle.
+                    for (const item of [source, target]) {
+                        for (let node = item; node; node = node.parentElement) {
+                            node.style.scrollBehavior = 'auto';
+                        }
+                        item.scrollIntoView({block: item === source ? 'center' : 'nearest', behavior: 'instant'});
+                    }
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                     const s = source.getBoundingClientRect(), t = target.getBoundingClientRect();
+                    const startHit = document.elementFromPoint(s.left + s.width / 2, s.top + s.height / 2);
+                    const endHit = document.elementFromPoint(t.left + t.width * 0.30, t.top + t.height / 2);
                     return {
                         source: {x:s.x, y:s.y, w:s.width, h:s.height},
                         target: {x:t.x, y:t.y, w:t.width, h:t.height},
-                        viewport: {w:window.innerWidth, h:window.innerHeight}
+                        viewport: {w:window.innerWidth, h:window.innerHeight},
+                        startHit: startHit ? (startHit.tagName + '.' + String(startHit.className || '')) : null,
+                        startHitIsSource: !!startHit && (startHit === source || source.contains(startHit)),
+                        endHit: endHit ? (endHit.tagName + '.' + String(endHit.className || '')) : null
                     };
                 }""")
                 assert drag_boxes is not None, "timeline source clip or visual track drop target is missing"
@@ -616,6 +629,16 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 drag_target_x = drag_boxes["target"]["x"] + drag_boxes["target"]["w"] * 0.30
                 drag_target_y = drag_boxes["target"]["y"] + drag_boxes["target"]["h"] / 2
                 page.mouse.move(drag_start_x, drag_start_y)
+                start_hit = page.evaluate("""() => {
+                    const source = document.querySelector('#editor-timeline .ed-layer[data-scene="S01"][data-idx="0"]');
+                    const hit = document.elementFromPoint(0, 0);
+                    return {sourceConnected: !!source && source.isConnected,
+                            hit: hit ? hit.tagName + '.' + String(hit.className || '') : null,
+                            hitIsSource: !!source && !!hit && (hit === source || source.contains(hit))};
+                }""".replace("${0}", String(drag_start_x)).replace("${0}", String(drag_start_y)))
+                assert drag_boxes["startHitIsSource"] and start_hit["hitIsSource"], (
+                    f"drag must start on the source clip; geometry={drag_boxes}, hit={start_hit}"
+                )
                 page.mouse.down()
                 page.mouse.move(drag_target_x, drag_target_y, steps=8)
                 page.mouse.up()
