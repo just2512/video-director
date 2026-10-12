@@ -64,6 +64,64 @@ def test_trim_audio_clip_persists_exact_source_window_and_duration(tmp_path, mon
     assert track.duration == 2.5
 
 
+def test_split_audio_clip_preserves_source_continuity_fades_and_revision(tmp_path, monkeypatch):
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    comp.audio[1] = comp.audio[1].model_copy(update={
+        "source_in": 1.0, "source_out": 3.0, "fadeIn": 0.8, "fadeOut": 0.7,
+    })
+    save_composition(pid, comp)
+
+    result = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.0})
+    assert result.status == "APPLIED", result.errors
+    assert result.composition_version == 2
+
+    comp = load_composition(pid)
+    left, right = comp.audio[1], comp.audio[2]
+    assert left.start == 5.0 and left.duration == 1.0
+    assert left.source_in == 1.0 and left.source_out == 2.0
+    assert left.fadeIn == 0.8 and left.fadeOut == 0.0
+    assert right.start == 6.0 and right.duration == 1.0
+    assert right.source_in == 2.0 and right.source_out == 3.0
+    assert right.fadeIn == 0.0 and right.fadeOut == 0.7
+    assert right.type == left.type and right.asset_id == left.asset_id
+    revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 1
+    assert '"command": "split_audio_clip"' in revisions[0]
+
+
+def test_split_audio_clip_keeps_nonlooping_source_window_when_source_out_is_implicit(tmp_path, monkeypatch):
+    pid, _ = _audio_project(tmp_path, monkeypatch)
+    result = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.25})
+    assert result.status == "APPLIED", result.errors
+    left, right = load_composition(pid).audio[1:]
+    assert (left.start, left.duration, left.source_in, left.source_out) == (5.0, 1.25, 0.0, None)
+    assert (right.start, right.duration, right.source_in, right.source_out) == (6.25, 0.75, 1.25, None)
+
+
+def test_split_looping_bgm_without_explicit_source_window_is_rejected_without_revision(tmp_path, monkeypatch):
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    result = _apply(pid, "split_audio_clip", "audio#0", {"at": 3.0})
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW"
+    comp = load_composition(pid)
+    assert len(comp.audio) == 2
+    assert comp.audio[0].start == 1.0 and comp.audio[0].duration == 4.0
+    assert (plan_dir / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+def test_split_audio_clip_rejects_playhead_outside_interior_and_stale_version(tmp_path, monkeypatch):
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    too_early = _apply(pid, "split_audio_clip", "audio#1", {"at": 5.05})
+    assert too_early.status == "REJECTED"
+    assert too_early.errors[0]["code"] == "SPLIT_OUTSIDE_CLIP"
+    stale = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.0}, version=2)
+    assert stale.status == "REJECTED"
+    assert stale.errors[0]["code"] == "CONFLICT"
+    assert len(load_composition(pid).audio) == 2
+    assert (plan_dir / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
 def test_audio_clip_edit_rejects_invalid_range_without_writing_revision(tmp_path, monkeypatch):
     pid, plan_dir = _audio_project(tmp_path, monkeypatch)
     result = _apply(pid, "trim_audio_clip", "audio#0", {
