@@ -94,7 +94,7 @@ def run_qc(
     # 7. 黑帧抽检。只允许 CompositionIR 中明确留下的空隙出现黑画面；
     #    若此时有不透明全画幅片段覆盖，仍须检验最终帧，防止渲染漏片被 gap 掩盖。
     blackframe_ok, black_detail = _detect_black_frames(final_path, ir=ir)
-    _check(report, "no_unexpected_black_frames", blackframe_ok, black_detail)
+    _check(report, "no_black_frames", blackframe_ok, black_detail)
 
     return report
 
