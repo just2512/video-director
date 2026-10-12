@@ -42,12 +42,15 @@ class LayerType(str, Enum):
     Graphics 域（§11 新增）：dom/svg/canvas/html/chart/diagram/ui/webgl/
     webgpu/lottie/three_scene/code/table/map/data_viz —— 这些由 Graphics
     Runtime 渲染，不由 FFmpeg media renderer 渲染（§3 Renderer 分离）。
-    第一版 media renderer 只实现 video/image 渲染，其余 schema 预留，
+    第一版 media renderer 实现 video/image/gap（显式时间线空隙），其余 schema 预留，
     出现即诚实 REJECT（诚实降级而非静默忽略）。
     """
 
     video = "video"
     image = "image"
+    # Timeline gap: an explicit black segment left when a source clip is lifted
+    # into an independently editable visual track. It intentionally has no asset.
+    gap = "gap"
     # ---- 以下为预留（media 第一阶段不渲染）----
     text = "text"
     title = "title"
@@ -78,7 +81,7 @@ class LayerType(str, Enum):
 
 
 #: 第一版 BasicRenderer（FFmpeg media renderer）实际支持的 Layer 类型
-RENDERABLE_LAYER_TYPES = {LayerType.video, LayerType.image}
+RENDERABLE_LAYER_TYPES = {LayerType.video, LayerType.image, LayerType.gap}
 
 #: Graphics 域 Layer 类型（§11：交由 Graphics Runtime，非 media renderer）
 GRAPHICS_LAYER_TYPES = {
