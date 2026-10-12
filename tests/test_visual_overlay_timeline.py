@@ -479,6 +479,17 @@ def test_real_ffmpeg_video_overlay_honors_source_in_and_output_window(tmp_path):
     assert decoded.returncode == 0, decoded.stderr
 
 
+def test_timeline_ui_exposes_source_monitor_track_insert_overwrite_modes():
+    root = Path(__file__).resolve().parents[1]
+    markup = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    source_js = (root / "webui" / "static" / "js" / "source-monitor.js").read_text(encoding="utf-8")
+    assert 'id="ed-source-operation"' in markup
+    assert 'value="overlay"' in markup and 'value="overwrite"' in markup and 'value="insert"' in markup
+    assert "placementMode" in source_js
+    assert "Insert 只推后所选画面轨" in markup
+    assert "sourceIn" in source_js and "sourceAudioEnabled" in source_js
+
+
 def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     root = Path(__file__).resolve().parents[1]
     js_dir = root / "webui" / "static" / "js"
@@ -963,3 +974,286 @@ def test_add_edit_all_tracks_skips_locked_visual_overlay_but_cuts_other_tracks(t
     assert len(comp.visual_overlays) == 1
     assert (comp.visual_overlays[0].start, comp.visual_overlays[0].duration) == (2.0, 4.0)
     assert len(comp.scenes[0].layers) == 2, "unlocked main picture still receives the add edit"
+
+
+def test_source_track_overwrite_splits_intersections_and_preserves_other_tracks(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    ir = load_composition(pid)
+    ir.visual_tracks.append(VisualTrack(id="visual-secondary", name="Secondary", order=1))
+    ir.assets.append(AssetRef(id="old-source-video", type="video", file=str(tmp_path / "old-source.mp4"), duration=10))
+    ir.visual_overlays = [
+        VisualOverlayClip(
+            id="old-video", asset_id="old-source-video", start=1.0, duration=4.0,
+            source_in=0.5, track_id="overlay-main", presentation_mode="full_frame",
+            source_audio_enabled=True, source_audio_volume=0.7,
+        ),
+        VisualOverlayClip(
+            id="other-track-clip", asset_id="overlay-image", start=1.5, duration=2.0,
+            source_in=0.25, track_id="visual-secondary", presentation_mode="picture_in_picture",
+        ),
+    ]
+    save_composition(pid, ir)
+
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 2.0, "duration": 1.5,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "overwrite",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    main = sorted(
+        (clip for clip in saved.visual_overlays if clip.track_id == "overlay-main"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration) for clip in main] == [
+        (1.0, 1.0), (2.0, 1.5), (3.5, 1.5),
+    ]
+    assert [(main[0].source_in, main[2].source_in)] == [(0.5, 3.0)]
+    assert main[0].source_audio_enabled and main[2].source_audio_enabled
+    assert main[0].source_audio_volume == pytest.approx(0.7)
+    other = next(clip for clip in saved.visual_overlays if clip.id == "other-track-clip")
+    assert (other.start, other.duration, other.source_in) == (1.5, 2.0, 0.25)
+    assert saved.project.duration == 10.0
+
+
+def test_source_track_insert_splits_crossing_clip_shifts_downstream_and_extends_duration(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    ir = load_composition(pid)
+    ir.visual_tracks.append(VisualTrack(id="visual-secondary", name="Secondary", order=1))
+    ir.assets.append(AssetRef(id="old-source-video", type="video", file=str(tmp_path / "old-source.mp4"), duration=10))
+    ir.visual_overlays = [
+        VisualOverlayClip(
+            id="crossing-video", asset_id="old-source-video", start=2.0, duration=2.0,
+            source_in=0.5, track_id="overlay-main", presentation_mode="full_frame",
+            source_audio_enabled=True,
+        ),
+        VisualOverlayClip(
+            id="downstream-clip", asset_id="overlay-image", start=6.0, duration=1.0,
+            source_in=0.0, track_id="overlay-main", presentation_mode="full_frame",
+        ),
+        VisualOverlayClip(
+            id="other-track-clip", asset_id="overlay-image", start=6.0, duration=1.0,
+            source_in=0.0, track_id="visual-secondary", presentation_mode="picture_in_picture",
+        ),
+    ]
+    save_composition(pid, ir)
+
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.25,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    main = sorted(
+        (clip for clip in saved.visual_overlays if clip.track_id == "overlay-main"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration) for clip in main] == [
+        (2.0, 1.0), (3.0, 1.3), (4.3, 1.0), (7.3, 1.0),
+    ]
+    left = next(clip for clip in main if clip.id == "crossing-video")
+    right = next(clip for clip in main if clip.id != "crossing-video" and clip.start == 4.3)
+    assert left.source_in == 0.5
+    assert right.source_in == 1.5 and right.source_audio_enabled
+    other = next(clip for clip in saved.visual_overlays if clip.id == "other-track-clip")
+    assert (other.start, other.duration) == (6.0, 1.0)
+    assert saved.project.duration == pytest.approx(11.3)
+    assert saved.scenes[0].duration == pytest.approx(11.3)
+    assert saved.scenes[0].layers[-1].duration == pytest.approx(11.3)
+
+
+def test_unknown_source_track_placement_mode_rejects_without_revision(tmp_path, monkeypatch):
+    pid, plans = _editor_project(tmp_path, monkeypatch)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 1.0, "duration": 1.0,
+        "placementMode": "slide-ish",
+    }, 1)
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "INVALID_PARAMETER"
+    assert load_composition(pid).visual_overlays == []
+    assert not [line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+
+
+def test_real_ffmpeg_source_track_insert_preserves_pixels_and_linked_audio_timing(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "insert-base-blue.png"
+    insert_path = tmp_path / "insert-green.png"
+    video_path = tmp_path / "insert-red-with-sine.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_still(ffmpeg, insert_path, "green")
+    _make_video_with_audio(ffmpeg, video_path)
+
+    pid = "source-track-insert-render"
+    plans = tmp_path / pid / "plans"
+    plans.mkdir(parents=True)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=3.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=3.0, text="source insert test",
+            layers=[Layer(type=LayerType.image, asset_id="base-blue", duration=3.0)],
+        )],
+        assets=[
+            AssetRef(id="base-blue", type="image", file=str(base_path), width=40, height=40),
+            AssetRef(id="insert-green", type="image", file=str(insert_path), width=40, height=40),
+            AssetRef(id="insert-red-video", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
+        ],
+        visual_overlays=[VisualOverlayClip(
+            id="existing-red", asset_id="insert-red-video", start=0.5, duration=2.0,
+            source_in=0.0, track_id="overlay-main", presentation_mode="full_frame",
+            source_audio_enabled=True, x=0.0, y=0.0, width=1.0, height=1.0,
+        )],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(pid, composition)
+    plans.joinpath("revisions.jsonl").write_text("", encoding="utf-8")
+
+    inserted = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "insert-green", "start": 1.5, "duration": 0.5,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert inserted.status == "APPLIED", inserted.errors
+    saved = load_composition(pid)
+    assert saved.project.duration == pytest.approx(3.5)
+    red_clips = sorted(
+        (clip for clip in saved.visual_overlays if clip.asset_id == "insert-red-video"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in) for clip in red_clips] == [
+        (0.5, 1.0, 0.0), (2.0, 1.0, 1.0),
+    ]
+    assert all(clip.source_audio_enabled for clip in red_clips)
+
+    result = renderer.render_composition(
+        saved, {asset.id: asset for asset in saved.assets}, tmp_path / "source-track-insert-render",
+    )
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    blue_before = _pixel_at(ffmpeg, output, 0.2, 160, 90)
+    red_before = _pixel_at(ffmpeg, output, 0.8, 160, 90)
+    green_insert = _pixel_at(ffmpeg, output, 1.75, 160, 90)
+    red_after = _pixel_at(ffmpeg, output, 2.5, 160, 90)
+    blue_tail = _pixel_at(ffmpeg, output, 3.25, 160, 90)
+    assert blue_before[2] > blue_before[0] * 1.5, blue_before
+    assert red_before[0] > red_before[1] * 1.5, red_before
+    assert green_insert[1] > green_insert[0] * 1.3, green_insert
+    assert red_after[0] > red_after[1] * 1.5, red_after
+    assert blue_tail[2] > blue_tail[0] * 1.5, blue_tail
+
+    audio = renderer._verify_muxed_audio(str(output), expected_duration=3.5)
+    assert audio.get("codec") == "aac", audio
+    assert audio.get("full_decode") == "PASS", audio
+    assert _audio_window_mean_volume(ffmpeg, output, 0.1, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 0.8, 0.2) > -35
+    assert _audio_window_mean_volume(ffmpeg, output, 1.65, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 2.5, 0.2) > -35
+
+    # Exercise Overwrite as an encoded media edit too: replace part of the first
+    # red clip, then prove the source audio is absent inside the replaced window
+    # and present again in both surviving source ranges.
+    overwritten = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "insert-green", "start": 0.75, "duration": 0.5,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "overwrite",
+    }, inserted.composition_version)
+    assert overwritten.status == "APPLIED", overwritten.errors
+    overwritten_ir = load_composition(pid)
+    red_clips = sorted(
+        (clip for clip in overwritten_ir.visual_overlays if clip.asset_id == "insert-red-video"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in) for clip in red_clips] == [
+        (0.5, 0.3, 0.0), (1.3, 0.2, 0.8), (2.0, 1.0, 1.0),
+    ]
+    assert all(clip.source_audio_enabled for clip in red_clips)
+
+    overwritten_result = renderer.render_composition(
+        overwritten_ir,
+        {asset.id: asset for asset in overwritten_ir.assets},
+        tmp_path / "source-track-overwrite-render",
+    )
+    overwritten_mp4 = Path(overwritten_result.final_path)
+    assert overwritten_mp4.is_file() and overwritten_mp4.stat().st_size > 1000
+    red_left = _pixel_at(ffmpeg, overwritten_mp4, 0.6, 160, 90)
+    assert red_left[0] > 1.5 * red_left[2], red_left
+    overwrite_pixel = _pixel_at(ffmpeg, overwritten_mp4, 1.0, 160, 90)
+    assert overwrite_pixel[1] > overwrite_pixel[0] * 1.3, overwrite_pixel
+    restored_red = _pixel_at(ffmpeg, overwritten_mp4, 1.35, 160, 90)
+    assert restored_red[0] > restored_red[1] * 1.5, restored_red
+    existing_insert = _pixel_at(ffmpeg, overwritten_mp4, 1.75, 160, 90)
+    assert existing_insert[1] > 1.3 * existing_insert[0], existing_insert
+    overwrite_audio = renderer._verify_muxed_audio(str(overwritten_mp4), expected_duration=3.5)
+    assert overwrite_audio.get("codec") == "aac", overwrite_audio
+    assert overwrite_audio.get("full_decode") == "PASS", overwrite_audio
+    # Probe 100ms into the replaced interval, away from exact AAC/seek boundaries.
+    assert _audio_window_mean_volume(ffmpeg, overwritten_mp4, 0.9, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, overwritten_mp4, 1.3, 0.15) > -35
+    assert _audio_window_mean_volume(ffmpeg, overwritten_mp4, 2.5, 0.2) > -35
+
+
+def test_source_track_insert_extends_actual_tail_layer_when_scene_layers_are_unordered(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    ir = load_composition(pid)
+    # SceneIR permits non-canonical list order but validates the time-sorted spans.
+    # The latest segment is deliberately stored at index 0, not index -1.
+    ir.scenes[0] = SceneIR(
+        id="S01", start=0.0, duration=10.0, text="unordered scene layers",
+        layers=[
+            Layer(type=LayerType.image, asset_id="overlay-image", start=5.0, duration=5.0),
+            Layer(type=LayerType.image, asset_id="overlay-image", start=0.0, duration=5.0),
+        ],
+    )
+    save_composition(pid, ir)
+
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 9.0, "duration": 2.0,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    assert saved.project.duration == pytest.approx(12.0)
+    assert saved.scenes[0].duration == pytest.approx(12.0)
+    layers = saved.scenes[0].layers
+    assert [(layer.start, layer.duration) for layer in layers] == [(5.0, 7.0), (0.0, 5.0)]
+
+
+def test_source_track_insert_preserves_single_frame_at_24_fps(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    ir = load_composition(pid)
+    ir.project = ir.project.model_copy(update={"fps": 24})
+    save_composition(pid, ir)
+
+    one_frame = 1.0 / 24.0
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": one_frame, "duration": one_frame,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+    saved = load_composition(pid)
+    clip = next(item for item in saved.visual_overlays if item.track_id == "overlay-main")
+    assert clip.start == pytest.approx(0.041667, abs=1e-7)
+    assert clip.duration == pytest.approx(0.041667, abs=1e-7)
+    assert saved.project.duration == pytest.approx(10.041667, abs=1e-6)
+    assert saved.scenes[0].duration == pytest.approx(10.041667, abs=1e-6)
+
+def test_source_track_insert_half_frame_rounding_matches_browser_math_round(tmp_path, monkeypatch):
+    """Server-side timeline snapping must match the browser at exact half-frame inputs."""
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 1.25, "duration": 1.25,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+
+    saved = load_composition(pid)
+    clip = next(c for c in saved.visual_overlays if c.asset_id == "overlay-image")
+    # 1.25s at 10fps is exactly halfway between frames 12 and 13. The browser's
+    # Math.round selects frame 13; Python's built-in round() would select frame 12.
+    assert clip.start == pytest.approx(1.3)
+    assert clip.duration == pytest.approx(1.3)
+    assert saved.project.duration == pytest.approx(11.3)
+

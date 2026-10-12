@@ -183,7 +183,7 @@ function editorSourceMonitorMarkIn() {
     return;
   }
   const at = _smFrameTime(video.currentTime);
-  _smNode("ed-source-in").value = at.toFixed(3);
+  _smNode("ed-source-in").value = at.toFixed(6);
   _smStatus("源入点已标记：" + at.toFixed(3) + "s。", false);
 }
 function editorSourceMonitorMarkOut() {
@@ -193,7 +193,7 @@ function editorSourceMonitorMarkOut() {
     return;
   }
   const at = _smFrameTime(video.currentTime);
-  _smNode("ed-source-out").value = at.toFixed(3);
+  _smNode("ed-source-out").value = at.toFixed(6);
   _smStatus("源出点已标记：" + at.toFixed(3) + "s。", false);
 }
 async function editorSourceMonitorAddToTimeline() {
@@ -239,8 +239,14 @@ async function editorSourceMonitorAddToTimeline() {
   const previewAt = window.PV ? Number(window.PV.playhead) : NaN;
   const rawStart = Number.isFinite(timelineAt) ? timelineAt : (Number.isFinite(previewAt) ? previewAt : 0);
   const start = _smFrameTime(rawStart);
-  if (!Number.isFinite(total) || total <= 0 || start < 0 || start + duration > total + 1e-6) {
-    _smStatus("当前播放头之后放不下整个片段。请移动播放头或缩短源区间。", true);
+  const placementMode = String((_smNode("ed-source-operation") || {}).value || "overlay");
+  const fits = placementMode === "insert"
+    ? start <= total + 1e-6
+    : start + duration <= total + 1e-6;
+  if (!Number.isFinite(total) || total <= 0 || start < 0 || !fits) {
+    _smStatus(placementMode === "insert"
+      ? "插入点不能晚于时间线末尾。"
+      : "当前播放头之后放不下整个片段。请移动播放头或缩短源区间。", true);
     return;
   }
   const presentationMode = String((_smNode("ed-source-presentation") || {}).value || "full_frame");
@@ -252,13 +258,14 @@ async function editorSourceMonitorAddToTimeline() {
     const result = await executeCommand({
       command: "add_visual_overlay",
       targetId: "overlays",
-      payload: {assetId:asset.asset_id, start, duration, sourceIn, trackId, presentationMode, sourceAudioEnabled}
+      payload: {assetId:asset.asset_id, start, duration, sourceIn, trackId, presentationMode, sourceAudioEnabled, placementMode}
     });
     if (!result || !result.ok) {
       _smStatus("放置失败：" + ((result && result.error) || "编辑命令未通过。"), true);
       return;
     }
-    _smStatus("已将 " + (asset.name || asset.asset_id) + " 放到 " + (track.name || track.id) +
+    const operationLabel = placementMode === "insert" ? "插入" : (placementMode === "overwrite" ? "覆盖" : "叠加");
+    _smStatus(operationLabel + "已提交：" + (asset.name || asset.asset_id) + " → " + (track.name || track.id) +
       " · " + start.toFixed(2) + "–" + (start + duration).toFixed(2) + "s。", false);
     await refreshWorkspace();
     editorSourceMonitorRefreshTracks();
