@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import subprocess
+
+import pytest
 from pathlib import Path
 
 from video_director import renderer
 from video_director.editor import execute_command, load_composition, save_composition
 from video_director.models import (
-    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip,
+    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
 )
 
 
@@ -108,6 +110,141 @@ def test_visual_overlay_commands_reject_unknown_assets_stale_versions_and_out_of
     assert invalid.status == "REJECTED"
     assert load_composition(pid).visual_overlays[0].start == 1.0
 
+
+
+def test_visual_track_ids_reject_inline_handler_payloads():
+    with pytest.raises(ValueError, match="visual track id"):
+        VisualTrack(id='track" onclick="alert(1)', name="unsafe", order=0)
+
+
+def test_legacy_composition_migrates_to_default_visual_track():
+    base = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=2.0, text="legacy",
+            layers=[Layer(type=LayerType.image, asset_id="base", duration=2.0)],
+        )],
+        assets=[AssetRef(id="base", type="image", file="/tmp/base.png", width=40, height=40)],
+        visual_overlays=[VisualOverlayClip(
+            id="legacy-overlay", asset_id="base", start=0.25, duration=1.0,
+        )],
+    )
+    legacy = base.model_dump(mode="json")
+    legacy.pop("visual_tracks", None)
+    legacy["visual_overlays"][0].pop("track_id", None)
+    migrated = CompositionIR.model_validate(legacy)
+    assert [(track.id, track.name, track.order) for track in migrated.visual_tracks] == [
+        ("overlay-main", "画面叠加", 0)
+    ]
+    assert migrated.visual_overlays[0].track_id == "overlay-main"
+
+
+def test_visual_track_commands_persist_order_names_and_clip_membership(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    base = load_composition(pid)
+    main_track = next(track for track in base.visual_tracks if track.id == "overlay-main")
+
+    added_track = _apply(pid, "add_visual_track", "visual-tracks", {"name": "画中画 B"}, 1)
+    assert added_track.status == "APPLIED", added_track.errors
+    comp = load_composition(pid)
+    extra = next(track for track in comp.visual_tracks if track.id != main_track.id)
+    assert (extra.name, extra.order) == ("画中画 B", 1)
+
+    duplicate = _apply(pid, "add_visual_track", "visual-tracks", {"name": "画中画 b"}, 2)
+    assert duplicate.status == "REJECTED"
+    assert duplicate.errors[0]["code"] == "DUPLICATE_TRACK_NAME"
+
+    added = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 1.0, "duration": 2.0, "trackId": extra.id,
+    }, 2)
+    assert added.status == "APPLIED", added.errors
+    assert load_composition(pid).visual_overlays[0].track_id == extra.id
+
+    renamed = _apply(pid, "rename_visual_track", extra.id, {"name": "证据画面"}, 3)
+    assert renamed.status == "APPLIED", renamed.errors
+    assert next(t for t in load_composition(pid).visual_tracks if t.id == extra.id).name == "证据画面"
+
+    fractional = _apply(pid, "reorder_visual_track", extra.id, {"toIndex": 0.5}, 4)
+    assert fractional.status == "REJECTED"
+    assert fractional.errors[0]["code"] == "INVALID_PAYLOAD"
+
+    reordered = _apply(pid, "reorder_visual_track", extra.id, {"toIndex": 0}, 4)
+    assert reordered.status == "APPLIED", reordered.errors
+    orders = {t.id: t.order for t in load_composition(pid).visual_tracks}
+    assert orders[extra.id] == 0 and orders[main_track.id] == 1
+
+    occupied = _apply(pid, "remove_visual_track", extra.id, {}, 5)
+    assert occupied.status == "REJECTED"
+    assert occupied.errors[0]["code"] == "VISUAL_TRACK_NOT_EMPTY"
+    assert next(t.id for t in load_composition(pid).visual_tracks if t.order == 0) == extra.id
+
+    moved = _apply(pid, "move_visual_overlay", "overlay#0", {
+        "start": 1.5, "trackId": main_track.id,
+    }, 5)
+    assert moved.status == "APPLIED", moved.errors
+    clip = load_composition(pid).visual_overlays[0]
+    assert (clip.start, clip.track_id) == (1.5, main_track.id)
+
+    removed = _apply(pid, "remove_visual_track", extra.id, {}, 6)
+    assert removed.status == "APPLIED", removed.errors
+    remaining = load_composition(pid)
+    assert [(t.id, t.order) for t in remaining.visual_tracks] == [(main_track.id, 0)]
+    assert remaining.visual_overlays[0].track_id == main_track.id
+    last_track = _apply(pid, "remove_visual_track", main_track.id, {}, 7)
+    assert last_track.status == "REJECTED"
+    assert last_track.errors[0]["code"] == "LAST_VISUAL_TRACK"
+
+
+def test_renderer_uses_visual_track_order_ahead_of_clip_z_index(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "tracks-blue.png"
+    red_path = tmp_path / "track-red.png"
+    green_path = tmp_path / "track-green.png"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_still(ffmpeg, red_path, "red")
+    _make_still(ffmpeg, green_path, "green")
+
+    main_track = VisualTrack(id="overlay-main", name="底层画面", order=0)
+    upper_track = VisualTrack(id="vtrack-upper", name="证据层", order=1)
+    assets = [
+        AssetRef(id="base", type="image", file=str(base_path), width=40, height=40),
+        AssetRef(id="red", type="image", file=str(red_path), width=40, height=40),
+        AssetRef(id="green", type="image", file=str(green_path), width=40, height=40),
+    ]
+    overlays = [
+        VisualOverlayClip(
+            id="red-clip", asset_id="red", track_id=main_track.id,
+            start=0.0, duration=2.0, x=0, y=0, width=1, height=1, z_index=100,
+        ),
+        VisualOverlayClip(
+            id="green-clip", asset_id="green", track_id=upper_track.id,
+            start=0.0, duration=2.0, x=0, y=0, width=1, height=1, z_index=-100,
+        ),
+    ]
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=2.0, text="track render order",
+            layers=[Layer(type=LayerType.image, asset_id="base", duration=2.0)],
+        )],
+        assets=assets, visual_tracks=[main_track, upper_track], visual_overlays=overlays,
+    )
+    rendered = renderer.render_composition(
+        composition, {asset.id: asset for asset in assets}, tmp_path / "track-order-upper",
+    )
+    upper_pixel = _pixel_at(ffmpeg, Path(rendered.final_path), 1.0, 160, 90)
+    assert upper_pixel[1] > upper_pixel[0] * 1.25, upper_pixel
+
+    composition.visual_tracks = [
+        upper_track.model_copy(update={"order": 0}),
+        main_track.model_copy(update={"order": 1}),
+    ]
+    rendered_lower = renderer.render_composition(
+        composition, {asset.id: asset for asset in assets}, tmp_path / "track-order-reversed",
+    )
+    lower_pixel = _pixel_at(ffmpeg, Path(rendered_lower.final_path), 1.0, 160, 90)
+    assert lower_pixel[0] > lower_pixel[1] * 1.25, lower_pixel
 
 
 def test_split_visual_overlay_preserves_properties_and_rejects_boundary_splits(tmp_path, monkeypatch):
@@ -357,3 +494,6 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "在播放头切分" in overlay_js
     assert "thumbnailUrl" in timeline_js and "ed-clip-thumb" in timeline_js
     assert "api/asset_thumbnail?asset_id=" in timeline_js
+    assert "visual_tracks" in timeline_js and "data-visual-track-id" in timeline_js
+    assert "editorVisualTrackCreate" in timeline_js and "editorVisualTrackMenu" in timeline_js
+    assert "trackId:nextTrackId" in overlay_js and "reorder_visual_track" in overlay_js

@@ -374,7 +374,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 }""")
                 assert live_overlay_preview["activeStyle"] == {
                     "tag": "IMG", "left": "65%", "top": "10%", "width": "30%",
-                    "height": "30%", "opacity": "0.8", "zIndex": "4", "hostPosition": "absolute"
+                    "height": "30%", "opacity": "0.8", "zIndex": "105", "hostPosition": "absolute"
                 }, live_overlay_preview
                 assert live_overlay_preview["outsideStartCount"] == 0, json.dumps(live_overlay_preview.get("diagnostics", []), ensure_ascii=False)
                 assert live_overlay_preview["insideCount"] == 1, live_overlay_preview

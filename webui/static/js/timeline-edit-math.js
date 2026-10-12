@@ -31,5 +31,62 @@
     return result;
   }
 
-  root.TimelineEditMath = Object.freeze({trimEndDelta});
+  function splitOverlappingTrack(track) {
+    const clips = Array.isArray(track && track.clips) ? track.clips : [];
+    if (clips.length < 2 || clips.some(clip => !clip || clip.positioned !== true)) return [track];
+
+    const sorted = clips.map((clip, index) => {
+      const start = Number(clip.leftPct);
+      const width = Number(clip.pct);
+      if (!Number.isFinite(start) || !Number.isFinite(width) || start < 0 || width <= 0) return null;
+      return {clip, index, start, end: start + width};
+    });
+    if (sorted.some(item => !item)) return [track];
+    sorted.sort((a, b) => a.start - b.start || a.index - b.index);
+
+    const lanes = [];
+    for (const item of sorted) {
+      // Intervals whose edges touch may share a row; true overlaps never do.
+      let lane = lanes.find(candidate => candidate.end <= item.start + 1e-9);
+      if (!lane) {
+        lane = {end: -Infinity, items: []};
+        lanes.push(lane);
+      }
+      lane.items.push(item);
+      lane.end = item.end;
+    }
+    if (lanes.length <= 1) return [track];
+
+    return lanes.map((lane, index) => ({
+      ...track,
+      id: String(track.id || "track") + "-lane-" + (index + 1),
+      label: index === 0 ? track.label : String(track.label || "轨道") + " " + (index + 1),
+      addAction: index === 0 ? track.addAction : null,
+      showTrackControls: index === 0,
+      clips: lane.items.map(item => item.clip)
+    }));
+  }
+
+  function visualOverlayStackingZIndex(clip, visualTracks) {
+    const tracks = Array.isArray(visualTracks) && visualTracks.length
+      ? visualTracks.slice()
+      : [{id: "overlay-main", order: 0}];
+    tracks.sort((a, b) => {
+      const ao = Number.isFinite(Number(a && a.order)) ? Number(a.order) : 0;
+      const bo = Number.isFinite(Number(b && b.order)) ? Number(b.order) : 0;
+      return ao - bo || String(a && a.id || "").localeCompare(String(b && b.id || ""));
+    });
+    const trackId = String(clip && clip.track_id || "overlay-main");
+    let rank = tracks.findIndex(track => String(track && track.id || "") === trackId);
+    if (rank < 0) rank = 0;
+    const rawZ = Number(clip && clip.z_index);
+    const z = Number.isFinite(rawZ) ? Math.max(-100, Math.min(100, Math.trunc(rawZ))) : 0;
+    // Each higher track must render above every clip in lower tracks, even when
+    // its local z_index is smaller. +101 keeps all normal overlays above base video.
+    return rank * 1000 + z + 101;
+  }
+
+  root.TimelineEditMath = Object.freeze({
+    trimEndDelta, splitOverlappingTrack, visualOverlayStackingZIndex
+  });
 })(typeof window !== "undefined" ? window : globalThis);

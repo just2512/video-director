@@ -304,6 +304,14 @@
   pointer-events: none;
 }
 .ed-track-clip-label { overflow: hidden; text-overflow: ellipsis; }
+.ed-visual-track-label { display:flex; align-items:center; gap:2px; padding-right:1px; }
+.ed-visual-track-name { min-width:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.ed-visual-track-actions { display:flex; align-items:center; gap:1px; flex:0 0 auto; }
+.ed-visual-track-actions .btn-sm { min-width:17px; width:17px; padding:0; line-height:18px; font-size:11px; }
+.ed-visual-track-create { margin-left:auto; font-size:11px; line-height:18px; padding:0 6px; }
+.ed-track.tl-track-drop-target .ed-track-body { outline:2px solid var(--accent); outline-offset:1px; background:color-mix(in srgb, var(--accent) 10%, transparent); }
+.ed-visual-track-menu-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
+.ed-visual-track-menu-actions button { min-height:32px; }
 .ed-visual-overlay-clip.tl-dragging { cursor: grabbing; opacity: .82; }
 .ed-track-add {
   min-width: 20px !important;

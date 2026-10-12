@@ -21,7 +21,9 @@ jobs:
       - run: python -m compileall video_director webui
       - name: Run test suite and retain JUnit report
         run: pytest -q --junitxml=junit.xml
-      - run: |
+      - name: Check JavaScript syntax (run even when tests fail)
+        if: always()
+        run: |
           for f in webui/static/js/*.js; do
             node --check "$f"
           done

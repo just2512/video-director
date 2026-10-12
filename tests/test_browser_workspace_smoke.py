@@ -583,10 +583,14 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 # Overlay clips must be visually identifiable and the Inspector's
                 # cut-at-playhead control must reach the versioned Editor Command API.
                 overlay_ui = page.evaluate("""() => {
+                    ED.comp.visual_tracks = [
+                        {id:'overlay-main', name:'画面叠加', order:0},
+                        {id:'vtrack-ui-smoke', name:'证据画面', order:1}
+                    ];
                     ED.comp.visual_overlays = [{
-                        id: 'overlay-ui-smoke', asset_id: 'img', start: 2, duration: 4,
-                        source_in: 0, x: 0.65, y: 0.1, width: 0.3, height: 0.3,
-                        opacity: 1, z_index: 0
+                        id: 'overlay-ui-smoke', asset_id: 'img', track_id:'overlay-main',
+                        start: 2, duration: 4, source_in: 0, x: 0.65, y: 0.1,
+                        width: 0.3, height: 0.3, opacity: 1, z_index: 0
                     }];
                     ED.comp.assets.img.type = 'image';
                     ED.comp.assets.img.thumbnail_url = '/overlay-smoke-thumb.svg';
@@ -595,6 +599,8 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     const clip = document.querySelector('#editor-timeline .ed-visual-overlay-clip');
                     return {
                         count: document.querySelectorAll('#editor-timeline .ed-visual-overlay-clip').length,
+                        trackRows: document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').length,
+                        defaultTrack: clip && clip.closest('.ed-track').dataset.visualTrackId,
                         thumbnail: clip && clip.querySelector('img.ed-clip-thumb')?.getAttribute('src'),
                         label: clip && clip.querySelector('.ed-track-clip-label')?.textContent
                     };
@@ -602,6 +608,69 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert overlay_ui["count"] == 1
                 assert overlay_ui["thumbnail"] == "/overlay-smoke-thumb.svg"
                 assert overlay_ui["label"] == "Still"
+                assert overlay_ui["trackRows"] == 2
+                assert overlay_ui["defaultTrack"] == "overlay-main"
+
+                # Live preview and FFmpeg export must agree on visual-track stacking.
+                # A lower track with a high local z_index must still sit below a higher track.
+                preview_order = page.evaluate("""() => {
+                    const stage = document.getElementById('ed-preview-stage');
+                    if (!stage) return {available:false};
+                    let media = stage.querySelector('.pv-live-media');
+                    let createdMedia = false;
+                    if (!media) {
+                        media = document.createElement('div');
+                        media.className = 'pv-live-media';
+                        media.style.width = '400px';
+                        media.style.height = '220px';
+                        stage.appendChild(media);
+                        createdMedia = true;
+                    }
+                    const saved = {
+                        tracks: ED.comp.visual_tracks, overlays: ED.comp.visual_overlays,
+                        mode: PV.mode, fileUrl: ED.comp.assets.img.file_url
+                    };
+                    try {
+                        ED.comp.assets.img.type = 'image';
+                        ED.comp.assets.img.file_url = '/overlay-smoke-thumb.svg';
+                        PV.mode = 'live';
+                        ED.comp.visual_tracks = [
+                            {id:'overlay-main', name:'底层', order:0},
+                            {id:'vtrack-ui-smoke', name:'上层', order:1}
+                        ];
+                        ED.comp.visual_overlays = [
+                            {id:'bottom-high-z',asset_id:'img',track_id:'overlay-main',start:2,duration:4,
+                             source_in:0,x:0.1,y:0.1,width:0.3,height:0.3,opacity:1,z_index:100},
+                            {id:'top-low-z',asset_id:'img',track_id:'vtrack-ui-smoke',start:2,duration:4,
+                             source_in:0,x:0.1,y:0.1,width:0.3,height:0.3,opacity:1,z_index:-100}
+                        ];
+                        _previewRenderVisualOverlays(3);
+                        const read = () => [...media.querySelectorAll('[data-overlay-index]')].map(node => ({
+                            index:Number(node.dataset.overlayIndex), z:Number(node.style.zIndex)
+                        }));
+                        const initial = read();
+                        ED.comp.visual_tracks = [
+                            {id:'overlay-main', name:'底层', order:1},
+                            {id:'vtrack-ui-smoke', name:'上层', order:0}
+                        ];
+                        _previewRenderVisualOverlays(3);
+                        const reordered = read();
+                        return {available:true,initial,reordered};
+                    } finally {
+                        ED.comp.visual_tracks = saved.tracks;
+                        ED.comp.visual_overlays = saved.overlays;
+                        ED.comp.assets.img.file_url = saved.fileUrl;
+                        PV.mode = saved.mode;
+                        const host = media.querySelector('.pv-live-overlays');
+                        if (host) host.remove();
+                        if (createdMedia) media.remove();
+                    }
+                }""")
+                assert preview_order["available"] is True
+                assert [c["index"] for c in preview_order["initial"]] == [0, 1]
+                assert preview_order["initial"][1]["z"] > preview_order["initial"][0]["z"]
+                assert [c["index"] for c in preview_order["reordered"]] == [1, 0]
+                assert preview_order["reordered"][1]["z"] > preview_order["reordered"][0]["z"]
 
                 page.route(
                     "**/overlay-smoke-thumb.svg",
@@ -610,7 +679,56 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                         body='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="24"><rect width="40" height="24" fill="#284b63"/></svg>',
                     ),
                 )
-                overlay_clip = page.locator("#editor-timeline .ed-visual-overlay-clip")
+                create_track_button = page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] button[title="新增画面轨道"]')
+                assert create_track_button.count() == 1
+                captured_commands.clear()
+                create_track_button.click()
+                create_mask = page.locator("#visual-track-create-mask")
+                create_mask.wait_for(timeout=3000)
+                create_mask.get_by_role("button", name="创建轨道").click()
+                page.wait_for_timeout(100)
+                add_track_cmd = next((c for c in captured_commands if c.get("command") == "add_visual_track"), None)
+                assert add_track_cmd is not None, "create track UI did not POST add_visual_track"
+                assert add_track_cmd["targetId"] == "visual-tracks"
+                assert add_track_cmd["payload"]["name"] == "画面轨 3"
+                assert create_mask.count() == 1  # rejected response must not pretend that the track was created
+                create_mask.get_by_role("button", name="关闭").click()
+
+                main_track_row = page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"]')
+                main_track_row.locator('button[title="轨道名称、顺序与删除"]').click()
+                track_menu = page.locator("#visual-track-menu-mask")
+                track_menu.wait_for(timeout=3000)
+                captured_commands.clear()
+                track_menu.get_by_role("button", name="上移一层").click()
+                page.wait_for_timeout(100)
+                reorder_cmd = next((c for c in captured_commands if c.get("command") == "reorder_visual_track"), None)
+                assert reorder_cmd is not None, "track menu did not POST reorder_visual_track"
+                assert reorder_cmd["targetId"] == "overlay-main"
+                assert reorder_cmd["payload"]["toIndex"] == 1
+
+                source_clip = page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-visual-overlay-clip')
+                target_track = page.locator('#editor-timeline .ed-track[data-visual-track-id="vtrack-ui-smoke"] .ed-track-body')
+                source_box = source_clip.bounding_box()
+                target_box = target_track.bounding_box()
+                assert source_box and target_box
+                # Previous watermark gestures are a separate interaction; establish an
+                # explicit starting playhead so this test detects only clip-drag bubbling.
+                page.evaluate("PLAYHEAD.at = 4.0")
+                captured_commands.clear()
+                page.mouse.move(source_box["x"] + source_box["width"] * 0.55, source_box["y"] + source_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(source_box["x"] + source_box["width"] * 0.55, target_box["y"] + target_box["height"] / 2, steps=5)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                cross_track_cmd = next((c for c in captured_commands if c.get("command") == "move_visual_overlay"), None)
+                assert cross_track_cmd is not None, "dragging a visual clip to another track did not POST move_visual_overlay"
+                assert cross_track_cmd["payload"]["trackId"] == "vtrack-ui-smoke"
+                # Dragging a clip must not bubble into the timeline scrub handler.
+                assert page.evaluate("PLAYHEAD.at") == pytest.approx(4.0)
+                # The test endpoint rejects edits, so the original track remains the source of truth.
+                assert page.locator('#editor-timeline .ed-track[data-visual-track-id="overlay-main"] .ed-visual-overlay-clip').count() == 1
+
+                overlay_clip = page.locator("#editor-timeline .ed-track[data-visual-track-id='overlay-main'] .ed-visual-overlay-clip")
                 overlay_clip.scroll_into_view_if_needed()
                 overlay_clip.click()
                 inspector = page.locator("#visual-overlay-inspector-mask")

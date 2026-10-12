@@ -352,16 +352,26 @@ function _previewRenderVisualOverlays(sec) {
     return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
   };
   const overlays = Array.isArray(ED.comp.visual_overlays) ? ED.comp.visual_overlays : [];
-  const active = overlays.map((clip, index) => ({clip, index, asset: getAsset(clip && clip.asset_id)}))
+  const visualTracks = Array.isArray(ED.comp.visual_tracks) && ED.comp.visual_tracks.length
+    ? ED.comp.visual_tracks : [{id:'overlay-main', order:0}];
+  const stackingZ = clip => window.TimelineEditMath
+    && typeof window.TimelineEditMath.visualOverlayStackingZIndex === 'function'
+      ? window.TimelineEditMath.visualOverlayStackingZIndex(clip, visualTracks)
+      : Math.round(clamp(clip && clip.z_index, -100, 100, 0));
+  const active = overlays.map((clip, index) => ({
+    clip, index, asset: getAsset(clip && clip.asset_id), stackingZ: stackingZ(clip)
+  }))
     .filter(({clip}) => {
       if (!clip) return false;
       const start = Number(clip.start);
       const duration = Number(clip.duration);
       return Number.isFinite(start) && Number.isFinite(duration) && duration > 0
         && sec >= start && sec < start + duration - 1e-6;
-    });
-  const key = active.map(({clip, index, asset}) =>
-    [index, clip.id || '', clip.asset_id || '', asset && asset.file_url || '', asset && asset.type || ''].join(':')
+    })
+    .sort((a, b) => a.stackingZ - b.stackingZ || a.index - b.index);
+  const key = active.map(({clip, index, asset, stackingZ}) =>
+    [index, clip.id || '', clip.asset_id || '', clip.track_id || 'overlay-main',
+      stackingZ, asset && asset.file_url || '', asset && asset.type || ''].join(':')
   ).join('|');
 
   if (host.dataset.activeKey !== key) {
@@ -372,7 +382,7 @@ function _previewRenderVisualOverlays(sec) {
       const width = clamp(clip.width, 0.05, 1, 0.3) * 100;
       const height = clamp(clip.height, 0.05, 1, 0.3) * 100;
       const opacity = clamp(clip.opacity, 0, 1, 1);
-      const zIndex = Math.round(clamp(clip.z_index, -100, 100, 0));
+      const zIndex = stackingZ(clip);
       const style = `left:${left}%;top:${top}%;width:${width}%;height:${height}%;opacity:${opacity};z-index:${zIndex}`;
       const type = String(asset && asset.type || '').toLowerCase();
       const src = asset && asset.file_url;
@@ -387,7 +397,7 @@ function _previewRenderVisualOverlays(sec) {
   }
 
   const fps = Math.max(1, Number((ED.comp.project || {}).fps) || 30);
-  for (const {clip, index, asset} of active) {
+  for (const {clip, index, asset, stackingZ: effectiveZ} of active) {
     const node = host.querySelector('[data-overlay-index="' + index + '"]');
     if (!node) continue;
     const left = clamp(clip.x, 0, 1, 0.65) * 100;
@@ -399,7 +409,7 @@ function _previewRenderVisualOverlays(sec) {
     node.style.width = width + '%';
     node.style.height = height + '%';
     node.style.opacity = String(clamp(clip.opacity, 0, 1, 1));
-    node.style.zIndex = String(Math.round(clamp(clip.z_index, -100, 100, 0)));
+    node.style.zIndex = String(effectiveZ);
     if (node.tagName !== 'VIDEO') continue;
 
     const sourceIn = Math.max(0, Number(clip.source_in) || 0);
