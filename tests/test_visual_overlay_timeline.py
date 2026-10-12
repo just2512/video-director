@@ -122,6 +122,9 @@ def test_split_visual_overlay_preserves_properties_and_rejects_boundary_splits(t
     boundary = _apply(pid, "split_visual_overlay", "overlay#0", {"at": 2.0}, 2)
     assert boundary.status == "REJECTED"
     assert boundary.errors[0]["code"] == "SPLIT_OUTSIDE_CLIP"
+    boolean_time = _apply(pid, "split_visual_overlay", "overlay#0", {"at": True}, 2)
+    assert boolean_time.status == "REJECTED"
+    assert boolean_time.errors[0]["code"] == "INVALID_PAYLOAD"
     assert len(load_composition(pid).visual_overlays) == 1
 
     split = _apply(pid, "split_visual_overlay", "overlay#0", {"at": 3.25}, 2)
