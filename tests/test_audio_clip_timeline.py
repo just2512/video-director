@@ -208,6 +208,8 @@ def test_timeline_exposes_audio_clips_as_directly_editable_items():
     assert 'data-audio-index="${cl.audioIndex}"' in js
     assert "move_audio_clip" in js
     assert "trim_audio_clip" in js
+    assert "Math.max(0, total - d.duration)" in js
+    assert "total - d.start - d.duration" in js
     assert ".ed-audio-clip::before" in css
 
 
