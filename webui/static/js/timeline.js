@@ -626,9 +626,16 @@ function _tlBindSceneDrag(){
 function _tlBindLayerDrag(){
   document.querySelectorAll('#editor-timeline .ed-layer').forEach(el => {
     el.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
       const scene = ED.comp && ED.comp.scenes.find(item => item.id === el.dataset.scene);
       const layer = scene && scene.layers[parseInt(el.dataset.idx, 10)];
       if (!layer || layer.locked) return;
+      // Layer bars can contain thumbnails/text. Prevent Chromium's native
+      // image/text drag from issuing pointercancel before our cross-track drop,
+      // and capture the pointer so pointerup still reaches the editor after the
+      // pointer leaves the source layer.
+      ev.preventDefault();
+      try { el.setPointerCapture(ev.pointerId); } catch (_) {}
       _layerDrag = {el, sceneId: el.dataset.scene, idx: parseInt(el.dataset.idx),
                     startX: ev.clientX, startY: ev.clientY, moved: false, mode: null};
       // §17 边缘 Trim：按下点在层带左/右 8px → trim 手势；中间 → move 手势
@@ -681,6 +688,12 @@ function _tlBindLayerDrag(){
         }
       }
     }
+  });
+  document.addEventListener('pointercancel', () => {
+    if (_layerDrag && _layerDrag.el) _layerDrag.el.classList.remove('tl-dragging');
+    _layerDrag = null;
+    document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]')
+      .forEach(row => row.classList.remove('tl-track-drop-target'));
   });
   document.addEventListener('pointerup', ev => {
     if (!_layerDrag) return;
