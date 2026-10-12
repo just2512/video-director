@@ -543,6 +543,20 @@ def _make_video_with_audio(ffmpeg: str, path: Path):
     assert path.is_file() and path.stat().st_size > 1000
 
 
+def _audio_window_mean_volume(ffmpeg: str, path: Path, start: float, duration: float) -> float:
+    """Measure a decoded audio window so timeline placement is tested, not just stream presence."""
+    run = subprocess.run([
+        ffmpeg, "-hide_banner", "-nostats", "-loglevel", "info",
+        "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(path),
+        "-vn", "-af", "volumedetect", "-f", "null", "-",
+    ], capture_output=True, text=True, timeout=45)
+    assert run.returncode == 0, run.stderr
+    line = next((line for line in run.stderr.splitlines() if "mean_volume:" in line), None)
+    assert line is not None, run.stderr[-2000:]
+    raw = line.split("mean_volume:", 1)[1].strip().split()[0]
+    return float("-inf") if raw == "-inf" else float(raw)
+
+
 def test_real_ffmpeg_mixes_opted_in_video_overlay_source_audio(tmp_path):
     ffmpeg = renderer._ffmpeg()
     base_path = tmp_path / "source-audio-base.png"
@@ -560,7 +574,7 @@ def test_real_ffmpeg_mixes_opted_in_video_overlay_source_audio(tmp_path):
         )],
         assets=[base, overlay],
         visual_overlays=[VisualOverlayClip(
-            id="overlay-with-audio", asset_id="source-audio-video", start=0.0, duration=2.0,
+            id="overlay-with-audio", asset_id="source-audio-video", start=0.5, duration=1.5,
             presentation_mode="full_frame", source_audio_enabled=True, source_audio_volume=0.7,
             x=0.0, y=0.0, width=1.0, height=1.0,
         )],
@@ -577,11 +591,17 @@ def test_real_ffmpeg_mixes_opted_in_video_overlay_source_audio(tmp_path):
     assert report.get("full_decode") == "PASS", report
     # Full-frame presentation uses cover/crop: no base blue should leak through the
     # corner even though the portrait-ish source was encoded as a square.
-    corner = _pixel_at(ffmpeg, output, 0.5, 5, 5)
+    corner = _pixel_at(ffmpeg, output, 0.8, 5, 5)
     assert corner[0] > corner[2] * 1.5, corner
     assert composition.audio == [], "render-time derived clips must not mutate saved CompositionIR"
     probe = renderer.prober.probe_media(str(output))
     assert probe.has_audio_stream and probe.has_video_stream
+
+    # Source audio must follow the overlay's timeline start, not leak to t=0.
+    pre_roll_db = _audio_window_mean_volume(ffmpeg, output, 0.1, 0.25)
+    active_db = _audio_window_mean_volume(ffmpeg, output, 0.8, 0.25)
+    assert pre_roll_db < -65, f"source audio leaked before its timeline start: {pre_roll_db} dB"
+    assert active_db > -35, f"source audio is missing during its timeline window: {active_db} dB"
 
 
 def test_source_audio_opt_in_fails_closed_when_video_has_no_audio(tmp_path):
