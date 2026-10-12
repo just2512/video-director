@@ -34,6 +34,19 @@ class TestUiActionAudit:
                    if a.ui and a.id not in exposed]
         assert not missing, f"ui 型动作未暴露给 dispatcher: {missing}"
 
+    def test_add_edit_all_tracks_is_registered_and_uses_timeline_command(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        action = ar.get_action("ui.add_edit_all_tracks")
+        assert action is not None
+        assert action.ui == "add_edit_all_tracks"
+        assert "add_edit_all_tracks" in (root / "webui" / "static" / "js" / "action-dispatcher.js").read_text(encoding="utf-8")
+        timeline = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
+        assert "editorAddEditAllTracks" in timeline
+        html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+        assert 'data-action="ui.add_edit_all_tracks"' in html
+
     def test_registry_backrefs_alive(self):
         """§71 四层证据静态层：Action→Capability 全在 manifest。"""
         from video_director.capability_registry.manifest import manifest

@@ -3805,6 +3805,7 @@ class Handler(BaseHTTPRequestHandler):
                     "changed_artifacts": result.changed_artifacts,
                     "reused_artifacts": result.reused_artifacts,
                     "stale_artifacts": result.stale_artifacts,
+                    "warnings": result.warnings,
                     "errors": result.errors,
                     "composition": result.composition,
                 })
