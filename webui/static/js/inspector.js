@@ -1459,18 +1459,14 @@ async function editorPromoteLayerToTrack(sceneId, idx){
     editorToast('只能提升选中的主画面视频片段', true);
     return;
   }
-  const tracks = [...(ED.comp.visual_tracks || [])].sort((a, b) => a.order - b.order);
-  if (!tracks.length) {
-    editorToast('项目没有可用的画面轨道，请先创建轨道', true);
-    return;
-  }
   const r = await executeCommand({
     command: 'promote_layer_to_visual_track',
     targetId: `${sceneId}#${idx}`,
-    payload: {trackId: tracks[0].id},
+    payload: {},
   });
   if (r.ok) {
-    editorToast('已提升到「' + tracks[0].name + '」；原时间位置保留黑色空隙。');
+    const createdTrack = (ED.comp.visual_tracks || []).find(track => track.name && track.name.startsWith('独立视频 '));
+    editorToast('已提升到新建的独立视频轨道；原时间位置保留黑色空隙。');
     await refreshWorkspace();
     if (typeof editorVisualOverlayPick === 'function') {
       const overlays = ED.comp && ED.comp.visual_overlays || [];
