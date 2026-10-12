@@ -577,6 +577,40 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     assert 0 <= box["y"] and box["y"] + box["h"] <= drag_boxes["viewport"]["h"], (
                         f"main clip and destination track must be simultaneously visible for drag: {drag_boxes}"
                     )
+                # Preserve pointer lifecycle evidence on failure. This runs in Chromium
+                # against the actual editor listeners; it is intentionally diagnostic
+                # rather than a mocked unit test so event retargeting/cancellation is visible.
+                page.evaluate("""() => {
+                    window.__mainClipDragEvents = [];
+                    const describe = (phase, ev) => {
+                        const target = ev.target instanceof Element ? ev.target : null;
+                        const under = Number.isFinite(ev.clientX) && Number.isFinite(ev.clientY)
+                            ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
+                        let state = null;
+                        try {
+                            const d = typeof _layerDrag !== 'undefined' ? _layerDrag : null;
+                            state = d ? {
+                                sceneId: d.sceneId, idx: d.idx, mode: d.mode, moved: d.moved,
+                                connected: !!(d.el && d.el.isConnected),
+                                hasCapture: !!(d.el && d.el.hasPointerCapture && d.el.hasPointerCapture(ev.pointerId))
+                            } : null;
+                        } catch (error) { state = {readError: String(error)}; }
+                        window.__mainClipDragEvents.push({
+                            phase, type: ev.type, pointerId: ev.pointerId,
+                            x: ev.clientX, y: ev.clientY, defaultPrevented: ev.defaultPrevented,
+                            target: target ? target.tagName + '.' + String(target.className || '') : String(ev.target),
+                            source: target && target.closest('.ed-layer')
+                                ? target.closest('.ed-layer').dataset.scene + '#' + target.closest('.ed-layer').dataset.idx : null,
+                            underTrack: under && under.closest('.ed-track[data-visual-track-id]')
+                                ? under.closest('.ed-track[data-visual-track-id]').dataset.visualTrackId : null,
+                            state
+                        });
+                    };
+                    for (const type of ['pointerdown','pointermove','pointerup','pointercancel','gotpointercapture','lostpointercapture','dragstart','dragend']) {
+                        document.addEventListener(type, ev => describe('capture', ev), true);
+                        document.addEventListener(type, ev => describe('bubble', ev), false);
+                    }
+                }""")
                 drag_start_x = drag_boxes["source"]["x"] + drag_boxes["source"]["w"] / 2
                 drag_start_y = drag_boxes["source"]["y"] + drag_boxes["source"]["h"] / 2
                 drag_target_x = drag_boxes["target"]["x"] + drag_boxes["target"]["w"] * 0.30
@@ -591,7 +625,11 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                      if command.get("command") == "promote_layer_to_visual_track"),
                     None,
                 )
-                assert drag_command is not None, "dropping a main-video clip onto a track did not dispatch promotion"
+                drag_debug = page.evaluate("window.__mainClipDragEvents")
+                assert drag_command is not None, (
+                    "dropping a main-video clip onto a track did not dispatch promotion; "
+                    f"pointer trace={json.dumps(drag_debug, ensure_ascii=False)}"
+                )
                 assert drag_command["targetId"] == "S01#0"
                 assert drag_command["payload"]["trackId"] == "overlay-main"
                 assert abs(float(drag_command["payload"]["start"]) - 6.0) < 0.2, drag_command["payload"]
