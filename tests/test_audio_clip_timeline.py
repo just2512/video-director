@@ -110,6 +110,19 @@ def test_split_looping_bgm_without_explicit_source_window_is_rejected_without_re
     assert (plan_dir / "revisions.jsonl").read_text(encoding="utf-8") == ""
 
 
+def test_split_narration_track_is_rejected_until_renderer_supports_segmented_narration(tmp_path, monkeypatch):
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    comp.audio[0] = comp.audio[0].model_copy(update={"type": "narration"})
+    save_composition(pid, comp)
+
+    result = _apply(pid, "split_audio_clip", "audio#0", {"at": 3.0})
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "SPLIT_UNSUPPORTED_NARRATION_PIPELINE"
+    assert len(load_composition(pid).audio) == 2
+    assert (plan_dir / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
 def test_split_audio_clip_rejects_playhead_outside_interior_and_stale_version(tmp_path, monkeypatch):
     pid, plan_dir = _audio_project(tmp_path, monkeypatch)
     too_early = _apply(pid, "split_audio_clip", "audio#1", {"at": 5.05})
@@ -294,4 +307,5 @@ def test_audio_clip_inspector_exposes_safe_split_at_playhead_action():
     assert 'id="audio-clip-split-at-playhead"' in js
     assert "split_audio_clip" in js
     assert "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW" in js
+    assert "SPLIT_UNSUPPORTED_NARRATION_PIPELINE" in js
     assert ".audio-clip-split-row" in css
