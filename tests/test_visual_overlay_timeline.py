@@ -476,3 +476,6 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "在播放头切分" in overlay_js
     assert "thumbnailUrl" in timeline_js and "ed-clip-thumb" in timeline_js
     assert "api/asset_thumbnail?asset_id=" in timeline_js
+    assert "visual_tracks" in timeline_js and "data-visual-track-id" in timeline_js
+    assert "editorVisualTrackCreate" in timeline_js and "editorVisualTrackMenu" in timeline_js
+    assert "trackId:nextTrackId" in overlay_js and "reorder_visual_track" in overlay_js
