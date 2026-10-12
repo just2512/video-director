@@ -272,3 +272,23 @@ def test_legacy_detached_original_audio_migrates_as_independent(tmp_path, monkey
     assert tracks["detached-reused-asset"].follows_scene_video is False
     assert tracks["audio-source-overlay-only"].start == 6.0
     assert tracks["audio-source-overlay-only"].follows_scene_video is False
+
+
+
+def test_reordering_visual_layers_does_not_shorten_project_narration(tmp_path, monkeypatch):
+    data = _video_reorder_comp_with_audio()
+    project_duration = float(data["project"]["duration"])
+    data["audio"].append({
+        "type": "narration", "id": "whole-project-narration",
+        "start": 0.0, "duration": project_duration, "volume": 0.9,
+    })
+    pid, _plans = _project(tmp_path, monkeypatch, data)
+
+    result = _apply(pid, "reorder_layer", "S01#0", {"toIndex": 1})
+    assert result.status == "APPLIED", result.errors
+    narration = next(
+        track for track in load_composition(pid).audio
+        if track.id == "whole-project-narration"
+    )
+    assert narration.start == 0.0
+    assert narration.duration == project_duration

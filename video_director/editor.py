@@ -1032,11 +1032,12 @@ def _cmd_reorder_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     scene_data = scene.model_dump()
     scene_data["layers"] = [item.model_dump() for item in normalized]
     ir.scenes[si] = SceneIR(**scene_data)
-    # A ripple reorder changes the global time of every following picture segment.
-    # Keep linked source-audio instances aligned, while _resync_audio_to_scenes preserves
-    # user-detached original audio clips as independent timeline items.
-    _resync_audio_to_scenes(ir)
-    return [f"{scene.id}#{to_index}"], _stale_of_scene(project_id="", scene_id=scene.id)
+    # A ripple reorder changes linked source-audio timing as well as picture order.
+    # Do not run the scene-level narration reflow: this command did not change scenes.
+    _resync_audio_to_scenes(ir, sync_narration=False)
+    stale = _stale_of_scene(project_id="", scene_id=scene.id)
+    stale.extend(["project:audio:render", "project:audio-tracks", "project:preview"])
+    return [f"{scene.id}#{to_index}"], list(dict.fromkeys(stale))
 
 
 def _cmd_add_edit_all_tracks(
@@ -1406,14 +1407,15 @@ def _renumber_starts(ir: CompositionIR) -> None:
         cursor += sc.duration
 
 
-def _resync_audio_to_scenes(ir: CompositionIR) -> None:
+def _resync_audio_to_scenes(ir: CompositionIR, *, sync_narration: bool = True) -> None:
     """场景结构编辑后的音频时间同步。
 
     original 轨不再简单按 asset_id 取第一个窗口，而是：
     - 同一素材的多个 original track 按“旧 timeline start”保留实例顺序；
     - 与该素材在新时间线中的多个 video layer 窗口按新 start 顺序一一对应；
     - 没有对应窗口的轨道视为孤儿并删除；
-    narration 仍按场景顺序 1:1 重铺；其他音轨只做时间范围裁剪。
+    narration 默认按场景顺序 1:1 重铺；主画面轨内部重排传 sync_narration=False，
+    以免无关的视觉重排把全片旁白裁成第一镜时长。其他音轨只做时间范围裁剪。
     """
     from video_director.models import AudioTrackType
 
@@ -1468,7 +1470,11 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
                         "follows_scene_video": False,
                     }))
         elif ttype == "narration":
-            narration_tracks.append(t)
+            if sync_narration:
+                narration_tracks.append(t)
+            else:
+                # A picture-only reorder must leave the global narration mix untouched.
+                new_audio.append(t)
         else:
             start = min(float(t.start), max(0.0, total - float(t.duration)))
             dur = min(float(t.duration), max(0.0, total - start))
