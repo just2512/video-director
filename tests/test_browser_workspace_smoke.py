@@ -505,6 +505,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     };
                     ED.comp.assets['video-source'] = {name: 'Source video', file: 'video.mp4'};
                     SEL.selection = {type: 'layer', id: 'S01#0'};
+                    SEL.selectionSet = new Set([_selKey('layer', 'S01#0')]);
                     edShowInspector();
                     return {
                         buttonCount: [...document.querySelectorAll('#editor-inspector button')]
@@ -534,6 +535,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                         source_in: 0, source_out: 10, speed: 1, fit_mode: 'cover', locked: true
                     };
                     SEL.selection = {type: 'layer', id: 'S01#0'};
+                    SEL.selectionSet = new Set([_selKey('layer', 'S01#0')]);
                     edShowInspector();
                     const button = [...document.querySelectorAll('#editor-inspector button')]
                         .find(item => item.textContent.includes('提升到独立画面轨道'));
