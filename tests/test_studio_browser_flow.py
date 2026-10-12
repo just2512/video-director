@@ -202,6 +202,74 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert all(abs(item["mapped"] - 0.75) < 0.01 for item in zoom_geometry), zoom_geometry
                 assert zoom_geometry[2]["scrollable"], zoom_geometry
 
+                # Real user-facing overlay lane: render, edit inspector, add from project
+                # assets, delete, and drag a clip. Commands are captured at the same
+                # frontend command boundary used by the real API so no disk data changes.
+                overlay_ui = page.evaluate("""async () => {
+                  const original = {
+                    comp: ED.comp, view: ED.timelineView,
+                    executeCommand: window.executeCommand,
+                    refreshWorkspace: window.refreshWorkspace,
+                    editorToast: window.editorToast
+                  };
+                  const commands = [];
+                  try {
+                    ED.comp = Object.assign({}, original.comp, {
+                      duration: 5,
+                      assets: {
+                        "overlay-test-image": {id:"overlay-test-image", type:"image", name:"Test overlay image", file:"/fake.png", duration:1}
+                      },
+                      visual_overlays: [{
+                        id:"overlay-test", asset_id:"overlay-test-image", start:1, duration:2, source_in:0,
+                        x:0.65, y:0.1, width:0.3, height:0.3, opacity:1, z_index:0
+                      }]
+                    });
+                    ED.timelineView = "dual";
+                    window.executeCommand = async command => { commands.push(command); return {ok:true}; };
+                    window.refreshWorkspace = async () => {};
+                    window.editorToast = () => {};
+                    editorRenderTimeline();
+                    const trackExists = !!document.querySelector(".ed-visual-overlay-clip[data-visual-overlay-index=\"0\"]");
+                    const addButtonExists = !!document.querySelector(".ed-track-add");
+                    editorVisualOverlayOpen(0);
+                    document.getElementById("visual-overlay-x").value = "0.4";
+                    document.getElementById("visual-overlay-y").value = "0.2";
+                    await editorVisualOverlayApply(0);
+                    editorVisualOverlayPick();
+                    document.getElementById("visual-overlay-start").value = "0.5";
+                    document.getElementById("visual-overlay-duration").value = "1";
+                    await editorVisualOverlayCreate();
+                    await editorVisualOverlayRemove(0);
+                    editorRenderTimeline();
+                    const clip = document.querySelector(".ed-visual-overlay-clip[data-visual-overlay-index=\"0\"]");
+                    const rect = clip.getBoundingClientRect();
+                    const body = clip.closest(".ed-track-body").getBoundingClientRect();
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    clip.dispatchEvent(new PointerEvent("pointerdown", {bubbles:true, cancelable:true, pointerId:27, button:0, clientX:x, clientY:y}));
+                    document.dispatchEvent(new PointerEvent("pointermove", {bubbles:true, cancelable:true, pointerId:27, buttons:1, clientX:x + body.width * 0.1, clientY:y}));
+                    document.dispatchEvent(new PointerEvent("pointerup", {bubbles:true, cancelable:true, pointerId:27, button:0, clientX:x + body.width * 0.1, clientY:y}));
+                    await Promise.resolve();
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    return {trackExists, addButtonExists, commands, dialogRemoved:!document.getElementById("visual-overlay-inspector-mask")};
+                  } finally {
+                    ED.comp = original.comp;
+                    ED.timelineView = original.view;
+                    window.executeCommand = original.executeCommand;
+                    window.refreshWorkspace = original.refreshWorkspace;
+                    window.editorToast = original.editorToast;
+                    editorRenderTimeline();
+                  }
+                }""")
+                assert overlay_ui["trackExists"], overlay_ui
+                assert overlay_ui["addButtonExists"], overlay_ui
+                overlay_commands = [command.get("command") for command in overlay_ui["commands"]]
+                assert overlay_commands == [
+                    "set_visual_overlay", "add_visual_overlay", "remove_visual_overlay", "move_visual_overlay"
+                ], overlay_ui
+                assert overlay_ui["commands"][1]["payload"]["start"] == 0.5, overlay_ui
+                assert overlay_ui["dialogRemoved"], overlay_ui
+
                 # Re-rendering the physical timeline must not attach another pair
                 # of document-level layer-drag handlers. Count real registrations.
                 layer_handler_count = page.evaluate("""() => {
