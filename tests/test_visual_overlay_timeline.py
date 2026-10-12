@@ -143,6 +143,10 @@ def test_visual_track_commands_persist_order_names_and_clip_membership(tmp_path,
     extra = next(track for track in comp.visual_tracks if track.id != main_track.id)
     assert (extra.name, extra.order) == ("画中画 B", 1)
 
+    duplicate = _apply(pid, "add_visual_track", "visual-tracks", {"name": "画中画 b"}, 2)
+    assert duplicate.status == "REJECTED"
+    assert duplicate.errors[0]["code"] == "DUPLICATE_TRACK_NAME"
+
     added = _apply(pid, "add_visual_overlay", "overlays", {
         "assetId": "overlay-image", "start": 1.0, "duration": 2.0, "trackId": extra.id,
     }, 2)
@@ -152,6 +156,10 @@ def test_visual_track_commands_persist_order_names_and_clip_membership(tmp_path,
     renamed = _apply(pid, "rename_visual_track", extra.id, {"name": "证据画面"}, 3)
     assert renamed.status == "APPLIED", renamed.errors
     assert next(t for t in load_composition(pid).visual_tracks if t.id == extra.id).name == "证据画面"
+
+    fractional = _apply(pid, "reorder_visual_track", extra.id, {"toIndex": 0.5}, 4)
+    assert fractional.status == "REJECTED"
+    assert fractional.errors[0]["code"] == "INVALID_PAYLOAD"
 
     reordered = _apply(pid, "reorder_visual_track", extra.id, {"toIndex": 0}, 4)
     assert reordered.status == "APPLIED", reordered.errors
@@ -175,6 +183,9 @@ def test_visual_track_commands_persist_order_names_and_clip_membership(tmp_path,
     remaining = load_composition(pid)
     assert [(t.id, t.order) for t in remaining.visual_tracks] == [(main_track.id, 0)]
     assert remaining.visual_overlays[0].track_id == main_track.id
+    last_track = _apply(pid, "remove_visual_track", main_track.id, {}, 7)
+    assert last_track.status == "REJECTED"
+    assert last_track.errors[0]["code"] == "LAST_VISUAL_TRACK"
 
 
 def test_renderer_uses_visual_track_order_ahead_of_clip_z_index(tmp_path, monkeypatch):
