@@ -12,12 +12,19 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from video_director.models import (
-    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip,
+    AssetRef, AudioLane, AudioTrack, AudioTrackType, CompositionIR, Layer, LayerType,
+    ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack, WatermarkLayer,
 )
 from video_director import editor, store, shotbook
 
 
-def _test_composition(media_file: Path) -> CompositionIR:
+def _test_composition(media_file: Path, *, include_extended_tracks: bool = False) -> CompositionIR:
+    """Build the shared render fixture; browser-only lane metadata is opt-in.
+
+    The native-style MP4 tests reuse this helper. Keep their default CompositionIR
+    self-contained (every referenced asset must resolve) instead of leaking the
+    browser-only placeholder audio ids into unrelated real-render tests.
+    """
     layer1 = Layer(type=LayerType.image, asset_id="e2e-still", start=0, duration=1.0)
     layer2 = Layer(type=LayerType.image, asset_id="e2e-still", start=0, duration=1.0)
     recipes = shotbook._recipes()
@@ -33,14 +40,52 @@ def _test_composition(media_file: Path) -> CompositionIR:
         source="uploaded", rights_status="CLEAR",
         provenance={"source": "Playwright regression fixture"},
     )
+    timeline_extensions = {}
+    if include_extended_tracks:
+        timeline_extensions = {
+            "audio_tracks": [
+                AudioLane(id="audio-custom-music", name="自定义配乐", order=0),
+                AudioLane(id="audio-custom-foley", name="细节音效", order=1),
+            ],
+            "audio": [
+                AudioTrack(
+                    id="e2e-music-clip", type=AudioTrackType.bgm,
+                    track_id="audio-custom-music", asset_id="e2e-music",
+                    start=0.2, duration=1.2, source_in=0.1, source_out=1.3,
+                    volume=0.65, fadeIn=0.15, fadeOut=0.25,
+                ),
+                AudioTrack(
+                    id="e2e-foley-clip", type=AudioTrackType.sfx,
+                    track_id="audio-custom-foley", asset_id="e2e-foley",
+                    start=1.0, duration=0.25, source_in=0.0, source_out=0.25,
+                    volume=0.45,
+                ),
+            ],
+            "watermarks": [
+                WatermarkLayer(
+                    id="e2e-timed-watermark", kind="text", text="BRAND",
+                    anchor="top_right", offset_x=12, offset_y=8, safe_area=16,
+                    opacity=0.7, scale=0.9, start=0.25, duration=0.75,
+                ),
+            ],
+            "visual_tracks": [
+                VisualTrack(id="overlay-main", name="品牌叠加", order=0),
+                VisualTrack(id="overlay-callouts", name="动态字卡", order=1),
+            ],
+            "visual_overlays": [
+                VisualOverlayClip(
+                    id="e2e-overlay", asset_id="e2e-still", start=0.25, duration=0.5,
+                    source_in=0.0, track_id="overlay-callouts",
+                    presentation_mode="sticker", source_audio_enabled=False,
+                    source_audio_volume=0.42,
+                    x=0.6, y=0.1, width=0.3, height=0.3,
+                    opacity=0.8, z_index=1,
+                ),
+            ],
+        }
     return CompositionIR(
         project=ProjectSpec(width=160, height=90, fps=10, duration=2.0),
-        scenes=scenes, assets=[asset],
-        visual_overlays=[VisualOverlayClip(
-            id="e2e-overlay", asset_id="e2e-still", start=0.25, duration=0.5,
-            source_in=0.0, x=0.6, y=0.1, width=0.3, height=0.3,
-            opacity=0.8, z_index=1,
-        )],
+        scenes=scenes, assets=[asset], **timeline_extensions,
     )
 
 
@@ -61,7 +106,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
         "lYkAAAAASUVORK5CYII="
     ))
     store.create_project(pid, "Playwright 工作台回归", {"name": "Playwright 工作台回归"})
-    editor.save_composition(pid, _test_composition(still))
+    editor.save_composition(pid, _test_composition(still, include_extended_tracks=True))
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -130,19 +175,77 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert len(api_overlays) == 1, api_composition
                 api_overlay = api_overlays[0]
                 assert {key: api_overlay.get(key) for key in (
-                    "id", "asset_id", "start", "duration", "source_in", "x", "y",
-                    "width", "height", "opacity", "z_index",
+                    "id", "asset_id", "start", "duration", "source_in", "track_id",
+                    "presentation_mode", "source_audio_enabled", "source_audio_volume",
+                    "x", "y", "width", "height", "opacity", "z_index",
                 )} == {
                     "id": "e2e-overlay", "asset_id": "e2e-still", "start": 0.25,
-                    "duration": 0.5, "source_in": 0.0, "x": 0.6, "y": 0.1,
-                    "width": 0.3, "height": 0.3, "opacity": 0.8, "z_index": 1,
+                    "duration": 0.5, "source_in": 0.0, "track_id": "overlay-callouts",
+                    "presentation_mode": "sticker", "source_audio_enabled": False,
+                    "source_audio_volume": 0.42,
+                    "x": 0.6, "y": 0.1, "width": 0.3, "height": 0.3,
+                    "opacity": 0.8, "z_index": 1,
                 }, api_composition
+                assert api_composition["body"]["audio_tracks"] == [
+                    {"id": "audio-custom-music", "name": "自定义配乐", "order": 0},
+                    {"id": "audio-custom-foley", "name": "细节音效", "order": 1},
+                ], api_composition
+                assert [
+                    {key: lane.get(key) for key in ("id", "type", "track_id", "asset_id", "start",
+                                                     "duration", "source_in", "source_out", "volume",
+                                                     "muted", "fadeIn", "fadeOut")}
+                    for lane in api_composition["body"]["audio"]
+                ] == [
+                    {"id": "e2e-music-clip", "type": "bgm", "track_id": "audio-custom-music",
+                     "asset_id": "e2e-music", "start": 0.2, "duration": 1.2,
+                     "source_in": 0.1, "source_out": 1.3, "volume": 0.65,
+                     "muted": False, "fadeIn": 0.15, "fadeOut": 0.25},
+                    {"id": "e2e-foley-clip", "type": "sfx", "track_id": "audio-custom-foley",
+                     "asset_id": "e2e-foley", "start": 1.0, "duration": 0.25,
+                     "source_in": 0.0, "source_out": 0.25, "volume": 0.45,
+                     "muted": False, "fadeIn": 0.0, "fadeOut": 0.0},
+                ], api_composition
+                assert api_composition["body"]["visual_tracks"] == [
+                    {"id": "overlay-main", "name": "品牌叠加", "order": 0},
+                    {"id": "overlay-callouts", "name": "动态字卡", "order": 1},
+                ], api_composition
+                assert api_composition["body"]["watermarks"] == [{
+                    "id": "e2e-timed-watermark", "kind": "text", "text": "BRAND",
+                    "asset_id": None, "anchor": "top_right", "offset_x": 12, "offset_y": 8,
+                    "safe_area": 16, "opacity": 0.7, "scale": 0.9, "start": 0.25, "duration": 0.75,
+                }], api_composition
                 loaded = page.evaluate("() => shotbookLoad()")
                 assert loaded, "Shotbook did not load through the real HTTP handler"
                 page.locator("#shotbook-details").evaluate("(element) => { element.open = true; }")
                 assert page.locator("#shotbook-list .sb-shot").count() == 2
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
+                restored_tracks = page.evaluate("""() => {
+                  const previousSoundOpen = TL_GROUPS.sound.open;
+                  TL_GROUPS.sound.open = true;
+                  editorRenderTimeline();
+                  const laneInfo = selector => Array.from(document.querySelectorAll(selector)).map(row => ({
+                    id: row.dataset.audioTrackId || row.dataset.visualTrackId,
+                    name: (row.querySelector('.ed-track-label span') || row.querySelector('.ed-track-label'))?.textContent?.trim() || ''
+                  }));
+                  const result = {
+                    audioLanes: laneInfo('#editor-timeline .ed-track[data-audio-track-id]'),
+                    visualLanes: laneInfo('#editor-timeline .ed-track[data-visual-track-id]'),
+                    musicClip: !!document.querySelector('.ed-track[data-audio-track-id="audio-custom-music"] .ed-audio-clip[data-audio-index="0"]'),
+                    foleyClip: !!document.querySelector('.ed-track[data-audio-track-id="audio-custom-foley"] .ed-audio-clip[data-audio-index="1"]'),
+                    overlayClip: !!document.querySelector('.ed-track[data-visual-track-id="overlay-callouts"] .ed-visual-overlay-clip[data-visual-overlay-index="0"]')
+                  };
+                  TL_GROUPS.sound.open = previousSoundOpen;
+                  editorRenderTimeline();
+                  return result;
+                }""")
+                assert [(lane["id"], lane["name"]) for lane in restored_tracks["audioLanes"]] == [
+                    ("audio-custom-music", "自定义配乐"), ("audio-custom-foley", "细节音效"),
+                ], restored_tracks
+                assert ("overlay-callouts", "动态字卡") in [
+                    (lane["id"], lane["name"]) for lane in restored_tracks["visualLanes"]
+                ], restored_tracks
+                assert restored_tracks["musicClip"] and restored_tracks["foleyClip"] and restored_tracks["overlayClip"], restored_tracks
 
                 # Real Chromium regression: dragging a 2s audio clip past the
                 # 10s project end must submit start=8s, keeping the full clip in

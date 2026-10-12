@@ -1455,25 +1455,28 @@ class Handler(BaseHTTPRequestHandler):
                     ],
                     # §18/§19/§32：音频轨/水印/字幕样式回传（Inspector/时间线可视化）
                     "audio": [
-                        {"type": t.type.value, "asset_id": t.asset_id, "start": t.start,
-                         "duration": t.duration, "volume": t.volume, "ducking": t.ducking,
-                         "source_in": getattr(t, "source_in", 0.0), "source_out": getattr(t, "source_out", None),
-                         # §37 Audio Bus：muted/fade 前端可显（轨道 badge + Inspector）
-                         "muted": bool(getattr(t, "muted", False)),
-                         "fadeIn": getattr(t, "fadeIn", 0.0), "fadeOut": getattr(t, "fadeOut", 0.0)}
+                        {
+                            "id": t.id, "type": t.type.value, "track_id": t.track_id,
+                            "asset_id": t.asset_id, "start": t.start, "duration": t.duration,
+                            "volume": t.volume, "ducking": t.ducking,
+                            "source_in": getattr(t, "source_in", 0.0),
+                            "source_out": getattr(t, "source_out", None),
+                            "muted": bool(getattr(t, "muted", False)),
+                            "fadeIn": getattr(t, "fadeIn", 0.0),
+                            "fadeOut": getattr(t, "fadeOut", 0.0),
+                            "keyframes": [frame.model_dump() for frame in (t.keyframes or [])],
+                        }
                         for t in ir.audio
                     ],
+                    "audio_tracks": [lane.model_dump() for lane in (ir.audio_tracks or [])],
                     "watermarks": [
-                        {"kind": w.kind, "text": w.text, "asset_id": w.asset_id,
-                         "anchor": w.anchor, "opacity": w.opacity, "scale": w.scale}
-                        for w in (ir.watermarks or [])
+                        watermark_layer.model_dump()
+                        for watermark_layer in (ir.watermarks or [])
                     ],
+                    "visual_tracks": [track.model_dump() for track in (ir.visual_tracks or [])],
                     "visual_overlays": [
                         {
-                            "id": clip.id, "asset_id": clip.asset_id, "start": clip.start,
-                            "duration": clip.duration, "source_in": clip.source_in,
-                            "x": clip.x, "y": clip.y, "width": clip.width,
-                            "height": clip.height, "opacity": clip.opacity, "z_index": clip.z_index,
+                            **clip.model_dump(),
                             **_editor_asset_meta(clip.asset_id),
                         }
                         for clip in (getattr(ir, "visual_overlays", None) or [])
