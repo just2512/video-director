@@ -218,7 +218,110 @@ function _previewRenderAt(sec, keepPlaying){
   // Live overlay clips use the same CompositionIR global clock as the timeline;
   // draft preview already contains these clips in the rendered MP4, so it does not add them again.
   _previewRenderVisualOverlays(sec);
+  _previewRenderSubtitles(sec);
   if (meta) meta.textContent = '实时预览 · ' + sec.toFixed(1) + ' / ' + (ED.comp.duration || 0).toFixed(1) + 's';
+}
+
+/** Show CompositionIR subtitle cues on the same live-preview clock as the timeline. */
+function _previewRenderSubtitles(sec) {
+  if (!ED.comp || PV.mode !== 'live') return;
+  const media = document.querySelector('#ed-preview-stage .pv-live-media');
+  if (!media) return;
+  let host = media.querySelector('.pv-live-subtitle');
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'pv-live-subtitle';
+    host.setAttribute('aria-live', 'off');
+    media.appendChild(host);
+  }
+
+  const track = ED.comp.subtitle_track || null;
+  const cues = track && Array.isArray(track.cues) ? track.cues : [];
+  const ordered = cues.map((cue, index) => ({cue, index}))
+    .filter(item => item.cue && Number.isFinite(Number(item.cue.start)) && Number.isFinite(Number(item.cue.end)) && Number(item.cue.end) > Number(item.cue.start))
+    .sort((a, b) => Number(a.cue.start) - Number(b.cue.start) || a.index - b.index);
+  const activeIndex = ordered.findIndex(({cue}) => sec >= Number(cue.start) && sec < Number(cue.end));
+  if (activeIndex < 0) {
+    host.innerHTML = '';
+    host.dataset.renderKey = '';
+    host.style.display = 'none';
+    return;
+  }
+
+  const style = ED.comp.subtitle_style || {};
+  const mode = String((track && track.mode) || style.mode || 'sentence');
+  let first = activeIndex;
+  let last = activeIndex;
+  if (mode === 'word') {
+    const boundary = /[.!?。！？；;:]$/u;
+    while (first > 0) {
+      const prev = ordered[first - 1].cue;
+      const current = ordered[first].cue;
+      const gap = Number(current.start) - Number(prev.end);
+      if (gap > 0.65 || boundary.test(String(prev.text || '').trim())) break;
+      first -= 1;
+    }
+    while (last < ordered.length - 1) {
+      const current = ordered[last].cue;
+      const next = ordered[last + 1].cue;
+      const gap = Number(next.start) - Number(current.end);
+      if (gap > 0.65 || boundary.test(String(current.text || '').trim())) break;
+      last += 1;
+    }
+    // Keep word-by-word karaoke readable on narrow preview stages.
+    first = Math.max(first, activeIndex - 8);
+    last = Math.min(last, activeIndex + 8);
+  }
+
+  const visible = ordered.slice(first, last + 1);
+  const hasCjk = visible.some(({cue}) => /[\u3400-\u9fff]/u.test(String(cue.text || '')));
+  const separator = mode === 'word' && !hasCjk ? ' ' : '';
+  const renderKey = [
+    mode, activeIndex, first, last,
+    visible.map(({index, cue}) => index + ':' + String(cue.text || '')).join('|')
+  ].join('::');
+  if (host.dataset.renderKey !== renderKey) {
+    host.innerHTML = visible.map(({index, cue}, localIndex) => {
+      const word = esc(String(cue.text || '').trim());
+      const activeWord = mode === 'word' && first + localIndex === activeIndex;
+      return `<span class="pv-live-subtitle-word${activeWord ? ' is-active' : ''}" data-cue-index="${index}">${word}</span>`;
+    }).join(separator);
+    host.dataset.renderKey = renderKey;
+  }
+  host.style.display = 'block';
+
+  const safeColor = (value, fallback) => {
+    const color = String(value || '').trim();
+    return /^#[0-9a-f]{3,8}$/i.test(color) || /^(white|black|yellow|red|transparent)$/i.test(color)
+      ? color : fallback;
+  };
+  const bg = String(style.background || '').trim();
+  const bgMatch = bg.match(/^(#[0-9a-f]{6})(?:@([0-9]*\.?[0-9]+))?$/i);
+  if (bgMatch) {
+    const rgb = bgMatch[1].slice(1);
+    const opacity = Math.max(0, Math.min(1, Number(bgMatch[2] || style.background_opacity || 0.5)));
+    host.style.backgroundColor = `rgba(${parseInt(rgb.slice(0,2),16)},${parseInt(rgb.slice(2,4),16)},${parseInt(rgb.slice(4,6),16)},${opacity})`;
+  } else {
+    host.style.backgroundColor = 'transparent';
+  }
+  host.style.color = safeColor(style.color, '#FFFFFF');
+  host.style.webkitTextStroke = Math.max(0, Math.min(12, Number(style.stroke_width) || 0)) +
+    'px ' + safeColor(style.stroke_color, '#000000');
+  const fontName = String(style.font || '').replace(/[;"'<>\\]/g, '').slice(0, 80).trim();
+  host.style.fontFamily = fontName ? '"' + fontName + '"' : '';
+  const size = Number(style.size);
+  host.style.fontSize = (Math.max(0.5, Math.min(4, Number.isFinite(size) && size > 0 ? size : 1)) * 18) + 'px';
+  host.style.maxWidth = (Math.max(0.3, Math.min(1, Number(style.max_width) || 0.9)) * 100) + '%';
+  host.style.textAlign = ['left', 'center', 'right'].includes(style.alignment) ? style.alignment : 'center';
+  host.style.left = '50%';
+  const position = ['top', 'center', 'bottom'].includes(style.position) ? style.position : 'bottom';
+  host.style.top = position === 'top' ? '8%' : position === 'center' ? '50%' : '';
+  host.style.bottom = position === 'bottom' ? '8%' : '';
+  host.style.transform = position === 'center' ? 'translate(-50%, -50%)' : 'translateX(-50%)';
+  const animation = ['fade', 'pop_spring'].includes(style.animation) ? style.animation : 'none';
+  host.classList.toggle('pv-live-subtitle-fade', animation === 'fade');
+  host.classList.toggle('pv-live-subtitle-pop', animation === 'pop_spring');
+  host.classList.toggle('pv-live-subtitle-word-mode', mode === 'word');
 }
 
 /** Render global visual-overlay clips over the live preview at the shared playhead time. */
