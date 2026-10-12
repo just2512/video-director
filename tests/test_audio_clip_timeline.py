@@ -284,3 +284,14 @@ def test_add_audio_clip_rejects_invalid_timing_volume_and_stale_version(tmp_path
     assert len(load_composition(pid).audio) == 2
     revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
     assert revisions == []
+
+def test_audio_clip_inspector_exposes_safe_split_at_playhead_action():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
+    css = (root / "webui" / "static" / "css" / "timeline.css").read_text(encoding="utf-8")
+    assert "editorAudioClipSplit" in js
+    assert 'id="audio-clip-split-at-playhead"' in js
+    assert "split_audio_clip" in js
+    assert "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW" in js
+    assert ".audio-clip-split-row" in css
