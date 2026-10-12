@@ -131,7 +131,7 @@ function editorVisualOverlayOpen(index, ev) {
       <header><div><b id="visual-overlay-edit-title">画面叠加 · 设置</b><div class="hint">${esc(clip.asset_id)} · ${fmt(clip.start)}–${fmt(Number(clip.start)+Number(clip.duration))}s</div></div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；全画幅、画中画和贴纸共用同一可编辑片段模型。</p>
-      <label for="visual-overlay-presentation-mode">画面用途</label>
+      <label for="visual-overlay-edit-presentation-mode">画面用途</label>
       <select id="visual-overlay-edit-presentation-mode" onchange="editorVisualOverlayApplyPreset()">
         <option value="full_frame" ${clip.presentation_mode === 'full_frame' ? 'selected' : ''}>全画幅镜头</option>
         <option value="picture_in_picture" ${!clip.presentation_mode || clip.presentation_mode === 'picture_in_picture' ? 'selected' : ''}>画中画</option>

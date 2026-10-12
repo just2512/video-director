@@ -257,10 +257,11 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     const trackExists = !!document.querySelector('.ed-visual-overlay-clip[data-visual-overlay-index="0"]');
                     const addButtonExists = !!document.querySelector(".ed-track-add");
                     editorVisualOverlayOpen(0);
-                    document.getElementById("visual-overlay-x").value = "0.4";
-                    document.getElementById("visual-overlay-y").value = "0.2";
                     document.getElementById("visual-overlay-z-index").value = "3";
-                    document.getElementById("visual-overlay-edit-presentation-mode").value = "picture_in_picture";
+                    const editMode = document.getElementById("visual-overlay-edit-presentation-mode");
+                    editMode.value = "full_frame";
+                    editMode.dispatchEvent(new Event("change", {bubbles:true}));
+                    const fullFramePreset = ["x", "y", "width", "height"].map(key => Number(document.getElementById("visual-overlay-" + key).value));
                     document.getElementById("visual-overlay-edit-source-audio").checked = true;
                     document.getElementById("visual-overlay-edit-source-audio-volume").value = "0.8";
                     const editControlsUnique = new Set(Array.from(document.querySelectorAll("#visual-overlay-inspector-mask [id]")).map(el => el.id)).size === document.querySelectorAll("#visual-overlay-inspector-mask [id]").length;
@@ -291,7 +292,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     await new Promise(resolve => setTimeout(resolve, 0));
                     return {
                       trackExists, addButtonExists, commands,
-                      editControlsUnique, editPayload, createPayload, createAudioControlVisible,
+                      editControlsUnique, editPayload, createPayload, createAudioControlVisible, fullFramePreset,
                       dialogRemoved:!document.getElementById("visual-overlay-inspector-mask")
                     };
                   } finally {
@@ -310,7 +311,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     "set_visual_overlay", "add_visual_overlay", "remove_visual_overlay", "move_visual_overlay"
                 ], overlay_ui
                 assert overlay_ui["commands"][0]["payload"]["z_index"] == 3, overlay_ui
-                assert overlay_ui["commands"][0]["payload"]["presentation_mode"] == "picture_in_picture", overlay_ui
+                assert overlay_ui["commands"][0]["payload"]["presentation_mode"] == "full_frame", overlay_ui
+                assert overlay_ui["fullFramePreset"] == [0, 0, 1, 1], overlay_ui
+                assert [overlay_ui["editPayload"][key] for key in ("x", "y", "width", "height")] == [0, 0, 1, 1], overlay_ui
                 assert overlay_ui["editPayload"]["source_audio_enabled"] is True, overlay_ui
                 assert overlay_ui["editPayload"]["source_audio_volume"] == 0.8, overlay_ui
                 assert overlay_ui["createPayload"]["presentationMode"] == "full_frame", overlay_ui
