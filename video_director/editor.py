@@ -2007,9 +2007,11 @@ def _cmd_add_visual_overlay(
     total = float(ir.project.duration)
     fps = max(1, int(ir.project.fps))
     def frame_time(value: float) -> float:
-        # Keep frame coordinates rather than rounding a valid 24fps frame (0.041667s)
-        # up to 0.042s, which can cause the renderer to miss the first frame.
-        return round(round(value * fps) / fps, 6)
+        # Match the browser's Math.round for non-negative timeline times.
+        # Python round() uses ties-to-even, which can put a half-frame edit one
+        # frame away from the time the Source Monitor previewed.
+        frames = math.floor(value * fps + 0.5)
+        return round(frames / fps, 6)
 
     start = frame_time(number("start", 0.0, 0.0))
     if placement_mode == "insert":

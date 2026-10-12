@@ -58,11 +58,11 @@ def test_source_monitor_marks_source_range_and_places_it_on_selected_unlocked_tr
         # timeline command construction run as real Chromium JavaScript.
         page.evaluate("Object.defineProperty(document.querySelector('#ed-source-video'), 'currentTime', {configurable:true, value:1.25})")
         page.locator("#ed-source-mark-in").click()
-        assert page.locator("#ed-source-in").input_value() == "1.250"
+        assert page.locator("#ed-source-in").input_value() == "1.250000"
 
         page.evaluate("Object.defineProperty(document.querySelector('#ed-source-video'), 'currentTime', {configurable:true, value:3.75})")
         page.locator("#ed-source-mark-out").click()
-        assert page.locator("#ed-source-out").input_value() == "3.750"
+        assert page.locator("#ed-source-out").input_value() == "3.750000"
         assert page.locator("#ed-source-target-track option[value=visual-locked]").is_disabled()
 
         page.locator("#ed-source-target-track").select_option("visual-top")

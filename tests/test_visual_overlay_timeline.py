@@ -1050,17 +1050,17 @@ def test_source_track_insert_splits_crossing_clip_shifts_downstream_and_extends_
         key=lambda clip: clip.start,
     )
     assert [(clip.start, clip.duration) for clip in main] == [
-        (2.0, 1.0), (3.0, 1.25), (4.25, 1.0), (7.25, 1.0),
+        (2.0, 1.0), (3.0, 1.3), (4.3, 1.0), (7.3, 1.0),
     ]
     left = next(clip for clip in main if clip.id == "crossing-video")
-    right = next(clip for clip in main if clip.id != "crossing-video" and clip.start == 4.25)
+    right = next(clip for clip in main if clip.id != "crossing-video" and clip.start == 4.3)
     assert left.source_in == 0.5
     assert right.source_in == 1.5 and right.source_audio_enabled
     other = next(clip for clip in saved.visual_overlays if clip.id == "other-track-clip")
     assert (other.start, other.duration) == (6.0, 1.0)
-    assert saved.project.duration == pytest.approx(11.25)
-    assert saved.scenes[0].duration == pytest.approx(11.25)
-    assert saved.scenes[0].layers[-1].duration == pytest.approx(11.25)
+    assert saved.project.duration == pytest.approx(11.3)
+    assert saved.scenes[0].duration == pytest.approx(11.3)
+    assert saved.scenes[0].layers[-1].duration == pytest.approx(11.3)
 
 
 def test_unknown_source_track_placement_mode_rejects_without_revision(tmp_path, monkeypatch):
@@ -1164,7 +1164,7 @@ def test_real_ffmpeg_source_track_insert_preserves_pixels_and_linked_audio_timin
         key=lambda clip: clip.start,
     )
     assert [(clip.start, clip.duration, clip.source_in) for clip in red_clips] == [
-        (0.5, 0.25, 0.0), (1.25, 0.25, 0.75), (2.0, 1.0, 1.0),
+        (0.5, 0.3, 0.0), (1.3, 0.2, 0.8), (2.0, 1.0, 1.0),
     ]
     assert all(clip.source_audio_enabled for clip in red_clips)
 
