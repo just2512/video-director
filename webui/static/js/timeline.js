@@ -162,6 +162,22 @@ function renderSemanticTimeline(){
 // §17 播放头（可拖）
 // ---------------------------------------------------------------------------
 window.PLAYHEAD = {at: 0, dragging: false};
+function _tlAxisBody(el){
+  return (el && el.querySelector && el.querySelector('.ed-track-body')) ||
+    document.querySelector('#editor-timeline .ed-tl-canvas .ed-track-body');
+}
+function _tlTimelineAxisWidth(){
+  const body = _tlAxisBody(document.querySelector('#editor-timeline .ed-tl-scroll'));
+  return Math.max(1, body ? body.getBoundingClientRect().width : 1);
+}
+function _tlPlayheadLeft(at, total){
+  const canvas = document.querySelector('#editor-timeline .ed-tl-canvas');
+  const body = _tlAxisBody(canvas);
+  if (!canvas || !body || !total) return 0;
+  const canvasRect = canvas.getBoundingClientRect();
+  const bodyRect = body.getBoundingClientRect();
+  return Math.max(0, bodyRect.left - canvasRect.left + (at / total) * bodyRect.width);
+}
 function playheadSet(pct, ev){
   const total = ED.comp ? ED.comp.duration : 1;
   let at = Math.max(0, Math.min(1, pct)) * total;
@@ -173,14 +189,16 @@ function playheadSet(pct, ev){
   if (ev && ev.type === 'pointerdown' && typeof previewPause === 'function') previewPause();
   PLAYHEAD.at = at;
   const ph = document.getElementById('tl-playhead');
-  if (ph) ph.style.left = (at / total * 100) + '%';
+  if (ph) ph.style.left = _tlPlayheadLeft(at, total) + 'px';
   const label = document.getElementById('tl-playhead-label');
   if (label) label.textContent = PLAYHEAD.at.toFixed(2) + 's';
   // Scrubbing updates the central preview continuously, not only on pointer release.
   if (typeof previewSeek === 'function') previewSeek(PLAYHEAD.at);
 }
 function _tlPct(ev, el){
-  const r = el.getBoundingClientRect();
+  const body = _tlAxisBody(el);
+  const r = (body || el).getBoundingClientRect();
+  if (!Number.isFinite(r.width) || r.width <= 0) return 0;
   return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
 }
 
@@ -190,25 +208,55 @@ function _tlPct(ev, el){
 function editorRenderTimeline(){
   const box = document.getElementById('editor-timeline');
   const view = ED.timelineView || 'time';
-  if (view === 'semantic') { box.innerHTML = renderSemanticTimeline(); return; }
-  if (view === 'dual') {
-    box.innerHTML = renderSemanticTimeline() + '<div class="hint" style="margin:6px 0">物理时间线</div>' + renderPhysicalTimeline();
-    return;
+  const hasPhysicalTimeline = view !== 'semantic';
+  if (view === 'semantic') {
+    box.innerHTML = renderSemanticTimeline();
+  } else if (view === 'dual') {
+    box.innerHTML = renderSemanticTimeline() +
+      '<div class="hint" style="margin:6px 0">物理时间线</div>' + renderPhysicalTimeline();
+  } else {
+    box.innerHTML = renderPhysicalTimeline();
   }
-  box.innerHTML = renderPhysicalTimeline();
-  _tlBindPlayheadDrag();
-  _tlBindLayerDrag();
-  _tlBindAudioClipDrag();
-  _tlBindWatermarkDrag();
-  _tlBindSceneDrag();
-  if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
+
+  // Dual view still contains the editable physical timeline. Keep all drag,
+  // trim, watermark and session/snap bindings active in both physical views.
+  // Returning early after rendering the semantic half left the physical half
+  // looking editable while every pointer interaction was inert.
+  if (hasPhysicalTimeline) {
+    _tlBindPlayheadDrag();
+    _tlBindLayerDrag();
+    _tlBindAudioClipDrag();
+    _tlBindWatermarkDrag();
+    _tlBindSceneDrag();
+    if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
+  }
   document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
+  if (!window.__tlViewportResizeBound) {
+    window.__tlViewportResizeBound = true;
+    let resizeFrame = 0;
+    window.addEventListener('resize', () => {
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        const current = document.querySelector('#editor-timeline .ed-tl-scroll');
+        if (!current || !ED.comp) return;
+        const left = current.scrollLeft;
+        editorRenderTimeline();
+        const next = document.querySelector('#editor-timeline .ed-tl-scroll');
+        if (next) next.scrollLeft = left;
+      });
+    });
+  }
 }
 
 function renderPhysicalTimeline(){
   const c = ED.comp;
   const total = c.duration || 1;
   const zoom = ED.zoom || 1.0;
+  const timelineBox = document.getElementById('editor-timeline');
+  const viewportWidth = Math.max(320, (timelineBox && timelineBox.clientWidth) || 900);
+  const axisOffset = 98; // 90px label column + 8px track gap; labels are not time.
+  const canvasWidth = Math.max(axisOffset + 1, Math.round(axisOffset + (viewportWidth - axisOffset) * zoom));
   const audioOf = ty => (c.audio || []).filter(a => a.type === ty || (ty === 'ambience' && a.type === 'ambient'));
 
   // §16 轨道归类：画面（主视觉/B-roll/图形/水印）/ 语言（旁白/对白/字幕）/
@@ -320,7 +368,7 @@ function renderPhysicalTimeline(){
   // ---- 渲染（组标题可折叠 §16）----
   const GROUP_ORDER = ['picture', 'language', 'sound', 'temporal'];
   let html = `<div class="ed-tl-ruler"><span id="tl-playhead-label">${PLAYHEAD.at.toFixed(1)}s</span></div>
-    <div class="ed-tl-scroll">`;
+    <div class="ed-tl-scroll"><div class="ed-tl-canvas" style="width:${canvasWidth}px">`;
   const trackRow = (t) => {
     const bodyInner = t.isSceneTrack
       ? _sceneTrackHtml(c, total)
@@ -347,7 +395,7 @@ function renderPhysicalTimeline(){
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
     const empty = (!t.clips || !t.clips.length) && !t.isSceneTrack && !(t.kfPoints || []).length;
     return `<div class="ed-track"><div class="ed-track-label">${esc(t.label)}</div>`+
-      `<div class="ed-track-body" style="transform:scaleX(${zoom});transform-origin:left">${bodyInner}${kfHtml}${empty ? '<span class="hint tl-empty-hint">无</span>' : ''}</div></div>`;
+      `<div class="ed-track-body">${bodyInner}${kfHtml}${empty ? '<span class="hint tl-empty-hint">无</span>' : ''}</div></div>`;
   };
   for (const g of GROUP_ORDER) {
     const G = TL_GROUPS[g];
@@ -366,8 +414,8 @@ function renderPhysicalTimeline(){
     }
   }
   // 播放头（§17 可拖）
-  html += `<div class="tl-playhead" id="tl-playhead" style="left:${PLAYHEAD.at / total * 100}%" title="拖动定位预览"></div>`;
-  html += '</div>';
+  html += `<div class="tl-playhead" id="tl-playhead" style="left:${axisOffset + (PLAYHEAD.at / total) * (canvasWidth - axisOffset)}px" title="拖动定位预览"></div>`;
+  html += '</div></div>';
   const cnt = document.getElementById('editor-selection-count');
   if (cnt) cnt.textContent = SEL.selectionSet.size ? `已选 ${SEL.selectionSet.size} 项` : '未选中';
   return html;
@@ -511,6 +559,10 @@ function _tlBindLayerDrag(){
       else _layerDrag.mode = 'move';
     });
   });
+  // The timeline DOM is rebuilt after commands and preview refreshes. Bind these
+  // document-level handlers once; per-render listeners otherwise pile up.
+  if (window.__tlLayerDragHandlers) return;
+  window.__tlLayerDragHandlers = true;
   document.addEventListener('pointermove', ev => {
     if (!_layerDrag || !_layerDrag.el.isConnected) { _layerDrag = null; return; }
     if (Math.abs(ev.clientX - _layerDrag.startX) > 8) {
@@ -523,7 +575,7 @@ function _tlBindLayerDrag(){
         if (lay) {
           const total = ED.comp.duration || 1;
           const scStart = ED.comp.scenes.find(s => s.id === _layerDrag.sceneId).start;
-          const absDelta = (ev.clientX - _layerDrag.startX) / (document.querySelector('#editor-timeline .ed-tl-scroll').getBoundingClientRect().width * (ED.zoom || 1)) * total;
+          const absDelta = (ev.clientX - _layerDrag.startX) / _tlTimelineAxisWidth() * total;
           if (_layerDrag.mode === 'trim-left') {
             const newIn = Math.max(0, (lay.start || 0) + absDelta);
             _layerDrag.el.title = `裁剪起点 → 场景内 ${newIn.toFixed(1)}s`;
@@ -544,7 +596,7 @@ function _tlBindLayerDrag(){
     const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === d.sceneId);
                          return sc && sc.layers[d.idx]; })();
     if (!lay) return;
-    const scrollW = document.querySelector('#editor-timeline .ed-tl-scroll').getBoundingClientRect().width * (ED.zoom || 1);
+    const scrollW = _tlTimelineAxisWidth();
     const total = ED.comp.duration || 1;
     const absDelta = (ev.clientX - d.startX) / scrollW * total;
     if (d.mode === 'trim-left' || d.mode === 'trim-right') {

@@ -81,7 +81,8 @@
 .review-issue-list .proj-row.rv-sel { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 
 /* ---- §16 轨道组时间线 ---- */
-.ed-tl-scroll { position: relative; overflow-x: hidden; }
+.ed-tl-scroll { position: relative; overflow-x: auto; scrollbar-width: thin; }
+.ed-tl-canvas { position: relative; min-width: 1px; min-height: 1px; }
 .ed-tl-ruler {
   display: flex; justify-content: flex-end; font-size: 11px; color: var(--muted);
   border-bottom: 1px solid var(--border); padding-bottom: 2px; margin-bottom: 4px;
@@ -95,7 +96,7 @@
 .ed-track-group:hover { color: var(--text); }
 .ed-group-caret { width: 12px; display: inline-block; }
 .ed-track { display: flex; align-items: center; gap: var(--sp-2); margin: 3px 0; }
-.ed-track-label { flex: 0 0 90px; font-size: 11px; color: var(--muted); text-align: right; }
+.ed-track-label { flex: 0 0 90px; position: sticky; left: 0; z-index: 8; box-sizing: border-box; padding-right: 4px; background: var(--surface-1); font-size: 11px; color: var(--muted); text-align: right; }
 .ed-track-body { flex: 1; display: flex; gap: 2px; overflow: hidden; position: relative; min-height: 22px; }
 .ed-track-clip {
   box-sizing: border-box; flex: 0 0 auto; background: var(--surface-3); border: 1px solid var(--border-strong);

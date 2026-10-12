@@ -44,7 +44,6 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
     results_dir.mkdir(parents=True, exist_ok=True)
     trace_path = results_dir / "studio-workspace-failure-trace.zip"
-    screenshot_path = results_dir / "studio-workspace-failure.png"
 
     import webui.server as web_server
     web_server = importlib.reload(web_server)
@@ -69,7 +68,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
             page = None
             tracing = False
             try:
-                context.tracing.start(screenshots=True, snapshots=True, sources=True)
+                context.tracing.start(screenshots=False, snapshots=True, sources=True)
                 tracing = True
                 page = context.new_page()
                 page_errors: list[str] = []
@@ -121,6 +120,111 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert page.locator("#shotbook-list .sb-shot").count() == 2
                 assert page.locator("#editor-timeline").count() == 1
                 assert page.locator("#ed-preview-stage").count() == 1
+                # Dual view must not merely render the physical timeline: the
+                # playhead must react to pointer input on the real timeline element.
+                dual_scrub = page.evaluate("""() => {
+                  const oldView = ED.timelineView;
+                  ED.timelineView = 'dual';
+                  editorRenderTimeline();
+                  const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
+                  if (!scroll) return {hasPhysicalTimeline: false, before: 0, after: 0};
+                  const rect = scroll.getBoundingClientRect();
+                  const x = rect.left + rect.width * 0.75;
+                  const y = rect.top + Math.min(12, rect.height / 2);
+                  const before = window.PLAYHEAD.at;
+                  scroll.dispatchEvent(new PointerEvent('pointerdown', {
+                    bubbles: true, cancelable: true, pointerId: 7, button: 0,
+                    clientX: x, clientY: y
+                  }));
+                  scroll.dispatchEvent(new PointerEvent('pointermove', {
+                    bubbles: true, cancelable: true, pointerId: 7, buttons: 1,
+                    clientX: x, clientY: y
+                  }));
+                  document.dispatchEvent(new PointerEvent('pointerup', {
+                    bubbles: true, cancelable: true, pointerId: 7, button: 0,
+                    clientX: x, clientY: y
+                  }));
+                  const after = window.PLAYHEAD.at;
+                  const hasPhysicalTimeline = !!scroll.isConnected;
+                  ED.timelineView = oldView;
+                  editorRenderTimeline();
+                  return {hasPhysicalTimeline, before, after};
+                }""")
+                assert dual_scrub["hasPhysicalTimeline"], dual_scrub
+                assert 1.2 < dual_scrub["after"] < 1.8, dual_scrub
+
+                # Zoom must change the actual shared time-axis width; clip geometry,
+                # pointer-to-time mapping and playhead coordinates must stay aligned.
+                zoom_geometry = page.evaluate("""() => {
+                  const previousZoom = ED.zoom;
+                  const previousView = ED.timelineView;
+                  const result = [];
+                  ED.timelineView = 'dual';
+                  for (const zoom of [0.5, 1, 2]) {
+                    ED.zoom = zoom;
+                    editorRenderTimeline();
+                    const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
+                    const canvas = scroll && scroll.querySelector('.ed-tl-canvas');
+                    const body = canvas && canvas.querySelector('.ed-track-body');
+                    const playhead = document.getElementById('tl-playhead');
+                    if (!scroll || !canvas || !body || !playhead) {
+                      result.push({zoom, missing: true});
+                      continue;
+                    }
+                    const cr = canvas.getBoundingClientRect();
+                    const br = body.getBoundingClientRect();
+                    const expectedLeft = br.left - cr.left +
+                      (window.PLAYHEAD.at / (ED.comp.duration || 1)) * br.width;
+                    const mapped = _tlPct({clientX: br.left + br.width * 0.75}, scroll);
+                    result.push({
+                      zoom,
+                      axisWidth: br.width,
+                      canvasWidth: cr.width,
+                      viewportWidth: scroll.clientWidth,
+                      playheadLeft: parseFloat(playhead.style.left),
+                      expectedLeft,
+                      mapped,
+                      scrollable: scroll.scrollWidth > scroll.clientWidth
+                    });
+                  }
+                  ED.zoom = previousZoom;
+                  ED.timelineView = previousView;
+                  editorRenderTimeline();
+                  return result;
+                }""")
+                assert len(zoom_geometry) == 3, zoom_geometry
+                assert all("missing" not in item for item in zoom_geometry), zoom_geometry
+                base_axis = zoom_geometry[1]["axisWidth"]
+                assert 0.45 < zoom_geometry[0]["axisWidth"] / base_axis < 0.55, zoom_geometry
+                assert 0.98 < zoom_geometry[1]["axisWidth"] / base_axis < 1.02, zoom_geometry
+                assert 1.9 < zoom_geometry[2]["axisWidth"] / base_axis < 2.1, zoom_geometry
+                assert all(abs(item["playheadLeft"] - item["expectedLeft"]) < 2 for item in zoom_geometry), zoom_geometry
+                assert all(abs(item["mapped"] - 0.75) < 0.01 for item in zoom_geometry), zoom_geometry
+                assert zoom_geometry[2]["scrollable"], zoom_geometry
+
+                # Re-rendering the physical timeline must not attach another pair
+                # of document-level layer-drag handlers. Count real registrations.
+                layer_handler_count = page.evaluate("""() => {
+                  const originalAdd = document.addEventListener;
+                  const registrations = [];
+                  document.addEventListener = function(type, listener, options) {
+                    if (type === 'pointermove' || type === 'pointerup') registrations.push(type);
+                    return originalAdd.call(this, type, listener, options);
+                  };
+                  const view = ED.timelineView;
+                  ED.timelineView = 'dual';
+                  editorRenderTimeline();
+                  editorRenderTimeline();
+                  document.addEventListener = originalAdd;
+                  ED.timelineView = view;
+                  editorRenderTimeline();
+                  return {
+                    guardBound: window.__tlLayerDragHandlers === true,
+                    pointermove: registrations.filter(type => type === 'pointermove').length,
+                    pointerup: registrations.filter(type => type === 'pointerup').length
+                  };
+                }""")
+                assert layer_handler_count == {"guardBound": True, "pointermove": 0, "pointerup": 0}, layer_handler_count
                 # 布局契约：Shotbook 与编辑器共享同一工作区（main 布局：#editor-body
                 # 与 #editor-workspace 同属 pane-editor；不要求在 .ws-col 三栏列内）。
                 assert page.locator("#shotbook-details").evaluate(
@@ -156,13 +260,8 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert response["body"].get("code") == "SHOTBOOK_NOT_CONFIRMED", response
                 assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
             except BaseException:
-                # Save browser evidence before leaving sync_playwright; don't let cleanup
-                # errors replace the actual failing assertion/timeout.
-                if page is not None:
-                    try:
-                        page.screenshot(path=str(screenshot_path), full_page=True)
-                    except Exception:
-                        pass
+                # Preserve the DOM/trace failure evidence without writing screenshots;
+                # don't let cleanup errors replace the actual failing assertion/timeout.
                 if tracing:
                     try:
                         context.tracing.stop(path=str(trace_path))
