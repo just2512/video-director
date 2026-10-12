@@ -65,6 +65,15 @@ def test_word_subtitle_cues_move_trim_preview_and_persist(tmp_path, monkeypatch)
                 )
                 opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
                 assert opened and opened.get("ok"), f"workspace did not open: {opened}"
+                api_composition = page.evaluate("""async (projectId) => {
+                  const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+                  return {status: response.status, body: await response.json()};
+                }""", pid)
+                assert api_composition["status"] == 200, api_composition
+                assert api_composition["body"]["subtitle_track"]["cues"] == [
+                    {"start": 0.2, "end": 0.45, "text": "第一词"},
+                    {"start": 0.75, "end": 0.95, "text": "第二词"},
+                ], api_composition
                 loaded = page.evaluate("() => shotbookLoad()")
                 assert loaded, "Shotbook did not load the persisted CompositionIR"
                 page.wait_for_function(
