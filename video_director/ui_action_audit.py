@@ -82,7 +82,7 @@ UI_ONLY_PREFIXES = (
     "edxProposeTransitions(", "edxApproveTransition(", "edxRejectTransition(",
     "editorWatermarkRemoveAt(",
     "editorVisualOverlayOpen(", "editorVisualOverlayApply(", "editorVisualOverlayCreate(",
-    "editorVisualOverlayRemove(", "editorVisualOverlayClose(",
+    "editorVisualOverlayRemove(", "editorVisualOverlayClose(", "editorVisualOverlaySplit(",
     # §46 任务中心抽屉（WorkflowRun 渲染层 UI 开关）
     "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(",
     # §52 配置导入导出（设置表单）

@@ -110,6 +110,95 @@ def test_visual_overlay_commands_reject_unknown_assets_stale_versions_and_out_of
 
 
 
+def test_split_visual_overlay_preserves_properties_and_rejects_boundary_splits(tmp_path, monkeypatch):
+    pid, plans = _editor_project(tmp_path, monkeypatch)
+    added = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 2.0, "duration": 3.0,
+        "x": 0.6, "y": 0.1, "width": 0.3, "height": 0.3, "opacity": 0.7,
+    }, 1)
+    assert added.status == "APPLIED", added.errors
+    original_id = load_composition(pid).visual_overlays[0].id
+
+    boundary = _apply(pid, "split_visual_overlay", "overlay#0", {"at": 2.0}, 2)
+    assert boundary.status == "REJECTED"
+    assert boundary.errors[0]["code"] == "SPLIT_OUTSIDE_CLIP"
+    boolean_time = _apply(pid, "split_visual_overlay", "overlay#0", {"at": True}, 2)
+    assert boolean_time.status == "REJECTED"
+    assert boolean_time.errors[0]["code"] == "INVALID_PAYLOAD"
+    assert len(load_composition(pid).visual_overlays) == 1
+
+    split = _apply(pid, "split_visual_overlay", "overlay#0", {"at": 3.25}, 2)
+    assert split.status == "APPLIED", split.errors
+    comp = load_composition(pid)
+    left, right = comp.visual_overlays
+    assert left.id == original_id
+    assert left.start == 2.0 and left.duration == 1.25
+    assert right.start == 3.25 and right.duration == 1.75
+    assert left.start + left.duration == right.start
+    assert left.start + left.duration + right.duration == 5.0
+    assert left.asset_id == right.asset_id == "overlay-image"
+    assert left.source_in == right.source_in == 0.0  # still images have no source clock
+    assert (left.x, left.y, left.width, left.height, left.opacity) == (0.6, 0.1, 0.3, 0.3, 0.7)
+    assert (right.x, right.y, right.width, right.height, right.opacity) == (0.6, 0.1, 0.3, 0.3, 0.7)
+    assert left.id != right.id
+    revisions = [line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 2
+
+
+def test_split_video_overlay_advances_source_clock_and_real_render_keeps_cut_continuous(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "split-blue-base.png"
+    overlay_path = tmp_path / "split-green-then-red.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_two_color_video(ffmpeg, overlay_path)
+
+    project_id = "split-video-overlay-render"
+    plans = tmp_path / project_id / "plans"
+    plans.mkdir(parents=True)
+    base = AssetRef(id="split-base", type="image", file=str(base_path), width=40, height=40)
+    overlay = AssetRef(
+        id="split-source", type="video", file=str(overlay_path), duration=2.0, width=40, height=40, fps=10,
+    )
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=3.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=3.0, text="split overlay render",
+            layers=[Layer(type=LayerType.image, asset_id="split-base", duration=3.0)],
+        )],
+        assets=[base, overlay],
+        visual_overlays=[VisualOverlayClip(
+            id="split-video-overlay", asset_id="split-source", start=0.5, duration=1.5,
+            source_in=0.1, x=0.65, y=0.1, width=0.3, height=0.3, opacity=1.0,
+        )],
+    )
+    save_composition(project_id, composition)
+    (plans / "revisions.jsonl").write_text("", encoding="utf-8")
+
+    result = _apply(project_id, "split_visual_overlay", "overlay#0", {"at": 1.25}, 1)
+    assert result.status == "APPLIED", result.errors
+    edited = load_composition(project_id)
+    left, right = edited.visual_overlays
+    assert (left.start, left.duration, left.source_in) == (0.5, 0.75, 0.1)
+    assert (right.start, right.duration, right.source_in) == (1.25, 0.75, 0.85)
+
+    asset_map = {asset.id: asset for asset in edited.assets}
+    rendered = renderer.render_composition(edited, asset_map, tmp_path / "split-overlay-rendered")
+    output = Path(rendered.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    green = _pixel_at(ffmpeg, output, 0.8, 245, 40)
+    red = _pixel_at(ffmpeg, output, 1.5, 245, 40)
+    blue_after = _pixel_at(ffmpeg, output, 2.2, 245, 40)
+    assert green[1] > green[2] * 1.5, green
+    assert red[0] > red[1] * 1.3, red
+    assert blue_after[2] > blue_after[0] * 1.5, blue_after
+    decoded = subprocess.run(
+        [ffmpeg, "-v", "error", "-i", str(output), "-f", "null", "-"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert decoded.returncode == 0, decoded.stderr
+
+
 def test_visual_overlay_add_promotes_trusted_catalog_asset_into_composition(tmp_path, monkeypatch):
     from video_director import asset_catalog
 
@@ -264,3 +353,7 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "editorVisualOverlayPick" in timeline_js
     assert "add_visual_overlay" in overlay_js and "move_visual_overlay" in overlay_js
     assert "trim_visual_overlay" in overlay_js and "editorVisualOverlayOpen" in js
+    assert "split_visual_overlay" in overlay_js and "editorVisualOverlaySplit" in overlay_js
+    assert "在播放头切分" in overlay_js
+    assert "thumbnailUrl" in timeline_js and "ed-clip-thumb" in timeline_js
+    assert "api/asset_thumbnail?asset_id=" in timeline_js

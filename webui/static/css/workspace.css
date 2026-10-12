@@ -288,7 +288,22 @@
   border: 1px solid var(--accent);
   cursor: grab;
   user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 3px;
 }
+.ed-clip-thumb {
+  width: 36px;
+  height: 100%;
+  min-height: 16px;
+  max-height: 24px;
+  object-fit: cover;
+  flex: 0 0 36px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.ed-track-clip-label { overflow: hidden; text-overflow: ellipsis; }
 .ed-visual-overlay-clip.tl-dragging { cursor: grabbing; opacity: .82; }
 .ed-track-add {
   min-width: 20px !important;

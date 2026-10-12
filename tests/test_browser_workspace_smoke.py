@@ -97,6 +97,76 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert response is not None and response.status == 200
                 assert page.title()
 
+                # The dual view displays a physical timeline, so its ruler must remain
+                # interactive. This was the unique regression test from stale PR #33;
+                # the implementation had reached main, but this real-browser test had not.
+                dual_scrub = page.evaluate("""() => {
+                    const pane = document.getElementById('pane-editor');
+                    const body = document.getElementById('editor-body');
+                    const timeline = document.getElementById('editor-timeline');
+                    const old = {
+                        paneDisplay: pane.style.display, bodyDisplay: body.style.display,
+                        html: timeline.innerHTML, comp: ED.comp, view: ED.timelineView,
+                        at: PLAYHEAD.at, dragging: PLAYHEAD.dragging,
+                        seek: window.previewSeek, pause: window.previewPause
+                    };
+                    try {
+                        pane.style.display = '';
+                        body.style.display = '';
+                        ED.comp = {
+                            version: 1, duration: 10, assets: {}, audio: [], watermarks: [],
+                            scenes: [{
+                                id: 'dual-smoke-scene', start: 0, duration: 10,
+                                text: 'dual timeline interaction check', layers: [{
+                                    type: 'image', asset_id: 'dual-smoke-image',
+                                    start: 0, duration: 10
+                                }]
+                            }]
+                        };
+                        ED.timelineView = 'dual';
+                        PLAYHEAD.at = 0;
+                        PLAYHEAD.dragging = false;
+                        window.previewSeek = () => {};
+                        window.previewPause = () => {};
+                        editorRenderTimeline();
+                        const scroll = timeline.querySelector('.ed-tl-scroll');
+                        if (!scroll) throw new Error('dual view did not render its physical timeline');
+                        const rect = scroll.getBoundingClientRect();
+                        if (rect.width <= 0) throw new Error('dual timeline has no interactive width');
+                        scroll.dispatchEvent(new PointerEvent('pointerdown', {
+                            bubbles: true, cancelable: true, pointerId: 41,
+                            pointerType: 'mouse', button: 0,
+                            clientX: rect.left + rect.width * 0.6,
+                            clientY: rect.top + 3
+                        }));
+                        const at = PLAYHEAD.at;
+                        document.dispatchEvent(new PointerEvent('pointerup', {
+                            bubbles: true, cancelable: true, pointerId: 41,
+                            pointerType: 'mouse', button: 0,
+                            clientX: rect.left + rect.width * 0.6,
+                            clientY: rect.top + 3
+                        }));
+                        return {
+                            at, width: rect.width,
+                            semanticRows: timeline.querySelectorAll('.ed-semantic-row').length,
+                            physicalRuler: !!timeline.querySelector('.ed-tl-scroll')
+                        };
+                    } finally {
+                        ED.comp = old.comp;
+                        ED.timelineView = old.view;
+                        PLAYHEAD.at = old.at;
+                        PLAYHEAD.dragging = old.dragging;
+                        window.previewSeek = old.seek;
+                        window.previewPause = old.pause;
+                        timeline.innerHTML = old.html;
+                        pane.style.display = old.paneDisplay;
+                        body.style.display = old.bodyDisplay;
+                    }
+                }""")
+                assert 5.0 <= dual_scrub["at"] <= 7.0, dual_scrub
+                assert dual_scrub["semanticRows"] == 1, dual_scrub
+                assert dual_scrub["physicalRuler"], dual_scrub
+
                 # Article URL import is a first-class Director input, but the UI test uses
                 # a deterministic intercepted response rather than depending on an external site.
                 page.route(
@@ -509,6 +579,54 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert trimmed_overlay is not None, "overlay edge trim did not POST trim_watermark"
                 assert trimmed_overlay["targetId"] == "watermark#0"
                 assert trimmed_overlay["payload"]["duration"] < 3
+
+                # Overlay clips must be visually identifiable and the Inspector's
+                # cut-at-playhead control must reach the versioned Editor Command API.
+                overlay_ui = page.evaluate("""() => {
+                    ED.comp.visual_overlays = [{
+                        id: 'overlay-ui-smoke', asset_id: 'img', start: 2, duration: 4,
+                        source_in: 0, x: 0.65, y: 0.1, width: 0.3, height: 0.3,
+                        opacity: 1, z_index: 0
+                    }];
+                    ED.comp.assets.img.type = 'image';
+                    ED.comp.assets.img.thumbnail_url = '/overlay-smoke-thumb.svg';
+                    PLAYHEAD.at = 4;
+                    editorRenderTimeline();
+                    const clip = document.querySelector('#editor-timeline .ed-visual-overlay-clip');
+                    return {
+                        count: document.querySelectorAll('#editor-timeline .ed-visual-overlay-clip').length,
+                        thumbnail: clip && clip.querySelector('img.ed-clip-thumb')?.getAttribute('src'),
+                        label: clip && clip.querySelector('.ed-track-clip-label')?.textContent
+                    };
+                }""")
+                assert overlay_ui["count"] == 1
+                assert overlay_ui["thumbnail"] == "/overlay-smoke-thumb.svg"
+                assert overlay_ui["label"] == "Still"
+
+                page.route(
+                    "**/overlay-smoke-thumb.svg",
+                    lambda route: route.fulfill(
+                        status=200, content_type="image/svg+xml",
+                        body='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="24"><rect width="40" height="24" fill="#284b63"/></svg>',
+                    ),
+                )
+                overlay_clip = page.locator("#editor-timeline .ed-visual-overlay-clip")
+                overlay_clip.scroll_into_view_if_needed()
+                overlay_clip.click()
+                inspector = page.locator("#visual-overlay-inspector-mask")
+                inspector.wait_for(timeout=5000)
+                assert inspector.get_by_role("button", name="在播放头切分").is_visible()
+                captured_commands.clear()
+                inspector.get_by_role("button", name="在播放头切分").click()
+                page.wait_for_timeout(100)
+                split_cmd = next((c for c in captured_commands if c.get("command") == "split_visual_overlay"), None)
+                assert split_cmd is not None, "cut-at-playhead button did not POST split_visual_overlay"
+                assert split_cmd["targetId"] == "overlay#0"
+                assert split_cmd["payload"]["at"] == pytest.approx(4.0)
+                # The intercepted endpoint deliberately rejects the command; the UI
+                # must keep the Inspector open and must not claim the split succeeded.
+                assert page.locator("#visual-overlay-inspector-mask").count() == 1
+                page.evaluate("editorVisualOverlayClose()")
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise

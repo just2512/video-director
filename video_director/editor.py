@@ -400,6 +400,7 @@ SUPPORTED_COMMANDS = (
     "add_visual_overlay",
     "move_visual_overlay",
     "trim_visual_overlay",
+    "split_visual_overlay",
     "set_visual_overlay",
     "remove_visual_overlay",
     "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
@@ -625,6 +626,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_move_visual_overlay(ir, target_id, payload)
         elif cmd_name == "trim_visual_overlay":
             changed, stale = _cmd_trim_visual_overlay(ir, target_id, payload)
+        elif cmd_name == "split_visual_overlay":
+            changed, stale = _cmd_split_visual_overlay(ir, target_id, payload)
         elif cmd_name == "set_visual_overlay":
             changed, stale = _cmd_set_visual_overlay(ir, target_id, payload)
         elif cmd_name == "remove_visual_overlay":
@@ -1557,6 +1560,72 @@ def _cmd_trim_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
     })
     key = f"visual-overlay:{clip.id}"
     return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+
+
+def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Split one global picture-overlay clip at an output-timeline playhead.
+
+    The right half retains the same source and visual properties. Video source
+    time advances by the split offset; still-image source time does not.
+    Both clip intervals exactly cover the original output interval.
+    """
+    index = _visual_overlay_index(ir, target_id)
+    clip = ir.visual_overlays[index]
+    raw_at = payload.get("at")
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "split_visual_overlay 的 at 不能是布尔值")
+    try:
+        at = float(raw_at)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "split_visual_overlay 需要数字 at") from exc
+
+    start = float(clip.start)
+    end = start + float(clip.duration)
+    minimum_half = 0.05
+    if not math.isfinite(at) or at <= start + minimum_half or at >= end - minimum_half:
+        raise EditorError(
+            "SPLIT_OUTSIDE_CLIP",
+            "切分播放头必须位于叠加片段内部，且切分两侧至少保留 0.05 秒",
+        )
+
+    # Snap the cut boundary once to millisecond precision, but derive both
+    # durations from the unrounded original interval. This avoids accumulating
+    # a gap/overlap when old project IR contains sub-millisecond timestamps.
+    split_at = round(at, 3)
+    left_duration = split_at - start
+    right_duration = end - split_at
+    if left_duration < minimum_half or right_duration < minimum_half:
+        raise EditorError(
+            "SPLIT_OUTSIDE_CLIP",
+            "切分后两侧片段都必须至少保留 0.05 秒",
+        )
+
+    asset = next((item for item in ir.assets if item.id == clip.asset_id), None)
+    is_video = bool(asset and str(getattr(asset.type, "value", asset.type)).lower() == "video")
+    right_source_in = float(clip.source_in) + left_duration if is_video else float(clip.source_in)
+    if is_video and asset:
+        source_duration = float(asset.duration or 0.0)
+        if source_duration > 0 and right_source_in + right_duration > source_duration + 0.05:
+            raise EditorError("INVALID_SOURCE_RANGE", "切分后的右侧视频源区间超出素材时长")
+
+    left = clip.model_copy(update={"duration": left_duration})
+    right = clip.model_copy(update={
+        "id": f"overlay-{uuid.uuid4().hex[:12]}",
+        "start": split_at,
+        "duration": right_duration,
+        "source_in": right_source_in,
+    })
+    ir.visual_overlays[index] = left
+    ir.visual_overlays.insert(index + 1, right)
+
+    changed = [f"visual-overlay:{left.id}", f"visual-overlay:{right.id}"]
+    stale = [
+        f"visual-overlay:{left.id}:render",
+        f"visual-overlay:{right.id}:render",
+        "project:visual-overlays:render",
+        "project:preview",
+    ]
+    return changed, stale
 
 
 def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
