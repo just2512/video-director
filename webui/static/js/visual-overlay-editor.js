@@ -245,8 +245,13 @@ function _tlBindVisualOverlayDrag() {
       command = 'trim_visual_overlay';
       payload = {start:round(d.start + dt), sourceIn:round(d.sourceIn + (d.assetType === 'video' ? dt : 0)), duration:round(d.duration - dt)};
     } else {
-      let dt = Math.max(delta, -(d.duration - 0.05));
-      if (delta > 0 && d.assetType === 'video' && d.assetDuration > 0) dt = Math.min(dt, Math.max(0, d.assetDuration - d.sourceIn - d.duration));
+      // Clamp to both the output project boundary and the video source boundary.
+      // Images have no source clock, but their clips must still stop at project end.
+      const dt = window.TimelineEditMath.trimEndDelta({
+        delta, start:d.start, duration:d.duration, total,
+        assetType:d.assetType, assetDuration:d.assetDuration, sourceIn:d.sourceIn,
+        minDuration:0.05
+      });
       command = 'trim_visual_overlay';
       payload = {start:round(d.start), sourceIn:round(d.sourceIn), duration:round(d.duration + dt)};
     }
