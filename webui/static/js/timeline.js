@@ -818,6 +818,18 @@ function editorAudioClipOpen(index, ev){
     || clip.asset_id || '未绑定素材';
   const duration = Math.max(0.05, Number(clip.duration) || 0.05);
   const fmt = value => Number(value || 0).toFixed(2);
+  const splitAt = Number(PLAYHEAD && PLAYHEAD.at) || 0;
+  const splitStart = Number(clip.start) || 0;
+  const splitEnd = splitStart + duration;
+  const loopedBackground = (type === 'bgm' || type === 'ambience' || type === 'ambient')
+    && clip.source_out == null;
+  const automatedClip = Array.isArray(clip.keyframes) && clip.keyframes.length > 0;
+  const canSplitAtPlayhead = splitAt > splitStart + 0.05 && splitAt < splitEnd - 0.05
+    && !loopedBackground && !automatedClip;
+  const splitHint = loopedBackground
+    ? '循环背景音需先裁出明确源区间'
+    : (automatedClip ? '带关键帧的音频片段暂不能切分' :
+      (canSplitAtPlayhead ? '左右两段各保留至少 0.05 秒' : '请先将播放头放在片段内部，再打开此设置'));
   const mask = document.createElement('div');
   mask.id = 'audio-clip-inspector-mask';
   mask.className = 'audio-clip-inspector-mask';
@@ -830,6 +842,13 @@ function editorAudioClipOpen(index, ev){
         </div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorAudioClipClose()" aria-label="关闭音频片段设置">关闭</button>
       </header>
+      <div class="audio-clip-split-row">
+        <button type="button" id="audio-clip-split-at-playhead" class="btn-secondary btn-sm"
+          onclick="editorAudioClipSplit(${index})" ${canSplitAtPlayhead ? '' : 'disabled'}>
+          在播放头处分割 · ${fmt(splitAt)}s
+        </button>
+        <span class="hint">${esc(splitHint)}</span>
+      </div>
       <label for="audio-clip-volume">音量（0–200%）</label>
       <div class="audio-clip-field-row">
         <input id="audio-clip-volume" type="number" min="0" max="2" step="0.05" value="${Number(clip.volume ?? 1)}">
@@ -852,6 +871,43 @@ function editorAudioClipOpen(index, ev){
   document.body.appendChild(mask);
   const first = mask.querySelector('#audio-clip-volume');
   if (first) first.focus();
+}
+
+async function editorAudioClipSplit(index){
+  const clip = ED.comp && (ED.comp.audio || [])[index];
+  if (!clip) { editorAudioClipClose(); editorToast('音频片段已变化，请重新打开', true); return; }
+  const at = Number(PLAYHEAD && PLAYHEAD.at);
+  const start = Number(clip.start) || 0;
+  const end = start + (Number(clip.duration) || 0);
+  if (!Number.isFinite(at) || at <= start + 0.05 || at >= end - 0.05) {
+    editorToast('请先把播放头放在片段内部（两侧至少保留 0.05 秒）再切分', true);
+    return;
+  }
+  const type = String(clip.type || '');
+  if ((type === 'bgm' || type === 'ambience' || type === 'ambient') && clip.source_out == null) {
+    editorToast('循环背景音需先裁出明确源区间，再进行切分', true);
+    return;
+  }
+  if (Array.isArray(clip.keyframes) && clip.keyframes.length) {
+    editorToast('该音频片段带有关键帧自动化，暂不能切分以免丢失曲线', true);
+    return;
+  }
+  try {
+    const result = await executeCommand({
+      command: 'split_audio_clip',
+      targetId: 'audio#' + index,
+      payload: {at: Math.round(at * 1000) / 1000},
+    });
+    if (!result || !result.ok) {
+      editorToast('音频片段未切分：' + ((result && result.error) || '未知错误'), true);
+      return;
+    }
+    editorAudioClipClose();
+    editorToast('音频片段已在 ' + at.toFixed(2) + 's 切分');
+    await refreshWorkspace();
+  } catch (error) {
+    editorToast('音频片段未切分：' + (error.message || error), true);
+  }
 }
 
 async function editorAudioClipApply(index){
