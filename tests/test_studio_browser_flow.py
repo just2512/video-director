@@ -182,9 +182,8 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert response["body"].get("code") == "SHOTBOOK_NOT_CONFIRMED", response
                 assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
             except BaseException:
-                # Save browser evidence before leaving sync_playwright; don't let cleanup
-                # errors replace the actual failing assertion/timeout.
-                if page is not None:
+                # Preserve the DOM/trace failure evidence without writing screenshots;
+                # don't let cleanup errors replace the actual failing assertion/timeout.
                 if tracing:
                     try:
                         context.tracing.stop(path=str(trace_path))
