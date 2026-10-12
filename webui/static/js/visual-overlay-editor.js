@@ -111,7 +111,7 @@ function editorVisualOverlayOpen(index, ev) {
 async function editorVisualOverlaySplit(index) {
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
   if (!clip) { editorToast('画面叠加片段已变化，请重新选择', true); return; }
-  const at = Number(typeof PLAYHEAD !== 'undefined' && PLAYHEAD ? PLAYHEAD.at : NaN);
+  const at = Number(window.PLAYHEAD && PLAYHEAD.at);
   const start = Number(clip.start) || 0;
   const end = start + (Number(clip.duration) || 0);
   if (!Number.isFinite(at) || at <= start + 0.05 || at >= end - 0.05) {
@@ -285,6 +285,9 @@ function _tlBindVisualOverlayDrag() {
   document.querySelectorAll('#editor-timeline .ed-visual-overlay-clip[data-visual-overlay-index]').forEach(el => {
     el.addEventListener('pointerdown', ev => {
       if (ev.button !== 0 || !ED.comp) return;
+      // A clip gesture is an edit gesture, not a canvas scrub. Stop the event
+      // before it bubbles to the timeline ruler/playhead pointer handler.
+      ev.stopPropagation();
       const index = Number.parseInt(el.dataset.visualOverlayIndex, 10);
       const clip = (ED.comp.visual_overlays || [])[index];
       if (!clip) return;
