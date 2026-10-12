@@ -388,6 +388,7 @@ SUPPORTED_COMMANDS = (
     "select",                    # 无副作用（前端选择态，服务端不记 revision）
     "trim",                      # layer 时长调整（视频层 source 区间变化）
     "split_layer",               # 在播放头切分当前视觉片段
+    "add_edit_all_tracks",         # FilmCraft-style Add Edit：一次事务切开播放头下所有可安全编辑的轨道
     "reorder_layer",             # 场景内部视觉片段重排
     "split",                     # 场景在比例点分裂为两场景
     "move",                      # 场景重排
@@ -471,6 +472,7 @@ class CommandResult:
     changed_artifacts: List[str] = field(default_factory=list)
     reused_artifacts: List[str] = field(default_factory=list)
     stale_artifacts: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
     errors: List[dict] = field(default_factory=list)
     composition: Optional[dict] = None  # 更新后的 IR（前端重渲染时间线用）
 
@@ -601,6 +603,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
 
     changed: List[str] = []
     stale: List[str] = []
+    command_warnings: List[str] = []
     reused: List[str] = [sc.id for sc in ir.scenes]  # 默认全部复用，改动的从 reused 移除
     try:
         if cmd_name == "replace_motion":
@@ -615,6 +618,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_trim(ir, target_id, payload)
         elif cmd_name == "split_layer":
             changed, stale = _cmd_split_layer(ir, target_id, payload)
+        elif cmd_name == "add_edit_all_tracks":
+            changed, stale, command_warnings = _cmd_add_edit_all_tracks(ir, target_id, payload)
         elif cmd_name == "reorder_layer":
             changed, stale = _cmd_reorder_layer(ir, target_id, payload)
         elif cmd_name == "split":
@@ -768,6 +773,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         "changed_artifacts": changed,
         "stale_artifacts": stale,
         "reused_artifacts": reused,
+        "warnings": command_warnings,
         "author": command.get("author", "user"),
         "created_at": time.time(),
         "abandoned_redo_ids": abandoned_redo_ids,
@@ -797,6 +803,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         changed_artifacts=changed,
         reused_artifacts=reused,
         stale_artifacts=stale,
+        warnings=command_warnings,
         composition=json.loads(ir.model_dump_json()),
     )
 
@@ -1017,6 +1024,134 @@ def _cmd_reorder_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     scene_data["layers"] = [item.model_dump() for item in normalized]
     ir.scenes[si] = SceneIR(**scene_data)
     return [f"{scene.id}#{to_index}"], _stale_of_scene(project_id="", scene_id=scene.id)
+
+
+def _cmd_add_edit_all_tracks(
+    ir: CompositionIR, target_id: str, payload: dict,
+) -> Tuple[List[str], List[str], List[str]]:
+    """FilmCraft-style Add Edit at the playhead, committed as one editor revision.
+
+    Split every ordinary visual/audio/overlay/watermark clip that safely spans the
+    requested time. Unsupported cases are reported as warnings rather than being
+    silently ignored or having keyframes/source timing destroyed. Subtitle cues are
+    semantic anchors, so a cue crossing the cut is retained and reported, not text-split.
+    """
+    if target_id not in ("", "timeline", "project"):
+        raise EditorError("INVALID_TARGET", "add_edit_all_tracks 的 targetId 必须是 timeline")
+    raw_at = payload.get("at")
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "播放头时间不能是布尔值")
+    try:
+        at = float(raw_at)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "add_edit_all_tracks 需要数字 at") from exc
+    project_duration = float(ir.project.duration)
+    if not math.isfinite(at) or at < 0 or at > project_duration:
+        raise EditorError("INVALID_PARAMETER", "播放头时间超出项目范围；项目未修改")
+
+    changed: List[str] = []
+    stale: List[str] = []
+    warnings: List[str] = []
+    min_video_piece = max(0.05, 1.0 / max(1, int(ir.project.fps)))
+
+    # Main picture: SceneIR still owns the base picture edit. A valid scene has
+    # contiguous layers, therefore at most one base layer per scene spans this cut.
+    base_candidates = []
+    for scene in ir.scenes:
+        for index, layer in enumerate(scene.layers):
+            start = float(scene.start) + float(layer.start)
+            end = start + float(layer.duration)
+            if start + min_video_piece < at < end - min_video_piece:
+                base_candidates.append((scene.id, index, layer.type.value))
+                break
+    for scene_id, index, layer_type in base_candidates:
+        try:
+            c, st = _cmd_split_layer(ir, f"{scene_id}#{index}", {"at": at})
+            changed.extend(c)
+            stale.extend(st)
+        except EditorError as exc:
+            warnings.append(f"主画面 {scene_id}（{layer_type}）：{str(exc)}")
+
+    # Global visual overlays: process indices back-to-front because a split inserts
+    # a second item. This is the same order-sensitive mutation discipline used by a
+    # real timeline command and prevents later clips from being addressed by stale indices.
+    overlay_candidates = [
+        i for i, clip in enumerate(ir.visual_overlays)
+        if float(clip.start) + 0.05 < at < float(clip.start) + float(clip.duration) - 0.05
+    ]
+    for index in reversed(overlay_candidates):
+        clip_id = ir.visual_overlays[index].id
+        track_id = ir.visual_overlays[index].track_id
+        try:
+            c, st = _cmd_split_visual_overlay(ir, f"overlay#{index}", {"at": at})
+            changed.extend(c)
+            stale.extend(st)
+        except EditorError as exc:
+            warnings.append(f"画面叠加轨 {track_id} / {clip_id}：{str(exc)}")
+
+    # Audio: narration, looping BGM/ambience, and automated clips are deliberately
+    # fail-closed in _cmd_split_audio_clip. Report each unsupported clip and continue
+    # other tracks in this same single atomic revision.
+    audio_candidates = [
+        i for i, clip in enumerate(ir.audio)
+        if float(clip.start) + 0.05 < at < float(clip.start) + float(clip.duration) - 0.05
+    ]
+    lane_names = {lane.id: lane.name for lane in ir.audio_tracks}
+    for index in reversed(audio_candidates):
+        clip = ir.audio[index]
+        clip_id = clip.id or f"{clip.type.value}#{index}"
+        lane_name = lane_names.get(clip.track_id or "", clip.type.value)
+        try:
+            c, st = _cmd_split_audio_clip(ir, f"audio#{index}", {"at": at})
+            changed.extend(c)
+            stale.extend(st)
+        except EditorError as exc:
+            warnings.append(f"音频轨 {lane_name} / {clip_id}：{str(exc)}")
+
+    # Timed watermarks use the same timeline interval model. An unlimited watermark
+    # is bounded by the project duration for this edit; its two halves remain adjacent.
+    watermark_candidates = []
+    for i, watermark in enumerate(ir.watermarks):
+        start = float(watermark.start)
+        end = project_duration if watermark.duration is None else min(
+            project_duration, start + float(watermark.duration)
+        )
+        if start + 0.05 < at < end - 0.05:
+            watermark_candidates.append((i, start, end))
+    for index, start, end in reversed(watermark_candidates):
+        watermark = ir.watermarks[index]
+        left_duration = at - start
+        right_duration = end - at
+        ir.watermarks[index] = watermark.model_copy(update={"duration": left_duration})
+        right = watermark.model_copy(update={
+            "id": f"wm-{uuid.uuid4().hex[:12]}",
+            "start": at,
+            "duration": right_duration,
+        })
+        ir.watermarks.insert(index + 1, right)
+        changed.extend([f"watermark:{watermark.id}", f"watermark:{right.id}"])
+        stale.extend([
+            f"watermark:{watermark.id}:render",
+            f"watermark:{right.id}:render",
+            "project:watermarks:render",
+            "project:preview",
+        ])
+
+    # Subtitle cues / word timing are meaning-bearing anchors, not ordinary picture
+    # clips. Never split a word/caption's text just because a visual edit was added.
+    subtitle_track = ir.subtitle_track
+    if subtitle_track and any(float(cue.start) < at < float(cue.end) for cue in subtitle_track.cues):
+        warnings.append("字幕/字级时间锚点：有字幕片段跨越播放头，已保留原 cue，未拆分文字或时间锚点")
+
+    changed = list(dict.fromkeys(changed))
+    stale = list(dict.fromkeys(stale))
+    warnings = list(dict.fromkeys(warnings))
+    if not changed:
+        message = "播放头位置没有可安全切分的剪辑，项目未修改。"
+        if warnings:
+            message += " 未切分原因：" + "；".join(warnings[:6])
+        raise EditorError("NO_SPLITTABLE_CLIP_AT_PLAYHEAD", message)
+    return changed, stale, warnings
 
 
 def _cmd_split_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
