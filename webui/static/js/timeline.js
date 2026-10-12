@@ -504,7 +504,7 @@ function renderPhysicalTimeline(){
         : g === 'language' ? '旁白 / 对白 / 字幕'
         : g === 'sound' ? '原声 / 背景音乐 / 音效' : '关键帧';
       html += `<div class="ed-track-group ed-group-closed" onclick="tlToggleGroup('${g}')">
-        <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span></div>';
+        <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span></div>`;
     } else {
       html += `<div class="ed-track-group" onclick="tlToggleGroup('${g}')">
         <span class="ed-group-caret">▾</span> ${G.label}` + (g === 'sound' ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增音轨" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>' : '') + '</div>';
