@@ -268,7 +268,7 @@ def test_legacy_detached_original_audio_migrates_as_independent(tmp_path, monkey
         if item["id"] in {"detached-reused-asset", "audio-source-overlay-only"}:
             item.pop("follows_scene_video", None)
     composition_path.write_text(
-        json.dumps(persisted, ensure_ascii=False, indent=2) + "\\n",
+        json.dumps(persisted, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
