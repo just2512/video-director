@@ -9,7 +9,7 @@ from pathlib import Path
 from video_director import qc, renderer
 from video_director.editor import execute_command, load_composition, save_composition
 from video_director.models import (
-    AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
+    AssetRef, AudioTrack, AudioTrackType, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
 )
 
 
@@ -508,6 +508,8 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "visual_tracks" in timeline_js and "data-visual-track-id" in timeline_js
     assert "presentationMode" in overlay_js and "full_frame" in overlay_js and "picture_in_picture" in overlay_js
     assert "source_audio_enabled" in overlay_js and "保留此视频素材自身的声音" in overlay_js and "保留视频源音轨" in overlay_js
+    assert "editorVisualOverlayDetachAudio" in overlay_js and "拆分为独立原声轨" in overlay_js
+    assert "editorVisualOverlayDetachAudio(" in (root / "video_director" / "ui_action_audit.py").read_text(encoding="utf-8")
     inspector_js = (js_dir / "inspector.js").read_text(encoding="utf-8")
     assert "editorPromoteLayerToTrack" in inspector_js
     assert "promote_layer_to_visual_track" in inspector_js
@@ -1257,3 +1259,177 @@ def test_source_track_insert_half_frame_rounding_matches_browser_math_round(tmp_
     assert clip.duration == pytest.approx(1.3)
     assert saved.project.duration == pytest.approx(11.3)
 
+
+
+def _save_detachable_source_audio_project(pid, base_path: Path, video_path: Path, enabled: bool) -> None:
+    ir = load_composition(pid)
+    base = AssetRef(id="source-audio-base", type="image", file=str(base_path), width=40, height=40)
+    source = AssetRef(
+        id="source-audio-video", type="video", file=str(video_path), duration=2.0,
+        width=40, height=40, fps=10,
+    )
+    ir.project = ir.project.model_copy(update={"duration": 2.0})
+    ir.scenes = [SceneIR(
+        id="S01", start=0.0, duration=2.0, text="source audio detach",
+        layers=[Layer(type=LayerType.image, asset_id=base.id, duration=2.0)],
+    )]
+    ir.assets = [base, source]
+    ir.audio = []
+    ir.visual_overlays = [VisualOverlayClip(
+        id="overlay-with-detachable-audio",
+        asset_id=source.id,
+        start=0.5,
+        duration=1.0,
+        source_in=0.25,
+        track_id="overlay-main",
+        presentation_mode="full_frame",
+        source_audio_enabled=enabled,
+        source_audio_volume=0.7,
+        x=0.0, y=0.0, width=1.0, height=1.0,
+    )]
+    save_composition(pid, ir)
+
+
+def test_detach_overlay_source_audio_creates_editable_original_clip_without_changing_rendered_sound(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "detach-source-audio-base.png"
+    video_path = tmp_path / "detach-source-audio-video.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_video_with_audio(ffmpeg, video_path)
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    _save_detachable_source_audio_project(pid, base_path, video_path, enabled=True)
+
+    original = load_composition(pid)
+    assets = {asset.id: asset for asset in original.assets}
+    inline_output = Path(renderer.render_composition(
+        original.model_copy(deep=True), assets, tmp_path / "inline-source-audio",
+    ).final_path)
+    inline_report = renderer._verify_muxed_audio(str(inline_output), expected_duration=2.0)
+    assert inline_report.get("codec") == "aac" and inline_report.get("full_decode") == "PASS", inline_report
+    inline_active_db = _audio_window_mean_volume(ffmpeg, inline_output, 0.8, 0.25)
+    inline_preroll_db = _audio_window_mean_volume(ffmpeg, inline_output, 0.1, 0.25)
+    assert inline_preroll_db < -65, f"inline source audio leaked before clip start: {inline_preroll_db} dB"
+
+    detached = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
+    assert detached.status == "APPLIED", detached.errors
+    assert detached.composition_version == 2
+    saved = load_composition(pid)
+    clip = saved.visual_overlays[0]
+    assert clip.source_audio_enabled is False
+    assert len(saved.audio) == 1
+    audio = saved.audio[0]
+    assert audio.type == AudioTrackType.original
+    assert audio.asset_id == clip.asset_id
+    assert audio.track_id == "audio-original"
+    assert (audio.start, audio.duration, audio.source_in, audio.source_out) == (0.5, 1.0, 0.25, 1.25)
+    assert audio.volume == pytest.approx(0.7)
+    assert audio.id and audio.id.startswith("audio-source-")
+
+    detached_output = Path(renderer.render_composition(
+        saved, {asset.id: asset for asset in saved.assets}, tmp_path / "detached-source-audio",
+    ).final_path)
+    report = renderer._verify_muxed_audio(str(detached_output), expected_duration=2.0)
+    assert report.get("codec") == "aac" and report.get("full_decode") == "PASS", report
+    detached_active_db = _audio_window_mean_volume(ffmpeg, detached_output, 0.8, 0.25)
+    detached_preroll_db = _audio_window_mean_volume(ffmpeg, detached_output, 0.1, 0.25)
+    assert detached_preroll_db < -65, f"detached source audio leaked before clip start: {detached_preroll_db} dB"
+    assert abs(detached_active_db - inline_active_db) < 1.5, (
+        f"detaching changed the rendered source-audio gain: inline={inline_active_db} dB, "
+        f"detached={detached_active_db} dB"
+    )
+    assert len(saved.audio) == 1 and saved.visual_overlays[0].source_audio_enabled is False, (
+        "rendering must not restore or duplicate inline source audio"
+    )
+
+
+def test_detach_overlay_source_audio_fails_closed_for_disabled_or_silent_source(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "detach-silent-base.png"
+    silent_video = tmp_path / "detach-silent-video.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_two_color_video(ffmpeg, silent_video)
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    _save_detachable_source_audio_project(pid, base_path, silent_video, enabled=False)
+
+    disabled = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
+    assert disabled.status == "REJECTED"
+    assert disabled.errors[0]["code"] == "SOURCE_AUDIO_NOT_ENABLED"
+    assert load_composition(pid).audio == []
+
+    ir = load_composition(pid)
+    ir.visual_overlays[0] = ir.visual_overlays[0].model_copy(update={"source_audio_enabled": True})
+    save_composition(pid, ir)
+    silent = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
+    assert silent.status == "REJECTED"
+    assert silent.errors[0]["code"] == "SOURCE_AUDIO_MISSING"
+    saved = load_composition(pid)
+    assert saved.version == 1 and saved.audio == []
+    assert saved.visual_overlays[0].source_audio_enabled is True
+
+
+def _add_existing_source_audio(pid: str, *, role: AudioTrackType = AudioTrackType.original, volume: float = 0.7, start: float = 0.5, duration: float = 1.0, source_in: float = 0.25, source_out: float = 1.25) -> None:
+    ir = load_composition(pid)
+    ir.audio.append(AudioTrack(
+        type=role,
+        id="existing-source-audio",
+        track_id="audio-original" if role == AudioTrackType.original else "audio-dialogue",
+        asset_id="source-audio-video",
+        start=start,
+        duration=duration,
+        source_in=source_in,
+        source_out=source_out,
+        volume=volume,
+    ))
+    save_composition(pid, ir)
+
+
+def test_detach_overlay_reuses_exact_matching_original_audio_without_duplicating(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "reuse-source-audio-base.png"
+    video_path = tmp_path / "reuse-source-audio-video.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_video_with_audio(ffmpeg, video_path)
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    _save_detachable_source_audio_project(pid, base_path, video_path, enabled=True)
+    _add_existing_source_audio(pid)
+
+    result = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
+    assert result.status == "APPLIED", result.errors
+    assert result.composition_version == 2
+    saved = load_composition(pid)
+    # CompositionIR.version is the schema version; edit revisions are tracked
+    # separately by result.composition_version / revisions.jsonl.
+    assert saved.version == 1
+    assert len(saved.audio) == 1
+    assert saved.audio[0].id == "existing-source-audio"
+    assert saved.audio[0].type == AudioTrackType.original
+    assert saved.visual_overlays[0].source_audio_enabled is False
+
+
+def test_detach_overlay_rejects_overlapping_dialogue_or_mismatched_original_audio(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "conflict-source-audio-base.png"
+    video_path = tmp_path / "conflict-source-audio-video.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_video_with_audio(ffmpeg, video_path)
+
+    for role, volume in (
+        (AudioTrackType.dialogue, 0.7),
+        (AudioTrackType.original, 0.35),
+    ):
+        case_root = tmp_path / f"case-{role.value}-{volume}"
+        case_root.mkdir(parents=True)
+        monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(case_root))
+        pid, _ = _editor_project(case_root, monkeypatch)
+        # Keep the actual generated media outside each isolated project directory.
+        _save_detachable_source_audio_project(pid, base_path, video_path, enabled=True)
+        _add_existing_source_audio(pid, role=role, volume=volume)
+
+        result = _apply(pid, "separate_visual_overlay_source_audio", "overlay#0", {}, 1)
+        assert result.status == "REJECTED", result.errors
+        assert result.errors[0]["code"] == "SOURCE_AUDIO_DUPLICATE_CONFLICT"
+        saved = load_composition(pid)
+        assert saved.version == 1
+        assert len(saved.audio) == 1
+        assert saved.audio[0].volume == pytest.approx(volume)
+        assert saved.visual_overlays[0].source_audio_enabled is True

@@ -28,6 +28,7 @@ from loguru import logger
 from video_director import config
 from video_director.project_lock import project_lock, validate_project_id
 from video_director.models import (
+    AudioLane,
     AudioTrack,
     AudioTrackType,
     AssetRef,
@@ -408,6 +409,7 @@ SUPPORTED_COMMANDS = (
     "trim_visual_overlay",
     "split_visual_overlay",
     "set_visual_overlay",
+    "separate_visual_overlay_source_audio",  # detach source sound into an editable original-audio clip
     "remove_visual_overlay",
     "add_visual_track",
     "rename_visual_track",
@@ -653,6 +655,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_split_visual_overlay(ir, target_id, payload)
         elif cmd_name == "set_visual_overlay":
             changed, stale = _cmd_set_visual_overlay(ir, target_id, payload)
+        elif cmd_name == "separate_visual_overlay_source_audio":
+            changed, stale = _cmd_separate_visual_overlay_source_audio(ir, target_id, payload, project_id)
         elif cmd_name == "remove_visual_overlay":
             changed, stale = _cmd_remove_visual_overlay(ir, target_id, payload)
         elif cmd_name == "add_visual_track":
@@ -2229,6 +2233,165 @@ def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) ->
     ir.visual_overlays[index] = updated
     key = f"visual-overlay:{clip.id}"
     return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+
+
+
+def _cmd_separate_visual_overlay_source_audio(
+    ir: CompositionIR, target_id: str, payload: dict, project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """Detach a video overlay's embedded source audio into an editable original-audio clip.
+
+    The new audio clip preserves the overlay's global start, source_in, duration and
+    gain. Turning off the embedded source-audio flag in the same revision guarantees
+    that render_composition consumes exactly one copy of the source sound.
+    """
+    index = _visual_overlay_index(ir, target_id)
+    clip = ir.visual_overlays[index]
+    _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
+    if not clip.source_audio_enabled:
+        raise EditorError(
+            "SOURCE_AUDIO_NOT_ENABLED",
+            "该视频片段当前没有启用内嵌源音频；先在片段设置中启用并保存，再执行拆分",
+        )
+
+    asset, resolved_file, source_duration = _overlay_source_duration(ir, clip.asset_id, project_id)
+    if str(asset.type).lower() != "video":
+        raise EditorError("ASSET_TYPE_MISMATCH", "只有视频素材可以拆分源音频")
+    from video_director import prober
+    try:
+        probe = prober.probe_media(resolved_file)
+    except Exception as exc:
+        raise EditorError("ASSET_PROBE_FAILED", f"拆分前无法探测视频源音频：{exc}") from exc
+    if not getattr(probe, "has_audio_stream", False):
+        raise EditorError("SOURCE_AUDIO_MISSING", "该视频素材没有可解码的音频流，未修改项目")
+    actual_duration = float(getattr(probe, "duration", 0.0) or source_duration or 0.0)
+    if not math.isfinite(actual_duration) or actual_duration <= 0:
+        raise EditorError("ASSET_PROBE_FAILED", "视频素材没有有效时长，无法拆分源音频")
+
+    source_in = float(clip.source_in or 0.0)
+    duration = float(clip.duration)
+    source_out = source_in + duration
+    if (
+        not math.isfinite(source_in) or not math.isfinite(duration)
+        or source_in < 0 or duration <= 0
+        or source_out > actual_duration + 0.05
+    ):
+        raise EditorError(
+            "INVALID_SOURCE_RANGE",
+            "视频片段的源区间超出可探测的源素材时长，未修改项目",
+        )
+
+    # Detect any already represented copy of this source sound, not just a
+    # same-role original clip. Otherwise a dialogue clip could keep playing while
+    # this command adds the same source window as original audio.
+    overlapping = []
+    for audio_index, audio_clip in enumerate(ir.audio):
+        if audio_clip.asset_id != clip.asset_id:
+            continue
+        audio_start = float(audio_clip.start)
+        audio_end = audio_start + float(audio_clip.duration)
+        audio_source_in = float(audio_clip.source_in or 0.0)
+        audio_source_out = (
+            float(audio_clip.source_out)
+            if audio_clip.source_out is not None
+            else audio_source_in + float(audio_clip.duration)
+        )
+        overlaps_timeline = (
+            max(audio_start, float(clip.start))
+            < min(audio_end, float(clip.start) + duration) - 0.001
+        )
+        overlaps_source = (
+            max(audio_source_in, source_in) < min(audio_source_out, source_out) - 0.001
+        )
+        if not (overlaps_timeline and overlaps_source):
+            continue
+        exact_window = (
+            abs(audio_start - float(clip.start)) <= 0.001
+            and abs(float(audio_clip.duration) - duration) <= 0.001
+            and abs(audio_source_in - source_in) <= 0.001
+            and abs(audio_source_out - source_out) <= 0.001
+        )
+        overlapping.append((audio_index, audio_clip, exact_window))
+
+    if len(overlapping) > 1:
+        raise EditorError(
+            "SOURCE_AUDIO_DUPLICATE_CONFLICT",
+            "时间线上已有多条与此视频原声重叠的音频片段；先检查重复声音，再拆分",
+        )
+
+    reused_audio_key = None
+    if overlapping:
+        audio_index, existing, exact_window = overlapping[0]
+        if not exact_window or existing.type != AudioTrackType.original:
+            raise EditorError(
+                "SOURCE_AUDIO_DUPLICATE_CONFLICT",
+                "已有音频片段与该视频原声的源区间及时间位置重叠；为避免重复发声或改变音频角色，请先处理已有片段",
+            )
+        if (
+            existing.muted
+            or abs(float(existing.volume) - float(clip.source_audio_volume)) > 0.001
+            or float(existing.fadeIn or 0.0) > 0.001
+            or float(existing.fadeOut or 0.0) > 0.001
+            or bool(existing.ducking)
+            or bool(existing.keyframes)
+        ):
+            raise EditorError(
+                "SOURCE_AUDIO_DUPLICATE_CONFLICT",
+                "同一源区间已有独立原声轨，但音量/淡入淡出/自动化与画面源音频不一致；为避免改变成片声音，未执行拆分",
+            )
+        reused_audio_key = f"audio:original:{audio_index}"
+    else:
+        lane = next((item for item in ir.audio_tracks if item.id == "audio-original"), None)
+        if lane is None:
+            lane = next(
+                (item for item in ir.audio_tracks if item.name.strip().casefold() == "原声"),
+                None,
+            )
+        if lane is None:
+            lane_name = "原声"
+            existing_names = {item.name.strip().casefold() for item in ir.audio_tracks}
+            suffix = 1
+            while lane_name.casefold() in existing_names:
+                lane_name = f"视频源原声 {suffix}"
+                suffix += 1
+            lane = AudioLane(
+                id="audio-original",
+                name=lane_name,
+                order=max((item.order for item in ir.audio_tracks), default=-1) + 1,
+            )
+            ir.audio_tracks.append(lane)
+        _ensure_audio_lane_unlocked(ir, lane.id)
+        audio_id = f"audio-source-{uuid.uuid4().hex[:12]}"
+        ir.audio.append(AudioTrack(
+            type=AudioTrackType.original,
+            id=audio_id,
+            track_id=lane.id,
+            asset_id=clip.asset_id,
+            start=round(float(clip.start), 3),
+            duration=round(duration, 3),
+            source_in=round(source_in, 3),
+            source_out=round(source_out, 3),
+            volume=float(clip.source_audio_volume),
+        ))
+        reused_audio_key = f"audio:original:{len(ir.audio) - 1}"
+
+    asset_index = next((i for i, item in enumerate(ir.assets) if item.id == asset.id), None)
+    resolved_asset = asset.model_copy(update={"file": resolved_file, "duration": actual_duration})
+    if asset_index is None:
+        ir.assets.append(resolved_asset)
+    else:
+        ir.assets[asset_index] = resolved_asset
+    ir.visual_overlays[index] = clip.model_copy(update={"source_audio_enabled": False})
+
+    changed = [f"visual-overlay:{clip.id}", reused_audio_key]
+    stale = [
+        f"visual-overlay:{clip.id}:render",
+        "project:visual-overlays:render",
+        "project:audio:render",
+        "project:audio-tracks",
+        "project:preview",
+    ]
+    return changed, stale
 
 
 def _cmd_remove_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
