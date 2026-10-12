@@ -98,7 +98,7 @@ async function editorVisualOverlayCreate() {
 function editorVisualOverlayApplyPreset() {
   const mask = document.getElementById('visual-overlay-inspector-mask');
   if (!mask) return;
-  const mode = mask.querySelector('#visual-overlay-presentation-mode')?.value;
+  const mode = mask.querySelector('#visual-overlay-edit-presentation-mode')?.value;
   const preset = mode === 'full_frame' ? [0, 0, 1, 1]
     : mode === 'sticker' ? [0.4, 0.4, 0.2, 0.2] : [0.65, 0.1, 0.3, 0.3];
   ['x', 'y', 'width', 'height'].forEach((key, index) => {
@@ -117,9 +117,9 @@ function editorVisualOverlayOpen(index, ev) {
   const isVideoAsset = sourceAsset && String(sourceAsset.type).toLowerCase() === 'video';
   const sourceAudioSettings = isVideoAsset ? `
       <div class="audio-clip-field-row">
-        <label><input id="visual-overlay-source-audio" type="checkbox" ${clip.source_audio_enabled ? 'checked' : ''}> 保留视频源音轨</label>
-        <div><label for="visual-overlay-source-audio-volume">源音量（0–2）</label>
-          <input id="visual-overlay-source-audio-volume" type="number" min="0" max="2" step="0.05" value="${Number(clip.source_audio_volume ?? 1)}"></div>
+        <label><input id="visual-overlay-edit-source-audio" type="checkbox" ${clip.source_audio_enabled ? 'checked' : ''}> 保留视频源音轨</label>
+        <div><label for="visual-overlay-edit-source-audio-volume">源音量（0–2）</label>
+          <input id="visual-overlay-edit-source-audio-volume" type="number" min="0" max="2" step="0.05" value="${Number(clip.source_audio_volume ?? 1)}"></div>
       </div>
       <p class="hint">启用后会将该视频原声与旁白、BGM、SFX 一起混音；没有音轨的源视频会在渲染时明确报错。</p>`
     : '<p class="hint">该素材为图片，没有可保留的源音轨。</p>';
@@ -132,7 +132,7 @@ function editorVisualOverlayOpen(index, ev) {
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；全画幅、画中画和贴纸共用同一可编辑片段模型。</p>
       <label for="visual-overlay-presentation-mode">画面用途</label>
-      <select id="visual-overlay-presentation-mode" onchange="editorVisualOverlayApplyPreset()">
+      <select id="visual-overlay-edit-presentation-mode" onchange="editorVisualOverlayApplyPreset()">
         <option value="full_frame" ${clip.presentation_mode === 'full_frame' ? 'selected' : ''}>全画幅镜头</option>
         <option value="picture_in_picture" ${!clip.presentation_mode || clip.presentation_mode === 'picture_in_picture' ? 'selected' : ''}>画中画</option>
         <option value="sticker" ${clip.presentation_mode === 'sticker' ? 'selected' : ''}>贴纸 / 图层</option>
@@ -196,9 +196,9 @@ async function editorVisualOverlayApply(index) {
     height:Number(mask.querySelector('#visual-overlay-height').value),
     opacity:Number(mask.querySelector('#visual-overlay-opacity').value),
     z_index:Number(mask.querySelector('#visual-overlay-z-index').value),
-    presentation_mode:mask.querySelector('#visual-overlay-presentation-mode').value,
-    source_audio_enabled:!!mask.querySelector('#visual-overlay-source-audio')?.checked,
-    source_audio_volume:Number(mask.querySelector('#visual-overlay-source-audio-volume')?.value ?? clip.source_audio_volume ?? 1)
+    presentation_mode:mask.querySelector('#visual-overlay-edit-presentation-mode').value,
+    source_audio_enabled:!!mask.querySelector('#visual-overlay-edit-source-audio')?.checked,
+    source_audio_volume:Number(mask.querySelector('#visual-overlay-edit-source-audio-volume')?.value ?? clip.source_audio_volume ?? 1)
   };
   const numericValues = [payload.x, payload.y, payload.width, payload.height, payload.opacity,
     payload.z_index, payload.source_audio_volume];
