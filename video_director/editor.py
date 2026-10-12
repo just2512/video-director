@@ -30,6 +30,7 @@ from video_director.project_lock import project_lock, validate_project_id
 from video_director.models import (
     AudioTrack,
     AudioTrackType,
+    AssetRef,
     CompositionIR,
     Layer,
     LayerType,
@@ -1302,13 +1303,38 @@ def _visual_overlay_index(ir: CompositionIR, target_id: str) -> int:
 def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optional[str] = None) -> Tuple[AssetRef, str, float]:
     asset = next((item for item in ir.assets if item.id == asset_id), None)
     if asset is None:
-        raise EditorError("ASSET_NOT_FOUND", f"项目素材库没有素材 {asset_id!r}", recoverable=False)
+        # The editor asset chooser is backed by the trusted asset catalog, while
+        # CompositionIR.assets may contain only sources already used by scenes.
+        # Promote the selected catalog entry into the persisted IR instead of
+        # exposing an add button that silently rejects legitimate library assets.
+        from video_director import asset_catalog
+        entry = asset_catalog.get_asset(asset_id)
+        if not entry:
+            raise EditorError("ASSET_NOT_FOUND", f"项目素材库没有素材 {asset_id!r}", recoverable=False)
+        media_type = str(entry.get("type") or "").lower()
+        if media_type not in ("video", "image"):
+            raise EditorError("ASSET_TYPE_MISMATCH", "独立画面覆盖层只接受视频或图片素材", recoverable=False)
+        file_value = str(entry.get("file") or "")
+        if not file_value:
+            raise EditorError("ASSET_NOT_FOUND", f"素材 {asset_id!r} 没有可用文件", recoverable=False)
+        catalog_path = Path(file_value).resolve()
+        if not catalog_path.is_file():
+            raise EditorError("ASSET_NOT_FOUND", f"素材文件不可用：{asset_id!r}", recoverable=False)
+        asset = AssetRef(
+            id=asset_id, type=media_type, file=str(catalog_path),
+            duration=entry.get("duration"), width=entry.get("width"), height=entry.get("height"),
+            fps=entry.get("fps"), source=entry.get("source") or "uploaded",
+            license_note=entry.get("license_note"), provenance=entry.get("provenance"),
+            rights_status=entry.get("rights_status"),
+        )
+        ir.assets.append(asset)
     media_type = str(asset.type or "").lower()
     if media_type not in ("video", "image"):
         raise EditorError("ASSET_TYPE_MISMATCH", "独立画面覆盖层只接受视频或图片素材", recoverable=False)
     candidate = Path(asset.file)
     if not candidate.is_file() and not candidate.is_absolute() and project_id:
         candidate = config.project_dir(project_id) / candidate
+    candidate = candidate.resolve()
     if not candidate.is_file():
         raise EditorError("ASSET_NOT_FOUND", f"项目素材文件不可用：{asset_id!r}", recoverable=False)
     duration = float(asset.duration or 0.0)
@@ -1321,8 +1347,7 @@ def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optio
             raise EditorError("ASSET_PROBE_FAILED", f"无法读取视频素材时长：{exc}") from exc
     if media_type == "video" and (not math.isfinite(duration) or duration <= 0):
         raise EditorError("ASSET_PROBE_FAILED", "视频覆盖素材缺少有效时长")
-    return asset, str(candidate.resolve()), duration
-
+    return asset, str(candidate), duration
 
 def _cmd_add_visual_overlay(
     ir: CompositionIR, target_id: str, payload: dict, project_id: str,
@@ -1358,7 +1383,7 @@ def _cmd_add_visual_overlay(
     duration = number("duration", default_duration, 0.05)
     if start + duration > total + 1e-6:
         raise EditorError("INVALID_PARAMETER", "覆盖层不能超出项目总时长")
-    if asset.type == "video" and source_in + duration > source_duration + 0.05:
+    if str(asset.type).lower() == "video" and source_in + duration > source_duration + 0.05:
         raise EditorError("INVALID_SOURCE_RANGE", "覆盖层视频源区间超出素材时长")
 
     x = number("x", 0.65, 0.0, 1.0)
@@ -1371,8 +1396,11 @@ def _cmd_add_visual_overlay(
 
     # Paths are resolved only from the known project AssetRef; never accept a
     # client-supplied path as a render input. Persist the project's canonical asset file.
-    asset_index = next(i for i, item in enumerate(ir.assets) if item.id == asset_id)
-    ir.assets[asset_index] = asset.model_copy(update={"file": resolved_file, "duration": source_duration or asset.duration})
+    asset_index = next((i for i, item in enumerate(ir.assets) if item.id == asset_id), None)
+    if asset_index is None:
+        ir.assets.append(asset.model_copy(update={"file": resolved_file, "duration": source_duration or asset.duration}))
+    else:
+        ir.assets[asset_index] = asset.model_copy(update={"file": resolved_file, "duration": source_duration or asset.duration})
     raw_z_index = payload.get("zIndex", 0)
     if isinstance(raw_z_index, bool):
         raise EditorError("INVALID_PARAMETER", "zIndex 必须是整数")
