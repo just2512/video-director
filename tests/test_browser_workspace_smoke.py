@@ -711,6 +711,9 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 source_box = source_clip.bounding_box()
                 target_box = target_track.bounding_box()
                 assert source_box and target_box
+                # Previous watermark gestures are a separate interaction; establish an
+                # explicit starting playhead so this test detects only clip-drag bubbling.
+                page.evaluate("PLAYHEAD.at = 4.0")
                 captured_commands.clear()
                 page.mouse.move(source_box["x"] + source_box["width"] * 0.55, source_box["y"] + source_box["height"] / 2)
                 page.mouse.down()
