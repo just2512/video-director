@@ -257,6 +257,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     editorVisualOverlayOpen(0);
                     document.getElementById("visual-overlay-x").value = "0.4";
                     document.getElementById("visual-overlay-y").value = "0.2";
+                    document.getElementById("visual-overlay-z-index").value = "3";
                     await editorVisualOverlayApply(0);
                     editorVisualOverlayPick();
                     document.getElementById("visual-overlay-start").value = "0.5";
@@ -290,6 +291,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert overlay_commands == [
                     "set_visual_overlay", "add_visual_overlay", "remove_visual_overlay", "move_visual_overlay"
                 ], overlay_ui
+                assert overlay_ui["commands"][0]["payload"]["z_index"] == 3, overlay_ui
                 assert overlay_ui["commands"][1]["payload"]["start"] == 0.5, overlay_ui
                 assert overlay_ui["dialogRemoved"], overlay_ui
 
