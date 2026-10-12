@@ -196,12 +196,16 @@ def render_style_sample(project_id: str, style_id: str, sample_root: Path) -> di
 
     # Keep generated samples bounded; old sample MP4s expire after 72 hours.
     expiry = time.time() - 72 * 60 * 60
-    for stale in sample_root.glob("*.mp4"):
-        try:
-            if stale.stat().st_mtime < expiry:
-                stale.unlink()
-        except OSError:
-            pass
+    for pattern in ("*.mp4", "*.work"):
+        for stale in sample_root.glob(pattern):
+            try:
+                if stale.stat().st_mtime < expiry:
+                    if stale.is_dir():
+                        shutil.rmtree(stale, ignore_errors=True)
+                    else:
+                        stale.unlink()
+            except OSError:
+                pass
 
     sample_id = uuid.uuid4().hex
     work_dir = sample_root / (sample_id + ".work")
@@ -226,7 +230,9 @@ def render_style_sample(project_id: str, style_id: str, sample_root: Path) -> di
         # These are parameters the current FFmpeg renderer can truly consume today.
         style_values = ir.subtitle_style.model_dump() if ir.subtitle_style else {}
         style_values["position"] = contract.subtitle_position
-        style_values["size"] = contract.subtitle_font_size / 56.0
+        # renderer.subtitle_burn_in maps size to force_style FontSize=18*size.
+        # Use that actual renderer base, not the ASS generator's separate 56px default.
+        style_values["size"] = contract.subtitle_font_size / 18.0
         ir.subtitle_style = SubtitleStyle.model_validate(style_values)
         applied.extend(["字幕位置", "字幕字号"])
         if any(getattr(track.type, "value", track.type) == "bgm" and not track.muted for track in ir.audio):
@@ -259,7 +265,12 @@ def render_style_sample(project_id: str, style_id: str, sample_root: Path) -> di
             project_dir / "audio" / "narration_uploaded.mp3",
         ]
         narration_candidates.extend(sorted((project_dir / "audio").glob("narration_uploaded.*")))
-        narration_file = next((str(p.resolve()) for p in narration_candidates if p.is_file()), None)
+        trusted_roots = [vd_config.composer_storage_root().resolve(), asset_catalog.library_root().resolve()]
+        narration_path = next(
+            (_safe_file(p, trusted_roots, project_dir) for p in narration_candidates if p.is_file()),
+            None,
+        )
+        narration_file = str(narration_path) if narration_path else None
         expected_audio = bool(narration_file) or any(
             not getattr(track, "muted", False) and getattr(track, "asset_id", None)
             for track in (ir.audio or [])
