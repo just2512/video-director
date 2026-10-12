@@ -936,9 +936,13 @@ def composite_visual_overlays(
     timeline interval. Audio is deliberately excluded; mix_audio runs after
     this stage so the final audio is mixed exactly once.
     """
+    track_order = {track.id: int(track.order) for track in getattr(ir, "visual_tracks", []) or []}
     overlays = sorted(
         list(getattr(ir, "visual_overlays", []) or []),
-        key=lambda item: (int(item.z_index), float(item.start), str(item.id)),
+        key=lambda item: (
+            track_order.get(getattr(item, "track_id", "overlay-main"), 0),
+            int(item.z_index), float(item.start), str(item.id),
+        ),
     )
     if not overlays:
         return base_path
