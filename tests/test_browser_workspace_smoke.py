@@ -710,7 +710,34 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert trimmed is not None, "pointer edge trim did not POST trim_audio_clip to the real Editor Command endpoint"
                 assert trimmed["targetId"] == "audio#0"
                 assert trimmed["payload"]["sourceOut"] < 2
-# The text/logo overlay is an actual positioned clip, not a full-width summary.
+                # Real browser click: audio inspector's cut-at-playhead control must
+                # dispatch the same versioned command as the backend unit contract.
+                split_ui = page.evaluate("""() => {
+                    PLAYHEAD.at = 7.5;
+                    editorAudioClipOpen(1);
+                    const button = document.getElementById('audio-clip-split-at-playhead');
+                    return {
+                        dialog: !!document.getElementById('audio-clip-inspector-mask'),
+                        exists: !!button,
+                        disabled: !!button && button.disabled,
+                        label: button ? button.textContent.trim() : ''
+                    };
+                }""")
+                assert split_ui["dialog"] and split_ui["exists"] and not split_ui["disabled"], split_ui
+                captured_commands.clear()
+                page.locator("#audio-clip-split-at-playhead").click()
+                page.wait_for_timeout(100)
+                split_command = next(
+                    (command for command in captured_commands if command.get("command") == "split_audio_clip"),
+                    None,
+                )
+                assert split_command is not None, "audio Inspector split button did not dispatch split_audio_clip"
+                assert split_command["targetId"] == "audio#1"
+                assert abs(float(split_command["payload"]["at"]) - 7.5) < 0.001
+                page.evaluate("editorAudioClipClose()")
+                captured_commands.clear()
+
+                # The text/logo overlay is an actual positioned clip, not a full-width summary.
                 captured_commands.clear()
                 page.evaluate("editorRenderTimeline()")
                 overlay_clip = page.locator('#editor-timeline .ed-watermark-clip[data-watermark-index="0"]')
