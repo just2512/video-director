@@ -688,7 +688,7 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     }, 1)
     assert lifted.status == "APPLIED", lifted.errors
 
-    undone = __import__("video_director.editor", fromlist=["execute_command"]).execute_command(
+    undone = execute_command(
         project_id, {"command": "undo", "expectedVersion": lifted.composition_version},
     )
     assert undone.status == "APPLIED", undone.errors
@@ -696,7 +696,7 @@ def test_promote_main_video_layer_to_independent_track_renders_real_gap_and_keep
     assert restored.scenes[0].layers[0].type == LayerType.video
     assert restored.visual_overlays == []
 
-    redone = __import__("video_director.editor", fromlist=["execute_command"]).execute_command(
+    redone = execute_command(
         project_id, {"command": "redo", "expectedVersion": undone.composition_version},
     )
     assert redone.status == "APPLIED", redone.errors
