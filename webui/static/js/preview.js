@@ -215,7 +215,94 @@ function _previewRenderAt(sec, keepPlaying){
   }
   const v = document.getElementById('pv-live-video');
   if (v && lay && lay.type === 'video') _previewSyncVideo(v, sc, lay, local);
+  // Live overlay clips use the same CompositionIR global clock as the timeline;
+  // draft preview already contains these clips in the rendered MP4, so it does not add them again.
+  _previewRenderVisualOverlays(sec);
   if (meta) meta.textContent = '实时预览 · ' + sec.toFixed(1) + ' / ' + (ED.comp.duration || 0).toFixed(1) + 's';
+}
+
+/** Render global visual-overlay clips over the live preview at the shared playhead time. */
+function _previewRenderVisualOverlays(sec) {
+  if (!ED.comp || PV.mode !== 'live') return;
+  const media = document.querySelector('#ed-preview-stage .pv-live-media');
+  if (!media) return;
+  media.style.position = 'relative';
+  let host = media.querySelector('.pv-live-overlays');
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'pv-live-overlays';
+    host.setAttribute('aria-label', '当前时间点的画面叠加预览');
+    host.setAttribute('aria-hidden', 'true');
+    media.appendChild(host);
+  }
+
+  const sourceAssets = ED.comp.assets || {};
+  const getAsset = assetId => Array.isArray(sourceAssets)
+    ? sourceAssets.find(asset => asset && asset.id === assetId) || null
+    : sourceAssets[assetId] || null;
+  const clamp = (value, min, max, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+  };
+  const overlays = Array.isArray(ED.comp.visual_overlays) ? ED.comp.visual_overlays : [];
+  const active = overlays.map((clip, index) => ({clip, index, asset: getAsset(clip && clip.asset_id)}))
+    .filter(({clip}) => {
+      if (!clip) return false;
+      const start = Number(clip.start);
+      const duration = Number(clip.duration);
+      return Number.isFinite(start) && Number.isFinite(duration) && duration > 0
+        && sec >= start && sec < start + duration - 1e-6;
+    });
+  const key = active.map(({clip, index, asset}) =>
+    [index, clip.id || '', clip.asset_id || '', asset && asset.file_url || '', asset && asset.type || ''].join(':')
+  ).join('|');
+
+  if (host.dataset.activeKey !== key) {
+    host.dataset.activeKey = key;
+    host.innerHTML = active.map(({clip, index, asset}) => {
+      const left = clamp(clip.x, 0, 1, 0.65) * 100;
+      const top = clamp(clip.y, 0, 1, 0.1) * 100;
+      const width = clamp(clip.width, 0.05, 1, 0.3) * 100;
+      const height = clamp(clip.height, 0.05, 1, 0.3) * 100;
+      const opacity = clamp(clip.opacity, 0, 1, 1);
+      const zIndex = Math.round(clamp(clip.z_index, -100, 100, 0));
+      const style = `left:${left}%;top:${top}%;width:${width}%;height:${height}%;opacity:${opacity};z-index:${zIndex}`;
+      const type = String(asset && asset.type || '').toLowerCase();
+      const src = asset && asset.file_url;
+      if (!src || !['image', 'video'].includes(type)) {
+        return `<div class="pv-live-overlay-missing" data-overlay-index="${index}" style="${style}" title="当前素材无法在实时预览中加载">叠加素材暂不可预览</div>`;
+      }
+      if (type === 'video') {
+        return `<video class="pv-live-overlay-video" data-overlay-index="${index}" src="${esc(src)}" muted playsinline preload="metadata" style="${style}"></video>`;
+      }
+      return `<img class="pv-live-overlay-image" data-overlay-index="${index}" src="${esc(src)}" alt="" style="${style}">`;
+    }).join('');
+  }
+
+  const fps = Math.max(1, Number((ED.comp.project || {}).fps) || 30);
+  for (const {clip, index, asset} of active) {
+    const node = host.querySelector('[data-overlay-index="' + index + '"]');
+    if (!node) continue;
+    const left = clamp(clip.x, 0, 1, 0.65) * 100;
+    const top = clamp(clip.y, 0, 1, 0.1) * 100;
+    const width = clamp(clip.width, 0.05, 1, 0.3) * 100;
+    const height = clamp(clip.height, 0.05, 1, 0.3) * 100;
+    node.style.left = left + '%';
+    node.style.top = top + '%';
+    node.style.width = width + '%';
+    node.style.height = height + '%';
+    node.style.opacity = String(clamp(clip.opacity, 0, 1, 1));
+    node.style.zIndex = String(Math.round(clamp(clip.z_index, -100, 100, 0)));
+    if (node.tagName !== 'VIDEO') continue;
+
+    const sourceIn = Math.max(0, Number(clip.source_in) || 0);
+    const sourceTime = sourceIn + Math.max(0, sec - Number(clip.start || 0));
+    if (node.readyState > 0 && Math.abs((node.currentTime || 0) - sourceTime) > 0.5 / fps) {
+      try { node.currentTime = sourceTime; } catch (_) {}
+    }
+    if (PV.playing) node.play().catch(() => {});
+    else node.pause();
+  }
 }
 function _previewSyncVideo(v, sc, lay, local){
   if (!v || !lay) return;
