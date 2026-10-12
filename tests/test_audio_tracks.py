@@ -126,6 +126,7 @@ def test_locked_audio_track_rejects_all_clip_timing_and_property_edits(tmp_path,
         result = _apply(pid, command, "audio#0", payload, version=2)
         assert result.status == "REJECTED", (command, result.status, result.errors)
         assert result.errors[0]["code"] == "TRACK_LOCKED", (command, result.errors)
+        assert result.composition_version == 2, (command, result.composition_version)
         assert load_composition(pid).audio[0].model_dump(mode="json") == original
 
     revisions = [line for line in (plan_dir / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
@@ -188,6 +189,7 @@ def test_locked_audio_track_blocks_audio_bus_alias_commands_atomically(tmp_path,
         result = _apply(pid, command, target, payload, version=2)
         assert result.status == "REJECTED", (command, result.status, result.errors)
         assert result.errors[0]["code"] == "TRACK_LOCKED", (command, result.errors)
+        assert result.composition_version == 2, (command, result.composition_version)
         current = {clip.id: clip.model_dump(mode="json") for clip in load_composition(pid).audio}
         assert current == before, f"{command} partially mutated audio clips despite a locked lane"
 

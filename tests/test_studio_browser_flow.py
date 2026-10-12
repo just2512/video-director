@@ -321,7 +321,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   const axis = scroll.querySelector('.ed-track-body');
                   if (!axis) return {hasPhysicalTimeline: false, before: 0, after: 0};
                   const axisRect = axis.getBoundingClientRect();
-                  const x = axisRect.left + axisRect.width * 0.15;
+                  const x = axisRect.left + axisRect.width * 0.75;
                   const y = axisRect.top + Math.min(12, axisRect.height / 2);
                   const before = window.PLAYHEAD.at;
                   scroll.dispatchEvent(new PointerEvent('pointerdown', {

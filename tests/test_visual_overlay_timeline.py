@@ -916,6 +916,7 @@ def test_locked_visual_track_rejects_add_move_trim_split_property_and_delete(tmp
         result = _apply(pid, command, target, payload, version=3)
         assert result.status == "REJECTED", (command, result.status, result.errors)
         assert result.errors[0]["code"] == "TRACK_LOCKED", (command, result.errors)
+        assert result.composition_version == 3, (command, result.composition_version)
         assert load_composition(pid).visual_overlays[0].model_dump(mode="json") == original
 
     revisions = [line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
