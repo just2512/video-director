@@ -26,11 +26,11 @@ function editorVisualOverlayPick(ev) {
       <label for="visual-overlay-asset">项目素材</label>
       <select id="visual-overlay-asset">${assets.map(([id, a]) => {
         const name = a.name || (a.file && String(a.file).split(/[\\/]/).pop()) || id;
-        return `<option value="${esc(id)`">${esc(name)` · ${esc(a.type)`</option>`;
-      }).join('')`</select>
+        return `<option value="${esc(id)}">${esc(name)} · ${esc(a.type)}</option>`;
+      }).join('')}</select>
       <div class="audio-clip-field-row">
-        <div><label for="visual-overlay-start">起点（秒）</label><input id="visual-overlay-start" type="number" min="0" max="${total`" step="0.05" value="${start.toFixed(2)`"></div>
-        <div><label for="visual-overlay-duration">时长（秒）</label><input id="visual-overlay-duration" type="number" min="0.05" max="${total-start`" step="0.05" value="${Math.min(3, total-start).toFixed(2)`"></div>
+        <div><label for="visual-overlay-start">起点（秒）</label><input id="visual-overlay-start" type="number" min="0" max="${total}" step="0.05" value="${start.toFixed(2)}"></div>
+        <div><label for="visual-overlay-duration">时长（秒）</label><input id="visual-overlay-duration" type="number" min="0.05" max="${total-start}" step="0.05" value="${Math.min(3, total-start).toFixed(2)}"></div>
       </div>
       <p class="hint">默认放在右上角。添加后可拖动片段移动，并拖动左右边缘修剪。</p>
       <footer><button type="button" class="btn-secondary" onclick="editorVisualOverlayClose()">取消</button>
@@ -84,21 +84,21 @@ function editorVisualOverlayOpen(index, ev) {
   mask.className = 'audio-clip-inspector-mask';
   mask.innerHTML = `
     <section class="audio-clip-inspector" role="dialog" aria-modal="true" aria-labelledby="visual-overlay-title">
-      <header><div><b id="visual-overlay-title">画面叠加 · 设置</b><div class="hint">${esc(clip.asset_id)` · ${fmt(clip.start)`–${fmt(Number(clip.start)+Number(clip.duration))`s</div></div>
+      <header><div><b id="visual-overlay-title">画面叠加 · 设置</b><div class="hint">${esc(clip.asset_id)} · ${fmt(clip.start)}–${fmt(Number(clip.start)+Number(clip.duration))}s</div></div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；在此调整画面位置、尺寸和透明度。</p>
       <div class="audio-clip-field-row">
-        <div><label for="visual-overlay-x">X 位置（0–1）</label><input id="visual-overlay-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.x ?? 0.65)`"></div>
-        <div><label for="visual-overlay-y">Y 位置（0–1）</label><input id="visual-overlay-y" type="number" min="0" max="1" step="0.01" value="${Number(clip.y ?? 0.1)`"></div>
+        <div><label for="visual-overlay-x">X 位置（0–1）</label><input id="visual-overlay-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.x ?? 0.65)}"></div>
+        <div><label for="visual-overlay-y">Y 位置（0–1）</label><input id="visual-overlay-y" type="number" min="0" max="1" step="0.01" value="${Number(clip.y ?? 0.1)}"></div>
       </div>
       <div class="audio-clip-field-row">
-        <div><label for="visual-overlay-width">宽度（0.05–1）</label><input id="visual-overlay-width" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.width ?? 0.3)`"></div>
-        <div><label for="visual-overlay-height">高度（0.05–1）</label><input id="visual-overlay-height" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.height ?? 0.3)`"></div>
+        <div><label for="visual-overlay-width">宽度（0.05–1）</label><input id="visual-overlay-width" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.width ?? 0.3)}"></div>
+        <div><label for="visual-overlay-height">高度（0.05–1）</label><input id="visual-overlay-height" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.height ?? 0.3)}"></div>
       </div>
-      <label for="visual-overlay-opacity">不透明度（0–1）</label><input id="visual-overlay-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.opacity ?? 1)`">
-      <footer><button type="button" class="btn-danger" onclick="editorVisualOverlayRemove(${index`)">删除叠加</button>
+      <label for="visual-overlay-opacity">不透明度（0–1）</label><input id="visual-overlay-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.opacity ?? 1)}">
+      <footer><button type="button" class="btn-danger" onclick="editorVisualOverlayRemove(${index})`)">删除叠加</button>
         <button type="button" class="btn-secondary" onclick="editorVisualOverlayClose()">取消</button>
-        <button type="button" class="btn-primary" onclick="editorVisualOverlayApply(${index`)">保存设置</button></footer>
+        <button type="button" class="btn-primary" onclick="editorVisualOverlayApply(${index})`)">保存设置</button></footer>
     </section>`;
   mask.addEventListener('click', e => { if (e.target === mask) editorVisualOverlayClose(); });
   document.body.appendChild(mask);
