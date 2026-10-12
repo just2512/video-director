@@ -359,7 +359,9 @@ function _secSource({sceneId, idx, lay}){
   const scene = (ED.comp.scenes || []).find(item => item.id === sceneId);
   let liftBlockedReason = '';
   if (lay.type === 'video') {
-    if (Math.abs(Number(lay.speed || 1) - 1) > 0.001) liftBlockedReason = '当前片段必须是 1.0x 原速';
+    if (lay.locked) liftBlockedReason = '当前片段已锁定，请先解锁';
+    else if (!lay.asset_id) liftBlockedReason = '当前片段没有绑定视频素材';
+    else if (Math.abs(Number(lay.speed || 1) - 1) > 0.001) liftBlockedReason = '当前片段必须是 1.0x 原速';
     else if (lay.motion || lay.motion_recipe_id || lay.motion_version || lay.motion_instance || lay.transform || (lay.keyframes || []).length || lay.mask || (lay.fit_mode && lay.fit_mode !== 'cover')) liftBlockedReason = '请先移除变换、蒙版、关键帧或动效';
     else if (scene && scene.camera) liftBlockedReason = '所在分镜使用了场景镜头运动';
     else if (scene && scene.transition_out && !['cut', 'hard_cut'].includes(typeof scene.transition_out === 'string' ? scene.transition_out : scene.transition_out.type) && Number(lay.start) + Number(lay.duration) >= Number(scene.duration) - 0.45) liftBlockedReason = '片段跨越分镜转场区域';
