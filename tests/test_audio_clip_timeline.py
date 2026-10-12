@@ -64,6 +64,28 @@ def test_trim_audio_clip_persists_exact_source_window_and_duration(tmp_path, mon
     assert track.duration == 2.5
 
 
+def test_move_audio_clip_rejects_project_overrun_without_mutation(tmp_path, monkeypatch):
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    result = _apply(pid, "move_audio_clip", "audio#1", {"start": 9.0})
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "INVALID_TIMELINE_RANGE"
+    clip = load_composition(pid).audio[1]
+    assert (clip.start, clip.duration) == (5.0, 2.0)
+    assert (plan_dir / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+def test_trim_audio_clip_rejects_project_overrun_without_mutation(tmp_path, monkeypatch):
+    pid, plan_dir = _audio_project(tmp_path, monkeypatch)
+    result = _apply(pid, "trim_audio_clip", "audio#1", {
+        "start": 9.0, "sourceIn": 0.0, "sourceOut": 2.0,
+    })
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "INVALID_TIMELINE_RANGE"
+    clip = load_composition(pid).audio[1]
+    assert (clip.start, clip.duration, clip.source_in, clip.source_out) == (5.0, 2.0, 0.0, None)
+    assert (plan_dir / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
 def test_split_audio_clip_preserves_source_continuity_fades_and_revision(tmp_path, monkeypatch):
     pid, plan_dir = _audio_project(tmp_path, monkeypatch)
     comp = load_composition(pid)
