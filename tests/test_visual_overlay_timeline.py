@@ -198,6 +198,61 @@ def test_real_ffmpeg_overlay_is_pixel_visible_only_inside_clip_window(tmp_path):
     assert decoded.returncode == 0, decoded.stderr
 
 
+
+def _make_two_color_video(ffmpeg: str, path: Path):
+    run = subprocess.run([
+        ffmpeg, "-y", "-v", "error",
+        "-f", "lavfi", "-i", "color=c=green:s=40x40:r=10:d=1",
+        "-f", "lavfi", "-i", "color=c=red:s=40x40:r=10:d=1",
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0,format=yuv420p[v]",
+        "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-t", "2", str(path),
+    ], capture_output=True, text=True, timeout=45)
+    assert run.returncode == 0, run.stderr
+    assert path.is_file() and path.stat().st_size > 100
+
+
+def test_real_ffmpeg_video_overlay_honors_source_in_and_output_window(tmp_path):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "blue-base-video-overlay.png"
+    overlay_path = tmp_path / "green-then-red-overlay.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_two_color_video(ffmpeg, overlay_path)
+    base = AssetRef(id="base-video-test", type="image", file=str(base_path), width=40, height=40)
+    overlay = AssetRef(
+        id="moving-overlay-source", type="video", file=str(overlay_path), duration=2.0,
+        width=40, height=40, fps=10,
+    )
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=3.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=3.0, text="base picture",
+            layers=[Layer(type=LayerType.image, asset_id="base-video-test", duration=3.0)],
+        )],
+        assets=[base, overlay],
+        visual_overlays=[VisualOverlayClip(
+            id="video-overlay-window", asset_id="moving-overlay-source",
+            start=1.0, duration=0.75, source_in=1.1, x=0.65, y=0.1,
+            width=0.3, height=0.3, opacity=1.0, z_index=1,
+        )],
+    )
+    result = renderer.render_composition(
+        composition, {"base-video-test": base, "moving-overlay-source": overlay}, tmp_path / "rendered-video-overlay",
+    )
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    before = _pixel_at(ffmpeg, output, 0.5, 245, 40)
+    during = _pixel_at(ffmpeg, output, 1.25, 245, 40)
+    after = _pixel_at(ffmpeg, output, 2.0, 245, 40)
+    assert before[2] > before[0] * 1.5, before
+    assert during[0] > during[2] * 1.5, during
+    assert after[2] > after[0] * 1.5, after
+    decoded = subprocess.run(
+        [ffmpeg, "-v", "error", "-i", str(output), "-f", "null", "-"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert decoded.returncode == 0, decoded.stderr
+
+
 def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     root = Path(__file__).resolve().parents[1]
     js = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
