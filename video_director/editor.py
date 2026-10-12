@@ -122,9 +122,37 @@ def save_composition(project_id: str, ir: CompositionIR) -> None:
             pass
 
 
+def _composition_version_path(project_id: str) -> Path:
+    return config.project_dir(project_id) / "plans" / "composition_version.json"
+
+
+def _write_composition_version(project_id: str, version: int) -> None:
+    """Persist a monotonic optimistic-concurrency token, including undo/redo."""
+    path = _composition_version_path(project_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps({"version": int(version)}))
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def composition_version(project_id: str) -> int:
-    """当前 composition 版本 = revision 数 + 1（每次应用命令 +1）。"""
-    return len(load_revisions(project_id)) + 1
+    """Return a monotonic version; content rollback must not cause an ABA version."""
+    revision_floor = len(load_revisions(project_id)) + 1
+    try:
+        stored = json.loads(_composition_version_path(project_id).read_text(encoding="utf-8"))
+        persisted = int(stored.get("version", revision_floor))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        persisted = revision_floor
+    return max(revision_floor, persisted)
 
 
 def _append_revision(project_id: str, revision: dict) -> None:
@@ -146,25 +174,80 @@ def _snapshot_for_revision(ir: "CompositionIR") -> dict:
         return {}
 
 
-def _undo_redo(project_id: str, action: str) -> CommandResult:
-    """§46 Undo/Redo：快照恢复式（revision 带 ir_before/ir_after 后可回退）。
+def _undo_stack_path(project_id: str) -> Path:
+    return config.project_dir(project_id) / "plans" / "undo_stack.json"
 
-    undo：最后一个未撤销 revision → 恢复其 ir_before；
-    redo：最近被撤销 revision → 恢复其 ir_after。
-    旧 revision 无快照 → 诚实 UNDO_UNAVAILABLE（不猜不 fake）。
+
+def _read_undo_state(project_id: str, revisions: Optional[List[dict]] = None) -> dict:
+    """Read undo state while accepting the legacy list-only format.
+
+    Reconcile abandoned redo entries from the append-only revision log so a crash
+    after appending an edit but before updating undo_stack.json cannot resurrect them.
     """
-    import copy as _copy
-    revisions = load_revisions(project_id)
-    undo_path = config.project_dir(project_id) / "plans" / "undo_stack.json"
+    path = _undo_stack_path(project_id)
     try:
-        undone_ids = json.loads(undo_path.read_text(encoding="utf-8")) if undo_path.is_file() else []
-        if not isinstance(undone_ids, list):
-            undone_ids = []
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
     except (OSError, json.JSONDecodeError):
-        undone_ids = []
+        raw = []
+    if isinstance(raw, list):
+        undone = [str(item) for item in raw if item]
+        abandoned = []
+    elif isinstance(raw, dict):
+        undone = [str(item) for item in raw.get("undone", []) if item]
+        abandoned = [str(item) for item in raw.get("abandoned", []) if item]
+    else:
+        undone, abandoned = [], []
+
+    history = revisions if revisions is not None else load_revisions(project_id)
+    for revision in history:
+        abandoned.extend(str(item) for item in revision.get("abandoned_redo_ids", []) if item)
+    abandoned_set = set(abandoned)
+    return {
+        "undone": [item for item in undone if item not in abandoned_set][-200:],
+        "abandoned": sorted(abandoned_set)[-400:],
+    }
+
+
+def _write_undo_state(project_id: str, state: dict) -> None:
+    path = _undo_stack_path(project_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    payload = {
+        "undone": list(dict.fromkeys(state.get("undone", [])))[-200:],
+        "abandoned": list(dict.fromkeys(state.get("abandoned", [])))[-400:],
+    }
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False))
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _undo_redo(
+    project_id: str, action: str, current_version: Optional[int] = None
+) -> CommandResult:
+    """Restore IR snapshots without allowing stale versions or abandoned redo branches."""
+    import copy as _copy
+
+    revisions = load_revisions(project_id)
+    state = _read_undo_state(project_id, revisions)
+    undone_ids = state["undone"]
+    abandoned_ids = set(state["abandoned"])
+    version = composition_version(project_id) if current_version is None else current_version
 
     if action == "undo":
-        candidates = [r for r in revisions if r.get("revision_id") not in undone_ids]
+        candidates = [
+            revision for revision in revisions
+            if revision.get("revision_id") not in undone_ids
+            and revision.get("revision_id") not in abandoned_ids
+            and revision.get("command") not in {"undo", "redo"}
+        ]
         if not candidates:
             return CommandResult(status="REJECTED", errors=[{
                 "code": "NOTHING_TO_UNDO", "message": "没有可撤销的编辑",
@@ -183,20 +266,25 @@ def _undo_redo(project_id: str, action: str) -> CommandResult:
             return CommandResult(status="REJECTED", errors=[{
                 "code": "SNAPSHOT_INVALID", "message": f"快照恢复失败: {exc}",
                 "recoverable": True}])
+        _write_composition_version(project_id, version + 1)
         save_composition(project_id, ir)
-        undone_ids.append(target.get("revision_id"))
-        undo_path.parent.mkdir(parents=True, exist_ok=True)
-        undo_path.write_text(json.dumps(undone_ids[-200:], ensure_ascii=False), encoding="utf-8")
+        state["undone"] = (undone_ids + [target.get("revision_id")])[-200:]
+        _write_undo_state(project_id, state)
         return CommandResult(
             status="APPLIED", revision_id=f"undo-{target.get('revision_id')}",
-            composition_version=composition_version(project_id),
+            composition_version=version + 1,
             composition=json.loads(ir.model_dump_json()))
-    # redo
+
     if not undone_ids:
         return CommandResult(status="REJECTED", errors=[{
             "code": "NOTHING_TO_REDO", "message": "没有可恢复的编辑", "recoverable": True}])
-    redo_id = undone_ids.pop()
-    target = next((r for r in revisions if r.get("revision_id") == redo_id), None)
+    redo_id = undone_ids[-1]
+    if redo_id in abandoned_ids:
+        return CommandResult(status="REJECTED", errors=[{
+            "code": "NOTHING_TO_REDO", "message": "该重做分支已被后续编辑替代",
+            "recoverable": True}])
+    target = next((revision for revision in revisions
+                   if revision.get("revision_id") == redo_id), None)
     if target is None:
         return CommandResult(status="REJECTED", errors=[{
             "code": "REVISION_MISSING", "message": f"待恢复 revision {redo_id} 不存在",
@@ -205,18 +293,19 @@ def _undo_redo(project_id: str, action: str) -> CommandResult:
     if not snap:
         return CommandResult(status="REJECTED", errors=[{
             "code": "REDO_UNAVAILABLE",
-            "message": f"revision {redo_id} 无 IR 快照，无法恢复", "recoverable": True}])
+            "message": f"revision {redo_id} 无快照，无法恢复", "recoverable": True}])
     try:
         ir = CompositionIR(**_copy.deepcopy(snap))
     except Exception as exc:
         return CommandResult(status="REJECTED", errors=[{
             "code": "SNAPSHOT_INVALID", "message": f"快照恢复失败: {exc}", "recoverable": True}])
+    _write_composition_version(project_id, version + 1)
     save_composition(project_id, ir)
-    undo_path.parent.mkdir(parents=True, exist_ok=True)
-    undo_path.write_text(json.dumps(undone_ids, ensure_ascii=False), encoding="utf-8")
+    state["undone"] = undone_ids[:-1]
+    _write_undo_state(project_id, state)
     return CommandResult(
         status="APPLIED", revision_id=f"redo-{redo_id}",
-        composition_version=composition_version(project_id),
+        composition_version=version + 1,
         composition=json.loads(ir.model_dump_json()))
 # ---------------------------------------------------------------------------
 # 定位辅助
@@ -489,7 +578,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         )
 
     if cmd_name in ("undo", "redo"):
-        return _undo_redo(project_id, cmd_name)
+        return _undo_redo(project_id, cmd_name, current_version=current)
 
     ir = load_composition(project_id)
     before_ir = ir.model_copy(deep=True)  # §46 undo 快照基线
@@ -629,9 +718,10 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         if c in reused:
             reused.remove(c)
 
-    # 保存 + revision 记录（§21：不覆盖历史，追加）
-    # §46 Undo/Redo：revision 附 before/after IR 快照（undo 恢复点）。
-    # 快照体积可控（Composition IR 纯 JSON），旧记录无快照时 undo 诚实报错。
+    # 保存 + revision 记录；撤销后产生的新编辑会废弃已撤销的 redo 分支。
+    undo_state = _read_undo_state(project_id)
+    abandoned_redo_ids = list(undo_state["undone"])
+    _write_composition_version(project_id, current + 1)
     save_composition(project_id, ir)
     revision_id = f"rev-{uuid.uuid4().hex[:8]}"
     revision = {
@@ -646,10 +736,15 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         "reused_artifacts": reused,
         "author": command.get("author", "user"),
         "created_at": time.time(),
+        "abandoned_redo_ids": abandoned_redo_ids,
         "ir_before": _snapshot_for_revision(before_ir),
         "ir_after": _snapshot_for_revision(ir),
     }
     _append_revision(project_id, revision)
+    if abandoned_redo_ids:
+        undo_state["undone"] = []
+        undo_state["abandoned"] = sorted(set(undo_state["abandoned"]) | set(abandoned_redo_ids))
+        _write_undo_state(project_id, undo_state)
     try:
         from video_director import artifact_graph
         artifact_graph.mark_stale(project_id, stale)
