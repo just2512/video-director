@@ -110,6 +110,11 @@ def test_visual_overlay_commands_reject_unknown_assets_stale_versions_and_out_of
 
 
 
+def test_visual_track_ids_reject_inline_handler_payloads():
+    with pytest.raises(ValueError, match="visual track id"):
+        VisualTrack(id='track" onclick="alert(1)', name="unsafe", order=0)
+
+
 def test_legacy_composition_migrates_to_default_visual_track():
     base = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
