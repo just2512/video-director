@@ -562,6 +562,23 @@ class Variant(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class VisualTrack(BaseModel):
+    """A named, persistent global picture track for independently timed overlay clips."""
+    id: str
+    name: str
+    order: int = 0
+
+    @model_validator(mode="after")
+    def _check_visual_track(self):
+        if not self.id.strip():
+            raise ValueError("visual track id is required")
+        if not self.name.strip() or len(self.name.strip()) > 60:
+            raise ValueError("visual track name must contain 1–60 characters")
+        if isinstance(self.order, bool) or self.order < 0:
+            raise ValueError("visual track order must be a non-negative integer")
+        return self
+
+
 class VisualOverlayClip(BaseModel):
     """Independent global visual-track clip composited over the main picture.
 
@@ -573,6 +590,7 @@ class VisualOverlayClip(BaseModel):
     start: float
     duration: float
     source_in: float = 0.0
+    track_id: str = "overlay-main"
     x: float = 0.65
     y: float = 0.1
     width: float = 0.3
@@ -615,6 +633,8 @@ class CompositionIR(BaseModel):
     audio: List[AudioTrack] = Field(default_factory=list)
     # ---- MPT 吸收方案 §十九/§三十一：水印与字幕样式是一等 IR 字段 ----
     watermarks: List[WatermarkLayer] = Field(default_factory=list)
+    # Named, ordered global picture tracks; old project JSON migrates to overlay-main.
+    visual_tracks: List[VisualTrack] = Field(default_factory=list)
     # Independent picture-in-picture / overlay clips on their own global timeline.
     visual_overlays: List[VisualOverlayClip] = Field(default_factory=list)
     subtitle_style: Optional[SubtitleStyle] = None
@@ -638,6 +658,19 @@ class CompositionIR(BaseModel):
 
     @model_validator(mode="after")
     def _check_continuity(self):
+        # Backward-compatible migration: older compositions had one implicit overlay row.
+        if not self.visual_tracks:
+            self.visual_tracks = [VisualTrack(id="overlay-main", name="画面叠加", order=0)]
+        track_ids = [track.id for track in self.visual_tracks]
+        track_orders = [track.order for track in self.visual_tracks]
+        if len(track_ids) != len(set(track_ids)):
+            raise ValueError("duplicate visual track id")
+        if len(track_orders) != len(set(track_orders)):
+            raise ValueError("duplicate visual track order")
+        known_track_ids = set(track_ids)
+        for track in self.visual_tracks:
+            if track.order < 0:
+                raise ValueError("visual track order must be non-negative")
         if not self.scenes:
             raise ValueError("IR 无场景")
         if abs(self.scenes[0].start) > 0.01:
@@ -656,6 +689,8 @@ class CompositionIR(BaseModel):
             )
         overlay_ids = set()
         for overlay in self.visual_overlays:
+            if overlay.track_id not in known_track_ids:
+                raise ValueError(f"visual overlay {overlay.id} references unknown track {overlay.track_id}")
             if overlay.id in overlay_ids:
                 raise ValueError(f"duplicate visual overlay id: {overlay.id}")
             overlay_ids.add(overlay.id)
