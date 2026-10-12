@@ -109,7 +109,10 @@ def save_composition(project_id: str, ir: CompositionIR) -> None:
     p = config.project_dir(project_id) / "plans" / "composition.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    serialized = json.dumps(json.loads(ir.model_dump_json()), ensure_ascii=False, indent=2)
+    # Re-validate at the persistence boundary so any command that creates an AudioTrack
+    # without explicitly setting physical lane ownership receives the canonical role lane.
+    persisted_ir = CompositionIR.model_validate(ir.model_dump(mode="python"))
+    serialized = json.dumps(json.loads(persisted_ir.model_dump_json()), ensure_ascii=False, indent=2)
     try:
         with tmp.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(serialized)
@@ -409,6 +412,9 @@ SUPPORTED_COMMANDS = (
     "rename_visual_track",
     "reorder_visual_track",
     "remove_visual_track",
+    "add_audio_track",           # 创建独立、可命名的音频时间线轨道
+    "rename_audio_track",         # 重命名音轨
+    "remove_audio_track",         # 仅允许删除空音轨
     "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
@@ -649,6 +655,12 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_reorder_visual_track(ir, target_id, payload)
         elif cmd_name == "remove_visual_track":
             changed, stale = _cmd_remove_visual_track(ir, target_id, payload)
+        elif cmd_name == "add_audio_track":
+            changed, stale = _cmd_add_audio_track(ir, target_id, payload)
+        elif cmd_name == "rename_audio_track":
+            changed, stale = _cmd_rename_audio_track(ir, target_id, payload)
+        elif cmd_name == "remove_audio_track":
+            changed, stale = _cmd_remove_audio_track(ir, target_id, payload)
         elif cmd_name == "add_audio_clip":
             changed, stale = _cmd_add_audio_clip(ir, target_id, payload)
         elif cmd_name == "move_audio_clip":
@@ -1942,6 +1954,60 @@ def _audio_clip_index(ir: CompositionIR, target_id: str) -> int:
     return index
 
 
+def _audio_lane_index(ir: CompositionIR, target_id: str) -> int:
+    index = next((i for i, lane in enumerate(ir.audio_tracks) if lane.id == target_id), -1)
+    if index < 0:
+        raise EditorError("NOT_FOUND", f"音频轨道 {target_id!r} 不存在", recoverable=False)
+    return index
+
+
+def _cmd_add_audio_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    from video_director.models import AudioLane
+
+    if target_id != "audio-tracks":
+        raise EditorError("INVALID_TARGET", "add_audio_track 的 targetId 必须是 audio-tracks")
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        number = 1
+        while any(lane.name.casefold() == f"音轨 {number}".casefold() for lane in ir.audio_tracks):
+            number += 1
+        name = f"音轨 {number}"
+    if len(name) > 60:
+        raise EditorError("INVALID_PAYLOAD", "轨道名称最多 60 个字符")
+    if any(lane.name.casefold() == name.casefold() for lane in ir.audio_tracks):
+        raise EditorError("DUPLICATE_TRACK_NAME", f"音频轨道名称已存在：{name}")
+    lane = AudioLane(
+        id=f"atrack-{uuid.uuid4().hex[:12]}",
+        name=name,
+        order=max((item.order for item in ir.audio_tracks), default=-1) + 1,
+    )
+    ir.audio_tracks.append(lane)
+    return [f"audio-track:{lane.id}"], ["project:audio-tracks", "project:preview"]
+
+
+def _cmd_rename_audio_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _audio_lane_index(ir, target_id)
+    name = str(payload.get("name") or "").strip()
+    if not name or len(name) > 60:
+        raise EditorError("INVALID_PAYLOAD", "轨道名称必须为 1–60 个字符")
+    if any(lane.id != target_id and lane.name.casefold() == name.casefold() for lane in ir.audio_tracks):
+        raise EditorError("DUPLICATE_TRACK_NAME", f"音频轨道名称已存在：{name}")
+    ir.audio_tracks[index] = ir.audio_tracks[index].model_copy(update={"name": name})
+    return [f"audio-track:{target_id}"], ["project:audio-tracks"]
+
+
+def _cmd_remove_audio_track(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    index = _audio_lane_index(ir, target_id)
+    if len(ir.audio_tracks) <= 1:
+        raise EditorError("LAST_AUDIO_TRACK", "项目至少需要保留一条音频轨道")
+    if any(clip.track_id == target_id for clip in ir.audio):
+        raise EditorError("AUDIO_TRACK_NOT_EMPTY", "该音轨仍有片段，请先把片段移动到其他音轨或删除片段")
+    ir.audio_tracks.pop(index)
+    ordered = sorted(ir.audio_tracks, key=lambda lane: lane.order)
+    ir.audio_tracks = [lane.model_copy(update={"order": order}) for order, lane in enumerate(ordered)]
+    return [f"audio-track:{target_id}"], ["project:audio-tracks", "project:preview"]
+
+
 def _cmd_add_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Add a real, user-selected SFX asset as an independently editable timeline clip.
 
@@ -2023,7 +2089,7 @@ def _cmd_add_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tup
 
 
 def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """Move one audio instance on the global timeline without changing its source."""
+    """Move an audio clip in time and/or between physical lanes without changing mix role/source."""
     index = _audio_clip_index(ir, target_id)
     track = ir.audio[index]
     try:
@@ -2032,9 +2098,14 @@ def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
         raise EditorError("INVALID_PAYLOAD", "move_audio_clip 需要数字 start") from exc
     if not math.isfinite(start) or start < 0 or start >= float(ir.project.duration):
         raise EditorError("INVALID_PARAMETER", "音频片段起点必须位于项目时间范围内")
-    ir.audio[index] = track.model_copy(update={"start": round(start, 3)})
+    lane_id = str(payload.get("trackId", track.track_id or "") or "").strip()
+    if not lane_id:
+        lane_id = track.track_id or ""
+    if not any(lane.id == lane_id for lane in ir.audio_tracks):
+        raise EditorError("NOT_FOUND", f"目标音频轨道 {lane_id!r} 不存在", recoverable=False)
+    ir.audio[index] = track.model_copy(update={"start": round(start, 3), "track_id": lane_id})
     key = f"audio:{track.type.value}:{index}"
-    return [key], [f"{key}:render"]
+    return [key], [f"{key}:render", "project:audio-tracks"]
 
 
 def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:

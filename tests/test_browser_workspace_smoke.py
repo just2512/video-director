@@ -473,9 +473,13 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                             'bgm-1': {name: 'Music', file: 'music.wav'},
                             'sfx-1': {name: 'Impact', file: 'impact.wav'}
                         },
+                        audio_tracks: [
+                            {id: 'audio-bgm', name: '背景音乐', order: 0},
+                            {id: 'audio-sfx', name: '音效', order: 1}
+                        ],
                         audio: [
-                            {type: 'bgm', asset_id: 'bgm-1', start: 3, duration: 2, volume: 0.5},
-                            {type: 'sfx', asset_id: 'sfx-1', start: 7, duration: 1, volume: 0.4}
+                            {type: 'bgm', asset_id: 'bgm-1', track_id: 'audio-bgm', start: 3, duration: 2, volume: 0.5},
+                            {type: 'sfx', asset_id: 'sfx-1', track_id: 'audio-sfx', start: 7, duration: 1, volume: 0.4}
                         ],
                         watermarks: [{id: 'wm-browser', kind: 'text', text: 'Overlay', start: 2, duration: 3, anchor: 'top_right', opacity: 0.75}], subtitle_track: {mode: 'word', cues: []}
                     };
@@ -710,6 +714,40 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert trimmed is not None, "pointer edge trim did not POST trim_audio_clip to the real Editor Command endpoint"
                 assert trimmed["targetId"] == "audio#0"
                 assert trimmed["payload"]["sourceOut"] < 2
+
+                # Real pointer drag into another named audio lane must dispatch a versioned
+                # command while preserving the semantic mix role and source interval.
+                captured_commands.clear()
+                source_clip = page.locator('#editor-timeline .ed-audio-clip[data-audio-index="0"]')
+                target_row = page.locator('#editor-timeline .ed-track[data-audio-track-id="audio-sfx"]')
+                source_clip.scroll_into_view_if_needed()
+                target_row.scroll_into_view_if_needed()
+                source_box = source_clip.bounding_box()
+                target_box = target_row.locator('.ed-track-body').bounding_box()
+                assert source_box and target_box
+                assert 0 <= source_box["y"] and source_box["y"] + source_box["height"] <= viewport_height
+                assert 0 <= target_box["y"] and target_box["y"] + target_box["height"] <= viewport_height
+                source_x = source_box["x"] + source_box["width"] / 2
+                source_y = source_box["y"] + source_box["height"] / 2
+                target_y = target_box["y"] + target_box["height"] / 2
+                page.mouse.move(source_x, source_y)
+                page.mouse.down()
+                page.mouse.move(source_x + 12, target_y, steps=5)
+                page.mouse.up()
+                page.wait_for_timeout(100)
+                lane_move = next((command for command in captured_commands if command.get("command") == "move_audio_clip"), None)
+                assert lane_move is not None, "dropping audio on another lane must dispatch move_audio_clip"
+                assert lane_move["targetId"] == "audio#0"
+                assert lane_move["payload"].get("trackId") == "audio-sfx", lane_move
+
+                captured_commands.clear()
+                page.locator('#editor-timeline .ed-audio-track-add').first.click()
+                page.wait_for_timeout(100)
+                add_lane = next((command for command in captured_commands if command.get("command") == "add_audio_track"), None)
+                assert add_lane is not None, "＋音轨 must dispatch add_audio_track"
+                assert add_lane["targetId"] == "audio-tracks"
+                assert add_lane["payload"]["name"].startswith("音轨 ")
+
                 # Real browser click: audio inspector's cut-at-playhead control must
                 # dispatch the same versioned command as the backend unit contract.
                 split_ui = page.evaluate("""() => {
