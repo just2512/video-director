@@ -146,6 +146,8 @@
 }
 .ed-layer:hover { border-color: var(--accent); }
 .ed-layer.ed-sel { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface-1)); }
+.ed-layer-gap { background: repeating-linear-gradient(135deg, var(--surface-1), var(--surface-1) 6px, var(--surface-2) 6px, var(--surface-2) 12px); border-left-color: var(--warning, var(--border-strong)); color: var(--muted); font-style: italic; }
+.ed-layer-gap::before, .ed-layer-gap::after { opacity: .28; }
 .ed-layer:hover { border-color: var(--accent); }
 .ed-motion-tag { background: var(--accent); color: #fff; border-radius: 3px; padding: 0 3px; margin-left: 3px; font-size: 10px; }
 
