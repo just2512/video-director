@@ -944,3 +944,22 @@ def test_legacy_visual_track_defaults_to_unlocked_and_lock_controls_are_accessib
     assert "editorVisualTrackToggleLock(event" in timeline
     assert "set_track_locked" in visual_ui
     assert "editorVisualTrackToggleLock(" in audit
+
+
+
+def test_add_edit_all_tracks_skips_locked_visual_overlay_but_cuts_other_tracks(tmp_path, monkeypatch):
+    pid, _ = _editor_project(tmp_path, monkeypatch)
+    added = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 2.0, "duration": 4.0,
+    }, 1)
+    assert added.status == "APPLIED", added.errors
+    locked = _apply(pid, "set_track_locked", "overlay-main", {"trackType": "visual", "locked": True}, 2)
+    assert locked.status == "APPLIED", locked.errors
+
+    result = _apply(pid, "add_edit_all_tracks", "timeline", {"at": 3.0}, 3)
+    assert result.status == "APPLIED", result.errors
+    assert any("TRACK_LOCKED" in warning for warning in result.warnings), result.warnings
+    comp = load_composition(pid)
+    assert len(comp.visual_overlays) == 1
+    assert (comp.visual_overlays[0].start, comp.visual_overlays[0].duration) == (2.0, 4.0)
+    assert len(comp.scenes[0].layers) == 2, "unlocked main picture still receives the add edit"
