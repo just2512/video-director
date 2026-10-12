@@ -1610,12 +1610,31 @@ async function editorSplitSelectedLayer(){
   else editorToast('切分未完成：' + ((result && result.error) || '请把播放头放在片段内部'), true);
 }
 
+async function editorAddEditAllTracks(){
+  const at = Number(PLAYHEAD && PLAYHEAD.at);
+  if (!Number.isFinite(at) || at < 0) {
+    editorToast('播放头时间无效；项目未修改。', true);
+    return;
+  }
+  const result = await editorCmd('add_edit_all_tracks', {at}, 'timeline', true);
+  if (result && result.ok) {
+    const warnings = result.data && Array.isArray(result.data.warnings) ? result.data.warnings : [];
+    if (warnings.length) {
+      editorToast('已切分可编辑片段；未自动切分：' + warnings.join('；'), true);
+    } else {
+      editorToast('已在播放头处完成全轨添加编辑');
+    }
+  } else {
+    editorToast('全轨添加编辑未完成：' + ((result && result.error) || '播放头位置没有可安全切分的片段；项目未修改。'), true);
+  }
+}
+
 Object.assign(window, {
   edSelect, editorSelectScene, editorSelectLayer, edIsSelected,
   edClearSelection, edSelectedCount,
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
-  editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer,
+  editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer, editorAddEditAllTracks,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
   editorAudioTrackAdd, editorAudioTrackMenu, editorAudioTrackMenuClose,
   editorAudioTrackApplyName, editorAudioTrackRemove,
