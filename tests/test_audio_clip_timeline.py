@@ -5,7 +5,7 @@ import copy
 
 from tests.fixtures.fixture_data import RECIPE_PROJECT
 from video_director.editor import execute_command, load_composition, save_composition
-from video_director.models import CompositionIR
+from video_director.models import AudioTrackType, CompositionIR
 
 
 def _audio_project(tmp_path, monkeypatch):
@@ -90,6 +90,26 @@ def test_split_audio_clip_preserves_source_continuity_fades_and_revision(tmp_pat
     assert '"command": "split_audio_clip"' in revisions[0]
 
 
+def test_split_audio_clip_preserves_submillisecond_timeline_and_source_boundaries(tmp_path, monkeypatch):
+    pid, _plan_dir = _audio_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    comp.audio[1] = comp.audio[1].model_copy(update={
+        "start": 5.0004, "duration": 1.9996,
+        "source_in": 0.3333, "source_out": 2.3329,
+    })
+    save_composition(pid, comp)
+
+    result = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.0})
+    assert result.status == "APPLIED", result.errors
+    left, right = load_composition(pid).audio[1:]
+    assert abs((left.start + left.duration) - right.start) < 1e-9
+    assert abs((right.start + right.duration) - 7.0) < 1e-9
+    assert abs(left.duration - 0.9996) < 1e-9
+    assert abs(right.duration - 1.0) < 1e-9
+    assert abs((left.source_out or 0) - (right.source_in or 0)) < 1e-9
+    assert abs((right.source_out or 0) - 2.3329) < 1e-9
+
+
 def test_split_audio_clip_keeps_nonlooping_source_window_when_source_out_is_implicit(tmp_path, monkeypatch):
     pid, _ = _audio_project(tmp_path, monkeypatch)
     result = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.25})
@@ -113,7 +133,7 @@ def test_split_looping_bgm_without_explicit_source_window_is_rejected_without_re
 def test_split_narration_track_is_rejected_until_renderer_supports_segmented_narration(tmp_path, monkeypatch):
     pid, plan_dir = _audio_project(tmp_path, monkeypatch)
     comp = load_composition(pid)
-    comp.audio[0] = comp.audio[0].model_copy(update={"type": "narration"})
+    comp.audio[0] = comp.audio[0].model_copy(update={"type": AudioTrackType.narration})
     save_composition(pid, comp)
 
     result = _apply(pid, "split_audio_clip", "audio#0", {"at": 3.0})
