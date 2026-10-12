@@ -55,13 +55,14 @@ def test_overlapping_timeline_clips_get_separate_selectable_lanes():
     timeline_path = root / "webui" / "static" / "js" / "timeline.js"
     timeline = timeline_path.read_text(encoding="utf-8")
     assert "splitOverlappingTrack(track)" in timeline
+    assert "t.showTrackControls !== false" in timeline
     script = """
 const fs = require('node:fs');
 const vm = require('node:vm');
 const sandbox = {window: {}};
 vm.runInNewContext(fs.readFileSync(%s, 'utf8'), sandbox);
 const split = sandbox.window.TimelineEditMath.splitOverlappingTrack;
-const track = {id:'overlay', label:'画面叠加', addAction:'pick', clips:[
+const track = {id:'overlay', label:'画面叠加', visualTrackId:'overlay-main', addAction:'pick', clips:[
   {positioned:true,leftPct:10,pct:30,visualOverlayIndex:0},
   {positioned:true,leftPct:20,pct:30,visualOverlayIndex:1},
   {positioned:true,leftPct:40,pct:20,visualOverlayIndex:2}
@@ -74,7 +75,7 @@ const nonoverlap = split({id:'sfx',label:'音效',clips:[
 ]});
 const invalid = split({id:'narration',label:'旁白',clips:[{pct:50,text:'a'},{pct:50,text:'b'}]});
 console.log(JSON.stringify({rows:rows.map(row=>({
-  label:row.label,addAction:row.addAction,
+  label:row.label,addAction:row.addAction,showTrackControls:row.showTrackControls,
   indexes:row.clips.map(clip=>clip.visualOverlayIndex)
 })), nonoverlapCount:nonoverlap.length,
 sameNonoverlapTrack:nonoverlap[0].id==='sfx', invalidCount:invalid.length}));
@@ -86,6 +87,8 @@ sameNonoverlapTrack:nonoverlap[0].id==='sfx', invalidCount:invalid.length}));
     assert result["rows"][0]["indexes"] == [0, 2]
     assert result["rows"][1]["indexes"] == [1]
     assert result["rows"][0]["addAction"] == "pick"
+    assert result["rows"][0]["showTrackControls"] is True
     assert result["rows"][1]["addAction"] is None
+    assert result["rows"][1]["showTrackControls"] is False
     assert result["nonoverlapCount"] == 1 and result["sameNonoverlapTrack"]
     assert result["invalidCount"] == 1
