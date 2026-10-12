@@ -295,6 +295,72 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert overlay_ui["commands"][1]["payload"]["start"] == 0.5, overlay_ui
                 assert overlay_ui["dialogRemoved"], overlay_ui
 
+                # Live preview must paint the same global overlay clip only inside its
+                # output interval, and apply the timeline's geometry/opacity to the frame.
+                live_overlay_preview = page.evaluate("""() => {
+                  const originalComp = ED.comp;
+                  const originalPV = {
+                    mode: PV.mode, playing: PV.playing, playhead: PV.playhead,
+                    activeSceneId: PV.activeSceneId, activeLayerId: PV.activeLayerId
+                  };
+                  try {
+                    ED.comp = Object.assign({}, originalComp, {
+                      duration: 5,
+                      project: Object.assign({}, originalComp.project || {}, {fps: 30, width: 320, height: 180}),
+                      scenes: [{
+                        id: 'PV-preview-scene', start: 0, duration: 5, text: 'Preview fixture',
+                        layers: [{id: 'PV-base-layer', type: 'image', asset_id: 'PV-base-asset', start: 0, duration: 5}]
+                      }],
+                      assets: {
+                        'PV-base-asset': {id: 'PV-base-asset', type: 'image', file_url: '/preview-base.png'},
+                        'PV-overlay-asset': {id: 'PV-overlay-asset', type: 'image', file_url: '/preview-overlay.png'}
+                      },
+                      visual_overlays: [{
+                        id: 'PV-overlay', asset_id: 'PV-overlay-asset', start: 1, duration: 2,
+                        source_in: 0, x: 0.65, y: 0.1, width: 0.3, height: 0.3, opacity: 0.8, z_index: 4
+                      }]
+                    });
+                    PV.mode = 'live';
+                    PV.playing = false;
+                    PV.playhead = 1.5;
+                    PV.activeSceneId = '';
+                    PV.activeLayerId = '';
+                    previewRenderComposition();
+                    const host = document.querySelector('#ed-preview-stage .pv-live-overlays');
+                    const active = host && host.querySelector('[data-overlay-index="0"]');
+                    const activeStyle = active ? {
+                      tag: active.tagName, left: active.style.left, top: active.style.top,
+                      width: active.style.width, height: active.style.height,
+                      opacity: active.style.opacity, zIndex: active.style.zIndex,
+                      hostPosition: getComputedStyle(host).position
+                    } : null;
+                    previewSeek(0.5);
+                    const outsideStartCount = document.querySelector('#ed-preview-stage .pv-live-overlays').children.length;
+                    previewSeek(2.5);
+                    const insideCount = document.querySelector('#ed-preview-stage .pv-live-overlays').children.length;
+                    previewSeek(3.0);
+                    const atEndCount = document.querySelector('#ed-preview-stage .pv-live-overlays').children.length;
+                    return {activeStyle, outsideStartCount, insideCount, atEndCount};
+                  } finally {
+                    ED.comp = originalComp;
+                    PV.mode = originalPV.mode;
+                    PV.playing = originalPV.playing;
+                    PV.playhead = originalPV.playhead;
+                    PV.activeSceneId = '';
+                    PV.activeLayerId = '';
+                    previewRenderComposition();
+                    PV.activeSceneId = originalPV.activeSceneId;
+                    PV.activeLayerId = originalPV.activeLayerId;
+                  }
+                }""")
+                assert live_overlay_preview["activeStyle"] == {
+                    "tag": "IMG", "left": "65%", "top": "10%", "width": "30%",
+                    "height": "30%", "opacity": "0.8", "zIndex": "4", "hostPosition": "absolute"
+                }, live_overlay_preview
+                assert live_overlay_preview["outsideStartCount"] == 0, live_overlay_preview
+                assert live_overlay_preview["insideCount"] == 1, live_overlay_preview
+                assert live_overlay_preview["atEndCount"] == 0, live_overlay_preview
+
                 # Re-rendering the physical timeline must not attach another pair
                 # of document-level layer-drag handlers. Count real registrations.
                 layer_handler_count = page.evaluate("""() => {
