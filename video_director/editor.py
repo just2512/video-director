@@ -398,6 +398,7 @@ SUPPORTED_COMMANDS = (
     "set_opacity",               # 层透明度（折叠为 motion opacity 近似）
     "set_style",                 # 项目级风格（§20）
     "set_transform",             # 层静态变换（scale/opacity，§20）
+    "promote_layer_to_visual_track",  # 将主画面视频提升为可独立编辑的全局画面轨道片段
     "add_visual_overlay",
     "move_visual_overlay",
     "trim_visual_overlay",
