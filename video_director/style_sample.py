@@ -125,26 +125,35 @@ def _load_assets(project_id: str, ir: CompositionIR) -> tuple[dict[str, AssetRef
             raise StyleSampleError("CORRUPT_ASSET_MANIFEST", "项目素材清单损坏，无法安全渲染样片。")
 
     audio_library = vd_audio.scan_library()
+    ir_assets = {
+        str(asset.id): asset.model_dump()
+        for asset in (getattr(ir, "assets", []) or [])
+        if getattr(asset, "id", None)
+    }
     needed = _required_asset_ids(ir)
     assets: dict[str, AssetRef] = {}
     missing: list[str] = []
     for asset_id in sorted(needed):
-        entry = manifest_by_id.get(asset_id) or asset_catalog.get_asset(asset_id)
+        entry = manifest_by_id.get(asset_id) or ir_assets.get(asset_id) or asset_catalog.get_asset(asset_id)
         if entry:
             path = _safe_file(entry.get("file"), trusted_roots, project_dir)
             if path is None:
                 missing.append(asset_id)
                 continue
             try:
+                entry_type = entry.get("type") or "video"
+                entry_type = getattr(entry_type, "value", entry_type)
+                entry_source = entry.get("source") or "uploaded"
+                entry_source = getattr(entry_source, "value", entry_source)
                 assets[asset_id] = AssetRef(
                     id=asset_id,
-                    type=str(entry.get("type") or "video"),
+                    type=str(entry_type),
                     file=str(path),
                     duration=float(entry["duration"]) if entry.get("duration") is not None else None,
                     width=int(entry["width"]) if entry.get("width") is not None else None,
                     height=int(entry["height"]) if entry.get("height") is not None else None,
                     fps=float(entry["fps"]) if entry.get("fps") is not None else None,
-                    source=str(entry.get("source") or "uploaded"),
+                    source=str(entry_source),
                 )
                 continue
             except (TypeError, ValueError):
