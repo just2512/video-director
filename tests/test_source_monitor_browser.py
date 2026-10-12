@@ -22,7 +22,7 @@ def test_source_monitor_marks_source_range_and_places_it_on_selected_unlocked_tr
     </div>
     <script>
       window.ED = {pid:'test-project', version:1, comp:{
-        duration:10, fps:24,
+        duration:10, project:{fps:24},
         visual_tracks:[
           {id:'visual-top',name:'Top',order:0,locked:false},
           {id:'visual-locked',name:'Locked',order:1,locked:true}

@@ -15,8 +15,16 @@ function _smStatus(message, isError) {
   }
   if (isError && typeof editorToast === "function") editorToast(String(message || "源监视器操作失败"), true);
 }
+function _smFrameRate() {
+  const comp = window.ED && window.ED.comp;
+  const projectFps = Number(comp && comp.project && comp.project.fps);
+  const legacyFps = Number(comp && comp.fps);
+  if (Number.isFinite(projectFps) && projectFps > 0) return projectFps;
+  if (Number.isFinite(legacyFps) && legacyFps > 0) return legacyFps;
+  return 30;
+}
 function _smFrameTime(seconds) {
-  const fps = Math.max(1, Number(window.ED && ED.comp && ED.comp.fps) || 30);
+  const fps = _smFrameRate();
   return Math.round(Number(seconds) * fps) / fps;
 }
 function _smNumber(id) {
@@ -216,7 +224,7 @@ async function editorSourceMonitorAddToTimeline() {
   sourceIn = _smFrameTime(sourceIn);
   sourceOut = _smFrameTime(sourceOut);
   const duration = sourceOut - sourceIn;
-  if (!Number.isFinite(duration) || duration < (1 / Math.max(1, Number(ED.comp.fps) || 30)) / 2) {
+  if (!Number.isFinite(duration) || duration < (1 / _smFrameRate()) / 2) {
     _smStatus("有效片段太短：请至少选择半帧以上的区间。", true);
     return;
   }
