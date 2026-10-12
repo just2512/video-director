@@ -521,6 +521,10 @@ function _tlBindLayerDrag(){
       else _layerDrag.mode = 'move';
     });
   });
+  // The timeline DOM is rebuilt after commands and preview refreshes. Bind these
+  // document-level handlers once; per-render listeners otherwise pile up.
+  if (window.__tlLayerDragHandlers) return;
+  window.__tlLayerDragHandlers = true;
   document.addEventListener('pointermove', ev => {
     if (!_layerDrag || !_layerDrag.el.isConnected) { _layerDrag = null; return; }
     if (Math.abs(ev.clientX - _layerDrag.startX) > 8) {
