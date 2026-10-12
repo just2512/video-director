@@ -2281,35 +2281,52 @@ def _cmd_separate_visual_overlay_source_audio(
             "视频片段的源区间超出可探测的源素材时长，未修改项目",
         )
 
-    # If the exact source window is already present as an ordinary audio clip,
-    # detach only when it is a faithful replacement. This repairs the duplicate
-    # representation without adding a second copy or changing an existing mix.
-    matching = []
+    # Detect any already represented copy of this source sound, not just a
+    # same-role original clip. Otherwise a dialogue clip could keep playing while
+    # this command adds the same source window as original audio.
+    overlapping = []
     for audio_index, audio_clip in enumerate(ir.audio):
-        if audio_clip.type != AudioTrackType.original or audio_clip.asset_id != clip.asset_id:
+        if audio_clip.asset_id != clip.asset_id:
             continue
+        audio_start = float(audio_clip.start)
+        audio_end = audio_start + float(audio_clip.duration)
         audio_source_in = float(audio_clip.source_in or 0.0)
         audio_source_out = (
             float(audio_clip.source_out)
             if audio_clip.source_out is not None
             else audio_source_in + float(audio_clip.duration)
         )
-        if (
-            abs(float(audio_clip.start) - float(clip.start)) <= 0.001
+        overlaps_timeline = (
+            max(audio_start, float(clip.start))
+            < min(audio_end, float(clip.start) + duration) - 0.001
+        )
+        overlaps_source = (
+            max(audio_source_in, source_in) < min(audio_source_out, source_out) - 0.001
+        )
+        if not (overlaps_timeline and overlaps_source):
+            continue
+        exact_window = (
+            abs(audio_start - float(clip.start)) <= 0.001
             and abs(float(audio_clip.duration) - duration) <= 0.001
             and abs(audio_source_in - source_in) <= 0.001
             and abs(audio_source_out - source_out) <= 0.001
-        ):
-            matching.append((audio_index, audio_clip))
-    if len(matching) > 1:
+        )
+        overlapping.append((audio_index, audio_clip, exact_window))
+
+    if len(overlapping) > 1:
         raise EditorError(
             "SOURCE_AUDIO_DUPLICATE_CONFLICT",
-            "时间线上已有多条完全相同的视频原声音频片段；先检查并删除重复片段，再拆分",
+            "时间线上已有多条与此视频原声重叠的音频片段；先检查重复声音，再拆分",
         )
 
     reused_audio_key = None
-    if matching:
-        audio_index, existing = matching[0]
+    if overlapping:
+        audio_index, existing, exact_window = overlapping[0]
+        if not exact_window or existing.type != AudioTrackType.original:
+            raise EditorError(
+                "SOURCE_AUDIO_DUPLICATE_CONFLICT",
+                "已有音频片段与该视频原声的源区间及时间位置重叠；为避免重复发声或改变音频角色，请先处理已有片段",
+            )
         if (
             existing.muted
             or abs(float(existing.volume) - float(clip.source_audio_volume)) > 0.001
