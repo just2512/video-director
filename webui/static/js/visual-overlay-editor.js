@@ -108,7 +108,7 @@ function editorVisualOverlayOpen(index, ev) {
   document.body.appendChild(mask);
   mask.querySelector('#visual-overlay-x').focus();
 }
-async function editorVisualOverlaySplit(index) {
+async async function editorVisualOverlaySplit(index) {
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
   if (!clip) { editorToast('画面叠加片段已变化，请重新选择', true); return; }
   const at = Number(window.PLAYHEAD && PLAYHEAD.at);
