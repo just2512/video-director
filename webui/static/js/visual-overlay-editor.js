@@ -96,9 +96,9 @@ function editorVisualOverlayOpen(index, ev) {
         <div><label for="visual-overlay-height">高度（0.05–1）</label><input id="visual-overlay-height" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.height ?? 0.3)}"></div>
       </div>
       <label for="visual-overlay-opacity">不透明度（0–1）</label><input id="visual-overlay-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.opacity ?? 1)}">
-      <footer><button type="button" class="btn-danger" onclick="editorVisualOverlayRemove(${index})`)">删除叠加</button>
+      <footer><button type="button" class="btn-danger" onclick="editorVisualOverlayRemove(${index})">删除叠加</button>
         <button type="button" class="btn-secondary" onclick="editorVisualOverlayClose()">取消</button>
-        <button type="button" class="btn-primary" onclick="editorVisualOverlayApply(${index})`)">保存设置</button></footer>
+        <button type="button" class="btn-primary" onclick="editorVisualOverlayApply(${index})">保存设置</button></footer>
     </section>`;
   mask.addEventListener('click', e => { if (e.target === mask) editorVisualOverlayClose(); });
   document.body.appendChild(mask);
