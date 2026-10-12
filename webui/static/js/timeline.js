@@ -416,7 +416,7 @@ function renderPhysicalTimeline(){
                 : (hasVisualOverlayIndex
                     ? ` onclick="editorVisualOverlayOpen(${cl.visualOverlayIndex}, event)"`
                     : (cl.onclick ? ` onclick="${cl.onclick}"` : '')));
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${hasVisualOverlayIndex ? ` data-visual-overlay-index="${cl.visualOverlayIndex}" aria-label="${esc(cl.text)}：拖动移动、边缘修剪；点击编辑画面叠加"` : ''}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${esc(cl.text)}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
