@@ -253,3 +253,22 @@ def test_moving_original_audio_clip_detaches_it_from_future_video_reorders(tmp_p
     assert reordered.status == "APPLIED", reordered.errors
     final_tracks = {track.id: track for track in load_composition(pid).audio}
     assert final_tracks[moved_track_id].start == 7.0
+
+
+
+def test_legacy_detached_original_audio_migrates_as_independent(tmp_path, monkeypatch):
+    data = _video_reorder_comp_with_audio()
+    # Simulate project JSON written before follows_scene_video existed. Linked main
+    # audio stays explicitly bound in this fixture; detached clips lose the new field.
+    for item in data["audio"]:
+        if item["id"] in {"detached-reused-asset", "audio-source-overlay-only"}:
+            item.pop("follows_scene_video", None)
+    pid, _plans = _project(tmp_path, monkeypatch, data)
+
+    result = _apply(pid, "reorder_layer", "S01#0", {"toIndex": 1})
+    assert result.status == "APPLIED", result.errors
+    tracks = {track.id: track for track in load_composition(pid).audio}
+    assert tracks["detached-reused-asset"].start == 7.0
+    assert tracks["detached-reused-asset"].follows_scene_video is False
+    assert tracks["audio-source-overlay-only"].start == 6.0
+    assert tracks["audio-source-overlay-only"].follows_scene_video is False

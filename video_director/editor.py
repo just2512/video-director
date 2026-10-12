@@ -1440,7 +1440,21 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
     for t in ir.audio:
         ttype = t.type.value if hasattr(t.type, "value") else str(t.type)
         if ttype == "original":
-            if bool(getattr(t, "follows_scene_video", True)):
+            follows_scene_video = bool(getattr(t, "follows_scene_video", True))
+            # Migration for pre-flag projects: source-audio clips detached by earlier
+            # versions used the audio-source-* id and a physical original-audio lane.
+            # Pydantic's fields-set lets us distinguish absent legacy JSON from an
+            # explicit True; never infer over a user's explicitly saved choice.
+            fields_set = getattr(t, "model_fields_set", set())
+            if "follows_scene_video" not in fields_set and (
+                str(getattr(t, "id", "") or "").startswith("audio-source-")
+                or (
+                    str(getattr(t, "track_id", "") or "").startswith("audio-original")
+                    and getattr(t, "source_out", None) is not None
+                )
+            ):
+                follows_scene_video = False
+            if follows_scene_video:
                 original_by_asset.setdefault(t.asset_id or "", []).append(t)
             else:
                 # This audio was explicitly detached or user-edited. It may refer to a
@@ -1450,7 +1464,8 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
                 dur = min(float(t.duration), max(0.0, total - start))
                 if dur > 0.01:
                     new_audio.append(t.model_copy(update={
-                        "start": round(start, 3), "duration": round(dur, 3)
+                        "start": round(start, 3), "duration": round(dur, 3),
+                        "follows_scene_video": False,
                     }))
         elif ttype == "narration":
             narration_tracks.append(t)
