@@ -89,6 +89,9 @@ UI_ONLY_PREFIXES = (
     "editorVisualTrackCreate(", "editorVisualTrackCreateClose(", "editorVisualTrackConfirm(",
     "editorVisualTrackMenu(", "editorVisualTrackMenuClose(", "editorVisualTrackMove(",
     "editorVisualTrackRename(", "editorVisualTrackRemove(", "editorVisualTrackToggleLock(",
+    "editorSourceMonitorRefresh(", "editorSourceMonitorRefreshTracks(",
+    "editorSourceMonitorSelectAsset(", "editorSourceMonitorMarkIn(",
+    "editorSourceMonitorMarkOut(", "editorSourceMonitorAddToTimeline(",
     # §46 任务中心抽屉（WorkflowRun 渲染层 UI 开关）
     "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(",
     # §52 配置导入导出（设置表单）

@@ -34,7 +34,9 @@ def test_source_monitor_marks_source_range_and_places_it_on_selected_unlocked_tr
         asset_id:'source-video', name:'Source video', type:'video',
         file:'/storage/assets/source-video.mp4', duration:12, has_audio:true
       }];
+      window.__commandCount = 0;
       window.executeCommand = async spec => {
+        window.__commandCount += 1;
         window.__command = spec;
         return {ok:true,status:'APPLIED'};
       };
@@ -82,5 +84,14 @@ def test_source_monitor_marks_source_range_and_places_it_on_selected_unlocked_tr
         page.locator("#ed-source-in").fill("4")
         page.locator("#ed-source-out").fill("4")
         page.locator("#ed-source-add").click()
+        assert page.evaluate("window.__commandCount") == 1
         assert page.evaluate("window.__command.payload.duration") == 2.5
+
+        # A valid zero-second playhead must win over a stale non-zero preview clock.
+        page.locator("#ed-source-in").fill("1.25")
+        page.locator("#ed-source-out").fill("3.75")
+        page.evaluate("window.PLAYHEAD.at = 0; window.PV.playhead = 5")
+        page.locator("#ed-source-add").click()
+        page.wait_for_function("window.__commandCount === 2")
+        assert page.evaluate("window.__command.payload.start") == 0
         browser.close()

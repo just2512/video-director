@@ -143,9 +143,11 @@ function editorSourceMonitorSelectAsset() {
         if (!state.asset || state.asset.asset_id !== asset.asset_id) return;
         const actualDuration = Number(video.duration);
         if (Number.isFinite(actualDuration) && actualDuration > 0) {
+          // Trust decoded media metadata over an absent or rounded catalog duration.
+          asset.duration = actualDuration;
           const currentOut = _smNumber("ed-source-out");
           if (!Number.isFinite(currentOut) || currentOut > actualDuration) {
-            _smNode("ed-source-out").value = Math.min(3, actualDuration).toFixed(3);
+            _smNode("ed-source-out").value = actualDuration.toFixed(3);
           }
           if (meta) meta.textContent = (asset.name || asset.asset_id) + " · " + actualDuration.toFixed(2) + "s";
         }
@@ -224,7 +226,10 @@ async function editorSourceMonitorAddToTimeline() {
     return;
   }
   const total = Number(ED.comp.duration) || 0;
-  const rawStart = (window.PLAYHEAD && Number(PLAYHEAD.at)) || (window.PV && Number(PV.playhead)) || 0;
+  // Zero is a valid playhead position; do not use || to fall through to a stale second clock.
+  const timelineAt = window.PLAYHEAD ? Number(window.PLAYHEAD.at) : NaN;
+  const previewAt = window.PV ? Number(window.PV.playhead) : NaN;
+  const rawStart = Number.isFinite(timelineAt) ? timelineAt : (Number.isFinite(previewAt) ? previewAt : 0);
   const start = _smFrameTime(rawStart);
   if (!Number.isFinite(total) || total <= 0 || start < 0 || start + duration > total + 1e-6) {
     _smStatus("当前播放头之后放不下整个片段。请移动播放头或缩短源区间。", true);
