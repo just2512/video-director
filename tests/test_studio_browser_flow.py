@@ -1064,7 +1064,9 @@ def test_cross_scene_drag_lifts_still_into_real_global_track(tmp_path, monkeypat
             assert abs(float(lifted["duration"]) - 1.0) < 0.01, lifted
             assert any(track["id"] == lifted["track_id"] and "独立图片" in track["name"]
                        for track in comp["visual_tracks"]), comp["visual_tracks"]
-            assert abs(float(comp["project"]["duration"]) - 2.0) < 0.01
+            # /api/editor/composition returns the normalized editor summary:
+            # project duration is top-level, not nested under a "project" object.
+            assert abs(float(comp["duration"]) - 2.0) < 0.01
             assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
         except Exception:
             if tracing:
