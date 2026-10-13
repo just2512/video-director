@@ -1788,16 +1788,19 @@ def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optio
 def _cmd_promote_layer_to_visual_track(
     ir: CompositionIR, target_id: str, payload: dict, project_id: str,
 ) -> Tuple[List[str], List[str]]:
-    """Lift a compatible main-video layer into an independent full-frame track clip.
+    """Lift a compatible main-picture clip into an independently editable global track.
 
-    The source layer is replaced with an explicit gap of the same duration, keeping
-    scene timing and narration anchors unchanged. Unsupported scene/layer effects are
-    rejected rather than silently discarded by the global overlay renderer.
+    Supported plain video and still-image clips are replaced with an explicit gap of
+    the same duration, preserving scene timing. Effects the overlay renderer cannot
+    represent are rejected rather than silently discarded.
     """
     si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
     _ensure_layer_unlocked(layer)
-    if layer.type != LayerType.video:
-        raise EditorError("INVALID_TARGET", "只有视频主画面片段可以提升到独立轨道")
+    if layer.type not in (LayerType.video, LayerType.image):
+        raise EditorError("INVALID_TARGET", "只有视频或静态图片主画面片段可以提升到独立轨道")
+    is_video = layer.type == LayerType.video
+    media_label = "视频" if is_video else "图片"
+    media_slug = "video" if is_video else "image"
     if abs(float(layer.speed) - 1.0) > 0.001:
         raise EditorError("LIFT_UNSUPPORTED_SPEED", "当前转换要求 1.0x 原速；请先恢复原速再提升")
     if (
@@ -1828,41 +1831,71 @@ def _cmd_promote_layer_to_visual_track(
         # into a generic overlay row. Keep existing overlays above it.
         names = {track.name.strip().casefold() for track in ir.visual_tracks}
         track_number = 1
-        while f"独立视频 {track_number}".casefold() in names:
+        while f"独立{media_label} {track_number}".casefold() in names:
             track_number += 1
-        track_id = f"lifted-video-{uuid.uuid4().hex[:10]}"
+        track_id = f"lifted-{media_slug}-{uuid.uuid4().hex[:10]}"
         previous_tracks = sorted(ir.visual_tracks, key=lambda track: track.order)
         ir.visual_tracks = [
             track.model_copy(update={"order": index + 1})
             for index, track in enumerate(previous_tracks)
         ]
         ir.visual_tracks.append(VisualTrack(
-            id=track_id, name=f"独立视频 {track_number}", order=0,
+            id=track_id, name=f"独立{media_label} {track_number}", order=0,
         ))
     if not layer.asset_id:
-        raise EditorError("ASSET_NOT_FOUND", "主画面视频缺少 asset_id，不能提升", recoverable=False)
+        raise EditorError("ASSET_NOT_FOUND", f"主画面{media_label}缺少 asset_id，不能提升", recoverable=False)
 
     asset, resolved_file, source_duration = _overlay_source_duration(ir, layer.asset_id, project_id)
-    if str(asset.type).lower() != "video":
-        raise EditorError("ASSET_TYPE_MISMATCH", "主画面图层引用的素材不是视频", recoverable=False)
-    source_in = float(layer.source_in)
-    source_out = float(layer.source_out or 0.0)
+    expected_media_type = "video" if is_video else "image"
+    if str(asset.type).lower() != expected_media_type:
+        raise EditorError(
+            "ASSET_TYPE_MISMATCH",
+            f"主画面片段是{media_label}，但引用素材类型为 {asset.type!r}",
+            recoverable=False,
+        )
     duration = float(layer.duration)
-    if (
-        not math.isfinite(source_in) or not math.isfinite(source_out)
-        or source_in < 0 or source_out <= source_in
-        or source_out > source_duration + 0.05
-        or abs((source_out - source_in) - duration) > 0.05
-    ):
-        raise EditorError("INVALID_SOURCE_RANGE", "视频源区间与片段输出时长不一致，不能提升")
+    # Still images do not have source-time windows or audio. Preserve their timeline
+    # hold duration but use a neutral source_in for the global overlay renderer.
+    source_in = float(layer.source_in) if is_video else 0.0
+    probe = None
+    if is_video:
+        source_out = float(layer.source_out or 0.0)
+        if (
+            not math.isfinite(source_in) or not math.isfinite(source_out)
+            or source_in < 0 or source_out <= source_in
+            or source_out > source_duration + 0.05
+            or abs((source_out - source_in) - duration) > 0.05
+        ):
+            raise EditorError("INVALID_SOURCE_RANGE", "视频源区间与片段输出时长不一致，不能提升")
 
-    from video_director import prober
-    try:
-        probe = prober.probe_media(resolved_file)
-    except Exception as exc:
-        raise EditorError("ASSET_PROBE_FAILED", f"提升前无法验证视频流：{exc}") from exc
-    if not getattr(probe, "has_video_stream", False):
-        raise EditorError("ASSET_PROBE_FAILED", "素材没有可解码的视频流，不能提升")
+        from video_director import prober
+        try:
+            probe = prober.probe_media(resolved_file)
+        except Exception as exc:
+            raise EditorError("ASSET_PROBE_FAILED", f"提升前无法验证视频流：{exc}") from exc
+        if not getattr(probe, "has_video_stream", False):
+            raise EditorError("ASSET_PROBE_FAILED", "素材没有可解码的视频流，不能提升")
+
+        # If already represented by an exact original-audio clip, do not double it.
+        audio_match_tolerance = max(0.005, 0.5 / max(1, int(ir.project.fps)))
+        has_matching_original_audio = any(
+            track.type == AudioTrackType.original
+            and track.asset_id == layer.asset_id
+            and abs(float(track.start) - float(payload.get("start", scene.start + layer.start))) <= audio_match_tolerance
+            and abs(float(track.duration) - duration) <= audio_match_tolerance
+            and abs(float(track.source_in or 0.0) - source_in) <= audio_match_tolerance
+            and abs(
+                float(
+                    track.source_out
+                    if track.source_out is not None
+                    else float(track.source_in or 0.0) + float(track.duration)
+                ) - source_out
+            ) <= audio_match_tolerance
+            for track in ir.audio
+        )
+        source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_matching_original_audio
+    else:
+        source_audio_enabled = False
     # A drag-and-drop into a global visual track may supply an explicit global
     # start. Without it, preserve the source layer's current absolute timeline time.
     try:
@@ -1874,28 +1907,6 @@ def _cmd_promote_layer_to_visual_track(
         or absolute_start + duration > float(ir.project.duration) + 0.001
     ):
         raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
-
-    # An asset may be reused by multiple clips at different timeline positions.
-    # Only suppress derived source audio when an original-audio clip represents the
-    # same asset and the same timeline/source window. Matching by asset_id alone
-    # silently muted otherwise unrelated occurrences of that asset.
-    audio_match_tolerance = max(0.005, 0.5 / max(1, int(ir.project.fps)))
-    has_matching_original_audio = any(
-        track.type == AudioTrackType.original
-        and track.asset_id == layer.asset_id
-        and abs(float(track.start) - absolute_start) <= audio_match_tolerance
-        and abs(float(track.duration) - duration) <= audio_match_tolerance
-        and abs(float(track.source_in or 0.0) - source_in) <= audio_match_tolerance
-        and abs(
-            float(
-                track.source_out
-                if track.source_out is not None
-                else float(track.source_in or 0.0) + float(track.duration)
-            ) - source_out
-        ) <= audio_match_tolerance
-        for track in ir.audio
-    )
-    source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_matching_original_audio
 
     asset_index = next((i for i, item in enumerate(ir.assets) if item.id == layer.asset_id), None)
     resolved_asset = asset.model_copy(update={
