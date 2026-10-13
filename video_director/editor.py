@@ -2154,9 +2154,7 @@ def _overwrite_visual_track_range(
         right_duration = round(clip_end - right_start, 6)
         survivors: List[VisualOverlayClip] = []
         if left_duration > 0.001:
-            left = clip.model_copy(update={
-        "start": round(start, 6), "duration": left_duration, "source_in": source_in,
-    })
+            left = clip.model_copy(update={"duration": left_duration})
             updated.append(left)
             survivors.append(left)
         if right_duration > 0.001:
@@ -2442,6 +2440,7 @@ def _cmd_add_visual_overlay(
     if raw_audio_enabled and str(asset.type).lower() != "video":
         raise EditorError("INVALID_PARAMETER", "只有视频素材可以保留源音轨")
     total = float(ir.project.duration)
+    fps = max(1, int(ir.project.fps))
     start = _project_frame_time(ir, number("start", 0.0, 0.0))
     if placement_mode == "insert":
         if start > total + 1e-6:
@@ -2666,7 +2665,9 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
                 "关联原声音轨包含关键帧自动化；请先解除链接再切分，避免丢失音量曲线",
             )
 
-    left = clip.model_copy(update={"duration": left_duration})
+    left = clip.model_copy(update={
+        "start": round(start, 6), "duration": left_duration, "source_in": source_in,
+    })
     right = clip.model_copy(update={
         "id": f"overlay-{uuid.uuid4().hex[:12]}",
         "start": round(split_at, 6),
