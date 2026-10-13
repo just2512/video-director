@@ -132,6 +132,24 @@ def test_visual_overlay_commands_add_move_trim_update_delete_and_persist(tmp_pat
     assert len(revisions) == 5
 
 
+def test_set_visual_overlay_speed_preserves_source_window_and_linked_audio(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    updated = _apply(pid, "set_visual_overlay", "overlay#0", {"speed": 2.0}, 1)
+    assert updated.status == "APPLIED", updated.errors
+    comp = load_composition(pid)
+    clip = next(item for item in comp.visual_overlays if item.id == "linked-overlay")
+    audio = next(item for item in comp.audio if item.id == "linked-audio")
+    assert (clip.speed, clip.duration, clip.source_in, clip.source_in + clip.duration * clip.speed) == (2.0, 2.0, 1.0, 5.0)
+    assert (audio.speed, audio.duration, audio.source_in, audio.source_out) == (2.0, 2.0, 1.0, 5.0)
+
+    invalid = _apply(pid, "set_visual_overlay", "overlay#0", {"speed": 4.5}, updated.composition_version)
+    assert invalid.status == "REJECTED"
+    assert invalid.errors[0]["code"] == "INVALID_PARAMETER"
+    unchanged = load_composition(pid)
+    still = next(item for item in unchanged.visual_overlays if item.id == "linked-overlay")
+    assert (still.speed, still.duration) == (2.0, 2.0)
+
+
 def test_visual_overlay_commands_reject_unknown_assets_stale_versions_and_out_of_range_edits(tmp_path, monkeypatch):
     pid, plans = _editor_project(tmp_path, monkeypatch)
     missing = _apply(pid, "add_visual_overlay", "overlays", {"assetId": "../../outside.png"}, 1)
@@ -668,6 +686,48 @@ def _audio_window_mean_volume(ffmpeg: str, path: Path, start: float, duration: f
     assert line is not None, run.stderr[-2000:]
     raw = line.split("mean_volume:", 1)[1].strip().split()[0]
     return float("-inf") if raw == "-inf" else float(raw)
+
+
+def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "speed-base.png"
+    overlay_path = tmp_path / "speed-red-video-with-sine.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_video_with_audio(ffmpeg, overlay_path)
+    base = AssetRef(id="speed-base", type="image", file=str(base_path), width=40, height=40)
+    overlay = AssetRef(id="speed-video", type="video", file=str(overlay_path), duration=2.0,
+                       width=40, height=40, fps=10)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=2.0, text="base picture",
+            layers=[Layer(type=LayerType.image, asset_id="speed-base", duration=2.0)],
+        )],
+        assets=[base, overlay],
+        visual_overlays=[VisualOverlayClip(
+            id="speed-overlay", asset_id="speed-video", start=0.5, duration=0.5,
+            source_in=0.25, speed=2.0, presentation_mode="full_frame",
+            source_audio_enabled=True, source_audio_volume=0.7,
+            x=0.0, y=0.0, width=1.0, height=1.0,
+        )],
+    )
+    result = renderer.render_composition(
+        composition, {"speed-base": base, "speed-video": overlay},
+        tmp_path / "rendered-speed-overlay",
+    )
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    report = renderer._verify_muxed_audio(str(output), expected_duration=2.0)
+    assert report.get("codec") == "aac", report
+    assert report.get("full_decode") == "PASS", report
+    red = _pixel_at(ffmpeg, output, 0.7, 5, 5)
+    assert red[0] > red[2] * 1.5, red
+    blue = _pixel_at(ffmpeg, output, 1.2, 5, 5)
+    assert blue[2] > blue[0] * 1.5, blue
+    assert _audio_window_mean_volume(ffmpeg, output, 0.1, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 0.6, 0.2) > -35
+    assert _audio_window_mean_volume(ffmpeg, output, 1.1, 0.2) < -65
+    assert composition.audio == [], "render-time source audio must not mutate the saved CompositionIR"
 
 
 def test_real_ffmpeg_mixes_opted_in_video_overlay_source_audio(tmp_path):
