@@ -806,6 +806,10 @@ class CompositionIR(BaseModel):
                 )
             if audio_clip.type != AudioTrackType.original:
                 raise ValueError("only original-audio clips may link to a visual overlay")
+            if overlay.source_audio_enabled:
+                raise ValueError(
+                    f"visual overlay {overlay.id} cannot enable embedded source audio while a linked audio track exists"
+                )
             asset = next((item for item in self.assets if item.id == overlay.asset_id), None)
             if (
                 asset is None
