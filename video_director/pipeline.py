@@ -362,7 +362,6 @@ def compose_project(
     lower_third_role: Optional[str] = None,
     watermark: Optional[str] = None,
     transition_budget: int = 0,
-    style_id: Optional[str] = None,
     transition_mode: str = "cut",
     width: int = None,
     height: int = None,
@@ -374,6 +373,7 @@ def compose_project(
     match_materials_to_script: bool = True,
     asset_metadata: Optional[Dict[str, dict]] = None,
     repair_enabled: bool = True,
+    style_id: Optional[str] = None,
 ) -> PipelineResult:
     """完整编排入口（CLI/WebUI/Skill 共用同一引擎）。
 
