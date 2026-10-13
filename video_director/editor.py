@@ -1891,6 +1891,7 @@ def _cmd_promote_layer_to_visual_track(
     ):
         raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
 
+    linked_source_indices = set()
     if is_video:
         # If the audio lane already follows this exact source clip, move that lane
         # with the picture and preserve its gain/fades. Leaving it behind while also
@@ -1920,13 +1921,11 @@ def _cmd_promote_layer_to_visual_track(
             and _matches_original_audio(track, source_start)
         }
         if linked_source_indices:
-            ir.audio = [
-                track.model_copy(update={
-                    "start": round(absolute_start, 3),
-                    "follows_scene_video": False,
-                }) if index in linked_source_indices else track
-                for index, track in enumerate(ir.audio)
-            ]
+            for audio_index in linked_source_indices:
+                source_audio_track = ir.audio[audio_index]
+                _ensure_audio_lane_unlocked(
+                    ir, str(source_audio_track.track_id or f"audio-{source_audio_track.type.value}")
+                )
             source_audio_enabled = False
         else:
             # If an independently placed original-audio clip already represents the
@@ -1964,6 +1963,15 @@ def _cmd_promote_layer_to_visual_track(
         opacity=1.0, z_index=0,
     )
     ir.visual_overlays.append(clip)
+    if linked_source_indices:
+        ir.audio = [
+            audio_clip.model_copy(update={
+                "start": round(absolute_start, 3),
+                "follows_scene_video": False,
+                "linked_visual_overlay_id": clip_id,
+            }) if audio_index in linked_source_indices else audio_clip
+            for audio_index, audio_clip in enumerate(ir.audio)
+        ]
 
     # Preserve the old timeline footprint explicitly. The renderer turns this into
     # a black video segment, so moving the promoted clip reveals a real gap rather
@@ -2882,7 +2890,12 @@ def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     if not any(lane.id == lane_id for lane in ir.audio_tracks):
         raise EditorError("NOT_FOUND", f"目标音频轨道 {lane_id!r} 不存在", recoverable=False)
     _ensure_audio_lane_unlocked(ir, lane_id)
-    move_update = {"start": round(start, 3), "track_id": lane_id}
+    # Direct manipulation of a linked sound clip deliberately detaches it from its
+    # picture. This keeps the user's audio edit independent and clears the clip link.
+    move_update = {
+        "start": round(start, 3), "track_id": lane_id,
+        "linked_visual_overlay_id": None,
+    }
     if track.type == AudioTrackType.original:
         move_update["follows_scene_video"] = False
     ir.audio[index] = track.model_copy(update=move_update)
@@ -2921,6 +2934,7 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
         "source_in": round(source_in, 3),
         "source_out": round(source_out, 3),
         "duration": round(duration, 3),
+        "linked_visual_overlay_id": None,
     }
     if track.type == AudioTrackType.original:
         trim_update["follows_scene_video"] = False
@@ -3011,6 +3025,7 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
     left_update = {
         "duration": left_duration,
         "source_out": left_source_out,
+        "linked_visual_overlay_id": None,
         "fadeIn": min(fade_in, left_duration),
         "fadeOut": 0.0,
     }
@@ -3020,6 +3035,7 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
         "duration": right_duration,
         "source_in": right_source_in,
         "source_out": source_out,
+        "linked_visual_overlay_id": None,
         "fadeIn": 0.0,
         "fadeOut": min(fade_out, right_duration),
         "keyframes": [],
