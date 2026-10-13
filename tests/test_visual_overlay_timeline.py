@@ -1978,3 +1978,100 @@ def test_expand_main_timeline_rejects_incompatible_late_clip_without_partial_wri
     assert [(track.id, track.order) for track in untouched.visual_tracks] == [("overlay-main", 0)]
     assert all(not track.id.startswith("main-free-") for track in untouched.visual_tracks)
 
+def test_visual_track_overwrite_splits_detached_source_audio_and_preserves_surviving_windows(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch, include_unlinked=True)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "overwrite",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    overlay = {clip.id: clip for clip in comp.visual_overlays}
+    left = overlay["linked-overlay"]
+    right = next(clip for clip in comp.visual_overlays
+                 if clip.asset_id == "linked-video" and clip.id != "linked-overlay")
+    assert (left.start, left.duration, left.source_in) == (2.0, 1.0, 1.0)
+    assert (right.start, right.duration, right.source_in) == (4.0, 2.0, 3.0)
+    inserted = next(clip for clip in comp.visual_overlays if clip.asset_id == "overlay-image")
+    assert (inserted.start, inserted.duration) == (3.0, 1.0)
+
+    audio = [clip for clip in comp.audio if clip.linked_visual_overlay_id]
+    assert len(audio) == 2
+    left_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == left.id)
+    right_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == right.id)
+    assert (left_audio.start, left_audio.duration, left_audio.source_in, left_audio.source_out) == (2.0, 1.0, 1.0, 2.0)
+    assert (right_audio.start, right_audio.duration, right_audio.source_in, right_audio.source_out) == (4.0, 2.0, 3.0, 5.0)
+    assert left_audio.fadeIn == pytest.approx(0.5) and left_audio.fadeOut == 0.0
+    assert right_audio.fadeIn == 0.0 and right_audio.fadeOut == pytest.approx(0.75)
+    assert len({clip.id for clip in audio}) == 2
+    detached = next(clip for clip in comp.audio if clip.id == "unlinked-audio")
+    assert (detached.start, detached.duration, detached.source_in, detached.source_out) == (7.0, 1.0, 0.0, 1.0)
+    revisions = [line for line in plans.joinpath("revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 1
+    assert "project:audio:render" in result.stale_artifacts
+
+
+def test_visual_track_insert_splits_and_shifts_detached_source_audio_with_picture(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch, include_unlinked=True)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    overlay = {clip.id: clip for clip in comp.visual_overlays}
+    left = overlay["linked-overlay"]
+    right = next(clip for clip in comp.visual_overlays
+                 if clip.asset_id == "linked-video" and clip.id != "linked-overlay")
+    assert (left.start, left.duration, left.source_in) == (2.0, 1.0, 1.0)
+    assert (right.start, right.duration, right.source_in) == (4.0, 3.0, 2.0)
+    audio = [clip for clip in comp.audio if clip.linked_visual_overlay_id]
+    assert len(audio) == 2
+    left_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == left.id)
+    right_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == right.id)
+    assert (left_audio.start, left_audio.duration, left_audio.source_in, left_audio.source_out) == (2.0, 1.0, 1.0, 2.0)
+    assert (right_audio.start, right_audio.duration, right_audio.source_in, right_audio.source_out) == (4.0, 3.0, 2.0, 5.0)
+    assert left_audio.fadeIn == pytest.approx(0.5) and left_audio.fadeOut == 0.0
+    assert right_audio.fadeIn == 0.0 and right_audio.fadeOut == pytest.approx(0.75)
+    assert comp.project.duration == pytest.approx(11.0)
+    detached = next(clip for clip in comp.audio if clip.id == "unlinked-audio")
+    assert detached.start == 7.0, "unlinked audio is not silently rippled by visual-track insertion"
+    assert "project:audio:render" in result.stale_artifacts
+
+
+def test_visual_track_insert_overwrite_reject_locked_linked_audio_and_keyframed_split(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch, locked_audio=True)
+    before = load_composition(pid).model_dump(mode="json")
+    rejected = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "overwrite",
+    }, 1)
+    assert rejected.status == "REJECTED"
+    assert rejected.errors[0]["code"] == "TRACK_LOCKED"
+    assert load_composition(pid).model_dump(mode="json") == before
+    assert plans.joinpath("revisions.jsonl").read_text(encoding="utf-8") == ""
+
+    pid2, plans2 = _linked_video_project(tmp_path / "keyframed", monkeypatch)
+    comp = load_composition(pid2)
+    linked = next(clip for clip in comp.audio if clip.id == "linked-audio")
+    linked = linked.model_copy(update={"keyframes": [{
+        "property": "volume", "keyframes": [{"at": 0.0, "value": 0.42}, {"at": 4.0, "value": 0.2}],
+    }]})
+    comp.audio = [linked if clip.id == linked.id else clip for clip in comp.audio]
+    save_composition(pid2, comp)
+    before_keyframed = load_composition(pid2).model_dump(mode="json")
+    keyframe_result = _apply(pid2, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "insert",
+    }, 1)
+    assert keyframe_result.status == "REJECTED"
+    assert keyframe_result.errors[0]["code"] == "LINKED_AUDIO_AUTOMATION_UNSUPPORTED"
+    assert load_composition(pid2).model_dump(mode="json") == before_keyframed
+    assert plans2.joinpath("revisions.jsonl").read_text(encoding="utf-8") == ""
+

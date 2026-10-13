@@ -2136,73 +2136,184 @@ def _cmd_expand_main_timeline_to_visual_track(
 
 def _overwrite_visual_track_range(
     ir: CompositionIR, track_id: str, start: float, duration: float,
-) -> None:
-    """Replace only the selected visual lane's intersecting clip windows.
-
-    Left and right survivors keep their original media mapping; the right survivor
-    advances source_in by the amount removed from the head. Source audio stays
-    attached to each surviving video clip, so rendering follows the edited windows.
-    """
+) -> Dict[str, List[VisualOverlayClip]]:
+    """Overwrite one visual lane and return each old clip's surviving segments."""
     end = round(start + duration, 6)
     updated: List[VisualOverlayClip] = []
+    segments_by_old_id: Dict[str, List[VisualOverlayClip]] = {}
     for clip in ir.visual_overlays:
         clip_start = float(clip.start)
         clip_end = clip_start + float(clip.duration)
         if clip.track_id != track_id or clip_end <= start or clip_start >= end:
             updated.append(clip)
+            segments_by_old_id[clip.id] = [clip]
             continue
 
         left_duration = round(min(clip_end, start) - clip_start, 6)
         right_start = max(clip_start, end)
         right_duration = round(clip_end - right_start, 6)
-        has_left = left_duration > 0.001
-        has_right = right_duration > 0.001
-
-        if has_left:
-            updated.append(clip.model_copy(update={"duration": left_duration}))
-        if has_right:
+        survivors: List[VisualOverlayClip] = []
+        if left_duration > 0.001:
+            left = clip.model_copy(update={"duration": left_duration})
+            updated.append(left)
+            survivors.append(left)
+        if right_duration > 0.001:
             right_patch = {
                 "start": round(right_start, 6),
                 "duration": right_duration,
                 "source_in": round(float(clip.source_in) + (right_start - clip_start), 6),
             }
-            if has_left:
+            if left_duration > 0.001:
                 right_patch["id"] = f"{clip.id}-right-{uuid.uuid4().hex[:8]}"
-            updated.append(clip.model_copy(update=right_patch))
+            right = clip.model_copy(update=right_patch)
+            updated.append(right)
+            survivors.append(right)
+        segments_by_old_id[clip.id] = survivors
+
     ir.visual_overlays = updated
+    return segments_by_old_id
 
 
 def _insert_visual_track_gap(
     ir: CompositionIR, track_id: str, start: float, duration: float,
-) -> None:
-    """Open a gap on one visual lane; split any clip crossed by the insertion point."""
+) -> Dict[str, List[VisualOverlayClip]]:
+    """Insert a gap on one visual lane and return each old clip's new segments."""
     updated: List[VisualOverlayClip] = []
+    segments_by_old_id: Dict[str, List[VisualOverlayClip]] = {}
     for clip in ir.visual_overlays:
         clip_start = float(clip.start)
         clip_end = clip_start + float(clip.duration)
         if clip.track_id != track_id or clip_end <= start:
             updated.append(clip)
+            segments_by_old_id[clip.id] = [clip]
             continue
 
         if clip_start < start < clip_end:
             left_duration = round(start - clip_start, 6)
             right_duration = round(clip_end - start, 6)
+            survivors: List[VisualOverlayClip] = []
             if left_duration > 0.001:
-                updated.append(clip.model_copy(update={"duration": left_duration}))
+                left = clip.model_copy(update={"duration": left_duration})
+                updated.append(left)
+                survivors.append(left)
             if right_duration > 0.001:
-                updated.append(clip.model_copy(update={
+                right = clip.model_copy(update={
                     "id": f"{clip.id}-right-{uuid.uuid4().hex[:8]}",
                     "start": round(start + duration, 6),
                     "duration": right_duration,
                     "source_in": round(float(clip.source_in) + (start - clip_start), 6),
-                }))
+                })
+                updated.append(right)
+                survivors.append(right)
+            segments_by_old_id[clip.id] = survivors
             continue
 
         # A clip beginning at the edit point is downstream material and moves too.
-        updated.append(clip.model_copy(update={
-            "start": round(clip_start + duration, 6),
-        }))
+        shifted = clip.model_copy(update={"start": round(clip_start + duration, 6)})
+        updated.append(shifted)
+        segments_by_old_id[clip.id] = [shifted]
+
     ir.visual_overlays = updated
+    return segments_by_old_id
+
+
+def _sync_linked_audio_for_visual_timeline_edit(
+    ir: CompositionIR,
+    previous_clips: List[VisualOverlayClip],
+    resulting_segments: Dict[str, List[VisualOverlayClip]],
+) -> bool:
+    """Keep detached source-audio clips aligned after visual insert/overwrite.
+
+    Full-clip shifts preserve gain/fades/keyframes. Operations that would trim, split,
+    or remove a keyframed linked source-audio clip fail closed rather than destroying
+    its automation. Audio and picture changes are saved in one Composition revision.
+    """
+    previous_by_id = {clip.id: clip for clip in previous_clips}
+    affected_audio: List[Tuple[int, AudioTrack, VisualOverlayClip, List[VisualOverlayClip]]] = []
+
+    def _same_window(old_clip: VisualOverlayClip, new_clip: VisualOverlayClip) -> bool:
+        return (
+            abs(float(old_clip.duration) - float(new_clip.duration)) <= 1e-6
+            and abs(float(old_clip.source_in) - float(new_clip.source_in)) <= 1e-6
+        )
+
+    for audio_index, audio_clip in enumerate(ir.audio):
+        linked_id = str(audio_clip.linked_visual_overlay_id or "")
+        old_clip = previous_by_id.get(linked_id)
+        if old_clip is None:
+            continue
+        segments = resulting_segments.get(linked_id, [old_clip])
+        unchanged = (
+            len(segments) == 1
+            and segments[0].id == old_clip.id
+            and abs(float(segments[0].start) - float(old_clip.start)) <= 1e-6
+            and _same_window(old_clip, segments[0])
+        )
+        if unchanged:
+            continue
+
+        lane_id = str(audio_clip.track_id or f"audio-{audio_clip.type.value}")
+        _ensure_audio_lane_unlocked(ir, lane_id)
+        needs_source_window_edit = (
+            len(segments) != 1
+            or not segments
+            or any(not _same_window(old_clip, segment) for segment in segments)
+        )
+        if needs_source_window_edit and getattr(audio_clip, "keyframes", None):
+            raise EditorError(
+                "LINKED_AUDIO_AUTOMATION_UNSUPPORTED",
+                "插入/覆盖会切分或修剪关联原声音轨，而该轨带有音量关键帧；"
+                "请先解除音画关联或移除自动化，再重试。项目未修改。",
+            )
+        affected_audio.append((audio_index, audio_clip, old_clip, segments))
+
+    if not affected_audio:
+        return False
+
+    changed_by_index = {index: (audio, old, segments) for index, audio, old, segments in affected_audio}
+    result: List[AudioTrack] = []
+    for audio_index, audio_clip in enumerate(ir.audio):
+        changed_entry = changed_by_index.get(audio_index)
+        if changed_entry is None:
+            result.append(audio_clip)
+            continue
+        _audio, old_clip, segments = changed_entry
+        if not segments:
+            # The linked picture was fully overwritten; remove its detached source audio too.
+            continue
+
+        full_window_shift = len(segments) == 1 and _same_window(old_clip, segments[0])
+        old_clip_end = float(old_clip.start) + float(old_clip.duration)
+        for segment_index, segment in enumerate(segments):
+            source_in = round(
+                float(audio_clip.source_in or 0.0)
+                + (float(segment.source_in) - float(old_clip.source_in)), 6
+            )
+            patch = {
+                "start": round(float(segment.start), 6),
+                "duration": round(float(segment.duration), 6),
+                "source_in": source_in,
+                "source_out": round(source_in + float(segment.duration), 6),
+                "linked_visual_overlay_id": segment.id,
+                "follows_scene_video": False,
+            }
+            if not full_window_shift:
+                segment_end = float(segment.start) + float(segment.duration)
+                patch["fadeIn"] = (
+                    min(max(0.0, float(audio_clip.fadeIn or 0.0)), float(segment.duration))
+                    if abs(float(segment.start) - float(old_clip.start)) <= 1e-6 else 0.0
+                )
+                patch["fadeOut"] = (
+                    min(max(0.0, float(audio_clip.fadeOut or 0.0)), float(segment.duration))
+                    if abs(segment_end - old_clip_end) <= 1e-6 else 0.0
+                )
+                patch["keyframes"] = []
+            if segment_index > 0:
+                patch["id"] = f"audio-{uuid.uuid4().hex[:12]}"
+            result.append(audio_clip.model_copy(update=patch))
+
+    ir.audio = result
+    return True
 
 
 def _extend_project_for_visual_insert(ir: CompositionIR, duration: float) -> str:
@@ -2367,14 +2478,22 @@ def _cmd_add_visual_overlay(
         z_index=int(z_index_value),
     )
     extended_scene_id = None
-    if placement_mode == "overwrite":
-        _overwrite_visual_track_range(ir, track_id, start, duration)
-    elif placement_mode == "insert":
-        _insert_visual_track_gap(ir, track_id, start, duration)
-        extended_scene_id = _extend_project_for_visual_insert(ir, duration)
+    linked_audio_changed = False
+    if placement_mode in {"overwrite", "insert"}:
+        previous_clips = list(ir.visual_overlays)
+        if placement_mode == "overwrite":
+            resulting_segments = _overwrite_visual_track_range(ir, track_id, start, duration)
+        else:
+            resulting_segments = _insert_visual_track_gap(ir, track_id, start, duration)
+            extended_scene_id = _extend_project_for_visual_insert(ir, duration)
+        linked_audio_changed = _sync_linked_audio_for_visual_timeline_edit(
+            ir, previous_clips, resulting_segments,
+        )
     ir.visual_overlays.append(overlay)
     key = f"visual-overlay:{overlay.id}"
     stale = [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+    if linked_audio_changed:
+        stale.extend(["project:audio:render", "project:audio-tracks"])
     if extended_scene_id:
         stale.extend(_stale_of_scene(project_id="", scene_id=extended_scene_id))
         stale.append("project:timeline:render")
