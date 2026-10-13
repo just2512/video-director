@@ -137,8 +137,13 @@ def test_split_audio_clip_keeps_nonlooping_source_window_when_source_out_is_impl
     result = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.25})
     assert result.status == "APPLIED", result.errors
     left, right = load_composition(pid).audio[1:]
-    assert (left.start, left.duration, left.source_in, left.source_out) == (5.0, 1.25, 0.0, None)
-    assert (right.start, right.duration, right.source_in, right.source_out) == (6.25, 0.75, 1.25, None)
+    expected_cut = round(188 / 30, 6)
+    assert left.start == 5.0 and left.source_in == 0.0 and left.source_out is None
+    assert abs(left.duration - (expected_cut - 5.0)) < 1e-6
+    assert abs(right.start - expected_cut) < 1e-6
+    assert abs(right.duration - (7.0 - expected_cut)) < 1e-6
+    assert abs(right.source_in - (expected_cut - 5.0)) < 1e-6
+    assert right.source_out is None
 
 
 def test_split_looping_bgm_without_explicit_source_window_is_rejected_without_revision(tmp_path, monkeypatch):
