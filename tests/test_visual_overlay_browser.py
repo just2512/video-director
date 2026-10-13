@@ -44,3 +44,76 @@ def test_source_audio_detach_button_dispatches_editor_command_and_refreshes_work
             assert "可独立移动、修剪和混音" in page.evaluate("window.__lastToast.message")
         finally:
             browser.close()
+
+
+def test_speeded_video_overlay_drag_uses_source_time_mapping():
+    root = Path(__file__).resolve().parents[1]
+    math_script = root / "webui" / "static" / "js" / "timeline-edit-math.js"
+    overlay_script = root / "webui" / "static" / "js" / "visual-overlay-editor.js"
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1200, "height": 180})
+            page.set_content("""<!doctype html><html><head><style>
+                html, body { margin: 0; padding: 0; }
+                #editor-timeline { width: 1000px; height: 80px; }
+                .ed-track-body { position: relative; width: 1000px; height: 30px; }
+                .ed-visual-overlay-clip { position: absolute; top: 0; height: 24px; }
+            </style></head><body><div id="editor-timeline">
+                <div class="ed-track" data-visual-track-id="overlay-main">
+                    <div class="ed-track-body">
+                        <div id="speeded-clip" class="ed-visual-overlay-clip"
+                             data-visual-overlay-index="0" style="left:50%;width:5%"></div>
+                    </div>
+                </div>
+            </div></body></html>""")
+            page.evaluate("""() => {
+                window.ED = {comp: {
+                    duration: 10,
+                    assets: [{id: "source-video", type: "video", duration: 2}],
+                    visual_tracks: [{id: "overlay-main", locked: false}],
+                    visual_overlays: [{
+                        id: "speeded-overlay", asset_id: "source-video", start: 5, duration: 0.5,
+                        source_in: 0.25, speed: 2, track_id: "overlay-main"
+                    }]
+                }};
+                window.__commands = [];
+                window.__refreshCount = 0;
+                window.executeCommand = async command => {
+                    window.__commands.push(command);
+                    return {ok: true};
+                };
+                window.editorToast = () => {};
+                window.refreshWorkspace = async () => { window.__refreshCount += 1; };
+                window.editorRenderTimeline = () => {};
+            }""")
+            page.add_script_tag(path=str(math_script))
+            page.add_script_tag(path=str(overlay_script))
+            page.evaluate("_tlBindVisualOverlayDrag()")
+
+            # Left trim by 0.2 timeline seconds must advance source time by 0.4s at 2x.
+            page.mouse.move(502, 10)
+            page.mouse.down()
+            page.mouse.move(522, 10)
+            page.mouse.up()
+            page.wait_for_function("window.__commands.length === 1")
+            first = page.evaluate("window.__commands[0]")
+            assert first["command"] == "trim_visual_overlay", first
+            assert first["payload"] == {"start": 5.2, "sourceIn": 0.65, "duration": 0.3}, first
+
+            # Right trim must stop at the source-media boundary: (2.0 - 0.25) / 2x = 0.875s.
+            page.evaluate("""() => {
+                const clip = document.getElementById("speeded-clip");
+                clip.style.left = "50%";
+                clip.style.width = "5%";
+            }""")
+            page.mouse.move(548, 10)
+            page.mouse.down()
+            page.mouse.move(648, 10)
+            page.mouse.up()
+            page.wait_for_function("window.__commands.length === 2")
+            second = page.evaluate("window.__commands[1]")
+            assert second["command"] == "trim_visual_overlay", second
+            assert second["payload"] == {"start": 5, "sourceIn": 0.25, "duration": 0.875}, second
+        finally:
+            browser.close()

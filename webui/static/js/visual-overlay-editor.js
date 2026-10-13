@@ -509,7 +509,7 @@ function _tlBindVisualOverlayDrag() {
         el, index, mode, trackId:String(clip.track_id || 'overlay-main'),
         startX:ev.clientX, startY:ev.clientY, moved:false,
         start:Number(clip.start)||0, duration:Number(clip.duration)||0,
-        sourceIn:Number(clip.source_in)||0, baseLeft:Number.parseFloat(el.style.left)||0,
+        sourceIn:Number(clip.source_in)||0, speed:Math.max(0.25, Math.min(4, Number(clip.speed ?? 1) || 1)), baseLeft:Number.parseFloat(el.style.left)||0,
         baseWidth:Number.parseFloat(el.style.width)||0,
         assetType:String((asset||{}).type||'').toLowerCase(), assetDuration:Number((asset||{}).duration)||0
       };
@@ -571,16 +571,16 @@ function _tlBindVisualOverlayDrag() {
       if (Math.abs(delta) < 0.05 && nextTrackId === d.trackId) { editorRenderTimeline(); return; }
       payload = {start:round(Math.max(0, Math.min(total - d.duration, d.start + delta))), trackId:nextTrackId};
     } else if (d.mode === 'trim-left') {
-      const minDelta = -(d.assetType === 'video' ? Math.min(d.start, d.sourceIn) : d.start);
+      const minDelta = -(d.assetType === 'video' ? Math.min(d.start, d.sourceIn / d.speed) : d.start);
       const dt = Math.min(Math.max(delta, minDelta), d.duration - 0.05);
       command = 'trim_visual_overlay';
-      payload = {start:round(d.start + dt), sourceIn:round(d.sourceIn + (d.assetType === 'video' ? dt : 0)), duration:round(d.duration - dt)};
+      payload = {start:round(d.start + dt), sourceIn:round(d.sourceIn + (d.assetType === 'video' ? dt * d.speed : 0)), duration:round(d.duration - dt)};
     } else {
       // Reuse the shared boundary guard: a trim cannot exceed the output
       // project end or the remaining source duration of a video asset.
       const dt = window.TimelineEditMath.trimEndDelta({
         delta, start:d.start, duration:d.duration, total,
-        assetType:d.assetType, assetDuration:d.assetDuration, sourceIn:d.sourceIn,
+        assetType:d.assetType, assetDuration:d.assetDuration, sourceIn:d.sourceIn, sourceSpeed:d.speed,
         minDuration:0.05
       });
       command = 'trim_visual_overlay';
