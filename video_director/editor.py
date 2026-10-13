@@ -1175,8 +1175,11 @@ def _cmd_split_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     """Split one visual segment at an absolute timeline time, preserving source spans."""
     si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
     _ensure_layer_unlocked(layer)
+    raw_at = payload.get("at")
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "split_layer 的 at 不能是布尔值")
     try:
-        at = float(payload.get("at"))
+        at = float(raw_at)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "split_layer 需要播放头绝对时间 at") from exc
     if not math.isfinite(at):
@@ -1229,9 +1232,13 @@ def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
     _ensure_layer_unlocked(layer)
     if layer.type != LayerType.video:
         raise EditorError("INVALID_TARGET", "trim 仅支持 video 层")
+    raw_in = payload.get("sourceIn", layer.source_in)
+    raw_out = payload.get("sourceOut", layer.source_out)
+    if isinstance(raw_in, bool) or isinstance(raw_out, bool):
+        raise EditorError("INVALID_PAYLOAD", "trim 的 sourceIn/sourceOut 不能是布尔值")
     try:
-        new_in = float(payload.get("sourceIn", layer.source_in))
-        new_out = float(payload.get("sourceOut", layer.source_out))
+        new_in = float(raw_in)
+        new_out = float(raw_out)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "trim 的 sourceIn/sourceOut 必须是数字") from exc
     if not (math.isfinite(new_in) and math.isfinite(new_out) and new_in >= 0 and new_out > new_in):
@@ -1356,8 +1363,14 @@ def _cmd_duplicate(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[Li
 def _cmd_set_duration(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """调场景时长：layers 同步拉伸（保持铺满），总时长联动。"""
     si, scene = _find_scene(ir, target_id)
-    new_dur = float(payload.get("duration", scene.duration))
-    if new_dur <= 0.3:
+    raw_duration = payload.get("duration", scene.duration)
+    if isinstance(raw_duration, bool):
+        raise EditorError("INVALID_PAYLOAD", "场景 duration 不能是布尔值")
+    try:
+        new_dur = float(raw_duration)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "场景 duration 必须是数字") from exc
+    if not math.isfinite(new_dur) or new_dur <= 0.3:
         raise EditorError("INVALID_PAYLOAD", f"时长 {new_dur}s 过短（≥0.3s）")
     factor = new_dur / scene.duration
     new_layers = []
@@ -1928,8 +1941,11 @@ def _cmd_promote_layer_to_visual_track(
         source_audio_enabled = False
     # A drag-and-drop into a global visual track may supply an explicit global
     # start. Without it, preserve the source layer's current absolute timeline time.
+    raw_start = payload.get("start", float(scene.start) + float(layer.start))
+    if isinstance(raw_start, bool):
+        raise EditorError("INVALID_PARAMETER", "start 必须是全局时间线秒数，不能是布尔值")
     try:
-        absolute_start = float(payload.get("start", float(scene.start) + float(layer.start)))
+        absolute_start = float(raw_start)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PARAMETER", "start 必须是全局时间线秒数") from exc
     if (
