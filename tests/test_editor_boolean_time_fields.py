@@ -151,3 +151,45 @@ def test_reorder_layer_rejects_boolean_index_without_reordering(tmp_path, monkey
             editor._cmd_reorder_layer(comp, "S01#0", {"toIndex": invalid_index})
         assert raised.value.code == "INVALID_PAYLOAD"
         assert comp.model_dump() == before
+
+def test_expected_version_rejects_non_integer_tokens_before_mutation_or_usage_events(tmp_path, monkeypatch):
+    project_id, plans = _contract_project(tmp_path, monkeypatch)
+    before = load_composition(project_id).model_dump(mode="json")
+    behavior_events = []
+
+    from video_director import memory
+    monkeypatch.setattr(
+        memory,
+        "record_motion_behavior",
+        lambda *args, **kwargs: behavior_events.append((args, kwargs)),
+    )
+
+    invalid_versions = (True, False, 1.5, float("nan"), float("inf"), "1.5", {})
+    for expected_version in invalid_versions:
+        result = execute_command(project_id, {
+            "command": "set_opacity",
+            "targetId": "S01#0",
+            "payload": {"opacity": 0.25},
+            "expectedVersion": expected_version,
+        })
+        assert result.status == "REJECTED", (expected_version, result.status, result.errors)
+        assert result.errors and result.errors[0]["code"] == "INVALID_PAYLOAD", (
+            expected_version, result.errors,
+        )
+        assert load_composition(project_id).model_dump(mode="json") == before
+        assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+    # The behavior/DNA record is a side effect: a command rejected by the
+    # optimistic-lock gate must not record a motion as "used".
+    result = execute_command(project_id, {
+        "command": "replace_motion",
+        "targetId": "S01#0",
+        "payload": {"motionRecipeId": "invalid-version-probe"},
+        "expectedVersion": True,
+    })
+    assert result.status == "REJECTED"
+    assert result.errors and result.errors[0]["code"] == "INVALID_PAYLOAD"
+    assert behavior_events == []
+    assert load_composition(project_id).model_dump(mode="json") == before
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
