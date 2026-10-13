@@ -78,3 +78,28 @@ def test_lift_layer_to_playhead_is_registered_and_connected():
     assert "lift_layer_to_playhead" in dispatcher
     assert "editorLiftSelectedLayerToPlayhead" in timeline
     assert 'data-action="ui.lift_layer_to_playhead"' in html
+
+
+def test_visual_overlay_toolbar_actions_are_registered_and_exposed():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for action_id, ui_name in (
+        ("ui.split_layer", "split_layer"),
+        ("ui.edit_visual_overlay", "edit_visual_overlay"),
+    ):
+        action = ar.get_action(action_id)
+        assert action is not None
+        assert action.ui == ui_name
+        visible = {
+            item["id"]
+            for item in ar.actions_for_context({"type": "visual_overlay"})["actions"]
+        }
+        assert action_id in visible, f"{action_id} is not exposed for visual overlays"
+    dispatcher = (root / "webui" / "static" / "js" / "action-dispatcher.js").read_text(encoding="utf-8")
+    timeline = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
+    html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "edit_visual_overlay:" in dispatcher
+    assert "editorSelectVisualOverlay" in timeline
+    assert "editorEditSelectedVisualOverlay" in timeline
+    assert 'data-action="ui.edit_visual_overlay"' in html

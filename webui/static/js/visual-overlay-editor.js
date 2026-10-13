@@ -165,13 +165,17 @@ function editorVisualOverlayOpen(index, ev) {
 }
 async function editorVisualOverlaySplit(index) {
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
-  if (!clip) { editorToast('画面叠加片段已变化，请重新选择', true); return; }
+  if (!clip) {
+    editorToast('画面叠加片段已变化，请重新选择', true);
+    return {ok:false, error:'VISUAL_OVERLAY_NOT_FOUND'};
+  }
   const at = Number(window.PLAYHEAD && PLAYHEAD.at);
   const start = Number(clip.start) || 0;
   const end = start + (Number(clip.duration) || 0);
   if (!Number.isFinite(at) || at <= start + 0.05 || at >= end - 0.05) {
-    editorToast('请先把播放头放到片段内部，且切分两侧至少保留 0.05 秒', true);
-    return;
+    const message = '请先把播放头放到片段内部，且切分两侧至少保留 0.05 秒';
+    editorToast(message, true);
+    return {ok:false, error:'SPLIT_OUTSIDE_CLIP', message};
   }
   try {
     const result = await executeCommand({
@@ -181,13 +185,16 @@ async function editorVisualOverlaySplit(index) {
     });
     if (!result || !result.ok) {
       editorToast('切分未完成：' + ((result && result.error) || '未知错误'), true);
-      return;
+      return result || {ok:false, error:'EMPTY_RESULT'};
     }
     editorVisualOverlayClose();
     editorToast('画面叠加已在播放头切分；源素材未改写');
     await refreshWorkspace();
+    return result;
   } catch (error) {
-    editorToast('画面叠加切分失败：' + (error.message || error), true);
+    const message = error && error.message ? error.message : String(error);
+    editorToast('画面叠加切分失败：' + message, true);
+    return {ok:false, error:'VISUAL_OVERLAY_SPLIT_FAILED', message};
   }
 }
 

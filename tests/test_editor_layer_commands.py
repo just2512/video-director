@@ -102,7 +102,7 @@ def test_layer_edit_buttons_and_cross_scene_drop_lifts_compatible_clips():
     assert "editorSplitSelectedLayer" in js and "editorCmd('split_layer'" in js
     assert "reorder_layer" in js
     assert "promote_layer_to_visual_track" in js and "cross-scene-lift-issued" in js
-    assert 'data-action="ui.split_layer" title="在播放头处切分选中的视频/图片片段"' in html
+    assert 'data-action="ui.split_layer" title="在播放头处切分选中的主画面或独立画面片段"' in html
 
 
 def test_cross_scene_lift_supports_plain_still_image_and_preserves_scene_timing(tmp_path, monkeypatch):
