@@ -1964,9 +1964,17 @@ def _cmd_promote_layer_to_visual_track(
 
         linked_source_indices = {
             index for index, track in enumerate(ir.audio)
-            if bool(getattr(track, "follows_scene_video", False))
+            if bool(getattr(track, "follows_scene_video", False)
             and _matches_original_audio(track, source_start)
         }
+        # An already-detached source clip at the destination must also be linked to
+        # the promoted video. Merely suppressing embedded audio leaves that clip at
+        # its previous playback rate and can desynchronize picture and sound.
+        if not linked_source_indices:
+            linked_source_indices = {
+                index for index, track in enumerate(ir.audio)
+                if _matches_original_audio(track, absolute_start)
+            }
         if linked_source_indices:
             for audio_index in linked_source_indices:
                 source_audio_track = ir.audio[audio_index]
@@ -1975,15 +1983,7 @@ def _cmd_promote_layer_to_visual_track(
                 )
             source_audio_enabled = False
         else:
-            # If an independently placed original-audio clip already represents the
-            # exact source window at the destination, don't add a duplicate.
-            already_at_destination = any(
-                _matches_original_audio(track, absolute_start) for track in ir.audio
-            )
-            source_audio_enabled = (
-                bool(getattr(probe, "has_audio_stream", False))
-                and not already_at_destination
-            )
+            source_audio_enabled = bool(getattr(probe, "has_audio_stream", False))
 
     asset_index = next((i for i, item in enumerate(ir.assets) if item.id == layer.asset_id), None)
     resolved_asset = asset.model_copy(update={
