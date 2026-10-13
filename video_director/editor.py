@@ -2526,8 +2526,19 @@ def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
     if not math.isfinite(start) or start < 0:
         raise EditorError("INVALID_PARAMETER", "覆盖层的新位置超出项目时长")
     start = _project_frame_time(ir, start)
-    if start + clip.duration > float(ir.project.duration) + 1e-6:
+    # Legacy projects may contain off-frame clip durations. Normalize the end
+    # boundary as well as the new start so moving an old clip cannot leave its
+    # right edge between output frames.
+    duration = _project_frame_time(ir, float(clip.duration))
+    if duration < _project_frame_min_duration(ir) - 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层时长按项目帧率对齐后不足一帧")
+    if start + duration > float(ir.project.duration) + 1e-6:
         raise EditorError("INVALID_PARAMETER", "覆盖层的新位置按项目帧率对齐后超出项目时长")
+    source_asset = next((asset for asset in ir.assets if asset.id == clip.asset_id), None)
+    if source_asset and str(getattr(source_asset.type, "value", source_asset.type)).lower() == "video":
+        source_duration = float(source_asset.duration or 0.0)
+        if source_duration > 0 and float(clip.source_in) + duration > source_duration + 0.05:
+            raise EditorError("INVALID_SOURCE_RANGE", "覆盖层时长按项目帧率对齐后超出视频素材时长")
     track_id = str(payload.get("trackId", clip.track_id) or "").strip()
     if not any(track.id == track_id for track in ir.visual_tracks):
         raise EditorError("NOT_FOUND", f"画面轨道 {track_id!r} 不存在", recoverable=False)
@@ -2541,10 +2552,18 @@ def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
     for _audio_index, audio_clip in linked:
         _ensure_audio_lane_unlocked(ir, str(audio_clip.track_id or f"audio-{audio_clip.type.value}"))
 
-    ir.visual_overlays[index] = clip.model_copy(update={"start": round(start, 6), "track_id": track_id})
+    ir.visual_overlays[index] = clip.model_copy(update={
+        "start": round(start, 6), "duration": round(duration, 6), "track_id": track_id,
+    })
     changed = [f"visual-overlay:{clip.id}"]
     for audio_index, audio_clip in linked:
-        ir.audio[audio_index] = audio_clip.model_copy(update={"start": round(start, 6)})
+        ir.audio[audio_index] = audio_clip.model_copy(update={
+            "start": round(start, 6),
+            "duration": round(duration, 6),
+            "source_out": round(float(audio_clip.source_in) + duration, 6),
+            "fadeIn": min(max(0.0, float(audio_clip.fadeIn or 0.0)), duration),
+            "fadeOut": min(max(0.0, float(audio_clip.fadeOut or 0.0)), duration),
+        })
         changed.append(f"audio:{audio_clip.type.value}:{audio_index}")
     stale = [f"visual-overlay:{clip.id}:render", "project:visual-overlays:render", "project:preview"]
     if linked:
