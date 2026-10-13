@@ -2283,29 +2283,33 @@ def _sync_linked_audio_for_visual_timeline_edit(
             continue
 
         full_window_shift = len(segments) == 1 and _same_window(old_clip, segments[0])
-        old_clip_end = float(old_clip.start) + float(old_clip.duration)
+        old_source_end = float(old_clip.source_in) + float(old_clip.duration)
         for segment_index, segment in enumerate(segments):
             source_in = round(
                 float(audio_clip.source_in or 0.0)
                 + (float(segment.source_in) - float(old_clip.source_in)), 6
             )
+            segment_duration = float(segment.duration)
             patch = {
                 "start": round(float(segment.start), 6),
-                "duration": round(float(segment.duration), 6),
+                "duration": round(segment_duration, 6),
                 "source_in": source_in,
-                "source_out": round(source_in + float(segment.duration), 6),
+                "source_out": round(source_in + segment_duration, 6),
                 "linked_visual_overlay_id": segment.id,
                 "follows_scene_video": False,
             }
             if not full_window_shift:
-                segment_end = float(segment.start) + float(segment.duration)
+                # Fade boundaries follow the source window, not the global time
+                # interval: Insert shifts the right clip's timeline end while its
+                # source end remains unchanged.
                 patch["fadeIn"] = (
-                    min(max(0.0, float(audio_clip.fadeIn or 0.0)), float(segment.duration))
-                    if abs(float(segment.start) - float(old_clip.start)) <= 1e-6 else 0.0
+                    min(max(0.0, float(audio_clip.fadeIn or 0.0)), segment_duration)
+                    if abs(float(segment.source_in) - float(old_clip.source_in)) <= 1e-6 else 0.0
                 )
+                segment_source_end = float(segment.source_in) + segment_duration
                 patch["fadeOut"] = (
-                    min(max(0.0, float(audio_clip.fadeOut or 0.0)), float(segment.duration))
-                    if abs(segment_end - old_clip_end) <= 1e-6 else 0.0
+                    min(max(0.0, float(audio_clip.fadeOut or 0.0)), segment_duration)
+                    if abs(segment_source_end - old_source_end) <= 1e-6 else 0.0
                 )
                 patch["keyframes"] = []
             if segment_index > 0:

@@ -11,6 +11,7 @@ from video_director.editor import execute_command, load_composition, save_compos
 from video_director.models import (
     AssetRef, AudioTrack, AudioTrackType, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
 )
+from video_director.visual_semantics import Keyframe, KeyframeTrack
 
 
 def _editor_project(tmp_path, monkeypatch):
@@ -2059,9 +2060,11 @@ def test_visual_track_insert_overwrite_reject_locked_linked_audio_and_keyframed_
     pid2, plans2 = _linked_video_project(tmp_path / "keyframed", monkeypatch)
     comp = load_composition(pid2)
     linked = next(clip for clip in comp.audio if clip.id == "linked-audio")
-    linked = linked.model_copy(update={"keyframes": [{
-        "property": "volume", "keyframes": [{"at": 0.0, "value": 0.42}, {"at": 4.0, "value": 0.2}],
-    }]})
+    linked = linked.model_copy(update={"keyframes": [
+        KeyframeTrack(property="volume", keyframes=[
+            Keyframe(at=0.0, value=0.42), Keyframe(at=4.0, value=0.2),
+        ]),
+    ]})
     comp.audio = [linked if clip.id == linked.id else clip for clip in comp.audio]
     save_composition(pid2, comp)
     before_keyframed = load_composition(pid2).model_dump(mode="json")
