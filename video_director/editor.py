@@ -1816,15 +1816,38 @@ def _cmd_promote_layer_to_visual_track(
     media_slug = "video" if is_video else "image"
     if abs(float(layer.speed) - 1.0) > 0.001:
         raise EditorError("LIFT_UNSUPPORTED_SPEED", "当前转换要求 1.0x 原速；请先恢复原速再提升")
+    motion_instance = layer.motion_instance or {}
+    motion_parameters = motion_instance.get("parameters") or {}
+    legacy_transform = motion_parameters.get("transform") or {}
+    static_transform_only = (
+        not motion_instance
+        or (
+            set(motion_instance).issubset({"parameters"})
+            and set(motion_parameters).issubset({"transform", "opacity"})
+            and set(legacy_transform).issubset({"scale", "opacity"})
+        )
+    )
     if (
         layer.motion or layer.motion_recipe_id or layer.motion_version
-        or layer.motion_instance or layer.transform or layer.keyframes or layer.mask
+        or not static_transform_only or layer.keyframes or layer.mask
         or (getattr(layer, "fit_mode", "cover") or "cover") != "cover"
     ):
         raise EditorError(
             "LIFT_UNSUPPORTED_EFFECT",
-            "当前片段带有变换、蒙版、关键帧或动效；请先移除这些效果，避免提升后丢失画面语义",
+            "当前片段带有动效、关键帧、蒙版或非静态变换；这些效果尚不能安全转换为独立画面轨道",
         )
+
+    # Preserve structured transform, or migrate the old scale/opacity dictionary
+    # emitted by set_transform into the canonical Transform contract.
+    lifted_transform = layer.transform
+    if lifted_transform is None and legacy_transform:
+        try:
+            lifted_transform = Transform.model_validate({
+                **Transform().model_dump(),
+                **legacy_transform,
+            })
+        except ValueError as exc:
+            raise EditorError("LIFT_INVALID_TRANSFORM", f"主画面静态变换无效：{exc}") from exc
     if getattr(scene, "camera", None) is not None:
         raise EditorError("LIFT_UNSUPPORTED_SCENE_CAMERA", "所在分镜使用了场景镜头运动，暂不能单独提升其中一段")
     transition = getattr(getattr(scene, "transition_out", None), "type", "cut")
@@ -1974,6 +1997,7 @@ def _cmd_promote_layer_to_visual_track(
         source_audio_volume=1.0,
         x=0.0, y=0.0, width=1.0, height=1.0,
         opacity=1.0, z_index=0,
+        transform=lifted_transform,
     )
     ir.visual_overlays.append(clip)
     if linked_source_indices:
@@ -2454,9 +2478,35 @@ def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) ->
     _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
     allowed = {
         "x", "y", "width", "height", "opacity", "z_index", "presentation_mode",
-        "source_audio_enabled", "source_audio_volume",
+        "source_audio_enabled", "source_audio_volume", "transform",
     }
     patch = {key: payload[key] for key in allowed if key in payload}
+    if "transform" in patch:
+        raw_transform = patch["transform"]
+        transform_fields = {"x", "y", "scale", "rotation", "opacity", "anchor"}
+        if not isinstance(raw_transform, dict) or set(raw_transform) - transform_fields:
+            raise EditorError("INVALID_PARAMETER", "transform 必须是合法的结构化静态变换对象")
+        try:
+            patch["transform"] = Transform.model_validate({
+                **(clip.transform.model_dump() if clip.transform is not None else Transform().model_dump()),
+                **raw_transform,
+            })
+        except ValueError as exc:
+            raise EditorError("INVALID_PARAMETER", f"变换参数无效：{exc}") from exc
+    if clip.transform is not None:
+        legacy_geometry = {"x", "y", "width", "height", "opacity"}.intersection(patch)
+        if legacy_geometry and "transform" not in patch:
+            raise EditorError(
+                "TRANSFORMED_OVERLAY_REQUIRES_TRANSFORM_EDIT",
+                "该片段继承了主画面变换；请使用变换编辑字段，避免矩形布局覆盖原变换",
+            )
+        if "presentation_mode" in patch and patch["presentation_mode"] != "full_frame":
+            raise EditorError(
+                "TRANSFORMED_OVERLAY_REQUIRES_FULL_FRAME",
+                "继承主画面变换的片段暂不支持切换为画中画/贴纸模式",
+            )
+    if "transform" in patch and set(patch).intersection({"x", "y", "width", "height", "opacity"}):
+        raise EditorError("INVALID_PARAMETER", "不能在同一命令中混用矩形布局字段与结构化变换字段")
     if not patch:
         raise EditorError("INVALID_PAYLOAD", "没有可更新的覆盖层属性")
     linked = [
