@@ -40,6 +40,13 @@ function editorVisualOverlayPick(ev, trackId) {
         <option value="picture_in_picture" selected>画中画（小窗叠加）</option>
         <option value="sticker">贴纸 / 图层（小尺寸叠加）</option>
       </select>
+      <div id="visual-overlay-create-fit-row" style="display:none;margin-top:8px">
+        <label for="visual-overlay-create-fit-mode">全画幅素材适配</label>
+        <select id="visual-overlay-create-fit-mode">
+          <option value="cover" selected>铺满画面（裁切超出部分）</option>
+          <option value="contain">完整显示（保留比例，露出底层画面）</option>
+        </select>
+      </div>
       <div id="visual-overlay-create-audio-row" style="margin-top:8px">
         <label><input id="visual-overlay-source-audio" type="checkbox"> 保留此视频素材自身的声音</label>
         <div class="hint">只对有音轨的视频生效；启用后与旁白、BGM、音效进入同一混音流程。</div>
@@ -54,6 +61,11 @@ function editorVisualOverlayPick(ev, trackId) {
   const startInput = mask.querySelector('#visual-overlay-start');
   const durationInput = mask.querySelector('#visual-overlay-duration');
   const audioRow = mask.querySelector('#visual-overlay-create-audio-row');
+  const presentationSelect = mask.querySelector('#visual-overlay-presentation-mode');
+  const fitRow = mask.querySelector('#visual-overlay-create-fit-row');
+  const adjustFitVisibility = () => {
+    if (fitRow) fitRow.style.display = presentationSelect.value === 'full_frame' ? '' : 'none';
+  };
   const adjustDuration = () => {
     const a = assets.find(([id]) => id === select.value)?.[1];
     let max = total - Number(startInput.value || 0);
@@ -70,7 +82,9 @@ function editorVisualOverlayPick(ev, trackId) {
   };
   select.addEventListener('change', adjustDuration);
   startInput.addEventListener('change', adjustDuration);
+  presentationSelect.addEventListener('change', adjustFitVisibility);
   adjustDuration();
+  adjustFitVisibility();
   select.focus();
 }
 async function editorVisualOverlayCreate() {
@@ -88,7 +102,8 @@ async function editorVisualOverlayCreate() {
     const sourceAudioEnabled = !!mask.querySelector('#visual-overlay-source-audio')?.checked;
     const result = await executeCommand({command:'add_visual_overlay', targetId:'overlays',
       payload:{assetId, start, duration, trackId:window.VISUAL_OVERLAY_TARGET_TRACK_ID || 'overlay-main',
-        presentationMode, sourceAudioEnabled}});
+        presentationMode, fitMode:mask.querySelector('#visual-overlay-create-fit-mode')?.value || 'cover',
+        sourceAudioEnabled}});
     if (!result || !result.ok) { editorToast('添加失败：' + ((result && result.error) || '未知错误'), true); return; }
     editorVisualOverlayClose();
     editorToast(presentationMode === 'full_frame' ? '全画幅镜头已加入时间线' : (presentationMode === 'sticker' ? '贴纸图层已加入时间线' : '画中画已加入时间线'));
@@ -136,6 +151,15 @@ function editorVisualOverlayOpen(index, ev) {
         <option value="picture_in_picture" ${!clip.presentation_mode || clip.presentation_mode === 'picture_in_picture' ? 'selected' : ''}>画中画</option>
         <option value="sticker" ${clip.presentation_mode === 'sticker' ? 'selected' : ''}>贴纸 / 图层</option>
       </select>`;
+  const fitModeControls = `
+    <div id="visual-overlay-edit-fit-row" style="${clip.presentation_mode === 'full_frame' ? '' : 'display:none'};margin-top:8px">
+      <label for="visual-overlay-edit-fit-mode">全画幅素材适配</label>
+      <select id="visual-overlay-edit-fit-mode">
+        <option value="cover" ${(clip.fit_mode || 'cover') === 'cover' ? 'selected' : ''}>铺满画面（裁切超出部分）</option>
+        <option value="contain" ${clip.fit_mode === 'contain' ? 'selected' : ''}>完整显示（保留比例，露出底层画面）</option>
+      </select>
+      <p class="hint">仅影响全画幅镜头；画中画和贴纸会自动完整显示在各自的画面框内。</p>
+    </div>`;
   const placementControls = clip.transform
     ? `<div class="audio-clip-field-row">
         <div><label for="visual-overlay-transform-x">锚点 X（0–1）</label><input id="visual-overlay-transform-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.transform.x ?? 0.5)}"></div>
@@ -165,6 +189,7 @@ function editorVisualOverlayOpen(index, ev) {
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；全画幅、画中画和贴纸共用同一可编辑片段模型。</p>
       ${presentationControls}
+      ${fitModeControls}
       ${sourceAudioSettings}
       ${sourceAudioDetachAction}
       ${placementControls}
@@ -176,6 +201,14 @@ function editorVisualOverlayOpen(index, ev) {
     </section>`;
   mask.addEventListener('click', e => { if (e.target === mask) editorVisualOverlayClose(); });
   document.body.appendChild(mask);
+  const editPresentationSelect = mask.querySelector('#visual-overlay-edit-presentation-mode');
+  const editFitRow = mask.querySelector('#visual-overlay-edit-fit-row');
+  const syncEditFitVisibility = () => {
+    if (editFitRow) editFitRow.style.display =
+      (!editPresentationSelect || editPresentationSelect.value === 'full_frame') ? '' : 'none';
+  };
+  if (editPresentationSelect) editPresentationSelect.addEventListener('change', syncEditFitVisibility);
+  syncEditFitVisibility();
   const initialFocus = mask.querySelector('#visual-overlay-transform-x') || mask.querySelector('#visual-overlay-x');
   if (initialFocus) initialFocus.focus();
 }
@@ -252,6 +285,7 @@ async function editorVisualOverlayApply(index) {
   const payload = {
     z_index:Number(mask.querySelector('#visual-overlay-z-index').value),
     presentation_mode:mask.querySelector('#visual-overlay-edit-presentation-mode')?.value || clip.presentation_mode || 'full_frame',
+    fit_mode:mask.querySelector('#visual-overlay-edit-fit-mode')?.value || clip.fit_mode || 'cover',
     source_audio_enabled:!!mask.querySelector('#visual-overlay-edit-source-audio')?.checked,
     source_audio_volume:Number(mask.querySelector('#visual-overlay-edit-source-audio-volume')?.value ?? clip.source_audio_volume ?? 1)
   };
@@ -294,6 +328,7 @@ async function editorVisualOverlayApply(index) {
     payload.x + payload.width > 1 || payload.y + payload.height > 1
   );
   if (!values.every(Number.isFinite) || !Number.isInteger(payload.z_index) || payload.z_index < -100 || payload.z_index > 100 ||
+      !['cover', 'contain'].includes(payload.fit_mode) ||
       payload.source_audio_volume < 0 || payload.source_audio_volume > 2 || invalidTransform || invalidRectangle) {
     editorToast('位置/尺寸或变换参数越界；透明度为 0–1，源音量为 0–2', true); return;
   }

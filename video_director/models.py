@@ -637,6 +637,8 @@ class VisualOverlayClip(BaseModel):
     # Full frame, picture-in-picture and sticker are presentation presets on the
     # same editable clip contract; old project JSON defaults to picture-in-picture.
     presentation_mode: str = "picture_in_picture"  # full_frame | picture_in_picture | sticker
+    # Source fit contract: cover crops to fill; contain preserves the whole source with transparent padding.
+    fit_mode: str = "cover"
     source_audio_enabled: bool = False
     source_audio_volume: float = 1.0
     x: float = 0.65
@@ -659,6 +661,8 @@ class VisualOverlayClip(BaseModel):
             raise ValueError("visual overlay id and asset_id are required")
         if self.presentation_mode not in {"full_frame", "picture_in_picture", "sticker"}:
             raise ValueError(f"unsupported visual overlay presentation_mode: {self.presentation_mode!r}")
+        if self.fit_mode not in {"cover", "contain"}:
+            raise ValueError(f"unsupported visual overlay fit_mode: {self.fit_mode!r}")
         if not (0.0 <= self.source_audio_volume <= 2.0):
             raise ValueError("visual overlay source_audio_volume must be in [0,2]")
         if self.start < 0 or self.duration <= 0 or self.source_in < 0:

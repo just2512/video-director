@@ -484,17 +484,23 @@ function _previewRenderVisualOverlays(sec) {
     const top = clamp(clip.y, 0, 1, 0.1) * 100;
     const width = clamp(clip.width, 0.05, 1, 0.3) * 100;
     const height = clamp(clip.height, 0.05, 1, 0.3) * 100;
+    // Keep the live Preview's source fitting identical to the FFmpeg renderer.
+    // PiP/stickers preserve aspect ratio inside their box; full-frame is cover by default.
+    const fitMode = clip.presentation_mode === 'full_frame'
+      ? (clip.fit_mode === 'contain' ? 'contain' : 'cover')
+      : 'contain';
     if (clip.transform) {
       _previewApplyLayerTransform(node, {
         transform: clip.transform,
         type: asset && asset.type || '',
-        fit_mode: 'cover'
+        fit_mode: fitMode
       });
     } else {
       node.style.left = left + '%';
       node.style.top = top + '%';
       node.style.width = width + '%';
       node.style.height = height + '%';
+      node.style.objectFit = fitMode;
       node.style.opacity = String(clamp(clip.opacity, 0, 1, 1));
     }
     node.style.zIndex = String(effectiveZ);
