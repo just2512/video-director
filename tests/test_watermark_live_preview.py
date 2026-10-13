@@ -28,8 +28,8 @@ def test_timed_text_watermark_appears_and_disappears_on_shared_live_preview_cloc
     project_id = "web-e2e-live-watermark-parity"
     still = tmp_path / "watermark-live-preview-still.png"
     still.write_bytes(base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8AAQACfsD/"
-        "2kAAAAASUVORK5CYII="
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/"
+        "lYkAAAAASUVORK5CYII="
     ))
     store.create_project(project_id, "实时预览水印回归", {"name": "实时预览水印回归"})
     base = _test_composition(still)
