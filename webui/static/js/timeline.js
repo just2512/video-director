@@ -397,10 +397,18 @@ function renderPhysicalTimeline(){
     const asset = a.asset_id && c.assets && c.assets[a.asset_id];
     const assetName = asset && (asset.name || (asset.file && asset.file.split(/[\\/]/).pop())) || a.asset_id || '未绑定素材';
     const edgeNote = !inRange ? ' · 超出项目片长，当前不会出现在成片中' : (end > total ? ' · 末尾超出片长，渲染时截断' : '');
+    const linkedOverlay = a.linked_visual_overlay_id
+      ? (c.visual_overlays || []).find(item => item.id === a.linked_visual_overlay_id)
+      : null;
+    const linkNote = a.linked_visual_overlay_id
+      ? (linkedOverlay
+          ? ` · 已关联画面片段 ${linkedOverlay.id}（移动/修剪/切分/删除会同步声音）`
+          : ' · 画面关联丢失，需检查项目数据')
+      : '';
     return {
       positioned: true, leftPct, pct, outOfRange: !inRange,
       text: label,
-      title: `${label} · ${assetName} · ${start.toFixed(2)}–${end.toFixed(2)}s · ${gain}${edgeNote} · 点击打开该类型音轨设置`,
+      title: `${label} · ${assetName} · ${start.toFixed(2)}–${end.toFixed(2)}s · ${gain}${edgeNote}${linkNote} · 点击打开该类型音轨设置`,
       audioIndex: (c.audio || []).indexOf(a),
       onclick
     };
