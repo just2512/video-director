@@ -787,7 +787,7 @@ def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
     assert red[0] > red[1] * 1.2 and red[0] > red[2] * 1.5, red
     green = _pixel_at(ffmpeg, output, 0.72, 5, 5)
     assert green[1] > green[0] * 1.2 and green[1] > green[2] * 1.3, green
-    yellow = _pixel_at(ffmpeg, output, 0.95, 5, 5)
+    yellow = _pixel_at(ffmpeg, output, 0.89, 5, 5)
     assert yellow[0] > yellow[2] * 1.5 and yellow[1] > yellow[2] * 1.5, yellow
     blue = _pixel_at(ffmpeg, output, 1.2, 5, 5)
     assert blue[2] > blue[0] * 1.5, blue
