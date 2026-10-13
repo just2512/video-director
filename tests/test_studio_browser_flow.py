@@ -807,7 +807,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     if (!node || !canvas) return null;
                     const rect = canvas.getBoundingClientRect();
                     const liftedOverlay = document.querySelector('#ed-preview-stage .pv-live-overlay-image');
-                    return {
+                    const previewResult = {
                       liftedOverlay: liftedOverlay ? {
                         position: liftedOverlay.style.position, left: liftedOverlay.style.left,
                         top: liftedOverlay.style.top, width: liftedOverlay.style.width,
@@ -822,6 +822,16 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                       canvasRatio: rect.height > 0 ? rect.width / rect.height : 0,
                       expectedRatio: ED.comp.project.width / ED.comp.project.height
                     };
+                    // A lifted clip uses transform-specific inspector fields; opening its
+                    // properties must not focus a legacy field that is absent from the DOM.
+                    editorVisualOverlayOpen(0);
+                    previewResult.liftedInspector = {
+                      transformX: !!document.querySelector('#visual-overlay-inspector-mask #visual-overlay-transform-x'),
+                      transformScale: !!document.querySelector('#visual-overlay-inspector-mask #visual-overlay-transform-scale'),
+                      legacyX: !!document.querySelector('#visual-overlay-inspector-mask #visual-overlay-x')
+                    };
+                    editorVisualOverlayClose();
+                    return previewResult;
                   } finally {
                     ED.comp = originalComp;
                     PV.mode = originalPV.mode; PV.playing = originalPV.playing; PV.playhead = originalPV.playhead;
@@ -848,6 +858,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert layer_transform_preview["liftedOverlay"] == {
                     "position": "absolute", "left": "calc(0%)", "top": "calc(25%)",
                     "width": "50%", "height": "50%", "opacity": "0.75", "transform": "rotate(15deg)"
+                }, layer_transform_preview
+                assert layer_transform_preview["liftedInspector"] == {
+                    "transformX": True, "transformScale": True, "legacyX": False
                 }, layer_transform_preview
 
                 # The word-level subtitle track is time-aligned too: preserve the

@@ -176,7 +176,8 @@ function editorVisualOverlayOpen(index, ev) {
     </section>`;
   mask.addEventListener('click', e => { if (e.target === mask) editorVisualOverlayClose(); });
   document.body.appendChild(mask);
-  mask.querySelector('#visual-overlay-x').focus();
+  const initialFocus = mask.querySelector('#visual-overlay-transform-x') || mask.querySelector('#visual-overlay-x');
+  if (initialFocus) initialFocus.focus();
 }
 async function editorVisualOverlaySplit(index) {
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
