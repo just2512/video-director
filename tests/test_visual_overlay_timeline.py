@@ -1892,6 +1892,87 @@ def test_direct_audio_move_or_split_detaches_from_visual_clip(tmp_path, monkeypa
     assert len(comp2.visual_overlays) == 1
     assert comp2.visual_overlays[0].id == "linked-overlay"
 
+
+def test_timeline_clip_mutations_reject_boolean_time_values(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch)
+    attempts = [
+        ("move_visual_overlay", "overlay#0", {"start": True}),
+        ("trim_visual_overlay", "overlay#0", {"start": True, "sourceIn": 1.0, "duration": 2.0}),
+        ("trim_visual_overlay", "overlay#0", {"start": 2.0, "sourceIn": True, "duration": 2.0}),
+        ("trim_visual_overlay", "overlay#0", {"start": 2.0, "sourceIn": 1.0, "duration": True}),
+        ("move_audio_clip", "audio#0", {"start": True}),
+        ("trim_audio_clip", "audio#0", {"start": True, "sourceIn": 1.0, "sourceOut": 4.0}),
+        ("trim_audio_clip", "audio#0", {"start": 2.0, "sourceIn": True, "sourceOut": 4.0}),
+        ("trim_audio_clip", "audio#0", {"start": 2.0, "sourceIn": 1.0, "sourceOut": True}),
+    ]
+
+    for command, target, payload in attempts:
+        result = _apply(pid, command, target, payload, 1)
+        assert result.status == "REJECTED", (command, payload, result.errors)
+        assert result.errors[0]["code"] == "INVALID_PAYLOAD", (command, payload, result.errors)
+
+    unchanged = load_composition(pid)
+    assert (unchanged.visual_overlays[0].start, unchanged.visual_overlays[0].source_in,
+            unchanged.visual_overlays[0].duration) == (2.0, 1.0, 4.0)
+    assert (unchanged.audio[0].start, unchanged.audio[0].source_in,
+            unchanged.audio[0].source_out, unchanged.audio[0].linked_visual_overlay_id) == (
+                2.0, 1.0, 5.0, "linked-overlay",
+            )
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+
+def test_main_timeline_time_fields_reject_boolean_values_without_persisting(tmp_path, monkeypatch):
+    pid, plans = _editor_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    source = tmp_path / "main-video.mp4"
+    source.write_bytes(b"fixture; command contract test does not render this source")
+    comp.assets.append(AssetRef(
+        id="main-video", type="video", file=str(source.resolve()),
+        duration=10.0, width=320, height=180, fps=10,
+    ))
+    comp.scenes[0] = comp.scenes[0].model_copy(update={"layers": [
+        Layer(
+            type=LayerType.video, asset_id="main-video", start=0.0, duration=10.0,
+            source_in=0.0, source_out=10.0,
+        ),
+    ]})
+    save_composition(pid, comp)
+
+    attempts = [
+        ("split_layer", "S01#0", {"at": True}),
+        ("trim", "S01#0", {"sourceIn": True}),
+        ("trim", "S01#0", {"sourceOut": True}),
+        ("set_duration", "S01", {"duration": True}),
+    ]
+    for command, target, payload in attempts:
+        result = _apply(pid, command, target, payload, 1)
+        assert result.status == "REJECTED", (command, payload, result.errors)
+        assert result.errors[0]["code"] == "INVALID_PAYLOAD", (command, payload, result.errors)
+
+    unchanged = load_composition(pid)
+    assert unchanged.scenes[0].duration == 10.0
+    assert len(unchanged.scenes[0].layers) == 1
+    layer = unchanged.scenes[0].layers[0]
+    assert (layer.source_in, layer.source_out, layer.duration) == (0.0, 10.0, 10.0)
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+    lift_pid, lift_plans = _editor_project(tmp_path / "lift", monkeypatch)
+    lift_comp = load_composition(lift_pid)
+    lift_scene = lift_comp.scenes[0]
+    lift_comp.scenes[0] = lift_scene.model_copy(update={"layers": [
+        lift_scene.layers[0].model_copy(update={"asset_id": "overlay-image"}),
+    ]})
+    save_composition(lift_pid, lift_comp)
+    promoted = _apply(lift_pid, "promote_layer_to_visual_track", "S01#0", {"start": True}, 1)
+    assert promoted.status == "REJECTED", promoted.errors
+    assert promoted.errors[0]["code"] == "INVALID_PARAMETER"
+    still = load_composition(lift_pid)
+    assert len(still.scenes[0].layers) == 1
+    assert still.visual_overlays == []
+    assert (lift_plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
 def test_linked_overlay_audio_volume_stays_editable_without_duplicate_embedded_sound(tmp_path, monkeypatch):
     pid, plans = _linked_video_project(tmp_path, monkeypatch)
     enable_embedded = _apply(pid, "set_visual_overlay", "overlay#0", {
