@@ -2530,8 +2530,11 @@ def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
     index = _visual_overlay_index(ir, target_id)
     clip = ir.visual_overlays[index]
     _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
+    raw_start = payload.get("start")
+    if isinstance(raw_start, bool):
+        raise EditorError("INVALID_PAYLOAD", "move_visual_overlay 的 start 不能是布尔值")
     try:
-        start = float(payload.get("start"))
+        start = float(raw_start)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "move_visual_overlay 需要数字 start") from exc
     if not math.isfinite(start) or start < 0:
@@ -2587,10 +2590,17 @@ def _cmd_trim_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
     index = _visual_overlay_index(ir, target_id)
     clip = ir.visual_overlays[index]
     _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
+    raw_values = (
+        ("start", payload.get("start", clip.start)),
+        ("sourceIn", payload.get("sourceIn", clip.source_in)),
+        ("duration", payload.get("duration", clip.duration)),
+    )
+    if any(isinstance(value, bool) for _name, value in raw_values):
+        raise EditorError("INVALID_PAYLOAD", "trim_visual_overlay 的 start/sourceIn/duration 不能是布尔值")
     try:
-        start = float(payload.get("start", clip.start))
-        source_in = float(payload.get("sourceIn", clip.source_in))
-        duration = float(payload.get("duration", clip.duration))
+        start = float(raw_values[0][1])
+        source_in = float(raw_values[1][1])
+        duration = float(raw_values[2][1])
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "trim_visual_overlay 需要数字 start/sourceIn/duration") from exc
     if not all(math.isfinite(v) for v in (start, source_in, duration)):
@@ -3317,8 +3327,11 @@ def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     index = _audio_clip_index(ir, target_id)
     track = ir.audio[index]
     _ensure_audio_lane_unlocked(ir, str(track.track_id or f"audio-{track.type.value}"))
+    raw_start = payload.get("start")
+    if isinstance(raw_start, bool):
+        raise EditorError("INVALID_PAYLOAD", "move_audio_clip 的 start 不能是布尔值")
     try:
-        start = float(payload.get("start"))
+        start = float(raw_start)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "move_audio_clip 需要数字 start") from exc
     total = float(ir.project.duration)
@@ -3354,10 +3367,14 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     index = _audio_clip_index(ir, target_id)
     track = ir.audio[index]
     _ensure_audio_lane_unlocked(ir, str(track.track_id or f"audio-{track.type.value}"))
+    raw_start = payload.get("start", track.start)
+    raw_source_in = payload.get("sourceIn", payload.get("source_in", track.source_in or 0.0))
+    source_out_raw = payload.get("sourceOut", payload.get("source_out"))
+    if any(isinstance(value, bool) for value in (raw_start, raw_source_in, source_out_raw)):
+        raise EditorError("INVALID_PAYLOAD", "trim_audio_clip 的 start/sourceIn/sourceOut 不能是布尔值")
     try:
-        start = float(payload.get("start", track.start))
-        source_in = float(payload.get("sourceIn", payload.get("source_in", track.source_in or 0.0)))
-        source_out_raw = payload.get("sourceOut", payload.get("source_out"))
+        start = float(raw_start)
+        source_in = float(raw_source_in)
         source_out = float(source_out_raw)
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "trim_audio_clip 需要 start/sourceIn/sourceOut 数字") from exc
