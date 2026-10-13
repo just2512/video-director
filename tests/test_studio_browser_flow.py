@@ -1193,3 +1193,131 @@ def test_selected_main_clip_can_be_lifted_to_playhead_from_toolbar(tmp_path, mon
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+
+def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolbar(tmp_path, monkeypatch):
+    """Global overlay selection and toolbar actions must operate on persisted clips."""
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
+    results_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = results_dir / "visual-overlay-toolbar-failure-trace.zip"
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = Path(os.environ["VIDEO_DIRECTOR_STORAGE_ROOT"])
+
+    pid = "web-e2e-visual-overlay-toolbar"
+    still = tmp_path / "overlay-toolbar-still.png"
+    still.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/"
+        "lYkAAAAASUVORK5CYII="
+    ))
+    store.create_project(pid, "Visual overlay toolbar", {"name": "Visual overlay toolbar"})
+    comp = _test_composition(still)
+    comp.visual_tracks = [VisualTrack(id="overlay-main", name="叠加轨", order=0)]
+    comp.visual_overlays = [
+        VisualOverlayClip(
+            id="e2e-overlay", asset_id="e2e-still", start=0.25, duration=0.75,
+            source_in=0.0, track_id="overlay-main", presentation_mode="sticker",
+            source_audio_enabled=False, x=0.6, y=0.1, width=0.3, height=0.3,
+            opacity=0.8, z_index=1,
+        )
+    ]
+    editor.save_composition(pid, comp)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            tracing = False
+            try:
+                context.tracing.start(screenshots=False, snapshots=True, sources=True)
+                tracing = True
+                page = context.new_page()
+                page_errors: list[str] = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)))
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="networkidle",
+                )
+                assert response and response.status == 200
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                assert opened.get("ok"), opened
+                page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
+
+                overlay = page.locator('#editor-timeline .ed-visual-overlay-clip[data-visual-overlay-index="0"]')
+                overlay.wait_for(state="visible")
+                overlay.click()
+                page.wait_for_function(
+                    "() => SEL.selection && SEL.selection.type === 'visual_overlay' && SEL.selection.id === 'e2e-overlay'"
+                )
+                assert "ed-tl-clip-selected" in (overlay.get_attribute("class") or "")
+                page.evaluate("() => { window.PLAYHEAD.at = 0.6; }")
+                with page.expect_response(
+                    lambda item: item.request.method == "POST"
+                    and item.url.endswith("/api/editor/command"),
+                    timeout=10000,
+                ) as response_info:
+                    page.locator('button[data-action="ui.split_layer"]').click()
+                command_response = response_info.value
+                assert command_response.status == 200
+                command_body = command_response.json()
+                assert command_body.get("status") == "APPLIED", command_body
+                page.wait_for_function(
+                    "() => ED.comp && Array.isArray(ED.comp.visual_overlays) && ED.comp.visual_overlays.length === 2"
+                )
+
+                persisted = page.evaluate("""async (projectId) => {
+                  const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+                  return {status: response.status, body: await response.json()};
+                }""", pid)
+                assert persisted["status"] == 200, persisted
+                result = persisted["body"]
+                left, right = result["visual_overlays"]
+                assert left["id"] == "e2e-overlay"
+                assert abs(float(left["start"]) - 0.25) < 0.002
+                assert abs(float(left["duration"]) - 0.35) < 0.002
+                assert abs(float(right["start"]) - 0.6) < 0.002
+                assert abs(float(right["duration"]) - 0.4) < 0.002
+                assert left["asset_id"] == right["asset_id"] == "e2e-still"
+                assert left["track_id"] == right["track_id"] == "overlay-main"
+                assert left["presentation_mode"] == right["presentation_mode"] == "sticker"
+                assert left["source_in"] == right["source_in"] == 0.0
+                assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
+
+                selected_overlay = page.locator('#editor-timeline .ed-visual-overlay-clip[data-visual-overlay-index="0"]')
+                selected_overlay.click()
+                page.locator('button[data-action="ui.edit_visual_overlay"]').click()
+                assert page.locator("#visual-overlay-inspector-mask").is_visible()
+                page.locator("#visual-overlay-inspector-mask button[onclick='editorVisualOverlayClose()']").first.click()
+                assert not page.locator("#visual-overlay-inspector-mask").count()
+            except BaseException:
+                if tracing:
+                    try:
+                        context.tracing.stop(path=str(trace_path))
+                    except Exception:
+                        pass
+                    tracing = False
+                raise
+            finally:
+                if tracing:
+                    try:
+                        context.tracing.stop()
+                    except Exception:
+                        pass
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

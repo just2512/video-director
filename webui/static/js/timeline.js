@@ -378,10 +378,12 @@ function renderPhysicalTimeline(){
       const asset = Array.isArray(sourceAssets) ? sourceAssets.find(item => item.id === clip.asset_id) : sourceAssets[clip.asset_id];
       const assetName = asset && (asset.name || (asset.file && String(asset.file).split(/[\\/]/).pop())) || clip.asset_id || '素材';
       const thumbnailUrl = asset ? (asset.thumbnail_url || ('/api/asset_thumbnail?asset_id=' + encodeURIComponent(clip.asset_id))) : '';
-      return { positioned:true, leftPct, pct, visualOverlayIndex:index, visualTrackId:trackId, thumbnailUrl,
+      return { positioned:true, leftPct, pct, visualOverlayIndex:index, visualOverlayId:String(clip.id || ''),
+        visualTrackId:trackId, thumbnailUrl,
+        selected: typeof edIsSelected === 'function' && edIsSelected('visual_overlay', String(clip.id || '')),
         text:String(assetName).slice(0, 12),
-        title:'画面轨道 · ' + (track.name || '画面叠加') + ' · ' + assetName + ' · ' + start.toFixed(2) + '–' + (start + duration).toFixed(2) + 's · 横拖移动，纵拖换轨，边缘修剪',
-        onclick:'editorVisualOverlayOpen(' + index + ', event)' };
+        title:'画面轨道 · ' + (track.name || '画面叠加') + ' · ' + assetName + ' · ' + start.toFixed(2) + '–' + (start + duration).toFixed(2) + 's · 点击选中，拖动移动/修剪；选中后可切分或编辑',
+        onclick:'editorSelectVisualOverlay(' + index + ', event)' };
     }).filter(item => String((visualOverlays[item.visualOverlayIndex] || {}).track_id || 'overlay-main') === trackId);
     tracks.picture.push({ id:'visual-overlay-' + trackId, label:track.name || '画面叠加',
       visualTrackId:trackId, trackOrder:Number(track.order) || 0, locked:!!track.locked, addAction:'editorVisualOverlayPick', newTrackAction:(Number(track.order) === 0 ? 'editorVisualTrackCreate' : null), clips });
@@ -478,6 +480,7 @@ function renderPhysicalTimeline(){
           const clipClass = hasAudioIndex ? ' ed-audio-clip' :
             (hasWatermarkIndex ? ' ed-watermark-clip' :
             (hasVisualOverlayIndex ? ' ed-visual-overlay-clip' : (hasSubtitleCueIndex ? ' ed-subtitle-cue' : '')));
+          const selectedClass = cl.selected ? ' ed-tl-clip-selected' : '';
           const thumbnailHtml = hasVisualOverlayIndex && cl.thumbnailUrl
             ? `<img class="ed-clip-thumb" src="${esc(cl.thumbnailUrl)}" alt="" loading="lazy" decoding="async"><span class="ed-track-clip-label">${esc(cl.text)}</span>`
             : esc(cl.text);
@@ -490,7 +493,7 @@ function renderPhysicalTimeline(){
                     : (hasSubtitleCueIndex
                         ? ` onclick="editorSubtitleCueSelect(${cl.subtitleCueIndex}, event)"`
                         : (cl.onclick ? ` onclick="${cl.onclick}"` : ''))));
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${subtitleCueAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${thumbnailHtml}</div>`;
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}${selectedClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${subtitleCueAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${thumbnailHtml}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
@@ -1718,70 +1721,67 @@ async function verCompareSelected(){
 
 // §8 拆分导出：inline onclick/window 引用兼容
 /** Split the selected visual layer at the global playback-head time. */
+/** Select a global visual clip without opening a modal so timeline tools remain reachable. */
+function editorSelectVisualOverlay(index, ev){
+  if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
+  if (!clip || !clip.id) {
+    editorToast('画面片段已变化，请重新选择。', true);
+    return {ok:false, error:'VISUAL_OVERLAY_NOT_FOUND'};
+  }
+  select('visual_overlay', String(clip.id), ev, 'timeline');
+  if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
+  return {ok:true, id:String(clip.id)};
+}
+
+/** Open the visual inspector for the currently selected global visual clip. */
+function editorEditSelectedVisualOverlay(){
+  const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
+  if (!selection || selection.type !== 'visual_overlay' || !selection.id) {
+    editorToast('先在独立画面轨道中选中一个片段，再编辑它的属性。', true);
+    return {ok:false, error:'NO_VISUAL_OVERLAY_SELECTION'};
+  }
+  const overlays = ED.comp && Array.isArray(ED.comp.visual_overlays) ? ED.comp.visual_overlays : [];
+  const index = overlays.findIndex(clip => String(clip.id) === String(selection.id));
+  if (index < 0) {
+    editorToast('所选画面片段已变化，请重新选择。', true);
+    return {ok:false, error:'VISUAL_OVERLAY_NOT_FOUND'};
+  }
+  editorVisualOverlayOpen(index);
+  return {ok:true, id:selection.id};
+}
+
+/** Split selected main-picture layers or global visual clips at the playhead. */
 async function editorSplitSelectedLayer(){
   const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
-  if (!selection || selection.type !== 'layer' || !selection.id) {
-    editorToast('先在时间线中选择一个图层，再把播放头放到片段内部切分。', true);
-    return;
+  if (!selection || !selection.id) {
+    editorToast('先在时间线中选择一个片段，再把播放头放到片段内部切分。', true);
+    return {ok:false, error:'NO_TIMELINE_SELECTION'};
+  }
+  if (selection.type === 'visual_overlay') {
+    const overlays = ED.comp && Array.isArray(ED.comp.visual_overlays) ? ED.comp.visual_overlays : [];
+    const index = overlays.findIndex(clip => String(clip.id) === String(selection.id));
+    if (index < 0) {
+      editorToast('所选画面片段已变化，请重新选择。', true);
+      return {ok:false, error:'VISUAL_OVERLAY_NOT_FOUND'};
+    }
+    if (typeof editorVisualOverlaySplit !== 'function') {
+      editorToast('画面片段切分入口尚未加载，项目未修改。', true);
+      return {ok:false, error:'VISUAL_OVERLAY_SPLIT_UNAVAILABLE'};
+    }
+    return await editorVisualOverlaySplit(index);
+  }
+  if (selection.type !== 'layer') {
+    editorToast('当前选择不是可切分的主画面或独立画面片段。', true);
+    return {ok:false, error:'UNSUPPORTED_SELECTION'};
   }
   const result = await editorCmd('split_layer', {at: PLAYHEAD.at}, selection.id, true);
   if (result && result.ok) editorToast('片段已在播放头处切分');
   else editorToast('切分未完成：' + ((result && result.error) || '请把播放头放在片段内部'), true);
-}
-
-/** Place the selected main-picture clip at the playhead on an independent visual track.
- * This converts the selected scene layer to a global visual clip, retaining an explicit
- * gap at its old position. The server validates effects/source windows and preserves
- * any linked original audio as part of the same CompositionIR revision.
- */
-async function editorLiftSelectedLayerToPlayhead(){
-  const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
-  if (!selection || selection.type !== 'layer' || !selection.id) {
-    editorToast('先选中主画面中的视频/图片片段，再把播放头移到目标起点。', true);
-    return {ok:false, error:'NO_LAYER_SELECTION'};
-  }
-  const parts = String(selection.id).split('#');
-  const sceneId = parts[0];
-  const layerIndex = parts.length === 2 ? Number.parseInt(parts[1], 10) : NaN;
-  const scene = (ED.comp && ED.comp.scenes || []).find(item => item.id === sceneId);
-  const layer = scene && Number.isInteger(layerIndex) ? scene.layers[layerIndex] : null;
-  if (!layer || !['video', 'image'].includes(String(layer.type || '').toLowerCase())) {
-    editorToast('只有主画面中的视频或静态图片可以移到独立画面轨道；动态效果会由服务端检查。', true);
-    return {ok:false, error:'UNSUPPORTED_LAYER'};
-  }
-  const start = Number(PLAYHEAD && PLAYHEAD.at);
-  const duration = Number(layer.duration);
-  const total = Number((ED.comp && ED.comp.duration) || (ED.comp && ED.comp.project && ED.comp.project.duration));
-  if (!Number.isFinite(start) || start < 0 || !Number.isFinite(duration) || duration <= 0 ||
-      !Number.isFinite(total) || total <= 0) {
-    editorToast('播放头或片段时长无效，项目未修改。', true);
-    return {ok:false, error:'INVALID_TIMELINE_RANGE'};
-  }
-  if (start + duration > total + 0.001) {
-    editorToast('片段放到此处会超出项目片长；请将播放头移到 ' +
-      Math.max(0, total - duration).toFixed(2) + 's 之前。项目未修改。', true);
-    return {ok:false, error:'INVALID_TIMELINE_RANGE'};
-  }
-  let result;
-  try {
-    result = await executeCommand({
-      command: 'promote_layer_to_visual_track',
-      targetId: selection.id,
-      payload: {start: Math.round(start * 1000) / 1000}
-    });
-  } catch (error) {
-    editorToast('片段未移动：' + (error && error.message ? error.message : error), true);
-    return {ok:false, error:String(error)};
-  }
-  if (result && result.ok) {
-    editorToast('片段已放到 ' + start.toFixed(2) +
-      's 的独立画面轨道；原位置保留空隙，现在可以独立移动、修剪和切分。');
-    if (typeof refreshWorkspace === 'function') await refreshWorkspace();
-  } else {
-    editorToast('片段未移动：' + ((result && (result.error || result.message)) || '服务端拒绝此次转换'), true);
-  }
   return result || {ok:false, error:'EMPTY_RESULT'};
 }
+
 
 async function editorAddEditAllTracks(){
   const at = Number(PLAYHEAD && PLAYHEAD.at);
@@ -1807,7 +1807,7 @@ Object.assign(window, {
   edClearSelection, edSelectedCount,
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
-  editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer, editorLiftSelectedLayerToPlayhead, editorAddEditAllTracks,
+  editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorLiftSelectedLayerToPlayhead, editorAddEditAllTracks,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
   editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackMenu, editorAudioTrackMenuClose,
   editorAudioTrackApplyName, editorAudioTrackRemove,

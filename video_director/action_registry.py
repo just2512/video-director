@@ -235,11 +235,13 @@ _ACTIONS: List[ActionSpec] = [
                targets=["scene"],
                aliases=["拆开", "切成两半"]),
     ActionSpec("ui.split_layer", "切分片段", "system.capabilities.list", "noop",
-               targets=["project", "scene", "layer"], undo=False, ui="split_layer"),
+               targets=["project", "scene", "layer", "visual_overlay"], undo=False, ui="split_layer"),
     ActionSpec("ui.lift_layer_to_playhead", "主画面片段移到播放头", "system.capabilities.list", "noop",
                targets=["project", "scene", "layer"], undo=False, ui="lift_layer_to_playhead"),
     ActionSpec("ui.add_edit_all_tracks", "添加编辑（全轨）", "system.capabilities.list", "noop",
                targets=["project", "scene", "layer"], undo=False, ui="add_edit_all_tracks"),
+    ActionSpec("ui.edit_visual_overlay", "编辑画面片段", "system.capabilities.list", "noop",
+               targets=["project", "visual_overlay"], undo=False, ui="edit_visual_overlay"),
     ActionSpec("timeline.delete", "删除", "timeline.delete", "delete",
                targets=["scene", "layer"],
                aliases=["删除场景", "移除图层", "删掉"],
@@ -573,7 +575,7 @@ _CONTEXT_KEYS = {
         "voice.change", "voice.preview",
         # §58 UI 交互动作（dispatcher 本地执行；group 暴露 ui 字段）
         "ui.undo", "ui.redo", "ui.save", "ui.preview_draft", "ui.render_draft",
-        "ui.split_layer", "ui.add_edit_all_tracks", "ui.lift_layer_to_playhead",
+        "ui.split_layer", "ui.add_edit_all_tracks", "ui.lift_layer_to_playhead", "ui.edit_visual_overlay",
         "ui.editor_session_snap", "ui.editor_session_box",
         "ui.creative_plan_toggle", "ui.creative_plan_reload",
         "ui.creative_plan_initialize", "ui.creative_plan_save", "ui.creative_plan_validate",
@@ -620,6 +622,9 @@ _CONTEXT_KEYS = {
     ("layer", None): [
         "asset.replace", "timeline.delete", "timeline.duplicate",
         "visual.transform", "visual.motion",
+    ],
+    ("visual_overlay", None): [
+        "ui.split_layer", "ui.edit_visual_overlay",
     ],
     ("scene_pair", None): [
         "relation.set",
