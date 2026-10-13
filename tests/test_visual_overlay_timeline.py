@@ -2223,3 +2223,32 @@ def test_visual_overlay_move_trim_split_use_the_same_project_frame_grid_as_add(t
     assert (left_audio.start, left_audio.duration, left_audio.source_in, left_audio.source_out) == (2.0, 2.1, 1.0, 3.1)
     assert (right_audio.start, right_audio.duration, right_audio.source_in, right_audio.source_out) == (4.1, 1.9, 3.1, 5.0)
 
+def test_moving_legacy_off_frame_visual_clip_normalizes_end_and_linked_audio(tmp_path, monkeypatch):
+    # Legacy project JSON can predate frame-grid enforcement. A move must not
+    # align only the left edge while leaving the clip/audio right edge off-grid.
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    index = next(i for i, clip in enumerate(comp.visual_overlays) if clip.id == "linked-overlay")
+    comp.visual_overlays[index] = comp.visual_overlays[index].model_copy(update={"duration": 4.05})
+    audio_index = next(i for i, clip in enumerate(comp.audio) if clip.id == "linked-audio")
+    comp.audio[audio_index] = comp.audio[audio_index].model_copy(update={
+        "duration": 4.05, "source_out": 5.05,
+    })
+    save_composition(pid, comp)
+
+    moved = _apply(pid, "move_visual_overlay", "overlay#0", {"start": 3.15}, 1)
+    assert moved.status == "APPLIED", moved.errors
+    result = load_composition(pid)
+    clip = next(item for item in result.visual_overlays if item.id == "linked-overlay")
+    audio = next(item for item in result.audio if item.id == "linked-audio")
+
+    assert (clip.start, clip.duration, clip.start + clip.duration) == (3.2, 4.1, 7.3)
+    assert (audio.start, audio.duration, audio.source_in, audio.source_out) == (3.2, 4.1, 1.0, 5.1)
+
+    rejected = _apply(pid, "move_visual_overlay", "overlay#0", {"start": 6.0}, moved.composition_version)
+    assert rejected.status == "REJECTED"
+    assert rejected.errors[0]["code"] == "INVALID_PARAMETER"
+    unchanged = load_composition(pid)
+    still = next(item for item in unchanged.visual_overlays if item.id == "linked-overlay")
+    assert (still.start, still.duration) == (3.2, 4.1)
+
