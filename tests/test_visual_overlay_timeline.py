@@ -2519,3 +2519,37 @@ def test_moving_legacy_off_frame_visual_clip_normalizes_end_and_linked_audio(tmp
     still = next(item for item in unchanged.visual_overlays if item.id == "linked-overlay")
     assert (still.start, still.duration) == (3.2, 4.1)
 
+def test_project_frame_clock_is_shared_by_frontend_split_actions():
+    root = Path(__file__).resolve().parents[1]
+    math_path = root / "webui" / "static" / "js" / "timeline-edit-math.js"
+    timeline_js = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
+    overlay_js = (root / "webui" / "static" / "js" / "visual-overlay-editor.js").read_text(encoding="utf-8")
+
+    # Execute the actual JS helper, not a Python reimplementation. Values on
+    # either side of a half-frame boundary must match the backend frame rule.
+    script = """
+require(process.argv[1]);
+const math = globalThis.TimelineEditMath;
+const values = [
+  math.projectFrameTime(1.0166, 30),
+  math.projectFrameTime(1.0167, 30),
+  math.projectFrameTime(1.017, 30),
+  math.projectFrameTime(1.019, 25),
+  math.projectFrameTime(1.021, 25)
+];
+process.stdout.write(JSON.stringify(values));
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(math_path)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "[1,1.033333,1.033333,1,1.04]"
+
+    # All three split entry points use the same time conversion, and audio no
+    # longer rounds to milliseconds before the server chooses the frame.
+    assert "function editorProjectFrameTime" in timeline_js
+    assert "function editorSnapPlayheadToFrame" in timeline_js
+    assert "editorSnapPlayheadToFrame(requestedAt)" in timeline_js
+    assert "editorSnapPlayheadToFrame(requestedAt)" in overlay_js
+    assert "payload: {at: Math.round(at * 1000) / 1000}" not in timeline_js
