@@ -22,7 +22,9 @@ function templateGalleryOpen() {
   mask.className = "tg-mask";
   mask.innerHTML = '<section class="tg-panel" role="dialog" aria-modal="true" aria-labelledby="tg-title">' +
     '<header class="tg-header"><div><h2 id="tg-title">模板与真实样片</h2><p>查看执行条件，用自己的素材试渲染。只有真实渲染并完成 MP4 解码后才记作样片通过。</p></div>' +
-    '<button class="btn-secondary btn-sm" type="button" onclick="templateGalleryClose()">关闭</button></header>' +
+    '<div class="tg-header-actions"><input id="tg-package-input" type="file" accept=".zip,application/zip" hidden onchange="templateGalleryImportPackage()">' +
+    '<button class="btn-secondary btn-sm" type="button" onclick="document.getElementById(\'tg-package-input\').click()">导入 HTML 视频包 ZIP</button>' +
+    '<button class="btn-secondary btn-sm" type="button" onclick="templateGalleryClose()">关闭</button></div></header>' +
     '<div class="tg-filters"><label>类别 <select id="tg-category"><option value="">全部类别</option></select></label>' +
     '<label>画幅 <select id="tg-ratio-filter"><option value="">全部画幅</option><option>9:16</option><option>16:9</option><option>1:1</option><option>3:4</option><option>4:5</option></select></label>' +
     '<span id="tg-count" class="hint" role="status">正在读取模板……</span></div>' +
@@ -57,6 +59,39 @@ async function templateGalleryLoad() {
     if (list) list.innerHTML = '<div class="tg-empty">模板读取失败：' + tgEscape(e.message || e) + ' <button class="btn-secondary btn-sm" onclick="templateGalleryLoad()">重试</button></div>';
     if (status) status.textContent = "读取失败；没有使用本地假数据替代。";
     return false;
+  }
+}
+async function templateGalleryImportPackage() {
+  const fileInput = document.getElementById("tg-package-input");
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  const status = document.getElementById("tg-status");
+  if (!file) return;
+  if (!/\.zip$/i.test(file.name) || file.size <= 0 || file.size > 50 * 1024 * 1024) {
+    if (status) status.textContent = "模板包必须是非空 ZIP，且不得超过 50 MiB。";
+    if (fileInput) fileInput.value = "";
+    return;
+  }
+  const fd = new FormData();
+  fd.append("package_file", file, file.name);
+  TG.busy = true;
+  if (status) status.textContent = "正在校验 ZIP 路径、manifest、来源授权声明和资源依赖……";
+  try {
+    const result = await apiUpload("/api/html_templates/import", fd, {timeoutMs: 120000});
+    if (!result || !result.ok) {
+      throw new Error((result && result.error) || "模板包导入失败");
+    }
+    TG.busy = false;
+    if (fileInput) fileInput.value = "";
+    const loaded = await templateGalleryLoad();
+    if (!loaded) throw new Error("导入成功但模板清单刷新失败；重试读取模板清单即可");
+    TG.selectedKey = String(result.template_id) + "@" + String(result.template_version);
+    templateGalleryFilter();
+    if (status) status.textContent = result.message || "模板包已导入。";
+  } catch (e) {
+    TG.busy = false;
+    if (status) status.textContent = "导入失败：" + String(e.message || e);
+    if (fileInput) fileInput.value = "";
+    templateGalleryUpdateButtons();
   }
 }
 function templateGalleryFilter() {
@@ -108,6 +143,16 @@ function templateGalleryRenderDetail() {
   if (!t) { detail.innerHTML = '<div class="tg-empty">没有符合条件的模板，请调整筛选条件。</div>'; return; }
   const r = t.runtime || {}, blockers = r.blockers || [], warnings = r.warnings || [], ratios = t.supported_ratios || [];
   const first = ratios.includes("9:16") ? "9:16" : (ratios[0] || "");
+  const isHtmlPackage = r.adapter === "html-video-python-playwright" && !!r.package_id;
+  const inputSection = isHtmlPackage
+    ? '<section class="tg-subsection"><h4>HTML 视频包运行说明</h4>' +
+      '<p>此包会在隔离的 Chromium 中真实录制，再由 FFmpeg 编码并完整解码 MP4。运行时阻断所有非本机模板服务的网络请求。</p>' +
+      '<p>当前它是可验证的独立 HTML 样片，不是可编辑的 CompositionIR。样片运行成功不代表其动画、音频和 HTML 结构已经转换为时间线图层；“创建可编辑项目”暂不可用。</p>' +
+      '<p>资源指纹：' + tgEscape(r.package_sha256 || "缺失") + '</p></section>'
+    : '<section class="tg-subsection"><h4>使用自己的素材</h4><p class="hint">支持画幅：' + tgEscape(ratios.join("、") || "未声明") + ' · ' + tgEscape(t.scene_count || 0) + ' 个场景</p>' +
+      '<label class="tg-slot">输出画幅<select id="tg-ratio-select">' + ratios.map(x => '<option ' + (x === first ? 'selected' : '') + '>' + tgEscape(x) + '</option>').join("") + '</select></label>' +
+      ((t.slots || []).length ? t.slots.map(tgSlotHtml).join("") : '<p class="hint">模板未声明可填写槽位。</p>') +
+      '<p class="tg-input-note">试渲染和实例化接口要求先满足模板所声明的素材槽位。</p></section>';
   detail.innerHTML = '<h3>' + tgEscape(t.name || t.id) + '</h3><p>' + tgEscape(t.description || "") + '</p>' +
     '<div class="tg-meta-line">' + tgEscape(t.id) + '@' + tgEscape(t.version) + ' · ' + tgEscape(t.category || "未分类") + '</div>' +
     '<div class="tg-summary"><span class="tg-status-chip ' + (r.status === "BLOCKED" ? "tg-state-blocked" : r.status === "PARTIAL" ? "tg-state-partial" : "tg-state-ready") + '">' + tgEscape(tgStatus(r)) + '</span>' +
@@ -115,10 +160,7 @@ function templateGalleryRenderDetail() {
     '<section class="tg-subsection"><h4>执行前检查</h4>' +
     (blockers.length ? '<ul class="tg-issues tg-issues-block">' + blockers.map(x => '<li>' + tgEscape(x.message || x.code || "阻塞条件") + '</li>').join("") + '</ul>' : '<p class="tg-pass">依赖门禁通过；仍须通过真实样片渲染和解码。</p>') +
     (warnings.length ? '<ul class="tg-issues tg-issues-warn">' + warnings.map(x => '<li>' + tgEscape(x.message || x.code || "未实现项") + '</li>').join("") + '</ul>' : '') + '</section>' +
-    '<section class="tg-subsection"><h4>使用自己的素材</h4><p class="hint">支持画幅：' + tgEscape(ratios.join("、") || "未声明") + ' · ' + tgEscape(t.scene_count || 0) + ' 个场景</p>' +
-    '<label class="tg-slot">输出画幅<select id="tg-ratio-select">' + ratios.map(x => '<option ' + (x === first ? 'selected' : '') + '>' + tgEscape(x) + '</option>').join("") + '</select></label>' +
-    ((t.slots || []).length ? t.slots.map(tgSlotHtml).join("") : '<p class="hint">模板未声明可填写槽位。</p>') +
-    '<p class="tg-input-note">目前试渲染和实例化接口要求至少一个图片/视频素材。填齐必填项后才会提交。</p></section>' +
+    inputSection +
     '<div class="tg-actions"><button id="tg-render" class="btn-secondary btn-sm" type="button" onclick="templateGalleryRenderSample()">真实试渲染并验证 MP4</button>' +
     '<button id="tg-instantiate" class="btn-sm" type="button" onclick="templateGalleryInstantiate()">使用模板创建项目</button></div>' +
     '<div id="tg-detail-status" class="hint" role="status" aria-live="polite"></div><div id="tg-sample-result" class="tg-sample-result"></div>';
@@ -134,6 +176,13 @@ function tgCollectInputs() {
   const t = tgSelected();
   if (!t) return {fd: null, errors: ["请先选择模板"]};
   const fd = new FormData(), values = {}, errors = [];
+  const runtime = t.runtime || {};
+  if (runtime.adapter === "html-video-python-playwright" && runtime.package_id) {
+    fd.append("template_id", t.id);
+    fd.append("template_version", t.version);
+    fd.append("slot_values_json", "{}");
+    return {fd, errors: []};
+  }
   fd.append("template_id", t.id);
   fd.append("template_version", t.version);
   fd.append("ratio", (document.getElementById("tg-ratio-select") || {}).value || "");
@@ -167,7 +216,8 @@ function templateGalleryUpdateButtons() {
     if (use) use.textContent = "处理中……";
   } else {
     if (render) render.textContent = "真实试渲染并验证 MP4";
-    if (use) use.textContent = "使用模板创建项目";
+    if (use) use.textContent = (r.adapter === "html-video-python-playwright" && r.package_id)
+      ? "暂不可转为可编辑项目" : "使用模板创建项目";
   }
 }
 function tgBusy(busy, message) {
