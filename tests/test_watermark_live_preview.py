@@ -91,7 +91,13 @@ def test_timed_text_watermark_appears_and_disappears_on_shared_live_preview_cloc
                 assert inline["top"].startswith("calc("), inline
                 assert inline["right"].startswith("calc("), inline
 
-                # At the exclusive end of the clip window, the live overlay must disappear.
+                # FFmpeg between(t,start,end) includes the end timestamp.
+                page.evaluate("() => previewSeek(1.0)")
+                page.locator(
+                    "#ed-preview-stage .pv-live-watermark-text[data-watermark-id='wm-live-window']"
+                ).wait_for(state="visible", timeout=5000)
+
+                # Moving beyond the end of the window makes the mark disappear.
                 page.evaluate("() => previewSeek(1.05)")
                 page.wait_for_function(
                     "() => document.querySelectorAll('#ed-preview-stage .pv-live-watermark-text').length === 0",
