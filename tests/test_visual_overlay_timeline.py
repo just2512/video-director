@@ -1892,6 +1892,35 @@ def test_direct_audio_move_or_split_detaches_from_visual_clip(tmp_path, monkeypa
     assert len(comp2.visual_overlays) == 1
     assert comp2.visual_overlays[0].id == "linked-overlay"
 
+
+def test_timeline_clip_mutations_reject_boolean_time_values(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch)
+    attempts = [
+        ("move_visual_overlay", "overlay#0", {"start": True}),
+        ("trim_visual_overlay", "overlay#0", {"start": True, "sourceIn": 1.0, "duration": 2.0}),
+        ("trim_visual_overlay", "overlay#0", {"start": 2.0, "sourceIn": True, "duration": 2.0}),
+        ("trim_visual_overlay", "overlay#0", {"start": 2.0, "sourceIn": 1.0, "duration": True}),
+        ("move_audio_clip", "audio#0", {"start": True}),
+        ("trim_audio_clip", "audio#0", {"start": True, "sourceIn": 1.0, "sourceOut": 4.0}),
+        ("trim_audio_clip", "audio#0", {"start": 2.0, "sourceIn": True, "sourceOut": 4.0}),
+        ("trim_audio_clip", "audio#0", {"start": 2.0, "sourceIn": 1.0, "sourceOut": True}),
+    ]
+
+    for command, target, payload in attempts:
+        result = _apply(pid, command, target, payload, 1)
+        assert result.status == "REJECTED", (command, payload, result.errors)
+        assert result.errors[0]["code"] == "INVALID_PAYLOAD", (command, payload, result.errors)
+
+    unchanged = load_composition(pid)
+    assert (unchanged.visual_overlays[0].start, unchanged.visual_overlays[0].source_in,
+            unchanged.visual_overlays[0].duration) == (2.0, 1.0, 4.0)
+    assert (unchanged.audio[0].start, unchanged.audio[0].source_in,
+            unchanged.audio[0].source_out, unchanged.audio[0].linked_visual_overlay_id) == (
+                2.0, 1.0, 5.0, "linked-overlay",
+            )
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
 def test_linked_overlay_audio_volume_stays_editable_without_duplicate_embedded_sound(tmp_path, monkeypatch):
     pid, plans = _linked_video_project(tmp_path, monkeypatch)
     enable_embedded = _apply(pid, "set_visual_overlay", "overlay#0", {
