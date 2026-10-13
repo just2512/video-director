@@ -1647,3 +1647,24 @@ def test_direct_audio_move_or_split_detaches_from_visual_clip(tmp_path, monkeypa
     assert len(comp2.visual_overlays) == 1
     assert comp2.visual_overlays[0].id == "linked-overlay"
 
+def test_linked_overlay_audio_volume_stays_editable_without_duplicate_embedded_sound(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch)
+    enable_embedded = _apply(pid, "set_visual_overlay", "overlay#0", {
+        "source_audio_enabled": True,
+    }, 1)
+    assert enable_embedded.status == "REJECTED"
+    assert enable_embedded.errors[0]["code"] == "SOURCE_AUDIO_ALREADY_LINKED"
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+    volume = _apply(pid, "set_visual_overlay", "overlay#0", {
+        "source_audio_volume": 0.25,
+    }, 1)
+    assert volume.status == "APPLIED", volume.errors
+    comp = load_composition(pid)
+    clip = comp.visual_overlays[0]
+    audio = next(track for track in comp.audio if track.id == "linked-audio")
+    assert clip.source_audio_enabled is False
+    assert clip.source_audio_volume == 0.25
+    assert audio.volume == 0.25
+    assert audio.linked_visual_overlay_id == clip.id
+
