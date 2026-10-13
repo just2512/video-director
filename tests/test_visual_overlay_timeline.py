@@ -1113,7 +1113,7 @@ def test_promote_main_video_honors_drop_start_on_existing_track(tmp_path, monkey
     assert [(track.id, track.order) for track in saved.visual_tracks] == [("overlay-main", 0)]
 
 
-def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_path, monkeypatch):
+def test_promote_main_video_layer_preserves_speed_and_source_audio(tmp_path, monkeypatch):
     ffmpeg = renderer._ffmpeg()
     video_path = tmp_path / "sped-up-video.mp4"
     _make_video_with_audio(ffmpeg, video_path)
@@ -1124,7 +1124,7 @@ def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_pat
     composition = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=10, duration=1.0),
         scenes=[SceneIR(
-            id="S01", start=0.0, duration=1.0, text="unsupported speed",
+            id="S01", start=0.0, duration=1.0, text="speed survives promotion",
             layers=[Layer(
                 type=LayerType.video, asset_id="main-video",
                 start=0.0, duration=1.0, source_in=0.0, source_out=2.0, speed=2.0,
@@ -1136,12 +1136,14 @@ def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_pat
     save_composition(project_id, composition)
     (plans / "revisions.jsonl").write_text("", encoding="utf-8")
 
-    rejected = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
-    assert rejected.status == "REJECTED"
-    assert rejected.errors[0]["code"] == "LIFT_UNSUPPORTED_SPEED"
+    promoted = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
+    assert promoted.status == "APPLIED", promoted.errors
     saved = load_composition(project_id)
-    assert saved.scenes[0].layers[0].type == LayerType.video
-    assert saved.visual_overlays == []
+    clip = saved.visual_overlays[0]
+    assert (clip.speed, clip.duration, clip.source_in) == (2.0, 1.0, 0.0)
+    assert clip.source_in + clip.duration * clip.speed == 2.0
+    assert clip.source_audio_enabled is True
+    assert saved.scenes[0].layers[0].type == LayerType.gap
     assert saved.project.duration == 1.0
 
 

@@ -840,13 +840,14 @@ class CompositionIR(BaseModel):
             audio_source_out = (
                 float(audio_clip.source_out)
                 if audio_clip.source_out is not None
-                else float(audio_clip.source_in or 0.0) + float(audio_clip.duration)
+                else float(audio_clip.source_in or 0.0) + float(audio_clip.duration) * float(audio_clip.speed)
             )
             if (
                 abs(float(audio_clip.start) - float(overlay.start)) > 0.01
                 or abs(float(audio_clip.duration) - float(overlay.duration)) > 0.01
                 or abs(float(audio_clip.source_in or 0.0) - float(overlay.source_in or 0.0)) > 0.01
-                or abs(audio_source_out - (float(overlay.source_in or 0.0) + float(overlay.duration))) > 0.01
+                or abs(float(audio_clip.speed) - float(overlay.speed)) > 0.01
+                or abs(audio_source_out - (float(overlay.source_in or 0.0) + float(overlay.duration) * float(overlay.speed))) > 0.01
             ):
                 raise ValueError(
                     f"linked original audio {audio_clip.id or '<no-id>'} timing/source window "
