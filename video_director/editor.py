@@ -2625,9 +2625,24 @@ def _cmd_remove_visual_overlay(ir: CompositionIR, target_id: str, payload: dict)
     index = _visual_overlay_index(ir, target_id)
     clip = ir.visual_overlays[index]
     _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
+    linked = [
+        (audio_index, audio_clip)
+        for audio_index, audio_clip in enumerate(ir.audio)
+        if audio_clip.linked_visual_overlay_id == clip.id
+    ]
+    # A linked clip is one edit unit. Refuse the whole delete if its sound lane is
+    # locked; never remove the picture and leave an invalid/dangling audio reference.
+    for _audio_index, audio_clip in linked:
+        _ensure_audio_lane_unlocked(ir, str(audio_clip.track_id or f"audio-{audio_clip.type.value}"))
     ir.visual_overlays.pop(index)
-    key = f"visual-overlay:{clip.id}"
-    return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+    removed_indices = {audio_index for audio_index, _audio_clip in linked}
+    ir.audio = [audio_clip for i, audio_clip in enumerate(ir.audio) if i not in removed_indices]
+    changed = [f"visual-overlay:{clip.id}"]
+    changed.extend(f"audio:{audio_clip.type.value}:{audio_index}" for audio_index, audio_clip in linked)
+    stale = [f"visual-overlay:{clip.id}:render", "project:visual-overlays:render", "project:preview"]
+    if linked:
+        stale.extend(["project:audio:render", "project:audio-tracks"])
+    return changed, list(dict.fromkeys(stale))
 
 
 def _audio_clip_index(ir: CompositionIR, target_id: str) -> int:
