@@ -129,7 +129,7 @@ function editorVisualOverlayOpen(index, ev) {
       </div>
       <p class="hint">拆分后，原声会出现在下方时间线的“原声”轨，可独立移动、修剪、静音和混音；视频片段不再重复播放这份声音。可用“撤销”恢复。</p>` : '';
   const presentationControls = clip.transform
-    ? '<p class="hint">此片段从主画面提升而来，已保留原来的位置/缩放/旋转/透明度。它作为全画幅素材叠加在时间线上，不能切换为画中画/贴纸；可以继续调整下面的变换参数。</p><input type="hidden" id="visual-overlay-edit-presentation-mode" value="full_frame">'
+    ? '<p class="hint">此片段从主画面提升而来，已保留原来的位置/缩放/旋转/透明度。它作为全画幅素材叠加在时间线上，不能切换为画中画/贴纸；可以继续调整下面的变换参数。</p>'
     : `<label for="visual-overlay-edit-presentation-mode">画面用途</label>
       <select id="visual-overlay-edit-presentation-mode" onchange="editorVisualOverlayApplyPreset()">
         <option value="full_frame" ${clip.presentation_mode === 'full_frame' ? 'selected' : ''}>全画幅镜头</option>
