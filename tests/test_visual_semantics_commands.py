@@ -80,11 +80,26 @@ class TestVisualTransformCommand:
         assert any(e["code"] == "INVALID_PAYLOAD" for e in r.errors)
 
     def test_opacity_backfills_legacy_param(self, project):
-        """opacity 同时写 motion_instance.parameters（旧渲染链消费点兼容）。"""
+        """opacity 同时写 motion_instance.parameters（兼容旧消费者）。"""
         _run(project, "set_visual_transform", {"opacity": 0.5})
         lay = _layer(project)
         assert lay.transform.opacity == 0.5
         assert lay.motion_instance["parameters"]["opacity"] == 0.5
+
+    def test_scale_only_backfills_legacy_transform(self, project):
+        """scale 单字段更新也必须同步旧渲染兼容字段。"""
+        _run(project, "set_visual_transform", {"scale": 1.7})
+        lay = _layer(project)
+        assert lay.transform.scale == 1.7
+        assert lay.motion_instance["parameters"]["transform"]["scale"] == 1.7
+
+    def test_position_patch_preserves_existing_legacy_scale(self, project):
+        """先用旧命令缩放、再改位置，不得将缩放重置为默认值。"""
+        _run(project, "set_transform", {"scale": 2.0})
+        _run(project, "set_visual_transform", {"x": 0.25})
+        lay = _layer(project)
+        assert lay.transform.x == 0.25
+        assert lay.transform.scale == 2.0
 
 
 class TestKeyframeCommands:

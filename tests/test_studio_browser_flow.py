@@ -770,6 +770,50 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert live_overlay_preview["insideCount"] == 1, live_overlay_preview
                 assert live_overlay_preview["atEndCount"] == 0, live_overlay_preview
 
+                layer_transform_preview = page.evaluate("""() => {
+                  const originalComp = ED.comp;
+                  const originalPV = {
+                    mode: PV.mode, playing: PV.playing, playhead: PV.playhead,
+                    activeSceneId: PV.activeSceneId, activeLayerId: PV.activeLayerId
+                  };
+                  try {
+                    ED.comp = Object.assign({}, originalComp, {
+                      duration: 1,
+                      project: Object.assign({}, originalComp.project || {}, {fps: 30, width: 320, height: 180}),
+                      scenes: [{
+                        id: 'PV-transform-scene', start: 0, duration: 1, text: 'Transform fixture',
+                        layers: [{
+                          id: 'PV-transform-layer', type: 'image', asset_id: 'PV-transform-asset',
+                          start: 0, duration: 1,
+                          transform: {x:0.25, y:0.5, scale:0.5, rotation:15, opacity:0.75, anchor:'center'}
+                        }]
+                      }],
+                      assets: {'PV-transform-asset': {id:'PV-transform-asset', type:'image', file_url:'/preview-transform.png'}},
+                      visual_overlays: [], subtitle_track: {mode:'sentence', cues: []}
+                    });
+                    PV.mode = 'live'; PV.playing = false; PV.playhead = 0;
+                    PV.activeSceneId = ''; PV.activeLayerId = '';
+                    previewRenderComposition();
+                    const node = document.querySelector('#ed-preview-stage .pv-live-image');
+                    return node ? {
+                      position: node.style.position, left: node.style.left, top: node.style.top,
+                      width: node.style.width, height: node.style.height, opacity: node.style.opacity,
+                      transform: node.style.transform, transformOrigin: node.style.transformOrigin
+                    } : null;
+                  } finally {
+                    ED.comp = originalComp;
+                    PV.mode = originalPV.mode; PV.playing = originalPV.playing; PV.playhead = originalPV.playhead;
+                    PV.activeSceneId = ''; PV.activeLayerId = '';
+                    previewRenderComposition();
+                    PV.activeSceneId = originalPV.activeSceneId; PV.activeLayerId = originalPV.activeLayerId;
+                  }
+                }""")
+                assert layer_transform_preview == {
+                    "position": "absolute", "left": "calc(25% - 25%)", "top": "calc(50% - 25%)",
+                    "width": "50%", "height": "50%", "opacity": "0.75",
+                    "transform": "rotate(15deg)", "transformOrigin": "50% 50%"
+                }, layer_transform_preview
+
                 # The word-level subtitle track is time-aligned too: preserve the
                 # phrase around the current word, highlight that word, and apply style.
                 live_subtitle_preview = page.evaluate("""() => {

@@ -219,11 +219,46 @@ function _previewRenderAt(sec, keepPlaying){
   }
   const v = document.getElementById('pv-live-video');
   if (v && lay && lay.type === 'video') _previewSyncVideo(v, sc, lay, local);
+  const mainMedia = stage.querySelector('#pv-live-video, .pv-live-image');
+  if (mainMedia && lay) _previewApplyLayerTransform(mainMedia, lay);
   // Live overlay clips use the same CompositionIR global clock as the timeline;
   // draft preview already contains these clips in the rendered MP4, so it does not add them again.
   _previewRenderVisualOverlays(sec);
   _previewRenderSubtitles(sec);
   if (meta) meta.textContent = '实时预览 · ' + sec.toFixed(1) + ' / ' + (ED.comp.duration || 0).toFixed(1) + 's';
+}
+
+/** Render Layer.transform using the same normalized position/scale/rotation/opacity as FFmpeg export. */
+function _previewApplyLayerTransform(node, lay) {
+  if (!node || !lay) return;
+  const legacy = (((lay.motion_instance || {}).parameters || {}).transform) || {};
+  const raw = lay.transform || legacy;
+  const number = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const clamp = (value, min, max, fallback) => Math.max(min, Math.min(max, number(value, fallback)));
+  const anchors = {
+    top_left: [0, 0], top_center: [0.5, 0], top_right: [1, 0],
+    center_left: [0, 0.5], center: [0.5, 0.5], center_right: [1, 0.5],
+    bottom_left: [0, 1], bottom_center: [0.5, 1], bottom_right: [1, 1]
+  };
+  const anchor = anchors[String(raw.anchor || 'center')] || anchors.center;
+  const x = clamp(raw.x, 0, 1, 0.5);
+  const y = clamp(raw.y, 0, 1, 0.5);
+  const scale = clamp(raw.scale, 0.1, 5, 1);
+  const rotation = number(raw.rotation, 0) % 360;
+  const opacity = clamp(raw.opacity, 0, 1, 1);
+  const pct = value => Number((value * 100).toFixed(4)).toString() + '%';
+
+  node.style.position = 'absolute';
+  node.style.width = pct(scale);
+  node.style.height = pct(scale);
+  node.style.left = 'calc(' + pct(x) + ' - ' + pct(anchor[0] * scale) + ')';
+  node.style.top = 'calc(' + pct(y) + ' - ' + pct(anchor[1] * scale) + ')';
+  node.style.transformOrigin = pct(anchor[0]) + ' ' + pct(anchor[1]);
+  node.style.transform = Math.abs(rotation) < 1e-9 ? 'none' : 'rotate(' + rotation + 'deg)';
+  node.style.opacity = String(opacity);
 }
 
 /** Show CompositionIR subtitle cues on the same live-preview clock as the timeline. */

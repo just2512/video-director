@@ -12,6 +12,7 @@ LLM 永远不生成 FFmpeg 命令（V1 §21）：命令全部由本模块确定�
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -298,7 +299,7 @@ def _static_transform(layer: Layer) -> Optional[dict]:
 # 单层渲染
 # ---------------------------------------------------------------------------
 
-def render_layer_segment(
+def _render_layer_segment_base(
     layer: Layer,
     asset: Optional[AssetRef],
     out_path: str,
@@ -393,8 +394,10 @@ def render_layer_segment(
     elif layer.type == LayerType.image:
         dur = layer.duration
         frames = int(round(dur * fps))
-        st = _static_transform(layer)
-        # 静态变换（§20 set_transform）：scale 常值 zoompan + opacity 常值 alpha
+        # Static transforms are applied by render_layer_segment after the media is
+        # normalized. Keeping them out of this base path prevents image-only handling
+        # and double application when Layer.transform is present.
+        st = None
         if st is not None and (st["opacity"] != 1.0 or st["scale"] != 1.0):
             zoom_expr = f"{st['scale']:.4f}" if st["scale"] != 1.0 else None
             if st["opacity"] != 1.0:
@@ -483,6 +486,167 @@ def render_layer_segment(
         raise RenderError(f"layer 类型 {layer.type} 不支持渲染（第一阶段）")
 
     return _verify_segment_duration(out_path, layer.duration)
+
+
+
+_LAYER_TRANSFORM_ANCHORS = {
+    "top_left": (0.0, 0.0),
+    "top_center": (0.5, 0.0),
+    "top_right": (1.0, 0.0),
+    "center_left": (0.0, 0.5),
+    "center": (0.5, 0.5),
+    "center_right": (1.0, 0.5),
+    "bottom_left": (0.0, 1.0),
+    "bottom_center": (0.5, 1.0),
+    "bottom_right": (1.0, 1.0),
+}
+
+
+def _layer_transform_payload(layer: Layer) -> dict:
+    """Resolve canonical Layer.transform first, with the legacy transform as a migration fallback."""
+    canonical = getattr(layer, "transform", None)
+    if canonical is not None:
+        raw = canonical.model_dump()
+    else:
+        parameters = ((getattr(layer, "motion_instance", None) or {}).get("parameters") or {})
+        raw = dict(parameters.get("transform") or {})
+        if not raw:
+            return {
+                "x": 0.5, "y": 0.5, "scale": 1.0,
+                "rotation": 0.0, "opacity": 1.0, "anchor": "center",
+            }
+
+    anchor = getattr(raw.get("anchor", "center"), "value", raw.get("anchor", "center"))
+    values = {
+        "x": float(raw.get("x", 0.5)),
+        "y": float(raw.get("y", 0.5)),
+        "scale": float(raw.get("scale", 1.0)),
+        "rotation": float(raw.get("rotation", 0.0)),
+        "opacity": float(raw.get("opacity", 1.0)),
+        "anchor": str(anchor or "center"),
+    }
+    numeric = [values[k] for k in ("x", "y", "scale", "rotation", "opacity")]
+    if not all(math.isfinite(value) for value in numeric):
+        raise RenderError("Layer.transform 包含非有限数值")
+    if not (0.0 <= values["x"] <= 1.0 and 0.0 <= values["y"] <= 1.0):
+        raise RenderError("Layer.transform 的 x/y 必须位于 [0,1]")
+    if not (0.1 <= values["scale"] <= 5.0):
+        raise RenderError("Layer.transform 的 scale 必须位于 [0.1,5]")
+    if not (0.0 <= values["opacity"] <= 1.0):
+        raise RenderError("Layer.transform 的 opacity 必须位于 [0,1]")
+    if values["anchor"] not in _LAYER_TRANSFORM_ANCHORS:
+        raise RenderError(f"Layer.transform 的 anchor 不受支持: {values['anchor']!r}")
+    values["rotation"] = values["rotation"] % 360.0
+    return values
+
+
+def _layer_transform_is_identity(transform: dict) -> bool:
+    return (
+        abs(transform["x"] - 0.5) < 1e-9
+        and abs(transform["y"] - 0.5) < 1e-9
+        and abs(transform["scale"] - 1.0) < 1e-9
+        and abs(transform["rotation"]) < 1e-9
+        and abs(transform["opacity"] - 1.0) < 1e-9
+        and transform["anchor"] == "center"
+    )
+
+
+def _apply_static_layer_transform(
+    source_path: str,
+    out_path: str,
+    width: int,
+    height: int,
+    fps: int,
+    duration: float,
+    transform: dict,
+) -> str:
+    """Apply the same normalized position/scale/rotation/opacity contract to a full-frame clip."""
+    ff = _ffmpeg()
+    ax, ay = _LAYER_TRANSFORM_ANCHORS[transform["anchor"]]
+    scaled_width = max(2, int(round(width * transform["scale"] / 2.0)) * 2)
+    scaled_height = max(2, int(round(height * transform["scale"] / 2.0)) * 2)
+    radians = math.radians(transform["rotation"])
+    cosine, sine = math.cos(radians), math.sin(radians)
+
+    # FFmpeg rotate expands the overlay's bounding box and rotates around its center.
+    # Compute the rotated anchor point so x/y mean the same normalized anchor as CSS preview.
+    anchor_x = ax * scaled_width - scaled_width / 2.0
+    anchor_y = ay * scaled_height - scaled_height / 2.0
+    rotated_anchor_x = (
+        f"({cosine:.10f})*({anchor_x:.4f})-"
+        f"({sine:.10f})*({anchor_y:.4f})+overlay_w/2"
+    )
+    rotated_anchor_y = (
+        f"({sine:.10f})*({anchor_x:.4f})+"
+        f"({cosine:.10f})*({anchor_y:.4f})+overlay_h/2"
+    )
+    x_expr = f"W*{transform['x']:.8f}-({rotated_anchor_x})"
+    y_expr = f"H*{transform['y']:.8f}-({rotated_anchor_y})"
+
+    foreground = [
+        "format=rgba",
+        f"scale={scaled_width}:{scaled_height}:flags=lanczos",
+    ]
+    if abs(transform["rotation"]) > 1e-9:
+        foreground.append(
+            f"rotate={radians:.12f}:ow=rotw(iw):oh=roth(ih):c=black@0:bilinear=1"
+        )
+    if transform["opacity"] < 1.0:
+        foreground.append(f"colorchannelmixer=aa={transform['opacity']:.8f}")
+
+    graph = (
+        f"[0:v]{','.join(foreground)}[fg];"
+        f"color=c=black:s={width}x{height}:r={fps}:d={duration:.6f}[bg];"
+        f"[bg][fg]overlay=x='{x_expr}':y='{y_expr}':shortest=1:eof_action=pass,"
+        f"format={config.DEFAULT_PIXEL_FORMAT}[v]"
+    )
+    _run([
+        ff, "-y", "-loglevel", "error",
+        "-i", source_path,
+        "-filter_complex", graph,
+        "-map", "[v]",
+        "-t", f"{duration:.6f}",
+        "-r", str(fps),
+        "-an",
+        "-c:v", config.DEFAULT_VIDEO_CODEC,
+        "-preset", "veryfast",
+        "-crf", str(config.DEFAULT_CRF),
+        "-pix_fmt", config.DEFAULT_PIXEL_FORMAT,
+        out_path,
+    ])
+    return out_path
+
+
+def render_layer_segment(
+    layer: Layer,
+    asset: Optional[AssetRef],
+    out_path: str,
+    width: int,
+    height: int,
+    fps: int,
+) -> str:
+    """Render one normalized segment, then consume the canonical static Layer.transform."""
+    if layer.type == LayerType.gap or asset is None:
+        return _render_layer_segment_base(layer, asset, out_path, width, height, fps)
+
+    transform = _layer_transform_payload(layer)
+    if _layer_transform_is_identity(transform):
+        return _render_layer_segment_base(layer, asset, out_path, width, height, fps)
+
+    output = Path(out_path)
+    base_path = str(output.with_name(output.stem + ".transform-base" + (output.suffix or ".mp4")))
+    try:
+        _render_layer_segment_base(layer, asset, base_path, width, height, fps)
+        _apply_static_layer_transform(
+            base_path, out_path, width, height, fps, float(layer.duration), transform
+        )
+        return _verify_segment_duration(out_path, layer.duration)
+    finally:
+        try:
+            Path(base_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
 
 
 def _verify_segment_duration(out_path: str, expect: float) -> str:
