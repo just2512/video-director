@@ -499,7 +499,8 @@ def compose_project(
 
     # 6. 校验
     result = validator.validate_composition(
-        ir, render_assets, narration_duration, subtitle_entries
+        ir, render_assets, narration_duration, subtitle_entries,
+        transition_budget=transition_budget,
     )
     if not result.ok:
         _save_error(dirs, "VALIDATION_" + result.verdict.value, json.dumps(result.to_dict()))
