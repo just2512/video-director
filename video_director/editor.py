@@ -2598,7 +2598,14 @@ def _cmd_trim_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
     if start < 0 or source_in < 0 or duration < 0.05:
         raise EditorError("INVALID_PARAMETER", "覆盖层裁剪区间无效或超出项目时长")
     start = _project_frame_time(ir, start)
-    source_in = _project_frame_time(ir, source_in)
+    # Timeline edges follow the project frame grid. At non-1x playback, however,
+    # source offsets are derived from timeline_delta * speed and need not land on
+    # project-frame boundaries (e.g. 0.1s × 1.25 = 0.125 source seconds).
+    source_in = (
+        _project_frame_time(ir, source_in)
+        if abs(float(clip.speed) - 1.0) <= 1e-6
+        else round(source_in, 6)
+    )
     duration = _project_frame_time(ir, duration)
     if duration < _project_frame_min_duration(ir) - 1e-6 or start + duration > float(ir.project.duration) + 1e-6:
         raise EditorError("INVALID_PARAMETER", "覆盖层裁剪区间按项目帧率对齐后无效或超出项目时长")
@@ -2678,7 +2685,11 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
 
     asset = next((item for item in ir.assets if item.id == clip.asset_id), None)
     is_video = bool(asset and str(getattr(asset.type, "value", asset.type)).lower() == "video")
-    source_in = _project_frame_time(ir, float(clip.source_in))
+    source_in = (
+        _project_frame_time(ir, float(clip.source_in))
+        if abs(float(clip.speed) - 1.0) <= 1e-6
+        else round(float(clip.source_in), 6)
+    )
     right_source_in = round(source_in + left_duration * float(clip.speed), 6) if is_video else source_in
     if is_video and asset:
         source_duration = float(asset.duration or 0.0)

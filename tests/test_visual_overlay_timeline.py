@@ -1767,6 +1767,43 @@ def test_linked_audio_model_rejects_dangling_and_non_original_links(tmp_path, mo
         CompositionIR.model_validate(payload)
 
 
+def test_fractional_speed_preserves_derived_source_offsets_on_trim_and_split(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    clip = comp.visual_overlays[0]
+    comp.visual_overlays[0] = clip.model_copy(update={"speed": 1.25})
+    linked = next(track for track in comp.audio if track.id == "linked-audio")
+    comp.audio[comp.audio.index(linked)] = linked.model_copy(update={
+        "speed": 1.25, "source_out": 6.0,
+    })
+    save_composition(pid, comp)
+
+    # A 0.1s timeline trim at 1.25x advances the source by 0.125s.
+    trimmed = _apply(pid, "trim_visual_overlay", "overlay#0", {
+        "start": 2.1, "sourceIn": 1.125, "duration": 3.9,
+    }, 1)
+    assert trimmed.status == "APPLIED", trimmed.errors
+    after_trim = load_composition(pid)
+    clip = after_trim.visual_overlays[0]
+    audio = next(track for track in after_trim.audio if track.id == "linked-audio")
+    assert (clip.start, clip.source_in, clip.duration, clip.speed) == (2.1, 1.125, 3.9, 1.25)
+    assert (audio.start, audio.source_in, audio.source_out, audio.duration, audio.speed) == (
+        2.1, 1.125, 6.0, 3.9, 1.25
+    )
+
+    # Splitting on a timeline frame must continue from the exact fractional source
+    # offset, not snap 1.125s back to the nearest 10fps frame (1.1s).
+    split = _apply(pid, "split_visual_overlay", "overlay#0", {"at": 3.0}, 2)
+    assert split.status == "APPLIED", split.errors
+    result = load_composition(pid)
+    left, right = sorted(result.visual_overlays, key=lambda item: item.start)
+    left_audio, right_audio = sorted(result.audio, key=lambda item: item.start)
+    assert (left.source_in, left.duration, left.speed) == (1.125, 0.9, 1.25)
+    assert (right.source_in, right.duration, right.speed) == (2.25, 3.0, 1.25)
+    assert (left_audio.source_in, left_audio.source_out, left_audio.speed) == (1.125, 2.25, 1.25)
+    assert (right_audio.source_in, right_audio.source_out, right_audio.speed) == (2.25, 6.0, 1.25)
+
+
 def test_move_and_trim_visual_overlay_keep_linked_audio_timing_and_source_window(tmp_path, monkeypatch):
     pid, _plans = _linked_video_project(tmp_path, monkeypatch)
     moved = _apply(pid, "move_visual_overlay", "overlay#0", {"start": 3.0}, 1)
