@@ -1544,3 +1544,106 @@ def test_promoting_video_suppresses_exactly_duplicated_original_audio_window(tmp
     assert saved.visual_overlays[0].source_audio_enabled is False, (
         "an exact original-audio duplicate must remain single-mixed"
     )
+
+def test_linked_audio_model_rejects_dangling_and_non_original_links(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    payload = comp.model_dump(mode="json")
+    payload["audio"][0]["linked_visual_overlay_id"] = "missing-overlay"
+    with pytest.raises(ValueError, match="references missing visual overlay"):
+        CompositionIR.model_validate(payload)
+
+    payload = comp.model_dump(mode="json")
+    payload["audio"][0]["type"] = "bgm"
+    with pytest.raises(ValueError, match="only original-audio clips"):
+        CompositionIR.model_validate(payload)
+
+
+def test_move_and_trim_visual_overlay_keep_linked_audio_timing_and_source_window(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    moved = _apply(pid, "move_visual_overlay", "overlay#0", {"start": 3.0}, 1)
+    assert moved.status == "APPLIED", moved.errors
+    comp = load_composition(pid)
+    clip = comp.visual_overlays[0]
+    audio = next(track for track in comp.audio if track.id == "linked-audio")
+    assert clip.start == audio.start == 3.0
+    assert clip.duration == audio.duration == 4.0
+    assert audio.linked_visual_overlay_id == clip.id
+    assert audio.volume == 0.42
+
+    trimmed = _apply(pid, "trim_visual_overlay", "overlay#0", {
+        "start": 4.0, "sourceIn": 2.0, "duration": 2.5,
+    }, 2)
+    assert trimmed.status == "APPLIED", trimmed.errors
+    comp = load_composition(pid)
+    clip = comp.visual_overlays[0]
+    audio = next(track for track in comp.audio if track.id == "linked-audio")
+    assert (clip.start, clip.source_in, clip.duration) == (4.0, 2.0, 2.5)
+    assert (audio.start, audio.source_in, audio.source_out, audio.duration) == (4.0, 2.0, 4.5, 2.5)
+    assert audio.linked_visual_overlay_id == clip.id
+    assert (audio.volume, audio.fadeIn, audio.fadeOut) == (0.42, 0.5, 0.75)
+
+
+def test_linked_audio_lock_rejects_visual_move_without_partial_mutation(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch, locked_audio=True)
+    before = load_composition(pid)
+    result = _apply(pid, "move_visual_overlay", "overlay#0", {"start": 3.0}, 1)
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "TRACK_LOCKED"
+    after = load_composition(pid)
+    assert after.visual_overlays[0].start == before.visual_overlays[0].start == 2.0
+    assert next(track for track in after.audio if track.id == "linked-audio").start == 2.0
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+def test_split_visual_overlay_splits_linked_audio_source_window_and_fades(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    result = _apply(pid, "split_visual_overlay", "overlay#0", {"at": 4.0}, 1)
+    assert result.status == "APPLIED", result.errors
+    comp = load_composition(pid)
+    assert len(comp.visual_overlays) == 2
+    left_clip, right_clip = sorted(comp.visual_overlays, key=lambda clip: clip.start)
+    assert (left_clip.start, left_clip.duration, left_clip.source_in) == (2.0, 2.0, 1.0)
+    assert (right_clip.start, right_clip.duration, right_clip.source_in) == (4.0, 2.0, 3.0)
+
+    assert len(comp.audio) == 2
+    left_audio, right_audio = sorted(comp.audio, key=lambda track: track.start)
+    assert (left_audio.start, left_audio.duration, left_audio.source_in, left_audio.source_out) == (2.0, 2.0, 1.0, 3.0)
+    assert (right_audio.start, right_audio.duration, right_audio.source_in, right_audio.source_out) == (4.0, 2.0, 3.0, 5.0)
+    assert left_audio.linked_visual_overlay_id == left_clip.id
+    assert right_audio.linked_visual_overlay_id == right_clip.id
+    assert left_audio.fadeIn == 0.5 and left_audio.fadeOut == 0.0
+    assert right_audio.fadeIn == 0.0 and right_audio.fadeOut == 0.75
+    assert left_audio.volume == right_audio.volume == 0.42
+
+
+def test_remove_visual_overlay_removes_only_its_linked_audio(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch, include_unlinked=True)
+    result = _apply(pid, "remove_visual_overlay", "overlay#0", {}, 1)
+    assert result.status == "APPLIED", result.errors
+    comp = load_composition(pid)
+    assert comp.visual_overlays == []
+    assert [track.id for track in comp.audio] == ["unlinked-audio"]
+    assert comp.audio[0].linked_visual_overlay_id is None
+
+
+def test_direct_audio_move_or_split_detaches_from_visual_clip(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    moved = _apply(pid, "move_audio_clip", "audio#0", {"start": 3.0}, 1)
+    assert moved.status == "APPLIED", moved.errors
+    comp = load_composition(pid)
+    assert comp.visual_overlays[0].start == 2.0
+    assert comp.audio[0].start == 3.0
+    assert comp.audio[0].linked_visual_overlay_id is None
+
+    # Use a separate project so the source-window split is exercised against the
+    # original linked geometry, not a side effect of the explicit move above.
+    pid2, _plans2 = _linked_video_project(tmp_path / "split", monkeypatch)
+    split = _apply(pid2, "split_audio_clip", "audio#0", {"at": 4.0}, 1)
+    assert split.status == "APPLIED", split.errors
+    comp2 = load_composition(pid2)
+    assert len(comp2.audio) == 2
+    assert all(track.linked_visual_overlay_id is None for track in comp2.audio)
+    assert len(comp2.visual_overlays) == 1
+    assert comp2.visual_overlays[0].id == "linked-overlay"
+
