@@ -95,6 +95,38 @@ def _check_edge_tts() -> CheckResult:
         return CheckResult("TTS: EdgeTTS", "FAIL", f"合成失败: {str(exc)[:120]}")
 
 
+def _check_llm() -> CheckResult:
+    """LLM 真实探测：配了 key 就真实 generate 一次（2026-10-13 报障教训：
+    key 配置存在 + openai 包缺失 → get_llm() 曾在 scene_plan 炸死整个 run。
+    连通性/存在性检查探测不到这类故障，必须真实调用拿回文本）。
+
+    - 未配 key → SKIP（规则路径是完整产品能力，不算故障）
+    - key 配了但包缺失 → FAIL（带 pip install 指引）
+    - key 配了但端点/密钥坏 → FAIL（带真实异常）
+    """
+    from video_director import llm_provider
+
+    cfg = llm_provider.get_llm_config()
+    if not cfg.get("enabled"):
+        return CheckResult("LLM", "SKIP", "未配置（消费点走规则路径）")
+    provider = llm_provider.get_llm()
+    if provider is None:
+        return CheckResult(
+            "LLM", "FAIL",
+            "key 已配置但 Provider 构造失败（多半是 openai 库未安装）："
+            "pip install -r requirements.txt",
+        )
+    try:
+        text = provider.generate("环境自检：请只回复 OK", system="只输出 OK 两个字母。")
+        text = (text or "").strip()
+        if text:
+            return CheckResult("LLM", "PASS",
+                               f"真实调用成功（model={provider.model}，回复 {len(text)} 字）")
+        return CheckResult("LLM", "FAIL", "端点返回空文本")
+    except Exception as exc:
+        return CheckResult("LLM", "FAIL", f"真实调用失败: {str(exc)[:120]}")
+
+
 def _check_vision() -> CheckResult:
     """Vision 是可选增强：不配 key 完全不影响使用，核心内容匹配靠
     文件名语义 + 概念桥接（零依赖零成本）。"""
@@ -142,6 +174,7 @@ def run_doctor() -> List[CheckResult]:
         _check_ffmpeg(),
         _check_ffprobe(),
         _check_edge_tts(),
+        _check_llm(),
         _check_vision(),
         _check_whisper(),
         _check_audio_library(),

@@ -35,9 +35,14 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
     # Browser-driven uploads and template samples must never touch a user's/default storage.
     env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(tmp_path / "storage")
     still = tmp_path / "template-sample-input.png"
+    # 走产品自身的 ffmpeg 解析链（release/bin 随包二进制优先，PATH 兜底），
+    # 与运行时行为一致——裸 "ffmpeg" 在无 PATH 机器上必挂（2026-10-13 实锤）。
+    from video_director import prober as _vd_prober
+    _ffmpeg = _vd_prober._resolve_ffmpeg() or shutil.which("ffmpeg")
+    assert _ffmpeg, "ffmpeg 不可用：release/bin 缺失且 PATH 无 ffmpeg"
     generated = subprocess.run(
         [
-            "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+            _ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i",
             "color=c=0x284b63:s=96x96:d=1", "-frames:v", "1", str(still),
         ],
         capture_output=True, text=True, timeout=30,

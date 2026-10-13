@@ -82,7 +82,7 @@ def _restore_checkpoint_state(project_id: str, state: dict) -> bool:
                 if isinstance(value, dict)
             }
     except Exception as exc:
-        logger.warning("Director checkpoint asset restore failed: %s", exc)
+        logger.warning(f"Director checkpoint asset restore failed: {exc}")
         state["assets"] = {}
 
     try:
@@ -103,7 +103,7 @@ def _restore_checkpoint_state(project_id: str, state: dict) -> bool:
                         )
                     )
     except Exception as exc:
-        logger.warning("Director checkpoint composition restore failed: %s", exc)
+        logger.warning(f"Director checkpoint composition restore failed: {exc}")
 
     return True
 
@@ -173,7 +173,7 @@ def _choose_next(plan: dict, current: str, result: dict, retries: int) -> Tuple[
                 if choice == "STOP":
                     return "STOP", reason or "Director 停止"
         except Exception as exc:
-            logger.warning("Director next-node decision failed: %s", exc)
+            logger.warning(f"Director next-node decision failed: {exc}")
     if not result.get("ok", True):
         return ("retry", "Tool Result 未通过，重试当前节点") if retries < 2 else ("STOP", "节点连续失败")
     return (ready[0], "按依赖图继续") if ready else ("STOP", "没有可继续节点")
@@ -208,7 +208,7 @@ def _tool_script(spec: dict, state: dict) -> dict:
         from video_director import store
         store.update_script(state["project_id"], s)
     except Exception as exc:
-        logger.warning("Director script store update failed: %s", exc)
+        logger.warning(f"Director script store update failed: {exc}")
     path = config.project_dir(state["project_id"]) / "input" / "script.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(s, encoding="utf-8")
@@ -1115,7 +1115,7 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
             },
         )
     except Exception as exc:
-        logger.warning("Director project row creation failed: %s", exc)
+        logger.warning(f"Director project row creation failed: {exc}")
 
     state = {
         "project_id": pid,
@@ -1297,8 +1297,12 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 # 保留失败结果，但重新开放该节点；下一轮由 Director 决定是否重试。
                 node["status"] = "PENDING"
             else:
+                # 2026-10-13 报障教训：只报节点名不报根因，查障全靠翻日志。
+                # 内层 error 必须随异常上抛（落 run.error → 前端可见）。
+                inner = str(tool_result.get("error") or "")[:400]
                 raise DirectorAgentError(
-                    "节点执行失败且无法恢复：" + node_id
+                    f"节点执行失败且无法恢复：{node_id}"
+                    + (f"（{inner}）" if inner else "")
                 )
 
         current = node_id
@@ -1366,7 +1370,7 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 sb = json.loads(Path(state["storyboard_path"]).read_text(encoding="utf-8"))
                 store.save_storyboard_snapshot(pid, sb)
         except Exception as exc:
-            logger.warning("Director storyboard snapshot failed: %s", exc)
+            logger.warning(f"Director storyboard snapshot failed: {exc}")
     elif state.get("final_path") and state.get("qc_report"):
         from video_director import store
         store.finish_project(

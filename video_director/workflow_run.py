@@ -293,7 +293,7 @@ def reconcile_runs(reason: str = "服务重启，上一任务已中断") -> dict
                     store.set_stage(pid, store.Stage.FAILED, reason)
                     projects.append(pid)
             except Exception as exc:
-                logger.warning("workflow reconcile project %s failed: %s", pid, exc)
+                logger.warning(f"workflow reconcile project {pid} failed: {exc}")
         _emit(row["run_id"], "workflow.done", {"status": INTERRUPTED})
     return {"interrupted_runs": [r["run_id"] for r in rows], "projects": projects}
 
@@ -408,7 +408,7 @@ def run_director_continue_async(project_id: str, target: str = "preview") -> Opt
     try:
         store.set_stage(project_id, store.Stage.CREATED)
     except Exception as exc:
-        logger.warning("Director continue stage reset failed: %s", exc)
+        logger.warning(f"Director continue stage reset failed: {exc}")
 
     return run_director_create_async(spec, plan=plan)
 
@@ -422,12 +422,12 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
     from video_director import store
     proj = store.get_project(project_id)
     if proj is None:
-        logger.warning("director retry rejected: project %s not found", project_id)
+        logger.warning(f"director retry rejected: project {project_id} not found")
         return None
     try:
         runs = list_runs(project_id=project_id, limit=1)
         if runs and get_run(runs[0]["run_id"])["status"] == RUNNING:
-            logger.warning("director retry rejected: %s has RUNNING run", project_id)
+            logger.warning(f"director retry rejected: {project_id} has RUNNING run")
             return None
     except Exception:
         pass
@@ -435,7 +435,7 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
     from video_director import director_inputs as di
     bundle = di.load_bundle(project_id)
     if not bundle:
-        logger.warning("director retry rejected: %s has no persisted bundle", project_id)
+        logger.warning(f"director retry rejected: {project_id} has no persisted bundle")
         return None
 
     try:
@@ -462,7 +462,7 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
     try:
         store.set_stage(project_id, store.Stage.CREATED)
     except Exception as exc:
-        logger.warning("director retry stage reset failed: %s", exc)
+        logger.warning(f"director retry stage reset failed: {exc}")
     return run_director_create_async(spec)
 
 
@@ -487,10 +487,21 @@ def _compose_worker(run_id: str, spec: dict) -> None:
         try:
             if spec.get("project_id"):
                 from video_director import director_inputs as _di
-                bundle = _di.build_bundle(spec)
-                failed_plan = _di.build_plan(
-                    bundle, spec.get("brief") or spec.get("creative_brief") or "AI Director 创作")
-                _di.persist_bundle(spec["project_id"], bundle)
+                # 2026-10-13 报障教训：新建 plan 会把失败错标到 understand，
+                # 抹掉真实失败节点（scene_plan）。优先回读已持久化的 plan，
+                # 只在确实没有时才新建兜底。
+                persisted = None
+                try:
+                    persisted = _di.load_plan(spec["project_id"])
+                except Exception:
+                    persisted = None
+                if persisted:
+                    failed_plan = persisted
+                else:
+                    bundle = _di.build_bundle(spec)
+                    failed_plan = _di.build_plan(
+                        bundle, spec.get("brief") or spec.get("creative_brief") or "AI Director 创作")
+                    _di.persist_bundle(spec["project_id"], bundle)
                 _di.update_node(spec["project_id"], failed_plan, "understand",
                                 "FAILED", error=str(exc)[:800])
         except Exception:
