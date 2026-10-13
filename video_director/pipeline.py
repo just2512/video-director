@@ -361,7 +361,7 @@ def compose_project(
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
     watermark: Optional[str] = None,
-    transition_budget: int = 0,
+    transition_budget: Optional[int] = None,
     transition_mode: str = "cut",
     width: int = None,
     height: int = None,
@@ -450,8 +450,9 @@ def compose_project(
         ir.style_id = str(style_id)
 
     # 转场显式语义：默认 cut；只有选择 crossfade/fade 才注入效果。
-    if transition_mode in ("crossfade", "fade") and transition_budget > 0:
-        _inject_transitions(ir, transition_budget)
+    effect_transition_budget = int(transition_budget or 0)
+    if transition_mode in ("crossfade", "fade") and effect_transition_budget > 0:
+        _inject_transitions(ir, effect_transition_budget)
 
     # 4. 音频计划（BGM/SFX 一等公民，V2 §30）
     narration_duration = scenes[-1]["start"] + scenes[-1]["duration"]
