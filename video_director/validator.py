@@ -63,7 +63,18 @@ def validate_composition(
     assets: Dict[str, AssetRef],
     narration_duration: float,
     subtitle_entries: Optional[List[dict]] = None,
+    transition_budget: Optional[int] = None,
 ) -> ValidationResult:
+    """Validate one composition with a request-local transition budget.
+
+    None preserves the historical global default for callers that do not
+    provide a project-specific StyleContract. Explicit values never mutate config.
+    """
+    active_transition_budget = (
+        config.TRANSITION_MAX_MAJOR_EFFECTS
+        if transition_budget is None
+        else int(transition_budget)
+    )
     issues: List[Issue] = []
 
     def add(scene_id: str, code: str, message: str):
@@ -94,9 +105,9 @@ def validate_composition(
             if not registry.is_implemented_transition(t):
                 add(scene.id, "TRANSITION_NOT_IMPLEMENTED",
                     f"转场 {t} 尚未实现，第一阶段只支持 cut")
-    if major_count > config.TRANSITION_MAX_MAJOR_EFFECTS:
+    if major_count > active_transition_budget:
         add("-", "TRANSITION_BUDGET_EXCEEDED",
-            f"效果转场 {major_count} 个超上限 {config.TRANSITION_MAX_MAJOR_EFFECTS}")
+            f"效果转场 {major_count} 个超上限 {active_transition_budget}")
 
     # 4. 逐场景资产/速度/源区间
     for scene in ir.scenes:
