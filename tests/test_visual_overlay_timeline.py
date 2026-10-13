@@ -308,8 +308,8 @@ def test_split_visual_overlay_preserves_properties_and_rejects_boundary_splits(t
     comp = load_composition(pid)
     left, right = comp.visual_overlays
     assert left.id == original_id
-    assert left.start == 2.0 and left.duration == 1.25
-    assert right.start == 3.25 and right.duration == 1.75
+    assert left.start == 2.0 and left.duration == 1.3
+    assert right.start == 3.3 and right.duration == 1.7
     assert left.start + left.duration == right.start
     assert left.start + left.duration + right.duration == 5.0
     assert left.asset_id == right.asset_id == "overlay-image"
@@ -355,8 +355,8 @@ def test_split_video_overlay_advances_source_clock_and_real_render_keeps_cut_con
     assert result.status == "APPLIED", result.errors
     edited = load_composition(project_id)
     left, right = edited.visual_overlays
-    assert (left.start, left.duration, left.source_in) == (0.5, 0.75, 0.1)
-    assert (right.start, right.duration, right.source_in) == (1.25, 0.75, 0.85)
+    assert (left.start, left.duration, left.source_in) == (0.5, 0.8, 0.1)
+    assert (right.start, right.duration, right.source_in) == (1.3, 0.7, 0.9)
 
     asset_map = {asset.id: asset for asset in edited.assets}
     rendered = renderer.render_composition(edited, asset_map, tmp_path / "split-overlay-rendered")
@@ -2190,4 +2190,36 @@ def test_real_ffmpeg_detached_source_audio_follows_visual_insert_and_overwrite(t
     assert _audio_window_mean_volume(ffmpeg, overwritten_output, 0.9, 0.2) < -65
     assert _audio_window_mean_volume(ffmpeg, overwritten_output, 1.35, 0.1) > -35
     assert _audio_window_mean_volume(ffmpeg, overwritten_output, 2.5, 0.2) > -35
+
+def test_visual_overlay_move_trim_split_use_the_same_project_frame_grid_as_add(tmp_path, monkeypatch):
+    # The project runs at 10 fps. Half-frame values must match browser Math.round,
+    # not Python round()'s ties-to-even behavior.
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    moved = _apply(pid, "move_visual_overlay", "overlay#0", {"start": 3.15}, 1)
+    assert moved.status == "APPLIED", moved.errors
+    comp = load_composition(pid)
+    clip = comp.visual_overlays[0]
+    audio = next(item for item in comp.audio if item.id == "linked-audio")
+    assert clip.start == audio.start == 3.2
+
+    trimmed = _apply(pid, "trim_visual_overlay", "overlay#0", {
+        "start": 4.15, "sourceIn": 2.15, "duration": 2.25,
+    }, 2)
+    assert trimmed.status == "APPLIED", trimmed.errors
+    comp = load_composition(pid)
+    clip = comp.visual_overlays[0]
+    audio = next(item for item in comp.audio if item.id == "linked-audio")
+    assert (clip.start, clip.source_in, clip.duration) == (4.2, 2.2, 2.3)
+    assert (audio.start, audio.source_in, audio.source_out, audio.duration) == (4.2, 2.2, 4.5, 2.3)
+
+    pid2, _plans2 = _linked_video_project(tmp_path / "split", monkeypatch)
+    split = _apply(pid2, "split_visual_overlay", "overlay#0", {"at": 4.05}, 1)
+    assert split.status == "APPLIED", split.errors
+    comp2 = load_composition(pid2)
+    left, right = sorted(comp2.visual_overlays, key=lambda item: item.start)
+    left_audio, right_audio = sorted(comp2.audio, key=lambda item: item.start)
+    assert (left.start, left.duration, left.source_in) == (2.0, 2.1, 1.0)
+    assert (right.start, right.duration, right.source_in) == (4.1, 1.9, 3.1)
+    assert (left_audio.start, left_audio.duration, left_audio.source_in, left_audio.source_out) == (2.0, 2.1, 1.0, 3.1)
+    assert (right_audio.start, right_audio.duration, right_audio.source_in, right_audio.source_out) == (4.1, 1.9, 3.1, 5.0)
 
