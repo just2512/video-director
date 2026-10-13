@@ -10,8 +10,8 @@ release/ 目录，他人电脑零依赖可跑。
 - requirements 说明（首次运行 pip install）
 
 不包含（诚实口径）：
-- MoneyPrinterTurbo 便携版（参考实现，非依赖）——但它的 lib/python 自带
-  ffmpeg.exe，打包时把 ffmpeg 二进制复制进 release/bin/ 实现零依赖
+- 参考实现（MoneyPrinterTurbo 等）——仅开发参考，非依赖，绝不进包；
+  ffmpeg 从 bin/（已验证版本）或开发机 tools 目录复制，不碰参考项目
 - 用户上传的素材 / 项目产物（运行时生成）
 
 用法：python pack_release.py [输出目录，默认 ./release]
@@ -25,7 +25,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-PY_LIB = Path(r"D:\autocut\MoneyPrinterTurbo-Portable-Windows-1.3.7\lib\python")
 
 
 def main():
@@ -52,7 +51,7 @@ def main():
         shutil.copytree(audio_src, out / "storage" / "composer" / "audio_library")
 
     # 3. ffmpeg 随包零依赖（分发标准：不能让用户因缺依赖无法运行）
-    # 打包源优先级：release/bin（已验证版本）> 便携 Python imageio_ffmpeg > tools/ffmpeg-btbn
+    # 打包源（禁止参考项目）：release/bin（已验证版本）> 开发机 tools/ffmpeg-btbn
     bin_dir = out / "bin"
     bin_dir.mkdir(exist_ok=True)
     copied_ff = []
@@ -68,11 +67,6 @@ def main():
             copied_ff.append(exe.name)
         if copied_ff:
             break
-    # 便携 Python 的 imageio_ffmpeg 作为补充源（ffprobe 等）
-    if not any((bin_dir / "ffprobe.exe").is_file() for _ in [0]):
-        for exe in PY_LIB.glob(r"Lib\site-packages\imageio_ffmpeg\binaries\*.exe"):
-            shutil.copy2(exe, bin_dir / exe.name)
-            copied_ff.append(exe.name)
 
     # 4. 使用说明（首次运行依赖）
     (out / "使用说明.txt").write_text(

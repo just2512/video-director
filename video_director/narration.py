@@ -113,7 +113,15 @@ def synth_scene_audio(
     except NarrationError:
         raise
     except Exception as exc:
-        raise NarrationError(f"edge-tts 合成失败: {exc}") from exc
+        # 403 = 微软封禁旧端点（2026-10，上游 #490）；本包 __init__ 的
+        # 端点补丁正常时不应出现。带真实原因上抛，别让 Director 只见
+        # "narration 节点失败"却查不到为什么。
+        hint = ""
+        msg = str(exc)
+        if "403" in msg:
+            hint = ("（微软 TTS 接口 403 拒绝：端点补丁未生效或上游再变更，"
+                    "见 video_director/__init__.py _patch_edge_tts_endpoint）")
+        raise NarrationError(f"edge-tts 合成失败: {exc}{hint}") from exc
 
 
 def _synth_scene_with_pauses(

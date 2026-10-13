@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import shutil
-import socket
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
@@ -26,9 +25,9 @@ from video_director import audio as audio_mod, config, prober
 #: 可用磁盘下限（GB）——渲染 60s 1080p 成片约需 0.5GB，留 10 倍余量
 MIN_FREE_GB = 5.0
 
-#: EdgeTTS 端点连通性（synthesis endpoint 域名）
-EDGE_TTS_HOST = "speech.platform.bing.com"
-EDGE_TTS_PORT = 443
+#: EdgeTTS 真实合成探测文案（2026-10-12 事故教训：TCP 连通 PASS 但合成
+#: 403 已死——连通性检查探测不到端点封禁，必须真合成一次拿音频字节）。
+EDGE_TTS_PROBE_TEXT = "环境自检"
 
 
 @dataclass
@@ -69,11 +68,31 @@ def _check_ffprobe() -> CheckResult:
 
 
 def _check_edge_tts() -> CheckResult:
+    """真实合成探测：调一次 edge-tts 拿到音频字节才算 PASS。
+
+    2026-10-12 事故：旧实现只 TCP 连 443，微软封端点后连通仍 PASS，
+    跑片才在 narration 节点炸。合成路径 = 唯一可信的检查面。
+    """
+    import tempfile
+    import video_director  # 触发 __init__ 端点补丁
+
     try:
-        with socket.create_connection((EDGE_TTS_HOST, EDGE_TTS_PORT), timeout=5):
-            return CheckResult("TTS: EdgeTTS", "PASS", f"{EDGE_TTS_HOST} 可达")
+        with tempfile.TemporaryDirectory(prefix="vd-doctor-tts-") as td:
+            out = Path(td) / "probe.mp3"
+            import video_director.narration as vd_narration
+            vd_narration.synth_scene_audio(
+                EDGE_TTS_PROBE_TEXT,
+                "zh-CN-XiaoxiaoNeural",
+                str(out),
+                "+0%",
+            )
+            size = out.stat().st_size if out.is_file() else 0
+            if size > 0:
+                return CheckResult("TTS: EdgeTTS", "PASS",
+                                   f"真实合成 {size}B（端点补丁生效）")
+            return CheckResult("TTS: EdgeTTS", "FAIL", "合成返回 0 字节音频")
     except Exception as exc:
-        return CheckResult("TTS: EdgeTTS", "FAIL", f"网络不可达: {str(exc)[:60]}")
+        return CheckResult("TTS: EdgeTTS", "FAIL", f"合成失败: {str(exc)[:120]}")
 
 
 def _check_vision() -> CheckResult:
