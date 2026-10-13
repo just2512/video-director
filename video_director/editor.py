@@ -1278,6 +1278,15 @@ def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
         raise EditorError("INVALID_PAYLOAD", "trim 的 sourceIn/sourceOut 必须是数字") from exc
     if not (math.isfinite(new_in) and math.isfinite(new_out) and new_in >= 0 and new_out > new_in):
         raise EditorError("INVALID_PAYLOAD", f"trim 区间非法: {new_in}–{new_out}")
+    source_asset = next((asset for asset in ir.assets if asset.id == layer.asset_id), None)
+    if source_asset is not None and source_asset.duration is not None:
+        source_duration = float(source_asset.duration)
+        source_tolerance = max(0.01, float(layer.speed) / max(1, int(ir.project.fps)))
+        if math.isfinite(source_duration) and new_out > source_duration + source_tolerance:
+            raise EditorError(
+                "SOURCE_RANGE_OUT_OF_BOUNDS",
+                f"裁剪终点 {new_out:.3f}s 超出素材时长 {source_duration:.3f}s",
+            )
     new_duration = (new_out - new_in) / float(layer.speed)
     if not math.isfinite(new_duration) or new_duration <= 0.05:
         raise EditorError("INVALID_PAYLOAD", "裁剪后片段必须大于 0.05 秒")
