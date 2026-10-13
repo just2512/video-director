@@ -1917,5 +1917,6 @@ def test_expand_main_timeline_rejects_incompatible_late_clip_without_partial_wri
     untouched = load_composition(project_id)
     assert [layer.type for layer in untouched.scenes[0].layers] == [LayerType.video, LayerType.image]
     assert untouched.visual_overlays == []
-    assert untouched.visual_tracks == []
+    assert [(track.id, track.order) for track in untouched.visual_tracks] == [("overlay-main", 0)]
+    assert all(not track.id.startswith("main-free-") for track in untouched.visual_tracks)
 
