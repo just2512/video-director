@@ -94,7 +94,7 @@ def test_timed_text_watermark_appears_and_disappears_on_shared_live_preview_cloc
                 # At the exclusive end of the clip window, the live overlay must disappear.
                 page.evaluate("() => previewSeek(1.05)")
                 page.wait_for_function(
-                    "() => !document.querySelector('#ed-preview-stage .pv-live-watermark-text[data-watermark-id=\\"wm-live-window\\"]')",
+                    "() => document.querySelectorAll('#ed-preview-stage .pv-live-watermark-text').length === 0",
                     timeout=5000,
                 )
                 assert page.evaluate("() => PV.mode") == "live"
