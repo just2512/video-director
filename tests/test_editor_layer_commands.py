@@ -52,8 +52,9 @@ def test_split_layer_at_playhead_preserves_video_source_and_scene_duration(tmp_p
     comp = load_composition(pid)
     layers = comp.scenes[0].layers
     assert len(layers) == 2
-    assert [(round(x.start, 3), round(x.duration, 3)) for x in layers] == [(0.0, 2.25), (2.25, 2.75)]
-    assert [(round(x.source_in, 3), round(x.source_out, 3)) for x in layers] == [(0.0, 2.25), (2.25, 5.0)]
+    # 2.25s is a half-frame at 30 fps; browser Math.round semantics choose frame 68.
+    assert [(round(x.start, 3), round(x.duration, 3)) for x in layers] == [(0.0, 2.267), (2.267, 2.733)]
+    assert [(round(x.source_in, 3), round(x.source_out, 3)) for x in layers] == [(0.0, 2.267), (2.267, 5.0)]
     assert round(sum(x.duration for x in layers), 3) == 5.0
     assert len([line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]) == 1
 
