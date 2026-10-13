@@ -16,6 +16,10 @@ concurrency:
 jobs:
   ai-director:
     runs-on: ubuntu-latest
+    # Browser traces must land inside the workspace so upload-artifact actually
+    # retains them; pytest's per-test tmp_path lives outside the upload globs.
+    env:
+      VIDEO_DIRECTOR_TEST_RESULTS: ${{ github.workspace }}/test-results
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

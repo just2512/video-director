@@ -664,9 +664,13 @@ function _tlBindLayerDrag(){
                     startX: ev.clientX, startY: ev.clientY, moved: false, mode: null};
       // §17 边缘 Trim：按下点在层带左/右 8px → trim 手势；中间 → move 手势
       const r = el.getBoundingClientRect();
-      const edge = 8;
-      if (ev.clientX - r.left <= edge) _layerDrag.mode = 'trim-left';
-      else if (r.right - ev.clientX <= edge) _layerDrag.mode = 'trim-right';
+      // Fixed 8px edge zones consumed the entire hit area of short clips at low
+      // zoom, so a center drag was misclassified as a trim and never reordered.
+      // Keep edge handles proportional to the clip width; sub-8px clips remain
+      // movable by pointer and can be trimmed precisely in the clip inspector.
+      const edge = Math.min(8, r.width * 0.25);
+      if (r.width >= 8 && ev.clientX - r.left <= edge) _layerDrag.mode = 'trim-left';
+      else if (r.width >= 8 && r.right - ev.clientX <= edge) _layerDrag.mode = 'trim-right';
       else _layerDrag.mode = 'move';
     });
   });
@@ -720,9 +724,17 @@ function _tlBindLayerDrag(){
       .forEach(row => row.classList.remove('tl-track-drop-target'));
   });
   document.addEventListener('pointerup', ev => {
-    if (!_layerDrag) return;
+    if (!_layerDrag) {
+      window.__lastLayerDragDebug = {stage: 'pointerup-no-active-drag', x: ev.clientX, y: ev.clientY};
+      return;
+    }
     const d = _layerDrag;
     _layerDrag = null;
+    const dragDebug = window.__lastLayerDragDebug = {
+      stage: 'pointerup-start', mode: d.mode, moved: !!d.moved,
+      sceneId: d.sceneId, idx: d.idx, startX: d.startX, startY: d.startY,
+      dropX: ev.clientX, dropY: ev.clientY, elementConnected: !!(d.el && d.el.isConnected)
+    };
     const hit = document.elementFromPoint(ev.clientX, ev.clientY);
     const targetVisualTrack = hit && hit.closest
       ? hit.closest('#editor-timeline .ed-track[data-visual-track-id]') : null;
@@ -732,12 +744,12 @@ function _tlBindLayerDrag(){
       d.mode = 'move';
       d.moved = true;
     }
-    if (!d.moved) return;  // 纯点击走 onclick
+    if (!d.moved) { dragDebug.stage = 'pointerup-not-moved'; return; }  // 纯点击走 onclick
     d.el.classList.remove('tl-dragging');
     document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').forEach(row => row.classList.remove('tl-track-drop-target'));
     const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === d.sceneId);
                          return sc && sc.layers[d.idx]; })();
-    if (!lay) return;
+    if (!lay) { dragDebug.stage = 'missing-layer'; return; }
     const scrollW = _tlTimelineAxisWidth();
     const total = ED.comp.duration || 1;
     const absDelta = (ev.clientX - d.startX) / scrollW * total;
@@ -771,7 +783,7 @@ function _tlBindLayerDrag(){
     if (d.mode === 'move' && targetVisualTrack) {
       const trackBody = targetVisualTrack.querySelector('.ed-track-body');
       const rect = trackBody && trackBody.getBoundingClientRect();
-      if (!rect || rect.width <= 0) { editorRenderTimeline(); return; }
+      if (!rect || rect.width <= 0) { dragDebug.stage = 'invalid-visual-track-rect'; editorRenderTimeline(); return; }
       const start = Math.round(Math.max(0, Math.min(total - lay.duration,
         ((ev.clientX - rect.left) / rect.width) * total)) * 1000) / 1000;
       const trackId = String(targetVisualTrack.dataset.visualTrackId || '');
@@ -794,25 +806,71 @@ function _tlBindLayerDrag(){
     }
     // A layer drag must never invoke the scene-reorder command.
     // Same-scene drop reorders visual segments; cross-scene drop without a track is rejected.
+    const targetScene = hit && hit.closest ? hit.closest('#editor-timeline .ed-scene') : null;
     const targetLayer = hit && hit.closest ? hit.closest('#editor-timeline .ed-layer') : null;
-    if (targetLayer && targetLayer.dataset.scene === d.sceneId) {
-      const targetIdx = Number.parseInt(targetLayer.dataset.idx, 10);
-      const rect = targetLayer.getBoundingClientRect();
-      let toIndex = targetIdx + (ev.clientY > rect.top + rect.height / 2 ? 1 : 0);
-      if (d.idx < toIndex) toIndex -= 1;
+    dragDebug.hitClass = hit ? String(hit.className || hit.tagName) : null;
+    dragDebug.targetSceneId = targetScene ? targetScene.dataset.scene : null;
+    dragDebug.targetLayerIdx = targetLayer ? targetLayer.dataset.idx : null;
+    if (targetScene && targetScene.dataset.scene === d.sceneId) {
       const scene = ED.comp.scenes.find(s => s.id === d.sceneId);
-      toIndex = Math.max(0, Math.min(toIndex, scene ? scene.layers.length - 1 : 0));
-      if (toIndex === d.idx) return;
-      editorToast('正在调整片段顺序……');
+      if (!scene || !Array.isArray(scene.layers) || !scene.layers.length) { dragDebug.stage = 'invalid-scene-layers'; return; }
+      dragDebug.sceneDuration = Number(scene.duration || 0);
+      dragDebug.layers = scene.layers.map((layer, index) => ({
+        index, start: Number(layer.start || 0), duration: Number(layer.duration || 0), type: layer.type
+      }));
+      const dx = ev.clientX - d.startX;
+      const dy = ev.clientY - (d.startY ?? ev.clientY);
+      const sceneBody = targetScene.querySelector('.ed-scene-body');
+      const bodyRect = sceneBody && sceneBody.getBoundingClientRect();
+      // The main picture row is a time target, not only a set of existing clip
+      // hitboxes. Users must be able to drop at the requested time even when the
+      // pointer lands on padding/empty lane space rather than another clip element.
+      // Vertical drops retain before/after semantics and therefore need a target clip.
+      const horizontalTimeDrop = d.mode === 'move' && Math.abs(dx) > 8
+        && Math.abs(dy) <= Math.max(12, d.el.getBoundingClientRect().height * 0.5)
+        && bodyRect && bodyRect.width > 0;
+      dragDebug.dx = dx;
+      dragDebug.dy = dy;
+      dragDebug.horizontalTimeDrop = !!horizontalTimeDrop;
+      dragDebug.bodyRect = bodyRect ? {
+        left: bodyRect.left, right: bodyRect.right, width: bodyRect.width
+      } : null;
+      dragDebug.stage = 'same-scene-target-resolved';
+      let toIndex;
+      if (horizontalTimeDrop) {
+        const ratio = Math.max(0, Math.min(1, (ev.clientX - bodyRect.left) / bodyRect.width));
+        const targetLocalTime = ratio * Number(scene.duration || 0);
+        let timeTargetIndex = scene.layers.findIndex(layer =>
+          targetLocalTime < Number(layer.start || 0) + Number(layer.duration || 0) / 2);
+        if (timeTargetIndex < 0) timeTargetIndex = scene.layers.length - 1;
+        const timeTarget = scene.layers[timeTargetIndex];
+        const afterTarget = targetLocalTime >= Number(timeTarget.start || 0) + Number(timeTarget.duration || 0) / 2;
+        toIndex = timeTargetIndex + (afterTarget ? 1 : 0);
+        if (d.idx < toIndex) toIndex -= 1;
+      } else {
+        if (!targetLayer || targetLayer.dataset.scene !== d.sceneId) return;
+        const rect = targetLayer.getBoundingClientRect();
+        const targetIdx = Number.parseInt(targetLayer.dataset.idx, 10);
+        toIndex = targetIdx + (ev.clientY > rect.top + rect.height / 2 ? 1 : 0);
+        if (d.idx < toIndex) toIndex -= 1;
+      }
+      toIndex = Math.max(0, Math.min(toIndex, scene.layers.length - 1));
+      dragDebug.toIndex = toIndex;
+      dragDebug.stage = 'reorder-index-calculated';
+      if (toIndex === d.idx) { dragDebug.stage = 'reorder-noop-same-index'; return; }
+      dragDebug.stage = 'reorder-command-issued';
+      editorToast(horizontalTimeDrop ? '正在按时间位置重排片段（后续片段随之移位）……' : '正在调整片段顺序……');
       editorCmd('reorder_layer', {toIndex}, `${d.sceneId}#${d.idx}`, true)
         .then(r => editorToast(r && r.ok ? '片段顺序已更新' : '片段顺序未更改：' + ((r && r.error) || '请检查片段'), !(r && r.ok)));
       return;
     }
-    const targetScene = hit && hit.closest ? hit.closest('#editor-timeline .ed-scene') : null;
     if (targetScene && targetScene.dataset.scene !== d.sceneId) {
+      dragDebug.stage = 'cross-scene-drop-rejected';
       editorToast('未更改：当前分镜要求内部片段无缝铺满；跨分镜移动需要独立物理轨道，不能用重排分镜代替。', true);
+    } else {
+      dragDebug.stage = 'no-same-scene-reorder-branch';
     }
-  });
+  }, true); // Claim pointerup in capture phase before higher-level timeline gestures can consume it.
 }
 
 // ---------------------------------------------------------------------------

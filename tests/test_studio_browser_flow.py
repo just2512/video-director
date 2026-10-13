@@ -394,6 +394,199 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert all(abs(item["mapped"] - 0.75) < 0.01 for item in zoom_geometry), zoom_geometry
                 assert zoom_geometry[2]["scrollable"], zoom_geometry
 
+
+
+                # Real Chromium interaction: a horizontal drag inside the main picture
+                # lane uses the drop time, not the pointer's vertical half of the target bar.
+                horizontal_drag_setup = page.evaluate("""async () => {
+                  window.__horizontalDragOriginal = {
+                    comp: ED.comp, view: ED.timelineView, zoom: ED.zoom,
+                    executeCommand: window.executeCommand,
+                    refreshWorkspace: window.refreshWorkspace,
+                    editorToast: window.editorToast
+                  };
+                  const original = window.__horizontalDragOriginal;
+                  window.__horizontalDragEvents = [];
+                  window.__horizontalDragListeners = [];
+                  for (const type of ["pointerdown","pointermove","pointerup","pointercancel","mousedown","mousemove","mouseup"]) {
+                    const listener = event => {
+                      if (window.__horizontalDragEvents.length < 80) {
+                        const target = event.target;
+                        const under = document.elementFromPoint(event.clientX || 0, event.clientY || 0);
+                        const source = window.__horizontalDragSelector
+                          ? document.querySelector(window.__horizontalDragSelector) : null;
+                        const sr = source && source.getBoundingClientRect();
+                        const scroll = source && source.closest('.ed-tl-scroll');
+                        const css = source && getComputedStyle(source);
+                        window.__horizontalDragEvents.push({
+                          type, x:event.clientX, y:event.clientY, button:event.button,
+                          pointerId:event.pointerId,
+                          target:target ? {tag:target.tagName,cls:String(target.className),scene:target.dataset && target.dataset.scene,idx:target.dataset && target.dataset.idx} : null,
+                          under:under ? {tag:under.tagName,cls:String(under.className),scene:under.dataset && under.dataset.scene,idx:under.dataset && under.dataset.idx} : null,
+                          sourceState:source ? {
+                            connected:source.isConnected,
+                            rect:{left:sr.left,top:sr.top,right:sr.right,bottom:sr.bottom,width:sr.width,height:sr.height},
+                            pointerEvents:css.pointerEvents,display:css.display,visibility:css.visibility,
+                            parentRect:(() => {const r=source.parentElement.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};})(),
+                            scroll:scroll ? {left:scroll.scrollLeft,top:scroll.scrollTop,rect:(() => {const r=scroll.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};})()} : null,
+                            hitContains:!!(under && (under===source || source.contains(under)))
+                          } : null,
+                          windowScroll:{x:window.scrollX,y:window.scrollY}
+                        });
+                      }
+                    };
+                    document.addEventListener(type, listener, true);
+                    window.__horizontalDragListeners.push({type, listener});
+                  }
+                  const comp = JSON.parse(JSON.stringify(original.comp));
+                  comp.duration = 10;
+                  comp.assets = {
+                    "drag-a": {id:"drag-a",type:"image",name:"Clip A",file:"/a.png",duration:2},
+                    "drag-b": {id:"drag-b",type:"image",name:"Clip B",file:"/b.png",duration:1},
+                    "drag-c": {id:"drag-c",type:"image",name:"Clip C",file:"/c.png",duration:3}
+                  };
+                  comp.scenes[0].start = 0;
+                  comp.scenes[0].duration = 6;
+                  comp.scenes[0].layers = [
+                    {type:"image",asset_id:"drag-a",start:0,duration:2},
+                    {type:"image",asset_id:"drag-b",start:2,duration:1},
+                    {type:"image",asset_id:"drag-c",start:3,duration:3}
+                  ];
+                  if (comp.scenes[1]) {
+                    comp.scenes[1].start = 6;
+                    comp.scenes[1].duration = 4;
+                  }
+                  ED.comp = comp;
+                  ED.timelineView = "dual";
+                  ED.zoom = 0.5;
+                  window.refreshWorkspace = async () => {};
+                  window.editorToast = () => {};
+                  editorRenderTimeline();
+
+                  // Scope the source clip to the physical timeline canvas. Semantic
+                  // storyboard rows are not draggable timeline clips.
+                  const canvas = document.querySelector("#editor-timeline .ed-tl-canvas");
+                  const selector = '.ed-layer[data-scene="' + comp.scenes[0].id + '"][data-idx="0"]';
+                  const source = canvas && canvas.querySelector(selector);
+                  const scene = source && source.closest(".ed-scene");
+                  const body = scene && scene.querySelector(".ed-scene-body");
+                  if (!source || !body) return {error:"physical main clip or scene body missing"};
+                  window.__horizontalDragSelector = selector;
+                  // Make scroll deterministic: smooth/intermediate scrolling can
+                  // invalidate getBoundingClientRect coordinates before real input.
+                  source.scrollIntoView({block:"center", inline:"nearest", behavior:"instant"});
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const sr = source.getBoundingClientRect(), br = body.getBoundingClientRect();
+                  const x = sr.left + sr.width / 2;
+                  const y = sr.top + sr.height / 2;
+                  const dropX = br.left + br.width * 0.92;
+                  const dropTarget = document.elementFromPoint(dropX, y);
+                  const sourceHit = document.elementFromPoint(x, y);
+                  if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight ||
+                      dropX < 0 || dropX >= innerWidth || y < 0 || y >= innerHeight) {
+                    return {error:"real mouse drag coordinates are outside viewport",
+                      x,y,dropX,viewport:{width:innerWidth,height:innerHeight}};
+                  }
+                  return {
+                    x,y,dropX,viewport:{width:innerWidth,height:innerHeight},
+                    sourceRect:{left:sr.left,top:sr.top,width:sr.width,height:sr.height},
+                    bodyRect:{left:br.left,top:br.top,width:br.width,height:br.height},
+                    sceneRect:(() => { const r=scene.getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}; })(),
+                    sourceHit:sourceHit ? {tag:sourceHit.tagName,className:String(sourceHit.className),scene:sourceHit.dataset && sourceHit.dataset.scene,idx:sourceHit.dataset && sourceHit.dataset.idx} : null,
+                    dropTarget:dropTarget ? {tag:dropTarget.tagName,className:String(dropTarget.className),scene:dropTarget.dataset && dropTarget.dataset.scene,idx:dropTarget.dataset && dropTarget.dataset.idx} : null,
+                    handlersBound:!!window.__tlLayerDragHandlers
+                  };
+                }""")
+                captured_editor_commands: list[dict] = []
+                def capture_horizontal_drag_command(route):
+                    try:
+                        body = json.loads(route.request.post_data or "{}")
+                    except (TypeError, json.JSONDecodeError):
+                        body = {}
+                    if not isinstance(body, dict) or body.get("command") != "reorder_layer":
+                        route.continue_()
+                        return
+                    captured_editor_commands.append(body)
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "ok": False,
+                            "status": "CAPTURED_FOR_TEST",
+                            "error": "captured by browser regression",
+                        }),
+                    )
+
+                # Intercept at the real HTTP command boundary. Overriding window.executeCommand
+                # is not reliable for the global editorCmd reference and previously allowed
+                # this regression to POST into the test server without capturing the request.
+                page.route("**/api/editor/command", capture_horizontal_drag_command)
+                try:
+                    assert "error" not in horizontal_drag_setup, horizontal_drag_setup
+                    # Use Playwright's real Chromium mouse input rather than dispatching
+                    # synthetic PointerEvents on document. This exercises pointer capture,
+                    # hit testing, and the same event path used by a person dragging a clip.
+                    page.mouse.move(horizontal_drag_setup["x"], horizontal_drag_setup["y"])
+                    page.mouse.down()
+                    page.mouse.move(horizontal_drag_setup["dropX"], horizontal_drag_setup["y"], steps=12)
+                    page.mouse.up()
+                    page.wait_for_timeout(50)
+                    captured_commands = list(captured_editor_commands)
+                    captured_events = page.evaluate("window.__horizontalDragEvents || []")
+                    horizontal_layer_drag = {
+                        "commands": captured_commands,
+                        "events": captured_events,
+                        "expectedToIndex": 2,
+                        "geometry": horizontal_drag_setup,
+                    }
+                finally:
+                    page.unroute("**/api/editor/command", capture_horizontal_drag_command)
+                    page.evaluate("""() => {
+                      const original = window.__horizontalDragOriginal;
+                      if (original) {
+                        ED.comp = original.comp;
+                        ED.timelineView = original.view;
+                        ED.zoom = original.zoom;
+                        window.executeCommand = original.executeCommand;
+                        window.refreshWorkspace = original.refreshWorkspace;
+                        window.editorToast = original.editorToast;
+                      }
+                      // Remove the capture listeners before deleting their event buffer.
+                      // They otherwise survive this instrumentation block and throw on
+                      // later unrelated pointer events when __horizontalDragEvents is gone.
+                      for (const entry of window.__horizontalDragListeners || []) {
+                        document.removeEventListener(entry.type, entry.listener, true);
+                      }
+                      delete window.__horizontalDragListeners;
+                      delete window.__horizontalDragOriginal;
+                      delete window.__horizontalDragCommands;
+                      delete window.__horizontalDragEvents;
+                      delete window.__horizontalDragSelector;
+                      editorRenderTimeline();
+                    }""")
+                assert horizontal_layer_drag["commands"], json.dumps({
+                    "commands": captured_commands,
+                    "expectedToIndex": 2,
+                    "geometry": horizontal_drag_setup,
+                    "dragDebug": page.evaluate("window.__lastLayerDragDebug || null"),
+                    # Emit complete, compact real-input evidence. A dict repr is
+                    # pytest-truncated and hid the one event that determines why
+                    # a human-style drag did not reach the command path.
+                    "pointerEvents": [
+                        {
+                            "type": item.get("type"), "x": item.get("x"), "y": item.get("y"),
+                            "button": item.get("button"), "pointerId": item.get("pointerId"),
+                            "target": item.get("target"), "under": item.get("under"),
+                            "sourceState": item.get("sourceState"), "windowScroll": item.get("windowScroll"),
+                        }
+                        for item in captured_events
+                        if str(item.get("type", "")).startswith("pointer")
+                        or item.get("type") in ("mousedown", "mouseup")
+                    ],
+                }, ensure_ascii=False, indent=2)
+                assert horizontal_layer_drag["commands"][0]["command"] == "reorder_layer", horizontal_layer_drag
+                assert horizontal_layer_drag["commands"][0]["payload"]["toIndex"] == 2, horizontal_layer_drag
+
                 # Real user-facing overlay lane: render, edit inspector, add from project
                 # assets, delete, and drag a clip. Commands are captured at the same
                 # frontend command boundary used by the real API so no disk data changes.

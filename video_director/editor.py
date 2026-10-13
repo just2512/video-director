@@ -1032,7 +1032,12 @@ def _cmd_reorder_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     scene_data = scene.model_dump()
     scene_data["layers"] = [item.model_dump() for item in normalized]
     ir.scenes[si] = SceneIR(**scene_data)
-    return [f"{scene.id}#{to_index}"], _stale_of_scene(project_id="", scene_id=scene.id)
+    # A ripple reorder changes linked source-audio timing as well as picture order.
+    # Do not run the scene-level narration reflow: this command did not change scenes.
+    _resync_audio_to_scenes(ir, sync_narration=False, match_original_by_source=True)
+    stale = _stale_of_scene(project_id="", scene_id=scene.id)
+    stale.extend(["project:audio:render", "project:audio-tracks", "project:preview"])
+    return [f"{scene.id}#{to_index}"], list(dict.fromkeys(stale))
 
 
 def _cmd_add_edit_all_tracks(
@@ -1402,14 +1407,17 @@ def _renumber_starts(ir: CompositionIR) -> None:
         cursor += sc.duration
 
 
-def _resync_audio_to_scenes(ir: CompositionIR) -> None:
+def _resync_audio_to_scenes(
+    ir: CompositionIR, *, sync_narration: bool = True, match_original_by_source: bool = False,
+) -> None:
     """场景结构编辑后的音频时间同步。
 
     original 轨不再简单按 asset_id 取第一个窗口，而是：
     - 同一素材的多个 original track 按“旧 timeline start”保留实例顺序；
     - 与该素材在新时间线中的多个 video layer 窗口按新 start 顺序一一对应；
     - 没有对应窗口的轨道视为孤儿并删除；
-    narration 仍按场景顺序 1:1 重铺；其他音轨只做时间范围裁剪。
+    narration 默认按场景顺序 1:1 重铺；主画面轨内部重排传 sync_narration=False，
+    以免无关的视觉重排把全片旁白裁成第一镜时长。其他音轨只做时间范围裁剪。
     """
     from video_director.models import AudioTrackType
 
@@ -1421,10 +1429,11 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
     asset_windows: dict = {}
     for sc in ir.scenes:
         for lay in sc.layers:
-            if getattr(lay, "asset_id", None):
-                asset_windows.setdefault(lay.asset_id, []).append(
-                    (sc.start + lay.start, lay.duration, lay.source_in, lay.source_out)
-                )
+            if lay.type != LayerType.video or not getattr(lay, "asset_id", None):
+                continue
+            asset_windows.setdefault(lay.asset_id, []).append(
+                (sc.start + lay.start, lay.duration, lay.source_in, lay.source_out)
+            )
     for aid in asset_windows:
         asset_windows[aid].sort(key=lambda x: x[0])
 
@@ -1435,9 +1444,49 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
     for t in ir.audio:
         ttype = t.type.value if hasattr(t.type, "value") else str(t.type)
         if ttype == "original":
-            original_by_asset.setdefault(t.asset_id or "", []).append(t)
+            follows_scene_video = bool(getattr(t, "follows_scene_video", True))
+            # Migration for pre-flag projects: source-audio clips detached by earlier
+            # versions used the audio-source-* id and a physical original-audio lane.
+            # Pydantic's fields-set lets us distinguish absent legacy JSON from an
+            # explicit True; never infer over a user's explicitly saved choice.
+            fields_set = getattr(t, "model_fields_set", set())
+            if "follows_scene_video" not in fields_set and (
+                str(getattr(t, "id", "") or "").startswith("audio-source-")
+                or (
+                    str(getattr(t, "track_id", "") or "").startswith("audio-original")
+                    and getattr(t, "source_out", None) is not None
+                )
+            ):
+                follows_scene_video = False
+            if follows_scene_video and t.asset_id:
+                original_by_asset.setdefault(t.asset_id, []).append(t)
+            elif follows_scene_video:
+                # The legacy project-wide original-audio policy may exist before a
+                # video source is selected. An unbound policy is not an orphan clip:
+                # preserve it so a later source-matching step can bind it.
+                start = min(float(t.start), max(0.0, total - float(t.duration)))
+                dur = min(float(t.duration), max(0.0, total - start))
+                if dur > 0.01:
+                    new_audio.append(t.model_copy(update={
+                        "start": round(start, 3), "duration": round(dur, 3),
+                    }))
+            else:
+                # This audio was explicitly detached or user-edited. It may refer to a
+                # video visible only on an overlay track, so no SceneIR asset window is
+                # required for it to remain a valid editable audio clip.
+                start = min(float(t.start), max(0.0, total - float(t.duration)))
+                dur = min(float(t.duration), max(0.0, total - start))
+                if dur > 0.01:
+                    new_audio.append(t.model_copy(update={
+                        "start": round(start, 3), "duration": round(dur, 3),
+                        "follows_scene_video": False,
+                    }))
         elif ttype == "narration":
-            narration_tracks.append(t)
+            if sync_narration:
+                narration_tracks.append(t)
+            else:
+                # A picture-only reorder must leave the global narration mix untouched.
+                new_audio.append(t)
         else:
             start = min(float(t.start), max(0.0, total - float(t.duration)))
             dur = min(float(t.duration), max(0.0, total - start))
@@ -1449,17 +1498,54 @@ def _resync_audio_to_scenes(ir: CompositionIR) -> None:
     for aid, tracks in original_by_asset.items():
         wins = asset_windows.get(aid, [])
         tracks = sorted(tracks, key=lambda t: float(t.start or 0.0))
-        for i, t in enumerate(tracks):
-            if i >= len(wins):
-                continue
-            w_start, w_dur, w_src_in, w_src_out = wins[i]
-            # source 窗口随配对图层走：重配对后轨播的必须是该层实际消费的
-            # 源区间，否则同素材多实例在结构编辑后原声播错源片段（多场景移动
-            # 只动 start/duration 时，轨道 #1 的 0-5s 源窗会被接到消费 10-15s
-            # 的图层窗口上）。音量/ducking/淡入淡出仍是轨道自身属性。
-            new_audio.append(t.model_copy(update={
+        if match_original_by_source:
+            # A source may be reused several times in one project. Reorder changes
+            # timeline order but not source ranges, so bind by source window first;
+            # otherwise sorted-by-time pairing transfers volume/fades between clips.
+            remaining = list(enumerate(wins))
+            matched = []
+            tolerance = max(0.05, 0.5 / max(1.0, float(ir.project.fps or 1.0)))
+            for track in tracks:
+                source_in = float(track.source_in or 0.0)
+                source_out = (
+                    float(track.source_out)
+                    if track.source_out is not None
+                    else source_in + float(track.duration)
+                )
+                exact = [
+                    (index, window)
+                    for index, window in remaining
+                    if window[2] is not None
+                    and abs(float(window[2]) - source_in) <= tolerance
+                    and window[3] is not None
+                    and abs(float(window[3]) - source_out) <= tolerance
+                ]
+                if exact:
+                    # Duplicate uses of an identical source window are ambiguous in
+                    # legacy data; retain nearest old timeline position deterministically.
+                    chosen = min(exact, key=lambda item: abs(float(item[1][0]) - float(track.start)))
+                elif remaining:
+                    # Old projects may have incomplete source anchors. Keep the historic
+                    # ordinal fallback for the unmatched remainder rather than dropping it.
+                    chosen = remaining[0]
+                else:
+                    continue
+                matched.append((track, chosen[1]))
+                remaining = [item for item in remaining if item[0] != chosen[0]]
+            pairs = matched
+        else:
+            pairs = [
+                (track, wins[index])
+                for index, track in enumerate(tracks)
+                if index < len(wins)
+            ]
+        for track, window in pairs:
+            w_start, w_dur, w_src_in, w_src_out = window
+            # Audio gain/fades belong to the clip instance; only linked timing/source
+            # fields follow the matching video occurrence.
+            new_audio.append(track.model_copy(update={
                 "start": round(float(w_start), 3),
-                "duration": round(min(float(t.duration), float(w_dur)), 3),
+                "duration": round(min(float(track.duration), float(w_dur)), 3),
                 "source_in": round(float(w_src_in if w_src_in is not None else 0.0), 3),
                 "source_out": round(float(w_src_out), 3) if w_src_out is not None else None,
             }))
@@ -2353,6 +2439,7 @@ def _cmd_separate_visual_overlay_source_audio(
                 "SOURCE_AUDIO_DUPLICATE_CONFLICT",
                 "同一源区间已有独立原声轨，但音量/淡入淡出/自动化与画面源音频不一致；为避免改变成片声音，未执行拆分",
             )
+        ir.audio[audio_index] = existing.model_copy(update={"follows_scene_video": False})
         reused_audio_key = f"audio:original:{audio_index}"
     else:
         lane = next((item for item in ir.audio_tracks if item.id == "audio-original"), None)
@@ -2386,6 +2473,7 @@ def _cmd_separate_visual_overlay_source_audio(
             source_in=round(source_in, 3),
             source_out=round(source_out, 3),
             volume=float(clip.source_audio_volume),
+            follows_scene_video=False,
         ))
         reused_audio_key = f"audio:original:{len(ir.audio) - 1}"
 
@@ -2654,7 +2742,10 @@ def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     if not any(lane.id == lane_id for lane in ir.audio_tracks):
         raise EditorError("NOT_FOUND", f"目标音频轨道 {lane_id!r} 不存在", recoverable=False)
     _ensure_audio_lane_unlocked(ir, lane_id)
-    ir.audio[index] = track.model_copy(update={"start": round(start, 3), "track_id": lane_id})
+    move_update = {"start": round(start, 3), "track_id": lane_id}
+    if track.type == AudioTrackType.original:
+        move_update["follows_scene_video"] = False
+    ir.audio[index] = track.model_copy(update=move_update)
     key = f"audio:{track.type.value}:{index}"
     return [key], [f"{key}:render", "project:audio-tracks"]
 
@@ -2685,12 +2776,15 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
         raise EditorError("INVALID_SOURCE_RANGE", "音频源区间必须非负且至少 0.05 秒")
     if start + duration > total + 1e-6:
         raise EditorError("INVALID_TIMELINE_RANGE", "裁剪后的音频片段不能超出项目总时长")
-    ir.audio[index] = track.model_copy(update={
+    trim_update = {
         "start": round(start, 3),
         "source_in": round(source_in, 3),
         "source_out": round(source_out, 3),
         "duration": round(duration, 3),
-    })
+    }
+    if track.type == AudioTrackType.original:
+        trim_update["follows_scene_video"] = False
+    ir.audio[index] = track.model_copy(update=trim_update)
     key = f"audio:{track.type.value}:{index}"
     return [key], [f"{key}:render"]
 
@@ -2774,13 +2868,13 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
     left_source_out = source_boundary if source_out is not None else None
     fade_in = max(0.0, float(getattr(track, "fadeIn", 0.0) or 0.0))
     fade_out = max(0.0, float(getattr(track, "fadeOut", 0.0) or 0.0))
-    left = track.model_copy(update={
+    left_update = {
         "duration": left_duration,
         "source_out": left_source_out,
         "fadeIn": min(fade_in, left_duration),
         "fadeOut": 0.0,
-    })
-    right = track.model_copy(update={
+    }
+    right_update = {
         "id": f"audio-{uuid.uuid4().hex[:12]}",
         "start": split_at,
         "duration": right_duration,
@@ -2789,7 +2883,12 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
         "fadeIn": 0.0,
         "fadeOut": min(fade_out, right_duration),
         "keyframes": [],
-    })
+    }
+    if track.type == AudioTrackType.original:
+        left_update["follows_scene_video"] = False
+        right_update["follows_scene_video"] = False
+    left = track.model_copy(update=left_update)
+    right = track.model_copy(update=right_update)
     ir.audio[index] = left
     ir.audio.insert(index + 1, right)
     left_key = f"audio:{track.type.value}:{index}"
@@ -3217,6 +3316,7 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
                     "source_out": source_out, "volume": volume,
                     "muted": mode == "mute", "ducking": duck,
                     "fadeIn": fin, "fadeOut": fout,
+                    "follows_scene_video": False,
                 })
                 return [], ["audio:original:render"]
 
@@ -3225,6 +3325,7 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
             start=start, duration=duration, source_in=source_in,
             source_out=source_out, volume=volume, muted=(mode == "mute"),
             ducking=duck, fadeIn=fin, fadeOut=fout,
+            follows_scene_video=False,
         ))
         return [], ["audio:original:render"]
 
