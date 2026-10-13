@@ -4114,6 +4114,9 @@ def _watermark_patch(current: WatermarkLayer, payload: dict) -> WatermarkLayer:
 
 def _cmd_set_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Add or patch an overlay; legacy calls still upsert by kind, timeline calls target one exact clip."""
+    for field in ("start", "duration"):
+        if field in payload and isinstance(payload[field], bool):
+            raise EditorError("INVALID_PAYLOAD", f"水印 {field} 不能是布尔值")
     kind = payload.get("kind") or "text"
     if kind == "text" and not (payload.get("text") or "").strip():
         raise EditorError("INVALID_PAYLOAD", "text 水印缺 text")
@@ -4164,10 +4167,12 @@ def _cmd_move_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     """Move a timed overlay on the global timeline; dragging materializes its effective duration."""
     index = _watermark_index(ir, target_id)
     current = ir.watermarks[index]
+    if isinstance(payload.get("start"), bool) or isinstance(payload.get("duration"), bool):
+        raise EditorError("INVALID_PAYLOAD", "move_watermark 的 start/duration 不能是布尔值")
     try:
         start = float(payload["start"])
         duration = float(payload["duration"])
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise EditorError("INVALID_PAYLOAD", "move_watermark 需要数值 start 和 duration") from exc
     total = float(ir.project.duration)
     if not (math.isfinite(start) and math.isfinite(duration)):
@@ -4184,10 +4189,12 @@ def _cmd_trim_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     """Commit a timeline overlay's trimmed start/duration after local drag preview."""
     index = _watermark_index(ir, target_id)
     current = ir.watermarks[index]
+    if isinstance(payload.get("start"), bool) or isinstance(payload.get("duration"), bool):
+        raise EditorError("INVALID_PAYLOAD", "trim_watermark 的 start/duration 不能是布尔值")
     try:
         start = float(payload["start"])
         duration = float(payload["duration"])
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise EditorError("INVALID_PAYLOAD", "trim_watermark 需要数值 start 和 duration") from exc
     total = float(ir.project.duration)
     if not (math.isfinite(start) and math.isfinite(duration)):
@@ -4800,9 +4807,15 @@ def _cmd_set_transition_out(ir: CompositionIR, target_id: str, payload: dict) ->
         raise EditorError("INVALID_TARGET", "set_transition_out 缺少场景 targetId")
     si, scene = _find_scene(ir, target_id)
     ttype = str(payload.get("type") or "cut")
-    duration = float(payload.get("duration", 0.0) or 0.0)
-    if duration < 0:
-        raise EditorError("INVALID_PARAMETER", "转场时长不能为负")
+    raw_duration = payload.get("duration", 0.0)
+    if isinstance(raw_duration, bool):
+        raise EditorError("INVALID_PARAMETER", "转场时长不能是布尔值")
+    try:
+        duration = float(raw_duration or 0.0)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PARAMETER", "转场时长必须是数字") from exc
+    if not math.isfinite(duration) or duration < 0:
+        raise EditorError("INVALID_PARAMETER", "转场时长必须是有限的非负数字")
     if ttype not in {"cut", "crossfade", "fade"}:
         raise EditorError("INVALID_PAYLOAD", f"不支持的转场类型 {ttype!r}")
     if ttype == "cut":

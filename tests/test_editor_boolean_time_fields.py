@@ -5,8 +5,11 @@ silently interpreting true as 1 second and persisting a user-visible edit.
 """
 from __future__ import annotations
 
+import pytest
+
+from video_director import editor
 from video_director.editor import execute_command, load_composition, save_composition
-from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, WatermarkLayer
 from video_director.visual_semantics import Keyframe, KeyframeTrack
 
 
@@ -89,4 +92,34 @@ def test_boolean_values_are_rejected_for_temporal_and_numeric_editor_contracts(t
     assert unchanged.audio == []
     assert unchanged.camera_tracks == []
     assert unchanged.continuity_links == []
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+
+def test_watermark_and_transition_timing_reject_booleans_without_mutation(tmp_path, monkeypatch):
+    project_id, plans = _contract_project(tmp_path, monkeypatch)
+    comp = load_composition(project_id)
+    comp.watermarks = [
+        WatermarkLayer(
+            id="wm-contract", kind="text", text="timing",
+            start=1.0, duration=2.0,
+        )
+    ]
+    before = comp.model_dump()
+
+    attempts = [
+        (editor._cmd_set_watermark, ("", {"kind": "text", "text": "new", "createNew": True, "start": True, "duration": 2.0})),
+        (editor._cmd_move_watermark, ("watermark#0", {"start": True, "duration": 2.0})),
+        (editor._cmd_move_watermark, ("watermark#0", {"start": 1.0, "duration": True})),
+        (editor._cmd_trim_watermark, ("watermark#0", {"start": True, "duration": 1.0})),
+        (editor._cmd_trim_watermark, ("watermark#0", {"start": 1.0, "duration": True})),
+        (editor._cmd_set_transition_out, ("S01", {"type": "crossfade", "duration": True})),
+        (editor._cmd_set_transition_out, ("S01", {"type": "fade", "duration": float("nan")})),
+    ]
+
+    for command, (target, payload) in attempts:
+        with pytest.raises(editor.EditorError):
+            command(comp, target, payload)
+
+    assert comp.model_dump() == before
     assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
