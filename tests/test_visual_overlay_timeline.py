@@ -40,6 +40,43 @@ def _apply(pid, command, target, payload, version):
     })
 
 
+def _linked_video_project(tmp_path, monkeypatch, *, locked_audio=False, include_unlinked=False):
+    pid, plans = _editor_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    source = tmp_path / "linked-video.mp4"
+    source.write_bytes(b"video source fixture; editor-command tests do not decode it")
+    comp.assets.append(AssetRef(
+        id="linked-video", type="video", file=str(source.resolve()),
+        duration=8.0, width=320, height=180,
+    ))
+    comp.visual_overlays.append(VisualOverlayClip(
+        id="linked-overlay", asset_id="linked-video", start=2.0, duration=4.0,
+        source_in=1.0, track_id="overlay-main", source_audio_enabled=False,
+    ))
+    audio_lane = next(lane for lane in comp.audio_tracks if lane.id == "audio-original")
+    if locked_audio:
+        comp.audio_tracks = [
+            lane.model_copy(update={"locked": True}) if lane.id == audio_lane.id else lane
+            for lane in comp.audio_tracks
+        ]
+    comp.audio.append(AudioTrack(
+        type=AudioTrackType.original, id="linked-audio",
+        track_id=audio_lane.id, follows_scene_video=False,
+        linked_visual_overlay_id="linked-overlay", asset_id="linked-video",
+        start=2.0, duration=4.0, source_in=1.0, source_out=5.0,
+        volume=0.42, fadeIn=0.5, fadeOut=0.75,
+    ))
+    if include_unlinked:
+        comp.audio.append(AudioTrack(
+            type=AudioTrackType.original, id="unlinked-audio",
+            track_id=audio_lane.id, follows_scene_video=False,
+            asset_id="linked-video", start=7.0, duration=1.0,
+            source_in=0.0, source_out=1.0, volume=0.15,
+        ))
+    save_composition(pid, comp)
+    return pid, plans
+
+
 def test_overlay_model_rejects_frame_overflow_and_invalid_timing():
     for params in (
         {"id": "bad-x", "asset_id": "asset", "start": 0, "duration": 1, "x": 0.8, "width": 0.3},
