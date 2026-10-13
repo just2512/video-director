@@ -583,21 +583,46 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     if cmd_name == "select":
         # selection 是前端 transient 态（§35），不产生 revision
         return CommandResult(status="APPLIED", composition_version=composition_version(project_id))
-    # §三十二 Style DNA：记录明确行为（used；不评分）。仅换动效/换镜头/加 B-roll 记 used
-    _record_behavior_if_applicable(cmd_name, command)
-
     expected = command.get("expectedVersion")
     current = composition_version(project_id)
-    if expected is not None and int(expected) != current:
-        return CommandResult(
-            status="REJECTED",
-            composition_version=current,
-            errors=[{
-                "code": "CONFLICT",
-                "message": f"版本冲突：客户端 {expected} != 服务端 {current}，请刷新后重试",
-                "recoverable": True,
-            }],
-        )
+    if expected is not None:
+        # int(True) == 1 and int(1.5) == 1 in Python: coercing a malformed
+        # optimistic-lock token can let a stale edit pass the version gate.
+        if isinstance(expected, bool) or (
+            isinstance(expected, float)
+            and (not math.isfinite(expected) or not expected.is_integer())
+        ):
+            return CommandResult(
+                status="REJECTED",
+                composition_version=current,
+                errors=[{
+                    "code": "INVALID_PAYLOAD",
+                    "message": "expectedVersion 必须是整数；不接受布尔值、非有限数或小数",
+                    "recoverable": True,
+                }],
+            )
+        try:
+            expected_version = int(expected)
+        except (TypeError, ValueError, OverflowError):
+            return CommandResult(
+                status="REJECTED",
+                composition_version=current,
+                errors=[{
+                    "code": "INVALID_PAYLOAD",
+                    "message": "expectedVersion 必须是整数",
+                    "recoverable": True,
+                }],
+            )
+        if expected_version != current:
+            return CommandResult(
+                status="REJECTED",
+                composition_version=current,
+                errors=[{
+                    "code": "CONFLICT",
+                    "message": f"版本冲突：客户端 {expected} != 服务端 {current}，请刷新后重试",
+                    "recoverable": True,
+                }],
+            )
 
     if cmd_name in ("undo", "redo"):
         return _undo_redo(project_id, cmd_name, current_version=current)
@@ -804,6 +829,9 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         logger.debug(f"artifact manifest stale 标记失败（忽略）: {exc}")
     if cmd_name == "set_scene_intent":
         _sync_candidate_views(project_id, ir)
+    # Record Style DNA only after the edit passed validation and was persisted.
+    # Rejected/conflicted commands must not leave a false "used" event.
+    _record_behavior_if_applicable(cmd_name, command)
     logger.info(
         f"editor: {cmd_name} {target_id} → revision {revision_id} "
         f"(changed={changed}, stale={stale})"
