@@ -1178,25 +1178,66 @@ def composite_visual_overlays(
         end = min(total, start + duration)
         overlay_label = f"ov{index}"
         composed_label = f"comp{index}"
-        if getattr(overlay, "presentation_mode", "picture_in_picture") == "full_frame":
-            # Full-frame clips must cover the full output frame. Picture-in-picture
-            # and stickers retain their source aspect ratio with transparent padding.
-            fit_filter = (
-                f"scale={box_w}:{box_h}:force_original_aspect_ratio=increase,"
-                f"crop={box_w}:{box_h}"
+        overlay_x = str(x_px)
+        overlay_y = str(y_px)
+
+        if getattr(overlay, "transform", None) is not None:
+            # Preserve canonical main-layer geometry as an RGBA foreground. The
+            # transformed clip must reveal the base composition outside its bounds.
+            transform = _layer_transform_payload(overlay)
+            anchor_x_ratio, anchor_y_ratio = _LAYER_TRANSFORM_ANCHORS[transform["anchor"]]
+            scaled_w = max(2, int(round(width * transform["scale"] / 2.0)) * 2)
+            scaled_h = max(2, int(round(height * transform["scale"] / 2.0)) * 2)
+            radians = math.radians(transform["rotation"])
+            cosine, sine = math.cos(radians), math.sin(radians)
+            anchor_x = anchor_x_ratio * scaled_w - scaled_w / 2.0
+            anchor_y = anchor_y_ratio * scaled_h - scaled_h / 2.0
+            rotated_anchor_x = (
+                f"({cosine:.10f})*({anchor_x:.4f})-"
+                f"({sine:.10f})*({anchor_y:.4f})+overlay_w/2"
+            )
+            rotated_anchor_y = (
+                f"({sine:.10f})*({anchor_x:.4f})+"
+                f"({cosine:.10f})*({anchor_y:.4f})+overlay_h/2"
+            )
+            overlay_x = f"'W*{transform['x']:.8f}-({rotated_anchor_x})'"
+            overlay_y = f"'H*{transform['y']:.8f}-({rotated_anchor_y})'"
+            foreground = [
+                f"scale={width}:{height}:force_original_aspect_ratio=increase",
+                f"crop={width}:{height}",
+                f"scale={scaled_w}:{scaled_h}:flags=lanczos",
+                "format=rgba",
+            ]
+            if abs(transform["rotation"]) > 1e-9:
+                foreground.append(
+                    f"rotate={radians:.12f}:ow=rotw(iw):oh=roth(ih):c=black@0:bilinear=1"
+                )
+            if transform["opacity"] < 1.0:
+                foreground.append(f"colorchannelmixer=aa={transform['opacity']:.8f}")
+            filters.append(
+                f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
+                f"{','.join(foreground)}[{overlay_label}]"
             )
         else:
-            fit_filter = (
-                f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
-                f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+            if getattr(overlay, "presentation_mode", "picture_in_picture") == "full_frame":
+                # Full-frame clips cover the output frame. Picture-in-picture and stickers
+                # retain their source aspect ratio with transparent padding.
+                fit_filter = (
+                    f"scale={box_w}:{box_h}:force_original_aspect_ratio=increase,"
+                    f"crop={box_w}:{box_h}"
+                )
+            else:
+                fit_filter = (
+                    f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
+                    f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+                )
+            filters.append(
+                f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
+                f"{fit_filter},format=rgba,"
+                f"colorchannelmixer=aa={float(overlay.opacity):.6f}[{overlay_label}]"
             )
         filters.append(
-            f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
-            f"{fit_filter},format=rgba,"
-            f"colorchannelmixer=aa={float(overlay.opacity):.6f}[{overlay_label}]"
-        )
-        filters.append(
-            f"[{current}][{overlay_label}]overlay=x={x_px}:y={y_px}:"
+            f"[{current}][{overlay_label}]overlay=x={overlay_x}:y={overlay_y}:"
             f"eof_action=pass:shortest=0:enable='between(t,{start:.6f},{end:.6f})'"
             f"[{composed_label}]"
         )

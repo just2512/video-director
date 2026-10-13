@@ -484,11 +484,19 @@ function _previewRenderVisualOverlays(sec) {
     const top = clamp(clip.y, 0, 1, 0.1) * 100;
     const width = clamp(clip.width, 0.05, 1, 0.3) * 100;
     const height = clamp(clip.height, 0.05, 1, 0.3) * 100;
-    node.style.left = left + '%';
-    node.style.top = top + '%';
-    node.style.width = width + '%';
-    node.style.height = height + '%';
-    node.style.opacity = String(clamp(clip.opacity, 0, 1, 1));
+    if (clip.transform) {
+      _previewApplyLayerTransform(node, {
+        transform: clip.transform,
+        type: asset && asset.type || '',
+        fit_mode: 'cover'
+      });
+    } else {
+      node.style.left = left + '%';
+      node.style.top = top + '%';
+      node.style.width = width + '%';
+      node.style.height = height + '%';
+      node.style.opacity = String(clamp(clip.opacity, 0, 1, 1));
+    }
     node.style.zIndex = String(effectiveZ);
     if (node.tagName !== 'VIDEO') continue;
 

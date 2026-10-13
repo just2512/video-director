@@ -789,7 +789,15 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                         }]
                       }],
                       assets: {'PV-transform-asset': {id:'PV-transform-asset', type:'image', file_url:'/preview-transform.png'}},
-                      visual_overlays: [], subtitle_track: {mode:'sentence', cues: []}
+                      visual_tracks: [{id:'overlay-main', order:0}],
+                      visual_overlays: [{
+                        id:'PV-lifted-overlay', asset_id:'PV-transform-asset', start:0, duration:1,
+                        source_in:0, track_id:'overlay-main', presentation_mode:'full_frame',
+                        source_audio_enabled:false, source_audio_volume:1,
+                        x:0, y:0, width:1, height:1, opacity:1, z_index:0,
+                        transform: {x:0.25, y:0.5, scale:0.5, rotation:15, opacity:0.75, anchor:'center'}
+                      }],
+                      subtitle_track: {mode:'sentence', cues: []}
                     });
                     PV.mode = 'live'; PV.playing = false; PV.playhead = 0;
                     PV.activeSceneId = ''; PV.activeLayerId = '';
@@ -798,7 +806,14 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     const canvas = document.querySelector('#ed-preview-stage .pv-live-media');
                     if (!node || !canvas) return null;
                     const rect = canvas.getBoundingClientRect();
-                    return {
+                    const liftedOverlay = document.querySelector('#ed-preview-stage .pv-live-overlay-image');
+                    const previewResult = {
+                      liftedOverlay: liftedOverlay ? {
+                        position: liftedOverlay.style.position, left: liftedOverlay.style.left,
+                        top: liftedOverlay.style.top, width: liftedOverlay.style.width,
+                        height: liftedOverlay.style.height, opacity: liftedOverlay.style.opacity,
+                        transform: liftedOverlay.style.transform
+                      } : null,
                       position: node.style.position, left: node.style.left, top: node.style.top,
                       width: node.style.width, height: node.style.height, opacity: node.style.opacity,
                       transform: node.style.transform, transformOrigin: node.style.transformOrigin,
@@ -807,6 +822,16 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                       canvasRatio: rect.height > 0 ? rect.width / rect.height : 0,
                       expectedRatio: ED.comp.project.width / ED.comp.project.height
                     };
+                    // A lifted clip uses transform-specific inspector fields; opening its
+                    // properties must not focus a legacy field that is absent from the DOM.
+                    editorVisualOverlayOpen(0);
+                    previewResult.liftedInspector = {
+                      transformX: !!document.querySelector('#visual-overlay-inspector-mask #visual-overlay-transform-x'),
+                      transformScale: !!document.querySelector('#visual-overlay-inspector-mask #visual-overlay-transform-scale'),
+                      legacyX: !!document.querySelector('#visual-overlay-inspector-mask #visual-overlay-x')
+                    };
+                    editorVisualOverlayClose();
+                    return previewResult;
                   } finally {
                     ED.comp = originalComp;
                     PV.mode = originalPV.mode; PV.playing = originalPV.playing; PV.playhead = originalPV.playhead;
@@ -830,6 +855,13 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     "canvasAspectRatio": "320 / 180"
                 }, layer_transform_preview
                 assert abs(layer_transform_preview["canvasRatio"] - layer_transform_preview["expectedRatio"]) < 0.02, layer_transform_preview
+                assert layer_transform_preview["liftedOverlay"] == {
+                    "position": "absolute", "left": "calc(0%)", "top": "calc(25%)",
+                    "width": "50%", "height": "50%", "opacity": "0.75", "transform": "rotate(15deg)"
+                }, layer_transform_preview
+                assert layer_transform_preview["liftedInspector"] == {
+                    "transformX": True, "transformScale": True, "legacyX": False
+                }, layer_transform_preview
 
                 # The word-level subtitle track is time-aligned too: preserve the
                 # phrase around the current word, highlight that word, and apply style.

@@ -645,6 +645,9 @@ class VisualOverlayClip(BaseModel):
     height: float = 0.3
     opacity: float = 1.0
     z_index: int = 0
+    # Canonical Layer.transform retained when a main-track clip is promoted.
+    # Legacy PiP/sticker clips continue to use x/y/width/height.
+    transform: Optional[Transform] = None
 
     @model_validator(mode="after")
     def _check_overlay(self):
@@ -668,6 +671,11 @@ class VisualOverlayClip(BaseModel):
             raise ValueError("visual overlay rectangle exceeds the project frame")
         if not (0.0 <= self.opacity <= 1.0):
             raise ValueError("visual overlay opacity must be in [0,1]")
+        if self.transform is not None:
+            if self.presentation_mode != "full_frame":
+                raise ValueError("a canonical transformed overlay must use full_frame presentation")
+            if not math.isfinite(float(self.transform.rotation)):
+                raise ValueError("visual overlay transform.rotation must be finite")
         return self
 
 

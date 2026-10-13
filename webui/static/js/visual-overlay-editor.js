@@ -128,6 +128,34 @@ function editorVisualOverlayOpen(index, ev) {
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayDetachAudio(${index})">拆分为独立原声轨</button>
       </div>
       <p class="hint">拆分后，原声会出现在下方时间线的“原声”轨，可独立移动、修剪、静音和混音；视频片段不再重复播放这份声音。可用“撤销”恢复。</p>` : '';
+  const presentationControls = clip.transform
+    ? '<p class="hint">此片段从主画面提升而来，已保留原来的位置/缩放/旋转/透明度。它作为全画幅素材叠加在时间线上，不能切换为画中画/贴纸；可以继续调整下面的变换参数。</p>'
+    : `<label for="visual-overlay-edit-presentation-mode">画面用途</label>
+      <select id="visual-overlay-edit-presentation-mode" onchange="editorVisualOverlayApplyPreset()">
+        <option value="full_frame" ${clip.presentation_mode === 'full_frame' ? 'selected' : ''}>全画幅镜头</option>
+        <option value="picture_in_picture" ${!clip.presentation_mode || clip.presentation_mode === 'picture_in_picture' ? 'selected' : ''}>画中画</option>
+        <option value="sticker" ${clip.presentation_mode === 'sticker' ? 'selected' : ''}>贴纸 / 图层</option>
+      </select>`;
+  const placementControls = clip.transform
+    ? `<div class="audio-clip-field-row">
+        <div><label for="visual-overlay-transform-x">锚点 X（0–1）</label><input id="visual-overlay-transform-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.transform.x ?? 0.5)}"></div>
+        <div><label for="visual-overlay-transform-y">锚点 Y（0–1）</label><input id="visual-overlay-transform-y" type="number" min="0" max="1" step="0.01" value="${Number(clip.transform.y ?? 0.5)}"></div>
+      </div>
+      <div class="audio-clip-field-row">
+        <div><label for="visual-overlay-transform-scale">缩放（0.1–5）</label><input id="visual-overlay-transform-scale" type="number" min="0.1" max="5" step="0.05" value="${Number(clip.transform.scale ?? 1)}"></div>
+        <div><label for="visual-overlay-transform-rotation">旋转角度（-360–360°）</label><input id="visual-overlay-transform-rotation" type="number" min="-360" max="360" step="1" value="${Number(clip.transform.rotation ?? 0)}"></div>
+      </div>
+      <label for="visual-overlay-transform-opacity">不透明度（0–1）</label><input id="visual-overlay-transform-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.transform.opacity ?? 1)}">
+      <p class="hint">锚点：${esc(String(clip.transform.anchor || 'center'))}。调整 X/Y 改变锚点位置；缩放、旋转围绕该锚点执行。</p>`
+    : `<div class="audio-clip-field-row">
+        <div><label for="visual-overlay-x">X 位置（0–1）</label><input id="visual-overlay-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.x ?? 0.65)}"></div>
+        <div><label for="visual-overlay-y">Y 位置（0–1）</label><input id="visual-overlay-y" type="number" min="0" max="1" step="0.01" value="${Number(clip.y ?? 0.1)}"></div>
+      </div>
+      <div class="audio-clip-field-row">
+        <div><label for="visual-overlay-width">宽度（0.05–1）</label><input id="visual-overlay-width" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.width ?? 0.3)}"></div>
+        <div><label for="visual-overlay-height">高度（0.05–1）</label><input id="visual-overlay-height" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.height ?? 0.3)}"></div>
+      </div>
+      <label for="visual-overlay-opacity">不透明度（0–1）</label><input id="visual-overlay-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.opacity ?? 1)}">`;
   const mask = document.createElement('div');
   mask.id = 'visual-overlay-inspector-mask';
   mask.className = 'audio-clip-inspector-mask';
@@ -136,23 +164,10 @@ function editorVisualOverlayOpen(index, ev) {
       <header><div><b id="visual-overlay-edit-title">画面叠加 · 设置</b><div class="hint">${esc(clip.asset_id)} · ${fmt(clip.start)}–${fmt(Number(clip.start)+Number(clip.duration))}s</div></div>
         <button type="button" class="btn-secondary btn-sm" onclick="editorVisualOverlayClose()">关闭</button></header>
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；全画幅、画中画和贴纸共用同一可编辑片段模型。</p>
-      <label for="visual-overlay-edit-presentation-mode">画面用途</label>
-      <select id="visual-overlay-edit-presentation-mode" onchange="editorVisualOverlayApplyPreset()">
-        <option value="full_frame" ${clip.presentation_mode === 'full_frame' ? 'selected' : ''}>全画幅镜头</option>
-        <option value="picture_in_picture" ${!clip.presentation_mode || clip.presentation_mode === 'picture_in_picture' ? 'selected' : ''}>画中画</option>
-        <option value="sticker" ${clip.presentation_mode === 'sticker' ? 'selected' : ''}>贴纸 / 图层</option>
-      </select>
+      ${presentationControls}
       ${sourceAudioSettings}
       ${sourceAudioDetachAction}
-      <div class="audio-clip-field-row">
-        <div><label for="visual-overlay-x">X 位置（0–1）</label><input id="visual-overlay-x" type="number" min="0" max="1" step="0.01" value="${Number(clip.x ?? 0.65)}"></div>
-        <div><label for="visual-overlay-y">Y 位置（0–1）</label><input id="visual-overlay-y" type="number" min="0" max="1" step="0.01" value="${Number(clip.y ?? 0.1)}"></div>
-      </div>
-      <div class="audio-clip-field-row">
-        <div><label for="visual-overlay-width">宽度（0.05–1）</label><input id="visual-overlay-width" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.width ?? 0.3)}"></div>
-        <div><label for="visual-overlay-height">高度（0.05–1）</label><input id="visual-overlay-height" type="number" min="0.05" max="1" step="0.01" value="${Number(clip.height ?? 0.3)}"></div>
-      </div>
-      <label for="visual-overlay-opacity">不透明度（0–1）</label><input id="visual-overlay-opacity" type="number" min="0" max="1" step="0.05" value="${Number(clip.opacity ?? 1)}">
+      ${placementControls}
   <label for="visual-overlay-z-index">叠加层级（数值越大越靠前）</label><input id="visual-overlay-z-index" type="number" min="-100" max="100" step="1" value="${Number(clip.z_index ?? 0)}">
       <footer><button type="button" class="btn-danger" onclick="editorVisualOverlayRemove(${index})">删除叠加</button>
         <button type="button" class="btn-secondary" onclick="editorVisualOverlaySplit(${index})">在播放头切分</button>
@@ -161,7 +176,8 @@ function editorVisualOverlayOpen(index, ev) {
     </section>`;
   mask.addEventListener('click', e => { if (e.target === mask) editorVisualOverlayClose(); });
   document.body.appendChild(mask);
-  mask.querySelector('#visual-overlay-x').focus();
+  const initialFocus = mask.querySelector('#visual-overlay-transform-x') || mask.querySelector('#visual-overlay-x');
+  if (initialFocus) initialFocus.focus();
 }
 async function editorVisualOverlaySplit(index) {
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
@@ -234,25 +250,52 @@ async function editorVisualOverlayApply(index) {
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
   if (!mask || !clip) return;
   const payload = {
-    x:Number(mask.querySelector('#visual-overlay-x').value),
-    y:Number(mask.querySelector('#visual-overlay-y').value),
-    width:Number(mask.querySelector('#visual-overlay-width').value),
-    height:Number(mask.querySelector('#visual-overlay-height').value),
-    opacity:Number(mask.querySelector('#visual-overlay-opacity').value),
     z_index:Number(mask.querySelector('#visual-overlay-z-index').value),
-    presentation_mode:mask.querySelector('#visual-overlay-edit-presentation-mode').value,
+    presentation_mode:mask.querySelector('#visual-overlay-edit-presentation-mode')?.value || clip.presentation_mode || 'full_frame',
     source_audio_enabled:!!mask.querySelector('#visual-overlay-edit-source-audio')?.checked,
     source_audio_volume:Number(mask.querySelector('#visual-overlay-edit-source-audio-volume')?.value ?? clip.source_audio_volume ?? 1)
   };
-  const numericValues = [payload.x, payload.y, payload.width, payload.height, payload.opacity,
-    payload.z_index, payload.source_audio_volume];
-  if (!numericValues.every(Number.isFinite) || payload.x < 0 || payload.y < 0 ||
-      payload.width < 0.05 || payload.height < 0.05 || payload.width > 1 || payload.height > 1 ||
-      payload.opacity < 0 || payload.opacity > 1 || !Number.isInteger(payload.z_index) || payload.z_index < -100 || payload.z_index > 100 ||
-      payload.source_audio_volume < 0 || payload.source_audio_volume > 2 ||
-      !['full_frame', 'picture_in_picture', 'sticker'].includes(payload.presentation_mode) ||
-      payload.x + payload.width > 1 || payload.y + payload.height > 1) {
-    editorToast('位置/尺寸必须在画面边界内；透明度为 0–1，源音量为 0–2', true); return;
+  if (clip.transform) {
+    payload.transform = {
+      x:Number(mask.querySelector('#visual-overlay-transform-x').value),
+      y:Number(mask.querySelector('#visual-overlay-transform-y').value),
+      scale:Number(mask.querySelector('#visual-overlay-transform-scale').value),
+      rotation:Number(mask.querySelector('#visual-overlay-transform-rotation').value),
+      opacity:Number(mask.querySelector('#visual-overlay-transform-opacity').value),
+      anchor:String(clip.transform.anchor || 'center')
+    };
+  } else {
+    Object.assign(payload, {
+      x:Number(mask.querySelector('#visual-overlay-x').value),
+      y:Number(mask.querySelector('#visual-overlay-y').value),
+      width:Number(mask.querySelector('#visual-overlay-width').value),
+      height:Number(mask.querySelector('#visual-overlay-height').value),
+      opacity:Number(mask.querySelector('#visual-overlay-opacity').value)
+    });
+  }
+  const values = clip.transform
+    ? [payload.transform.x, payload.transform.y, payload.transform.scale, payload.transform.rotation,
+       payload.transform.opacity, payload.z_index, payload.source_audio_volume]
+    : [payload.x, payload.y, payload.width, payload.height, payload.opacity, payload.z_index, payload.source_audio_volume];
+  const invalidTransform = !!clip.transform && (
+    payload.transform.x < 0 || payload.transform.x > 1 ||
+    payload.transform.y < 0 || payload.transform.y > 1 ||
+    payload.transform.scale < 0.1 || payload.transform.scale > 5 ||
+    payload.transform.rotation < -360 || payload.transform.rotation > 360 ||
+    payload.transform.opacity < 0 || payload.transform.opacity > 1 ||
+    !['top_left','top_center','top_right','center_left','center','center_right','bottom_left','bottom_center','bottom_right'].includes(payload.transform.anchor) ||
+    payload.presentation_mode !== 'full_frame'
+  );
+  const invalidRectangle = !clip.transform && (
+    payload.x < 0 || payload.y < 0 ||
+    payload.width < 0.05 || payload.height < 0.05 || payload.width > 1 || payload.height > 1 ||
+    payload.opacity < 0 || payload.opacity > 1 ||
+    !['full_frame', 'picture_in_picture', 'sticker'].includes(payload.presentation_mode) ||
+    payload.x + payload.width > 1 || payload.y + payload.height > 1
+  );
+  if (!values.every(Number.isFinite) || !Number.isInteger(payload.z_index) || payload.z_index < -100 || payload.z_index > 100 ||
+      payload.source_audio_volume < 0 || payload.source_audio_volume > 2 || invalidTransform || invalidRectangle) {
+    editorToast('位置/尺寸或变换参数越界；透明度为 0–1，源音量为 0–2', true); return;
   }
   try {
     const result = await executeCommand({command:'set_visual_overlay', targetId:'overlay#' + index, payload});
