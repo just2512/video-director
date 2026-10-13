@@ -724,9 +724,17 @@ function _tlBindLayerDrag(){
       .forEach(row => row.classList.remove('tl-track-drop-target'));
   });
   document.addEventListener('pointerup', ev => {
-    if (!_layerDrag) return;
+    if (!_layerDrag) {
+      window.__lastLayerDragDebug = {stage: 'pointerup-no-active-drag', x: ev.clientX, y: ev.clientY};
+      return;
+    }
     const d = _layerDrag;
     _layerDrag = null;
+    const dragDebug = window.__lastLayerDragDebug = {
+      stage: 'pointerup-start', mode: d.mode, moved: !!d.moved,
+      sceneId: d.sceneId, idx: d.idx, startX: d.startX, startY: d.startY,
+      dropX: ev.clientX, dropY: ev.clientY, elementConnected: !!(d.el && d.el.isConnected)
+    };
     const hit = document.elementFromPoint(ev.clientX, ev.clientY);
     const targetVisualTrack = hit && hit.closest
       ? hit.closest('#editor-timeline .ed-track[data-visual-track-id]') : null;
@@ -736,12 +744,12 @@ function _tlBindLayerDrag(){
       d.mode = 'move';
       d.moved = true;
     }
-    if (!d.moved) return;  // 纯点击走 onclick
+    if (!d.moved) { dragDebug.stage = 'pointerup-not-moved'; return; }  // 纯点击走 onclick
     d.el.classList.remove('tl-dragging');
     document.querySelectorAll('#editor-timeline .ed-track[data-visual-track-id]').forEach(row => row.classList.remove('tl-track-drop-target'));
     const lay = (() => { const sc = ED.comp.scenes.find(s => s.id === d.sceneId);
                          return sc && sc.layers[d.idx]; })();
-    if (!lay) return;
+    if (!lay) { dragDebug.stage = 'missing-layer'; return; }
     const scrollW = _tlTimelineAxisWidth();
     const total = ED.comp.duration || 1;
     const absDelta = (ev.clientX - d.startX) / scrollW * total;
@@ -775,7 +783,7 @@ function _tlBindLayerDrag(){
     if (d.mode === 'move' && targetVisualTrack) {
       const trackBody = targetVisualTrack.querySelector('.ed-track-body');
       const rect = trackBody && trackBody.getBoundingClientRect();
-      if (!rect || rect.width <= 0) { editorRenderTimeline(); return; }
+      if (!rect || rect.width <= 0) { dragDebug.stage = 'invalid-visual-track-rect'; editorRenderTimeline(); return; }
       const start = Math.round(Math.max(0, Math.min(total - lay.duration,
         ((ev.clientX - rect.left) / rect.width) * total)) * 1000) / 1000;
       const trackId = String(targetVisualTrack.dataset.visualTrackId || '');
@@ -800,9 +808,16 @@ function _tlBindLayerDrag(){
     // Same-scene drop reorders visual segments; cross-scene drop without a track is rejected.
     const targetScene = hit && hit.closest ? hit.closest('#editor-timeline .ed-scene') : null;
     const targetLayer = hit && hit.closest ? hit.closest('#editor-timeline .ed-layer') : null;
+    dragDebug.hitClass = hit ? String(hit.className || hit.tagName) : null;
+    dragDebug.targetSceneId = targetScene ? targetScene.dataset.scene : null;
+    dragDebug.targetLayerIdx = targetLayer ? targetLayer.dataset.idx : null;
     if (targetScene && targetScene.dataset.scene === d.sceneId) {
       const scene = ED.comp.scenes.find(s => s.id === d.sceneId);
-      if (!scene || !Array.isArray(scene.layers) || !scene.layers.length) return;
+      if (!scene || !Array.isArray(scene.layers) || !scene.layers.length) { dragDebug.stage = 'invalid-scene-layers'; return; }
+      dragDebug.sceneDuration = Number(scene.duration || 0);
+      dragDebug.layers = scene.layers.map((layer, index) => ({
+        index, start: Number(layer.start || 0), duration: Number(layer.duration || 0), type: layer.type
+      }));
       const dx = ev.clientX - d.startX;
       const dy = ev.clientY - (d.startY ?? ev.clientY);
       const sceneBody = targetScene.querySelector('.ed-scene-body');
@@ -814,6 +829,13 @@ function _tlBindLayerDrag(){
       const horizontalTimeDrop = d.mode === 'move' && Math.abs(dx) > 8
         && Math.abs(dy) <= Math.max(12, d.el.getBoundingClientRect().height * 0.5)
         && bodyRect && bodyRect.width > 0;
+      dragDebug.dx = dx;
+      dragDebug.dy = dy;
+      dragDebug.horizontalTimeDrop = !!horizontalTimeDrop;
+      dragDebug.bodyRect = bodyRect ? {
+        left: bodyRect.left, right: bodyRect.right, width: bodyRect.width
+      } : null;
+      dragDebug.stage = 'same-scene-target-resolved';
       let toIndex;
       if (horizontalTimeDrop) {
         const ratio = Math.max(0, Math.min(1, (ev.clientX - bodyRect.left) / bodyRect.width));
@@ -833,14 +855,20 @@ function _tlBindLayerDrag(){
         if (d.idx < toIndex) toIndex -= 1;
       }
       toIndex = Math.max(0, Math.min(toIndex, scene.layers.length - 1));
-      if (toIndex === d.idx) return;
+      dragDebug.toIndex = toIndex;
+      dragDebug.stage = 'reorder-index-calculated';
+      if (toIndex === d.idx) { dragDebug.stage = 'reorder-noop-same-index'; return; }
+      dragDebug.stage = 'reorder-command-issued';
       editorToast(horizontalTimeDrop ? '正在按时间位置重排片段（后续片段随之移位）……' : '正在调整片段顺序……');
       editorCmd('reorder_layer', {toIndex}, `${d.sceneId}#${d.idx}`, true)
         .then(r => editorToast(r && r.ok ? '片段顺序已更新' : '片段顺序未更改：' + ((r && r.error) || '请检查片段'), !(r && r.ok)));
       return;
     }
     if (targetScene && targetScene.dataset.scene !== d.sceneId) {
+      dragDebug.stage = 'cross-scene-drop-rejected';
       editorToast('未更改：当前分镜要求内部片段无缝铺满；跨分镜移动需要独立物理轨道，不能用重排分镜代替。', true);
+    } else {
+      dragDebug.stage = 'no-same-scene-reorder-branch';
     }
   }, true); // Claim pointerup in capture phase before higher-level timeline gestures can consume it.
 }

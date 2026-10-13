@@ -538,6 +538,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     "commands": captured_commands,
                     "expectedToIndex": 2,
                     "geometry": horizontal_drag_setup,
+                    "dragDebug": page.evaluate("window.__lastLayerDragDebug || null"),
                     # Emit complete, compact real-input evidence. A dict repr is
                     # pytest-truncated and hid the one event that determines why
                     # a human-style drag did not reach the command path.
@@ -546,6 +547,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                             "type": item.get("type"), "x": item.get("x"), "y": item.get("y"),
                             "button": item.get("button"), "pointerId": item.get("pointerId"),
                             "target": item.get("target"), "under": item.get("under"),
+                            "sourceState": item.get("sourceState"), "windowScroll": item.get("windowScroll"),
                         }
                         for item in captured_events
                         if str(item.get("type", "")).startswith("pointer")
