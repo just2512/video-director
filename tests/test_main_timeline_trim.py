@@ -1,12 +1,13 @@
 """Regressions for main-track edge trimming: pointer direction, timeline bounds, and gap persistence."""
 from __future__ import annotations
 
-import json
+import base64
+import subprocess
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-from video_director import editor
+from video_director import editor, renderer
 from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
 
 
@@ -16,16 +17,28 @@ _PNG = (
 )
 
 
-def _project(tmp_path: Path, monkeypatch, *, with_gap: bool = False):
+def _project(tmp_path: Path, monkeypatch, *, with_gap: bool = False, real_video: bool = False):
     root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(root))
     project_id = "main-trim-gap" if with_gap else "main-trim-no-gap"
     plans = root / project_id / "plans"
     plans.mkdir(parents=True)
     source = tmp_path / "source.mp4"
-    source.write_bytes(b"source fixture; command tests do not decode media")
+    if real_video:
+        run = subprocess.run(
+            [
+                renderer._ffmpeg(), "-y", "-v", "error",
+                "-f", "lavfi", "-i", "color=c=red:s=160x90:r=10:d=8",
+                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-t", "8",
+                str(source),
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert run.returncode == 0, run.stderr
+        assert source.is_file() and source.stat().st_size > 100
+    else:
+        source.write_bytes(b"source fixture; command tests do not decode media")
     still = tmp_path / "still.png"
-    import base64
     still.write_bytes(base64.b64decode(_PNG))
 
     if with_gap:
@@ -186,3 +199,43 @@ def test_chromium_main_track_edge_drag_matches_pointer_direction_and_source_limi
                 page.close()
         finally:
             browser.close()
+
+def _decoded_pixel_at(path: str, seconds: float) -> tuple[int, int, int]:
+    run = subprocess.run(
+        [
+            renderer._ffmpeg(), "-v", "error", "-ss", str(seconds), "-i", path,
+            "-vf", "scale=1:1:flags=area,format=rgb24", "-frames:v", "1",
+            "-f", "rawvideo", "-",
+        ],
+        capture_output=True, timeout=30,
+    )
+    assert run.returncode == 0, run.stderr.decode("utf-8", errors="replace")
+    assert len(run.stdout) == 3, f"Expected one decoded RGB pixel, got {len(run.stdout)} bytes"
+    return tuple(run.stdout)
+
+
+def test_left_edge_gap_is_present_in_a_real_decodable_mp4(tmp_path, monkeypatch):
+    project_id, _plans = _project(tmp_path, monkeypatch, real_video=True)
+    result = _trim(project_id, 0, 3.0, 6.0)
+    assert result.status == "APPLIED", result.errors
+
+    ir = editor.load_composition(project_id)
+    assets = {asset.id: asset for asset in ir.assets}
+    rendered = renderer.render_composition(ir, assets, tmp_path / "render")
+    final_path = Path(rendered.final_path)
+    assert final_path.is_file() and final_path.stat().st_size > 1000
+
+    # A real full-file decode catches broken concat/segment handling, not just MP4 existence.
+    decode = subprocess.run(
+        [renderer._ffmpeg(), "-v", "error", "-i", str(final_path), "-f", "null", "-"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert decode.returncode == 0, decode.stderr
+
+    gap_rgb = _decoded_pixel_at(str(final_path), 0.5)
+    video_rgb = _decoded_pixel_at(str(final_path), 2.0)
+    assert max(gap_rgb) < 20, f"left-trim gap should render black, got RGB={gap_rgb}"
+    assert video_rgb[0] > 140 and video_rgb[1] < 90 and video_rgb[2] < 90, (
+        f"trimmed source should begin after the explicit gap, got RGB={video_rgb}"
+    )
+
