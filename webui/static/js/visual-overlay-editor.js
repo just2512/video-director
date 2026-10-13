@@ -130,6 +130,13 @@ function editorVisualOverlayOpen(index, ev) {
   const fmt = n => Number(n || 0).toFixed(2);
   const sourceAsset = _visualOverlayAssets().find(([id]) => id === clip.asset_id)?.[1];
   const isVideoAsset = sourceAsset && String(sourceAsset.type).toLowerCase() === 'video';
+  const speedSettings = isVideoAsset ? `
+      <div class="audio-clip-field-row">
+        <div><label for="visual-overlay-edit-speed">播放速度（0.25×–4×）</label>
+          <input id="visual-overlay-edit-speed" type="number" min="0.25" max="4" step="0.05" value="${Number(clip.speed ?? 1)}"></div>
+      </div>
+      <p class="hint">保存后保留当前素材源区间，片段时长随速度重算；已拆分的关联原声同步变速。</p>`
+    : '';
   const sourceAudioSettings = isVideoAsset ? `
       <div class="audio-clip-field-row">
         <label><input id="visual-overlay-edit-source-audio" type="checkbox" ${clip.source_audio_enabled ? 'checked' : ''}> 保留视频源音轨</label>
@@ -190,6 +197,7 @@ function editorVisualOverlayOpen(index, ev) {
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；全画幅、画中画和贴纸共用同一可编辑片段模型。</p>
       ${presentationControls}
       ${fitModeControls}
+      ${speedSettings}
       ${sourceAudioSettings}
       ${sourceAudioDetachAction}
       ${placementControls}
@@ -282,6 +290,8 @@ async function editorVisualOverlayApply(index) {
   const mask = document.getElementById('visual-overlay-inspector-mask');
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
   if (!mask || !clip) return;
+  const sourceAsset = _visualOverlayAssets().find(([id]) => id === clip.asset_id)?.[1];
+  const isVideoAsset = sourceAsset && String(sourceAsset.type).toLowerCase() === 'video';
   const payload = {
     z_index:Number(mask.querySelector('#visual-overlay-z-index').value),
     presentation_mode:mask.querySelector('#visual-overlay-edit-presentation-mode')?.value || clip.presentation_mode || 'full_frame',
@@ -289,6 +299,7 @@ async function editorVisualOverlayApply(index) {
     source_audio_enabled:!!mask.querySelector('#visual-overlay-edit-source-audio')?.checked,
     source_audio_volume:Number(mask.querySelector('#visual-overlay-edit-source-audio-volume')?.value ?? clip.source_audio_volume ?? 1)
   };
+  if (isVideoAsset) payload.speed = Number(mask.querySelector('#visual-overlay-edit-speed')?.value ?? clip.speed ?? 1);
   if (clip.transform) {
     payload.transform = {
       x:Number(mask.querySelector('#visual-overlay-transform-x').value),
@@ -307,10 +318,12 @@ async function editorVisualOverlayApply(index) {
       opacity:Number(mask.querySelector('#visual-overlay-opacity').value)
     });
   }
-  const values = clip.transform
+  const values = (clip.transform
     ? [payload.transform.x, payload.transform.y, payload.transform.scale, payload.transform.rotation,
        payload.transform.opacity, payload.z_index, payload.source_audio_volume]
-    : [payload.x, payload.y, payload.width, payload.height, payload.opacity, payload.z_index, payload.source_audio_volume];
+    : [payload.x, payload.y, payload.width, payload.height, payload.opacity, payload.z_index, payload.source_audio_volume])
+    .concat(isVideoAsset ? [payload.speed] : []);
+  const invalidSpeed = isVideoAsset && (!Number.isFinite(payload.speed) || payload.speed < 0.25 || payload.speed > 4);
   const invalidTransform = !!clip.transform && (
     payload.transform.x < 0 || payload.transform.x > 1 ||
     payload.transform.y < 0 || payload.transform.y > 1 ||
@@ -329,8 +342,8 @@ async function editorVisualOverlayApply(index) {
   );
   if (!values.every(Number.isFinite) || !Number.isInteger(payload.z_index) || payload.z_index < -100 || payload.z_index > 100 ||
       !['cover', 'contain'].includes(payload.fit_mode) ||
-      payload.source_audio_volume < 0 || payload.source_audio_volume > 2 || invalidTransform || invalidRectangle) {
-    editorToast('位置/尺寸或变换参数越界；透明度为 0–1，源音量为 0–2', true); return;
+      payload.source_audio_volume < 0 || payload.source_audio_volume > 2 || invalidSpeed || invalidTransform || invalidRectangle) {
+    editorToast('位置/尺寸或变换参数越界；速度为 0.25×–4×，透明度为 0–1，源音量为 0–2', true); return;
   }
   try {
     const result = await executeCommand({command:'set_visual_overlay', targetId:'overlay#' + index, payload});
@@ -496,7 +509,7 @@ function _tlBindVisualOverlayDrag() {
         el, index, mode, trackId:String(clip.track_id || 'overlay-main'),
         startX:ev.clientX, startY:ev.clientY, moved:false,
         start:Number(clip.start)||0, duration:Number(clip.duration)||0,
-        sourceIn:Number(clip.source_in)||0, baseLeft:Number.parseFloat(el.style.left)||0,
+        sourceIn:Number(clip.source_in)||0, speed:Math.max(0.25, Math.min(4, Number(clip.speed ?? 1) || 1)), baseLeft:Number.parseFloat(el.style.left)||0,
         baseWidth:Number.parseFloat(el.style.width)||0,
         assetType:String((asset||{}).type||'').toLowerCase(), assetDuration:Number((asset||{}).duration)||0
       };
@@ -558,16 +571,16 @@ function _tlBindVisualOverlayDrag() {
       if (Math.abs(delta) < 0.05 && nextTrackId === d.trackId) { editorRenderTimeline(); return; }
       payload = {start:round(Math.max(0, Math.min(total - d.duration, d.start + delta))), trackId:nextTrackId};
     } else if (d.mode === 'trim-left') {
-      const minDelta = -(d.assetType === 'video' ? Math.min(d.start, d.sourceIn) : d.start);
+      const minDelta = -(d.assetType === 'video' ? Math.min(d.start, d.sourceIn / d.speed) : d.start);
       const dt = Math.min(Math.max(delta, minDelta), d.duration - 0.05);
       command = 'trim_visual_overlay';
-      payload = {start:round(d.start + dt), sourceIn:round(d.sourceIn + (d.assetType === 'video' ? dt : 0)), duration:round(d.duration - dt)};
+      payload = {start:round(d.start + dt), sourceIn:round(d.sourceIn + (d.assetType === 'video' ? dt * d.speed : 0)), duration:round(d.duration - dt)};
     } else {
       // Reuse the shared boundary guard: a trim cannot exceed the output
       // project end or the remaining source duration of a video asset.
       const dt = window.TimelineEditMath.trimEndDelta({
         delta, start:d.start, duration:d.duration, total,
-        assetType:d.assetType, assetDuration:d.assetDuration, sourceIn:d.sourceIn,
+        assetType:d.assetType, assetDuration:d.assetDuration, sourceIn:d.sourceIn, sourceSpeed:d.speed,
         minDuration:0.05
       });
       command = 'trim_visual_overlay';

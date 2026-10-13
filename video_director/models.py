@@ -516,6 +516,8 @@ class AudioTrack(BaseModel):
     duration: float
     source_in: float = 0.0
     source_out: Optional[float] = None
+    # Playback rate for extracted video-source audio; duration remains timeline seconds.
+    speed: float = 1.0
     volume: float = 1.0
     muted: bool = False        # §37 Audio Bus：mute 一等操作（区别于 volume=0）
     fadeIn: float = 0.0        # §18/§35：淡入秒数
@@ -527,6 +529,10 @@ class AudioTrack(BaseModel):
     def _check_track(self):
         if self.duration <= 0:
             raise ValueError(f"audio track({self.type}): duration must be positive")
+        if not math.isfinite(float(self.speed)) or not 0.25 <= float(self.speed) <= 4.0:
+            raise ValueError(f"audio track({self.type}): speed {self.speed} 非法")
+        if self.type != AudioTrackType.original and abs(float(self.speed) - 1.0) > 1e-6:
+            raise ValueError("audio playback speed is supported only for original source-audio tracks")
         if not 0 <= self.volume <= 2.0:
             raise ValueError(f"audio track({self.type}): volume {self.volume} 非法")
         if self.start < 0:
@@ -633,6 +639,8 @@ class VisualOverlayClip(BaseModel):
     start: float
     duration: float
     source_in: float = 0.0
+    # One timeline second consumes `speed` source seconds.
+    speed: float = 1.0
     track_id: str = "overlay-main"
     # Full frame, picture-in-picture and sticker are presentation presets on the
     # same editable clip contract; old project JSON defaults to picture-in-picture.
@@ -653,7 +661,7 @@ class VisualOverlayClip(BaseModel):
 
     @model_validator(mode="after")
     def _check_overlay(self):
-        for name in ("start", "duration", "source_in", "x", "y", "width", "height", "opacity", "source_audio_volume"):
+        for name in ("start", "duration", "source_in", "speed", "x", "y", "width", "height", "opacity", "source_audio_volume"):
             value = float(getattr(self, name))
             if not math.isfinite(value):
                 raise ValueError(f"visual overlay {name} must be finite")
@@ -663,6 +671,8 @@ class VisualOverlayClip(BaseModel):
             raise ValueError(f"unsupported visual overlay presentation_mode: {self.presentation_mode!r}")
         if self.fit_mode not in {"cover", "contain"}:
             raise ValueError(f"unsupported visual overlay fit_mode: {self.fit_mode!r}")
+        if not (0.25 <= self.speed <= 4.0):
+            raise ValueError("visual overlay speed must be in [0.25,4]")
         if not (0.0 <= self.source_audio_volume <= 2.0):
             raise ValueError("visual overlay source_audio_volume must be in [0,2]")
         if self.start < 0 or self.duration <= 0 or self.source_in < 0:
@@ -832,13 +842,14 @@ class CompositionIR(BaseModel):
             audio_source_out = (
                 float(audio_clip.source_out)
                 if audio_clip.source_out is not None
-                else float(audio_clip.source_in or 0.0) + float(audio_clip.duration)
+                else float(audio_clip.source_in or 0.0) + float(audio_clip.duration) * float(audio_clip.speed)
             )
             if (
                 abs(float(audio_clip.start) - float(overlay.start)) > 0.01
                 or abs(float(audio_clip.duration) - float(overlay.duration)) > 0.01
                 or abs(float(audio_clip.source_in or 0.0) - float(overlay.source_in or 0.0)) > 0.01
-                or abs(audio_source_out - (float(overlay.source_in or 0.0) + float(overlay.duration))) > 0.01
+                or abs(float(audio_clip.speed) - float(overlay.speed)) > 0.01
+                or abs(audio_source_out - (float(overlay.source_in or 0.0) + float(overlay.duration) * float(overlay.speed))) > 0.01
             ):
                 raise ValueError(
                     f"linked original audio {audio_clip.id or '<no-id>'} timing/source window "

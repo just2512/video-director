@@ -836,6 +836,24 @@ def concat_segments(segment_paths: List[str], out_path: str, width: int, height:
     return out_path
 
 
+def _atempo_filter(speed: float) -> str:
+    """Build an FFmpeg atempo chain for 0.25x–4x without exceeding filter limits."""
+    value = float(speed)
+    if not math.isfinite(value) or not 0.25 <= value <= 4.0:
+        raise RenderError(f"unsupported original-audio playback speed: {speed!r}")
+    if abs(value - 1.0) <= 1e-6:
+        return ""
+    filters: List[str] = []
+    while value < 0.5 - 1e-6:
+        filters.append("atempo=0.5")
+        value /= 0.5
+    while value > 2.0 + 1e-6:
+        filters.append("atempo=2.0")
+        value /= 2.0
+    filters.append(f"atempo={value:.6f}")
+    return ",".join(filters)
+
+
 def mix_audio(
     visual_path: str,
     ir: CompositionIR,
@@ -910,15 +928,20 @@ def mix_audio(
         src_in = max(0.0, float(getattr(original_track, "source_in", 0.0) or 0.0))
         src_out = getattr(original_track, "source_out", None)
         span = max(0.0, float(src_out) - src_in) if src_out is not None else 0.0
-        track_dur = min(float(original_track.duration), span or float(original_track.duration), remaining)
+        speed = float(getattr(original_track, "speed", 1.0) or 1.0)
+        tempo_filter = _atempo_filter(speed)
+        available_output_duration = span / speed if span > 0 else float(original_track.duration)
+        track_dur = min(float(original_track.duration), available_output_duration, remaining)
         if track_dur <= 0.01:
             continue
-        inputs += ["-ss", f"{src_in:.3f}", "-t", f"{track_dur:.3f}", "-i", src.file]
+        inputs += ["-ss", f"{src_in:.3f}", "-t", f"{track_dur * speed:.3f}", "-i", src.file]
         duck_db = config.DUCKING_DB if (narration_file and original_track.ducking) else 0.0
         chain_o = (
             f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
             f"{gain_filter(original_track.volume, duck_db)}"
         )
+        if tempo_filter:
+            chain_o += "," + tempo_filter
         fin_o = min(float(getattr(original_track, "fadeIn", 0.0) or 0.0), track_dur)
         fout_o = min(float(getattr(original_track, "fadeOut", 0.0) or 0.0), track_dur)
         chain_o += f",atrim=0:{track_dur:.3f}"
@@ -1154,17 +1177,23 @@ def composite_visual_overlays(
         start = float(overlay.start)
         duration = float(overlay.duration)
         source_in = float(overlay.source_in)
+        speed = float(getattr(overlay, "speed", 1.0) or 1.0)
+        if not math.isfinite(speed) or not 0.25 <= speed <= 4.0:
+            raise RenderError(f"visual overlay {overlay.id}: playback speed must be in [0.25,4]")
+        if media_type != "video" and abs(speed - 1.0) > 1e-6:
+            raise RenderError(f"visual overlay {overlay.id}: still images cannot use video playback speed")
+        source_span = duration * speed
         if start < 0 or duration <= 0 or start + duration > total + 0.01:
             raise RenderError(f"visual overlay {overlay.id}: invalid output time range")
         if media_type == "video":
             probe = prober.probe_media(str(asset.file))
-            if probe.duration is not None and source_in + duration > float(probe.duration) + 0.05:
+            if probe.duration is not None and source_in + source_span > float(probe.duration) + 0.05:
                 raise RenderError(
                     f"visual overlay {overlay.id}: source window "
-                    f"{source_in:.3f}–{source_in + duration:.3f}s exceeds source duration "
-                    f"{float(probe.duration):.3f}s"
+                    f"{source_in:.3f}–{source_in + source_span:.3f}s exceeds source duration "
+                    f"{float(probe.duration):.3f}s at {speed:.3f}x"
                 )
-            command.extend(["-ss", f"{source_in:.6f}", "-t", f"{duration:.6f}", "-i", str(asset.file)])
+            command.extend(["-ss", f"{source_in:.6f}", "-t", f"{source_span:.6f}", "-i", str(asset.file)])
         else:
             command.extend([
                 "-loop", "1", "-framerate", str(fps), "-t", f"{duration:.6f}",
@@ -1222,7 +1251,7 @@ def composite_visual_overlays(
             if transform["opacity"] < 1.0:
                 foreground.append(f"colorchannelmixer=aa={transform['opacity']:.8f}")
             filters.append(
-                f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
+                f"[{index}:v]settb=AVTB,setpts=(PTS-STARTPTS)/{speed:.6f}+{start:.6f}/TB,"
                 f"{','.join(foreground)}[{overlay_label}]"
             )
         else:
@@ -1246,7 +1275,7 @@ def composite_visual_overlays(
                     f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
                 )
             filters.append(
-                f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS+{start:.6f}/TB,"
+                f"[{index}:v]settb=AVTB,setpts=(PTS-STARTPTS)/{speed:.6f}+{start:.6f}/TB,"
                 f"{fit_filter},format=rgba,"
                 f"colorchannelmixer=aa={float(overlay.opacity):.6f}[{overlay_label}]"
             )
@@ -1464,7 +1493,8 @@ def render_composition(
             start=float(overlay.start),
             duration=float(overlay.duration),
             source_in=float(overlay.source_in),
-            source_out=float(overlay.source_in) + float(overlay.duration),
+            source_out=float(overlay.source_in) + float(overlay.duration) * float(overlay.speed),
+            speed=float(overlay.speed),
             volume=float(overlay.source_audio_volume),
             muted=False,
         ))

@@ -78,6 +78,33 @@ def _linked_video_project(tmp_path, monkeypatch, *, locked_audio=False, include_
     return pid, plans
 
 
+def test_promote_speeded_video_layer_keeps_rate_and_source_audio(tmp_path, monkeypatch):
+    pid, _plans = _editor_project(tmp_path, monkeypatch)
+    ffmpeg = renderer._ffmpeg()
+    source = tmp_path / "promoted-speed-video.mp4"
+    _make_video_with_audio(ffmpeg, source)
+    comp = load_composition(pid)
+    comp.assets.append(AssetRef(
+        id="promote-video", type="video", file=str(source.resolve()), duration=2.0,
+        width=40, height=40, fps=10,
+    ))
+    comp.scenes[0] = comp.scenes[0].model_copy(update={"layers": [
+        Layer(
+            type=LayerType.video, asset_id="promote-video", start=0.0, duration=1.0,
+            source_in=0.0, source_out=2.0, speed=2.0,
+        ),
+        Layer(type=LayerType.image, asset_id="overlay-image", start=1.0, duration=9.0),
+    ]})
+    save_composition(pid, comp)
+
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {}, 1)
+    assert result.status == "APPLIED", result.errors
+    promoted = load_composition(pid).visual_overlays[0]
+    assert (promoted.speed, promoted.duration, promoted.source_in) == (2.0, 1.0, 0.0)
+    assert promoted.source_in + promoted.duration * promoted.speed == 2.0
+    assert promoted.source_audio_enabled is True
+
+
 def test_overlay_model_rejects_frame_overflow_and_invalid_timing():
     for params in (
         {"id": "bad-x", "asset_id": "asset", "start": 0, "duration": 1, "x": 0.8, "width": 0.3},
@@ -85,6 +112,7 @@ def test_overlay_model_rejects_frame_overflow_and_invalid_timing():
         {"id": "bad-time", "asset_id": "asset", "start": -0.1, "duration": 1},
         {"id": "bad-opacity", "asset_id": "asset", "start": 0, "duration": 1, "opacity": 1.5},
         {"id": "bad-fit-mode", "asset_id": "asset", "start": 0, "duration": 1, "fit_mode": "stretch"},
+        {"id": "bad-speed", "asset_id": "asset", "start": 0, "duration": 1, "speed": 4.5},
     ):
         try:
             VisualOverlayClip(**params)
@@ -130,6 +158,39 @@ def test_visual_overlay_commands_add_move_trim_update_delete_and_persist(tmp_pat
     assert load_composition(pid).visual_overlays == []
     revisions = [line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
     assert len(revisions) == 5
+
+
+def test_set_visual_overlay_speed_preserves_source_window_and_linked_audio(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    updated = _apply(pid, "set_visual_overlay", "overlay#0", {"speed": 2.0}, 1)
+    assert updated.status == "APPLIED", updated.errors
+    comp = load_composition(pid)
+    clip = next(item for item in comp.visual_overlays if item.id == "linked-overlay")
+    audio = next(item for item in comp.audio if item.id == "linked-audio")
+    assert (clip.speed, clip.duration, clip.source_in, clip.source_in + clip.duration * clip.speed) == (2.0, 2.0, 1.0, 5.0)
+    assert (audio.speed, audio.duration, audio.source_in, audio.source_out) == (2.0, 2.0, 1.0, 5.0)
+
+    invalid = _apply(pid, "set_visual_overlay", "overlay#0", {"speed": 4.5}, updated.composition_version)
+    assert invalid.status == "REJECTED"
+    assert invalid.errors[0]["code"] == "INVALID_PARAMETER"
+
+    invalid_bool = _apply(pid, "set_visual_overlay", "overlay#0", {"speed": True}, updated.composition_version)
+    assert invalid_bool.status == "REJECTED"
+    assert invalid_bool.errors[0]["code"] == "INVALID_PARAMETER"
+
+    unchanged = load_composition(pid)
+    still = next(item for item in unchanged.visual_overlays if item.id == "linked-overlay")
+    assert (still.speed, still.duration) == (2.0, 2.0)
+
+
+def test_add_visual_overlay_rejects_speed_for_still_images(tmp_path, monkeypatch):
+    pid, _plans = _editor_project(tmp_path, monkeypatch)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 1.0, "duration": 1.0, "speed": 2.0,
+    }, 1)
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "INVALID_PARAMETER"
+    assert load_composition(pid).visual_overlays == []
 
 
 def test_visual_overlay_commands_reject_unknown_assets_stale_versions_and_out_of_range_edits(tmp_path, monkeypatch):
@@ -464,6 +525,23 @@ def test_real_ffmpeg_overlay_is_pixel_visible_only_inside_clip_window(tmp_path):
 
 
 
+def _make_speed_color_video_with_audio(ffmpeg: str, path: Path):
+    """Create source-frame color changes whose output times reveal playback-rate errors."""
+    run = subprocess.run([
+        ffmpeg, "-y", "-v", "error",
+        "-f", "lavfi", "-i", "color=c=red:s=40x40:r=10:d=0.5",
+        "-f", "lavfi", "-i", "color=c=green:s=40x40:r=10:d=0.5",
+        "-f", "lavfi", "-i", "color=c=yellow:s=40x40:r=10:d=1",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=2",
+        "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
+        "-map", "[v]", "-map", "3:a",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "2",
+        str(path),
+    ], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert path.is_file() and path.stat().st_size > 1000
+
+
 def _make_two_color_video(ffmpeg: str, path: Path):
     run = subprocess.run([
         ffmpeg, "-y", "-v", "error",
@@ -668,6 +746,55 @@ def _audio_window_mean_volume(ffmpeg: str, path: Path, start: float, duration: f
     assert line is not None, run.stderr[-2000:]
     raw = line.split("mean_volume:", 1)[1].strip().split()[0]
     return float("-inf") if raw == "-inf" else float(raw)
+
+
+def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "speed-base.png"
+    overlay_path = tmp_path / "speed-red-video-with-sine.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_speed_color_video_with_audio(ffmpeg, overlay_path)
+    base = AssetRef(id="speed-base", type="image", file=str(base_path), width=40, height=40)
+    overlay = AssetRef(id="speed-video", type="video", file=str(overlay_path), duration=2.0,
+                       width=40, height=40, fps=10)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=2.0, text="base picture",
+            layers=[Layer(type=LayerType.image, asset_id="speed-base", duration=2.0)],
+        )],
+        assets=[base, overlay],
+        visual_overlays=[VisualOverlayClip(
+            id="speed-overlay", asset_id="speed-video", start=0.5, duration=0.5,
+            source_in=0.2, speed=2.0, presentation_mode="full_frame",
+            source_audio_enabled=True, source_audio_volume=0.7,
+            x=0.0, y=0.0, width=1.0, height=1.0,
+        )],
+    )
+    result = renderer.render_composition(
+        composition, {"speed-base": base, "speed-video": overlay},
+        tmp_path / "rendered-speed-overlay",
+    )
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    report = renderer._verify_muxed_audio(str(output), expected_duration=2.0)
+    assert report.get("codec") == "aac", report
+    assert report.get("full_decode") == "PASS", report
+    # The source is red for 0.0–0.5s, green for 0.5–1.0s and
+    # yellow for 1.0–2.0s. With source_in=0.2 and 2x speed, those
+    # transitions land at 0.65s and 0.9s; assert on encoded 10-fps frames.
+    red = _pixel_at(ffmpeg, output, 0.6, 5, 5)
+    assert red[0] > red[1] * 1.2 and red[0] > red[2] * 1.5, red
+    green = _pixel_at(ffmpeg, output, 0.7, 5, 5)
+    assert green[1] > green[0] * 1.2 and green[1] > green[2] * 1.3, green
+    yellow = _pixel_at(ffmpeg, output, 0.9, 5, 5)
+    assert yellow[0] > yellow[2] * 1.5 and yellow[1] > yellow[2] * 1.5, yellow
+    blue = _pixel_at(ffmpeg, output, 1.2, 5, 5)
+    assert blue[2] > blue[0] * 1.5, blue
+    assert _audio_window_mean_volume(ffmpeg, output, 0.1, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 0.6, 0.2) > -35
+    assert _audio_window_mean_volume(ffmpeg, output, 1.1, 0.2) < -65
+    assert composition.audio == [], "render-time source audio must not mutate the saved CompositionIR"
 
 
 def test_real_ffmpeg_mixes_opted_in_video_overlay_source_audio(tmp_path):
@@ -968,7 +1095,18 @@ def test_promote_main_video_honors_drop_start_on_existing_track(tmp_path, monkey
     assert [(track.id, track.order) for track in saved.visual_tracks] == [("overlay-main", 0)]
 
 
-def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_path, monkeypatch):
+def test_audio_playback_speed_is_only_supported_for_original_source_audio():
+    original = AudioTrack(
+        type=AudioTrackType.original, duration=1.0,
+        source_in=0.25, source_out=None, speed=2.0,
+    )
+    assert original.speed == 2.0
+
+    with pytest.raises(ValueError, match="only for original source-audio"):
+        AudioTrack(type=AudioTrackType.bgm, duration=1.0, speed=2.0)
+
+
+def test_promote_main_video_layer_preserves_speed_and_source_audio(tmp_path, monkeypatch):
     ffmpeg = renderer._ffmpeg()
     video_path = tmp_path / "sped-up-video.mp4"
     _make_video_with_audio(ffmpeg, video_path)
@@ -979,24 +1117,35 @@ def test_promote_main_video_layer_rejects_speed_without_mutating_project(tmp_pat
     composition = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=10, duration=1.0),
         scenes=[SceneIR(
-            id="S01", start=0.0, duration=1.0, text="unsupported speed",
+            id="S01", start=0.0, duration=1.0, text="speed survives promotion",
             layers=[Layer(
                 type=LayerType.video, asset_id="main-video",
                 start=0.0, duration=1.0, source_in=0.0, source_out=2.0, speed=2.0,
             )],
         )],
         assets=[asset],
+        audio=[AudioTrack(
+            type=AudioTrackType.original, id="detached-speed-source-audio",
+            track_id="audio-original", follows_scene_video=False,
+            asset_id="main-video", start=0.0, duration=1.0,
+            source_in=0.0, source_out=None, speed=2.0, volume=0.35,
+        )],
     )
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
     save_composition(project_id, composition)
     (plans / "revisions.jsonl").write_text("", encoding="utf-8")
 
-    rejected = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
-    assert rejected.status == "REJECTED"
-    assert rejected.errors[0]["code"] == "LIFT_UNSUPPORTED_SPEED"
+    promoted = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
+    assert promoted.status == "APPLIED", promoted.errors
     saved = load_composition(project_id)
-    assert saved.scenes[0].layers[0].type == LayerType.video
-    assert saved.visual_overlays == []
+    clip = saved.visual_overlays[0]
+    assert (clip.speed, clip.duration, clip.source_in) == (2.0, 1.0, 0.0)
+    assert clip.source_in + clip.duration * clip.speed == 2.0
+    assert clip.source_audio_enabled is False
+    assert len(saved.audio) == 1
+    assert saved.audio[0].linked_visual_overlay_id == clip.id
+    assert (saved.audio[0].speed, saved.audio[0].source_out, saved.audio[0].volume) == (2.0, 2.0, 0.35)
+    assert saved.scenes[0].layers[0].type == LayerType.gap
     assert saved.project.duration == 1.0
 
 
@@ -1616,6 +1765,43 @@ def test_linked_audio_model_rejects_dangling_and_non_original_links(tmp_path, mo
     payload["audio"][0]["type"] = "bgm"
     with pytest.raises(ValueError, match="only original-audio clips"):
         CompositionIR.model_validate(payload)
+
+
+def test_fractional_speed_preserves_derived_source_offsets_on_trim_and_split(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    clip = comp.visual_overlays[0]
+    comp.visual_overlays[0] = clip.model_copy(update={"speed": 1.25})
+    linked = next(track for track in comp.audio if track.id == "linked-audio")
+    comp.audio[comp.audio.index(linked)] = linked.model_copy(update={
+        "speed": 1.25, "source_out": 6.0,
+    })
+    save_composition(pid, comp)
+
+    # A 0.1s timeline trim at 1.25x advances the source by 0.125s.
+    trimmed = _apply(pid, "trim_visual_overlay", "overlay#0", {
+        "start": 2.1, "sourceIn": 1.125, "duration": 3.9,
+    }, 1)
+    assert trimmed.status == "APPLIED", trimmed.errors
+    after_trim = load_composition(pid)
+    clip = after_trim.visual_overlays[0]
+    audio = next(track for track in after_trim.audio if track.id == "linked-audio")
+    assert (clip.start, clip.source_in, clip.duration, clip.speed) == (2.1, 1.125, 3.9, 1.25)
+    assert (audio.start, audio.source_in, audio.source_out, audio.duration, audio.speed) == (
+        2.1, 1.125, 6.0, 3.9, 1.25
+    )
+
+    # Splitting on a timeline frame must continue from the exact fractional source
+    # offset, not snap 1.125s back to the nearest 10fps frame (1.1s).
+    split = _apply(pid, "split_visual_overlay", "overlay#0", {"at": 3.0}, 2)
+    assert split.status == "APPLIED", split.errors
+    result = load_composition(pid)
+    left, right = sorted(result.visual_overlays, key=lambda item: item.start)
+    left_audio, right_audio = sorted(result.audio, key=lambda item: item.start)
+    assert (left.source_in, left.duration, left.speed) == (1.125, 0.9, 1.25)
+    assert (right.source_in, right.duration, right.speed) == (2.25, 3.0, 1.25)
+    assert (left_audio.source_in, left_audio.source_out, left_audio.speed) == (1.125, 2.25, 1.25)
+    assert (right_audio.source_in, right_audio.source_out, right_audio.speed) == (2.25, 6.0, 1.25)
 
 
 def test_move_and_trim_visual_overlay_keep_linked_audio_timing_and_source_window(tmp_path, monkeypatch):

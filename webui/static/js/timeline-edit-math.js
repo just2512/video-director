@@ -9,9 +9,11 @@
     const total = Number(options.total);
     const sourceIn = Number(options.sourceIn);
     const assetDuration = Number(options.assetDuration);
+    const sourceSpeed = Number(options.sourceSpeed == null ? 1 : options.sourceSpeed);
     const minDuration = Number(options.minDuration == null ? 0.05 : options.minDuration);
 
-    if (![delta, start, duration, total, sourceIn, minDuration].every(Number.isFinite)
+    if (![delta, start, duration, total, sourceIn, sourceSpeed, minDuration].every(Number.isFinite)
+        || sourceSpeed <= 0
         || (options.assetType === "video" && !Number.isFinite(assetDuration))) {
       throw new TypeError("trimEndDelta requires finite timeline values");
     }
@@ -26,7 +28,7 @@
 
     // Video clips also have a source-media boundary; images have no source clock.
     if (options.assetType === "video" && assetDuration > 0) {
-      result = Math.min(result, Math.max(0, assetDuration - sourceIn - duration));
+      result = Math.min(result, Math.max(0, (assetDuration - sourceIn) / sourceSpeed - duration));
     }
     return result;
   }

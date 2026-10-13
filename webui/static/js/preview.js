@@ -644,7 +644,9 @@ function _previewRenderVisualOverlays(sec) {
     if (node.tagName !== 'VIDEO') continue;
 
     const sourceIn = Math.max(0, Number(clip.source_in) || 0);
-    const sourceTime = sourceIn + Math.max(0, sec - Number(clip.start || 0));
+    const speed = Math.max(0.25, Math.min(4, Number(clip.speed ?? 1) || 1));
+    const sourceTime = sourceIn + Math.max(0, sec - Number(clip.start || 0)) * speed;
+    try { node.playbackRate = speed; } catch (_) {}
     if (node.readyState > 0 && Math.abs((node.currentTime || 0) - sourceTime) > 0.5 / fps) {
       try { node.currentTime = sourceTime; } catch (_) {}
     }
