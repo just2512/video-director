@@ -64,6 +64,14 @@ def test_lift_layer_to_playhead_is_registered_and_connected():
     action = ar.get_action("ui.lift_layer_to_playhead")
     assert action is not None
     assert action.ui == "lift_layer_to_playhead"
+    for layer_type in ("video", "image"):
+        available_ids = {
+            item["id"]
+            for item in ar.actions_for_context(
+                {"type": "layer", "layer_type": layer_type}
+            )["actions"]
+        }
+        assert action.id in available_ids, f"{action.id} not exposed for layer.{layer_type}"
     dispatcher = (root / "webui" / "static" / "js" / "action-dispatcher.js").read_text(encoding="utf-8")
     timeline = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
     html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")

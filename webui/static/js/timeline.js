@@ -9,7 +9,10 @@
 // 选择经 Selection Service（唯一事实源），兼容旧函数名（inline onclick 用）
 function edSelect(id, type, ev){ select(type, id, ev, 'timeline'); }
 function editorSelectScene(id, ev){ selectScene(id, ev, 'timeline'); }
-function editorSelectLayer(sceneId, idx, ev){ selectLayer(sceneId, idx, ev, 'timeline'); }
+function editorSelectLayer(sceneId, idx, ev){
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  selectLayer(sceneId, idx, ev, 'timeline');
+}
 function edIsSelected(type, id){ return SEL.selectionSet.has(_selKey(type, id)); }
 function edClearSelection(){ clearSelection('timeline'); }
 function edSelectedCount(){ return SEL.selectionSet.size; }
