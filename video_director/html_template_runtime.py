@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 import zipfile
+from functools import lru_cache
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -92,11 +93,17 @@ class _ResourceParser(HTMLParser):
         for key in ("src", "poster", "data-composition-src", "data-src"):
             if values.get(key):
                 self.refs.append(values[key])
-        if tag.lower() == "link":
+        if tag.lower() in {"link", "base"}:
             rel = set((values.get("rel") or "").lower().split())
-            if rel.intersection({"stylesheet", "preload", "modulepreload", "icon", "preload"}):
-                if values.get("href"):
-                    self.refs.append(values["href"])
+            # Any <link href> may trigger a browser fetch (stylesheet, font,
+            # preload, preconnect). Fail closed on remote references, not just CSS.
+            if values.get("href") and (tag.lower() == "base" or rel or "href" in values):
+                self.refs.append(values["href"])
+        if values.get("srcset"):
+            for candidate in values["srcset"].split(","):
+                candidate_url = candidate.strip().split(" ")[0]
+                if candidate_url:
+                    self.refs.append(candidate_url)
         style = values.get("style", "")
         self.refs.extend(re.findall(r"url\(\s*['\"]?([^'\")]+)", style, flags=re.I))
 
@@ -137,6 +144,7 @@ def _scan_package_resources(package_dir: Path, entry: str) -> tuple[list[str], l
     css_url = re.compile(r"url\(\s*['\"]?([^'\")]+)", re.I)
     css_import = re.compile(r"@import\s+(?:url\()?['\"]([^'\"]+)['\"]", re.I)
     js_import = re.compile(r"(?:from\s*|import\s*\()\s*['\"]([^'\"]+)['\"]", re.I)
+    js_side_effect_import = re.compile(r"^\s*import\s*['\"]([^'\"]+)['\"]", re.M)
 
     while queue:
         source = queue.pop()
@@ -170,6 +178,7 @@ def _scan_package_resources(package_dir: Path, entry: str) -> tuple[list[str], l
             refs.extend(css_import.findall(text))
         if suffix in {".js", ".mjs"}:
             refs.extend(js_import.findall(text))
+            refs.extend(js_side_effect_import.findall(text))
         for ref in refs:
             raw = str(ref or "").strip()
             # Bare JS package imports have no URL scheme but cannot be resolved
@@ -467,6 +476,18 @@ def _manifest_path(runtime: dict) -> Path:
     return _manifest_path_for_record(runtime, package_dir)
 
 
+@lru_cache(maxsize=1)
+def _chromium_status() -> tuple[bool, str]:
+    """Probe Chromium once per server process, rather than launching per template card."""
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            browser.close()
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)[:200]
+
+
 def html_template_runtime_report_from_record(record: dict, package_dir: Path) -> dict:
     runtime = record.get("runtime") or {}
     blockers: list[dict] = []
@@ -500,15 +521,10 @@ def html_template_runtime_report_from_record(record: dict, package_dir: Path) ->
         blockers.append({"code": "FFMPEG_NOT_INSTALLED", "message": "找不到可执行的 FFmpeg。"})
     if not ffprobe:
         blockers.append({"code": "FFPROBE_NOT_INSTALLED", "message": "找不到可执行的 ffprobe，无法核验输出 MP4。"})
-    try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            browser.close()
-        installed["chromium"] = True
-    except Exception as exc:
-        installed["chromium"] = False
-        blockers.append({"code": "CHROMIUM_NOT_INSTALLED", "message": f"Playwright Chromium 不可运行：{str(exc)[:200]}"})
+    has_chromium, chromium_error = _chromium_status()
+    installed["chromium"] = has_chromium
+    if not has_chromium:
+        blockers.append({"code": "CHROMIUM_NOT_INSTALLED", "message": f"Playwright Chromium 不可运行：{chromium_error}"})
 
     dep = runtime.get("dependency_scan") or {}
     if dep.get("status") == "BLOCKED":
@@ -712,6 +728,7 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
     server_thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}/"
     blocked_requests: list[str] = []
+    page_errors: list[str] = []
     recording_started = None
     animation_started = None
     webm_path = None
@@ -729,6 +746,8 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
                 recording_started = time.monotonic()
                 page = context.new_page()
                 video = page.video
+                page.on("pageerror", lambda error: page_errors.append(str(error)[:500]) if len(page_errors) < 20 else None)
+
                 def _allow_package_request(route) -> None:
                     parts = urlsplit(route.request.url)
                     if (parts.scheme == "http" and parts.hostname == "127.0.0.1"
@@ -783,6 +802,11 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
             raise HtmlTemplateError(
                 "EXTERNAL_DEPENDENCY_REQUEST_BLOCKED",
                 "样片运行过程中尝试访问包外资源，已阻断并拒绝宣称样片通过：" + "、".join(blocked_requests[:8]),
+            )
+        if page_errors:
+            raise HtmlTemplateError(
+                "BROWSER_PAGE_ERROR",
+                "HTML 页面运行发生 JavaScript 异常，未宣称样片通过：" + "；".join(page_errors[:5]),
             )
         lead_in = max(0.0, float(animation_started - recording_started)) if animation_started else 0.0
         encoded = subprocess.run(
