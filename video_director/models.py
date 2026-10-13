@@ -531,6 +531,8 @@ class AudioTrack(BaseModel):
             raise ValueError(f"audio track({self.type}): duration must be positive")
         if not math.isfinite(float(self.speed)) or not 0.25 <= float(self.speed) <= 4.0:
             raise ValueError(f"audio track({self.type}): speed {self.speed} 非法")
+        if self.type != AudioTrackType.original and abs(float(self.speed) - 1.0) > 1e-6:
+            raise ValueError("audio playback speed is supported only for original source-audio tracks")
         if not 0 <= self.volume <= 2.0:
             raise ValueError(f"audio track({self.type}): volume {self.volume} 非法")
         if self.start < 0:

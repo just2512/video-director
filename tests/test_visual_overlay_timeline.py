@@ -1095,6 +1095,17 @@ def test_promote_main_video_honors_drop_start_on_existing_track(tmp_path, monkey
     assert [(track.id, track.order) for track in saved.visual_tracks] == [("overlay-main", 0)]
 
 
+def test_audio_playback_speed_is_only_supported_for_original_source_audio():
+    original = AudioTrack(
+        type=AudioTrackType.original, duration=1.0,
+        source_in=0.25, source_out=None, speed=2.0,
+    )
+    assert original.speed == 2.0
+
+    with pytest.raises(ValueError, match="only for original source-audio"):
+        AudioTrack(type=AudioTrackType.bgm, duration=1.0, speed=2.0)
+
+
 def test_promote_main_video_layer_preserves_speed_and_source_audio(tmp_path, monkeypatch):
     ffmpeg = renderer._ffmpeg()
     video_path = tmp_path / "sped-up-video.mp4"
@@ -1113,6 +1124,12 @@ def test_promote_main_video_layer_preserves_speed_and_source_audio(tmp_path, mon
             )],
         )],
         assets=[asset],
+        audio=[AudioTrack(
+            type=AudioTrackType.original, id="detached-speed-source-audio",
+            track_id="audio-original", follows_scene_video=False,
+            asset_id="main-video", start=0.0, duration=1.0,
+            source_in=0.0, source_out=None, speed=2.0, volume=0.35,
+        )],
     )
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
     save_composition(project_id, composition)
@@ -1124,7 +1141,10 @@ def test_promote_main_video_layer_preserves_speed_and_source_audio(tmp_path, mon
     clip = saved.visual_overlays[0]
     assert (clip.speed, clip.duration, clip.source_in) == (2.0, 1.0, 0.0)
     assert clip.source_in + clip.duration * clip.speed == 2.0
-    assert clip.source_audio_enabled is True
+    assert clip.source_audio_enabled is False
+    assert len(saved.audio) == 1
+    assert saved.audio[0].linked_visual_overlay_id == clip.id
+    assert (saved.audio[0].speed, saved.audio[0].source_out, saved.audio[0].volume) == (2.0, 2.0, 0.35)
     assert saved.scenes[0].layers[0].type == LayerType.gap
     assert saved.project.duration == 1.0
 

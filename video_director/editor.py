@@ -1513,7 +1513,7 @@ def _resync_audio_to_scenes(
                 source_out = (
                     float(track.source_out)
                     if track.source_out is not None
-                    else source_in + float(track.duration)
+                    else source_in + float(track.duration) * float(getattr(track, "speed", 1.0) or 1.0)
                 )
                 exact = [
                     (index, window)
@@ -1957,7 +1957,7 @@ def _cmd_promote_layer_to_visual_track(
                     float(
                         track.source_out
                         if track.source_out is not None
-                        else float(track.source_in or 0.0) + float(track.duration)
+                        else float(track.source_in or 0.0) + float(track.duration) * float(getattr(track, "speed", 1.0) or 1.0)
                     ) - source_out
                 ) <= audio_match_tolerance
             )
@@ -2956,7 +2956,7 @@ def _cmd_separate_visual_overlay_source_audio(
         audio_source_out = (
             float(audio_clip.source_out)
             if audio_clip.source_out is not None
-            else audio_source_in + float(audio_clip.duration)
+            else audio_source_in + float(audio_clip.duration) * float(getattr(audio_clip, "speed", 1.0) or 1.0)
         )
         overlaps_timeline = (
             max(audio_start, float(clip.start))
