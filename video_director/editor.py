@@ -2807,6 +2807,8 @@ def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) ->
     ]
     speed_changed = False
     if "speed" in patch:
+        if isinstance(patch["speed"], bool):
+            raise EditorError("INVALID_PARAMETER", "speed 必须是 0.25–4 的数字，不能是布尔值")
         try:
             requested_speed = float(patch["speed"])
         except (TypeError, ValueError) as exc:
