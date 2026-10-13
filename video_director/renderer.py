@@ -1202,12 +1202,19 @@ def composite_visual_overlays(
             )
             overlay_x = f"'W*{transform['x']:.8f}-({rotated_anchor_x})'"
             overlay_y = f"'H*{transform['y']:.8f}-({rotated_anchor_y})'"
-            foreground = [
-                f"scale={width}:{height}:force_original_aspect_ratio=increase",
-                f"crop={width}:{height}",
-                f"scale={scaled_w}:{scaled_h}:flags=lanczos",
-                "format=rgba",
-            ]
+            if getattr(overlay, "fit_mode", "cover") == "contain":
+                foreground = [
+                    f"scale={width}:{height}:force_original_aspect_ratio=decrease",
+                    "format=rgba",
+                    f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black@0",
+                ]
+            else:
+                foreground = [
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase",
+                    f"crop={width}:{height}",
+                    "format=rgba",
+                ]
+            foreground.append(f"scale={scaled_w}:{scaled_h}:flags=lanczos")
             if abs(transform["rotation"]) > 1e-9:
                 foreground.append(
                     f"rotate={radians:.12f}:ow=rotw(iw):oh=roth(ih):c=black@0:bilinear=1"
@@ -1220,13 +1227,20 @@ def composite_visual_overlays(
             )
         else:
             if getattr(overlay, "presentation_mode", "picture_in_picture") == "full_frame":
-                # Full-frame clips cover the output frame. Picture-in-picture and stickers
-                # retain their source aspect ratio with transparent padding.
-                fit_filter = (
-                    f"scale={box_w}:{box_h}:force_original_aspect_ratio=increase,"
-                    f"crop={box_w}:{box_h}"
-                )
+                if getattr(overlay, "fit_mode", "cover") == "contain":
+                    # Preserve the whole source image/video and reveal the base picture around it.
+                    fit_filter = (
+                        f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
+                        f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+                    )
+                else:
+                    # Backwards-compatible default: fill the entire frame and crop edges.
+                    fit_filter = (
+                        f"scale={box_w}:{box_h}:force_original_aspect_ratio=increase,"
+                        f"crop={box_w}:{box_h}"
+                    )
             else:
+                # PiP/sticker presentation always preserves source aspect ratio inside its box.
                 fit_filter = (
                     f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
                     f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
