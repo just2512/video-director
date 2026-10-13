@@ -1892,25 +1892,52 @@ def _cmd_promote_layer_to_visual_track(
         raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
 
     if is_video:
-        # Check the validated destination time. Do not merge unrelated source audio
-        # just because the same video file was used elsewhere in the composition.
+        # If the audio lane already follows this exact source clip, move that lane
+        # with the picture and preserve its gain/fades. Leaving it behind while also
+        # enabling the overlay's embedded audio would either desync or double-mix it.
         audio_match_tolerance = max(0.005, 0.5 / max(1, int(ir.project.fps)))
-        has_matching_original_audio = any(
-            track.type == AudioTrackType.original
-            and track.asset_id == layer.asset_id
-            and abs(float(track.start) - absolute_start) <= audio_match_tolerance
-            and abs(float(track.duration) - duration) <= audio_match_tolerance
-            and abs(float(track.source_in or 0.0) - source_in) <= audio_match_tolerance
-            and abs(
-                float(
-                    track.source_out
-                    if track.source_out is not None
-                    else float(track.source_in or 0.0) + float(track.duration)
-                ) - source_out
-            ) <= audio_match_tolerance
-            for track in ir.audio
-        )
-        source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_matching_original_audio
+        source_start = float(scene.start) + float(layer.start)
+
+        def _matches_original_audio(track, timeline_start: float) -> bool:
+            if track.type != AudioTrackType.original or track.asset_id != layer.asset_id:
+                return False
+            return (
+                abs(float(track.start) - timeline_start) <= audio_match_tolerance
+                and abs(float(track.duration) - duration) <= audio_match_tolerance
+                and abs(float(track.source_in or 0.0) - source_in) <= audio_match_tolerance
+                and abs(
+                    float(
+                        track.source_out
+                        if track.source_out is not None
+                        else float(track.source_in or 0.0) + float(track.duration)
+                    ) - source_out
+                ) <= audio_match_tolerance
+            )
+
+        linked_source_indices = {
+            index for index, track in enumerate(ir.audio)
+            if bool(getattr(track, "follows_scene_video", False))
+            and _matches_original_audio(track, source_start)
+        }
+        if linked_source_indices:
+            ir.audio = [
+                track.model_copy(update={
+                    "start": round(absolute_start, 3),
+                    "follows_scene_video": False,
+                }) if index in linked_source_indices else track
+                for index, track in enumerate(ir.audio)
+            ]
+            source_audio_enabled = False
+        else:
+            # If an independently placed original-audio clip already represents the
+            # exact source window at the destination, don't add a duplicate.
+            already_at_destination = any(
+                _matches_original_audio(track, absolute_start) for track in ir.audio
+            )
+            source_audio_enabled = (
+                bool(getattr(probe, "has_audio_stream", False))
+                and not already_at_destination
+            )
 
     asset_index = next((i for i, item in enumerate(ir.assets) if item.id == layer.asset_id), None)
     resolved_asset = asset.model_copy(update={
