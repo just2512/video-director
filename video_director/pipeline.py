@@ -231,6 +231,7 @@ def _recompose_with_size(project_id: str, width: int, height: int):
         lower_third_role=params.get("lower_third_role"),
         watermark=params.get("watermark"),
         transition_budget=style_data.get("contract", {}).get("transition_budget", 1),
+        style_id=style_data.get("style_id"),
         transition_mode=params.get("transition_mode", "cut"),
         width=width,
         height=height,
@@ -360,7 +361,7 @@ def compose_project(
     lower_third_name: Optional[str] = None,
     lower_third_role: Optional[str] = None,
     watermark: Optional[str] = None,
-    transition_budget: int = 0,
+    transition_budget: Optional[int] = None,
     transition_mode: str = "cut",
     width: int = None,
     height: int = None,
@@ -372,6 +373,7 @@ def compose_project(
     match_materials_to_script: bool = True,
     asset_metadata: Optional[Dict[str, dict]] = None,
     repair_enabled: bool = True,
+    style_id: Optional[str] = None,
 ) -> PipelineResult:
     """完整编排入口（CLI/WebUI/Skill 共用同一引擎）。
 
@@ -443,9 +445,14 @@ def compose_project(
         _save_error(dirs, "MISSING_ASSET", str(exc), scene_id=exc.scene_id)
         _fail(f"MISSING_ASSET: {exc}")
         raise
+    # Style identity belongs to this project IR, never to a process-global setting.
+    if style_id:
+        ir.style_id = str(style_id)
+
     # 转场显式语义：默认 cut；只有选择 crossfade/fade 才注入效果。
-    if transition_mode in ("crossfade", "fade") and transition_budget > 0:
-        _inject_transitions(ir, transition_budget)
+    effect_transition_budget = int(transition_budget or 0)
+    if transition_mode in ("crossfade", "fade") and effect_transition_budget > 0:
+        _inject_transitions(ir, effect_transition_budget)
 
     # 4. 音频计划（BGM/SFX 一等公民，V2 §30）
     narration_duration = scenes[-1]["start"] + scenes[-1]["duration"]
@@ -499,7 +506,8 @@ def compose_project(
 
     # 6. 校验
     result = validator.validate_composition(
-        ir, render_assets, narration_duration, subtitle_entries
+        ir, render_assets, narration_duration, subtitle_entries,
+        transition_budget=transition_budget,
     )
     if not result.ok:
         _save_error(dirs, "VALIDATION_" + result.verdict.value, json.dumps(result.to_dict()))
@@ -952,6 +960,7 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile:
         subtitle_entries=sub_entries,
         subtitle_file=sub_file_arg,
         transition_budget=style_contract.transition_budget if style_contract else 0,
+        style_id=style_contract.style_id if style_contract else None,
         width=width,
         height=height,
         fps=fps,
@@ -1343,6 +1352,7 @@ def compose_auto(
         lower_third_role=lower_third_role,
         watermark=watermark,
         transition_budget=style_contract.transition_budget,
+        style_id=style_contract.style_id,
         transition_mode=transition_mode,
         width=width,
         height=height,
