@@ -1013,9 +1013,22 @@ def test_cross_scene_drag_lifts_still_into_real_global_track(tmp_path, monkeypat
             destination = page.locator('#editor-timeline .ed-layer[data-scene="S002"][data-idx="0"]')
             source.wait_for(state="visible")
             destination.wait_for(state="visible")
+            # "visible" does not imply viewport-visible: the full editor is vertically
+            # below the fold on CI's 1000px viewport. Playwright mouse events outside
+            # the viewport do not hit the timeline, so scroll the real clips into view
+            # before collecting coordinates and dragging.
+            source.scroll_into_view_if_needed()
+            destination.scroll_into_view_if_needed()
             source_rect = source.bounding_box()
             destination_rect = destination.bounding_box()
             assert source_rect and destination_rect, {"source": source_rect, "destination": destination_rect}
+            viewport_height = page.evaluate("() => window.innerHeight")
+            assert 0 <= source_rect["y"] < viewport_height and source_rect["y"] + source_rect["height"] <= viewport_height, {
+                "source": source_rect, "viewport_height": viewport_height
+            }
+            assert 0 <= destination_rect["y"] < viewport_height and destination_rect["y"] + destination_rect["height"] <= viewport_height, {
+                "destination": destination_rect, "viewport_height": viewport_height
+            }
             sx = source_rect["x"] + source_rect["width"] / 2
             sy = source_rect["y"] + source_rect["height"] / 2
             dx = destination_rect["x"] + destination_rect["width"] / 2
