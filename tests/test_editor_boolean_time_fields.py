@@ -129,3 +129,22 @@ def test_watermark_and_transition_timing_reject_booleans_without_mutation(tmp_pa
 
     assert comp.model_dump() == before
     assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
+
+
+
+def test_reorder_layer_rejects_boolean_index_without_reordering(tmp_path, monkeypatch):
+    project_id, _plans = _contract_project(tmp_path, monkeypatch)
+    comp = load_composition(project_id)
+    scene = comp.scenes[0]
+    first = scene.layers[0].model_copy(update={"duration": 5.0})
+    second = Layer(
+        type=LayerType.image, asset_id="contract-image", start=5.0, duration=5.0,
+    )
+    comp.scenes[0] = scene.model_copy(update={"layers": [first, second]})
+    before = comp.model_dump()
+
+    with pytest.raises(editor.EditorError) as raised:
+        editor._cmd_reorder_layer(comp, "S01#0", {"toIndex": True})
+
+    assert raised.value.code == "INVALID_PAYLOAD"
+    assert comp.model_dump() == before

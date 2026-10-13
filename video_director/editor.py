@@ -1017,9 +1017,12 @@ def _cmd_reorder_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     """
     si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
     _ensure_layer_unlocked(layer)
+    raw_to_index = payload.get("toIndex", payload.get("targetIndex"))
+    if isinstance(raw_to_index, bool):
+        raise EditorError("INVALID_PAYLOAD", "reorder_layer 的 toIndex 不能是布尔值")
     try:
-        to_index = int(payload.get("toIndex", payload.get("targetIndex")))
-    except (TypeError, ValueError) as exc:
+        to_index = int(raw_to_index)
+    except (TypeError, ValueError, OverflowError) as exc:
         raise EditorError("INVALID_PAYLOAD", "reorder_layer 需要整数 toIndex") from exc
     if to_index < 0 or to_index >= len(scene.layers):
         raise EditorError("INVALID_PAYLOAD", f"图层目标位置 {to_index} 越界")
