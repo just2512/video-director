@@ -173,6 +173,11 @@ def test_set_visual_overlay_speed_preserves_source_window_and_linked_audio(tmp_p
     invalid = _apply(pid, "set_visual_overlay", "overlay#0", {"speed": 4.5}, updated.composition_version)
     assert invalid.status == "REJECTED"
     assert invalid.errors[0]["code"] == "INVALID_PARAMETER"
+
+    invalid_bool = _apply(pid, "set_visual_overlay", "overlay#0", {"speed": True}, updated.composition_version)
+    assert invalid_bool.status == "REJECTED"
+    assert invalid_bool.errors[0]["code"] == "INVALID_PARAMETER"
+
     unchanged = load_composition(pid)
     still = next(item for item in unchanged.visual_overlays if item.id == "linked-overlay")
     assert (still.speed, still.duration) == (2.0, 2.0)
