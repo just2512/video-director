@@ -525,6 +525,23 @@ def test_real_ffmpeg_overlay_is_pixel_visible_only_inside_clip_window(tmp_path):
 
 
 
+def _make_speed_color_video_with_audio(ffmpeg: str, path: Path):
+    """Create source-frame color changes whose output times reveal playback-rate errors."""
+    run = subprocess.run([
+        ffmpeg, "-y", "-v", "error",
+        "-f", "lavfi", "-i", "color=c=red:s=40x40:r=10:d=0.5",
+        "-f", "lavfi", "-i", "color=c=green:s=40x40:r=10:d=0.5",
+        "-f", "lavfi", "-i", "color=c=yellow:s=40x40:r=10:d=1",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=2",
+        "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
+        "-map", "[v]", "-map", "3:a",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "2",
+        str(path),
+    ], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert path.is_file() and path.stat().st_size > 1000
+
+
 def _make_two_color_video(ffmpeg: str, path: Path):
     run = subprocess.run([
         ffmpeg, "-y", "-v", "error",
@@ -736,7 +753,7 @@ def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
     base_path = tmp_path / "speed-base.png"
     overlay_path = tmp_path / "speed-red-video-with-sine.mp4"
     _make_still(ffmpeg, base_path, "blue")
-    _make_video_with_audio(ffmpeg, overlay_path)
+    _make_speed_color_video_with_audio(ffmpeg, overlay_path)
     base = AssetRef(id="speed-base", type="image", file=str(base_path), width=40, height=40)
     overlay = AssetRef(id="speed-video", type="video", file=str(overlay_path), duration=2.0,
                        width=40, height=40, fps=10)
@@ -763,50 +780,15 @@ def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
     report = renderer._verify_muxed_audio(str(output), expected_duration=2.0)
     assert report.get("codec") == "aac", report
     assert report.get("full_decode") == "PASS", report
-    red = _pixel_at(ffmpeg, output, 0.7, 5, 5)
-    assert red[0] > red[2] * 1.5, red
-    blue = _pixel_at(ffmpeg, output, 1.2, 5, 5)
-    assert blue[2] > blue[0] * 1.5, blue
-    assert _audio_window_mean_volume(ffmpeg, output, 0.1, 0.2) < -65
-    assert _audio_window_mean_volume(ffmpeg, output, 0.6, 0.2) > -35
-    assert _audio_window_mean_volume(ffmpeg, output, 1.1, 0.2) < -65
-    assert composition.audio == [], "render-time source audio must not mutate the saved CompositionIR"
-
-
-def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
-    ffmpeg = renderer._ffmpeg()
-    base_path = tmp_path / "speed-base.png"
-    overlay_path = tmp_path / "speed-red-video-with-sine.mp4"
-    _make_still(ffmpeg, base_path, "blue")
-    _make_video_with_audio(ffmpeg, overlay_path)
-    base = AssetRef(id="speed-base", type="image", file=str(base_path), width=40, height=40)
-    overlay = AssetRef(id="speed-video", type="video", file=str(overlay_path), duration=2.0,
-                       width=40, height=40, fps=10)
-    composition = CompositionIR(
-        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
-        scenes=[SceneIR(
-            id="S01", start=0, duration=2.0, text="base picture",
-            layers=[Layer(type=LayerType.image, asset_id="speed-base", duration=2.0)],
-        )],
-        assets=[base, overlay],
-        visual_overlays=[VisualOverlayClip(
-            id="speed-overlay", asset_id="speed-video", start=0.5, duration=0.5,
-            source_in=0.25, speed=2.0, presentation_mode="full_frame",
-            source_audio_enabled=True, source_audio_volume=0.7,
-            x=0.0, y=0.0, width=1.0, height=1.0,
-        )],
-    )
-    result = renderer.render_composition(
-        composition, {"speed-base": base, "speed-video": overlay},
-        tmp_path / "rendered-speed-overlay",
-    )
-    output = Path(result.final_path)
-    assert output.is_file() and output.stat().st_size > 1000
-    report = renderer._verify_muxed_audio(str(output), expected_duration=2.0)
-    assert report.get("codec") == "aac", report
-    assert report.get("full_decode") == "PASS", report
-    red = _pixel_at(ffmpeg, output, 0.7, 5, 5)
-    assert red[0] > red[2] * 1.5, red
+    # The source is red for 0.0–0.5s, green for 0.5–1.0s and
+    # yellow for 1.0–2.0s. With source_in=0.25 and 2x speed, those
+    # transitions must land at timeline 0.625s and 0.875s respectively.
+    red = _pixel_at(ffmpeg, output, 0.55, 5, 5)
+    assert red[0] > red[1] * 1.2 and red[0] > red[2] * 1.5, red
+    green = _pixel_at(ffmpeg, output, 0.72, 5, 5)
+    assert green[1] > green[0] * 1.2 and green[1] > green[2] * 1.3, green
+    yellow = _pixel_at(ffmpeg, output, 0.95, 5, 5)
+    assert yellow[0] > yellow[2] * 1.5 and yellow[1] > yellow[2] * 1.5, yellow
     blue = _pixel_at(ffmpeg, output, 1.2, 5, 5)
     assert blue[2] > blue[0] * 1.5, blue
     assert _audio_window_mean_volume(ffmpeg, output, 0.1, 0.2) < -65
