@@ -94,15 +94,137 @@ def test_trim_ripples_scene_and_keeps_composition_reloadable(tmp_path, monkeypat
     assert round(comp.project.duration, 3) == 9.0
 
 
-def test_layer_edit_buttons_and_cross_scene_drop_no_longer_reorders_scene():
+def test_layer_edit_buttons_and_cross_scene_drop_lifts_compatible_clips():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     js = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
     html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     assert "editorSplitSelectedLayer" in js and "editorCmd('split_layer'" in js
     assert "reorder_layer" in js
-    assert "跨分镜移动需要独立物理轨道" in js
+    assert "promote_layer_to_visual_track" in js and "cross-scene-lift-issued" in js
     assert 'data-action="ui.split_layer" title="在播放头处切分选中的视频/图片片段"' in html
+
+
+def test_cross_scene_lift_supports_plain_still_image_and_preserves_scene_timing(tmp_path, monkeypatch):
+    data = _layer_comp()
+    source_image = tmp_path / "still.png"
+    source_image.write_bytes(b"unit test image asset")
+    data["assets"] = [{
+        "id": "img1", "type": "image", "file": str(source_image.resolve()),
+        "duration": 1.0, "width": 1, "height": 1,
+    }]
+    first = data["scenes"][0]
+    clip_duration = float(first["duration"])
+    first["layers"] = [{
+        "type": "image", "asset_id": "img1", "start": 0.0, "duration": clip_duration,
+        "fit_mode": "cover",
+    }]
+    first["selections"] = []
+    first["camera"] = None
+    first["transition_out"] = {"type": "cut", "duration": 0.0}
+    original_starts = [float(scene["start"]) for scene in data["scenes"]]
+    total = float(data["project"]["duration"])
+    destination = float(data["scenes"][1]["start"])
+    if destination + clip_duration > total:
+        destination = total - clip_duration
+    assert destination > 0 and destination + clip_duration <= total
+
+    pid, plans = _project(tmp_path, monkeypatch, data)
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {"start": destination})
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    assert comp.scenes[0].layers[0].type.value == "gap"
+    assert round(comp.scenes[0].layers[0].duration, 3) == round(clip_duration, 3)
+    assert [float(scene.start) for scene in comp.scenes] == original_starts
+    assert round(float(comp.project.duration), 3) == round(total, 3)
+    assert len(comp.visual_overlays) == 1
+    clip = comp.visual_overlays[0]
+    assert clip.asset_id == "img1"
+    assert round(float(clip.start), 3) == round(destination, 3)
+    assert round(float(clip.duration), 3) == round(clip_duration, 3)
+    assert clip.presentation_mode == "full_frame"
+    assert clip.source_audio_enabled is False
+    assert any(track.id == clip.track_id and "独立图片" in track.name for track in comp.visual_tracks)
+    revisions = [line for line in (plans / "revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 1
+
+
+def test_cross_scene_video_lift_moves_linked_original_audio_and_preserves_mix(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from video_director import prober
+
+    data = _video_comp()
+    source_video = tmp_path / "clip.mp4"
+    source_video.write_bytes(b"test video placeholder; probe is mocked")
+    data["assets"] = [{
+        "id": "vid1", "type": "video", "file": str(source_video.resolve()), "duration": 8.0,
+    }]
+    first = data["scenes"][0]
+    first["layers"] = [{
+        "type": "video", "asset_id": "vid1", "start": 0.0, "duration": 5.0,
+        "speed": 1.0, "source_in": 0.0, "source_out": 5.0,
+    }]
+    first["selections"] = []
+    first["camera"] = None
+    first["transition_out"] = {"type": "cut", "duration": 0.0}
+    data["audio_tracks"] = [{"id": "audio-original", "name": "原声", "order": 0}]
+    data["audio"] = [{
+        "id": "linked-video-original", "type": "original", "asset_id": "vid1",
+        "track_id": "audio-original", "start": 0.0, "duration": 5.0,
+        "source_in": 0.0, "source_out": 5.0, "volume": 0.42,
+        "fadeIn": 0.25, "fadeOut": 0.5, "follows_scene_video": True,
+    }]
+    total = float(data["project"]["duration"])
+    destination = float(data["scenes"][1]["start"])
+    if destination + 5.0 > total:
+        destination = total - 5.0
+    assert 0 < destination <= total - 5.0
+    monkeypatch.setattr(prober, "probe_media", lambda _path: SimpleNamespace(
+        duration=8.0, has_video_stream=True, has_audio_stream=True,
+    ))
+
+    pid, _plans = _project(tmp_path, monkeypatch, data)
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {"start": destination})
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    linked = next(track for track in comp.audio if track.id == "linked-video-original")
+    assert round(float(linked.start), 3) == round(destination, 3)
+    assert linked.follows_scene_video is False
+    assert linked.volume == 0.42
+    assert linked.fadeIn == 0.25
+    assert linked.fadeOut == 0.5
+    assert comp.visual_overlays[0].source_audio_enabled is False
+
+
+def test_cross_scene_lift_rejects_motion_without_changing_source_clip(tmp_path, monkeypatch):
+    data = _layer_comp()
+    source_image = tmp_path / "still.png"
+    source_image.write_bytes(b"unit test image asset")
+    data["assets"] = [{
+        "id": "img1", "type": "image", "file": str(source_image.resolve()),
+        "duration": 1.0, "width": 1, "height": 1,
+    }]
+    first = data["scenes"][0]
+    first["layers"] = [{
+        "type": "image", "asset_id": "img1", "start": 0.0,
+        "duration": float(first["duration"]), "motion": "slow_zoom_in",
+    }]
+    first["selections"] = []
+    first["camera"] = None
+    first["transition_out"] = {"type": "cut", "duration": 0.0}
+    before_layers = copy.deepcopy(first["layers"])
+    pid, plans = _project(tmp_path, monkeypatch, data)
+
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {"start": float(first["duration"])})
+    assert result.status == "REJECTED"
+    assert result.errors[0]["code"] == "LIFT_UNSUPPORTED_EFFECT"
+    comp = load_composition(pid)
+    assert comp.scenes[0].layers[0].type.value == "image"
+    assert comp.scenes[0].layers[0].motion == before_layers[0]["motion"]
+    assert comp.visual_overlays == []
+    assert (plans / "revisions.jsonl").read_text(encoding="utf-8") == ""
 
 
 def _all_track_edit_comp():

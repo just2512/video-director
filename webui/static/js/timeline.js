@@ -865,8 +865,40 @@ function _tlBindLayerDrag(){
       return;
     }
     if (targetScene && targetScene.dataset.scene !== d.sceneId) {
-      dragDebug.stage = 'cross-scene-drop-rejected';
-      editorToast('未更改：当前分镜要求内部片段无缝铺满；跨分镜移动需要独立物理轨道，不能用重排分镜代替。', true);
+      // Cross-scene drops are real edits too. Lift a compatible video/still to a
+      // full-frame global visual track at the pointer's absolute time; the source
+      // scene receives an explicit gap, so neither scene duration nor audio anchors
+      // are silently rewritten. Unsupported effects are rejected by the backend.
+      const sourceScene = ED.comp.scenes.find(scene => scene.id === d.sceneId);
+      if (!sourceScene || d.mode !== 'move') {
+        dragDebug.stage = 'cross-scene-drop-not-liftable';
+        editorToast('未移动：请从片段中间拖动；边缘裁剪请在原分镜内完成。', true);
+        return;
+      }
+      const desiredStart = Math.max(0, Math.min(
+        total - Number(lay.duration || 0),
+        Number(sourceScene.start || 0) + Number(lay.start || 0) + absDelta
+      ));
+      const start = Math.round(desiredStart * 1000) / 1000;
+      dragDebug.stage = 'cross-scene-lift-issued';
+      dragDebug.crossSceneTarget = targetScene.dataset.scene;
+      dragDebug.targetStart = start;
+      editorToast('正在将片段移入全局画面轨道……');
+      executeCommand({
+        command: 'promote_layer_to_visual_track',
+        targetId: `${d.sceneId}#${d.idx}`,
+        payload: {start}
+      }).then(result => {
+        if (result && result.ok) {
+          editorToast(`片段已移入独立画面轨道，位置 ${start.toFixed(2)}s；原位置保留空隙`);
+          return refreshWorkspace();
+        }
+        editorToast('片段未移动：' + ((result && result.error) || '请检查片段效果与时间范围'), true);
+        editorRenderTimeline();
+      }).catch(error => {
+        editorToast('片段未移动：' + (error.message || error), true);
+        editorRenderTimeline();
+      });
     } else {
       dragDebug.stage = 'no-same-scene-reorder-branch';
     }

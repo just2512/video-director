@@ -969,3 +969,116 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_cross_scene_drag_lifts_still_into_real_global_track(tmp_path, monkeypatch):
+    """A real pointer drag across scene boundaries must persist as a global clip."""
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
+    results_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = results_dir / "cross-scene-lift-failure-trace.zip"
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = Path(os.environ["VIDEO_DIRECTOR_STORAGE_ROOT"])
+
+    pid = "web-e2e-cross-scene-lift"
+    still = tmp_path / "e2e-still.png"
+    still.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/"
+        "lYkAAAAASUVORK5CYII="
+    ))
+    store.create_project(pid, "Cross-scene lift regression", {"name": "Cross-scene lift regression"})
+    editor.save_composition(pid, _test_composition(still))
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(viewport={"width": 1440, "height": 1000})
+        page = context.new_page()
+        page_errors: list[str] = []
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
+        tracing = False
+        try:
+            context.tracing.start(screenshots=False, snapshots=True, sources=True)
+            tracing = True
+            response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+            assert response and response.status == 200
+            opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+            assert opened.get("ok"), f"workspace did not open: {opened}"
+            page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
+            source = page.locator('#editor-timeline .ed-layer[data-scene="S001"][data-idx="0"]')
+            destination = page.locator('#editor-timeline .ed-layer[data-scene="S002"][data-idx="0"]')
+            source.wait_for(state="visible")
+            destination.wait_for(state="visible")
+            # "visible" does not imply viewport-visible: the full editor is vertically
+            # below the fold on CI's 1000px viewport. Playwright mouse events outside
+            # the viewport do not hit the timeline, so scroll the real clips into view
+            # before collecting coordinates and dragging.
+            source.scroll_into_view_if_needed()
+            destination.scroll_into_view_if_needed()
+            source_rect = source.bounding_box()
+            destination_rect = destination.bounding_box()
+            assert source_rect and destination_rect, {"source": source_rect, "destination": destination_rect}
+            viewport_height = page.evaluate("() => window.innerHeight")
+            assert 0 <= source_rect["y"] < viewport_height and source_rect["y"] + source_rect["height"] <= viewport_height, {
+                "source": source_rect, "viewport_height": viewport_height
+            }
+            assert 0 <= destination_rect["y"] < viewport_height and destination_rect["y"] + destination_rect["height"] <= viewport_height, {
+                "destination": destination_rect, "viewport_height": viewport_height
+            }
+            sx = source_rect["x"] + source_rect["width"] / 2
+            sy = source_rect["y"] + source_rect["height"] / 2
+            dx = destination_rect["x"] + destination_rect["width"] / 2
+            dy = destination_rect["y"] + destination_rect["height"] / 2
+            assert dx > sx + 20, {"source": source_rect, "destination": destination_rect}
+
+            with page.expect_response(
+                lambda item: item.request.method == "POST" and item.url.endswith("/api/editor/command"),
+                timeout=10000,
+            ) as response_info:
+                page.mouse.move(sx, sy)
+                page.mouse.down()
+                page.mouse.move(dx, dy, steps=12)
+                page.mouse.up()
+            command_response = response_info.value
+            assert command_response.status == 200
+            command_body = command_response.json()
+            assert command_body.get("status") == "APPLIED", command_body
+
+            persisted = page.evaluate("""async (projectId) => {
+              const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+              return {status: response.status, body: await response.json()};
+            }""", pid)
+            assert persisted["status"] == 200, persisted
+            comp = persisted["body"]
+            assert comp["scenes"][0]["layers"][0]["type"] == "gap", comp["scenes"][0]
+            assert len(comp["visual_overlays"]) == 1, comp.get("visual_overlays")
+            lifted = comp["visual_overlays"][0]
+            assert lifted["asset_id"] == "e2e-still", lifted
+            assert lifted["presentation_mode"] == "full_frame", lifted
+            assert lifted["source_audio_enabled"] is False, lifted
+            assert 0.5 < float(lifted["start"]) < 1.1, lifted
+            assert abs(float(lifted["duration"]) - 1.0) < 0.01, lifted
+            assert any(track["id"] == lifted["track_id"] and "独立图片" in track["name"]
+                       for track in comp["visual_tracks"]), comp["visual_tracks"]
+            # /api/editor/composition returns the normalized editor summary:
+            # project duration is top-level, not nested under a "project" object.
+            assert abs(float(comp["duration"]) - 2.0) < 0.01
+            assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
+        except Exception:
+            if tracing:
+                context.tracing.stop(path=str(trace_path))
+                tracing = False
+            raise
+        finally:
+            if tracing:
+                context.tracing.stop()
+            context.close()
+            browser.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
