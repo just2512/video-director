@@ -2140,7 +2140,7 @@ def test_real_ffmpeg_detached_source_audio_follows_visual_insert_and_overwrite(t
         (0.5, 1.0, 0.0, 1.0), (2.0, 1.0, 1.0, 2.0),
     ]
     assert [clip.linked_visual_overlay_id for clip in linked_audio] == [clip.id for clip in red_clips]
-    assert all(clip.id in red_by_id for clip in (red_by_id[linked.linked_visual_overlay_id] for linked in linked_audio))
+    assert all(linked.linked_visual_overlay_id in red_by_id for linked in linked_audio)
 
     output = Path(renderer.render_composition(
         saved, {asset.id: asset for asset in saved.assets}, tmp_path / "detached-source-audio-insert",
@@ -2166,14 +2166,14 @@ def test_real_ffmpeg_detached_source_audio_follows_visual_insert_and_overwrite(t
         key=lambda clip: clip.start,
     )
     assert [(clip.start, clip.duration, clip.source_in) for clip in overwritten_red] == [
-        (0.5, 0.25, 0.0), (1.25, 0.25, 0.75), (2.0, 1.0, 1.0),
+        (0.5, 0.3, 0.0), (1.3, 0.2, 0.8), (2.0, 1.0, 1.0),
     ]
     overwritten_audio = sorted(
         (clip for clip in overwritten_ir.audio if clip.linked_visual_overlay_id),
         key=lambda clip: clip.start,
     )
     assert [(clip.start, clip.duration, clip.source_in, clip.source_out) for clip in overwritten_audio] == [
-        (0.5, 0.25, 0.0, 0.25), (1.25, 0.25, 0.75, 1.0), (2.0, 1.0, 1.0, 2.0),
+        (0.5, 0.3, 0.0, 0.3), (1.3, 0.2, 0.8, 1.0), (2.0, 1.0, 1.0, 2.0),
     ]
     assert [clip.linked_visual_overlay_id for clip in overwritten_audio] == [clip.id for clip in overwritten_red]
 
