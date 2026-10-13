@@ -407,8 +407,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   };
                   const original = window.__horizontalDragOriginal;
                   window.__horizontalDragEvents = [];
+                  window.__horizontalDragListeners = [];
                   for (const type of ["pointerdown","pointermove","pointerup","pointercancel","mousedown","mousemove","mouseup"]) {
-                    document.addEventListener(type, event => {
+                    const listener = event => {
                       if (window.__horizontalDragEvents.length < 80) {
                         const target = event.target;
                         const under = document.elementFromPoint(event.clientX || 0, event.clientY || 0);
@@ -433,7 +434,9 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                           windowScroll:{x:window.scrollX,y:window.scrollY}
                         });
                       }
-                    }, true);
+                    };
+                    document.addEventListener(type, listener, true);
+                    window.__horizontalDragListeners.push({type, listener});
                   }
                   const comp = JSON.parse(JSON.stringify(original.comp));
                   comp.duration = 10;
@@ -548,6 +551,13 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                         window.refreshWorkspace = original.refreshWorkspace;
                         window.editorToast = original.editorToast;
                       }
+                      // Remove the capture listeners before deleting their event buffer.
+                      // They otherwise survive this instrumentation block and throw on
+                      // later unrelated pointer events when __horizontalDragEvents is gone.
+                      for (const entry of window.__horizontalDragListeners || []) {
+                        document.removeEventListener(entry.type, entry.listener, true);
+                      }
+                      delete window.__horizontalDragListeners;
                       delete window.__horizontalDragOriginal;
                       delete window.__horizontalDragCommands;
                       delete window.__horizontalDragEvents;
