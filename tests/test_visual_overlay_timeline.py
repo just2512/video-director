@@ -766,7 +766,7 @@ def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
         assets=[base, overlay],
         visual_overlays=[VisualOverlayClip(
             id="speed-overlay", asset_id="speed-video", start=0.5, duration=0.5,
-            source_in=0.25, speed=2.0, presentation_mode="full_frame",
+            source_in=0.2, speed=2.0, presentation_mode="full_frame",
             source_audio_enabled=True, source_audio_volume=0.7,
             x=0.0, y=0.0, width=1.0, height=1.0,
         )],
@@ -781,13 +781,13 @@ def test_real_ffmpeg_renders_speed_changed_overlay_with_synced_audio(tmp_path):
     assert report.get("codec") == "aac", report
     assert report.get("full_decode") == "PASS", report
     # The source is red for 0.0–0.5s, green for 0.5–1.0s and
-    # yellow for 1.0–2.0s. With source_in=0.25 and 2x speed, those
-    # transitions must land at timeline 0.625s and 0.875s respectively.
-    red = _pixel_at(ffmpeg, output, 0.55, 5, 5)
+    # yellow for 1.0–2.0s. With source_in=0.2 and 2x speed, those
+    # transitions land at 0.65s and 0.9s; assert on encoded 10-fps frames.
+    red = _pixel_at(ffmpeg, output, 0.6, 5, 5)
     assert red[0] > red[1] * 1.2 and red[0] > red[2] * 1.5, red
-    green = _pixel_at(ffmpeg, output, 0.72, 5, 5)
+    green = _pixel_at(ffmpeg, output, 0.7, 5, 5)
     assert green[1] > green[0] * 1.2 and green[1] > green[2] * 1.3, green
-    yellow = _pixel_at(ffmpeg, output, 0.89, 5, 5)
+    yellow = _pixel_at(ffmpeg, output, 0.9, 5, 5)
     assert yellow[0] > yellow[2] * 1.5 and yellow[1] > yellow[2] * 1.5, yellow
     blue = _pixel_at(ffmpeg, output, 1.2, 5, 5)
     assert blue[2] > blue[0] * 1.5, blue
