@@ -130,6 +130,13 @@ function editorVisualOverlayOpen(index, ev) {
   const fmt = n => Number(n || 0).toFixed(2);
   const sourceAsset = _visualOverlayAssets().find(([id]) => id === clip.asset_id)?.[1];
   const isVideoAsset = sourceAsset && String(sourceAsset.type).toLowerCase() === 'video';
+  const speedSettings = isVideoAsset ? `
+      <div class="audio-clip-field-row">
+        <div><label for="visual-overlay-edit-speed">播放速度（0.25×–4×）</label>
+          <input id="visual-overlay-edit-speed" type="number" min="0.25" max="4" step="0.05" value="${Number(clip.speed ?? 1)}"></div>
+      </div>
+      <p class="hint">保存后保留当前素材源区间，片段时长随速度重算；已拆分的关联原声同步变速。</p>`
+    : '';
   const sourceAudioSettings = isVideoAsset ? `
       <div class="audio-clip-field-row">
         <label><input id="visual-overlay-edit-source-audio" type="checkbox" ${clip.source_audio_enabled ? 'checked' : ''}> 保留视频源音轨</label>
@@ -190,6 +197,7 @@ function editorVisualOverlayOpen(index, ev) {
       <p class="hint">时间位置与时长可直接在时间线上拖动/修剪；全画幅、画中画和贴纸共用同一可编辑片段模型。</p>
       ${presentationControls}
       ${fitModeControls}
+      ${speedSettings}
       ${sourceAudioSettings}
       ${sourceAudioDetachAction}
       ${placementControls}
@@ -282,6 +290,8 @@ async function editorVisualOverlayApply(index) {
   const mask = document.getElementById('visual-overlay-inspector-mask');
   const clip = ED.comp && (ED.comp.visual_overlays || [])[index];
   if (!mask || !clip) return;
+  const sourceAsset = _visualOverlayAssets().find(([id]) => id === clip.asset_id)?.[1];
+  const isVideoAsset = sourceAsset && String(sourceAsset.type).toLowerCase() === 'video';
   const payload = {
     z_index:Number(mask.querySelector('#visual-overlay-z-index').value),
     presentation_mode:mask.querySelector('#visual-overlay-edit-presentation-mode')?.value || clip.presentation_mode || 'full_frame',
@@ -289,6 +299,7 @@ async function editorVisualOverlayApply(index) {
     source_audio_enabled:!!mask.querySelector('#visual-overlay-edit-source-audio')?.checked,
     source_audio_volume:Number(mask.querySelector('#visual-overlay-edit-source-audio-volume')?.value ?? clip.source_audio_volume ?? 1)
   };
+  if (isVideoAsset) payload.speed = Number(mask.querySelector('#visual-overlay-edit-speed')?.value ?? clip.speed ?? 1);
   if (clip.transform) {
     payload.transform = {
       x:Number(mask.querySelector('#visual-overlay-transform-x').value),
@@ -307,10 +318,12 @@ async function editorVisualOverlayApply(index) {
       opacity:Number(mask.querySelector('#visual-overlay-opacity').value)
     });
   }
-  const values = clip.transform
+  const values = (clip.transform
     ? [payload.transform.x, payload.transform.y, payload.transform.scale, payload.transform.rotation,
        payload.transform.opacity, payload.z_index, payload.source_audio_volume]
-    : [payload.x, payload.y, payload.width, payload.height, payload.opacity, payload.z_index, payload.source_audio_volume];
+    : [payload.x, payload.y, payload.width, payload.height, payload.opacity, payload.z_index, payload.source_audio_volume])
+    .concat(isVideoAsset ? [payload.speed] : []);
+  const invalidSpeed = isVideoAsset && (!Number.isFinite(payload.speed) || payload.speed < 0.25 || payload.speed > 4);
   const invalidTransform = !!clip.transform && (
     payload.transform.x < 0 || payload.transform.x > 1 ||
     payload.transform.y < 0 || payload.transform.y > 1 ||
@@ -329,8 +342,8 @@ async function editorVisualOverlayApply(index) {
   );
   if (!values.every(Number.isFinite) || !Number.isInteger(payload.z_index) || payload.z_index < -100 || payload.z_index > 100 ||
       !['cover', 'contain'].includes(payload.fit_mode) ||
-      payload.source_audio_volume < 0 || payload.source_audio_volume > 2 || invalidTransform || invalidRectangle) {
-    editorToast('位置/尺寸或变换参数越界；透明度为 0–1，源音量为 0–2', true); return;
+      payload.source_audio_volume < 0 || payload.source_audio_volume > 2 || invalidSpeed || invalidTransform || invalidRectangle) {
+    editorToast('位置/尺寸或变换参数越界；速度为 0.25×–4×，透明度为 0–1，源音量为 0–2', true); return;
   }
   try {
     const result = await executeCommand({command:'set_visual_overlay', targetId:'overlay#' + index, payload});
