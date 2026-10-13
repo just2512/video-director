@@ -3594,9 +3594,14 @@ def _cmd_set_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> T
     _ensure_audio_roles_unlocked(ir, {track_type})
     # §37 duck 语义：volume 不传（None）= 保留当前音量，只更新其他字段
     volume_raw = payload.get("volume")
-    volume = float(volume_raw) if volume_raw is not None else None
-    if volume is not None and not (0.0 <= volume <= 2.0):
-        raise EditorError("INVALID_PARAMETER", f"volume {volume} 越界 [0,2]")
+    if isinstance(volume_raw, bool):
+        raise EditorError("INVALID_PARAMETER", "set_audio_volume 的 volume 不能是布尔值")
+    try:
+        volume = float(volume_raw) if volume_raw is not None else None
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PARAMETER", "set_audio_volume 的 volume 必须是数字") from exc
+    if volume is not None and (not math.isfinite(volume) or not (0.0 <= volume <= 2.0)):
+        raise EditorError("INVALID_PARAMETER", f"volume {volume} 必须是有限数字且位于 [0,2]")
     asset_id = payload.get("assetId")
     has_duck = "ducking" in payload
     changed = False
@@ -3711,9 +3716,14 @@ def _cmd_audio_mix(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[Li
             raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} 参数须为对象")
         update = {}
         if "volume" in opts:
-            v = float(opts["volume"])
-            if not (0.0 <= v <= 2.0):
-                raise EditorError("INVALID_PARAMETER", f"{track_type} volume {v} 越界 [0,2]")
+            if isinstance(opts["volume"], bool):
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} volume 不能是布尔值")
+            try:
+                v = float(opts["volume"])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} volume 必须是数字") from exc
+            if not math.isfinite(v) or not (0.0 <= v <= 2.0):
+                raise EditorError("INVALID_PARAMETER", f"{track_type} volume 必须是有限数字且位于 [0,2]")
             update["volume"] = v
         if "muted" in opts:
             update["muted"] = bool(opts["muted"])
@@ -4463,6 +4473,10 @@ def _cmd_apply_camera(ir: CompositionIR, target_id: str, payload: dict) -> Tuple
     raw_kfs = payload.get("keyframes")
     if raw_kfs:
         # 显式关键帧路径：逐个验证（fail-closed）
+        if not isinstance(raw_kfs, list) or any(not isinstance(item, dict) for item in raw_kfs):
+            raise EditorError("INVALID_PARAMETER", "camera.apply: keyframes 必须是对象数组")
+        if any(isinstance(item.get("at"), bool) for item in raw_kfs):
+            raise EditorError("INVALID_PARAMETER", "camera.apply: 关键帧 at 不能是布尔值")
         try:
             kfs = [CameraKeyframe.model_validate(k) for k in raw_kfs]
         except (KeyError, ValueError) as exc:
