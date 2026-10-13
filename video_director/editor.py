@@ -2318,12 +2318,7 @@ def _cmd_trim_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
 
 
 def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """Split one global picture-overlay clip at an output-timeline playhead.
-
-    The right half retains the same source and visual properties. Video source
-    time advances by the split offset; still-image source time does not.
-    Both clip intervals exactly cover the original output interval.
-    """
+    """Split a global visual clip and all explicitly linked source-audio clips atomically."""
     index = _visual_overlay_index(ir, target_id)
     clip = ir.visual_overlays[index]
     _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
@@ -2343,18 +2338,11 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
             "SPLIT_OUTSIDE_CLIP",
             "切分播放头必须位于叠加片段内部，且切分两侧至少保留 0.05 秒",
         )
-
-    # Snap the cut boundary once to millisecond precision, but derive both
-    # durations from the unrounded original interval. This avoids accumulating
-    # a gap/overlap when old project IR contains sub-millisecond timestamps.
     split_at = round(at, 3)
     left_duration = split_at - start
     right_duration = end - split_at
     if left_duration < minimum_half or right_duration < minimum_half:
-        raise EditorError(
-            "SPLIT_OUTSIDE_CLIP",
-            "切分后两侧片段都必须至少保留 0.05 秒",
-        )
+        raise EditorError("SPLIT_OUTSIDE_CLIP", "切分后两侧片段都必须至少保留 0.05 秒")
 
     asset = next((item for item in ir.assets if item.id == clip.asset_id), None)
     is_video = bool(asset and str(getattr(asset.type, "value", asset.type)).lower() == "video")
@@ -2363,6 +2351,18 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
         source_duration = float(asset.duration or 0.0)
         if source_duration > 0 and right_source_in + right_duration > source_duration + 0.05:
             raise EditorError("INVALID_SOURCE_RANGE", "切分后的右侧视频源区间超出素材时长")
+
+    linked = [
+        audio_clip for audio_clip in ir.audio
+        if audio_clip.linked_visual_overlay_id == clip.id
+    ]
+    for audio_clip in linked:
+        _ensure_audio_lane_unlocked(ir, str(audio_clip.track_id or f"audio-{audio_clip.type.value}"))
+        if getattr(audio_clip, "keyframes", None):
+            raise EditorError(
+                "LINKED_AUDIO_AUTOMATION_UNSUPPORTED",
+                "关联原声音轨包含关键帧自动化；请先解除链接再切分，避免丢失音量曲线",
+            )
 
     left = clip.model_copy(update={"duration": left_duration})
     right = clip.model_copy(update={
@@ -2381,7 +2381,47 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
         "project:visual-overlays:render",
         "project:preview",
     ]
-    return changed, stale
+    if linked:
+        updated_audio = []
+        for audio_clip in ir.audio:
+            if audio_clip.linked_visual_overlay_id != clip.id:
+                updated_audio.append(audio_clip)
+                continue
+            left_audio_index = len(updated_audio)
+            audio_source_in = float(clip.source_in)
+            source_boundary = audio_source_in + left_duration
+            old_fade_in = max(0.0, float(audio_clip.fadeIn or 0.0))
+            old_fade_out = max(0.0, float(audio_clip.fadeOut or 0.0))
+            left_audio = audio_clip.model_copy(update={
+                "start": round(start, 3),
+                "duration": left_duration,
+                "source_in": audio_source_in,
+                "source_out": source_boundary,
+                "linked_visual_overlay_id": left.id,
+                "follows_scene_video": False,
+                "fadeIn": min(old_fade_in, left_duration),
+                "fadeOut": 0.0,
+            })
+            right_audio = audio_clip.model_copy(update={
+                "id": f"audio-{uuid.uuid4().hex[:12]}",
+                "start": split_at,
+                "duration": right_duration,
+                "source_in": right_source_in,
+                "source_out": right_source_in + right_duration,
+                "linked_visual_overlay_id": right.id,
+                "follows_scene_video": False,
+                "fadeIn": 0.0,
+                "fadeOut": min(old_fade_out, right_duration),
+                "keyframes": [],
+            })
+            updated_audio.extend([left_audio, right_audio])
+            changed.extend([
+                f"audio:{left_audio.type.value}:{left_audio_index}",
+                f"audio:{right_audio.type.value}:{left_audio_index + 1}",
+            ])
+        ir.audio = updated_audio
+        stale.extend(["project:audio:render", "project:audio-tracks"])
+    return changed, list(dict.fromkeys(stale))
 
 
 def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
