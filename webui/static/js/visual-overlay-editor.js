@@ -34,6 +34,13 @@ function editorVisualOverlayPick(ev, trackId) {
         <div><label for="visual-overlay-start">起点（秒）</label><input id="visual-overlay-start" type="number" min="0" max="${total}" step="0.05" value="${start.toFixed(2)}"></div>
         <div><label for="visual-overlay-duration">时长（秒）</label><input id="visual-overlay-duration" type="number" min="0.05" max="${total-start}" step="0.05" value="${Math.min(3, total-start).toFixed(2)}"></div>
       </div>
+      <label for="visual-overlay-placement-mode">放置方式</label>
+      <select id="visual-overlay-placement-mode">
+        <option value="overlay" selected>叠加（不移动同轨其他片段）</option>
+        <option value="overwrite">覆盖（只替换同轨选中区间）</option>
+        <option value="insert">插入（后续片段后移，时间线延长）</option>
+      </select>
+      <p id="visual-overlay-placement-hint" class="hint">叠加：与同轨片段重叠播放，其他内容保持原位。</p>
       <label for="visual-overlay-presentation-mode">画面用途</label>
       <select id="visual-overlay-presentation-mode">
         <option value="full_frame">全画幅镜头（覆盖当前画面）</option>
@@ -60,19 +67,29 @@ function editorVisualOverlayPick(ev, trackId) {
   const select = mask.querySelector('#visual-overlay-asset');
   const startInput = mask.querySelector('#visual-overlay-start');
   const durationInput = mask.querySelector('#visual-overlay-duration');
+  const placementSelect = mask.querySelector('#visual-overlay-placement-mode');
+  const placementHint = mask.querySelector('#visual-overlay-placement-hint');
   const audioRow = mask.querySelector('#visual-overlay-create-audio-row');
   const presentationSelect = mask.querySelector('#visual-overlay-presentation-mode');
   const fitRow = mask.querySelector('#visual-overlay-create-fit-row');
   const adjustFitVisibility = () => {
     if (fitRow) fitRow.style.display = presentationSelect.value === 'full_frame' ? '' : 'none';
   };
+  const placementDescription = {
+    overlay: '叠加：与同轨片段重叠播放，其他内容保持原位。',
+    overwrite: '覆盖：只替换所选画面轨道的此区间，区间外的片段保留。',
+    insert: '插入：把起点之后的同轨片段后移，并同步延长项目时间线。'
+  };
   const adjustDuration = () => {
     const a = assets.find(([id]) => id === select.value)?.[1];
-    let max = total - Number(startInput.value || 0);
+    const placementMode = placementSelect?.value || 'overlay';
+    const isInsert = placementMode === 'insert';
+    let max = isInsert ? Number.POSITIVE_INFINITY : total - Number(startInput.value || 0);
     const isVideo = a && String(a.type).toLowerCase() === 'video';
     if (isVideo && Number(a.duration) > 0) max = Math.min(max, Number(a.duration));
     max = Math.max(0.05, max);
-    durationInput.max = String(max);
+    if (Number.isFinite(max)) durationInput.max = String(max);
+    else durationInput.removeAttribute('max');
     if (Number(durationInput.value) > max) durationInput.value = max.toFixed(2);
     if (audioRow) audioRow.style.display = isVideo ? '' : 'none';
     if (!isVideo) {
@@ -80,10 +97,17 @@ function editorVisualOverlayPick(ev, trackId) {
       if (audioToggle) audioToggle.checked = false;
     }
   };
+  const adjustPlacement = () => {
+    const mode = placementSelect?.value || 'overlay';
+    if (placementHint) placementHint.textContent = placementDescription[mode] || placementDescription.overlay;
+    adjustDuration();
+  };
   select.addEventListener('change', adjustDuration);
   startInput.addEventListener('change', adjustDuration);
+  placementSelect?.addEventListener('change', adjustPlacement);
   presentationSelect.addEventListener('change', adjustFitVisibility);
   adjustDuration();
+  adjustPlacement();
   adjustFitVisibility();
   select.focus();
 }
@@ -94,8 +118,14 @@ async function editorVisualOverlayCreate() {
   const start = Number(mask.querySelector('#visual-overlay-start').value);
   const duration = Number(mask.querySelector('#visual-overlay-duration').value);
   const total = Number(ED.comp.duration) || 1;
-  if (!assetId || !Number.isFinite(start) || !Number.isFinite(duration) || start < 0 || duration < 0.05 || start + duration > total + 1e-6) {
-    editorToast('时间参数无效：片段必须处于项目时长内且不少于 0.05 秒', true); return;
+  const placementMode = mask.querySelector('#visual-overlay-placement-mode')?.value || 'overlay';
+  const validPlacementMode = ['overlay', 'overwrite', 'insert'].includes(placementMode);
+  const validRange = placementMode === 'insert'
+    ? start >= 0 && start <= total + 1e-6
+    : start >= 0 && start < total && start + duration <= total + 1e-6;
+  if (!assetId || !validPlacementMode || !Number.isFinite(start) || !Number.isFinite(duration)
+      || duration < 0.05 || !validRange) {
+    editorToast('时间参数无效：叠加/覆盖必须位于项目时长内；插入点不能晚于项目末尾，片段至少一帧', true); return;
   }
   try {
     const presentationMode = mask.querySelector('#visual-overlay-presentation-mode').value;
@@ -103,10 +133,16 @@ async function editorVisualOverlayCreate() {
     const result = await executeCommand({command:'add_visual_overlay', targetId:'overlays',
       payload:{assetId, start, duration, trackId:window.VISUAL_OVERLAY_TARGET_TRACK_ID || 'overlay-main',
         presentationMode, fitMode:mask.querySelector('#visual-overlay-create-fit-mode')?.value || 'cover',
-        sourceAudioEnabled}});
+        sourceAudioEnabled, placementMode}});
     if (!result || !result.ok) { editorToast('添加失败：' + ((result && result.error) || '未知错误'), true); return; }
     editorVisualOverlayClose();
-    editorToast(presentationMode === 'full_frame' ? '全画幅镜头已加入时间线' : (presentationMode === 'sticker' ? '贴纸图层已加入时间线' : '画中画已加入时间线'));
+    const successMessage = placementMode === 'insert'
+      ? '已插入 ' + duration.toFixed(2) + 's；后续片段后移，时间线已延长。'
+      : placementMode === 'overwrite'
+        ? '已覆盖同轨 ' + duration.toFixed(2) + 's 区间；区间外的片段保留。'
+        : (presentationMode === 'full_frame' ? '全画幅镜头已加入时间线'
+          : (presentationMode === 'sticker' ? '贴纸图层已加入时间线' : '画中画已加入时间线'));
+    editorToast(successMessage);
     await refreshWorkspace();
   } catch (error) { editorToast('画面叠加添加失败：' + (error.message || error), true); }
 }
