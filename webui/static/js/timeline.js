@@ -842,7 +842,7 @@ function _tlBindLayerDrag(){
     if (targetScene && targetScene.dataset.scene !== d.sceneId) {
       editorToast('未更改：当前分镜要求内部片段无缝铺满；跨分镜移动需要独立物理轨道，不能用重排分镜代替。', true);
     }
-  });
+  }, true); // Claim pointerup in capture phase before higher-level timeline gestures can consume it.
 }
 
 // ---------------------------------------------------------------------------
