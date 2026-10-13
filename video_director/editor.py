@@ -1876,24 +1876,7 @@ def _cmd_promote_layer_to_visual_track(
         if not getattr(probe, "has_video_stream", False):
             raise EditorError("ASSET_PROBE_FAILED", "素材没有可解码的视频流，不能提升")
 
-        # If already represented by an exact original-audio clip, do not double it.
-        audio_match_tolerance = max(0.005, 0.5 / max(1, int(ir.project.fps)))
-        has_matching_original_audio = any(
-            track.type == AudioTrackType.original
-            and track.asset_id == layer.asset_id
-            and abs(float(track.start) - float(payload.get("start", scene.start + layer.start))) <= audio_match_tolerance
-            and abs(float(track.duration) - duration) <= audio_match_tolerance
-            and abs(float(track.source_in or 0.0) - source_in) <= audio_match_tolerance
-            and abs(
-                float(
-                    track.source_out
-                    if track.source_out is not None
-                    else float(track.source_in or 0.0) + float(track.duration)
-                ) - source_out
-            ) <= audio_match_tolerance
-            for track in ir.audio
-        )
-        source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_matching_original_audio
+        source_audio_enabled = False
     else:
         source_audio_enabled = False
     # A drag-and-drop into a global visual track may supply an explicit global
@@ -1907,6 +1890,27 @@ def _cmd_promote_layer_to_visual_track(
         or absolute_start + duration > float(ir.project.duration) + 0.001
     ):
         raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
+
+    if is_video:
+        # Check the validated destination time. Do not merge unrelated source audio
+        # just because the same video file was used elsewhere in the composition.
+        audio_match_tolerance = max(0.005, 0.5 / max(1, int(ir.project.fps)))
+        has_matching_original_audio = any(
+            track.type == AudioTrackType.original
+            and track.asset_id == layer.asset_id
+            and abs(float(track.start) - absolute_start) <= audio_match_tolerance
+            and abs(float(track.duration) - duration) <= audio_match_tolerance
+            and abs(float(track.source_in or 0.0) - source_in) <= audio_match_tolerance
+            and abs(
+                float(
+                    track.source_out
+                    if track.source_out is not None
+                    else float(track.source_in or 0.0) + float(track.duration)
+                ) - source_out
+            ) <= audio_match_tolerance
+            for track in ir.audio
+        )
+        source_audio_enabled = bool(getattr(probe, "has_audio_stream", False)) and not has_matching_original_audio
 
     asset_index = next((i for i, item in enumerate(ir.assets) if item.id == layer.asset_id), None)
     resolved_asset = asset.model_copy(update={
