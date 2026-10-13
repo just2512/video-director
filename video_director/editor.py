@@ -1967,6 +1967,9 @@ def _cmd_promote_layer_to_visual_track(
         ir.audio = [
             audio_clip.model_copy(update={
                 "start": round(absolute_start, 3),
+                "duration": round(duration, 3),
+                "source_in": round(source_in, 3),
+                "source_out": round(source_out, 3),
                 "follows_scene_video": False,
                 "linked_visual_overlay_id": clip_id,
             }) if audio_index in linked_source_indices else audio_clip
