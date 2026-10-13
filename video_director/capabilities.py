@@ -258,9 +258,8 @@ def _build_renderer() -> Capability:
 
     分发口径（诚实）：
     - FFmpeg：随安装包内置（lib 包），用户电脑零依赖，恒可用
-    - MPT/HyperFrames：开发参考实现，仅存在于开发机，不打包进产品；
-      打包分发后这两项不会出现在他人电脑上（也不需要——FFmpeg 覆盖全部
-      渲染能力）。此处检测只为开发者提供参考资产位置。
+    - HyperFrames：云端动效，可选增强（填 key 启用，未配置走内置 FFmpeg）
+    - 参考实现（MPT 等）：仅开发期参考，非依赖——运行时零探测零引用
     """
     ffmpeg_ok = _check_ffmpeg_available()
     ffmpeg = Provider(
@@ -269,18 +268,6 @@ def _build_renderer() -> Capability:
         requires_api_key=False,
         runtime="binary",
         note="随包内置视频引擎（任何电脑可用，覆盖全部渲染）",
-    )
-    mpt_present = False
-    try:
-        mpt_present = (Path(r"D:\autocut") / "MoneyPrinterTurbo").is_dir()
-    except Exception:
-        mpt_present = False
-    mpt = Provider(
-        name="MPT（本机参考）",
-        available=mpt_present,
-        requires_api_key=False,
-        runtime="service",
-        note="开发参考实现（仅本机，不打包进产品）",
     )
     # HyperFrames 目前只有配置角色，没有实际成片执行器。
     # Provider Capability Matrix 因而明确标记为不可用，不能因填 key 就显示 READY。
@@ -295,7 +282,7 @@ def _build_renderer() -> Capability:
     status = STATUS_AVAILABLE if ffmpeg_ok else STATUS_MISSING
     return Capability(
         name="renderer",
-        providers=(ffmpeg, mpt, hyper),
+        providers=(ffmpeg, hyper),
         status=status,
         supports=("video_compose", "cut", "slow_zoom_in", "crossfade_pending"),
         fallback_tools=(),

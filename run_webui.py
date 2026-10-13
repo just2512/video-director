@@ -27,9 +27,6 @@ def _candidate_pythons():
         order.append(env)
     if sys.platform == "win32":
         order.append(str(ROOT.parent / "venv" / "Scripts" / "python.exe"))
-        p2 = ROOT.parent / "MoneyPrinterTurbo-Portable-Windows-1.3.7" / "lib" / "python" / "python.exe"
-        if p2.exists():
-            order.append(str(p2))
     else:
         order.append(str(ROOT.parent / "venv" / "bin" / "python"))
     order.append(sys.executable)
@@ -143,8 +140,9 @@ def main():
     python = _pick_python()
     if python is None:
         msg = (
-            "找不到带依赖的 Python 环境。本项目依赖安装在 D:\\autocut\\venv，"
-            "或设置 VD_PYTHON=D:\\autocut\\venv\\Scripts\\python.exe"
+            "找不到带依赖的 Python 环境。请在项目根目录执行：\n"
+            "  python -m venv ..\\venv && ..\\venv\\Scripts\\pip install -r requirements.txt\n"
+            "或设置 VD_PYTHON=<已装依赖的 python.exe 完整路径>"
         )
         print("=" * 56)
         print(f"[X] {msg}")

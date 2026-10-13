@@ -1,8 +1,15 @@
 # AI Video Director 运行依赖（独立项目，零参考项目耦合）
+# 与代码实际 import 面一一对应（AST 扫描 2026-10-13 校准）：
 pydantic>=2.5
 loguru>=0.7
-edge-tts>=6.1
+edge-tts>=7.0
+pillow
+imageio-ffmpeg
+openai
+pyyaml
+# 可选增强：词级对齐 fallback（未安装时走 edge-tts 原生时间戳主路径）
+faster-whisper
+# 可选增强：程序化动效渲染 / 浏览器回归（tests + studio_catalog 使用）
 playwright>=1.40
 # pytest 仅测试需要，可注释
 pytest>=7.4
-playwright>=1.45
