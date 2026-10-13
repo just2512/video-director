@@ -352,6 +352,10 @@ def import_template_package(data: bytes, filename: str = "template.zip") -> dict
                     scan_status = "BLOCKED"
                 manifest_bytes = (staging / manifest_name).read_bytes()
                 manifest_sha = _sha256(manifest_bytes)
+                file_hashes = {
+                    rel: _sha256_file(staging.joinpath(*PurePosixPath(rel).parts))
+                    for rel in sorted(members)
+                }
                 license_status, provenance_ref, license_metadata = _license_meta(raw_manifest)
                 name = str(raw_manifest.get("name") or template_id).strip()[:160]
                 category = str(raw_manifest.get("category") or "html-video").strip()[:80]
@@ -393,6 +397,7 @@ def import_template_package(data: bytes, filename: str = "template.zip") -> dict
                         "source_entry": source_entry,
                         "package_sha256": package_sha,
                         "manifest_sha256": manifest_sha,
+                        "file_hashes": file_hashes,
                         "license": license_metadata,
                         "fps": fps,
                         "width": width,
@@ -558,9 +563,10 @@ def html_template_runtime_report_from_record(record: dict, package_dir: Path) ->
 
 
 def _manifest_path_for_record(runtime: dict, package_dir: Path) -> Path:
+    package_dir = package_dir.resolve()
     source = (package_dir / _safe_rel(runtime.get("source_entry"), "source_entry")).resolve()
     try:
-        source.relative_to(package_dir.resolve())
+        source.relative_to(package_dir)
     except ValueError as exc:
         raise HtmlTemplateError("SOURCE_ENTRY_ESCAPE", "HTML 入口越出包目录") from exc
     if not source.is_file():
@@ -568,6 +574,20 @@ def _manifest_path_for_record(runtime: dict, package_dir: Path) -> Path:
     manifest = package_dir / "template.html-video.yaml"
     if not manifest.is_file() or _sha256_file(manifest) != runtime.get("manifest_sha256"):
         raise HtmlTemplateError("PACKAGE_FINGERPRINT_STALE", "manifest SHA-256 不匹配")
+    file_hashes = runtime.get("file_hashes") or {}
+    if not file_hashes:
+        raise HtmlTemplateError("PACKAGE_FINGERPRINT_MISSING", "导入记录缺少文件级 SHA-256 指纹")
+    if len(file_hashes) > MAX_FILES:
+        raise HtmlTemplateError("PACKAGE_FINGERPRINT_INVALID", "文件指纹数量超出上限")
+    for rel, expected in file_hashes.items():
+        safe_rel = _safe_rel(rel, "file hash path")
+        item = (package_dir / safe_rel).resolve()
+        try:
+            item.relative_to(package_dir)
+        except ValueError as exc:
+            raise HtmlTemplateError("PACKAGE_FILE_ESCAPE", f"文件指纹路径越界：{safe_rel}") from exc
+        if not item.is_file() or _sha256_file(item) != expected:
+            raise HtmlTemplateError("PACKAGE_FINGERPRINT_STALE", f"导入后模板文件发生变化：{safe_rel}")
     return source
 
 
@@ -688,7 +708,7 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
     work_root = Path(tempfile.mkdtemp(prefix="html-sample-", dir=str(sample_root)))
     record_dir = work_root / "record"
     record_dir.mkdir()
-    mp4_out = sample_root / f"{sample_id}.mp4"
+    mp4_out = work_root / "sample.mp4"
     duration = float(runtime.get("duration_sec") or 5)
     width, height, fps = int(runtime.get("width") or 1280), int(runtime.get("height") or 720), int(runtime.get("fps") or 30)
 
@@ -702,6 +722,7 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}/"
+    blocked_requests: list[str] = []
     recording_started = None
     animation_started = None
     webm_path = None
@@ -719,11 +740,17 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
                 recording_started = time.monotonic()
                 page = context.new_page()
                 video = page.video
-                page.route("**/*", lambda route: route.continue_() if (
-                    urlsplit(route.request.url).scheme == "http"
-                    and urlsplit(route.request.url).hostname == "127.0.0.1"
-                    and urlsplit(route.request.url).port == server.server_port
-                ) else route.abort())
+                def _allow_package_request(route) -> None:
+                    parts = urlsplit(route.request.url)
+                    if (parts.scheme == "http" and parts.hostname == "127.0.0.1"
+                            and parts.port == server.server_port):
+                        route.continue_()
+                    else:
+                        if len(blocked_requests) < 50:
+                            blocked_requests.append(route.request.url[:500])
+                        route.abort()
+
+                page.route("**/*", _allow_package_request)
                 page.add_init_script("""
                     (() => {
                       const install = () => {
@@ -763,6 +790,11 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
                 browser.close()
         if not webm_path or not webm_path.is_file() or webm_path.stat().st_size < 1024:
             raise HtmlTemplateError("BROWSER_CAPTURE_FAILED", "Chromium 没有产生有效的 WebM 录制")
+        if blocked_requests:
+            raise HtmlTemplateError(
+                "EXTERNAL_DEPENDENCY_REQUEST_BLOCKED",
+                "样片运行过程中尝试访问包外资源，已阻断并拒绝宣称样片通过：" + "、".join(blocked_requests[:8]),
+            )
         lead_in = max(0.0, float(animation_started - recording_started)) if animation_started else 0.0
         encoded = subprocess.run(
             [ffmpeg, "-y", "-v", "error", "-ss", f"{lead_in:.3f}", "-i", str(webm_path),
