@@ -150,6 +150,54 @@ def test_cross_scene_lift_supports_plain_still_image_and_preserves_scene_timing(
     assert len(revisions) == 1
 
 
+def test_cross_scene_video_lift_moves_linked_original_audio_and_preserves_mix(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from video_director import prober
+
+    data = _video_comp()
+    source_video = tmp_path / "clip.mp4"
+    source_video.write_bytes(b"test video placeholder; probe is mocked")
+    data["assets"] = [{
+        "id": "vid1", "type": "video", "file": str(source_video.resolve()), "duration": 8.0,
+    }]
+    first = data["scenes"][0]
+    first["layers"] = [{
+        "type": "video", "asset_id": "vid1", "start": 0.0, "duration": 5.0,
+        "speed": 1.0, "source_in": 0.0, "source_out": 5.0,
+    }]
+    first["selections"] = []
+    first["camera"] = None
+    first["transition_out"] = {"type": "cut", "duration": 0.0}
+    data["audio_tracks"] = [{"id": "audio-original", "name": "原声", "order": 0}]
+    data["audio"] = [{
+        "id": "linked-video-original", "type": "original", "asset_id": "vid1",
+        "track_id": "audio-original", "start": 0.0, "duration": 5.0,
+        "source_in": 0.0, "source_out": 5.0, "volume": 0.42,
+        "fadeIn": 0.25, "fadeOut": 0.5, "follows_scene_video": True,
+    }]
+    total = float(data["project"]["duration"])
+    destination = float(data["scenes"][1]["start"])
+    if destination + 5.0 > total:
+        destination = total - 5.0
+    assert 0 < destination <= total - 5.0
+    monkeypatch.setattr(prober, "probe_media", lambda _path: SimpleNamespace(
+        duration=8.0, has_video_stream=True, has_audio_stream=True,
+    ))
+
+    pid, _plans = _project(tmp_path, monkeypatch, data)
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {"start": destination})
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    linked = next(track for track in comp.audio if track.id == "linked-video-original")
+    assert round(float(linked.start), 3) == round(destination, 3)
+    assert linked.follows_scene_video is False
+    assert linked.volume == 0.42
+    assert linked.fadeIn == 0.25
+    assert linked.fadeOut == 0.5
+    assert comp.visual_overlays[0].source_audio_enabled is False
+
+
 def test_cross_scene_lift_rejects_motion_without_changing_source_clip(tmp_path, monkeypatch):
     data = _layer_comp()
     source_image = tmp_path / "still.png"
