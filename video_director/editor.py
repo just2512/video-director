@@ -1642,7 +1642,20 @@ def _cmd_set_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     params = dict(inst.get("parameters") or {})
     params["transform"] = transform
     inst["parameters"] = params
-    scene.layers[idx] = layer.model_copy(update={"motion_instance": inst})
+    canonical = layer.transform
+    if canonical is not None:
+        try:
+            canonical = Transform.model_validate({
+                **canonical.model_dump(),
+                "scale": transform["scale"],
+                "opacity": transform["opacity"],
+            })
+        except ValueError as exc:
+            raise EditorError("INVALID_PARAMETER", str(exc)) from exc
+    scene.layers[idx] = layer.model_copy(update={
+        "motion_instance": inst,
+        "transform": canonical,
+    })
     layer_id = f"{scene.id}#{idx}"
     return [layer_id], _stale_of_layer(project_id="", scene_id=scene.id, layer_id=layer_id)
 
@@ -3788,16 +3801,29 @@ def _cmd_set_visual_transform(ir: CompositionIR, target_id: str, payload: dict) 
         raise EditorError("INVALID_PAYLOAD",
                           "set_visual_transform 需 x/y/scale/rotation/opacity/anchor 至少一项")
     try:
-        base = layer.transform or Transform()
+        base = layer.transform
+        if base is None:
+            # Legacy set_transform projects may already hold scale/opacity only in
+            # motion_instance.parameters. Seed the canonical contract from that data
+            # before applying a positional/rotation patch, or such edits reset it.
+            base_data = Transform().model_dump()
+            legacy_params = (layer.motion_instance or {}).get("parameters") or {}
+            legacy_transform = legacy_params.get("transform") or {}
+            for key in ("scale", "opacity"):
+                if key in legacy_transform:
+                    base_data[key] = legacy_transform[key]
+            base = Transform.model_validate(base_data)
         # model_copy(update=) 不重跑 validator → 用 model_validate 重建（越界 fail-closed）
         new_transform = Transform.model_validate({**base.model_dump(), **patch})
     except ValueError as exc:
         raise EditorError("INVALID_PARAMETER", str(exc))
-    # 静态 opacity 兼容旧渲染链（motion_instance.parameters.opacity 消费点保留）
+    # Keep legacy consumers in sync for both scale-only and opacity-only edits.
+    # Rendering and live preview consume Layer.transform as the canonical source.
     inst = dict(layer.motion_instance or {})
-    if "opacity" in patch:
+    if {"scale", "opacity"}.intersection(patch):
         params = dict(inst.get("parameters") or {})
-        params["opacity"] = float(new_transform.opacity)
+        if "opacity" in patch:
+            params["opacity"] = float(new_transform.opacity)
         params["transform"] = {"scale": new_transform.scale, "opacity": new_transform.opacity}
         inst["parameters"] = params
     scene.layers[idx] = layer.model_copy(update={"transform": new_transform,
