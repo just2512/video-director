@@ -2443,6 +2443,19 @@ def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) ->
     patch = {key: payload[key] for key in allowed if key in payload}
     if not patch:
         raise EditorError("INVALID_PAYLOAD", "没有可更新的覆盖层属性")
+    linked = [
+        (audio_index, audio_clip)
+        for audio_index, audio_clip in enumerate(ir.audio)
+        if audio_clip.linked_visual_overlay_id == clip.id
+    ]
+    if linked and patch.get("source_audio_enabled") is True:
+        raise EditorError(
+            "SOURCE_AUDIO_ALREADY_LINKED",
+            "该画面已使用独立关联原声音轨；请在原声音轨中调节或解除链接，不能再同时启用内嵌原声",
+        )
+    if linked and "source_audio_volume" in patch:
+        for _audio_index, audio_clip in linked:
+            _ensure_audio_lane_unlocked(ir, str(audio_clip.track_id or f"audio-{audio_clip.type.value}"))
     if "presentation_mode" in patch and patch["presentation_mode"] not in {"full_frame", "picture_in_picture", "sticker"}:
         raise EditorError("INVALID_PARAMETER", "presentation_mode 不受支持")
     if "source_audio_enabled" in patch and not isinstance(patch["source_audio_enabled"], bool):
@@ -2465,7 +2478,15 @@ def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) ->
         raise EditorError("INVALID_PARAMETER", "覆盖层时间区间超出项目时长")
     ir.visual_overlays[index] = updated
     key = f"visual-overlay:{clip.id}"
-    return [key], [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+    changed = [key]
+    stale = [f"{key}:render", "project:visual-overlays:render", "project:preview"]
+    if linked and "source_audio_volume" in patch:
+        volume = float(updated.source_audio_volume)
+        for audio_index, audio_clip in linked:
+            ir.audio[audio_index] = audio_clip.model_copy(update={"volume": volume})
+            changed.append(f"audio:{audio_clip.type.value}:{audio_index}")
+        stale.extend(["project:audio:render", "project:audio-tracks"])
+    return changed, list(dict.fromkeys(stale))
 
 
 
