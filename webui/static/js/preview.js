@@ -349,7 +349,7 @@ function _previewRenderWatermarks(sec) {
     const asset = watermark && watermark.asset_id ? getAsset(watermark.asset_id) : null;
     return {watermark, index, start, duration, asset};
   }).filter(({watermark, start, duration}) =>
-    watermark && duration > 0 && Number(sec) >= start - 1e-6 && Number(sec) < start + duration - 1e-6
+    watermark && duration > 0 && Number(sec) >= start - 1e-6 && Number(sec) <= start + duration + 1e-6
   );
   const key = JSON.stringify({scaleX, scaleY, active:active.map(({watermark, index, asset}) => ({
     index, id:watermark.id, kind:watermark.kind, text:watermark.text,
