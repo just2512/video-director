@@ -404,6 +404,7 @@ SUPPORTED_COMMANDS = (
     "set_style",                 # 项目级风格（§20）
     "set_transform",             # 层静态变换（scale/opacity，§20）
     "promote_layer_to_visual_track",  # 将主画面视频提升为可独立编辑的全局画面轨道片段
+    "expand_main_timeline_to_visual_track",  # 一次性把全部兼容主画面片段展开为全局可编辑时间线
     "add_visual_overlay",
     "move_visual_overlay",
     "trim_visual_overlay",
@@ -645,6 +646,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_transform(ir, target_id, payload)
         elif cmd_name == "promote_layer_to_visual_track":
             changed, stale = _cmd_promote_layer_to_visual_track(ir, target_id, payload, project_id)
+        elif cmd_name == "expand_main_timeline_to_visual_track":
+            changed, stale = _cmd_expand_main_timeline_to_visual_track(ir, target_id, payload, project_id)
         elif cmd_name == "add_visual_overlay":
             changed, stale = _cmd_add_visual_overlay(ir, target_id, payload, project_id)
         elif cmd_name == "move_visual_overlay":
@@ -2027,6 +2030,102 @@ def _cmd_promote_layer_to_visual_track(
     stale = _stale_of_scene(project_id="", scene_id=scene.id)
     stale.extend([f"{key}:render", "project:visual-overlays:render", "project:preview"])
     return [key, f"{scene.id}#{idx}"], stale
+
+
+
+def _cmd_expand_main_timeline_to_visual_track(
+    ir: CompositionIR, target_id: str, payload: dict, project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """Atomically expand all compatible main-picture clips onto one global track.
+
+    Existing per-scene timing is preserved with explicit gap layers. The command
+    intentionally fails closed for any non-media main layer; it must never silently
+    discard a graphic/effect or leave a partially-converted project behind.
+    """
+    if target_id not in ("timeline:main", "project"):
+        raise EditorError("INVALID_TARGET", "自由时间线展开的目标必须是主时间线")
+
+    candidates: List[Tuple[str, int]] = []
+    unsupported: List[str] = []
+    for scene in ir.scenes:
+        for index, layer in enumerate(scene.layers):
+            if layer.type == LayerType.gap:
+                continue
+            if layer.type not in (LayerType.video, LayerType.image):
+                unsupported.append(f"{scene.id}#{index}({layer.type.value})")
+                continue
+            candidates.append((scene.id, index))
+
+    if unsupported:
+        details = "、".join(unsupported[:6])
+        more = f" 等 {len(unsupported)} 个片段" if len(unsupported) > 6 else ""
+        raise EditorError(
+            "FREE_TIMELINE_UNSUPPORTED_LAYER",
+            f"展开已取消：以下主画面片段尚不能安全转入自由轨道：{details}{more}；项目未修改",
+        )
+    if not candidates:
+        raise EditorError(
+            "NO_MAIN_MEDIA_CLIPS",
+            "主时间线没有可展开的视频或图片片段；项目未修改",
+        )
+
+    # Cheap preflight before any in-memory edits. More detailed checks (speed,
+    # source range, effects, scene camera, transition and source probing) remain
+    # in the single-clip command below; execute_command only persists after the
+    # entire command succeeds, so a late rejection rolls back the whole batch.
+    for scene_id, index in candidates:
+        scene = next(scene for scene in ir.scenes if scene.id == scene_id)
+        layer = scene.layers[index]
+        try:
+            _ensure_layer_unlocked(layer)
+        except EditorError as exc:
+            raise EditorError(
+                exc.code, f"展开已取消（{scene_id}#{index}）：{exc}", recoverable=exc.recoverable
+            ) from exc
+        if not layer.asset_id:
+            raise EditorError(
+                "ASSET_NOT_FOUND",
+                f"展开已取消：{scene_id}#{index} 缺少素材引用；项目未修改",
+                recoverable=False,
+            )
+
+    existing_names = {track.name.strip().casefold() for track in ir.visual_tracks}
+    name_number = 1
+    while f"自由主画面 {name_number}".casefold() in existing_names:
+        name_number += 1
+    track_id = f"main-free-{uuid.uuid4().hex[:10]}"
+    previous_tracks = sorted(ir.visual_tracks, key=lambda track: track.order)
+    ir.visual_tracks = [
+        track.model_copy(update={"order": index + 1})
+        for index, track in enumerate(previous_tracks)
+    ]
+    ir.visual_tracks.append(VisualTrack(
+        id=track_id, name=f"自由主画面 {name_number}", order=0,
+    ))
+
+    changed: List[str] = [f"visual-track:{track_id}"]
+    stale: List[str] = ["project:timeline:render", "project:preview"]
+    for scene_id, index in candidates:
+        scene = next(scene for scene in ir.scenes if scene.id == scene_id)
+        layer = scene.layers[index]
+        absolute_start = float(scene.start) + float(layer.start)
+        try:
+            item_changed, item_stale = _cmd_promote_layer_to_visual_track(
+                ir,
+                f"{scene_id}#{index}",
+                {"trackId": track_id, "start": absolute_start},
+                project_id,
+            )
+        except EditorError as exc:
+            raise EditorError(
+                exc.code,
+                f"展开已取消（{scene_id}#{index}）：{exc}；项目未修改",
+                recoverable=exc.recoverable,
+            ) from exc
+        changed.extend(item_changed)
+        stale.extend(item_stale)
+
+    return list(dict.fromkeys(changed)), list(dict.fromkeys(stale))
 
 
 def _overwrite_visual_track_range(

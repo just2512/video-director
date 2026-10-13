@@ -1414,3 +1414,106 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+
+def test_expand_main_timeline_button_runs_one_atomic_command_in_chromium(tmp_path, monkeypatch):
+    """One visible user action converts every compatible scene clip on the real workspace."""
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
+    results_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = results_dir / "expand-main-timeline-failure-trace.zip"
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = Path(os.environ["VIDEO_DIRECTOR_STORAGE_ROOT"])
+
+    project_id = "web-e2e-expand-main-timeline"
+    still = tmp_path / "expand-main-timeline-still.png"
+    still.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/"
+        "lYkAAAAASUVORK5CYII="
+    ))
+    store.create_project(project_id, "Expand main timeline", {"name": "Expand main timeline"})
+    editor.save_composition(project_id, _test_composition(still))
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            tracing = False
+            try:
+                context.tracing.start(screenshots=False, snapshots=True, sources=True)
+                tracing = True
+                page = context.new_page()
+                page_errors: list[str] = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)))
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="networkidle",
+                )
+                assert response and response.status == 200
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", project_id)
+                assert opened.get("ok"), opened
+                page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
+                button = page.locator("#ed-expand-main-timeline")
+                button.wait_for(state="visible")
+                assert "展开为自由时间线" in button.inner_text()
+
+                with page.expect_response(
+                    lambda item: item.request.method == "POST"
+                    and item.url.endswith("/api/editor/command"),
+                    timeout=10000,
+                ) as response_info:
+                    button.click()
+                command_response = response_info.value
+                assert command_response.status == 200
+                command_body = command_response.json()
+                assert command_body.get("status") == "APPLIED", command_body
+
+                persisted = page.evaluate("""async (projectId) => {
+                  const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+                  return {status: response.status, body: await response.json()};
+                }""", project_id)
+                assert persisted["status"] == 200, persisted
+                comp = persisted["body"]
+                assert [scene["layers"][0]["type"] for scene in comp["scenes"]] == ["gap", "gap"], comp["scenes"]
+                assert len(comp["visual_overlays"]) == 2, comp.get("visual_overlays")
+                assert [round(float(clip["start"]), 3) for clip in comp["visual_overlays"]] == [0.0, 1.0]
+                assert len({clip["track_id"] for clip in comp["visual_overlays"]}) == 1
+                assert any(track["name"] == "自由主画面 1" and track["order"] == 0
+                           for track in comp["visual_tracks"]), comp["visual_tracks"]
+                assert page.locator("#ed-expand-main-timeline").count() == 0, (
+                    "the convert action must disappear when no main media clips remain"
+                )
+                assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
+            except BaseException:
+                if tracing:
+                    try:
+                        context.tracing.stop(path=str(trace_path))
+                    except Exception:
+                        pass
+                    tracing = False
+                raise
+            finally:
+                if tracing:
+                    try:
+                        context.tracing.stop()
+                    except Exception:
+                        pass
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+

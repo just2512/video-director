@@ -166,3 +166,16 @@
 
 /* OpenCut-style selected clip feedback; selection is shared with inspector and commands. */
 .ed-track-clip.ed-tl-clip-selected { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 2; }
+
+
+/* One explicit, atomic action to convert the shot-based main track into an editable global video lane. */
+.ed-timeline-command-bar {
+  display:flex; align-items:center; justify-content:flex-end; gap:10px;
+  flex-wrap:wrap; padding:7px 8px; border-bottom:1px solid var(--border);
+}
+.ed-timeline-command-bar .hint { margin-right:auto; line-height:1.35; }
+.ed-timeline-command-bar button { flex:0 0 auto; }
+@media (max-width: 720px) {
+  .ed-timeline-command-bar { justify-content:flex-start; }
+  .ed-timeline-command-bar .hint { flex-basis:100%; }
+}
