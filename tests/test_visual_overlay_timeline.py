@@ -11,6 +11,7 @@ from video_director.editor import execute_command, load_composition, save_compos
 from video_director.models import (
     AssetRef, AudioTrack, AudioTrackType, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip, VisualTrack,
 )
+from video_director.visual_semantics import Keyframe, KeyframeTrack
 
 
 def _editor_project(tmp_path, monkeypatch):
@@ -1977,4 +1978,216 @@ def test_expand_main_timeline_rejects_incompatible_late_clip_without_partial_wri
     assert untouched.visual_overlays == []
     assert [(track.id, track.order) for track in untouched.visual_tracks] == [("overlay-main", 0)]
     assert all(not track.id.startswith("main-free-") for track in untouched.visual_tracks)
+
+def test_visual_track_overwrite_splits_detached_source_audio_and_preserves_surviving_windows(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch, include_unlinked=True)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "overwrite",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    overlay = {clip.id: clip for clip in comp.visual_overlays}
+    left = overlay["linked-overlay"]
+    right = next(clip for clip in comp.visual_overlays
+                 if clip.asset_id == "linked-video" and clip.id != "linked-overlay")
+    assert (left.start, left.duration, left.source_in) == (2.0, 1.0, 1.0)
+    assert (right.start, right.duration, right.source_in) == (4.0, 2.0, 3.0)
+    inserted = next(clip for clip in comp.visual_overlays if clip.asset_id == "overlay-image")
+    assert (inserted.start, inserted.duration) == (3.0, 1.0)
+
+    audio = [clip for clip in comp.audio if clip.linked_visual_overlay_id]
+    assert len(audio) == 2
+    left_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == left.id)
+    right_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == right.id)
+    assert (left_audio.start, left_audio.duration, left_audio.source_in, left_audio.source_out) == (2.0, 1.0, 1.0, 2.0)
+    assert (right_audio.start, right_audio.duration, right_audio.source_in, right_audio.source_out) == (4.0, 2.0, 3.0, 5.0)
+    assert left_audio.fadeIn == pytest.approx(0.5) and left_audio.fadeOut == 0.0
+    assert right_audio.fadeIn == 0.0 and right_audio.fadeOut == pytest.approx(0.75)
+    assert len({clip.id for clip in audio}) == 2
+    detached = next(clip for clip in comp.audio if clip.id == "unlinked-audio")
+    assert (detached.start, detached.duration, detached.source_in, detached.source_out) == (7.0, 1.0, 0.0, 1.0)
+    revisions = [line for line in plans.joinpath("revisions.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert len(revisions) == 1
+    assert "project:audio:render" in result.stale_artifacts
+
+
+def test_visual_track_insert_splits_and_shifts_detached_source_audio_with_picture(tmp_path, monkeypatch):
+    pid, _plans = _linked_video_project(tmp_path, monkeypatch, include_unlinked=True)
+    result = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "insert",
+    }, 1)
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    overlay = {clip.id: clip for clip in comp.visual_overlays}
+    left = overlay["linked-overlay"]
+    right = next(clip for clip in comp.visual_overlays
+                 if clip.asset_id == "linked-video" and clip.id != "linked-overlay")
+    assert (left.start, left.duration, left.source_in) == (2.0, 1.0, 1.0)
+    assert (right.start, right.duration, right.source_in) == (4.0, 3.0, 2.0)
+    audio = [clip for clip in comp.audio if clip.linked_visual_overlay_id]
+    assert len(audio) == 2
+    left_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == left.id)
+    right_audio = next(clip for clip in audio if clip.linked_visual_overlay_id == right.id)
+    assert (left_audio.start, left_audio.duration, left_audio.source_in, left_audio.source_out) == (2.0, 1.0, 1.0, 2.0)
+    assert (right_audio.start, right_audio.duration, right_audio.source_in, right_audio.source_out) == (4.0, 3.0, 2.0, 5.0)
+    assert left_audio.fadeIn == pytest.approx(0.5) and left_audio.fadeOut == 0.0
+    assert right_audio.fadeIn == 0.0 and right_audio.fadeOut == pytest.approx(0.75)
+    assert comp.project.duration == pytest.approx(11.0)
+    detached = next(clip for clip in comp.audio if clip.id == "unlinked-audio")
+    assert detached.start == 7.0, "unlinked audio is not silently rippled by visual-track insertion"
+    assert "project:audio:render" in result.stale_artifacts
+
+
+def test_visual_track_insert_overwrite_reject_locked_linked_audio_and_keyframed_split(tmp_path, monkeypatch):
+    pid, plans = _linked_video_project(tmp_path, monkeypatch, locked_audio=True)
+    before = load_composition(pid).model_dump(mode="json")
+    rejected = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "overwrite",
+    }, 1)
+    assert rejected.status == "REJECTED"
+    assert rejected.errors[0]["code"] == "TRACK_LOCKED"
+    assert load_composition(pid).model_dump(mode="json") == before
+    assert plans.joinpath("revisions.jsonl").read_text(encoding="utf-8") == ""
+
+    pid2, plans2 = _linked_video_project(tmp_path / "keyframed", monkeypatch)
+    comp = load_composition(pid2)
+    linked = next(clip for clip in comp.audio if clip.id == "linked-audio")
+    linked = linked.model_copy(update={"keyframes": [
+        KeyframeTrack(property="volume", keyframes=[
+            Keyframe(at=0.0, value=0.42), Keyframe(at=4.0, value=0.2),
+        ]),
+    ]})
+    comp.audio = [linked if clip.id == linked.id else clip for clip in comp.audio]
+    save_composition(pid2, comp)
+    before_keyframed = load_composition(pid2).model_dump(mode="json")
+    keyframe_result = _apply(pid2, "add_visual_overlay", "overlays", {
+        "assetId": "overlay-image", "start": 3.0, "duration": 1.0,
+        "trackId": "overlay-main", "presentationMode": "full_frame",
+        "placementMode": "insert",
+    }, 1)
+    assert keyframe_result.status == "REJECTED"
+    assert keyframe_result.errors[0]["code"] == "LINKED_AUDIO_AUTOMATION_UNSUPPORTED"
+    assert load_composition(pid2).model_dump(mode="json") == before_keyframed
+    assert plans2.joinpath("revisions.jsonl").read_text(encoding="utf-8") == ""
+
+def test_real_ffmpeg_detached_source_audio_follows_visual_insert_and_overwrite(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "detached-audio-base-blue.png"
+    insert_path = tmp_path / "detached-audio-insert-green.png"
+    video_path = tmp_path / "detached-audio-red-with-sine.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_still(ffmpeg, insert_path, "green")
+    _make_video_with_audio(ffmpeg, video_path)
+
+    pid = "detached-source-audio-insert-render"
+    plans = tmp_path / pid / "plans"
+    plans.mkdir(parents=True)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=3.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=3.0, text="detached source audio test",
+            layers=[Layer(type=LayerType.image, asset_id="base-blue", duration=3.0)],
+        )],
+        assets=[
+            AssetRef(id="base-blue", type="image", file=str(base_path), width=40, height=40),
+            AssetRef(id="insert-green", type="image", file=str(insert_path), width=40, height=40),
+            AssetRef(id="insert-red-video", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
+        ],
+        visual_overlays=[VisualOverlayClip(
+            id="existing-red", asset_id="insert-red-video", start=0.5, duration=2.0,
+            source_in=0.0, track_id="overlay-main", presentation_mode="full_frame",
+            source_audio_enabled=False, x=0.0, y=0.0, width=1.0, height=1.0,
+        )],
+        audio=[AudioTrack(
+            type=AudioTrackType.original, id="detached-original", track_id="audio-original",
+            follows_scene_video=False, linked_visual_overlay_id="existing-red",
+            asset_id="insert-red-video", start=0.5, duration=2.0,
+            source_in=0.0, source_out=2.0, volume=1.0, muted=False, fadeIn=0.0, fadeOut=0.0,
+        )],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(pid, composition)
+    plans.joinpath("revisions.jsonl").write_text("", encoding="utf-8")
+
+    inserted = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "insert-green", "start": 1.5, "duration": 0.5,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert inserted.status == "APPLIED", inserted.errors
+    saved = load_composition(pid)
+    red_clips = sorted(
+        (clip for clip in saved.visual_overlays if clip.asset_id == "insert-red-video"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in) for clip in red_clips] == [
+        (0.5, 1.0, 0.0), (2.0, 1.0, 1.0),
+    ]
+    red_by_id = {clip.id: clip for clip in red_clips}
+    linked_audio = sorted(
+        (clip for clip in saved.audio if clip.linked_visual_overlay_id),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in, clip.source_out) for clip in linked_audio] == [
+        (0.5, 1.0, 0.0, 1.0), (2.0, 1.0, 1.0, 2.0),
+    ]
+    assert [clip.linked_visual_overlay_id for clip in linked_audio] == [clip.id for clip in red_clips]
+    assert all(linked.linked_visual_overlay_id in red_by_id for linked in linked_audio)
+
+    output = Path(renderer.render_composition(
+        saved, {asset.id: asset for asset in saved.assets}, tmp_path / "detached-source-audio-insert",
+    ).final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    report = renderer._verify_muxed_audio(str(output), expected_duration=3.5)
+    assert report.get("codec") == "aac", report
+    assert report.get("full_decode") == "PASS", report
+    assert _audio_window_mean_volume(ffmpeg, output, 0.1, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 0.8, 0.2) > -35
+    assert _audio_window_mean_volume(ffmpeg, output, 1.65, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 2.5, 0.2) > -35
+
+    overwritten = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "insert-green", "start": 0.75, "duration": 0.5,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "overwrite",
+    }, inserted.composition_version)
+    assert overwritten.status == "APPLIED", overwritten.errors
+    overwritten_ir = load_composition(pid)
+    overwritten_red = sorted(
+        (clip for clip in overwritten_ir.visual_overlays if clip.asset_id == "insert-red-video"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in) for clip in overwritten_red] == [
+        (0.5, 0.3, 0.0), (1.3, 0.2, 0.8), (2.0, 1.0, 1.0),
+    ]
+    overwritten_audio = sorted(
+        (clip for clip in overwritten_ir.audio if clip.linked_visual_overlay_id),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in, clip.source_out) for clip in overwritten_audio] == [
+        (0.5, 0.3, 0.0, 0.3), (1.3, 0.2, 0.8, 1.0), (2.0, 1.0, 1.0, 2.0),
+    ]
+    assert [clip.linked_visual_overlay_id for clip in overwritten_audio] == [clip.id for clip in overwritten_red]
+
+    overwritten_output = Path(renderer.render_composition(
+        overwritten_ir,
+        {asset.id: asset for asset in overwritten_ir.assets},
+        tmp_path / "detached-source-audio-overwrite",
+    ).final_path)
+    assert overwritten_output.is_file() and overwritten_output.stat().st_size > 1000
+    report = renderer._verify_muxed_audio(str(overwritten_output), expected_duration=3.5)
+    assert report.get("codec") == "aac", report
+    assert report.get("full_decode") == "PASS", report
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 0.6, 0.1) > -35
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 0.9, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 1.35, 0.1) > -35
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 2.5, 0.2) > -35
 
