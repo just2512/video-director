@@ -1458,8 +1458,18 @@ def _resync_audio_to_scenes(
                 )
             ):
                 follows_scene_video = False
-            if follows_scene_video:
-                original_by_asset.setdefault(t.asset_id or "", []).append(t)
+            if follows_scene_video and t.asset_id:
+                original_by_asset.setdefault(t.asset_id, []).append(t)
+            elif follows_scene_video:
+                # The legacy project-wide original-audio policy may exist before a
+                # video source is selected. An unbound policy is not an orphan clip:
+                # preserve it so a later source-matching step can bind it.
+                start = min(float(t.start), max(0.0, total - float(t.duration)))
+                dur = min(float(t.duration), max(0.0, total - start))
+                if dur > 0.01:
+                    new_audio.append(t.model_copy(update={
+                        "start": round(start, 3), "duration": round(dur, 3),
+                    }))
             else:
                 # This audio was explicitly detached or user-edited. It may refer to a
                 # video visible only on an overlay track, so no SceneIR asset window is

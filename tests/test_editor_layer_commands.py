@@ -305,3 +305,24 @@ def test_reorder_reused_video_asset_matches_original_audio_by_source_window(tmp_
     assert (second_source.start, second_source.source_in, second_source.source_out, second_source.volume) == (
         0.0, 4.0, 7.0, 0.85,
     )
+
+def test_reorder_preserves_unbound_project_original_audio_policy(tmp_path, monkeypatch):
+    data = _layer_comp()
+    data["audio"] = [{
+        "type": "original", "id": "global-original-policy", "asset_id": None,
+        "track_id": "audio-original", "start": 0.0,
+        "duration": float(data["project"]["duration"]),
+        "volume": 0.42, "muted": True,
+    }]
+    pid, _plans = _project(tmp_path, monkeypatch, data)
+
+    result = _apply(pid, "reorder_layer", "S01#0", {"toIndex": 1})
+    assert result.status == "APPLIED", result.errors
+
+    comp = load_composition(pid)
+    policy = next(track for track in comp.audio if track.id == "global-original-policy")
+    assert policy.asset_id is None
+    assert policy.volume == 0.42
+    assert policy.muted is True
+    assert policy.duration == comp.project.duration
+
