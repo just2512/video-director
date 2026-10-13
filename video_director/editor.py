@@ -1257,11 +1257,11 @@ def _cmd_split_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
 
 
 def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
-    """Trim source bounds and ripple the following segment sequence.
+    """Trim a main-track video clip without persisting a broken scene.
 
-    The persisted SceneIR contract requires contiguous layers. The changed duration
-    is therefore propagated through following segments and the owning scene instead
-    of saving a Composition that fails validation on the next read.
+    Default/right-edge trims ripple the following sequence and update scene length.
+    Explicit left-edge trims preserve the old right edge, represent removed time as
+    a renderable gap, and may extend only into an existing preceding gap.
     """
     si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
     _ensure_layer_unlocked(layer)
