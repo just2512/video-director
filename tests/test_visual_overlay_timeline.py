@@ -83,6 +83,7 @@ def test_overlay_model_rejects_frame_overflow_and_invalid_timing():
         {"id": "bad-y", "asset_id": "asset", "start": 0, "duration": 1, "y": 0.9, "height": 0.2},
         {"id": "bad-time", "asset_id": "asset", "start": -0.1, "duration": 1},
         {"id": "bad-opacity", "asset_id": "asset", "start": 0, "duration": 1, "opacity": 1.5},
+        {"id": "bad-fit-mode", "asset_id": "asset", "start": 0, "duration": 1, "fit_mode": "stretch"},
     ):
         try:
             VisualOverlayClip(**params)
@@ -516,6 +517,60 @@ def test_real_ffmpeg_video_overlay_honors_source_in_and_output_window(tmp_path):
     assert decoded.returncode == 0, decoded.stderr
 
 
+def test_promote_main_image_preserves_contain_fit_mode(tmp_path, monkeypatch):
+    pid, _plans = _editor_project(tmp_path, monkeypatch)
+    comp = load_composition(pid)
+    source = Layer(
+        type=LayerType.image, asset_id="overlay-image", start=0.0, duration=10.0,
+        fit_mode="contain",
+    )
+    comp.scenes = [comp.scenes[0].model_copy(update={"layers": [source]})]
+    save_composition(pid, comp)
+
+    result = _apply(pid, "promote_layer_to_visual_track", "S01#0", {"start": 0.0}, 1)
+    assert result.status == "APPLIED", result.errors
+    edited = load_composition(pid)
+    assert edited.scenes[0].layers[0].type == LayerType.gap
+    assert edited.visual_overlays[0].fit_mode == "contain"
+
+
+def test_real_ffmpeg_full_frame_contain_preserves_base_around_source(tmp_path):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "blue-fit-base.png"
+    overlay_path = tmp_path / "red-fit-overlay.png"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_still(ffmpeg, overlay_path, "red")
+    base = AssetRef(id="fit-base", type="image", file=str(base_path), width=40, height=40)
+    overlay_asset = AssetRef(id="fit-overlay", type="image", file=str(overlay_path), width=40, height=40)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0, duration=2.0, text="contain fit",
+            layers=[Layer(type=LayerType.image, asset_id="fit-base", duration=2.0)],
+        )],
+        assets=[base, overlay_asset],
+        visual_overlays=[VisualOverlayClip(
+            id="fit-overlay-clip", asset_id="fit-overlay", start=0.0, duration=2.0,
+            presentation_mode="full_frame", fit_mode="contain",
+            x=0, y=0, width=1, height=1,
+        )],
+    )
+    result = renderer.render_composition(
+        composition, {"fit-base": base, "fit-overlay": overlay_asset}, tmp_path / "rendered-contain",
+    )
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    outside_source = _pixel_at(ffmpeg, output, 1.0, 10, 90)
+    inside_source = _pixel_at(ffmpeg, output, 1.0, 160, 90)
+    assert outside_source[2] > outside_source[0] * 1.5, outside_source
+    assert inside_source[0] > inside_source[2] * 1.5, inside_source
+    decoded = subprocess.run(
+        [ffmpeg, "-v", "error", "-i", str(output), "-f", "null", "-"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert decoded.returncode == 0, decoded.stderr
+
+
 def test_timeline_ui_exposes_source_monitor_track_insert_overwrite_modes():
     root = Path(__file__).resolve().parents[1]
     markup = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
@@ -532,6 +587,7 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     js_dir = root / "webui" / "static" / "js"
     timeline_js = (js_dir / "timeline.js").read_text(encoding="utf-8")
     overlay_js = (js_dir / "visual-overlay-editor.js").read_text(encoding="utf-8")
+    preview_js = (js_dir / "preview.js").read_text(encoding="utf-8")
     js = timeline_js + "\n" + overlay_js
     assert "visual_overlays" in js
     assert "_tlBindVisualOverlayDrag" in timeline_js
@@ -544,6 +600,8 @@ def test_timeline_ui_exposes_visual_overlay_commands_and_track():
     assert "api/asset_thumbnail?asset_id=" in timeline_js
     assert "visual_tracks" in timeline_js and "data-visual-track-id" in timeline_js
     assert "presentationMode" in overlay_js and "full_frame" in overlay_js and "picture_in_picture" in overlay_js
+    assert "visual-overlay-create-fit-mode" in overlay_js and "visual-overlay-edit-fit-mode" in overlay_js
+    assert "fit_mode" in preview_js and "objectFit" in preview_js
     assert "source_audio_enabled" in overlay_js and "保留此视频素材自身的声音" in overlay_js and "保留视频源音轨" in overlay_js
     assert "editorVisualOverlayDetachAudio" in overlay_js and "拆分为独立原声轨" in overlay_js
     assert "editorVisualOverlayDetachAudio(" in (root / "video_director" / "ui_action_audit.py").read_text(encoding="utf-8")
