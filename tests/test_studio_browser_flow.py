@@ -1082,3 +1082,114 @@ def test_cross_scene_drag_lifts_still_into_real_global_track(tmp_path, monkeypat
             server.server_close()
             thread.join(timeout=5)
 
+
+
+
+def test_selected_main_clip_can_be_lifted_to_playhead_from_toolbar(tmp_path, monkeypatch):
+    """Real Chromium click -> versioned command -> persisted CompositionIR."""
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
+    results_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = results_dir / "lift-layer-to-playhead-failure-trace.zip"
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = Path(os.environ["VIDEO_DIRECTOR_STORAGE_ROOT"])
+
+    pid = "web-e2e-lift-layer-to-playhead"
+    still = tmp_path / "lift-e2e-still.png"
+    still.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/"
+        "lYkAAAAASUVORK5CYII="
+    ))
+    store.create_project(pid, "Lift main clip to playhead", {"name": "Lift main clip to playhead"})
+    editor.save_composition(pid, _test_composition(still))
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            tracing = False
+            try:
+                context.tracing.start(screenshots=False, snapshots=True, sources=True)
+                tracing = True
+                page = context.new_page()
+                page_errors: list[str] = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)))
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="networkidle",
+                )
+                assert response and response.status == 200
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                assert opened.get("ok"), opened
+                page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
+
+                source = page.locator('#editor-timeline .ed-layer[data-scene="S001"][data-idx="0"]')
+                source.wait_for(state="visible")
+                source.scroll_into_view_if_needed()
+                source.click()
+                page.wait_for_function(
+                    "() => SEL.selection && SEL.selection.type === 'layer' && SEL.selection.id === 'S001#0'"
+                )
+                page.evaluate("() => { window.PLAYHEAD.at = 0.5; }")
+
+                with page.expect_response(
+                    lambda item: item.request.method == "POST"
+                    and item.url.endswith("/api/editor/command"),
+                    timeout=10000,
+                ) as response_info:
+                    page.locator('button[data-action="ui.lift_layer_to_playhead"]').click()
+                command_response = response_info.value
+                assert command_response.status == 200
+                command_body = command_response.json()
+                assert command_body.get("status") == "APPLIED", command_body
+                page.wait_for_function(
+                    "() => ED.comp && Array.isArray(ED.comp.visual_overlays) && ED.comp.visual_overlays.length === 1"
+                )
+
+                persisted = page.evaluate("""async (projectId) => {
+                  const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+                  return {status: response.status, body: await response.json()};
+                }""", pid)
+                assert persisted["status"] == 200, persisted
+                comp = persisted["body"]
+                assert comp["scenes"][0]["layers"][0]["type"] == "gap", comp["scenes"][0]
+                assert len(comp["visual_overlays"]) == 1, comp.get("visual_overlays")
+                clip = comp["visual_overlays"][0]
+                assert clip["asset_id"] == "e2e-still", clip
+                assert abs(float(clip["start"]) - 0.5) < 0.002, clip
+                assert abs(float(clip["duration"]) - 1.0) < 0.002, clip
+                assert clip["presentation_mode"] == "full_frame", clip
+                assert any(track["id"] == clip["track_id"] for track in comp["visual_tracks"]), comp["visual_tracks"]
+                assert abs(float(comp["duration"]) - 2.0) < 0.01, comp
+                assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
+            except BaseException:
+                if tracing:
+                    try:
+                        context.tracing.stop(path=str(trace_path))
+                    except Exception:
+                        pass
+                    tracing = False
+                raise
+            finally:
+                if tracing:
+                    try:
+                        context.tracing.stop()
+                    except Exception:
+                        pass
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
