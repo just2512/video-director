@@ -225,6 +225,7 @@ function _previewRenderAt(sec, keepPlaying){
   // Live overlay clips use the same CompositionIR global clock as the timeline;
   // draft preview already contains these clips in the rendered MP4, so it does not add them again.
   _previewRenderVisualOverlays(sec);
+  _previewRenderWatermarks(sec);
   _previewRenderSubtitles(sec);
   if (meta) meta.textContent = '实时预览 · ' + sec.toFixed(1) + ' / ' + (ED.comp.duration || 0).toFixed(1) + 's';
 }
@@ -304,6 +305,142 @@ function _previewApplyLayerTransform(node, lay) {
   node.style.transformOrigin = pct(anchor[0]) + ' ' + pct(anchor[1]);
   node.style.transform = Math.abs(rotation) < 1e-9 ? 'none' : 'rotate(' + rotation + 'deg)';
   node.style.opacity = String(opacity);
+}
+
+
+/** Render timed CompositionIR watermarks in live preview; rendered MP4s already contain them. */
+function _previewRenderWatermarks(sec) {
+  if (!ED.comp || PV.mode !== 'live') return;
+  const media = document.querySelector('#ed-preview-stage .pv-live-media');
+  if (!media) return;
+  media.style.position = 'relative';
+  let host = media.querySelector('.pv-live-watermarks');
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'pv-live-watermarks';
+    host.setAttribute('aria-label', '当前时间点的水印与文字覆盖层预览');
+    host.setAttribute('aria-hidden', 'true');
+    Object.assign(host.style, {position:'absolute', inset:'0', overflow:'hidden', pointerEvents:'none', zIndex:'30'});
+    media.appendChild(host);
+  }
+
+  const composition = ED.comp;
+  const project = composition.project || {};
+  const projectWidth = Math.max(1, Number(project.width) || 1080);
+  const projectHeight = Math.max(1, Number(project.height) || 1920);
+  const total = Math.max(0, Number(composition.duration) || Number(project.duration) || 0);
+  const rect = media.getBoundingClientRect();
+  const scaleX = rect.width > 0 ? rect.width / projectWidth : 1;
+  const scaleY = rect.height > 0 ? rect.height / projectHeight : scaleX;
+  const number = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const clamp = (value, min, max, fallback) => Math.max(min, Math.min(max, number(value, fallback)));
+  const assets = composition.assets || {};
+  const getAsset = id => Array.isArray(assets)
+    ? assets.find(asset => asset && String(asset.id) === String(id)) || null
+    : assets[id] || null;
+  const watermarks = Array.isArray(composition.watermarks) ? composition.watermarks : [];
+  const active = watermarks.map((watermark, index) => {
+    const start = Math.max(0, number(watermark && watermark.start, 0));
+    const duration = watermark && watermark.duration == null
+      ? Math.max(0, total - start) : Math.max(0, number(watermark && watermark.duration));
+    const asset = watermark && watermark.asset_id ? getAsset(watermark.asset_id) : null;
+    return {watermark, index, start, duration, asset};
+  }).filter(({watermark, start, duration}) =>
+    watermark && duration > 0 && Number(sec) >= start - 1e-6 && Number(sec) < start + duration - 1e-6
+  );
+  const key = JSON.stringify(active.map(({watermark, index, asset}) => ({
+    index, id:watermark.id, kind:watermark.kind, text:watermark.text,
+    asset_id:watermark.asset_id, url:asset && (asset.file_url || asset.thumbnail_url),
+    anchor:watermark.anchor, offset_x:watermark.offset_x, offset_y:watermark.offset_y,
+    safe_area:watermark.safe_area, scale:watermark.scale, opacity:watermark.opacity,
+    start:watermark.start, duration:watermark.duration
+  })));
+  if (host.dataset.renderKey !== key) {
+    host.replaceChildren();
+    active.forEach(({watermark, index, asset}) => {
+      const textMark = String(watermark.kind || 'text') === 'text';
+      const url = asset && (asset.file_url || asset.thumbnail_url);
+      let node;
+      if (textMark) {
+        node = document.createElement('div');
+        node.className = 'pv-live-watermark-text';
+        node.textContent = String(watermark.text || '');
+      } else if (url) {
+        node = document.createElement('img');
+        node.className = 'pv-live-watermark-image';
+        node.src = String(url);
+        node.alt = '';
+        node.draggable = false;
+      } else {
+        node = document.createElement('div');
+        node.className = 'pv-live-watermark-missing';
+        node.textContent = '覆盖素材暂不可预览';
+      }
+      node.dataset.watermarkIndex = String(index);
+      node.dataset.watermarkId = String(watermark.id || ('watermark-' + index));
+      node.title = textMark ? String(watermark.text || '') : (url ? '图片覆盖层' : '覆盖素材未加载；请检查素材引用');
+      Object.assign(node.style, {
+        position:'absolute', boxSizing:'border-box', pointerEvents:'none',
+        opacity:String(clamp(watermark.opacity, 0, 1, 0.75))
+      });
+      if (textMark) {
+        const scale = Math.max(0.01, number(watermark.scale, 1));
+        node.style.color = 'white';
+        node.style.fontSize = (Math.max(16, Math.floor(projectWidth * 0.026 * scale)) * scaleX) + 'px';
+        node.style.lineHeight = '1';
+        node.style.whiteSpace = 'nowrap';
+      } else {
+        node.style.width = Math.max(0.1, 18 * Math.max(0.01, number(watermark.scale, 1))) + '%';
+        node.style.height = 'auto';
+        node.style.objectFit = 'contain';
+      }
+      host.appendChild(node);
+    });
+    host.dataset.renderKey = key;
+  }
+
+  active.forEach(({watermark, index}) => {
+    const node = host.querySelector('[data-watermark-index="' + index + '"]');
+    if (!node) return;
+    const anchor = String(watermark.anchor || 'bottom_right');
+    const offsetX = number(watermark.offset_x) * scaleX;
+    const offsetY = number(watermark.offset_y) * scaleY;
+    const textMark = String(watermark.kind || 'text') === 'text';
+    const safe = clamp(watermark.safe_area, 0, 200, 32);
+    const marginRatio = Math.max(0, Math.min(safe / projectWidth, 0.2));
+    const marginX = textMark ? (marginRatio * 100) + '%' : (safe * scaleX) + 'px';
+    const marginY = textMark ? (marginRatio * 100) + '%' : (safe * scaleY) + 'px';
+    node.style.left = node.style.right = node.style.top = node.style.bottom = '';
+    node.style.transform = 'none';
+    if (anchor === 'center') {
+      node.style.left = 'calc(50% + ' + offsetX + 'px)';
+      node.style.top = 'calc(50% + ' + offsetY + 'px)';
+      node.style.transform = 'translate(-50%, -50%)';
+      if (!textMark) {
+        const outWidth = projectWidth * 0.18 * Math.max(0.01, number(watermark.scale, 1)) * scaleX;
+        node.style.top = 'calc(50% - ' + (outWidth / 2) + 'px + ' + offsetY + 'px)';
+      }
+      return;
+    }
+    if (anchor === 'top_left' || anchor === 'bottom_left') node.style.left = 'calc(' + marginX + ' + ' + offsetX + 'px)';
+    else node.style.right = 'calc(' + marginX + ' - ' + offsetX + 'px)';
+    if (textMark) {
+      if (anchor === 'top_left' || anchor === 'top_right') node.style.top = 'calc(' + marginY + ' + ' + offsetY + 'px)';
+      else node.style.bottom = 'calc(' + marginY + ' - ' + offsetY + 'px)';
+    } else {
+      const outWidth = projectWidth * 0.18 * Math.max(0.01, number(watermark.scale, 1)) * scaleX;
+      const assumedHeight = outWidth * 9 / 16;
+      if (anchor === 'top_left' || anchor === 'top_right') node.style.top = 'calc(' + marginY + ' + ' + offsetY + 'px)';
+      else node.style.top = 'calc(100% - ' + assumedHeight + 'px - ' + marginY + ' + ' + offsetY + 'px)';
+    }
+  });
+  if (!active.length) {
+    host.dataset.renderKey = key;
+    host.replaceChildren();
+  }
 }
 
 /** Show CompositionIR subtitle cues on the same live-preview clock as the timeline. */
