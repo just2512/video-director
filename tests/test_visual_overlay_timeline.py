@@ -1794,3 +1794,129 @@ def test_promote_main_video_preserves_static_transform_in_real_mp4(tmp_path, mon
     outside = _pixel_at(ffmpeg, output, 0.5, 240, 90)
     assert inside[0] > 110, f"transformed video foreground should remain visible: {inside}"
     assert max(outside) < 35, f"pixels outside the inherited transform should reveal the base gap: {outside}"
+
+
+
+def test_expand_main_timeline_to_global_track_renders_all_clips_and_preserves_audio(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    video_path = tmp_path / "expand-red-video-with-audio.mp4"
+    still_path = tmp_path / "expand-green-still.png"
+    _make_video_with_audio(ffmpeg, video_path)
+    _make_still(ffmpeg, still_path, "green")
+
+    project_id = "expand-main-timeline-real-render"
+    plans = tmp_path / project_id / "plans"
+    plans.mkdir(parents=True)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=4.0),
+        scenes=[
+            SceneIR(
+                id="S01", start=0.0, duration=2.0, text="red source with sound",
+                layers=[Layer(
+                    type=LayerType.video, asset_id="source-video",
+                    start=0.0, duration=2.0, source_in=0.0, source_out=2.0,
+                )],
+            ),
+            SceneIR(
+                id="S02", start=2.0, duration=2.0, text="green still",
+                layers=[Layer(type=LayerType.image, asset_id="source-still", duration=2.0)],
+            ),
+        ],
+        assets=[
+            AssetRef(id="source-video", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
+            AssetRef(id="source-still", type="image", file=str(still_path), width=40, height=40),
+        ],
+        visual_tracks=[VisualTrack(id="overlay-main", name="现有叠加轨", order=0)],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(project_id, composition)
+    (plans / "revisions.jsonl").write_text("", encoding="utf-8")
+
+    expanded = _apply(project_id, "expand_main_timeline_to_visual_track", "timeline:main", {}, 1)
+    assert expanded.status == "APPLIED", expanded.errors
+    assert expanded.composition_version == 2
+    first = load_composition(project_id)
+    assert [scene.layers[0].type for scene in first.scenes] == [LayerType.gap, LayerType.gap]
+    assert [(scene.start, scene.duration) for scene in first.scenes] == [(0.0, 2.0), (2.0, 2.0)]
+    assert len(first.visual_overlays) == 2
+    track_ids = {clip.track_id for clip in first.visual_overlays}
+    assert len(track_ids) == 1
+    free_track_id = next(iter(track_ids))
+    free_track = next(track for track in first.visual_tracks if track.id == free_track_id)
+    old_track = next(track for track in first.visual_tracks if track.id == "overlay-main")
+    assert free_track.name == "自由主画面 1" and free_track.order == 0
+    assert old_track.order == 1
+    assert [(clip.start, clip.duration) for clip in first.visual_overlays] == [(0.0, 2.0), (2.0, 2.0)]
+    assert first.visual_overlays[0].source_audio_enabled is True
+    assert first.visual_overlays[1].source_audio_enabled is False
+
+    undone = execute_command(
+        project_id, {"command": "undo", "expectedVersion": expanded.composition_version},
+    )
+    assert undone.status == "APPLIED", undone.errors
+    restored = load_composition(project_id)
+    assert [scene.layers[0].type for scene in restored.scenes] == [LayerType.video, LayerType.image]
+    assert restored.visual_overlays == []
+    assert [(track.id, track.order) for track in restored.visual_tracks] == [("overlay-main", 0)]
+
+    redone = execute_command(
+        project_id, {"command": "redo", "expectedVersion": undone.composition_version},
+    )
+    assert redone.status == "APPLIED", redone.errors
+    saved = load_composition(project_id)
+    assets = {asset.id: asset for asset in saved.assets}
+    result = renderer.render_composition(saved, assets, tmp_path / "expand-main-render")
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    red = _pixel_at(ffmpeg, output, 0.5, 160, 90)
+    green = _pixel_at(ffmpeg, output, 2.5, 160, 90)
+    assert red[0] > red[1] * 1.4 and red[0] > red[2] * 1.4, red
+    assert green[1] > green[0] * 1.4 and green[1] > green[2] * 1.2, green
+    audio_report = renderer._verify_muxed_audio(str(output), expected_duration=4.0)
+    assert audio_report.get("codec") == "aac", audio_report
+    assert audio_report.get("full_decode") == "PASS", audio_report
+    audible = _audio_window_mean_volume(ffmpeg, output, 0.5, 0.25)
+    silent = _audio_window_mean_volume(ffmpeg, output, 2.5, 0.25)
+    assert audible > -35, f"video source audio did not survive expansion: {audible} dB"
+    assert silent < -65, f"source audio leaked into the following still clip: {silent} dB"
+
+
+def test_expand_main_timeline_rejects_incompatible_late_clip_without_partial_write(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    video_path = tmp_path / "expand-atomic-red.mp4"
+    still_path = tmp_path / "expand-atomic-still.png"
+    _make_video_with_audio(ffmpeg, video_path)
+    _make_still(ffmpeg, still_path, "green")
+    project_id = "expand-main-timeline-atomic-rejection"
+    plans = tmp_path / project_id / "plans"
+    plans.mkdir(parents=True)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=4.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=4.0, text="one supported and one blocked",
+            layers=[
+                Layer(type=LayerType.video, asset_id="source-video", duration=2.0,
+                      source_in=0.0, source_out=2.0, start=0.0),
+                Layer(type=LayerType.image, asset_id="source-still", duration=2.0,
+                      start=2.0, motion="slow_zoom_in"),
+            ],
+        )],
+        assets=[
+            AssetRef(id="source-video", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
+            AssetRef(id="source-still", type="image", file=str(still_path), width=40, height=40),
+        ],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(project_id, composition)
+    (plans / "revisions.jsonl").write_text("", encoding="utf-8")
+
+    rejected = _apply(project_id, "expand_main_timeline_to_visual_track", "timeline:main", {}, 1)
+    assert rejected.status == "REJECTED", rejected
+    assert rejected.composition_version == 1
+    assert rejected.errors[0]["code"] == "LIFT_UNSUPPORTED_EFFECT", rejected.errors
+    untouched = load_composition(project_id)
+    assert [layer.type for layer in untouched.scenes[0].layers] == [LayerType.video, LayerType.image]
+    assert untouched.visual_overlays == []
+    assert [(track.id, track.order) for track in untouched.visual_tracks] == [("overlay-main", 0)]
+    assert all(not track.id.startswith("main-free-") for track in untouched.visual_tracks)
+

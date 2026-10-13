@@ -90,6 +90,7 @@ UI_ONLY_PREFIXES = (
     "editorVisualTrackCreate(", "editorVisualTrackCreateClose(", "editorVisualTrackConfirm(",
     "editorVisualTrackMenu(", "editorVisualTrackMenuClose(", "editorVisualTrackMove(",
     "editorVisualTrackRename(", "editorVisualTrackRemove(", "editorVisualTrackToggleLock(",
+    "editorExpandMainTimelineToGlobalTrack(",
     "editorSourceMonitorRefresh(", "editorSourceMonitorRefreshTracks(",
     "editorSourceMonitorSelectAsset(", "editorSourceMonitorMarkIn(",
     "editorSourceMonitorMarkOut(", "editorSourceMonitorAddToTimeline(",

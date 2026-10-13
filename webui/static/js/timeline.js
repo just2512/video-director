@@ -455,7 +455,16 @@ function renderPhysicalTimeline(){
         window.TimelineEditMath.splitOverlappingTrack(track));
     }
   }
-  let html = `<div class="ed-tl-ruler"><span id="tl-playhead-label">${PLAYHEAD.at.toFixed(1)}s</span></div>
+  const hasConvertibleMainClips = (c.scenes || []).some(scene =>
+    (scene.layers || []).some(layer => ["video", "image"].includes(String(layer.type || "").toLowerCase())));
+  const expandToolbar = hasConvertibleMainClips
+    ? `<div class="ed-timeline-command-bar">
+        <span class="hint">将兼容的视频/图片一次性移入自由画面轨，保留原时长并支持撤销。</span>
+        <button type="button" id="ed-expand-main-timeline" class="btn-secondary btn-sm"
+          onclick="editorExpandMainTimelineToGlobalTrack(event)">展开为自由时间线</button>
+      </div>`
+    : "";
+  let html = `${expandToolbar}<div class="ed-tl-ruler"><span id="tl-playhead-label">${PLAYHEAD.at.toFixed(1)}s</span></div>
     <div class="ed-tl-scroll"><div class="ed-tl-canvas" style="width:${canvasWidth}px">`;
   const trackRow = (t) => {
     const bodyInner = t.isSceneTrack
@@ -1832,6 +1841,31 @@ async function editorLiftSelectedLayerToPlayhead(){
   return result || {ok:false, error:'EMPTY_RESULT'};
 }
 
+async function editorExpandMainTimelineToGlobalTrack(ev){
+  if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  const scenes = ED.comp && Array.isArray(ED.comp.scenes) ? ED.comp.scenes : [];
+  const clips = scenes.reduce((items, scene) => items.concat(
+    (scene.layers || [])
+      .filter(layer => ['video', 'image'].includes(String(layer.type || '').toLowerCase())
+      )
+      .map(layer => ({sceneId: scene.id, layer}))
+  ), []);
+  if (!clips.length) {
+    editorToast('没有可展开的主画面视频/图片片段；项目未修改。', true);
+    return {ok:false, error:'NO_MAIN_MEDIA_CLIPS'};
+  }
+  editorToast(`正在检查并展开 ${clips.length} 个主画面片段；任何一个不兼容都会整单取消……`);
+  const result = await editorCmd('expand_main_timeline_to_visual_track', {}, 'timeline:main', true);
+  if (result && result.ok) {
+    editorToast(`已将 ${clips.length} 个片段展开为自由时间线；原时长、变换与可用原声已保留，可撤销。`);
+    if (typeof refreshWorkspace === 'function') await refreshWorkspace();
+  } else {
+    editorToast('自由时间线展开已取消：' + ((result && (result.error || result.message)) || '片段不兼容；项目未修改。'), true);
+  }
+  return result || {ok:false, error:'EMPTY_RESULT'};
+}
+
 async function editorAddEditAllTracks(){
   const at = Number(PLAYHEAD && PLAYHEAD.at);
   if (!Number.isFinite(at) || at < 0) {
@@ -1856,7 +1890,7 @@ Object.assign(window, {
   edClearSelection, edSelectedCount,
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
-  editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorLiftSelectedLayerToPlayhead, editorAddEditAllTracks,
+  editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorLiftSelectedLayerToPlayhead, editorExpandMainTimelineToGlobalTrack, editorAddEditAllTracks,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
   editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackMenu, editorAudioTrackMenuClose,
   editorAudioTrackApplyName, editorAudioTrackRemove,
