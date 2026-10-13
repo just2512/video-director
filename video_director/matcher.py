@@ -243,7 +243,6 @@ def match_assets(
         deferred = [d for d in decisions if d.get("reason", "").startswith("存在其他")]
         if deferred:
             logger.info(
-                "asset usage policy: 调整 %d 个场景的来源/复用顺序",
-                len(deferred),
+                f"asset usage policy: 调整 {len(deferred)} 个场景的来源/复用顺序",
             )
     return assignments

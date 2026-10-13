@@ -78,6 +78,17 @@ class OpenAICompatibleProvider:
     ):
         if not api_key:
             raise ValueError("OpenAICompatibleProvider: api_key 不可为空")
+        # 2026-10-13 报障教训：openai 库缺失曾延迟到首次 generate() 才炸，
+        # 导致 scene_plan 节点「不可恢复」。构造期真实 import——缺包在这里
+        # 抛 ValueError（带安装指引），get_llm() 捕获后诚实降级 None，
+        # 消费点走规则路径，绝不让缺包炸死整个 run。
+        try:
+            from openai import OpenAI  # type: ignore[import-untyped]
+        except ImportError as exc:  # pragma: no cover - 环境问题不可达路径
+            raise ValueError(
+                "openai 库未安装，无法启用 LLM Provider。"
+                " 请运行: pip install -r requirements.txt"
+            ) from exc
         self._api_key = api_key
         self._base_url = base_url or os.environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL
         self._model = model or os.environ.get(ENV_MODEL) or DEFAULT_MODEL
@@ -88,14 +99,8 @@ class OpenAICompatibleProvider:
         """首次调用时构造 openai.OpenAI 客户端。"""
         if self._client is not None:
             return
-        # 局部 import：保证 import 本模块不强制依赖 openai 库可用
-        try:
-            from openai import OpenAI  # type: ignore[import-untyped]
-        except ImportError as exc:  # pragma: no cover - 环境问题不可达路径
-            raise RuntimeError(
-                "openai 库未安装，无法启用 LLM Provider。"
-                " 请运行: pip install openai"
-            ) from exc
+        # __init__ 已验证 openai 可 import；这里再取一次（sys.modules 缓存，零成本）
+        from openai import OpenAI  # type: ignore[import-untyped]
         self._client = OpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
