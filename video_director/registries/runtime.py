@@ -24,14 +24,16 @@ SUPPORTED_TEMPLATE_LAYER_TYPES = {"image", "video", "text", "title"}
 
 
 def template_runtime_report(template: Any) -> dict:
-    """Return a user-facing readiness report without claiming an untested MP4.
+    """Return readiness for a native Composition template or an isolated HTML package.
 
-    READY means declared runtime requirements are available and no known
-    requested operation would be dropped. PARTIAL means a usable static render
-    exists but requested motion/layer semantics are not implemented. BLOCKED
-    means an engine dependency, capability, or referenced recipe is unavailable.
-    Actual render/decode evidence is deliberately reported separately.
+    HTML package templates use their real Chromium/FFmpeg adapter report. They
+    remain non-instantiable until an HTML-to-CompositionIR compiler is verified.
     """
+    runtime = getattr(template, "runtime", {}) or {}
+    if runtime.get("renderer") == "hyperframes" and runtime.get("html_video_package"):
+        from video_director.html_template_runtime import template_runtime_report as html_report
+        return html_report(template)
+
     blockers: List[dict] = []
     warnings: List[dict] = []
     installed: Dict[str, bool] = {}
