@@ -1372,8 +1372,13 @@ def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
         scene_data = scene.model_dump()
         scene_data["layers"] = [item.model_dump() for item in layers]
         ir.scenes[si] = SceneIR(**scene_data)
+        # The source window and global start of the original-audio clip are linked
+        # to this video occurrence until explicitly detached by the user.
+        # A picture-only left trim must update that audio, while BGM/SFX remain
+        # independent clips on the same project clock.
+        _resync_audio_to_scenes(ir, sync_narration=False)
         stale = _stale_of_scene(project_id="", scene_id=scene.id)
-        stale.extend(["project:preview", "project:audio:render"])
+        stale.extend(["project:preview", "project:audio:render", "project:audio-tracks"])
         return [f"{scene.id}#{new_idx}"], list(dict.fromkeys(stale))
 
     delta = new_duration - float(layer.duration)
