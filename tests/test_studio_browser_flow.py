@@ -456,11 +456,6 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                   ED.comp = comp;
                   ED.timelineView = "dual";
                   ED.zoom = 0.5;
-                  window.__horizontalDragCommands = [];
-                  window.executeCommand = async command => {
-                    window.__horizontalDragCommands.push(command);
-                    return {ok:false,error:"captured by browser regression"};
-                  };
                   window.refreshWorkspace = async () => {};
                   window.editorToast = () => {};
                   editorRenderTimeline();
@@ -499,6 +494,30 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     handlersBound:!!window.__tlLayerDragHandlers
                   };
                 }""")
+                captured_editor_commands: list[dict] = []
+                def capture_horizontal_drag_command(route):
+                    try:
+                        body = json.loads(route.request.post_data or "{}")
+                    except (TypeError, json.JSONDecodeError):
+                        body = {}
+                    if not isinstance(body, dict) or body.get("command") != "reorder_layer":
+                        route.continue_()
+                        return
+                    captured_editor_commands.append(body)
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "ok": False,
+                            "status": "CAPTURED_FOR_TEST",
+                            "error": "captured by browser regression",
+                        }),
+                    )
+
+                # Intercept at the real HTTP command boundary. Overriding window.executeCommand
+                # is not reliable for the global editorCmd reference and previously allowed
+                # this regression to POST into the test server without capturing the request.
+                page.route("**/api/editor/command", capture_horizontal_drag_command)
                 try:
                     assert "error" not in horizontal_drag_setup, horizontal_drag_setup
                     # Use Playwright's real Chromium mouse input rather than dispatching
@@ -509,7 +528,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     page.mouse.move(horizontal_drag_setup["dropX"], horizontal_drag_setup["y"], steps=12)
                     page.mouse.up()
                     page.wait_for_timeout(50)
-                    captured_commands = page.evaluate("window.__horizontalDragCommands || []")
+                    captured_commands = list(captured_editor_commands)
                     captured_events = page.evaluate("window.__horizontalDragEvents || []")
                     horizontal_layer_drag = {
                         "commands": captured_commands,
@@ -518,6 +537,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                         "geometry": horizontal_drag_setup,
                     }
                 finally:
+                    page.unroute("**/api/editor/command", capture_horizontal_drag_command)
                     page.evaluate("""() => {
                       const original = window.__horizontalDragOriginal;
                       if (original) {
