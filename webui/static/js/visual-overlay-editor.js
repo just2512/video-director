@@ -262,7 +262,10 @@ async function editorVisualOverlaySplit(index) {
     editorToast('画面叠加片段已变化，请重新选择', true);
     return {ok:false, error:'VISUAL_OVERLAY_NOT_FOUND'};
   }
-  const at = Number(window.PLAYHEAD && PLAYHEAD.at);
+  const requestedAt = Number(window.PLAYHEAD && PLAYHEAD.at);
+  const at = Number.isFinite(requestedAt) && typeof window.editorSnapPlayheadToFrame === 'function'
+    ? window.editorSnapPlayheadToFrame(requestedAt)
+    : requestedAt;
   const start = Number(clip.start) || 0;
   const end = start + (Number(clip.duration) || 0);
   if (!Number.isFinite(at) || at <= start + 0.05 || at >= end - 0.05) {
