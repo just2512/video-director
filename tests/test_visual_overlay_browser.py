@@ -117,3 +117,65 @@ def test_speeded_video_overlay_drag_uses_source_time_mapping():
             assert second["payload"] == {"start": 5, "sourceIn": 0.25, "duration": 0.875}, second
         finally:
             browser.close()
+
+
+
+def test_visual_overlay_create_exposes_overlay_overwrite_and_insert_in_chromium():
+    root = Path(__file__).resolve().parents[1]
+    script = root / "webui" / "static" / "js" / "visual-overlay-editor.js"
+    cases = (
+        ("overlay", 2.0, 2.0),
+        ("overwrite", 2.0, 2.0),
+        # Insert is allowed to cross the old project end; the server extends it.
+        ("insert", 8.0, 4.0),
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            for placement_mode, start, duration in cases:
+                page = browser.new_page()
+                try:
+                    page.set_content("<!doctype html><html><body></body></html>")
+                    page.evaluate("""() => {
+                        window.ED = {comp: {
+                            duration: 10,
+                            assets: [{id: "source-video", type: "video", name: "Source video", duration: 6}],
+                            visual_overlays: []
+                        }};
+                        window.PLAYHEAD = {at: 2};
+                        window.__commands = [];
+                        window.esc = value => String(value ?? "").replace(/[&<>"]/g, char =>
+                            ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
+                        window.editorToast = (message, isError) => { window.__lastToast = {message, isError}; };
+                        window.executeCommand = async command => {
+                            window.__commands.push(command);
+                            return {ok: true};
+                        };
+                        window.refreshWorkspace = async () => {};
+                    }""")
+                    page.add_script_tag(path=str(script))
+                    page.evaluate("editorVisualOverlayPick(null, 'overlay-main')")
+
+                    placement = page.locator("#visual-overlay-placement-mode")
+                    assert placement.locator("option").count() == 3
+                    placement.select_option(placement_mode)
+                    page.locator("#visual-overlay-start").fill(str(start))
+                    page.locator("#visual-overlay-start").dispatch_event("change")
+                    page.locator("#visual-overlay-duration").fill(str(duration))
+                    page.get_by_role("button", name="添加到时间线").click()
+                    page.wait_for_function("window.__commands.length === 1")
+
+                    command = page.evaluate("window.__commands[0]")
+                    assert command["command"] == "add_visual_overlay", command
+                    payload = command["payload"]
+                    assert payload["placementMode"] == placement_mode, payload
+                    assert payload["start"] == start, payload
+                    assert payload["duration"] == duration, payload
+                    assert payload["trackId"] == "overlay-main", payload
+                    assert page.locator("#visual-overlay-inspector-mask").count() == 0
+                    if placement_mode == "insert":
+                        assert "时间线已延长" in page.evaluate("window.__lastToast.message")
+                finally:
+                    page.close()
+        finally:
+            browser.close()
