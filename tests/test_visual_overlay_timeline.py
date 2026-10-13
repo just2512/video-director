@@ -1746,3 +1746,51 @@ def test_promote_main_image_migrates_legacy_scale_opacity_to_transform(tmp_path,
     assert transform is not None
     assert transform.scale == 0.5 and transform.opacity == 0.7
     assert transform.x == 0.5 and transform.y == 0.5 and transform.rotation == 0.0
+
+
+
+def test_promote_main_video_preserves_static_transform_in_real_mp4(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    source_path = tmp_path / "transformed-main-red.mp4"
+    _make_video_with_audio(ffmpeg, source_path)
+    project_id = "promote-transformed-main-video"
+    plans = tmp_path / project_id / "plans"
+    plans.mkdir(parents=True)
+    asset = AssetRef(
+        id="main-red-video", type="video", file=str(source_path), width=40, height=40,
+    )
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=2.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=2.0, text="preserve transformed main video",
+            layers=[Layer(
+                type=LayerType.video, asset_id="main-red-video", start=0.0,
+                duration=2.0, speed=1.0, source_in=0.0, source_out=2.0,
+                transform={"x": 0.25, "y": 0.5, "scale": 0.5, "rotation": 0.0,
+                           "opacity": 1.0, "anchor": "center"},
+            )],
+        )],
+        assets=[asset],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(project_id, composition)
+    (plans / "revisions.jsonl").write_text("", encoding="utf-8")
+
+    promoted = _apply(project_id, "promote_layer_to_visual_track", "S01#0", {}, 1)
+    assert promoted.status == "APPLIED", promoted.errors
+    saved = load_composition(project_id)
+    transform = saved.visual_overlays[0].transform
+    assert transform is not None
+    assert transform.model_dump() == {
+        "x": 0.25, "y": 0.5, "scale": 0.5, "rotation": 0.0,
+        "opacity": 1.0, "anchor": "center",
+    }
+
+    assets = {item.id: item for item in saved.assets}
+    result = renderer.render_composition(saved, assets, tmp_path / "transform-lift-video-render")
+    output = Path(result.final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    inside = _pixel_at(ffmpeg, output, 0.5, 80, 90)
+    outside = _pixel_at(ffmpeg, output, 0.5, 240, 90)
+    assert inside[0] > 110, f"transformed video foreground should remain visible: {inside}"
+    assert max(outside) < 35, f"pixels outside the inherited transform should reveal the base gap: {outside}"
