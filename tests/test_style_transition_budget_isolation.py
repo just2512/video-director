@@ -37,6 +37,15 @@ def test_style_transition_budget_is_request_scoped(monkeypatch, tmp_path: Path):
         ir, assets, ir.project.duration, transition_budget=1,
     )
     assert not any(issue.code == "TRANSITION_BUDGET_EXCEEDED" for issue in allowed.issues)
+
+    # Callers that omit a project-specific budget retain the historical default.
+    legacy_default = validator.validate_composition(
+        ir, assets, ir.project.duration,
+    )
+    assert not any(
+        issue.code == "TRANSITION_BUDGET_EXCEEDED" for issue in legacy_default.issues
+    )
+
     # Validation of another request does not change the process default either.
     assert config.TRANSITION_MAX_MAJOR_EFFECTS == 3
 
