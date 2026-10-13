@@ -1320,7 +1320,13 @@ def _cmd_split(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[s
 def _cmd_move(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """move 场景重排：toIndex 目标位置，后重算全部 start（总时长不变）。"""
     si, scene = _find_scene(ir, target_id)
-    to = int(payload.get("toIndex", si))
+    raw_to = payload.get("toIndex", si)
+    if isinstance(raw_to, bool):
+        raise EditorError("INVALID_PAYLOAD", "move 的 toIndex 不能是布尔值")
+    try:
+        to = int(raw_to)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "move 需要整数 toIndex") from exc
     to = max(0, min(to, len(ir.scenes) - 1))
     ir.scenes.insert(to, ir.scenes.pop(si))
     _renumber_starts(ir)
@@ -1400,9 +1406,15 @@ def _cmd_set_opacity(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     """
     scene, idx, layer = _find_layer(ir, target_id)
     _ensure_layer_unlocked(layer)
-    opacity = float(payload.get("opacity", 1.0))
-    if not (0.0 <= opacity <= 1.0):
-        raise EditorError("INVALID_PAYLOAD", f"opacity {opacity} 越界 [0,1]")
+    raw_opacity = payload.get("opacity", 1.0)
+    if isinstance(raw_opacity, bool):
+        raise EditorError("INVALID_PAYLOAD", "opacity 不能是布尔值")
+    try:
+        opacity = float(raw_opacity)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "opacity 必须是数字") from exc
+    if not math.isfinite(opacity) or not (0.0 <= opacity <= 1.0):
+        raise EditorError("INVALID_PAYLOAD", f"opacity 必须是有限数字且位于 [0,1]")
     inst = dict(layer.motion_instance or {})
     inst["parameters"] = {**(inst.get("parameters") or {}), "opacity": opacity}
     scene.layers[idx] = layer.model_copy(update={"motion_instance": inst})
@@ -1645,13 +1657,23 @@ def _cmd_set_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     existing = ((layer.motion_instance or {}).get("parameters") or {}).get("transform") or {}
     transform.update(existing)
     if "scale" in payload:
-        scale = float(payload["scale"])
-        if not (0.1 <= scale <= 3.0):
+        if isinstance(payload["scale"], bool):
+            raise EditorError("INVALID_PARAMETER", "scale 不能是布尔值")
+        try:
+            scale = float(payload["scale"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise EditorError("INVALID_PARAMETER", "scale 必须是数字") from exc
+        if not math.isfinite(scale) or not (0.1 <= scale <= 3.0):
             raise EditorError("INVALID_PARAMETER", f"scale {scale} 越界 [0.1,3.0]")
         transform["scale"] = scale
     if "opacity" in payload:
-        opacity = float(payload["opacity"])
-        if not (0.0 <= opacity <= 1.0):
+        if isinstance(payload["opacity"], bool):
+            raise EditorError("INVALID_PARAMETER", "opacity 不能是布尔值")
+        try:
+            opacity = float(payload["opacity"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise EditorError("INVALID_PARAMETER", "opacity 必须是数字") from exc
+        if not math.isfinite(opacity) or not (0.0 <= opacity <= 1.0):
             raise EditorError("INVALID_PARAMETER", f"opacity {opacity} 越界 [0,1]")
         transform["opacity"] = opacity
     inst = dict(layer.motion_instance or {})
@@ -4054,9 +4076,15 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
 def _cmd_set_original_audio_volume(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """§18：original 轨音量。无 original 轨时新建（AI 首次调 volume 也应生效）。"""
     _ensure_audio_roles_unlocked(ir, {"original"})
-    volume = float(payload.get("volume", 1.0))
-    if not (0.0 <= volume <= 2.0):
-        raise EditorError("INVALID_PARAMETER", f"original volume {volume} 越界 [0,2]")
+    raw_volume = payload.get("volume", 1.0)
+    if isinstance(raw_volume, bool):
+        raise EditorError("INVALID_PARAMETER", "original volume 不能是布尔值")
+    try:
+        volume = float(raw_volume)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PARAMETER", "original volume 必须是数字") from exc
+    if not math.isfinite(volume) or not (0.0 <= volume <= 2.0):
+        raise EditorError("INVALID_PARAMETER", "original volume 必须是有限数字且位于 [0,2]")
     for i, t in enumerate(ir.audio):
         if t.type == AudioTrackType.original:
             ir.audio[i] = t.model_copy(update={"volume": volume})
@@ -4473,9 +4501,15 @@ def _cmd_apply_camera(ir: CompositionIR, target_id: str, payload: dict) -> Tuple
     Scene.camera 只是访问层（§14），唯一正式状态是 Composition.camera_tracks。
     """
     si, scene = _find_scene(ir, target_id)
-    strength = float(payload.get("strength", 1.0))
-    if not 0.0 < strength <= 1.0:
-        raise EditorError("INVALID_PARAMETER", f"camera.apply: strength 需 ∈(0,1]，got {strength}")
+    raw_strength = payload.get("strength", 1.0)
+    if isinstance(raw_strength, bool):
+        raise EditorError("INVALID_PARAMETER", "camera.apply 的 strength 不能是布尔值")
+    try:
+        strength = float(raw_strength)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PARAMETER", "camera.apply 的 strength 必须是数字") from exc
+    if not math.isfinite(strength) or not 0.0 < strength <= 1.0:
+        raise EditorError("INVALID_PARAMETER", "camera.apply 的 strength 必须是有限数字且位于 (0,1]")
     track_id = f"cam-{scene.id}"
     raw_kfs = payload.get("keyframes")
     if raw_kfs:
@@ -4570,11 +4604,20 @@ def _cmd_configure_pip(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
         if min(cx, cy, cw, ch) < 0:
             raise EditorError("INVALID_PARAMETER", "pip.configure: crop 各值需 ≥0")
     # 结构化 pip 子对象（全部字段显式，渲染层按此 overlay）
+    raw_radius = payload.get("radius", 0.0)
+    if isinstance(raw_radius, bool):
+        raise EditorError("INVALID_PARAMETER", "pip.configure 的 radius 不能是布尔值")
+    try:
+        radius = float(raw_radius)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PARAMETER", "pip.configure 的 radius 必须是数字") from exc
+    if not math.isfinite(radius):
+        raise EditorError("INVALID_PARAMETER", "pip.configure 的 radius 必须是有限数字")
     pip.update({
         "source": source,
         "fit": fit,
         "crop": crop,
-        "radius": float(payload.get("radius", 0.0)),
+        "radius": radius,
         "shadow": bool(payload.get("shadow", False)),
         "audio_policy": str(payload.get("audioPolicy") or "auto"),
     })
