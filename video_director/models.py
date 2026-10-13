@@ -507,6 +507,10 @@ class AudioTrack(BaseModel):
     # structural edits. Once the user moves/trims/splits or explicitly detaches source
     # audio, this is false: subsequent picture edits must not move or delete that audio.
     follows_scene_video: bool = True
+    # When not None, this original-audio clip is the separately editable source
+    # sound for one global visual overlay. Its timeline/source window must match
+    # that overlay until a direct audio edit explicitly detaches the relationship.
+    linked_visual_overlay_id: Optional[str] = None
     asset_id: Optional[str] = None
     start: float = 0.0
     duration: float
@@ -789,6 +793,45 @@ class CompositionIR(BaseModel):
                 )
             if not any(asset.id == overlay.asset_id for asset in self.assets):
                 raise ValueError(f"visual overlay {overlay.id} references unknown asset {overlay.asset_id}")
+
+        overlays_by_id = {overlay.id: overlay for overlay in self.visual_overlays}
+        for audio_clip in self.audio:
+            linked_id = str(audio_clip.linked_visual_overlay_id or "").strip()
+            if not linked_id:
+                continue
+            overlay = overlays_by_id.get(linked_id)
+            if overlay is None:
+                raise ValueError(
+                    f"audio clip {audio_clip.id or '<no-id>'} references missing visual overlay {linked_id}"
+                )
+            if audio_clip.type != AudioTrackType.original:
+                raise ValueError("only original-audio clips may link to a visual overlay")
+            if overlay.source_audio_enabled:
+                raise ValueError(
+                    f"visual overlay {overlay.id} cannot enable embedded source audio while a linked audio track exists"
+                )
+            asset = next((item for item in self.assets if item.id == overlay.asset_id), None)
+            if (
+                asset is None
+                or str(getattr(asset.type, "value", asset.type)).lower() != "video"
+                or audio_clip.asset_id != overlay.asset_id
+            ):
+                raise ValueError("linked original audio must reference the same video asset as its visual overlay")
+            audio_source_out = (
+                float(audio_clip.source_out)
+                if audio_clip.source_out is not None
+                else float(audio_clip.source_in or 0.0) + float(audio_clip.duration)
+            )
+            if (
+                abs(float(audio_clip.start) - float(overlay.start)) > 0.01
+                or abs(float(audio_clip.duration) - float(overlay.duration)) > 0.01
+                or abs(float(audio_clip.source_in or 0.0) - float(overlay.source_in or 0.0)) > 0.01
+                or abs(audio_source_out - (float(overlay.source_in or 0.0) + float(overlay.duration))) > 0.01
+            ):
+                raise ValueError(
+                    f"linked original audio {audio_clip.id or '<no-id>'} timing/source window "
+                    f"must match visual overlay {overlay.id}"
+                )
         return self
 
     # ------------------------------------------------------------------

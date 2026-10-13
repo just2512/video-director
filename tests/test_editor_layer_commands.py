@@ -192,6 +192,7 @@ def test_cross_scene_video_lift_moves_linked_original_audio_and_preserves_mix(tm
     linked = next(track for track in comp.audio if track.id == "linked-video-original")
     assert round(float(linked.start), 3) == round(destination, 3)
     assert linked.follows_scene_video is False
+    assert linked.linked_visual_overlay_id == comp.visual_overlays[0].id
     assert linked.volume == 0.42
     assert linked.fadeIn == 0.25
     assert linked.fadeOut == 0.5
