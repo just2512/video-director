@@ -154,7 +154,7 @@ def test_add_edit_all_tracks_sfx_split_and_render_uses_adjacent_source_windows(t
     (plans / "revisions.jsonl").write_text("", encoding="utf-8")
 
     edited = execute_command(project_id, {
-        "command": "add_edit_all_tracks", "targetId": "timeline", "payload": {"at": 1.0},
+        "command": "add_edit_all_tracks", "targetId": "timeline", "payload": {"at": 1.017},
         "expectedVersion": 1,
     })
     assert edited.status == "APPLIED", edited.errors
@@ -163,7 +163,7 @@ def test_add_edit_all_tracks_sfx_split_and_render_uses_adjacent_source_windows(t
     assert [
         (round(clip.start, 3), round(clip.duration, 3), round(clip.source_in, 3), round(clip.source_out, 3))
         for clip in comp.audio
-    ] == [(0.25, 0.75, 0.0, 0.75), (1.0, 0.75, 0.75, 1.5)]
+    ] == [(0.25, 0.783, 0.0, 0.783), (1.033, 0.717, 0.783, 1.5)]
 
     assets = {"split-tone": SimpleNamespace(id="split-tone", type="audio", file=str(source))}
     calls: list[list[str]] = []
@@ -183,10 +183,10 @@ def test_add_edit_all_tracks_sfx_split_and_render_uses_adjacent_source_windows(t
     source_positions = [i for i, arg in enumerate(command) if arg == str(source)]
     assert len(source_positions) == 2, f"expected two source windows, got {source_positions}"
     assert command[source_positions[0] - 5:source_positions[0]] == [
-        "-ss", "0.000", "-t", "0.750", "-i",
+        "-ss", "0.000", "-t", "0.783", "-i",
     ]
     assert command[source_positions[1] - 5:source_positions[1]] == [
-        "-ss", "0.750", "-t", "0.750", "-i",
+        "-ss", "0.783", "-t", "0.717", "-i",
     ]
 
     decoded_pcm = tmp_path / "decoded-add-edit.f32"
