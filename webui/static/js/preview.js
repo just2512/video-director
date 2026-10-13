@@ -219,13 +219,54 @@ function _previewRenderAt(sec, keepPlaying){
   }
   const v = document.getElementById('pv-live-video');
   if (v && lay && lay.type === 'video') _previewSyncVideo(v, sc, lay, local);
-  const mainMedia = stage.querySelector('#pv-live-video, .pv-live-image');
+  const mediaCanvas = _previewFitMediaCanvas(stage);
+  const mainMedia = mediaCanvas && mediaCanvas.querySelector('#pv-live-video, .pv-live-image');
   if (mainMedia && lay) _previewApplyLayerTransform(mainMedia, lay);
   // Live overlay clips use the same CompositionIR global clock as the timeline;
   // draft preview already contains these clips in the rendered MP4, so it does not add them again.
   _previewRenderVisualOverlays(sec);
   _previewRenderSubtitles(sec);
   if (meta) meta.textContent = '实时预览 · ' + sec.toFixed(1) + ' / ' + (ED.comp.duration || 0).toFixed(1) + 's';
+}
+
+/** Fit the live preview canvas to the project's real aspect ratio inside the preview pane. */
+function _previewFitMediaCanvas(stage, bindObserver = true) {
+  if (!stage || !ED.comp) return null;
+  const media = stage.querySelector('.pv-live-media');
+  if (!media) return null;
+  const project = ED.comp.project || {};
+  const projectWidth = Math.max(1, Number(project.width) || 1080);
+  const projectHeight = Math.max(1, Number(project.height) || 1920);
+  const ratio = projectWidth / projectHeight;
+  const paneStyle = window.getComputedStyle ? getComputedStyle(stage) : null;
+  const horizontalPadding = paneStyle
+    ? (parseFloat(paneStyle.paddingLeft) || 0) + (parseFloat(paneStyle.paddingRight) || 0)
+    : 0;
+  const verticalPadding = paneStyle
+    ? (parseFloat(paneStyle.paddingTop) || 0) + (parseFloat(paneStyle.paddingBottom) || 0)
+    : 0;
+  const availableWidth = Math.max(1, stage.clientWidth - horizontalPadding);
+  const availableHeight = Math.max(1, stage.clientHeight - verticalPadding);
+  let width = availableWidth;
+  let height = width / ratio;
+  if (height > availableHeight) {
+    height = availableHeight;
+    width = height * ratio;
+  }
+  media.style.position = 'relative';
+  media.style.flex = '0 0 auto';
+  media.style.width = Math.max(1, width).toFixed(2) + 'px';
+  media.style.height = Math.max(1, height).toFixed(2) + 'px';
+  media.style.maxWidth = '100%';
+  media.style.maxHeight = '100%';
+  media.style.aspectRatio = projectWidth + ' / ' + projectHeight;
+
+  if (bindObserver && !stage._pvCanvasResizeObserver && typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(() => _previewFitMediaCanvas(stage, false));
+    observer.observe(stage);
+    stage._pvCanvasResizeObserver = observer;
+  }
+  return media;
 }
 
 /** Render Layer.transform using the same normalized position/scale/rotation/opacity as FFmpeg export. */
@@ -252,6 +293,10 @@ function _previewApplyLayerTransform(node, lay) {
   const pct = value => Number((value * 100).toFixed(4)).toString() + '%';
 
   node.style.position = 'absolute';
+  node.style.maxWidth = 'none';
+  node.style.maxHeight = 'none';
+  node.style.objectFit = (String(lay.type || '').toLowerCase() === 'video' && String(lay.fit_mode || 'cover') === 'contain')
+    ? 'contain' : 'cover';
   node.style.width = pct(scale);
   node.style.height = pct(scale);
   node.style.left = 'calc(' + pct(x) + ' - ' + pct(anchor[0] * scale) + ')';

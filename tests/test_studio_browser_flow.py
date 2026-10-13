@@ -795,11 +795,18 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     PV.activeSceneId = ''; PV.activeLayerId = '';
                     previewRenderComposition();
                     const node = document.querySelector('#ed-preview-stage .pv-live-image');
-                    return node ? {
+                    const canvas = document.querySelector('#ed-preview-stage .pv-live-media');
+                    if (!node || !canvas) return null;
+                    const rect = canvas.getBoundingClientRect();
+                    return {
                       position: node.style.position, left: node.style.left, top: node.style.top,
                       width: node.style.width, height: node.style.height, opacity: node.style.opacity,
-                      transform: node.style.transform, transformOrigin: node.style.transformOrigin
-                    } : null;
+                      transform: node.style.transform, transformOrigin: node.style.transformOrigin,
+                      maxWidth: node.style.maxWidth, maxHeight: node.style.maxHeight, objectFit: node.style.objectFit,
+                      canvasAspectRatio: canvas.style.aspectRatio,
+                      canvasRatio: rect.height > 0 ? rect.width / rect.height : 0,
+                      expectedRatio: ED.comp.project.width / ED.comp.project.height
+                    };
                   } finally {
                     ED.comp = originalComp;
                     PV.mode = originalPV.mode; PV.playing = originalPV.playing; PV.playhead = originalPV.playhead;
@@ -808,11 +815,21 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     PV.activeSceneId = originalPV.activeSceneId; PV.activeLayerId = originalPV.activeLayerId;
                   }
                 }""")
-                assert layer_transform_preview == {
+                assert layer_transform_preview is not None, layer_transform_preview
+                assert {
+                    key: layer_transform_preview[key] for key in (
+                        "position", "left", "top", "width", "height", "opacity",
+                        "transform", "transformOrigin", "maxWidth", "maxHeight", "objectFit",
+                        "canvasAspectRatio"
+                    )
+                } == {
                     "position": "absolute", "left": "calc(25% - 25%)", "top": "calc(50% - 25%)",
                     "width": "50%", "height": "50%", "opacity": "0.75",
-                    "transform": "rotate(15deg)", "transformOrigin": "50% 50%"
+                    "transform": "rotate(15deg)", "transformOrigin": "50% 50%",
+                    "maxWidth": "none", "maxHeight": "none", "objectFit": "cover",
+                    "canvasAspectRatio": "320 / 180"
                 }, layer_transform_preview
+                assert abs(layer_transform_preview["canvasRatio"] - layer_transform_preview["expectedRatio"]) < 0.02, layer_transform_preview
 
                 # The word-level subtitle track is time-aligned too: preserve the
                 # phrase around the current word, highlight that word, and apply style.
