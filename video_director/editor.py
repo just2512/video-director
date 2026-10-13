@@ -1281,6 +1281,92 @@ def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
     new_duration = (new_out - new_in) / float(layer.speed)
     if not math.isfinite(new_duration) or new_duration <= 0.05:
         raise EditorError("INVALID_PAYLOAD", "裁剪后片段必须大于 0.05 秒")
+
+    edge = payload.get("edge")
+    if edge not in (None, "left", "right"):
+        raise EditorError("INVALID_PAYLOAD", "trim 的 edge 只能是 left/right")
+
+    if edge == "left":
+        # A left-edge trim changes the clip's in-point, so the timeline edge must
+        # move too. Keep the clip's right edge and downstream edits fixed; represent
+        # the newly exposed empty interval as an explicit renderable gap. If the
+        # gesture extends the in-point leftward, it may consume only an existing gap.
+        if abs(new_out - float(layer.source_out)) > 0.05:
+            raise EditorError(
+                "INVALID_PAYLOAD",
+                "左边缘修剪只能改变 sourceIn；sourceOut 必须保持不变",
+            )
+        delta = new_duration - float(layer.duration)
+        layers = list(scene.layers)
+        new_idx = idx
+
+        if delta < -1e-6:
+            gap_duration = -delta
+            moved_layer = layer.model_copy(update={
+                "start": round(float(layer.start) + gap_duration, 6),
+                "source_in": new_in,
+                "source_out": new_out,
+                "duration": new_duration,
+            })
+            previous = layers[idx - 1] if idx > 0 else None
+            if previous is not None and previous.type == LayerType.gap:
+                layers[idx - 1] = previous.model_copy(update={
+                    "duration": round(float(previous.duration) + gap_duration, 6),
+                })
+                layers[idx] = moved_layer
+            else:
+                gap = Layer(
+                    type=LayerType.gap,
+                    start=float(layer.start),
+                    duration=round(gap_duration, 6),
+                )
+                layers[idx:idx + 1] = [gap, moved_layer]
+                new_idx = idx + 1
+        elif delta > 1e-6:
+            previous = layers[idx - 1] if idx > 0 else None
+            if previous is None or previous.type != LayerType.gap:
+                raise EditorError(
+                    "TRIM_BOUNDARY",
+                    "无法向左扩展片段：左侧没有可消耗的空隙。先移动片段或插入空隙后再试。",
+                )
+            remaining = float(previous.duration) - delta
+            if remaining < -1e-6:
+                raise EditorError(
+                    "TRIM_BOUNDARY",
+                    "无法向左扩展片段：扩展范围超出左侧空隙。",
+                )
+            min_gap = max(0.05, 1.0 / max(1, int(ir.project.fps)))
+            if 1e-6 < remaining < min_gap:
+                raise EditorError(
+                    "TRIM_BOUNDARY",
+                    f"扩展后会留下小于一帧的空隙（{remaining:.4f}s）；请一次修剪到空隙边界。",
+                )
+            moved_layer = layer.model_copy(update={
+                "start": round(float(layer.start) - delta, 6),
+                "source_in": new_in,
+                "source_out": new_out,
+                "duration": new_duration,
+            })
+            if remaining <= 1e-6:
+                layers[idx - 1:idx + 1] = [moved_layer]
+                new_idx = idx - 1
+            else:
+                layers[idx - 1] = previous.model_copy(update={"duration": round(remaining, 6)})
+                layers[idx] = moved_layer
+        else:
+            layers[idx] = layer.model_copy(update={
+                "source_in": new_in,
+                "source_out": new_out,
+                "duration": new_duration,
+            })
+
+        scene_data = scene.model_dump()
+        scene_data["layers"] = [item.model_dump() for item in layers]
+        ir.scenes[si] = SceneIR(**scene_data)
+        stale = _stale_of_scene(project_id="", scene_id=scene.id)
+        stale.extend(["project:preview", "project:audio:render"])
+        return [f"{scene.id}#{new_idx}"], list(dict.fromkeys(stale))
+
     delta = new_duration - float(layer.duration)
     new_scene_duration = float(scene.duration) + delta
     if new_scene_duration <= 0.3:
