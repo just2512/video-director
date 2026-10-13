@@ -1964,7 +1964,7 @@ def _cmd_promote_layer_to_visual_track(
 
         linked_source_indices = {
             index for index, track in enumerate(ir.audio)
-            if bool(getattr(track, "follows_scene_video", False)
+            if bool(getattr(track, "follows_scene_video", False))
             and _matches_original_audio(track, source_start)
         }
         # An already-detached source clip at the destination must also be linked to
