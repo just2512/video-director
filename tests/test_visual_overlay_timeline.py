@@ -2078,3 +2078,116 @@ def test_visual_track_insert_overwrite_reject_locked_linked_audio_and_keyframed_
     assert load_composition(pid2).model_dump(mode="json") == before_keyframed
     assert plans2.joinpath("revisions.jsonl").read_text(encoding="utf-8") == ""
 
+def test_real_ffmpeg_detached_source_audio_follows_visual_insert_and_overwrite(tmp_path, monkeypatch):
+    ffmpeg = renderer._ffmpeg()
+    base_path = tmp_path / "detached-audio-base-blue.png"
+    insert_path = tmp_path / "detached-audio-insert-green.png"
+    video_path = tmp_path / "detached-audio-red-with-sine.mp4"
+    _make_still(ffmpeg, base_path, "blue")
+    _make_still(ffmpeg, insert_path, "green")
+    _make_video_with_audio(ffmpeg, video_path)
+
+    pid = "detached-source-audio-insert-render"
+    plans = tmp_path / pid / "plans"
+    plans.mkdir(parents=True)
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=10, duration=3.0),
+        scenes=[SceneIR(
+            id="S01", start=0.0, duration=3.0, text="detached source audio test",
+            layers=[Layer(type=LayerType.image, asset_id="base-blue", duration=3.0)],
+        )],
+        assets=[
+            AssetRef(id="base-blue", type="image", file=str(base_path), width=40, height=40),
+            AssetRef(id="insert-green", type="image", file=str(insert_path), width=40, height=40),
+            AssetRef(id="insert-red-video", type="video", file=str(video_path), duration=2.0, width=40, height=40, fps=10),
+        ],
+        visual_overlays=[VisualOverlayClip(
+            id="existing-red", asset_id="insert-red-video", start=0.5, duration=2.0,
+            source_in=0.0, track_id="overlay-main", presentation_mode="full_frame",
+            source_audio_enabled=False, x=0.0, y=0.0, width=1.0, height=1.0,
+        )],
+        audio=[AudioTrack(
+            type=AudioTrackType.original, id="detached-original", track_id="audio-original",
+            follows_scene_video=False, linked_visual_overlay_id="existing-red",
+            asset_id="insert-red-video", start=0.5, duration=2.0,
+            source_in=0.0, source_out=2.0, volume=1.0, muted=False, fadeIn=0.0, fadeOut=0.0,
+        )],
+    )
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path))
+    save_composition(pid, composition)
+    plans.joinpath("revisions.jsonl").write_text("", encoding="utf-8")
+
+    inserted = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "insert-green", "start": 1.5, "duration": 0.5,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "insert",
+    }, 1)
+    assert inserted.status == "APPLIED", inserted.errors
+    saved = load_composition(pid)
+    red_clips = sorted(
+        (clip for clip in saved.visual_overlays if clip.asset_id == "insert-red-video"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in) for clip in red_clips] == [
+        (0.5, 1.0, 0.0), (2.0, 1.0, 1.0),
+    ]
+    red_by_id = {clip.id: clip for clip in red_clips}
+    linked_audio = sorted(
+        (clip for clip in saved.audio if clip.linked_visual_overlay_id),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in, clip.source_out) for clip in linked_audio] == [
+        (0.5, 1.0, 0.0, 1.0), (2.0, 1.0, 1.0, 2.0),
+    ]
+    assert [clip.linked_visual_overlay_id for clip in linked_audio] == [clip.id for clip in red_clips]
+    assert all(clip.id in red_by_id for clip in (red_by_id[linked.linked_visual_overlay_id] for linked in linked_audio))
+
+    output = Path(renderer.render_composition(
+        saved, {asset.id: asset for asset in saved.assets}, tmp_path / "detached-source-audio-insert",
+    ).final_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    report = renderer._verify_muxed_audio(str(output), expected_duration=3.5)
+    assert report.get("codec") == "aac", report
+    assert report.get("full_decode") == "PASS", report
+    assert _audio_window_mean_volume(ffmpeg, output, 0.1, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 0.8, 0.2) > -35
+    assert _audio_window_mean_volume(ffmpeg, output, 1.65, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, output, 2.5, 0.2) > -35
+
+    overwritten = _apply(pid, "add_visual_overlay", "overlays", {
+        "assetId": "insert-green", "start": 0.75, "duration": 0.5,
+        "sourceIn": 0.0, "trackId": "overlay-main",
+        "presentationMode": "full_frame", "placementMode": "overwrite",
+    }, inserted.composition_version)
+    assert overwritten.status == "APPLIED", overwritten.errors
+    overwritten_ir = load_composition(pid)
+    overwritten_red = sorted(
+        (clip for clip in overwritten_ir.visual_overlays if clip.asset_id == "insert-red-video"),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in) for clip in overwritten_red] == [
+        (0.5, 0.25, 0.0), (1.25, 0.25, 0.75), (2.0, 1.0, 1.0),
+    ]
+    overwritten_audio = sorted(
+        (clip for clip in overwritten_ir.audio if clip.linked_visual_overlay_id),
+        key=lambda clip: clip.start,
+    )
+    assert [(clip.start, clip.duration, clip.source_in, clip.source_out) for clip in overwritten_audio] == [
+        (0.5, 0.25, 0.0, 0.25), (1.25, 0.25, 0.75, 1.0), (2.0, 1.0, 1.0, 2.0),
+    ]
+    assert [clip.linked_visual_overlay_id for clip in overwritten_audio] == [clip.id for clip in overwritten_red]
+
+    overwritten_output = Path(renderer.render_composition(
+        overwritten_ir,
+        {asset.id: asset for asset in overwritten_ir.assets},
+        tmp_path / "detached-source-audio-overwrite",
+    ).final_path)
+    assert overwritten_output.is_file() and overwritten_output.stat().st_size > 1000
+    report = renderer._verify_muxed_audio(str(overwritten_output), expected_duration=3.5)
+    assert report.get("codec") == "aac", report
+    assert report.get("full_decode") == "PASS", report
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 0.6, 0.1) > -35
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 0.9, 0.2) < -65
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 1.35, 0.1) > -35
+    assert _audio_window_mean_volume(ffmpeg, overwritten_output, 2.5, 0.2) > -35
+
