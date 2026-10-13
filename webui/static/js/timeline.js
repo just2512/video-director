@@ -489,7 +489,7 @@ function renderPhysicalTimeline(){
             : (hasWatermarkIndex
                 ? ` onclick="editorWatermarkClipOpen(${cl.watermarkIndex}, event)"`
                 : (hasVisualOverlayIndex
-                    ? ` onclick="editorVisualOverlayOpen(${cl.visualOverlayIndex}, event)"`
+                    ? ` onclick="editorSelectVisualOverlay(${cl.visualOverlayIndex}, event)"`
                     : (hasSubtitleCueIndex
                         ? ` onclick="editorSubtitleCueSelect(${cl.subtitleCueIndex}, event)"`
                         : (cl.onclick ? ` onclick="${cl.onclick}"` : ''))));
