@@ -151,13 +151,13 @@ def _clone_with_reason(src: StyleContract, reason: List[str]) -> StyleContract:
     )
 
 
-def apply_to_ir(ir, contract: StyleContract, config_module) -> None:
-    """把 Style Contract 应用到全局参数与 IR（消费点收口，单一入口）。
+def apply_to_ir(ir, contract: StyleContract, config_module=None) -> None:
+    """把 Style Contract 写入项目 IR，不污染进程级全局配置。
 
-    - 转场预算：覆盖 config.TRANSITION_MAX_MAJOR_EFFECTS（validator 消费）
-    - ir 非 None 时写入 style_id（产物可追溯）
+    config_module 保留为兼容参数，但不再修改它。转场预算属于单次项目/
+    渲染请求，应通过 validate_composition 的 transition_budget 参数显式传递；
+    把它写进 module global 会让不同项目互相污染，并在并发任务中产生竞态。
     """
-    config_module.TRANSITION_MAX_MAJOR_EFFECTS = contract.transition_budget
     if ir is not None:
         ir.style_id = contract.style_id
     logger.info(f"style applied: {contract.style_id} (budget={contract.transition_budget}, "
