@@ -1020,6 +1020,10 @@ def _cmd_reorder_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     raw_to_index = payload.get("toIndex", payload.get("targetIndex"))
     if isinstance(raw_to_index, bool):
         raise EditorError("INVALID_PAYLOAD", "reorder_layer 的 toIndex 不能是布尔值")
+    if isinstance(raw_to_index, float) and not math.isfinite(raw_to_index):
+        raise EditorError("INVALID_PAYLOAD", "reorder_layer 的 toIndex 必须是有限整数")
+    if isinstance(raw_to_index, float) and not raw_to_index.is_integer():
+        raise EditorError("INVALID_PAYLOAD", "reorder_layer 的 toIndex 必须是整数")
     try:
         to_index = int(raw_to_index)
     except (TypeError, ValueError, OverflowError) as exc:
@@ -1326,6 +1330,10 @@ def _cmd_move(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
     raw_to = payload.get("toIndex", si)
     if isinstance(raw_to, bool):
         raise EditorError("INVALID_PAYLOAD", "move 的 toIndex 不能是布尔值")
+    if isinstance(raw_to, float) and not math.isfinite(raw_to):
+        raise EditorError("INVALID_PAYLOAD", "move 的 toIndex 必须是有限整数")
+    if isinstance(raw_to, float) and not raw_to.is_integer():
+        raise EditorError("INVALID_PAYLOAD", "move 的 toIndex 必须是整数")
     try:
         to = int(raw_to)
     except (TypeError, ValueError, OverflowError) as exc:
@@ -4145,7 +4153,7 @@ def _watermark_patch(current: WatermarkLayer, payload: dict) -> WatermarkLayer:
 
 def _cmd_set_watermark(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Add or patch an overlay; legacy calls still upsert by kind, timeline calls target one exact clip."""
-    for field in ("start", "duration"):
+    for field in ("start", "duration", "offsetX", "offsetY", "safeArea", "opacity", "scale"):
         if field in payload and isinstance(payload[field], bool):
             raise EditorError("INVALID_PAYLOAD", f"水印 {field} 不能是布尔值")
     kind = payload.get("kind") or "text"
@@ -4600,9 +4608,11 @@ def _cmd_configure_pip(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
         raise EditorError("INVALID_PARAMETER", f"pip.configure: fit 需 {PIP_FIT_MODES}，got {fit!r}")
     crop = payload.get("crop")
     if crop is not None:
+        if any(isinstance(crop.get(key), bool) for key in ("x", "y", "w", "h")):
+            raise EditorError("INVALID_PARAMETER", "pip.configure: crop 坐标不能是布尔值")
         try:
             cx, cy, cw, ch = (float(crop[k]) for k in ("x", "y", "w", "h"))
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise EditorError("INVALID_PARAMETER", f"pip.configure: crop 需 {{x,y,w,h}} 数值: {exc}")
         if min(cx, cy, cw, ch) < 0:
             raise EditorError("INVALID_PARAMETER", "pip.configure: crop 各值需 ≥0")
@@ -4629,6 +4639,10 @@ def _cmd_configure_pip(ir: CompositionIR, target_id: str, payload: dict) -> Tupl
     update: dict = {"motion_instance": inst or None}
     tf = payload.get("transform")
     if tf:
+        if not isinstance(tf, dict):
+            raise EditorError("INVALID_PARAMETER", "pip.configure: transform 必须是对象")
+        if any(isinstance(tf.get(key), bool) for key in ("x", "y", "scale", "opacity") if key in tf):
+            raise EditorError("INVALID_PARAMETER", "pip.configure: transform 数值不能是布尔值")
         try:
             base = layer.transform or Transform()
             update["transform"] = Transform.model_validate(

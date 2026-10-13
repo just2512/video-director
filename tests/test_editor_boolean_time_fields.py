@@ -68,8 +68,11 @@ def test_boolean_values_are_rejected_for_temporal_and_numeric_editor_contracts(t
         ("set_opacity", "S01#0", {"opacity": True}),
         ("set_transform", "S01#0", {"scale": True}),
         ("move", "S01", {"toIndex": True}),
+        ("move", "S01", {"toIndex": 1.5}),
         ("apply_camera", "S01", {"preset": "push_in", "strength": True}),
         ("configure_pip", "S01#0", {"action": "set", "source": "contract-image", "radius": True}),
+        ("set_watermark", "", {"kind": "text", "text": "new", "createNew": True, "opacity": True}),
+        ("configure_pip", "S01#0", {"action": "set", "source": "contract-image", "crop": {"x": True, "y": 0, "w": 1, "h": 1}}),
         ("apply_camera", "S01", {"keyframes": [{"at": True, "position": [0.5, 0.5, 1.0], "target": [0.5, 0.5, 0.0]}]}),
         ("set_original_audio", "original", {"assetId": "contract-image", "start": True, "duration": 2.0}),
         ("set_original_audio", "original", {"assetId": "contract-image", "start": 0.0, "duration": True}),
@@ -143,8 +146,8 @@ def test_reorder_layer_rejects_boolean_index_without_reordering(tmp_path, monkey
     comp.scenes[0] = scene.model_copy(update={"layers": [first, second]})
     before = comp.model_dump()
 
-    with pytest.raises(editor.EditorError) as raised:
-        editor._cmd_reorder_layer(comp, "S01#0", {"toIndex": True})
-
-    assert raised.value.code == "INVALID_PAYLOAD"
-    assert comp.model_dump() == before
+    for invalid_index in (True, 1.5):
+        with pytest.raises(editor.EditorError) as raised:
+            editor._cmd_reorder_layer(comp, "S01#0", {"toIndex": invalid_index})
+        assert raised.value.code == "INVALID_PAYLOAD"
+        assert comp.model_dump() == before
