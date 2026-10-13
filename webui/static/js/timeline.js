@@ -199,6 +199,36 @@ function playheadSet(pct, ev){
   // Scrubbing updates the central preview continuously, not only on pointer release.
   if (typeof previewSeek === 'function') previewSeek(PLAYHEAD.at);
 }
+function editorProjectFrameTime(value){
+  const comp = (window.ED && window.ED.comp) || {};
+  const project = comp.project || {};
+  const rawFps = project.fps != null ? project.fps : (comp.fps != null ? comp.fps : 30);
+  const fps = Number(rawFps);
+  const frameRate = Number.isFinite(fps) && fps > 0 ? Math.max(1, Math.trunc(fps)) : 30;
+  if (window.TimelineEditMath && typeof window.TimelineEditMath.projectFrameTime === 'function') {
+    return window.TimelineEditMath.projectFrameTime(value, frameRate);
+  }
+  const time = Number(value);
+  if (!Number.isFinite(time) || time < 0) return time;
+  const frames = Math.floor(time * frameRate + 0.5);
+  return Math.round((frames / frameRate) * 1000000) / 1000000;
+}
+
+function editorSnapPlayheadToFrame(value){
+  const at = editorProjectFrameTime(value);
+  if (!Number.isFinite(at) || at < 0) return at;
+  PLAYHEAD.at = at;
+  const comp = (window.ED && window.ED.comp) || {};
+  const projectDuration = Number(comp.duration != null ? comp.duration : (comp.project && comp.project.duration));
+  const total = Number.isFinite(projectDuration) && projectDuration > 0 ? projectDuration : 1;
+  const handle = document.getElementById('tl-playhead');
+  if (handle) handle.style.left = _tlPlayheadLeft(at, total) + 'px';
+  const label = document.getElementById('tl-playhead-label');
+  if (label) label.textContent = at.toFixed(2) + 's';
+  if (typeof previewSeek === 'function') previewSeek(at);
+  return at;
+}
+
 function _tlPct(ev, el){
   const body = _tlAxisBody(el);
   const r = (body || el).getBoundingClientRect();
@@ -1027,7 +1057,8 @@ function editorAudioClipOpen(index, ev){
 async function editorAudioClipSplit(index){
   const clip = ED.comp && (ED.comp.audio || [])[index];
   if (!clip) { editorAudioClipClose(); editorToast('音频片段已变化，请重新打开', true); return; }
-  const at = Number(PLAYHEAD && PLAYHEAD.at);
+  const requestedAt = Number(PLAYHEAD && PLAYHEAD.at);
+  const at = Number.isFinite(requestedAt) ? editorSnapPlayheadToFrame(requestedAt) : requestedAt;
   const start = Number(clip.start) || 0;
   const end = start + (Number(clip.duration) || 0);
   if (!Number.isFinite(at) || at <= start + 0.05 || at >= end - 0.05) {
@@ -1051,7 +1082,7 @@ async function editorAudioClipSplit(index){
     const result = await executeCommand({
       command: 'split_audio_clip',
       targetId: 'audio#' + index,
-      payload: {at: Math.round(at * 1000) / 1000},
+      payload: {at},
     });
     if (!result || !result.ok) {
       editorToast('音频片段未切分：' + ((result && result.error) || '未知错误'), true);
@@ -1797,7 +1828,8 @@ async function editorSplitSelectedLayer(){
     editorToast('当前选择不是可切分的主画面或独立画面片段。', true);
     return {ok:false, error:'UNSUPPORTED_SELECTION'};
   }
-  const result = await editorCmd('split_layer', {at: PLAYHEAD.at}, selection.id, true);
+  const at = editorSnapPlayheadToFrame(Number(PLAYHEAD && PLAYHEAD.at));
+  const result = await editorCmd('split_layer', {at}, selection.id, true);
   if (result && result.ok) editorToast('片段已在播放头处切分');
   else editorToast('切分未完成：' + ((result && result.error) || '请把播放头放在片段内部'), true);
   return result || {ok:false, error:'EMPTY_RESULT'};
@@ -1879,11 +1911,12 @@ async function editorExpandMainTimelineToGlobalTrack(ev){
 }
 
 async function editorAddEditAllTracks(){
-  const at = Number(PLAYHEAD && PLAYHEAD.at);
-  if (!Number.isFinite(at) || at < 0) {
+  const requestedAt = Number(PLAYHEAD && PLAYHEAD.at);
+  if (!Number.isFinite(requestedAt) || requestedAt < 0) {
     editorToast('播放头时间无效；项目未修改。', true);
     return;
   }
+  const at = editorSnapPlayheadToFrame(requestedAt);
   const result = await editorCmd('add_edit_all_tracks', {at}, 'timeline', true);
   if (result && result.ok) {
     const warnings = result.data && Array.isArray(result.data.warnings) ? result.data.warnings : [];
@@ -1903,6 +1936,7 @@ Object.assign(window, {
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
   editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorLiftSelectedLayerToPlayhead, editorExpandMainTimelineToGlobalTrack, editorAddEditAllTracks,
+  editorProjectFrameTime, editorSnapPlayheadToFrame,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
   editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackMenu, editorAudioTrackMenuClose,
   editorAudioTrackApplyName, editorAudioTrackRemove,
