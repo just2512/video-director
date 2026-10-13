@@ -1230,7 +1230,7 @@ def composite_visual_overlays(
                 if getattr(overlay, "fit_mode", "cover") == "contain":
                     # Preserve the whole source image/video and reveal the base picture around it.
                     fit_filter = (
-                        f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
+                        f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,format=rgba,"
                         f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
                     )
                 else:
@@ -1242,7 +1242,7 @@ def composite_visual_overlays(
             else:
                 # PiP/sticker presentation always preserves source aspect ratio inside its box.
                 fit_filter = (
-                    f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,"
+                    f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease,format=rgba,"
                     f"pad={box_w}:{box_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
                 )
             filters.append(
