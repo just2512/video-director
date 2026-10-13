@@ -792,7 +792,11 @@ function _tlBindLayerDrag(){
       if (!(srcOut > srcIn)) { editorToast('裁剪区间无效，未修改', true); return; }
       editorToast(`正在应用裁剪 ${srcIn.toFixed(1)}s–${srcOut.toFixed(1)}s……`);
       executeCommand({command: 'trim', targetId: `${d.sceneId}#${d.idx}`,
-        payload: {sourceIn: +srcIn.toFixed(2), sourceOut: +srcOut.toFixed(2)}})
+        payload: {
+          sourceIn: +srcIn.toFixed(2),
+          sourceOut: +srcOut.toFixed(2),
+          edge: d.mode === 'trim-left' ? 'left' : 'right'
+        }})
         .then(r => {
           editorToast(r.ok ? `已裁剪为源区间 ${srcIn.toFixed(1)}s–${srcOut.toFixed(1)}s`
                            : '裁剪未完成：' + (r.error || ''), !r.ok);
