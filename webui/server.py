@@ -471,6 +471,33 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+    def _html_template_import(self):
+        """POST multipart package_file to validate/import an isolated html-video ZIP."""
+        from video_director.html_template_runtime import HtmlTemplateError, import_template_package
+
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        # Include a small multipart boundary/header allowance over the ZIP byte cap.
+        if length <= 0 or length > 52 * 1024 * 1024:
+            self._send_json({"ok": False, "code": "PACKAGE_UPLOAD_SIZE_INVALID",
+                             "error": "上传请求必须包含 ZIP 且不超过 50 MiB。"}, 413)
+            return
+        try:
+            mp = _parse_multipart(self)
+            files = [item for item in (mp.get("files") or [])
+                     if item.get("name") == "package_file" and item.get("data")]
+            if len(files) != 1:
+                self._send_json({"ok": False, "code": "PACKAGE_FILE_REQUIRED",
+                                 "error": "请选择且只上传一个 ZIP 模板包。"}, 400)
+                return
+            uploaded = files[0]
+            result = import_template_package(uploaded["data"], uploaded.get("filename") or "template.zip")
+            self._send_json(result)
+        except HtmlTemplateError as exc:
+            self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, 400)
+        except Exception as exc:
+            self._send_json({"ok": False, "code": "PACKAGE_IMPORT_FAILED",
+                             "error": f"模板包导入失败：{str(exc)[:360]}"}, 422)
+
     def _registry_templates(self, parsed):
         """GET /api/registry/templates：模板清单（Template Gallery 数据源）。"""
         try:
@@ -603,6 +630,19 @@ class Handler(BaseHTTPRequestHandler):
                                  "error": "当前模板的运行依赖/能力门禁未通过，未生成假样片。",
                                  "runtime": runtime}, 422)
                 return
+            if (runtime.get("adapter") == "html-video-python-playwright"
+                    and (getattr(template, "runtime", {}) or {}).get("html_video_package")):
+                from video_director.html_template_runtime import HtmlTemplateError, render_html_template_sample
+                try:
+                    result = render_html_template_sample(
+                        template, output_root=COMPOSER_ROOT / "html-template-samples")
+                    self._send_json(result)
+                except HtmlTemplateError as exc:
+                    self._send_json({
+                        "ok": False, "code": exc.code, "error": str(exc),
+                        "runtime": template_runtime_report(template),
+                    }, 422)
+                return
             from video_director.registries.runtime import template_input_issues
             # Multipart field names are untrusted. Only declared image/video slots may
             # receive files; otherwise a crafted name such as "../../outside_file"
@@ -732,9 +772,19 @@ class Handler(BaseHTTPRequestHandler):
         if not re.fullmatch(r"[a-f0-9]{32}", sample_id):
             self._send_json({"ok": False, "error": "样片 ID 格式无效"}, 400)
             return
-        root = (COMPOSER_ROOT / "template-samples").resolve()
-        target = (root / (sample_id + ".mp4")).resolve()
-        if target.parent != root or not target.is_file():
+        # Native Composition samples and isolated HTML-package samples have
+        # separate roots. The public endpoint accepts only an opaque sample ID,
+        # and each resolved target must remain an immediate child of its root.
+        target = None
+        for candidate_root in (
+            (COMPOSER_ROOT / "template-samples").resolve(),
+            (COMPOSER_ROOT / "html-template-samples").resolve(),
+        ):
+            candidate = (candidate_root / (sample_id + ".mp4")).resolve()
+            if candidate.parent == candidate_root and candidate.is_file():
+                target = candidate
+                break
+        if target is None:
             self._send_json({"ok": False, "error": "样片不存在或已清理"}, 404)
             return
         try:
@@ -1769,6 +1819,10 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
     def do_POST(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/html_templates/import":
+            self._html_template_import()
+            return
 
         if parsed.path == "/api/styles/sample_render":
             self._style_sample_render()
