@@ -1830,10 +1830,15 @@ def _cmd_promote_layer_to_visual_track(
             and set(legacy_transform).issubset({"scale", "opacity"})
         )
     )
+    source_fit_mode = str(getattr(layer, "fit_mode", "cover") or "cover")
+    if source_fit_mode not in {"cover", "contain"}:
+        raise EditorError(
+            "LIFT_UNSUPPORTED_FIT_MODE",
+            f"主画面适配方式 {source_fit_mode!r} 无法安全转换；仅支持 cover/contain",
+        )
     if (
         layer.motion or layer.motion_recipe_id or layer.motion_version
         or not static_transform_only or layer.keyframes or layer.mask
-        or (getattr(layer, "fit_mode", "cover") or "cover") != "cover"
     ):
         raise EditorError(
             "LIFT_UNSUPPORTED_EFFECT",
@@ -1996,6 +2001,7 @@ def _cmd_promote_layer_to_visual_track(
         source_in=round(source_in, 3),
         track_id=track_id,
         presentation_mode="full_frame",
+        fit_mode=source_fit_mode,
         source_audio_enabled=source_audio_enabled,
         source_audio_volume=1.0,
         x=0.0, y=0.0, width=1.0, height=1.0,
@@ -2278,6 +2284,9 @@ def _cmd_add_visual_overlay(
     presentation_mode = str(payload.get("presentationMode") or payload.get("presentation_mode") or "picture_in_picture")
     if presentation_mode not in {"full_frame", "picture_in_picture", "sticker"}:
         raise EditorError("INVALID_PARAMETER", "presentationMode 必须是 full_frame、picture_in_picture 或 sticker")
+    fit_mode = str(payload.get("fitMode") or payload.get("fit_mode") or "cover").strip()
+    if fit_mode not in {"cover", "contain"}:
+        raise EditorError("INVALID_PARAMETER", "fitMode 必须是 cover 或 contain")
     placement_mode = str(payload.get("placementMode") or payload.get("placement_mode") or "overlay").strip().lower()
     if placement_mode not in {"overlay", "overwrite", "insert"}:
         raise EditorError("INVALID_PARAMETER", "placementMode 必须是 overlay、overwrite 或 insert")
@@ -2352,7 +2361,7 @@ def _cmd_add_visual_overlay(
     overlay = VisualOverlayClip(
         id=f"overlay-{uuid.uuid4().hex[:12]}", asset_id=asset_id,
         start=round(start, 6), duration=round(duration, 6), source_in=round(source_in, 6),
-        track_id=track_id, presentation_mode=presentation_mode,
+        track_id=track_id, presentation_mode=presentation_mode, fit_mode=fit_mode,
         source_audio_enabled=raw_audio_enabled, source_audio_volume=source_audio_volume,
         x=x, y=y, width=box_width, height=box_height, opacity=opacity,
         z_index=int(z_index_value),
@@ -2575,8 +2584,10 @@ def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) ->
     index = _visual_overlay_index(ir, target_id)
     clip = ir.visual_overlays[index]
     _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
+    if "fitMode" in payload and "fit_mode" not in payload:
+        payload = {**payload, "fit_mode": payload["fitMode"]}
     allowed = {
-        "x", "y", "width", "height", "opacity", "z_index", "presentation_mode",
+        "x", "y", "width", "height", "opacity", "z_index", "presentation_mode", "fit_mode",
         "source_audio_enabled", "source_audio_volume", "transform",
     }
     patch = {key: payload[key] for key in allowed if key in payload}
