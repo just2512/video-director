@@ -823,7 +823,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                         "canvasAspectRatio"
                     )
                 } == {
-                    "position": "absolute", "left": "calc(25% - 25%)", "top": "calc(50% - 25%)",
+                    "position": "absolute", "left": "calc(0%)", "top": "calc(25%)",
                     "width": "50%", "height": "50%", "opacity": "0.75",
                     "transform": "rotate(15deg)", "transformOrigin": "50% 50%",
                     "maxWidth": "none", "maxHeight": "none", "objectFit": "cover",
