@@ -3662,10 +3662,17 @@ def _cmd_set_audio_fade(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     if track_type not in _VALID_AUDIO_TRACKS:
         raise EditorError("INVALID_TARGET", f"set_audio_fade 目标音轨 {track_type!r} 非法")
     _ensure_audio_roles_unlocked(ir, {track_type})
-    fade_in = float(payload.get("fadeIn", payload.get("fade_in", 0.0)) or 0.0)
-    fade_out = float(payload.get("fadeOut", payload.get("fade_out", 0.0)) or 0.0)
-    if fade_in < 0 or fade_out < 0:
-        raise EditorError("INVALID_PARAMETER", "淡入/淡出秒数不能为负")
+    raw_fade_in = payload.get("fadeIn", payload.get("fade_in", 0.0))
+    raw_fade_out = payload.get("fadeOut", payload.get("fade_out", 0.0))
+    if isinstance(raw_fade_in, bool) or isinstance(raw_fade_out, bool):
+        raise EditorError("INVALID_PARAMETER", "淡入/淡出秒数不能是布尔值")
+    try:
+        fade_in = float(raw_fade_in or 0.0)
+        fade_out = float(raw_fade_out or 0.0)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PARAMETER", "淡入/淡出秒数必须是数字") from exc
+    if not math.isfinite(fade_in) or not math.isfinite(fade_out) or fade_in < 0 or fade_out < 0:
+        raise EditorError("INVALID_PARAMETER", "淡入/淡出秒数必须是有限的非负数字")
     changed = False
     for i, t in enumerate(ir.audio):
         if t.type.value == track_type:
@@ -3713,9 +3720,25 @@ def _cmd_audio_mix(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[Li
         if "ducking" in opts:
             update["ducking"] = bool(opts["ducking"])
         if "fadeIn" in opts:
-            update["fadeIn"] = float(opts["fadeIn"])
+            if isinstance(opts["fadeIn"], bool):
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} fadeIn 不能是布尔值")
+            try:
+                fade_in = float(opts["fadeIn"])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} fadeIn 必须是数字") from exc
+            if not math.isfinite(fade_in) or fade_in < 0:
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} fadeIn 必须是有限非负秒数")
+            update["fadeIn"] = fade_in
         if "fadeOut" in opts:
-            update["fadeOut"] = float(opts["fadeOut"])
+            if isinstance(opts["fadeOut"], bool):
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} fadeOut 不能是布尔值")
+            try:
+                fade_out = float(opts["fadeOut"])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} fadeOut 必须是数字") from exc
+            if not math.isfinite(fade_out) or fade_out < 0:
+                raise EditorError("INVALID_PAYLOAD", f"audio_mix {track_type} fadeOut 必须是有限非负秒数")
+            update["fadeOut"] = fade_out
         if not update:
             continue
         changed = False
@@ -3746,10 +3769,18 @@ def _cmd_add_audio_keyframe(ir: CompositionIR, target_id: str, payload: dict) ->
         raise EditorError("INVALID_TARGET",
                           f"add_audio_keyframe 目标音轨 {track_type!r} 非法")
     _ensure_audio_roles_unlocked(ir, {track_type})
-    at = float(payload.get("at", -1))
+    raw_at = payload.get("at", -1)
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "add_audio_keyframe 的 at 不能是布尔值")
+    try:
+        at = float(raw_at)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "add_audio_keyframe 的 at 必须是数字") from exc
     value = payload.get("volume", payload.get("value"))
-    if at < 0 or value is None:
-        raise EditorError("INVALID_PAYLOAD", "add_audio_keyframe 需 payload.at / payload.volume")
+    if not math.isfinite(at) or at < 0 or value is None:
+        raise EditorError("INVALID_PAYLOAD", "add_audio_keyframe 需有限的非负 at 和 payload.volume")
+    if isinstance(value, bool):
+        raise EditorError("INVALID_PAYLOAD", "add_audio_keyframe 的音量不能是布尔值")
     value = float(value)
     if not (0.0 <= value <= 2.0):
         raise EditorError("INVALID_PARAMETER", f"volume {value} 越界 [0,2]")
@@ -3790,13 +3821,16 @@ def _cmd_add_broll(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[Li
         raise EditorError("INVALID_PAYLOAD", "add_broll 缺 assetId")
     asset_type = payload.get("assetType") or "image"
     if asset_type == "video":
+        if any(isinstance(payload.get(key), bool) for key in ("sourceOut", "duration") if key in payload):
+            raise EditorError("INVALID_PAYLOAD", "add_broll 的 sourceOut/duration 不能是布尔值")
+        raw_source_out = payload.get("sourceOut") or payload.get("duration") or 0
         try:
-            source_out = float(payload.get("sourceOut") or payload.get("duration") or 0)
-        except (TypeError, ValueError):
-            source_out = 0.0
-        if source_out <= 0:
+            source_out = float(raw_source_out)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise EditorError("INVALID_PAYLOAD", "add_broll 视频层的 sourceOut 必须是有限数字") from exc
+        if not math.isfinite(source_out) or source_out <= 0:
             raise EditorError(
-                "INVALID_PAYLOAD", "add_broll 视频层需 sourceOut（源内秒数，可用素材库时长）"
+                "INVALID_PAYLOAD", "add_broll 视频层需有效的 sourceOut（源内秒数，可用素材库时长）"
             )
         broll = Layer(type=LayerType.video, asset_id=asset_id, start=scene.duration,
                       duration=source_out, source_in=0.0, source_out=source_out)
@@ -3912,26 +3946,47 @@ def _cmd_set_original_audio(ir: CompositionIR, target_id: str, payload: dict) ->
     mode = payload.get("mode") or "preserve"
     if mode not in ("preserve", "mute"):
         raise EditorError("INVALID_PAYLOAD", f"set_original_audio 的 mode {mode!r} 非法")
+    temporal_fields = ("start", "duration", "sourceIn", "sourceOut", "fadeIn", "fadeOut")
+    for field in temporal_fields:
+        if field in payload and isinstance(payload[field], bool):
+            raise EditorError("INVALID_PARAMETER", f"set_original_audio 的 {field} 不能是布尔值")
     _vol = payload.get("volume")
+    if isinstance(_vol, bool):
+        raise EditorError("INVALID_PARAMETER", "set_original_audio 的 volume 不能是布尔值")
     volume = float(_vol if _vol is not None else (0.8 if mode == "preserve" else 0.0))
     if not (0.0 <= volume <= 2.0):
         raise EditorError("INVALID_PARAMETER", f"original volume {volume} 越界 [0,2]")
 
     asset_id = payload.get("assetId")
     duck = bool(payload.get("duckAgainst") or payload.get("ducking", False))
-    fin = max(0.0, min(float(payload.get("fadeIn") or 0.0), 10.0))
-    fout = max(0.0, min(float(payload.get("fadeOut") or 0.0), 10.0))
+    try:
+        raw_fin = float(payload.get("fadeIn") or 0.0)
+        raw_fout = float(payload.get("fadeOut") or 0.0)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PARAMETER", "set_original_audio 的淡入/淡出必须是数字") from exc
+    if not math.isfinite(raw_fin) or not math.isfinite(raw_fout):
+        raise EditorError("INVALID_PARAMETER", "set_original_audio 的淡入/淡出必须是有限数字")
+    fin = max(0.0, min(raw_fin, 10.0))
+    fout = max(0.0, min(raw_fout, 10.0))
 
     # 新语义：显式 asset + start/duration/source range → 一条独立素材原声轨。
     # 这样 8 个用户视频可以各自保留现场声音，不再被单一 original 轨覆盖。
     if asset_id and any(k in payload for k in ("start", "duration", "sourceIn", "sourceOut")):
-        start = float(payload.get("start", 0.0))
-        duration = float(payload.get("duration", 0.0) or 0.0)
+        try:
+            start = float(payload.get("start", 0.0))
+            duration = float(payload.get("duration", 0.0) or 0.0)
+            source_in = max(0.0, float(payload.get("sourceIn", 0.0) or 0.0))
+            raw_out = payload.get("sourceOut")
+            source_out = None if raw_out in (None, "") else float(raw_out)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise EditorError("INVALID_PARAMETER", "片段原声 start/duration/sourceIn/sourceOut 必须是数字") from exc
+        timing_values = [start, duration, source_in]
+        if source_out is not None:
+            timing_values.append(source_out)
+        if not all(math.isfinite(value) for value in timing_values):
+            raise EditorError("INVALID_PARAMETER", "片段原声时间参数必须是有限数字")
         if duration <= 0.0:
             raise EditorError("INVALID_PARAMETER", "片段原声 duration 必须 > 0")
-        source_in = max(0.0, float(payload.get("sourceIn", 0.0) or 0.0))
-        raw_out = payload.get("sourceOut")
-        source_out = None if raw_out in (None, "") else float(raw_out)
         if source_out is not None and source_out <= source_in:
             raise EditorError("INVALID_PARAMETER", "片段原声 sourceOut 必须 > sourceIn")
         if start < 0.0 or start + duration > ir.project.duration + 0.05:
@@ -4282,11 +4337,22 @@ def _cmd_add_keyframe(ir: CompositionIR, target_id: str, payload: dict) -> Tuple
         raise EditorError(
             "INVALID_PAYLOAD",
             f"add_keyframe: property {prop!r} 非法，应为 {sorted(KEYFRAME_PROPERTIES)}")
+    raw_at = payload.get("at")
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "add_keyframe 的 at 不能是布尔值")
     try:
-        kf = Keyframe(at=float(payload["at"]), value=payload["value"],
+        at = float(raw_at)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "add_keyframe 需数字 payload.at 和 payload.value") from exc
+    if not math.isfinite(at) or at < 0:
+        raise EditorError("INVALID_PAYLOAD", "add_keyframe 的 at 必须是有限的非负时间")
+    if isinstance(payload.get("value"), bool):
+        raise EditorError("INVALID_PAYLOAD", "add_keyframe 的 value 不能是布尔值")
+    try:
+        kf = Keyframe(at=at, value=payload["value"],
                       easing=payload.get("easing") or "linear")
-    except KeyError:
-        raise EditorError("INVALID_PAYLOAD", "add_keyframe 需 payload.at / payload.value")
+    except KeyError as exc:
+        raise EditorError("INVALID_PAYLOAD", "add_keyframe 需 payload.at / payload.value") from exc
     except ValueError as exc:
         raise EditorError("INVALID_PARAMETER", str(exc))
     tracks = list(layer.keyframes)
@@ -4308,7 +4374,15 @@ def _cmd_remove_keyframe(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     scene, idx, layer = _find_layer(ir, target_id)
     _ensure_layer_unlocked(layer)
     prop = payload.get("property") or ""
-    at = float(payload.get("at", -1))
+    raw_at = payload.get("at", -1)
+    if isinstance(raw_at, bool):
+        raise EditorError("INVALID_PAYLOAD", "remove_keyframe 的 at 不能是布尔值")
+    try:
+        at = float(raw_at)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "remove_keyframe 的 at 必须是数字") from exc
+    if not math.isfinite(at) or at < 0:
+        raise EditorError("INVALID_PAYLOAD", "remove_keyframe 的 at 必须是有限的非负时间")
     tracks = [t for t in layer.keyframes if t.property != prop]
     keep_track = next((t for t in layer.keyframes if t.property == prop), None)
     if keep_track is not None:
@@ -4394,6 +4468,15 @@ def _cmd_apply_camera(ir: CompositionIR, target_id: str, payload: dict) -> Tuple
         except (KeyError, ValueError) as exc:
             raise EditorError("INVALID_PARAMETER", f"camera.apply: keyframes 非法: {exc}")
     else:
+        raw_duration = payload.get("duration", scene.duration)
+        if isinstance(raw_duration, bool):
+            raise EditorError("INVALID_PARAMETER", "camera.apply 的 duration 不能是布尔值")
+        try:
+            camera_duration = float(raw_duration)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise EditorError("INVALID_PARAMETER", "camera.apply 的 duration 必须是数字") from exc
+        if not math.isfinite(camera_duration) or camera_duration <= 0 or camera_duration > float(scene.duration) + 1e-6:
+            raise EditorError("INVALID_PARAMETER", "camera.apply 的 duration 必须处于当前场景时长内")
         preset = str(payload.get("preset") or "")
         if preset not in CAMERA_PRESETS:
             raise EditorError(
@@ -4404,7 +4487,7 @@ def _cmd_apply_camera(ir: CompositionIR, target_id: str, payload: dict) -> Tuple
         mid = [(a + (b - a) * strength) for a, b in zip(s_pos, e_pos)]
         kfs = [
             CameraKeyframe(at=0.0, position=list(s_pos), target=list(s_tgt)),
-            CameraKeyframe(at=float(payload.get("duration", scene.duration)),
+            CameraKeyframe(at=camera_duration,
                            position=mid, target=list(e_tgt)),
         ]
     try:
@@ -4515,6 +4598,15 @@ def _cmd_apply_morph(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     morph 是连续性的一种），morph_path 记录 from→to 映射。确定性编译
     （GraphicProgram→HTML），不引入任意 HTML/JS。
     """
+    raw_duration = payload.get("duration", 0.6)
+    if isinstance(raw_duration, bool):
+        raise EditorError("INVALID_PAYLOAD", "apply_morph 的 duration 不能是布尔值")
+    try:
+        morph_duration = float(raw_duration)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "apply_morph 的 duration 必须是数字") from exc
+    if not math.isfinite(morph_duration) or morph_duration <= 0:
+        raise EditorError("INVALID_PAYLOAD", "apply_morph 的 duration 必须是有限正数")
     from_block = str(payload.get("fromBlockId") or "")
     to_block = str(payload.get("toBlockId") or "")
     if not from_block or not to_block:
@@ -4542,7 +4634,7 @@ def _cmd_apply_morph(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     link_id = f"morph-{from_scene_id}-{to_scene_id}"
     morph_path = {
         "from_block": from_block, "to_block": to_block,
-        "duration": float(payload.get("duration", 0.6)),
+        "duration": morph_duration,
         "easing": str(payload.get("easing") or "ease_in_out"),
     }
     try:
