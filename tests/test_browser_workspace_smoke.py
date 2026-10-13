@@ -976,8 +976,11 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 overlay_clip = page.locator("#editor-timeline .ed-track[data-visual-track-id='overlay-main'] .ed-visual-overlay-clip")
                 overlay_clip.scroll_into_view_if_needed()
                 overlay_clip.click()
+                page.wait_for_function("() => SEL.selection && SEL.selection.type === 'visual_overlay' && SEL.selection.id === 'overlay-test'")
                 inspector = page.locator("#visual-overlay-inspector-mask")
-                inspector.wait_for(timeout=5000)
+                assert inspector.count() == 0, "Selecting a timeline clip should not open a blocking inspector mask"
+                page.locator('button[data-action="ui.edit_visual_overlay"]').click()
+                inspector.wait_for(state="visible", timeout=5000)
                 assert inspector.get_by_role("button", name="在播放头切分").is_visible()
                 captured_commands.clear()
                 inspector.get_by_role("button", name="在播放头切分").click()
