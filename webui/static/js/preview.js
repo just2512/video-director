@@ -351,13 +351,13 @@ function _previewRenderWatermarks(sec) {
   }).filter(({watermark, start, duration}) =>
     watermark && duration > 0 && Number(sec) >= start - 1e-6 && Number(sec) < start + duration - 1e-6
   );
-  const key = JSON.stringify(active.map(({watermark, index, asset}) => ({
+  const key = JSON.stringify({scaleX, scaleY, active:active.map(({watermark, index, asset}) => ({
     index, id:watermark.id, kind:watermark.kind, text:watermark.text,
     asset_id:watermark.asset_id, url:asset && (asset.file_url || asset.thumbnail_url),
     anchor:watermark.anchor, offset_x:watermark.offset_x, offset_y:watermark.offset_y,
     safe_area:watermark.safe_area, scale:watermark.scale, opacity:watermark.opacity,
     start:watermark.start, duration:watermark.duration
-  })));
+  }))});
   if (host.dataset.renderKey !== key) {
     host.replaceChildren();
     active.forEach(({watermark, index, asset}) => {
