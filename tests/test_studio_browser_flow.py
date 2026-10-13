@@ -1372,8 +1372,10 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                 result = persisted["body"]
                 left, right = result["visual_overlays"]
                 assert left["id"] == "e2e-overlay"
-                assert abs(float(left["start"]) - 0.25) < 0.002
-                assert abs(float(left["duration"]) - 0.35) < 0.002
+                # Splitting a legacy off-frame clip normalizes its start to the
+                # same 10fps grid used by preview and all subsequent edits.
+                assert abs(float(left["start"]) - 0.30) < 0.002
+                assert abs(float(left["duration"]) - 0.30) < 0.002
                 assert abs(float(right["start"]) - 0.6) < 0.002
                 assert abs(float(right["duration"]) - 0.4) < 0.002
                 assert left["asset_id"] == right["asset_id"] == "e2e-still"

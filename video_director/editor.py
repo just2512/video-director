@@ -2369,6 +2369,24 @@ def _extend_project_for_visual_insert(ir: CompositionIR, duration: float) -> str
     return extended_scene_id
 
 
+def _project_frame_time(ir: CompositionIR, value: float) -> float:
+    """Snap a non-negative timeline time to the project's output-frame grid.
+
+    Match browser Math.round for half-frame positions; Python round() is
+    ties-to-even and can otherwise put an edit one frame away from the preview.
+    """
+    fps = max(1, int(ir.project.fps))
+    frames = math.floor(float(value) * fps + 0.5)
+    return round(frames / fps, 6)
+
+
+def _project_frame_min_duration(ir: CompositionIR) -> float:
+    """Minimum editable clip duration (at least 50 ms and one whole frame)."""
+    fps = max(1, int(ir.project.fps))
+    frames = max(1, math.ceil(0.05 * fps - 1e-9))
+    return round(frames / fps, 6)
+
+
 def _cmd_add_visual_overlay(
     ir: CompositionIR, target_id: str, payload: dict, project_id: str,
 ) -> Tuple[List[str], List[str]]:
@@ -2423,25 +2441,18 @@ def _cmd_add_visual_overlay(
         raise EditorError("INVALID_PARAMETER", "只有视频素材可以保留源音轨")
     total = float(ir.project.duration)
     fps = max(1, int(ir.project.fps))
-    def frame_time(value: float) -> float:
-        # Match the browser's Math.round for non-negative timeline times.
-        # Python round() uses ties-to-even, which can put a half-frame edit one
-        # frame away from the time the Source Monitor previewed.
-        frames = math.floor(value * fps + 0.5)
-        return round(frames / fps, 6)
-
-    start = frame_time(number("start", 0.0, 0.0))
+    start = _project_frame_time(ir, number("start", 0.0, 0.0))
     if placement_mode == "insert":
         if start > total + 1e-6:
             raise EditorError("INVALID_PARAMETER", "插入点不能晚于当前项目末尾")
     elif start >= total:
         raise EditorError("INVALID_PARAMETER", "放置点必须在项目时长内")
-    source_in = frame_time(number("sourceIn", 0.0, 0.0))
+    source_in = _project_frame_time(ir, number("sourceIn", 0.0, 0.0))
     remaining = max(0.05, total - start) if placement_mode == "insert" else total - start
     default_duration = min(3.0, remaining)
     if str(asset.type).lower() == "video":
         default_duration = min(default_duration, source_duration - source_in)
-    duration = frame_time(number("duration", default_duration, 0.000001))
+    duration = _project_frame_time(ir, number("duration", default_duration, 0.000001))
     if duration < (1.0 / fps) - 1e-6:
         raise EditorError("INVALID_PARAMETER", "源片段至少需要一个项目帧")
     if placement_mode != "insert" and start + duration > total + 1e-6:
@@ -2512,8 +2523,22 @@ def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
         start = float(payload.get("start"))
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "move_visual_overlay 需要数字 start") from exc
-    if not math.isfinite(start) or start < 0 or start + clip.duration > float(ir.project.duration) + 1e-6:
+    if not math.isfinite(start) or start < 0:
         raise EditorError("INVALID_PARAMETER", "覆盖层的新位置超出项目时长")
+    start = _project_frame_time(ir, start)
+    # Legacy projects may contain off-frame clip durations. Normalize the end
+    # boundary as well as the new start so moving an old clip cannot leave its
+    # right edge between output frames.
+    duration = _project_frame_time(ir, float(clip.duration))
+    if duration < _project_frame_min_duration(ir) - 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层时长按项目帧率对齐后不足一帧")
+    if start + duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层的新位置按项目帧率对齐后超出项目时长")
+    source_asset = next((asset for asset in ir.assets if asset.id == clip.asset_id), None)
+    if source_asset and str(getattr(source_asset.type, "value", source_asset.type)).lower() == "video":
+        source_duration = float(source_asset.duration or 0.0)
+        if source_duration > 0 and float(clip.source_in) + duration > source_duration + 0.05:
+            raise EditorError("INVALID_SOURCE_RANGE", "覆盖层时长按项目帧率对齐后超出视频素材时长")
     track_id = str(payload.get("trackId", clip.track_id) or "").strip()
     if not any(track.id == track_id for track in ir.visual_tracks):
         raise EditorError("NOT_FOUND", f"画面轨道 {track_id!r} 不存在", recoverable=False)
@@ -2527,10 +2552,18 @@ def _cmd_move_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
     for _audio_index, audio_clip in linked:
         _ensure_audio_lane_unlocked(ir, str(audio_clip.track_id or f"audio-{audio_clip.type.value}"))
 
-    ir.visual_overlays[index] = clip.model_copy(update={"start": round(start, 3), "track_id": track_id})
+    ir.visual_overlays[index] = clip.model_copy(update={
+        "start": round(start, 6), "duration": round(duration, 6), "track_id": track_id,
+    })
     changed = [f"visual-overlay:{clip.id}"]
     for audio_index, audio_clip in linked:
-        ir.audio[audio_index] = audio_clip.model_copy(update={"start": round(start, 3)})
+        ir.audio[audio_index] = audio_clip.model_copy(update={
+            "start": round(start, 6),
+            "duration": round(duration, 6),
+            "source_out": round(float(audio_clip.source_in) + duration, 6),
+            "fadeIn": min(max(0.0, float(audio_clip.fadeIn or 0.0)), duration),
+            "fadeOut": min(max(0.0, float(audio_clip.fadeOut or 0.0)), duration),
+        })
         changed.append(f"audio:{audio_clip.type.value}:{audio_index}")
     stale = [f"visual-overlay:{clip.id}:render", "project:visual-overlays:render", "project:preview"]
     if linked:
@@ -2550,8 +2583,13 @@ def _cmd_trim_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
         raise EditorError("INVALID_PAYLOAD", "trim_visual_overlay 需要数字 start/sourceIn/duration") from exc
     if not all(math.isfinite(v) for v in (start, source_in, duration)):
         raise EditorError("INVALID_PARAMETER", "覆盖层裁剪参数必须为有限数字")
-    if start < 0 or source_in < 0 or duration < 0.05 or start + duration > float(ir.project.duration) + 1e-6:
+    if start < 0 or source_in < 0 or duration < 0.05:
         raise EditorError("INVALID_PARAMETER", "覆盖层裁剪区间无效或超出项目时长")
+    start = _project_frame_time(ir, start)
+    source_in = _project_frame_time(ir, source_in)
+    duration = _project_frame_time(ir, duration)
+    if duration < _project_frame_min_duration(ir) - 1e-6 or start + duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "覆盖层裁剪区间按项目帧率对齐后无效或超出项目时长")
     if source_in != clip.source_in or duration != clip.duration:
         asset = next((item for item in ir.assets if item.id == clip.asset_id), None)
         if asset and asset.type == "video":
@@ -2576,15 +2614,15 @@ def _cmd_trim_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) -
             )
 
     ir.visual_overlays[index] = clip.model_copy(update={
-        "start": round(start, 3), "source_in": round(source_in, 3), "duration": round(duration, 3),
+        "start": round(start, 6), "source_in": round(source_in, 6), "duration": round(duration, 6),
     })
     changed = [f"visual-overlay:{clip.id}"]
     for audio_index, audio_clip in linked:
         audio_update = {
-            "start": round(start, 3),
-            "source_in": round(source_in, 3),
-            "source_out": round(source_in + duration, 3),
-            "duration": round(duration, 3),
+            "start": round(start, 6),
+            "source_in": round(source_in, 6),
+            "source_out": round(source_in + duration, 6),
+            "duration": round(duration, 6),
             "fadeIn": min(max(0.0, float(audio_clip.fadeIn or 0.0)), duration),
             "fadeOut": min(max(0.0, float(audio_clip.fadeOut or 0.0)), duration),
         }
@@ -2609,23 +2647,26 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
     except (TypeError, ValueError) as exc:
         raise EditorError("INVALID_PAYLOAD", "split_visual_overlay 需要数字 at") from exc
 
-    start = float(clip.start)
-    end = start + float(clip.duration)
-    minimum_half = 0.05
-    if not math.isfinite(at) or at <= start + minimum_half or at >= end - minimum_half:
+    if not math.isfinite(at):
+        raise EditorError("INVALID_PARAMETER", "切分播放头必须是有限数字")
+    start = _project_frame_time(ir, float(clip.start))
+    end = _project_frame_time(ir, float(clip.start) + float(clip.duration))
+    split_at = _project_frame_time(ir, at)
+    minimum_half = _project_frame_min_duration(ir)
+    if split_at <= start + minimum_half - 1e-6 or split_at >= end - minimum_half + 1e-6:
         raise EditorError(
             "SPLIT_OUTSIDE_CLIP",
-            "切分播放头必须位于叠加片段内部，且切分两侧至少保留 0.05 秒",
+            "切分播放头按项目帧率对齐后必须位于片段内部，且两侧各保留至少 0.05 秒",
         )
-    split_at = round(at, 3)
-    left_duration = split_at - start
-    right_duration = end - split_at
-    if left_duration < minimum_half or right_duration < minimum_half:
+    left_duration = round(split_at - start, 6)
+    right_duration = round(end - split_at, 6)
+    if left_duration < minimum_half - 1e-6 or right_duration < minimum_half - 1e-6:
         raise EditorError("SPLIT_OUTSIDE_CLIP", "切分后两侧片段都必须至少保留 0.05 秒")
 
     asset = next((item for item in ir.assets if item.id == clip.asset_id), None)
     is_video = bool(asset and str(getattr(asset.type, "value", asset.type)).lower() == "video")
-    right_source_in = float(clip.source_in) + left_duration if is_video else float(clip.source_in)
+    source_in = _project_frame_time(ir, float(clip.source_in))
+    right_source_in = round(source_in + left_duration, 6) if is_video else source_in
     if is_video and asset:
         source_duration = float(asset.duration or 0.0)
         if source_duration > 0 and right_source_in + right_duration > source_duration + 0.05:
@@ -2643,10 +2684,12 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
                 "关联原声音轨包含关键帧自动化；请先解除链接再切分，避免丢失音量曲线",
             )
 
-    left = clip.model_copy(update={"duration": left_duration})
+    left = clip.model_copy(update={
+        "start": round(start, 6), "duration": left_duration, "source_in": source_in,
+    })
     right = clip.model_copy(update={
         "id": f"overlay-{uuid.uuid4().hex[:12]}",
-        "start": split_at,
+        "start": round(split_at, 6),
         "duration": right_duration,
         "source_in": right_source_in,
     })
@@ -2667,12 +2710,12 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
                 updated_audio.append(audio_clip)
                 continue
             left_audio_index = len(updated_audio)
-            audio_source_in = float(clip.source_in)
+            audio_source_in = source_in
             source_boundary = audio_source_in + left_duration
             old_fade_in = max(0.0, float(audio_clip.fadeIn or 0.0))
             old_fade_out = max(0.0, float(audio_clip.fadeOut or 0.0))
             left_audio = audio_clip.model_copy(update={
-                "start": round(start, 3),
+                "start": round(start, 6),
                 "duration": left_duration,
                 "source_in": audio_source_in,
                 "source_out": source_boundary,
@@ -2683,7 +2726,7 @@ def _cmd_split_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) 
             })
             right_audio = audio_clip.model_copy(update={
                 "id": f"audio-{uuid.uuid4().hex[:12]}",
-                "start": split_at,
+                "start": round(split_at, 6),
                 "duration": right_duration,
                 "source_in": right_source_in,
                 "source_out": right_source_in + right_duration,
