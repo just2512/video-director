@@ -702,11 +702,12 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}/"
-    recording_started = time.monotonic()
+    recording_started = None
     animation_started = None
     webm_path = None
     try:
-        entry_url = base_url + "/".join(__import__("urllib.parse", fromlist=["quote"]).quote(part) for part in PurePosixPath(runtime["source_entry"]).parts)
+        from urllib.parse import quote
+        entry_url = base_url + "/".join(quote(part) for part in PurePosixPath(runtime["source_entry"]).parts)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
             try:
@@ -715,7 +716,9 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
                     device_scale_factor=1,
                     record_video={"dir": str(record_dir), "size": {"width": width, "height": height}},
                 )
+                recording_started = time.monotonic()
                 page = context.new_page()
+                video = page.video
                 page.route("**/*", lambda route: route.continue_() if (
                     urlsplit(route.request.url).scheme == "http"
                     and urlsplit(route.request.url).hostname == "127.0.0.1"
@@ -753,8 +756,9 @@ def render_html_template_sample(template: Any, output_root: Path | None = None) 
                 animation_started = time.monotonic()
                 page.evaluate("window.__vdHtmlUnfreeze?.()")
                 page.wait_for_timeout(int(duration * 1000))
-                webm_path = Path(page.video.path())
+                page.close()
                 context.close()
+                webm_path = Path(video.path())
             finally:
                 browser.close()
         if not webm_path or not webm_path.is_file() or webm_path.stat().st_size < 1024:
