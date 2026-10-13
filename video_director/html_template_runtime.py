@@ -464,18 +464,7 @@ def _manifest_path(runtime: dict) -> Path:
         raise HtmlTemplateError("PACKAGE_PATH_ESCAPE", "模板包目录超出受信任根目录") from exc
     if not package_dir.is_dir():
         raise HtmlTemplateError("PACKAGE_NOT_FOUND", "模板包文件目录不存在；请重新导入模板 ZIP")
-    entry = _safe_rel(runtime.get("source_entry"), "source_entry")
-    source = (package_dir / entry).resolve()
-    try:
-        source.relative_to(package_dir)
-    except ValueError as exc:
-        raise HtmlTemplateError("SOURCE_ENTRY_ESCAPE", "HTML 入口路径超出模板包目录") from exc
-    if not source.is_file():
-        raise HtmlTemplateError("SOURCE_ENTRY_MISSING", f"HTML 入口不存在：{entry}")
-    manifest_file = package_dir / "template.html-video.yaml"
-    if not manifest_file.is_file() or _sha256_file(manifest_file) != runtime.get("manifest_sha256"):
-        raise HtmlTemplateError("PACKAGE_FINGERPRINT_STALE", "模板 manifest 已变化；运行前门禁拒绝使用未验证版本")
-    return source
+    return _manifest_path_for_record(runtime, package_dir)
 
 
 def html_template_runtime_report_from_record(record: dict, package_dir: Path) -> dict:
