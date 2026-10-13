@@ -236,6 +236,8 @@ _ACTIONS: List[ActionSpec] = [
                aliases=["拆开", "切成两半"]),
     ActionSpec("ui.split_layer", "切分片段", "system.capabilities.list", "noop",
                targets=["project", "scene", "layer"], undo=False, ui="split_layer"),
+    ActionSpec("ui.lift_layer_to_playhead", "主画面片段移到播放头", "system.capabilities.list", "noop",
+               targets=["project", "scene", "layer"], undo=False, ui="lift_layer_to_playhead"),
     ActionSpec("ui.add_edit_all_tracks", "添加编辑（全轨）", "system.capabilities.list", "noop",
                targets=["project", "scene", "layer"], undo=False, ui="add_edit_all_tracks"),
     ActionSpec("timeline.delete", "删除", "timeline.delete", "delete",

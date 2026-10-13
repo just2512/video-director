@@ -1726,6 +1726,60 @@ async function editorSplitSelectedLayer(){
   else editorToast('切分未完成：' + ((result && result.error) || '请把播放头放在片段内部'), true);
 }
 
+/** Place the selected main-picture clip at the playhead on an independent visual track.
+ * This converts the selected scene layer to a global visual clip, retaining an explicit
+ * gap at its old position. The server validates effects/source windows and preserves
+ * any linked original audio as part of the same CompositionIR revision.
+ */
+async function editorLiftSelectedLayerToPlayhead(){
+  const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
+  if (!selection || selection.type !== 'layer' || !selection.id) {
+    editorToast('先选中主画面中的视频/图片片段，再把播放头移到目标起点。', true);
+    return {ok:false, error:'NO_LAYER_SELECTION'};
+  }
+  const parts = String(selection.id).split('#');
+  const sceneId = parts[0];
+  const layerIndex = parts.length === 2 ? Number.parseInt(parts[1], 10) : NaN;
+  const scene = (ED.comp && ED.comp.scenes || []).find(item => item.id === sceneId);
+  const layer = scene && Number.isInteger(layerIndex) ? scene.layers[layerIndex] : null;
+  if (!layer || !['video', 'image'].includes(String(layer.type || '').toLowerCase())) {
+    editorToast('只有主画面中的视频或静态图片可以移到独立画面轨道；动态效果会由服务端检查。', true);
+    return {ok:false, error:'UNSUPPORTED_LAYER'};
+  }
+  const start = Number(PLAYHEAD && PLAYHEAD.at);
+  const duration = Number(layer.duration);
+  const total = Number((ED.comp && ED.comp.duration) || (ED.comp && ED.comp.project && ED.comp.project.duration));
+  if (!Number.isFinite(start) || start < 0 || !Number.isFinite(duration) || duration <= 0 ||
+      !Number.isFinite(total) || total <= 0) {
+    editorToast('播放头或片段时长无效，项目未修改。', true);
+    return {ok:false, error:'INVALID_TIMELINE_RANGE'};
+  }
+  if (start + duration > total + 0.001) {
+    editorToast('片段放到此处会超出项目片长；请将播放头移到 ' +
+      Math.max(0, total - duration).toFixed(2) + 's 之前。项目未修改。', true);
+    return {ok:false, error:'INVALID_TIMELINE_RANGE'};
+  }
+  let result;
+  try {
+    result = await executeCommand({
+      command: 'promote_layer_to_visual_track',
+      targetId: selection.id,
+      payload: {start: Math.round(start * 1000) / 1000}
+    });
+  } catch (error) {
+    editorToast('片段未移动：' + (error && error.message ? error.message : error), true);
+    return {ok:false, error:String(error)};
+  }
+  if (result && result.ok) {
+    editorToast('片段已放到 ' + start.toFixed(2) +
+      's 的独立画面轨道；原位置保留空隙，现在可以独立移动、修剪和切分。');
+    if (typeof refreshWorkspace === 'function') await refreshWorkspace();
+  } else {
+    editorToast('片段未移动：' + ((result && (result.error || result.message)) || '服务端拒绝此次转换'), true);
+  }
+  return result || {ok:false, error:'EMPTY_RESULT'};
+}
+
 async function editorAddEditAllTracks(){
   const at = Number(PLAYHEAD && PLAYHEAD.at);
   if (!Number.isFinite(at) || at < 0) {
@@ -1750,7 +1804,7 @@ Object.assign(window, {
   edClearSelection, edSelectedCount,
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
-  editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer, editorAddEditAllTracks,
+  editorRenderTimeline, tlToggleGroup, editorSplitSelectedLayer, editorLiftSelectedLayerToPlayhead, editorAddEditAllTracks,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
   editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackMenu, editorAudioTrackMenuClose,
   editorAudioTrackApplyName, editorAudioTrackRemove,
