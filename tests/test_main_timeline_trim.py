@@ -8,7 +8,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from video_director import editor, renderer
-from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+from video_director.models import AssetRef, AudioTrack, AudioTrackType, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
 
 
 _PNG = (
@@ -17,7 +17,7 @@ _PNG = (
 )
 
 
-def _project(tmp_path: Path, monkeypatch, *, with_gap: bool = False, real_video: bool = False):
+def _project(tmp_path: Path, monkeypatch, *, with_gap: bool = False, real_video: bool = False, with_original_audio: bool = False):
     root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(root))
     project_id = "main-trim-gap" if with_gap else "main-trim-no-gap"
@@ -58,13 +58,38 @@ def _project(tmp_path: Path, monkeypatch, *, with_gap: bool = False, real_video:
             ),
             Layer(type=LayerType.image, asset_id="still", start=4.0, duration=6.0),
         ]
+    audio = []
+    if with_original_audio:
+        audio = [
+            AudioTrack(
+                type=AudioTrackType.original,
+                id="original-source-audio",
+                asset_id="source-video",
+                start=0.0,
+                duration=4.0,
+                source_in=2.0,
+                source_out=6.0,
+                speed=1.0,
+                follows_scene_video=True,
+            ),
+            AudioTrack(
+                type=AudioTrackType.bgm,
+                id="independent-background-music",
+                asset_id="bgm",
+                start=0.25,
+                duration=8.0,
+                volume=0.4,
+            ),
+        ]
     ir = CompositionIR(
         project=ProjectSpec(width=160, height=90, fps=10, duration=10.0),
         scenes=[SceneIR(id="S01", start=0.0, duration=10.0, text="trim contract", layers=layers)],
+        audio=audio,
         assets=[
             AssetRef(id="source-video", type="video", file=str(source), duration=8.0,
                      width=160, height=90, fps=10),
             AssetRef(id="still", type="image", file=str(still), width=1, height=1),
+            AssetRef(id="bgm", type="audio", file=str(tmp_path / "bgm.wav"), duration=12.0),
         ],
     )
     editor.save_composition(project_id, ir)
@@ -238,4 +263,17 @@ def test_left_edge_gap_is_present_in_a_real_decodable_mp4(tmp_path, monkeypatch)
     assert video_rgb[0] > 140 and video_rgb[1] < 90 and video_rgb[2] < 90, (
         f"trimmed source should begin after the explicit gap, got RGB={video_rgb}"
     )
+
+def test_left_edge_trim_resyncs_linked_original_audio_but_preserves_independent_bgm(tmp_path, monkeypatch):
+    project_id, _plans = _project(tmp_path, monkeypatch, with_original_audio=True)
+    result = _trim(project_id, 0, 3.0, 6.0)
+    assert result.status == "APPLIED", result.errors
+
+    ir = editor.load_composition(project_id)
+    original = next(track for track in ir.audio if track.type == AudioTrackType.original)
+    bgm = next(track for track in ir.audio if track.type == AudioTrackType.bgm)
+    assert (original.start, original.duration, original.source_in, original.source_out) == (
+        1.0, 3.0, 3.0, 6.0
+    )
+    assert (bgm.start, bgm.duration, bgm.volume) == (0.25, 8.0, 0.4)
 
