@@ -1100,11 +1100,17 @@ def _cmd_add_edit_all_tracks(
     project_duration = float(ir.project.duration)
     if not math.isfinite(at) or at < 0 or at > project_duration:
         raise EditorError("INVALID_PARAMETER", "播放头时间超出项目范围；项目未修改")
+    # One exact frame boundary must be shared by all split handlers below.
+    # Otherwise the base picture, overlays, audio clips, and watermarks can
+    # land on different times for a sub-frame playhead position.
+    at = _project_frame_time(ir, at)
+    if at > project_duration + 1e-6:
+        raise EditorError("INVALID_PARAMETER", "播放头对齐到项目帧后超出项目范围；项目未修改")
 
     changed: List[str] = []
     stale: List[str] = []
     warnings: List[str] = []
-    min_video_piece = max(0.05, 1.0 / max(1, int(ir.project.fps)))
+    min_video_piece = _project_frame_min_duration(ir)
 
     # Main picture: SceneIR still owns the base picture edit. A valid scene has
     # contiguous layers, therefore at most one base layer per scene spans this cut.
@@ -1219,9 +1225,10 @@ def _cmd_split_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
         raise EditorError("INVALID_PAYLOAD", "split_layer 需要播放头绝对时间 at") from exc
     if not math.isfinite(at):
         raise EditorError("INVALID_PAYLOAD", "切分时间必须是有限数字")
+    at = _project_frame_time(ir, at)
     layer_start = float(scene.start) + float(layer.start)
     offset = at - layer_start
-    min_piece = max(0.05, 1.0 / max(1, int(ir.project.fps)))
+    min_piece = _project_frame_min_duration(ir)
     if offset <= min_piece or layer.duration - offset <= min_piece:
         raise EditorError(
             "SPLIT_OUTSIDE_CLIP",
@@ -3615,20 +3622,19 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
         raise EditorError("INVALID_PAYLOAD", "split_audio_clip 需要数字 at") from exc
     if not math.isfinite(at):
         raise EditorError("INVALID_PARAMETER", "切分播放头必须是有限时间")
+    split_at = _project_frame_time(ir, at)
     start = float(track.start)
     duration = float(track.duration)
     end = start + duration
     minimum_half = 0.05
-    if at <= start + minimum_half or at >= end - minimum_half:
+    if split_at <= start + minimum_half or split_at >= end - minimum_half:
         raise EditorError(
             "SPLIT_OUTSIDE_CLIP",
-            "切分播放头必须位于音频片段内部，且切分两侧至少保留 0.05 秒",
+            "播放头按项目帧率对齐后必须位于音频片段内部，且切分两侧至少保留 0.05 秒",
         )
 
-    # Snap only the requested cut point. Derive both output durations from
-    # that single boundary and the original endpoints; rounding both durations
-    # independently can create a gap/overlap for sub-millisecond source IR.
-    split_at = round(at, 3)
+    # All clip types use the same project-frame boundary. Derive both halves
+    # from that one timestamp; never round it independently to milliseconds.
     left_duration = split_at - start
     right_duration = end - split_at
     if left_duration < minimum_half or right_duration < minimum_half:

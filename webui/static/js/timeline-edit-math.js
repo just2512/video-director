@@ -2,6 +2,17 @@
 (function installTimelineEditMath(root) {
   "use strict";
 
+  function projectFrameTime(value, fps) {
+    const time = Number(value);
+    const rate = Number(fps);
+    if (!Number.isFinite(time) || time < 0 || !Number.isFinite(rate) || rate <= 0) {
+      throw new TypeError("projectFrameTime requires a finite non-negative time and positive fps");
+    }
+    const frameRate = Math.max(1, Math.trunc(rate));
+    const frames = Math.floor(time * frameRate + 0.5);
+    return Math.round((frames / frameRate) * 1000000) / 1000000;
+  }
+
   function trimEndDelta(options) {
     const delta = Number(options.delta);
     const start = Number(options.start);
@@ -89,6 +100,6 @@
   }
 
   root.TimelineEditMath = Object.freeze({
-    trimEndDelta, splitOverlappingTrack, visualOverlayStackingZIndex
+    projectFrameTime, trimEndDelta, splitOverlappingTrack, visualOverlayStackingZIndex
   });
 })(typeof window !== "undefined" ? window : globalThis);

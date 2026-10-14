@@ -137,8 +137,13 @@ def test_split_audio_clip_keeps_nonlooping_source_window_when_source_out_is_impl
     result = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.25})
     assert result.status == "APPLIED", result.errors
     left, right = load_composition(pid).audio[1:]
-    assert (left.start, left.duration, left.source_in, left.source_out) == (5.0, 1.25, 0.0, None)
-    assert (right.start, right.duration, right.source_in, right.source_out) == (6.25, 0.75, 1.25, None)
+    expected_cut = round(188 / 30, 6)
+    assert left.start == 5.0 and left.source_in == 0.0 and left.source_out is None
+    assert abs(left.duration - (expected_cut - 5.0)) < 1e-6
+    assert abs(right.start - expected_cut) < 1e-6
+    assert abs(right.duration - (7.0 - expected_cut)) < 1e-6
+    assert abs(right.source_in - (expected_cut - 5.0)) < 1e-6
+    assert right.source_out is None
 
 
 def test_split_looping_bgm_without_explicit_source_window_is_rejected_without_revision(tmp_path, monkeypatch):
@@ -167,7 +172,10 @@ def test_split_narration_track_is_rejected_until_renderer_supports_segmented_nar
 
 def test_split_audio_clip_rejects_playhead_outside_interior_and_stale_version(tmp_path, monkeypatch):
     pid, plan_dir = _audio_project(tmp_path, monkeypatch)
-    too_early = _apply(pid, "split_audio_clip", "audio#1", {"at": 5.05})
+    # 30fps 下 5.04s 对齐到第 151 帧（5.0333s），仍落在片段头部 0.05s 保护区
+    # 内 → REJECTED。旧值 5.05 恰好踩在保护边界，帧时钟对齐后被推向内部，
+    # 从"边界外拒绝"变成"内部合法切点"（PR #82 语义），故改为保护区内的值。
+    too_early = _apply(pid, "split_audio_clip", "audio#1", {"at": 5.04})
     assert too_early.status == "REJECTED"
     assert too_early.errors[0]["code"] == "SPLIT_OUTSIDE_CLIP"
     stale = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.0}, version=2)
