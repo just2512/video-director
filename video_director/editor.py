@@ -385,6 +385,11 @@ def _record_behavior_if_applicable(cmd_name: str, command: dict) -> None:
 # ---------------------------------------------------------------------------
 
 #: 第一版命令集（全局契约 §29 Timeline Interaction + Task Card §11/§20）
+#: 统一编辑切点契约：入口集中 snap 的例外名单。payload 的 at/start 不属于
+#: 项目时间轴坐标系（或语义上必须保留原值）的命令在此登记。目前为空——
+#: 所有用 at/start 的命令都是项目时间轴语义。
+_NO_FRAME_SNAP_COMMANDS: frozenset = frozenset()
+
 SUPPORTED_COMMANDS = (
     "select",                    # 无副作用（前端选择态，服务端不记 revision）
     "trim",                      # layer 时长调整（视频层 source 区间变化）
@@ -449,6 +454,7 @@ SUPPORTED_COMMANDS = (
     "set_visual_transform",       # 结构化层变换（x/y/scale/rotation/opacity/anchor）
     "add_keyframe",               # 层属性关键帧（§23 KeyframeTrack）
     "remove_keyframe",            # 删关键帧
+    "join_through_edits",         # 愈合同源连续切口（filmcraft Join Through Edits）
     "apply_mask",                 # 几何蒙版（§20 Mask）
     "remove_mask",                # 移除蒙版
     # ---- Frontend Unification §14/§15/§16（camera/pip/morph 执行链）----
@@ -583,6 +589,30 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     if cmd_name == "select":
         # selection 是前端 transient 态（§35），不产生 revision
         return CommandResult(status="APPLIED", composition_version=composition_version(project_id))
+    # 统一编辑切点契约（filmcraft 整数 Tick 精神的防御层）：所有携带时间轴
+    # payload 的命令在入口先 snap 到项目帧钟。各命令内部的 _project_frame_time
+    # 保留（幂等）作为语义兜底；此集中层消灭"新命令忘 snap"的漏网类。
+    # 素材源时间（sourceIn/sourceOut）不在此 snap——源时间轴与项目帧钟是
+    # 两个坐标系，由各命令自行决定源窗口换算。
+    payload_in = command.get("payload")
+    if isinstance(payload_in, dict) and cmd_name not in _NO_FRAME_SNAP_COMMANDS:
+        needs_snap = any(
+            isinstance(payload_in.get(key), (int, float))
+            and not isinstance(payload_in.get(key), bool)
+            and math.isfinite(payload_in.get(key))
+            for key in ("at", "start")
+        )
+        if needs_snap:
+            ir_probe = load_composition(project_id)
+            new_payload = dict(payload_in)
+            for key in ("at", "start"):
+                raw_time = new_payload.get(key)
+                if (
+                    isinstance(raw_time, (int, float)) and not isinstance(raw_time, bool)
+                    and math.isfinite(raw_time)
+                ):
+                    new_payload[key] = _project_frame_time(ir_probe, float(raw_time))
+            command["payload"] = new_payload
     expected = command.get("expectedVersion")
     current = composition_version(project_id)
     if expected is not None:
@@ -757,6 +787,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_add_keyframe(ir, target_id, payload)
         elif cmd_name == "remove_keyframe":
             changed, stale = _cmd_remove_keyframe(ir, target_id, payload)
+        elif cmd_name == "join_through_edits":
+            changed, stale = _cmd_join_through_edits(ir, target_id, payload)
         elif cmd_name == "apply_mask":
             changed, stale = _cmd_apply_mask(ir, target_id, payload)
         elif cmd_name == "remove_mask":
@@ -1261,6 +1293,124 @@ def _cmd_split_layer(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[
     scene_data["layers"] = [item.model_dump() for item in normalized]
     ir.scenes[si] = SceneIR(**scene_data)
     return [f"{scene.id}#{idx}", f"{scene.id}#{idx + 1}"], _stale_of_scene(project_id="", scene_id=scene.id)
+
+
+def _cmd_join_through_edits(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """愈合切口（filmcraft Join Through Edits 的 video-director 版）。
+
+    split/add_edit_all_tracks 在同源素材内部切开时，两侧片段在素材时间轴上
+    首尾相接（左段 source_out == 右段 source_in）。此命令把这样一对相邻段
+    合回一段；左段属性胜出（filmcraft 语义），右段时间并入左段。
+
+    targetId 支持 "S01#3"（主画面层）、"visual-overlay:<id>"、
+    "audio#<index>"。切口容差 = 2ms + speed 取整补偿（filmcraft MEDIA_SLACK）。
+    """
+    if target_id.startswith("overlay#") or target_id.startswith("visual-overlay:"):
+        # split_visual_overlay 用 overlay#<index>；前端选中态用 visual-overlay:<id>。
+        # 两种都收——join 与 split 的 targetId 合同保持一致。
+        if target_id.startswith("overlay#"):
+            index = _visual_overlay_index(ir, target_id)
+        else:
+            overlay_id = target_id.split(":", 1)[1]
+            matches = [i for i, c in enumerate(ir.visual_overlays) if c.id == overlay_id]
+            if not matches:
+                raise EditorError("NOT_FOUND", f"画面片段 {overlay_id!r} 不存在", recoverable=False)
+            index = matches[0]
+        clip = ir.visual_overlays[index]
+        _ensure_visual_track_unlocked(ir, str(clip.track_id or "overlay-main"))
+        track_id = str(clip.track_id or "overlay-main")
+        same_track = sorted(
+            [c for c in ir.visual_overlays if str(c.track_id or "overlay-main") == track_id],
+            key=lambda c: float(c.start),
+        )
+        left = next((c for c in same_track if c.id != clip.id
+                     and abs(float(c.start) + float(c.duration) - float(clip.start)) < 1e-6), None)
+        right = next((c for c in same_track if c.id != clip.id
+                      and abs(float(clip.start) + float(clip.duration) - float(c.start)) < 1e-6), None)
+        if left is None and right is None:
+            raise EditorError("NOT_FOUND", "相邻时间位置上没有可愈合的片段")
+        a, b = (left, clip) if left is not None else (clip, right)
+        speed_a = float(a.speed or 1.0)
+        if a.asset_id != b.asset_id or abs(speed_a - float(b.speed or 1.0)) > 1e-9:
+            raise EditorError("INVALID_TARGET", "两段不是同素材同速度，不能愈合")
+        # VisualOverlayClip 无 source_out 字段：源终点按 source_in+duration×speed
+        # 推导（与渲染层同式），连续性 = 左段推导终点对上右段 source_in。
+        a_source_end = float(a.source_in) + float(a.duration) * speed_a
+        if abs(float(b.source_in) - a_source_end) > 0.002 + speed_a * 1e-3:
+            raise EditorError("INVALID_TARGET", "两段素材源区间不连续，不是切口")
+        merged = a.model_copy(update={
+            "duration": round(float(a.duration) + float(b.duration), 6),
+        })
+        ir.visual_overlays = [c for c in ir.visual_overlays if c.id not in (a.id, b.id)] + [merged]
+        return [f"visual-overlay:{a.id}"], [f"visual-overlay:{a.id}:render", f"visual-overlay:{b.id}:render"]
+
+    if target_id.startswith("audio#"):
+        index = _audio_clip_index(ir, target_id)
+        track = ir.audio[index]
+        _ensure_audio_lane_unlocked(ir, str(track.track_id or f"audio-{track.type.value}"))
+        same_type = sorted(
+            [t for t in ir.audio if t.type == track.type and t.id != track.id],
+            key=lambda t: float(t.start),
+        )
+        left = next((t for t in same_type
+                     if abs(float(t.start) + float(t.duration) - float(track.start)) < 1e-6), None)
+        right = next((t for t in same_type
+                      if abs(float(track.start) + float(track.duration) - float(t.start)) < 1e-6), None)
+        if left is None and right is None:
+            raise EditorError("NOT_FOUND", "相邻时间位置上没有可愈合的音频片段")
+        a, b = (left, track) if left is not None else (track, right)
+        speed_a = float(getattr(a, "speed", 1.0) or 1.0)
+        if (a.asset_id != b.asset_id or a.source_out is None
+                or abs(float(b.source_in or 0.0) - float(a.source_out)) > 0.05):
+            raise EditorError("INVALID_TARGET", "两段素材源区间不连续，不是切口")
+        if abs(speed_a - float(getattr(b, "speed", 1.0) or 1.0)) > 1e-9:
+            raise EditorError("INVALID_TARGET", "两段速度不同，不能愈合")
+        merged = a.model_copy(update={
+            "duration": round(float(a.duration) + float(b.duration), 6),
+            "source_out": float(b.source_out) if b.source_out is not None else None,
+        })
+        merged_type = merged.type.value
+        a_index = next((i for i, t in enumerate(ir.audio) if t.id == a.id), 0)
+        b_index = next((i for i, t in enumerate(ir.audio) if t.id == b.id), a_index + 1)
+        ir.audio = [t for t in ir.audio if t.id not in (a.id, b.id)] + [merged]
+        # stale 键带 index（与其他音频命令同一契约：audio:<type>:<index>）
+        return (
+            [f"audio:{merged_type}:{a_index}"],
+            [f"audio:{merged_type}:{a_index}:render", f"audio:{merged_type}:{b_index}:render",
+             "project:audio-tracks"],
+        )
+
+    si, scene, idx, layer = _find_layer_with_scene_index(ir, target_id)
+    _ensure_layer_unlocked(layer)
+    if idx + 1 >= len(scene.layers):
+        raise EditorError("NOT_FOUND", "该片段右侧没有相邻片段")
+    right_l = scene.layers[idx + 1]
+    if right_l.type != layer.type or right_l.asset_id != layer.asset_id:
+        raise EditorError("INVALID_TARGET", "右侧片段不是同类型同素材，不能愈合")
+    speed_l = float(layer.speed or 1.0)
+    speed_r = float(right_l.speed or 1.0)
+    if abs(speed_l - speed_r) > 1e-9:
+        raise EditorError("INVALID_TARGET", "两段速度不同，不能愈合")
+    if layer.type == LayerType.video:
+        if layer.source_out is None or abs(float(right_l.source_in) - float(layer.source_out)) > 0.002 + speed_l * 1e-3:
+            raise EditorError("INVALID_TARGET", "两段素材源区间不连续，不是切口")
+        merged = layer.model_copy(update={
+            "duration": float(layer.duration) + float(right_l.duration),
+            "source_out": float(right_l.source_out),
+        })
+    else:
+        merged = layer.model_copy(update={"duration": float(layer.duration) + float(right_l.duration)})
+    layers = list(scene.layers)
+    layers[idx:idx + 2] = [merged]
+    cursor = 0.0
+    normalized = []
+    for item in layers:
+        normalized.append(item.model_copy(update={"start": round(cursor, 6)}))
+        cursor += float(item.duration)
+    scene_data = scene.model_dump()
+    scene_data["layers"] = [item.model_dump() for item in normalized]
+    ir.scenes[si] = SceneIR(**scene_data)
+    return [f"{scene.id}#{idx}"], _stale_of_scene(project_id="", scene_id=scene.id)
 
 
 def _cmd_trim(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:

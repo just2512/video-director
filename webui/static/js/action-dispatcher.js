@@ -35,6 +35,7 @@ function _dispatchParams(el){
 const UI_BEHAVIORS = {
   undo: () => (typeof editorUndo === 'function' && editorUndo()),
   split_layer: () => (typeof editorSplitSelectedLayer === 'function' && editorSplitSelectedLayer()),
+  join_through_edits: () => (typeof editorJoinThroughEdits === 'function' && editorJoinThroughEdits()),
   edit_visual_overlay: () => (typeof editorEditSelectedVisualOverlay === 'function' && editorEditSelectedVisualOverlay()),
   lift_layer_to_playhead: () => (typeof editorLiftSelectedLayerToPlayhead === 'function' && editorLiftSelectedLayerToPlayhead()),
   add_edit_all_tracks: () => (typeof editorAddEditAllTracks === 'function' && editorAddEditAllTracks()),

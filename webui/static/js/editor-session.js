@@ -121,6 +121,21 @@
 
     const ph = Number(window.PLAYHEAD && PLAYHEAD.at);
     if (Number.isFinite(ph)) candidates.push({time: ph, label: '播放头'});
+
+    // 剪映三类吸附吸收（v2 报告 §3）：片段边界候选——拖拽片段时磁贴对齐
+    // 邻块边缘/播放头，与播放头吸附共用同一套候选表与 Guide。
+    (c.visual_overlays || []).forEach((ov, i) => {
+      const s = Number(ov.start) || 0;
+      const e = s + (Number(ov.duration) || 0);
+      candidates.push({time: s, label: '画面片段起点', id: 'overlay:' + ov.id});
+      candidates.push({time: e, label: '画面片段终点', id: 'overlay:' + ov.id});
+    });
+    (c.audio || []).forEach((a, i) => {
+      const s = Number(a.start) || 0;
+      const e = s + (Number(a.duration) || 0);
+      candidates.push({time: s, label: '音频片段起点', id: 'audio:' + (a.id || i)});
+      candidates.push({time: e, label: '音频片段终点', id: 'audio:' + (a.id || i)});
+    });
     return {total, candidates};
   }
 

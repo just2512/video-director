@@ -27,6 +27,7 @@ UI_ONLY_PREFIXES = (
     "editorSelectScene(", "editorSelectLayer(", "editorSelectVisualOverlay(", "editorSemanticRerank(", "edSelect(", "selectScene(", "selectLayer(",
     "selectProject(", "selectScenePair(", "clearSelection(", "selectNarration(",
     "tlToggleGroup(", "pmPreviewFinal(", "pmPreviewLegacy(", "pmReopenFailed(",
+    "editorZoomTimeline(", "editorVisualOverlayPickSpeed(",  # 视图缩放/面板预填（最终落值走保存）
     "continueProject(", "pmAskDelete(", "pmAskRename(", "pmCloseModal(", "pmShowModal(",
     "reviewModeSelect(", "publishDetail(", "reviewLocate(", "reviewRecheck(",
     "reviewAskAI(", "reviewFixRelation(",  # 定位/预填（最终 apply 走 data-action）
