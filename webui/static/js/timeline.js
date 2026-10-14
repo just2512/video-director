@@ -264,6 +264,7 @@ function editorRenderTimeline(){
     _tlBindVisualOverlayDrag();
     _tlBindSubtitleCueDrag();
     _tlBindSceneDrag();
+    _tlBindWheelZoom();
     if (window.editorSessionBindTimeline) window.editorSessionBindTimeline();
   }
   document.dispatchEvent(new CustomEvent('editor:timeline-rendered'));
@@ -440,11 +441,22 @@ function renderPhysicalTimeline(){
           ? ` · 已关联画面片段 ${linkedOverlay.id}（移动/修剪/切分/删除会同步声音）`
           : ' · 画面关联丢失，需检查项目数据')
       : '';
+    // 音量包络线数据（剪映 SegmentKeyFrameAudioLine 吸收的最小可见版）：
+    // clip.keyframes[property=volume] 点表 → 前端只做映射（at→leftPct、
+    // volume→top%），渲染层不插值——插值归渲染器。
+    const volKfs = (a.keyframes || [])
+      .filter(kt => kt && kt.property === 'volume' && Array.isArray(kt.keyframes))
+      .flatMap(kt => kt.keyframes)
+      .filter(kf => kf && Number.isFinite(Number(kf.at)))
+      .map(kf => ({at: Math.max(0, Number(kf.at)), volume: Math.max(0, Math.min(2, Number(kf.value ?? 1) || 0))}))
+      .sort((x, y) => x.at - y.at);
     return {
       positioned: true, leftPct, pct, outOfRange: !inRange,
       text: label,
       title: `${label} · ${assetName} · ${start.toFixed(2)}–${end.toFixed(2)}s · ${gain}${edgeNote}${linkNote} · 点击打开该类型音轨设置`,
       audioIndex: (c.audio || []).indexOf(a),
+      volumeEnvelope: volKfs.length ? volKfs : null,
+      clipDuration: end - start,
       onclick
     };
   };
@@ -494,7 +506,12 @@ function renderPhysicalTimeline(){
           onclick="editorExpandMainTimelineToGlobalTrack(event)">展开为自由时间线</button>
       </div>`
     : "";
-  let html = `${expandToolbar}<div class="ed-tl-ruler"><span id="tl-playhead-label">${PLAYHEAD.at.toFixed(1)}s</span></div>
+  let html = `${expandToolbar}<div class="ed-tl-ruler"><span id="tl-playhead-label">${PLAYHEAD.at.toFixed(1)}s</span>
+    <span class="ed-tl-zoom" role="toolbar" aria-label="时间线缩放">
+      <button type="button" id="tl-zoom-out" class="btn-secondary btn-sm" title="缩小（Ctrl+滚轮也可缩放）" aria-label="缩小时间线" onclick="editorZoomTimeline(-1)">−</button>
+      <span id="tl-zoom-value" aria-live="polite">${Math.round((ED.zoom || 1) * 100)}%</span>
+      <button type="button" id="tl-zoom-in" class="btn-secondary btn-sm" title="放大（Ctrl+滚轮也可缩放）" aria-label="放大时间线" onclick="editorZoomTimeline(1)">＋</button>
+    </span></div>
     <div class="ed-tl-scroll"><div class="ed-tl-canvas" style="width:${canvasWidth}px">`;
   const trackRow = (t) => {
     const bodyInner = t.isSceneTrack
@@ -523,6 +540,23 @@ function renderPhysicalTimeline(){
           const thumbnailHtml = hasVisualOverlayIndex && cl.thumbnailUrl
             ? `<img class="ed-clip-thumb" src="${esc(cl.thumbnailUrl)}" alt="" loading="lazy" decoding="async"><span class="ed-track-clip-label">${esc(cl.text)}</span>`
             : esc(cl.text);
+          // 音量包络线（A5）：clip 内 SVG 折线，0–2 音量映射到 clip 高度。
+          // 关键帧用菱形点，播放语义见 title；不可拖动（编辑走 inspector）。
+          let envelopeHtml = '';
+          if (hasAudioIndex && Array.isArray(cl.volumeEnvelope) && cl.volumeEnvelope.length) {
+            const dur = Math.max(0.01, Number(cl.clipDuration) || 1);
+            const pts = cl.volumeEnvelope.map(k => {
+              const x = Math.max(0, Math.min(100, k.at / dur * 100));
+              const y = Math.max(0, Math.min(100, (1 - k.volume / 2) * 100));
+              return `${x},${y.toFixed(1)}`;
+            }).join(' ');
+            const dots = cl.volumeEnvelope.map(k => {
+              const x = Math.max(0, Math.min(100, k.at / dur * 100));
+              const y = Math.max(0, Math.min(100, (1 - k.volume / 2) * 100));
+              return `<circle cx="${x}%" cy="${y.toFixed(1)}%" r="3" class="ed-volume-kf-dot"></circle>`;
+            }).join('');
+            envelopeHtml = `<svg class="ed-volume-envelope" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" class="ed-volume-envelope-line"></polyline>${dots}</svg>`;
+          }
           const clickAttr = hasAudioIndex
             ? ` onclick="editorAudioClipOpen(${cl.audioIndex}, event)"`
             : (hasWatermarkIndex
@@ -532,7 +566,7 @@ function renderPhysicalTimeline(){
                     : (hasSubtitleCueIndex
                         ? ` onclick="editorSubtitleCueSelect(${cl.subtitleCueIndex}, event)"`
                         : (cl.onclick ? ` onclick="${cl.onclick}"` : ''))));
-          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}${selectedClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${subtitleCueAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${thumbnailHtml}</div>`;
+          return `<div class="ed-track-clip${t.readOnly ? ' tl-readonly' : ''}${outOfRangeClass}${clipClass}${selectedClass}" style="${style}"${audioAttr}${watermarkAttr}${visualOverlayAttr}${subtitleCueAttr}${cl.title ? ` title="${esc(cl.title)}"` : ''}${clickAttr}>${thumbnailHtml}${envelopeHtml}</div>`;
         }).join('');
     const kfHtml = (t.kfPoints || []).map(k =>
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
@@ -652,6 +686,95 @@ function _tlBindPlayheadDrag(){
     };
     document.addEventListener('pointerup', window.__tlPlayheadUp);
   }
+}
+
+// ---------------------------------------------------------------------------
+// §18 时间线缩放 + 拖拽边缘自动滚动（剪映 v2 报告 §4 吸收：每种拖拽一个
+// 自动滚动器；Ctrl+滚轮缩放以指针为锚；触控板二分 angleDelta 模式判别）
+// ---------------------------------------------------------------------------
+const TL_ZOOM_MIN = 0.25, TL_ZOOM_MAX = 8, TL_ZOOM_STEP = 1.25;
+const TL_AXIS_OFFSET = 98; // 与 renderPhysicalTimeline 的 90px 标签列 + 8px 轨距一致
+function editorZoomTimeline(direction, anchorClientX){
+  const prev = Number(ED.zoom) || 1;
+  const next = Math.max(TL_ZOOM_MIN, Math.min(TL_ZOOM_MAX, prev * (direction > 0 ? TL_ZOOM_STEP : 1 / TL_ZOOM_STEP)));
+  if (Math.abs(next - prev) < 1e-9) return;
+  const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
+  const total = Number(ED.comp && ED.comp.duration) || 1;
+  // 指针处的时间（精确映射：像素 = 轴偏移 + t/total × (视口宽-轴偏移)×zoom）
+  let anchorTime = total / 2;
+  if (scroll) {
+    const rect = scroll.getBoundingClientRect();
+    const inner = Math.max(1, (rect.width - TL_AXIS_OFFSET) * prev);
+    const px = scroll.scrollLeft + (Number.isFinite(anchorClientX) && anchorClientX >= rect.left
+      ? anchorClientX - rect.left : rect.width / 2);
+    anchorTime = Math.max(0, Math.min(total, (px - TL_AXIS_OFFSET) / inner * total));
+  }
+  ED.zoom = next;
+  const label = document.getElementById('tl-zoom-value');
+  if (label) label.textContent = Math.round(next * 100) + '%';
+  editorRenderTimeline();
+  // 新 scale 下把锚点时间放回指针位置
+  const live = document.querySelector('#editor-timeline .ed-tl-scroll');
+  if (live) {
+    const rect2 = live.getBoundingClientRect();
+    const inner2 = Math.max(1, (rect2.width - TL_AXIS_OFFSET) * next);
+    const anchorX = Number.isFinite(anchorClientX) && anchorClientX >= rect2.left
+      ? anchorClientX - rect2.left : rect2.width / 2;
+    live.scrollLeft = Math.max(0, TL_AXIS_OFFSET + anchorTime / total * inner2 - anchorX);
+  }
+}
+window.editorZoomTimeline = editorZoomTimeline;
+
+function _tlBindWheelZoom(){
+  const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
+  if (!scroll) return;
+  scroll.addEventListener('wheel', ev => {
+    // 触控板二分（剪映源码实证）：无修饰键且 angleDelta 非 120 倍数 = 触控板
+    // 双指平移 → 交给浏览器原生横向滚动；Ctrl+滚轮 = 缩放（以指针为锚）。
+    const deltaX = Math.abs(ev.deltaX || 0), deltaY = Math.abs(ev.deltaY || 0);
+    const trackpadPan = !ev.ctrlKey && !ev.metaKey && deltaY !== 0 && deltaY % 100 !== 0;
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      const dir = ev.deltaY < 0 ? 1 : -1;
+      editorZoomTimeline(dir, ev.clientX);
+      return;
+    }
+    if (trackpadPan && deltaX === 0) {
+      // 触控板双指上下平移在横向时间线上转成水平滚动
+      ev.preventDefault();
+      scroll.scrollLeft += ev.deltaY;
+    }
+  }, {passive: false});
+}
+
+/** 边缘自动滚动器（剪映 ScrollTimer 模式）：拖拽中指针进入可视边缘
+ *  40px 带内 → rAF 循环滚动并持续触发回调重算（拖拽增量随视口移动刷新）。
+ *  用法：drag 开始时 startEdgeAutoScroll(onScroll)；pointermove 里 feed
+ *  当前 clientX；pointerup/cancel 时 stopEdgeAutoScroll()。 */
+const _tlEdgeAutoScroll = {raf: 0, clientX: 0, onScroll: null};
+function _tlStartEdgeAutoScroll(onScroll){
+  _tlEdgeAutoScroll.onScroll = onScroll;
+  if (_tlEdgeAutoScroll.raf) cancelAnimationFrame(_tlEdgeAutoScroll.raf);
+  const step = () => {
+    const scroll = document.querySelector('#editor-timeline .ed-tl-scroll');
+    if (!scroll || !_tlEdgeAutoScroll.onScroll) { _tlEdgeAutoScroll.raf = 0; return; }
+    const rect = scroll.getBoundingClientRect();
+    const EDGE = 40;
+    let dx = 0;
+    if (_tlEdgeAutoScroll.clientX < rect.left + EDGE) dx = -Math.min(24, rect.left + EDGE - _tlEdgeAutoScroll.clientX);
+    else if (_tlEdgeAutoScroll.clientX > rect.right - EDGE) dx = Math.min(24, _tlEdgeAutoScroll.clientX - (rect.right - EDGE));
+    if (dx !== 0) {
+      scroll.scrollLeft += dx;
+      _tlEdgeAutoScroll.onScroll(dx);
+    }
+    _tlEdgeAutoScroll.raf = requestAnimationFrame(step);
+  };
+  _tlEdgeAutoScroll.raf = requestAnimationFrame(step);
+}
+function _tlFeedEdgeAutoScroll(clientX){ _tlEdgeAutoScroll.clientX = clientX; }
+function _tlStopEdgeAutoScroll(){
+  _tlEdgeAutoScroll.onScroll = null;
+  if (_tlEdgeAutoScroll.raf) { cancelAnimationFrame(_tlEdgeAutoScroll.raf); _tlEdgeAutoScroll.raf = 0; }
 }
 
 /** §17 层直接操作：拖动重排（跨场景）+ 边缘 Trim（层内裁剪）。
@@ -1278,9 +1401,30 @@ function _tlBindAudioClipDrag(){
   document.addEventListener('pointermove', ev => {
     const d = _audioClipDrag;
     if (!d || !d.el.isConnected) { _audioClipDrag = null; return; }
+    _tlFeedEdgeAutoScroll(ev.clientX);
     const dx = ev.clientX - d.startX;
     if (Math.abs(dx) <= 8 && !d.moved) return;
     d.moved = true;
+    if (!_tlEdgeAutoScroll.onScroll) {
+      // 边缘自动滚动（剪映 ScrollTimer）：指针停在边缘带内时滚动继续推进拖拽。
+      d._virtualX = ev.clientX;
+      _tlStartEdgeAutoScroll((dxStep) => {
+        const dd = _audioClipDrag;
+        if (!dd) return;
+        dd._virtualX = (dd._virtualX || dd.startX) + dxStep;
+        const body = dd.el.closest('.ed-track-body');
+        const width = body ? body.getBoundingClientRect().width : 0;
+        if (width <= 0) return;
+        const deltaPct = (dd._virtualX - dd.startX) / width * 100;
+        if (dd.mode === 'move') dd.el.style.left = (dd.baseLeft + deltaPct) + '%';
+        else if (dd.mode === 'trim-left') {
+          dd.el.style.left = (dd.baseLeft + deltaPct) + '%';
+          dd.el.style.width = Math.max(0.1, dd.baseWidth - deltaPct) + '%';
+        } else {
+          dd.el.style.width = Math.max(0.1, dd.baseWidth + deltaPct) + '%';
+        }
+      });
+    }
     d.el.classList.add('tl-dragging');
     const body = d.el.closest('.ed-track-body');
     const width = body ? body.getBoundingClientRect().width : 0;
@@ -1303,6 +1447,7 @@ function _tlBindAudioClipDrag(){
     const d = _audioClipDrag;
     if (!d) return;
     _audioClipDrag = null;
+    _tlStopEdgeAutoScroll();
     d.el.classList.remove('tl-dragging');
     if (!d.moved || !d.el.isConnected || !ED.comp) return;
     _audioClipSuppressClick = d.el;
@@ -1310,7 +1455,10 @@ function _tlBindAudioClipDrag(){
     const width = body ? body.getBoundingClientRect().width : 0;
     if (width <= 0) { editorRenderTimeline(); return; }
     const total = Number(ED.comp.duration) || 1;
-    const delta = (ev.clientX - d.startX) / width * total;
+    // 边缘自动滚动期间指针没动但视口在动：释放增量按虚拟坐标算，否则
+    // 自动滚动推进的部分会被丢弃。
+    const releaseX = Number.isFinite(d._virtualX) ? d._virtualX : ev.clientX;
+    const delta = (releaseX - d.startX) / width * total;
     // 统一编辑切点契约：音频拖拽/裁剪落到项目帧钟；素材源区间保持毫秒精度，
     // 由后端按帧钟对齐输出时长后反推 source_out。
     const round = value => (typeof editorProjectFrameTime === 'function')
@@ -1325,7 +1473,15 @@ function _tlBindAudioClipDrag(){
       const targetRow = hit && hit.closest ? hit.closest('.ed-track[data-audio-track-id]') : null;
       const targetTrackId = targetRow ? String(targetRow.dataset.audioTrackId || '') : d.startTrackId;
       // Keep the clip's full duration inside the project; the server enforces the same invariant.
-      payload = {start: round(Math.max(0, Math.min(Math.max(0, total - d.duration), d.start + delta)))};
+      let nextStart = Math.max(0, Math.min(Math.max(0, total - d.duration), d.start + delta));
+      // 磁贴吸附（A3）：拖拽落点对齐邻块边界/播放头（Shift 旁路）。
+      if (window.editorSessionSnapTime && !ev.shiftKey) {
+        const snapped = window.editorSessionSnapTime(nextStart, {shiftKey: !!ev.shiftKey});
+        if (Number.isFinite(snapped)) {
+          nextStart = Math.max(0, Math.min(Math.max(0, total - d.duration), snapped));
+        }
+      }
+      payload = {start: round(nextStart)};
       if (targetTrackId && targetTrackId !== d.startTrackId) payload.trackId = targetTrackId;
     } else if (d.mode === 'trim-left') {
       const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
@@ -1372,6 +1528,7 @@ function _tlBindAudioClipDrag(){
     const d = _audioClipDrag;
     if (!d) return;
     _audioClipDrag = null;
+    _tlStopEdgeAutoScroll();
     if (d.el && d.el.isConnected) editorRenderTimeline();
   }, true);
 }
@@ -1843,6 +2000,34 @@ async function editorSplitSelectedLayer(){
   return result || {ok:false, error:'EMPTY_RESULT'};
 }
 
+/** 愈合切口（A7 前端入口）：选中同源切开的相邻段之一，一键合回。 */
+async function editorJoinThroughEdits(){
+  const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
+  if (!selection || !selection.id) {
+    editorToast('先选中一个切开的片段，再愈合它与相邻段之间的切口。', true);
+    return {ok:false, error:'NO_TIMELINE_SELECTION'};
+  }
+  let targetId = null;
+  if (selection.type === 'visual_overlay') {
+    targetId = 'visual-overlay:' + String(selection.id);
+  } else if (selection.type === 'audio_clip') {
+    targetId = 'audio#' + Number(selection.index);
+  } else if (selection.type === 'layer') {
+    targetId = String(selection.id);
+  } else {
+    editorToast('当前选择不支持愈合：请选中主画面片段、独立画面片段或音频片段。', true);
+    return {ok:false, error:'UNSUPPORTED_SELECTION'};
+  }
+  if (!Number.isInteger(Number(selection.index)) && targetId.startsWith('audio#')) {
+    editorToast('音频片段索引已变化，请重新选择。', true);
+    return {ok:false, error:'STALE_AUDIO_INDEX'};
+  }
+  const result = await editorCmd('join_through_edits', {}, targetId, true);
+  if (result && result.ok) editorToast('切口已愈合：两段合回一个片段');
+  else editorToast('未愈合：' + ((result && result.error) || '相邻段不是同源连续切口'), true);
+  return result || {ok:false, error:'EMPTY_RESULT'};
+}
+
 
 async function editorLiftSelectedLayerToPlayhead(){
   const selection = (typeof SEL !== 'undefined') ? SEL.selection : null;
@@ -1947,7 +2132,7 @@ Object.assign(window, {
   edClearSelection, edSelectedCount,
   editorInit, editorLoad, timelineView, semanticRoleOf, renderSemanticTimeline,
 
-  editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorLiftSelectedLayerToPlayhead, editorExpandMainTimelineToGlobalTrack, editorAddEditAllTracks,
+  editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorJoinThroughEdits, editorLiftSelectedLayerToPlayhead, editorExpandMainTimelineToGlobalTrack, editorAddEditAllTracks,
   editorProjectFrameTime, editorSnapPlayheadToFrame,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
   editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackMenu, editorAudioTrackMenuClose,

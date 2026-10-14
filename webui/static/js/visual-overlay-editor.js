@@ -4,6 +4,18 @@ function editorVisualOverlayClose() {
   if (mask) mask.remove();
   window.VISUAL_OVERLAY_TARGET_TRACK_ID = null;
 }
+/** 变速预设档（剪映 SpeedControlView 吸收）：chips 一键回填自定义输入并
+ *  同步 active 态；真正落值仍走统一的保存校验入口，不在此直接提交。 */
+function editorVisualOverlayPickSpeed(speed) {
+  const input = document.getElementById('visual-overlay-edit-speed');
+  if (!input) return;
+  const v = Math.max(0.25, Math.min(4, Number(speed) || 1));
+  input.value = v;
+  document.querySelectorAll('#visual-overlay-inspector-mask .ed-speed-chip')
+    .forEach(chip => chip.classList.toggle('active',
+      Math.abs(Number(chip.dataset.speed) - v) < 1e-9));
+}
+window.editorVisualOverlayPickSpeed = editorVisualOverlayPickSpeed;
 function _visualOverlayAssets() {
   const source = ED.comp && ED.comp.assets;
   const pairs = Array.isArray(source) ? source.map(a => [a.id, a]) : Object.entries(source || {});
@@ -169,9 +181,12 @@ function editorVisualOverlayOpen(index, ev) {
   const speedSettings = isVideoAsset ? `
       <div class="audio-clip-field-row">
         <div><label for="visual-overlay-edit-speed">播放速度（0.25×–4×）</label>
+          <div class="ed-speed-presets" role="group" aria-label="变速预设档">
+            ${[0.5, 1, 1.5, 2, 4].map(v => `<button type="button" class="ed-speed-chip${Math.abs(Number(clip.speed ?? 1) - v) < 1e-9 ? ' active' : ''}" data-speed="${v}" onclick="editorVisualOverlayPickSpeed(${v})">${v}×</button>`).join('')}
+          </div>
           <input id="visual-overlay-edit-speed" type="number" min="0.25" max="4" step="0.05" value="${Number(clip.speed ?? 1)}"></div>
       </div>
-      <p class="hint">保存后保留当前素材源区间，片段时长随速度重算；已拆分的关联原声同步变速。</p>`
+      <p class="hint">预设档一键变速；自定义输入 0.25–4。保存后保留当前素材源区间，片段时长随速度重算；已拆分的关联原声同步变速。</p>`
     : '';
   const sourceAudioSettings = isVideoAsset ? `
       <div class="audio-clip-field-row">
