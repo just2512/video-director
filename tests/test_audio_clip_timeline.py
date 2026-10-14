@@ -172,7 +172,10 @@ def test_split_narration_track_is_rejected_until_renderer_supports_segmented_nar
 
 def test_split_audio_clip_rejects_playhead_outside_interior_and_stale_version(tmp_path, monkeypatch):
     pid, plan_dir = _audio_project(tmp_path, monkeypatch)
-    too_early = _apply(pid, "split_audio_clip", "audio#1", {"at": 5.05})
+    # 30fps 下 5.04s 对齐到第 151 帧（5.0333s），仍落在片段头部 0.05s 保护区
+    # 内 → REJECTED。旧值 5.05 恰好踩在保护边界，帧时钟对齐后被推向内部，
+    # 从"边界外拒绝"变成"内部合法切点"（PR #82 语义），故改为保护区内的值。
+    too_early = _apply(pid, "split_audio_clip", "audio#1", {"at": 5.04})
     assert too_early.status == "REJECTED"
     assert too_early.errors[0]["code"] == "SPLIT_OUTSIDE_CLIP"
     stale = _apply(pid, "split_audio_clip", "audio#1", {"at": 6.0}, version=2)
