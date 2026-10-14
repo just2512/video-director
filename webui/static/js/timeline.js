@@ -944,7 +944,10 @@ function _tlBindLayerDrag(){
         total - Number(lay.duration || 0),
         Number(sourceScene.start || 0) + Number(lay.start || 0) + absDelta
       ));
-      const start = Math.round(desiredStart * 1000) / 1000;
+      // 统一编辑切点契约：跨场景提升起点也落到项目帧钟（后端会再 snap 兜底）。
+      const start = typeof editorProjectFrameTime === 'function'
+        ? editorProjectFrameTime(Math.max(0, desiredStart))
+        : Math.round(desiredStart * 1000) / 1000;
       dragDebug.stage = 'cross-scene-lift-issued';
       dragDebug.crossSceneTarget = targetScene.dataset.scene;
       dragDebug.targetStart = start;
@@ -1308,7 +1311,12 @@ function _tlBindAudioClipDrag(){
     if (width <= 0) { editorRenderTimeline(); return; }
     const total = Number(ED.comp.duration) || 1;
     const delta = (ev.clientX - d.startX) / width * total;
-    const round = value => Math.round(value * 1000) / 1000;
+    // 统一编辑切点契约：音频拖拽/裁剪落到项目帧钟；素材源区间保持毫秒精度，
+    // 由后端按帧钟对齐输出时长后反推 source_out。
+    const round = value => (typeof editorProjectFrameTime === 'function')
+      ? editorProjectFrameTime(Math.max(0, value))
+      : Math.round(value * 1000) / 1000;
+    const roundMs = value => Math.round(value * 1000) / 1000;
     let command, payload;
     if (d.mode === 'move') {
       command = 'move_audio_clip';
@@ -1330,7 +1338,7 @@ function _tlBindAudioClipDrag(){
         return;
       }
       command = 'trim_audio_clip';
-      payload = {start: round(start), sourceIn: round(sourceIn), sourceOut: round(sourceOut)};
+      payload = {start: round(start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
     } else {
       // A right trim may shorten freely, but must not extend beyond the project end.
       const dt = Math.max(-(d.duration - 0.05), Math.min(delta, total - d.start - d.duration));
@@ -1342,7 +1350,7 @@ function _tlBindAudioClipDrag(){
         return;
       }
       command = 'trim_audio_clip';
-      payload = {start: round(d.start), sourceIn: round(sourceIn), sourceOut: round(sourceOut)};
+      payload = {start: round(d.start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
     }
     editorToast(command === 'move_audio_clip' ? '正在移动音频片段……' : '正在裁剪音频源区间……');
     executeCommand({command, targetId: 'audio#' + d.index, payload})
@@ -1851,7 +1859,11 @@ async function editorLiftSelectedLayerToPlayhead(){
     editorToast('只有主画面中的视频或静态图片可以移到独立画面轨道；动态效果会由服务端检查。', true);
     return {ok:false, error:'UNSUPPORTED_LAYER'};
   }
-  const start = Number(PLAYHEAD && PLAYHEAD.at);
+  const requestedStart = Number(PLAYHEAD && PLAYHEAD.at);
+  // 统一编辑切点契约：提升放置起点先落到项目帧钟，与切分命令一致。
+  const start = Number.isFinite(requestedStart) && typeof editorSnapPlayheadToFrame === 'function'
+    ? editorSnapPlayheadToFrame(requestedStart)
+    : requestedStart;
   const duration = Number(layer.duration);
   const total = Number((ED.comp && ED.comp.duration) || (ED.comp && ED.comp.project && ED.comp.project.duration));
   if (!Number.isFinite(start) || start < 0 || !Number.isFinite(duration) || duration <= 0 ||
@@ -1869,7 +1881,7 @@ async function editorLiftSelectedLayerToPlayhead(){
     result = await executeCommand({
       command: 'promote_layer_to_visual_track',
       targetId: selection.id,
-      payload: {start: Math.round(start * 1000) / 1000}
+      payload: {start}
     });
   } catch (error) {
     editorToast('片段未移动：' + (error && error.message ? error.message : error), true);

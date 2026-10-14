@@ -167,3 +167,40 @@ def test_direct_audio_split_uses_project_frame_boundary(tmp_path, monkeypatch):
     assert abs((left.start + left.duration) - expected_cut) < 1e-6
     assert abs(right.start - expected_cut) < 1e-6
     assert abs((left.source_out or 0) - (right.source_in or 0)) < 1e-6
+
+
+def test_move_trim_and_promote_snaps_to_project_frame(tmp_path, monkeypatch):
+    """移动/修剪/提升类命令与切分共用同一项目帧钟（对抗审查 2026-10-14）。"""
+    project_id, _plans = _project(tmp_path, monkeypatch)
+
+    # trim_audio_clip: 输出时长对齐到帧钟，source_out 由对齐后时长反推。
+    # （夹具音频全长 10s 等于项目总长，先裁短才能移动。）
+    trimmed = execute_command(project_id, {
+        "command": "trim_audio_clip", "targetId": "audio#0",
+        "payload": {"start": 0.5, "sourceIn": 0.0, "sourceOut": 2.017},
+        "expectedVersion": 1,
+    })
+    assert trimmed.status == "APPLIED", trimmed.errors
+    track = load_composition(project_id).audio[0]
+    expected_duration = round(61 / 30, 6)
+    assert abs(track.duration - expected_duration) < 1e-6
+    assert abs(track.source_out - expected_duration) < 1e-6
+
+    # move_audio_clip: 1.017s 对齐到第 31 帧（1.033333s），而不是毫秒取整。
+    moved = execute_command(project_id, {
+        "command": "move_audio_clip", "targetId": "audio#0",
+        "payload": {"start": 1.017}, "expectedVersion": 2,
+    })
+    assert moved.status == "APPLIED", moved.errors
+    expected_start = 31 / 30
+    assert abs(load_composition(project_id).audio[0].start - expected_start) < 1e-6
+
+    # promote_layer_to_visual_track: 不传 start 时原位提升（时长=片长的
+    # 主画面层无法在非零位置放置，显式 start 的 snap 路径由 move/trim 已锁）。
+    promoted = execute_command(project_id, {
+        "command": "promote_layer_to_visual_track", "targetId": "S01#0",
+        "payload": {}, "expectedVersion": 3,
+    })
+    assert promoted.status == "APPLIED", promoted.errors
+    overlay = load_composition(project_id).visual_overlays[-1]
+    assert abs(overlay.start - 0.0) < 1e-6

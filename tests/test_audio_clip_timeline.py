@@ -42,7 +42,9 @@ def test_move_audio_clip_changes_only_timeline_position_and_persists(tmp_path, m
     result = _apply(pid, "move_audio_clip", "audio#0", {"start": 3.25})
     assert result.status == "APPLIED", result.errors
     comp = load_composition(pid)
-    assert comp.audio[0].start == 3.25
+    # 统一编辑切点契约：放置起点落到项目帧钟（30fps 下 3.25s 对齐到第 98 帧）。
+    expected_start = round(98 / 30, 6)
+    assert abs(comp.audio[0].start - expected_start) < 1e-6
     assert comp.audio[0].duration == 4.0
     assert comp.audio[0].source_in == 0.0
     assert comp.audio[0].source_out is None

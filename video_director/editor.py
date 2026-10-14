@@ -2121,6 +2121,11 @@ def _cmd_promote_layer_to_visual_track(
         or absolute_start + duration > float(ir.project.duration) + 0.001
     ):
         raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局时间区间超出项目")
+    # 统一编辑切点契约（PR #82）：提升后的全局起点同样落到项目帧钟，
+    # 避免主画面切分对齐了帧、而提升放置落在两帧之间。
+    absolute_start = _project_frame_time(ir, absolute_start)
+    if absolute_start + duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_TIMELINE_RANGE", "片段提升后的全局起点按项目帧率对齐后超出项目")
 
     linked_source_indices = set()
     if is_video:
@@ -3521,6 +3526,9 @@ def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     total = float(ir.project.duration)
     if not math.isfinite(start) or start < 0 or start >= total:
         raise EditorError("INVALID_PARAMETER", "音频片段起点必须位于项目时间范围内")
+    # 统一编辑切点契约（PR #82）：放置/移动类命令与切分类命令共用同一
+    # 项目帧时钟。旧实现按毫秒取整，会把音频起点留在两帧之间。
+    start = _project_frame_time(ir, start)
     if start + float(track.duration) > total + 1e-6:
         raise EditorError("INVALID_TIMELINE_RANGE", "移动后的音频片段不能超出项目总时长")
     lane_id = str(payload.get("trackId", track.track_id or "") or "").strip()
@@ -3532,7 +3540,7 @@ def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     # Direct manipulation of a linked sound clip deliberately detaches it from its
     # picture. This keeps the user's audio edit independent and clears the clip link.
     move_update = {
-        "start": round(start, 3), "track_id": lane_id,
+        "start": round(start, 6), "track_id": lane_id,
         "linked_visual_overlay_id": None,
     }
     if track.type == AudioTrackType.original:
@@ -3566,6 +3574,11 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
         raise EditorError("INVALID_PARAMETER", "音频裁剪参数必须是有限数字")
     duration = (source_out - source_in) / max(0.25, float(getattr(track, "speed", 1.0) or 1.0))
     total = float(ir.project.duration)
+    # 统一编辑切点契约（PR #82）：音频 trim 的起点/时长同样落到项目帧钟，
+    # 与切分类命令一致；旧实现按毫秒取整会产生子帧边界。
+    start = _project_frame_time(ir, start)
+    duration = _project_frame_time(ir, duration)
+    source_out = source_in + duration * max(0.25, float(getattr(track, "speed", 1.0) or 1.0))
     if start < 0 or start >= total:
         raise EditorError("INVALID_PARAMETER", "裁剪后的音频起点必须位于项目时间范围内")
     if source_in < 0 or duration < 0.05:
@@ -3573,10 +3586,10 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     if start + duration > total + 1e-6:
         raise EditorError("INVALID_TIMELINE_RANGE", "裁剪后的音频片段不能超出项目总时长")
     trim_update = {
-        "start": round(start, 3),
-        "source_in": round(source_in, 3),
-        "source_out": round(source_out, 3),
-        "duration": round(duration, 3),
+        "start": round(start, 6),
+        "source_in": round(source_in, 6),
+        "source_out": round(source_out, 6),
+        "duration": round(duration, 6),
         "linked_visual_overlay_id": None,
     }
     if track.type == AudioTrackType.original:
