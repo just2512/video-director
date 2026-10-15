@@ -33,8 +33,8 @@ jobs:
         run: |
           "$PY311_BIN/python3.11" --version
           "$PY311_BIN/python3.11" -m pip --version
-      - run: "$PY311_BIN/python3.11" -m pip install --upgrade pip
-      - run: "$PY311_BIN/python3.11" -m pip install -r requirements.txt
+      - run: '"$PY311_BIN/python3.11" -m pip install --upgrade pip'
+      - run: '"$PY311_BIN/python3.11" -m pip install -r requirements.txt'
       - name: Ensure FFmpeg and the Chinese subtitle font
         shell: bash
         run: |
@@ -63,10 +63,10 @@ jobs:
       # Chromium browser binaries live in the actions user's Playwright cache
       # (~/.cache/ms-playwright); system .so deps are preinstalled on the
       # runner image. Browser-only download keeps this step unprivileged.
-      - run: "$PY311_BIN/python3.11" -m playwright install chromium
-      - run: "$PY311_BIN/python3.11" -m compileall video_director webui
+      - run: '"$PY311_BIN/python3.11" -m playwright install chromium'
+      - run: '"$PY311_BIN/python3.11" -m compileall video_director webui'
       - name: Run test suite and retain JUnit report
-        run: "$PY311_BIN/python3.11" -m pytest -q --junitxml=junit.xml
+        run: '"$PY311_BIN/python3.11" -m pytest -q --junitxml=junit.xml'
       - name: Check JavaScript syntax (run even when tests fail)
         if: always()
         run: |
