@@ -2083,6 +2083,47 @@ def _cmd_remove_visual_track(ir: CompositionIR, target_id: str, payload: dict) -
     return [f"visual-track:{target_id}"], ["project:visual-tracks", "project:preview"]
 
 
+def _asset_ref_from_project_manifest(project_id: Optional[str], asset_id: str) -> Optional[AssetRef]:
+    """从项目 assets/manifest.json 构造 AssetRef（项目本地上传素材的唯一登记处）。
+
+    全局 asset_catalog（Library）只收录经 Library 注册的素材；项目里
+    ``local-*`` 上传素材只写在项目 manifest。只查 Library 会让"移到播放头
+    轨道""加画面叠加"对上传素材整体失能（Playwright 实测 ASSET_NOT_FOUND）。
+    路径仍要求是存在的文件——渲染层会直接读它。
+    """
+    if not project_id:
+        return None
+    manifest_p = config.project_dir(project_id) / "assets" / "manifest.json"
+    if not manifest_p.is_file():
+        return None
+    try:
+        rows = json.loads(manifest_p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    row = next((r for r in rows if isinstance(r, dict) and r.get("id") == asset_id), None)
+    if row is None:
+        return None
+    file_value = str(row.get("file") or "")
+    if not file_value:
+        return None
+    try:
+        resolved = Path(file_value).resolve()
+    except (OSError, ValueError):
+        return None
+    if not resolved.is_file():
+        return None
+    return AssetRef(
+        id=asset_id,
+        type=str(row.get("type") or "video"),
+        file=str(resolved),
+        duration=row.get("duration"),
+        width=row.get("width"),
+        height=row.get("height"),
+        fps=row.get("fps"),
+        source=row.get("source") or "uploaded",
+    )
+
+
 def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optional[str] = None) -> Tuple[AssetRef, str, float]:
     asset = next((item for item in ir.assets if item.id == asset_id), None)
     if asset is None:
@@ -2093,7 +2134,23 @@ def _overlay_source_duration(ir: CompositionIR, asset_id: str, project_id: Optio
         from video_director import asset_catalog
         entry = asset_catalog.get_asset(asset_id)
         if not entry:
-            raise EditorError("ASSET_NOT_FOUND", f"项目素材库没有素材 {asset_id!r}", recoverable=False)
+            # 第二回落：项目 manifest（上传素材不进 Library）
+            manifest_asset = _asset_ref_from_project_manifest(project_id, asset_id)
+            if manifest_asset is None:
+                raise EditorError("ASSET_NOT_FOUND", f"项目素材库没有素材 {asset_id!r}", recoverable=False)
+            if str(manifest_asset.type or "").lower() not in ("video", "image"):
+                raise EditorError("ASSET_TYPE_MISMATCH", "独立画面覆盖层只接受视频或图片素材", recoverable=False)
+            ir.assets.append(manifest_asset)
+            media_type = str(manifest_asset.type or "").lower()
+            resolved = str(manifest_asset.file)
+            if media_type == "image":
+                return manifest_asset, resolved, 0.0
+            from video_director import prober
+            try:
+                probe = prober.probe_media(resolved)
+                return manifest_asset, resolved, float(probe.duration or 0.0)
+            except Exception as exc:
+                raise EditorError("ASSET_NOT_FOUND", f"素材不可读：{asset_id!r}（{exc}）", recoverable=False) from exc
         media_type = str(entry.get("type") or "").lower()
         if media_type not in ("video", "image"):
             raise EditorError("ASSET_TYPE_MISMATCH", "独立画面覆盖层只接受视频或图片素材", recoverable=False)
