@@ -329,21 +329,56 @@ def _parse_multipart(handler) -> dict:
     return {"fields": fields, "files": files}
 
 
-def _editor_asset_preview_map(ir):
-    """编辑器展示用 Asset Map：只读投影，不写入 Composition IR。"""
+def _editor_asset_preview_map(ir, manifest_by_id=None):
+    """编辑器展示用 Asset Map：只读投影，不写入 Composition IR。
+
+    catalog 未命中时回落到项目 assets/manifest.json——上传到项目本地的素材
+    （local-*）只登记在项目 manifest，不进全局 catalog；不回落到场景层与
+    音频轨就只能显示裸 ID、无缩略图（Playwright 实测）。
+    """
     try:
         from video_director import asset_catalog
         out = {}
         seen = set()
+        manifest_by_id = manifest_by_id or {}
         # Keep overlay-only sources visible after reloading a saved project.
         referenced_ids = [getattr(lay, 'asset_id', None) for sc in ir.scenes for lay in sc.layers]
         referenced_ids.extend(getattr(item, 'asset_id', None) for item in (getattr(ir, 'visual_overlays', None) or []))
+        # 音频片段同样引用素材（原声/BGM/SFX）——遗漏会让音频轨显示裸 ID。
+        referenced_ids.extend(getattr(item, 'asset_id', None) for item in (getattr(ir, 'audio', None) or []))
         for aid in referenced_ids:
             if not aid or aid in seen:
                 continue
             seen.add(aid)
             entry = asset_catalog.get_asset(aid)
             if not entry:
+                # 项目本地上传素材：从 manifest 取元数据（路径仍需落在 STORAGE 内）
+                row = manifest_by_id.get(aid)
+                if not row:
+                    continue
+                raw_file = row.get("file") or ""
+                safe_file = ""
+                if raw_file:
+                    try:
+                        p = Path(raw_file).resolve()
+                        p.relative_to(STORAGE.resolve())
+                        if p.is_file():
+                            safe_file = str(p)
+                    except (OSError, ValueError):
+                        safe_file = ""
+                out[aid] = {
+                    "asset_id": aid,
+                    "name": row.get("name") or Path(raw_file).name or aid,
+                    "type": row.get("type"),
+                    "file_url": ("/file?path=" + urllib_quote(safe_file)) if safe_file else "",
+                    "thumbnail_url": "/api/asset_thumbnail?asset_id=" + urllib_quote(aid, safe=""),
+                    "width": row.get("width"),
+                    "height": row.get("height"),
+                    "duration": row.get("duration"),
+                    "fps": row.get("fps"),
+                    "has_audio": row.get("has_audio"),
+                    "source": row.get("source"),
+                }
                 continue
             file_path = entry.get("file") or ""
             thumb = asset_catalog.library_root() / "thumbnails" / (aid + ".jpg")
@@ -1484,7 +1519,7 @@ class Handler(BaseHTTPRequestHandler):
                     "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
                     "subtitle_track": ir.subtitle_track.model_dump() if ir.subtitle_track else None,
                     "references": ir.references.to_dict()["references"] if ir.references else [],
-                    "assets": _editor_asset_preview_map(ir),
+                    "assets": _editor_asset_preview_map(ir, manifest_by_id),
                     "transition_proposals": _load_transition_proposals(pid),
                     "revisions_count": len(revs),
                 })
