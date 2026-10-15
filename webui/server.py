@@ -1455,7 +1455,10 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 self._send_json({
                     "project_id": pid,
-                    "version": len(revs) + 1,
+                    # 必须与冲突检查用同一个权威版本：len(revs)+1 会在
+                    # undo_stack 版本更高时落后，导致前端拿旧版本号发命令
+                    # → 每条命令 CONFLICT（Playwright 实测：9 vs 11）。
+                    "version": vd_editor.composition_version(pid),
                     "width": ir.project.width, "height": ir.project.height,
                     "duration": ir.project.duration,
                     "origin_template_id": ir.origin_template_id,

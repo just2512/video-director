@@ -22,10 +22,33 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 
 
+#: Chromium 内置封禁端口（net/base/port_util.cc kRestrictedPorts）——绑到这些端口
+#: 的本地服务会被浏览器以 net::ERR_UNSAFE_PORT 拒绝，与代码无关。
+_CHROMIUM_RESTRICTED_PORTS = frozenset({
+    1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
+    87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137,
+    139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+    540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723,
+    2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697,
+    10080,
+})
+
+
 def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+    """挑一个 Chromium 一定不会拒绝的端口。
+
+    本机动态端口区间是 1024-14999 且 Windows 顺序发放（netsh 实测），因此
+    必然走过封禁表里的 6000/6566/6665-6669/6697/10080 → 偶发
+    net::ERR_UNSAFE_PORT（2026-10-15 全量跑实测一次）。这里显式排除封禁表，
+    不假设动态区间在哪一段。
+    """
+    for _ in range(200):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = int(sock.getsockname()[1])
+        if port > 1023 and port not in _CHROMIUM_RESTRICTED_PORTS:
+            return port
+    raise RuntimeError("找不到 Chromium 可用端口（封禁表外）")
 
 
 def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
