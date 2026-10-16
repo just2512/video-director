@@ -124,7 +124,7 @@ class TestMCPGatewayProtocol:
     def test_tools_call_director_status_validation(self):
         resps = self._invoke([
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-             "params": {"name": "director.status", "arguments": {"run_id": ""}},
+             "params": {"name": "director.status", "arguments": {"run_id": ""}}},
         ])
         inner = json.loads(resps[0]["result"]["content"][0]["text"])
         assert inner["ok"] is False
