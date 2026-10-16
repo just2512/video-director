@@ -77,8 +77,10 @@ def test_mix_audio_respects_clip_start_duration_fades_and_all_bgm_tracks(tmp_pat
     assert "atrim=0:3.000,adelay=3000:all=1[ambience0]" in graph
 
     # One-shot sounds are not looped, and durations are bounded by the output project.
-    assert "atrim=0:2.000,adelay=1000|1000[dialogue0]" in graph
-    assert "atrim=0:0.200,afade=t=out:st=0.100:d=0.100,adelay=9800|9800[sfx0]" in graph
+    # Each chain ends with apad=whole_dur (equal-length amix inputs), so match
+    # with a trailing-comma variant rather than the bare label boundary.
+    assert "atrim=0:2.000,adelay=1000|1000,apad=" in graph
+    assert "atrim=0:0.200,afade=t=out:st=0.100:d=0.100,adelay=9800|9800,apad=" in graph
 
     # A late SFX alone must not make FFmpeg's -shortest mux cut off the silent video tail.
     assert "apad,atrim=0:10.000[aout]" in graph
@@ -139,8 +141,9 @@ def test_trimmed_audio_clips_render_from_their_source_window(tmp_path, monkeypat
     assert "atrim=0:3.000,adelay=2000:all=1[bgm0]" in graph
     assert "atrim=0:1.000" in graph
     # Existing test fixture carries a 0.1 s fade-out, so the adelay filter
-    # follows the fade rather than being adjacent to atrim.
-    assert "adelay=5000|5000[sfx0]" in graph
+    # follows the fade rather than being adjacent to atrim. Chain ends with
+    # apad=whole_dur (equal-length amix inputs).
+    assert "adelay=5000|5000,apad=" in graph
 
 
 def test_mix_audio_uses_normalized_pcm_and_reencodes_aac(tmp_path, monkeypatch):
