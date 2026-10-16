@@ -35,6 +35,14 @@ Both commands register the local stdio server. Run them from the repository root
 
 Use `director.analyze_reference` first when a local reference video should shape pace, density, motion, transitions, or shot grammar. It returns a `reference` object; pass that object into `director_inputs.references` for the subsequent `director.create` call. The MCP server process must be able to access the supplied local video path.
 
+Example sequence:
+
+1. Call `director.analyze_reference` with `video_path` set to the local video file.
+2. Keep the returned `reference` object unchanged; it contains the analysis report and its path.
+3. Submit `director.create` with `director_inputs.references: [returned_reference]`, alongside the brief, script, assets and constraints. Do not pass the tool's whole wrapper response as the reference entry.
+
+The reference report is written under the configured Composer storage root in a temporary reference project folder. Keep that report and the original video available through creation so the Director can snapshot and consume them.
+
 director.create accepts a payload object compatible with WebUI POST /api/director/create. Put the full director_inputs bundle inside it for brief/script/assets/references/articles/software-project context. Do not pass local file paths that are not readable by the process hosting this MCP server.
 
 ## CLI note
