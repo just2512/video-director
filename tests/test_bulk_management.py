@@ -211,7 +211,10 @@ def test_frontend_bulk_contracts_and_ci_coverage():
         assert marker in create_js
 
     assert "pytest -q" in ci
-    assert "python -m compileall video_director webui" in ci
+    # Self-hosted runner workflow calls compileall through a pinned
+    # interpreter path ("$PY311_BIN/python3.11"); assert on the module
+    # invocation itself, not the python prefix.
+    assert "m compileall video_director webui" in ci
     assert 'node --check "$f"' in ci
 
 

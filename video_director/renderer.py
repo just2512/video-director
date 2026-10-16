@@ -1041,7 +1041,14 @@ def mix_audio(
             chain += f",afade=t=out:st={max(0.0, clip_duration - fade_out):.3f}:d={fade_out:.3f}"
         delay_ms = int(round(track_start * 1000))
         if delay_ms:
+            # Pad each SFX/dialogue chain to the full mix duration so all amix
+            # inputs have equal length. Without this, amix(duration=longest)
+            # scheduling a delayed, input-side-trimmed stream deadlocks ~50% of
+            # the time (all worker threads futex-wait; observed on ffmpeg
+            # 7.1.1 and 8.0.1). Bit-identical output vs the padded-at-amix
+            # graph on the non-deadlocking runs.
             chain += f",adelay={delay_ms}|{delay_ms}"
+        chain += f",apad=whole_dur={total:.3f}"
         prefix = "sfx" if track.type == AudioTrackType.sfx else "dialogue"
         label = f"{prefix}{positioned_index[track.type]}"
         positioned_index[track.type] += 1
@@ -1054,6 +1061,8 @@ def mix_audio(
         return None  # 无任何音频
 
     # ---- amix 汇总（normalize=0：Narration 是主音轨，不得被均分衰减）----
+    # SFX/dialogue chains pad themselves to `total` (see above); the other
+    # chains may still end early, so keep a final apad for them.
     n_inputs = len(ref_labels) + len(positioned_labels)
     filters.append(
         f"{''.join(ref_labels)}{''.join(positioned_labels)}"
