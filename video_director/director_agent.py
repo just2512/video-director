@@ -392,6 +392,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
     visual_source = state.get("constraints", {}).get("visual_source") or "auto"
     assignments = {}
     policy_decisions: List[dict] = []
+    # 逐场景记录分配实际由哪种机制产生（llm/deterministic/sequential/policy）。
+    # 必须如实报给用户：顺序兜底是「按素材顺序硬排」，不能写成「语义匹配」。
+    match_provenance: Dict[str, str] = {}
     match_enabled = bool(spec.get("match_materials_to_script", True))
 
     # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
@@ -467,6 +470,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 state["narration_scenes"], all_assets, llm_call,
                 policy_by_scene=source_policy_by_scene,
                 policy_decisions_out=policy_decisions,
+                provenance_out=match_provenance,
             ) or {}
         except Exception as exc:
             warnings.append("本地素材匹配失败：" + str(exc))
@@ -516,6 +520,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     state["narration_scenes"], all_assets, llm_call,
                     policy_by_scene=source_policy_by_scene,
                     policy_decisions_out=policy_decisions,
+                    provenance_out=match_provenance,
                 )
                 if match_enabled and visual_source != "online" else {}
             )
@@ -562,10 +567,24 @@ def _tool_material(spec: dict, state: dict) -> dict:
         for i, row in enumerate(scene_plan_items)
         if isinstance(row, dict)
     }
-    selection_reasons = {
-        sid: "场景语义匹配：结合场景文案、素材语义与素材可用性选择"
-        for sid in assignments
+    # 匹配来源必须诚实：顺序兜底不是语义匹配。把 match_assets 逐场景记录的
+    # 实际机制翻译成用户可读、且不会误导的说明；再叠加政策调整的说明。
+    _REASON_BY_SOURCE = {
+        "llm": "LLM 语义匹配：场景文案与素材语义由大模型对齐",
+        "deterministic": "关键词重合：场景文案与素材描述/标签有词面重合",
+        "policy": "来源与复用政策调整：在语义匹配结果上按连续来源与复用边界重排",
+        "sequential": "顺序兜底：无可用语义，按素材顺序分配（非语义匹配）",
     }
+    selection_reasons = {}
+    for sid in assignments:
+        src = match_provenance.get(sid) or "sequential"
+        base = _REASON_BY_SOURCE.get(src, _REASON_BY_SOURCE["sequential"])
+        note = policy_decisions and any(
+            isinstance(d, dict) and d.get("scene_id") == sid for d in policy_decisions
+        )
+        selection_reasons[sid] = (
+            base + "；并依据来源/复用政策调整" if note and src != "policy" else base
+        )
     intent_data = mpt_semantics.material_intent_snapshot(
         state.get("narration_scenes") or [],
         search_terms_by_scene={
@@ -797,7 +816,10 @@ def _tool_composition(spec: dict, state: dict) -> dict:
     if spec.get("sfx_plan"):
         lib = audio.scan_library()
         for ev in audio.normalize_sfx_events(spec.get("sfx_plan") or []):
-            aid = ev.get("asset_id") or audio.resolve_action_sfx(ev, lib)
+            aid = ev.get("asset_id") or audio.resolve_action_sfx(
+                ev, lib,
+                auto_search_openverse=bool(spec.get("auto_sfx_search", False)),
+            )
             if not aid:
                 continue
             audio_assets[aid] = lib[aid]

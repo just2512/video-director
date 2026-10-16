@@ -355,6 +355,7 @@ def compose_project(
     bgm_asset_id: Optional[str] = None,
     bgm_volume: float = None,
     sfx_plan: Optional[List[dict]] = None,
+    auto_sfx_search: bool = False,
     subtitle_entries: Optional[List[dict]] = None,
     subtitle_file: Optional[str] = None,
     title: Optional[str] = None,
@@ -484,17 +485,37 @@ def compose_project(
         # guizang audio-cues：SFX 绑定动作发生点（action_id 驱动语义选择），
         # 旧格式 {start, tags/asset_id} 向后兼容
         for ev in audio_mod.normalize_sfx_events(sfx_plan):
-            aid = ev.get("asset_id") or audio_mod.resolve_action_sfx(ev, lib) or (
+            aid = ev.get("asset_id") or audio_mod.resolve_action_sfx(
+                ev, lib, auto_search_openverse=auto_sfx_search,
+            ) or (
                 audio_mod.resolve({"type": "sfx", "tags": ev.get("tags") or []}, lib)
             )
             if aid is None:
                 reason = ev.get("action_id") or ev.get("tags") or "?"
                 warnings.append(f"NO_SFX: 无匹配音效（action={reason}），跳过（不随机替代）")
                 continue
-            audio_assets[aid] = lib[aid]
+            audio_assets[aid] = lib.get(aid) or audio_mod.scan_library().get(aid)
             audio_tracks.append(audio_mod.build_sfx_track(
                 aid, ev["at"], ev.get("duration", 0.7), ev.get("volume"),
             ))
+    elif auto_sfx_search and narration_scenes:
+        # 「自动搜索匹配音效」：没有显式 sfx_plan 时按场景切点自动配音效——
+        # 每个转场点一个 whoosh（guizang audio-cues：音效绑动作发生点）。
+        # 本地库缺该类别 → resolve_action_sfx 内部去 Openverse（freesound CC0）搜配。
+        lib = audio_mod.scan_library()
+        for i, sc in enumerate(narration_scenes):
+            if i == 0:
+                continue  # 第一个镜头没有切入，不需要转场音
+            ev = {"at": float(sc.get("start") or 0.0), "action_id": "transition"}
+            aid = audio_mod.resolve_action_sfx(
+                ev, lib, auto_search_openverse=True)
+            if aid is None:
+                warnings.append("NO_SFX: 转场音效搜索未命中（Openverse 不可达或无 CC0 结果）")
+                break  # 同类别连续失败没有意义，一次降级即可
+            if aid not in lib:
+                lib = audio_mod.scan_library()  # Openverse 刚入库，重扫
+            audio_assets[aid] = lib[aid]
+            audio_tracks.append(audio_mod.build_sfx_track(aid, ev["at"], 0.7))
 
     ir.audio = audio_tracks
     render_assets = audio_mod.append_audio_assets(asset_map, audio_assets)
@@ -1016,6 +1037,7 @@ def compose_auto(
     bgm_asset_id: Optional[str] = None,
     bgm_volume: float = None,
     sfx_plan: Optional[List[dict]] = None,
+    auto_sfx_search: bool = False,
     width: int = None,
     height: int = None,
     fps: int = None,
@@ -1326,6 +1348,7 @@ def compose_auto(
             bgm_asset_id=bgm_asset_id,
             bgm_volume=bgm_volume,
             sfx_plan=sfx_plan,
+            auto_sfx_search=auto_sfx_search,
             doctor_results=doctor_results,
             video_files=video_files,
             image_files=image_files,
@@ -1345,6 +1368,7 @@ def compose_auto(
         bgm_asset_id=bgm_asset_id,
         bgm_volume=(bgm_volume if bgm_volume is not None else style_contract.bgm_volume),
         sfx_plan=sfx_plan,
+        auto_sfx_search=auto_sfx_search,
         subtitle_entries=sub_entries,
         subtitle_file=str(sub_file),
         title=title,

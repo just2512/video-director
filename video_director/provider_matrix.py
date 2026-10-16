@@ -198,6 +198,14 @@ def infer_provider(role: str, cfg: Optional[Mapping[str, Any]] = None) -> str:
     if role == "hyperframes":
         return "hyperframes"
 
+    # vision 角色只登记了 frame-vision-openai-compatible 这一个可执行 provider。
+    # 若继续走下面的 host 推断，会返回 openai / openai-compatible，而这两个 id
+    # 没有 vision 定义 → state_for_provider 判定「Provider 未登记」返回 UNKNOWN
+    # → FrameVisionProvider.available() 恒为 False：视觉理解链路整体不可达，
+    # 用户配任何 key/base_url/模型都无效，素材永远「全部 VisionProvider 不可用」。
+    if role == "vision":
+        return "frame-vision-openai-compatible"
+
     base = str(cfg.get("base_url") or "")
     host = _host(base)
     if role == "video":

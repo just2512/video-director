@@ -128,6 +128,40 @@ async function pickerApply(id){
 }
 
 // ---------------------------------------------------------------------------
+// 素材语义编辑（写入 Library，供「文案 ↔ 素材」匹配使用）。
+// 此前系统没有任何入口能设置素材语义：无描述时匹配永远顺序兜底，却仍被写成
+// 「语义匹配」。这里在素材库内联一个最小表单，不另造模态框。
+// ---------------------------------------------------------------------------
+function edLibSemanticsForm(assetId){
+  const box = document.getElementById('ed-lib-list');
+  if (!box) return;
+  const current = (window._ED_LIB_ASSETS || []).find(a => a.asset_id === assetId) || {};
+  const desc = (current.description || '').trim();
+  const tags = (current.tags || []).join(', ');
+  box.innerHTML = `<div class="ok-box" style="padding:10px">
+    <b>设置素材语义：${esc(assetId)}</b>
+    <div class="hint">语义用于文案与素材的匹配；没有语义时系统会按素材顺序硬排，并如实标记为「顺序兜底」。</div>
+    <div style="margin:8px 0"><label class="hint">画面描述（这句话描述素材里是什么）</label>
+      <textarea id="ed-sem-desc" class="rev-input" rows="3" style="width:100%">${esc(desc)}</textarea></div>
+    <div style="margin:8px 0"><label class="hint">标签（逗号分隔）</label>
+      <input id="ed-sem-tags" class="rev-input" style="width:100%" value="${esc(tags)}"></div>
+    <div class="btn-row">
+      <button class="btn-sm" onclick="edLibSaveSemantics('${esc(assetId)}')">保存</button>
+      <button class="btn-secondary btn-sm" onclick="edLibLoad()">取消</button>
+    </div></div>`;
+}
+async function edLibSaveSemantics(assetId){
+  const desc = ((document.getElementById('ed-sem-desc')||{}).value || '').trim();
+  const tags = ((document.getElementById('ed-sem-tags')||{}).value || '')
+    .split(/[,，、]/).map(t => t.trim()).filter(Boolean);
+  try {
+    const r = await apiPost('/api/asset_semantics', {asset_id: assetId, description: desc, tags});
+    if (r && r.ok) { editorToast('素材语义已保存'); edLibLoad(); }
+    else { editorToast('保存失败：' + ((r && r.error) || '未知错误')); }
+  } catch (e) { editorToast('保存失败：' + ((e && e.message) || e)); }
+}
+
+// ---------------------------------------------------------------------------
 // 各子入口装载
 // ---------------------------------------------------------------------------
 async function edLibLoad(){
@@ -152,6 +186,7 @@ async function edLibLoad(){
     } else if (sub === 'assets') {
       const assets = await apiGet('/api/assets_library');
       const list = (Array.isArray(assets) ? assets : []).slice(0, 200);
+      window._ED_LIB_ASSETS = list;
       const selectedAssets = ED_LIB.selectedAssets || new Set();
       ED_LIB.selectedAssets = selectedAssets;
       const unused = list.filter(a => !(a.used_in || []).length);
@@ -162,16 +197,23 @@ async function edLibLoad(){
           <span class="hint">${selectedAssets.size ? '已选择 '+selectedAssets.size+' 个' : ''}</span>
           ${selectedAssets.size ? '<button class="btn-secondary btn-sm pm-act-danger" onclick="edLibBulkDeleteAssets()">删除所选未使用素材</button>' : ''}
         </div>` : '';
-      box.innerHTML = controls + (list.length ? list.map(a => `
+      box.innerHTML = controls + (list.length ? list.map(a => {
+          const desc = (a.description || '').trim();
+          const sem = desc
+            ? ` · 语义：${desc.slice(0, 18)}${desc.length > 18 ? '…' : ''}`
+            : ' · 无语义（将按顺序分配）';
+          return `
         <div class="proj-row">
           <span style="width:28px"><input type="checkbox" ${selectedAssets.has(a.asset_id)?'checked':''}
             ${(a.used_in||[]).length?'disabled title="素材仍被项目使用，不能删除"':''}
             onchange="edLibToggleAsset('${esc(a.asset_id)}',this.checked)" onclick="event.stopPropagation()"></span>
           <span style="flex:1"><b>${esc(a.asset_id)}</b>
-            <span class="hint">${esc(a.type)} · 用于 ${(a.used_in||[]).length} 项目${(a.used_in||[]).length?' · 已使用，不能删除':' · 未使用，可删除'}</span>
+            <span class="hint">${esc(a.type)} · 用于 ${(a.used_in||[]).length} 项目${(a.used_in||[]).length?' · 已使用，不能删除':' · 未使用，可删除'}${esc(sem)}</span>
           </span>
+          <button class="btn-secondary btn-sm" onclick="edLibSemanticsForm('${esc(a.asset_id)}')">改语义</button>
           <button class="btn-secondary btn-sm" onclick="edLibApplyAsset('${esc(a.asset_id)}')">应用到选中层</button>
-        </div>`).join('') : '<div class="hint">项目素材库为空</div>');
+        </div>`;
+        }).join('') : '<div class="hint">项目素材库为空</div>');
     } else if (sub === 'stock') {
       box.innerHTML = `<div class="btn-row"><input type="text" id="ed-stock-q" class="rev-input" style="flex:1" placeholder="搜索图库素材（如 coffee）" onkeydown="if(event.key==='Enter')edLibStockSearch()">
         <button class="btn-secondary btn-sm" onclick="edLibStockSearch()">搜索</button></div>

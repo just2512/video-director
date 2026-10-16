@@ -1869,6 +1869,46 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        if parsed.path == "/api/asset_semantics":
+            # 写入/清空素材语义（description/tags）。此前系统没有任何入口能设置
+            # 素材语义：Library 台账 description/tags 恒空 → 素材匹配永远顺序兜底，
+            # 却仍被写成「语义匹配」。这里给前端一个真实写入点。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            asset_id = (payload.get("asset_id") or "").strip()
+            if not asset_id:
+                self._send_json({"ok": False, "error": "缺少 asset_id"}, 400)
+                return
+            has_desc = "description" in payload
+            has_tags = "tags" in payload
+            if not has_desc and not has_tags:
+                self._send_json({"ok": False, "error": "没有可更新的语义字段（description / tags）"}, 400)
+                return
+            if has_desc and not isinstance(payload.get("description"), str):
+                self._send_json({"ok": False, "error": "description 必须是字符串"}, 400)
+                return
+            if has_tags and (not isinstance(payload.get("tags"), list)
+                             or not all(isinstance(t, str) for t in payload["tags"])):
+                self._send_json({"ok": False, "error": "tags 必须是字符串数组"}, 400)
+                return
+            from video_director import asset_catalog as vd_acat
+            try:
+                entry = vd_acat.update_asset_semantics(
+                    asset_id,
+                    description=payload.get("description") if has_desc else None,
+                    tags=payload.get("tags") if has_tags else None,
+                )
+                self._send_json({"ok": True, "entry": entry})
+            except vd_acat.AssetLibraryError as exc:
+                self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, 404)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
         if parsed.path == "/api/voice_preview_full":
             # §35 完整旁白试听：POST {voice, text} → edge-tts 合成整段（支持回放）
             length = int(self.headers.get("Content-Length", 0))
@@ -2644,6 +2684,10 @@ class Handler(BaseHTTPRequestHandler):
                     "bgm_volume": float(payload.get("bgm_volume") or 0.3),
                     "narration_volume": float(payload.get("narration_volume") or 1.0),
                     "sfx_plan": payload.get("sfx_plan"),
+                    # 音效自动搜索（Openverse 免 Key：freesound 源 CC0，本地未命中时自动搜）
+                    "auto_sfx_search": bool(payload.get("auto_sfx_search", False)),
+                    # 具体音效选择（前端 cf-sfx；此前选了也不进 spec，恒不生效）
+                    "sfx": payload.get("sfx") or payload.get("sfx_choice") or "auto",
                     "subtitle_mode": payload.get("subtitle_mode") or "plain",
                     "fit_mode": payload.get("fit_mode") or "cover",
                     "clip_duration": payload.get("clip_duration"),

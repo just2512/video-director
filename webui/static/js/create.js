@@ -328,7 +328,9 @@ async function createLoadDefaults(){
     _rebuildSelect('cf-bgm', [['auto', '自动按内容与风格匹配现有音乐'], ['', '（不配乐）'],
                               ...bgms.map(b => [b.id, b.label])]);
     const sfxs = await apiGet('/api/sfx');
-    _rebuildSelect('cf-sfx', [['auto', '自动（按镜头配音效，推荐）'], ['', '关闭'],
+    _rebuildSelect('cf-sfx', [['auto', '自动（本地音效库）'],
+                              ['openverse-auto', '自动搜索匹配（Openverse 免Key · freesound · CC0）'],
+                              ['', '关闭'],
                               ...sfxs.map(s => [s.id, s.label])]);
   } catch (e) { /* 下拉加载失败不阻塞创建 */ }
   try {
@@ -770,7 +772,11 @@ async function createProject(){
     resolution: (document.getElementById('cf-resolution') || {}).value || `${aspect[0]}x${aspect[1]}`,
     bgm: (document.getElementById('cf-bgm') || {}).value || 'auto',
     bgm_volume: parseFloat((document.getElementById('cf-bgm-volume') || {}).value || '0.3'),
+    // 音效：'openverse-auto' = 本地未命中自动去 Openverse（freesound CC0）搜配；
+    // 'auto' = 只用本地库；'' = 关闭；具体 id = 全程铺该音效。
+    sfx: (() => { const v = (document.getElementById('cf-sfx') || {}).value; return v === undefined ? 'auto' : v; })(),
     sfx_plan: null,
+    auto_sfx_search: ((document.getElementById('cf-sfx') || {}).value === 'openverse-auto'),
     subtitle_mode: (document.getElementById('cf-subtitle') || {}).value || 'plain',
     fit_mode: (document.getElementById('cf-fit-mode') || {}).value || 'cover',
     clip_duration: (() => { const v = (document.getElementById('cf-clip-duration') || {}).value; return v ? parseFloat(v) : null; })(),

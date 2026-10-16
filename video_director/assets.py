@@ -42,6 +42,38 @@ def _unique_id(stem: str, used: set) -> str:
     return f"{stem}-{n}"
 
 
+def _library_semantics(path: str) -> dict:
+    """从 Asset Library 取回已写入的语义（description/tags）。
+
+    上传素材入库时只有 Library 台账记着它的语义；素材清单若不在这里回落，
+    这些素材到 analyze_assets 时永远是「无描述」→ LLM 匹配拿到空名册 →
+    顺序兜底。任何失败都静默返回空（语义回落不能炸主流程）。
+    """
+    try:
+        from video_director import asset_catalog
+        entry = asset_catalog.find_by_path(path)
+    except Exception as exc:
+        logger.debug(f"library 语义回落失败 {path}: {exc}")
+        return {}
+    if not entry:
+        return {}
+    return {
+        "description": entry.get("description") or "",
+        "keywords": list(entry.get("tags") or []),
+    }
+
+
+def _asset_meta(path: str, metadata: Dict[str, dict]) -> dict:
+    """合并素材元数据：Library 已登记语义 < 调用方显式 metadata（后者优先）。
+
+    调用方显式给的 source/license_note 是可信上下文的覆盖，必须赢；
+    Library 只补语义字段。
+    """
+    meta: dict = dict(_library_semantics(path))
+    meta.update(metadata.get(path) or {})
+    return meta
+
+
 def build_manifest(
     video_files: List[str],
     image_files: List[str],
@@ -71,11 +103,14 @@ def build_manifest(
                     raise AssetError(f"视频文件无视频流: {path}")
                 if probe.duration is None or probe.duration <= 0:
                     raise AssetError(f"视频时长无效: {path}")
-                meta = metadata.get(path) or {}
+                meta = _asset_meta(path, metadata)
                 assets[asset_id] = AssetRef(
                     id=asset_id, type="video", file=path,
                     duration=probe.duration, width=probe.width,
                     height=probe.height, fps=probe.fps,
+                    prompt=meta.get("prompt") or None,
+                    description=meta.get("description") or None,
+                    keywords=list(meta.get("keywords") or []),
                     source=meta.get("source", "user"),
                     license_note=meta.get("license_note", license_note),
                     provenance=meta.get("provenance"),
@@ -83,10 +118,13 @@ def build_manifest(
                 )
             else:
                 probe = prober.probe_image(path)
-                meta = metadata.get(path) or {}
+                meta = _asset_meta(path, metadata)
                 assets[asset_id] = AssetRef(
                     id=asset_id, type="image", file=path,
                     width=probe.width, height=probe.height,
+                    prompt=meta.get("prompt") or None,
+                    description=meta.get("description") or None,
+                    keywords=list(meta.get("keywords") or []),
                     source=meta.get("source", "user"),
                     license_note=meta.get("license_note", license_note),
                     provenance=meta.get("provenance"),
