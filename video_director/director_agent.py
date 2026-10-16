@@ -771,6 +771,17 @@ def _tool_composition(spec: dict, state: dict) -> dict:
                 duration=round(lay.duration, 3),
                 source_in=round(lay.source_in, 3),
                 source_out=round(lay.source_out, 3),
+                # 必须跟随画面速度：变速片段（如 3.13× 把 8s 压成 2.56s）若原声
+                # 仍按 1× 播，渲染器按 span/speed 算可用时长 → 音画整段不同步，
+                # 且 span/speed < duration 的片段尾部静音（实测：8 条原声全中）。
+                # 编辑器提升路径（_cmd_promote_layer_to_visual_track）本就同步
+                # speed，此前只有流水线这条创建路径漏了。
+                # 必须跟随画面速度：变速片段（如 3.13× 把 8s 压成 2.56s）若原声
+                # 仍按 1× 播，渲染器按 span/speed 算可用时长 → 音画整段不同步，
+                # 且 span/speed < duration 的片段尾部静音（实测：8 条原声全中）。
+                # 编辑器提升路径（_cmd_promote_layer_to_visual_track）本就同步
+                # speed，此前只有流水线这条创建路径漏了。
+                speed=round(float(getattr(lay, "speed", 1.0) or 1.0), 6),
                 volume=1.0,
                 ducking=False,
             ))
