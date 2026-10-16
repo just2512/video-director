@@ -14,6 +14,8 @@ from video_director import config
 from video_director.editor import _asset_ref_from_project_manifest, execute_command, load_composition, save_composition
 from video_director.models import CameraTrack, CompositionIR
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _project_with_local_asset(tmp_path: Path, monkeypatch):
     """建一个只把素材写进项目 manifest（不进 Library）的项目。"""
@@ -94,3 +96,42 @@ def test_add_visual_overlay_accepts_project_local_uploaded_asset(tmp_path, monke
     assert comp.visual_overlays[0].asset_id == "local-testimg"
     # 解析后的素材被提升进 IR，后续命令不必再次回落
     assert any(a.id == "local-testimg" for a in comp.assets)
+
+
+def test_thumbnail_accepts_explicit_source_without_library_entry(tmp_path, monkeypatch):
+    """回归：Library 未收录的素材，显式传入源文件也必须能出缩略图。
+
+    此前 make_thumbnail 只认 Library 条目 → 上传素材缩略图恒 404
+    （服务端日志实测：GET /api/asset_thumbnail?asset_id=local-... 404）。
+    """
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    from video_director import asset_catalog
+
+    aid = "local-uploaded-no-library"
+    assert asset_catalog.get_asset(aid) is None, "前置：该素材不在 Library"
+
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"\x00" * 64)
+
+    # Library 未命中且未给 src_file → None（不假装成功）
+    assert asset_catalog.make_thumbnail(aid) is None
+
+    # 预置缓存缩略图，验证显式 src_file 能让解析路径走通并命中缓存
+    thumb_dir = asset_catalog.library_root() / "thumbnails"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    cached = thumb_dir / f"{aid}.jpg"
+    cached.write_bytes(b"\xff\xd8\xff\xe0cached-thumb")
+    got = asset_catalog.make_thumbnail(aid, src_file=str(src), media_type="video")
+    assert got == str(cached), f"显式源文件未命中缩略图缓存: {got!r}"
+
+
+def test_thumbnail_endpoint_accepts_project_id():
+    """源码契约：缩略图端点必须接受 project_id 并回落到项目 manifest。"""
+    src = (ROOT / "webui" / "server.py").read_text(encoding="utf-8")
+    idx = src.index('route == "/api/asset_thumbnail"')
+    branch = src[idx:idx + 2200]
+    assert 'qs.get("project_id"' in branch, "缩略图端点未接受 project_id"
+    assert "_asset_ref_from_project_manifest" in branch, (
+        "缩略图端点未回落到项目 manifest——上传素材缩略图会恒 404"
+    )

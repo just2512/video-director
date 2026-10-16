@@ -262,22 +262,28 @@ def register_stock(file_path: str, provider: str, source_id: str = "",
                         commercial_status=status, license_note=note or license_note)
 
 
-def make_thumbnail(asset_id: str) -> Optional[str]:
+def make_thumbnail(asset_id: str, src_file: Optional[str] = None,
+                   media_type: Optional[str] = None) -> Optional[str]:
     """§26 缩略图（视频抽帧 1s 处 / 图片直接缩；产物在 thumbnails/）。
 
     用项目统一 ffmpeg 二进制（prober._resolve_ffmpeg，随包 bin/ 优先），不引
     ffmpeg-python 依赖：requirements 从未包含它，旧实现 import 即
     ModuleNotFoundError → 恒返回 None → /api/asset_thumbnail 全 404（2026-10-09
-    实测；缩略图零测试覆盖所以从未被发现）。"""
+    实测；缩略图零测试覆盖所以从未被发现）。
+
+    ``src_file``/``media_type`` 供 Library 未收录的素材（项目本地上传）显式传入
+    源文件——否则上传素材缩略图恒 404（2026-10-15 浏览器实测）。
+    """
     entry = get_asset(asset_id)
-    if not entry:
+    if not entry and not src_file:
         return None
     _ensure_dirs()
     thumb_dir = library_root() / "thumbnails"
     thumb = thumb_dir / f"{asset_id}.jpg"
     if thumb.is_file():
         return str(thumb)
-    src = str(entry.get("file") or "")
+    src = src_file or str((entry or {}).get("file") or "")
+    kind = media_type or (entry or {}).get("type")
     if not src or not os.path.isfile(src):
         return None
     try:
@@ -287,7 +293,7 @@ def make_thumbnail(asset_id: str) -> Optional[str]:
             logger.warning(f"asset_library: 缩略图失败 {asset_id}: 找不到 ffmpeg 可执行文件")
             return None
         cmd = [ff, "-y", "-loglevel", "error"]
-        if entry.get("type") == "video":
+        if kind == "video":
             # 视频在 1s 处抽帧（短于 1s 的素材回退首帧）
             cmd += ["-ss", "1.0", "-i", src]
         else:
@@ -297,7 +303,7 @@ def make_thumbnail(asset_id: str) -> Optional[str]:
                               encoding="utf-8", errors="replace", timeout=60)
         if proc.returncode != 0 or not thumb.is_file():
             # 短视频在 1s 处无帧：回退首帧（不带 -ss 再试一次）
-            if entry.get("type") == "video":
+            if kind == "video":
                 cmd2 = [ff, "-y", "-loglevel", "error", "-i", src,
                         "-vf", "scale=320:-2", "-vframes", "1",
                         "-f", "image2", str(thumb)]

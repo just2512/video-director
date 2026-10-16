@@ -329,7 +329,7 @@ def _parse_multipart(handler) -> dict:
     return {"fields": fields, "files": files}
 
 
-def _editor_asset_preview_map(ir, manifest_by_id=None):
+def _editor_asset_preview_map(ir, manifest_by_id=None, project_id=""):
     """编辑器展示用 Asset Map：只读投影，不写入 Composition IR。
 
     catalog 未命中时回落到项目 assets/manifest.json——上传到项目本地的素材
@@ -371,7 +371,8 @@ def _editor_asset_preview_map(ir, manifest_by_id=None):
                     "name": row.get("name") or Path(raw_file).name or aid,
                     "type": row.get("type"),
                     "file_url": ("/file?path=" + urllib_quote(safe_file)) if safe_file else "",
-                    "thumbnail_url": "/api/asset_thumbnail?asset_id=" + urllib_quote(aid, safe=""),
+                    "thumbnail_url": "/api/asset_thumbnail?asset_id=" + urllib_quote(aid, safe="")
+                        + (("&project_id=" + urllib_quote(project_id, safe="")) if project_id else ""),
                     "width": row.get("width"),
                     "height": row.get("height"),
                     "duration": row.get("duration"),
@@ -1522,7 +1523,7 @@ class Handler(BaseHTTPRequestHandler):
                     "subtitle_style": ir.subtitle_style.model_dump() if ir.subtitle_style else None,
                     "subtitle_track": ir.subtitle_track.model_dump() if ir.subtitle_track else None,
                     "references": ir.references.to_dict()["references"] if ir.references else [],
-                    "assets": _editor_asset_preview_map(ir, manifest_by_id),
+                    "assets": _editor_asset_preview_map(ir, manifest_by_id, pid),
                     "transition_proposals": _load_transition_proposals(pid),
                     "revisions_count": len(revs),
                 })
@@ -1763,16 +1764,27 @@ class Handler(BaseHTTPRequestHandler):
             # Lazy thumbnail：首次请求才生成，之后直接命中 storage/assets/thumbnails。
             qs = parse_qs(parsed.query)
             aid = (qs.get("asset_id", [""])[0] or "").strip()
+            pid = (qs.get("project_id", [""])[0] or "").strip()
             if not aid:
                 self._send_json({"ok": False, "error": "缺少 asset_id"}, 400)
                 return
             try:
                 from video_director import asset_catalog
                 entry = asset_catalog.get_asset(aid)
-                if not entry:
+                src_file = None
+                media_type = None
+                if not entry and pid:
+                    # 项目本地上传素材不进 Library，只登记在项目 manifest——
+                    # 只查 Library 会让所有上传素材缩略图恒 404（浏览器实测）。
+                    from video_director import editor as vd_editor
+                    ref = vd_editor._asset_ref_from_project_manifest(pid, aid)
+                    if ref is not None:
+                        src_file = str(ref.file)
+                        media_type = str(getattr(ref.type, "value", ref.type) or "").lower()
+                if not entry and not src_file:
                     self._send_json({"ok": False, "error": "素材不存在"}, 404)
                     return
-                thumb = asset_catalog.make_thumbnail(aid)
+                thumb = asset_catalog.make_thumbnail(aid, src_file=src_file, media_type=media_type)
                 if not thumb or not Path(thumb).is_file():
                     self._send_json({"ok": False, "error": "缩略图生成失败"}, 404)
                     return

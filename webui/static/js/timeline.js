@@ -408,7 +408,10 @@ function renderPhysicalTimeline(){
       const sourceAssets = c.assets || {};
       const asset = Array.isArray(sourceAssets) ? sourceAssets.find(item => item.id === clip.asset_id) : sourceAssets[clip.asset_id];
       const assetName = asset && (asset.name || (asset.file && String(asset.file).split(/[\\/]/).pop())) || clip.asset_id || '素材';
-      const thumbnailUrl = asset ? (asset.thumbnail_url || ('/api/asset_thumbnail?asset_id=' + encodeURIComponent(clip.asset_id))) : '';
+      const thumbnailUrl = asset
+        ? (asset.thumbnail_url || ('/api/asset_thumbnail?asset_id=' + encodeURIComponent(clip.asset_id)
+            + (ED.pid ? '&project_id=' + encodeURIComponent(ED.pid) : '')))
+        : '';
       return { positioned:true, leftPct, pct, visualOverlayIndex:index, visualOverlayId:String(clip.id || ''),
         visualTrackId:trackId, thumbnailUrl,
         selected: typeof edIsSelected === 'function' && edIsSelected('visual_overlay', String(clip.id || '')),
@@ -612,8 +615,11 @@ function _tlAssetThumbHtml(lay){
   const aid = lay && lay.asset_id;
   const a = aid && ED.comp && ED.comp.assets && ED.comp.assets[aid];
   if (!aid || !a) return '<span class="tl-thumb-empty">无画面</span>';
+  // 带 project_id：项目本地/上传素材不进 Library，缩略图端点需要项目上下文
+  // 才能回落到项目 manifest（否则上传素材缩略图恒 404）。
+  const pidQuery = (ED.pid ? '&project_id=' + encodeURIComponent(ED.pid) : '');
   return '<img class="ed-scene-thumb" src="/api/asset_thumbnail?asset_id=' +
-    encodeURIComponent(aid) + '" alt="" loading="lazy" decoding="async">';
+    encodeURIComponent(aid) + pidQuery + '" alt="" loading="lazy" decoding="async">';
 }
 function _sceneTrackHtml(c, total){
   let mInner = '';
