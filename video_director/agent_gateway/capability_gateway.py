@@ -120,6 +120,103 @@ def creative_watch(project_id: str = "") -> dict:
         return {"ok": False, "error": str(exc)[:200]}
 
 
+def system_capabilities_list() -> dict:
+    """system.capabilities.list：发现可用的 granular capabilities。"""
+    from video_director.capability_registry import list_capabilities
+    caps = list_capabilities()
+    names = sorted(caps.keys() if isinstance(caps, dict) else
+                   [x["name"] if isinstance(x, dict) else str(x) for x in caps])
+    return {"ok": True, "capabilities": names, "count": len(names)}
+
+
+def director_create(payload: Optional[Dict] = None) -> dict:
+    """director.create：通过共享服务提交混合输入的完整导演任务。"""
+    from video_director.director_service import create_director_run, DirectorServiceError
+    try:
+        return create_director_run(payload or {})
+    except DirectorServiceError as exc:
+        return {"ok": False, "status": "REJECTED", "code": exc.code, "error": str(exc)}
+
+
+def director_analyze_reference(video_path: str, use_llm: bool = True) -> dict:
+    """director.analyze_reference：分析本地参考视频并返回可复用的结构化输入。"""
+    from video_director.director_service import analyze_reference_video, DirectorServiceError
+    try:
+        return analyze_reference_video(video_path, use_llm=use_llm)
+    except DirectorServiceError as exc:
+        return {"ok": False, "status": "REJECTED", "code": exc.code, "error": str(exc)}
+
+
+def director_status(run_id: str) -> dict:
+    """director.status：读取持久化 WorkflowRun 状态。"""
+    from video_director.director_service import get_director_status, DirectorServiceError
+    try:
+        return get_director_status(run_id)
+    except DirectorServiceError as exc:
+        return {"ok": False, "status": "REJECTED", "code": exc.code, "error": str(exc)}
+
+
+def director_retry(project_id: str) -> dict:
+    """director.retry：按持久化输入重新执行失败的导演项目。"""
+    from video_director.director_service import retry_director_project, DirectorServiceError
+    try:
+        return retry_director_project(project_id)
+    except DirectorServiceError as exc:
+        return {"ok": False, "status": "REJECTED", "code": exc.code, "error": str(exc)}
+
+
+def director_continue(project_id: str, target: str = "preview") -> dict:
+    """director.continue：从已保存的导演检查点继续执行。"""
+    from video_director.director_service import continue_director_project, DirectorServiceError
+    try:
+        return continue_director_project(project_id, target=target)
+    except DirectorServiceError as exc:
+        return {"ok": False, "status": "REJECTED", "code": exc.code, "error": str(exc)}
+
+
+def creative_actions_list(project_id: str, selection: Optional[Dict] = None) -> dict:
+    """actions.list：发现 Action Registry 动作及当前上下文的可用条件。"""
+    from video_director import action_registry
+    try:
+        if selection:
+            from video_director import project_context
+            context = project_context.inspect_project_context(project_id, selection)
+            result = action_registry.actions_for_context(
+                selection, project_id=project_id, context=context
+            )
+            for item in result.get("actions", []):
+                item["agent_executable"] = not bool(item.get("ui"))
+                if item.get("ui"):
+                    item["execution_note"] = "浏览器交互动作；无浏览器的 Agent 不可执行"
+            return {"ok": True, "project_id": project_id, **result}
+        groups = action_registry.manifest_for_project(project_id)
+        for items in groups.values():
+            for item in items:
+                item["agent_executable"] = not bool(item.get("ui"))
+                if item.get("ui"):
+                    item["execution_note"] = "浏览器交互动作；无浏览器的 Agent 不可执行"
+        return {"ok": True, "project_id": project_id, "groups": groups}
+    except Exception as exc:
+        return {"ok": False, "status": "ERROR", "error": str(exc)[:200]}
+
+
+def creative_action(project_id: str, action: str, target: str = "current_selection",
+                    params: Optional[Dict] = None,
+                    selection: Optional[Dict] = None) -> dict:
+    """action：调用 Action Registry 的用户语义动作，沿用 WebUI 同一解析和执行链。"""
+    from video_director.action_service import execute_action_request, ActionServiceError
+    try:
+        return execute_action_request({
+            "project_id": project_id,
+            "action": action,
+            "target": target,
+            "params": params or {},
+            "selection": selection or {"type": "project"},
+        })
+    except ActionServiceError as exc:
+        return exc.body
+
+
 #: §19 高层工具注册表（MCP tools / CLI 子命令共用同一实现）
 HIGH_LEVEL_TOOLS = {
     "creative.inspect": creative_inspect,
@@ -129,6 +226,14 @@ HIGH_LEVEL_TOOLS = {
     "creative.render": creative_render,
     "creative.verify": creative_verify,
     "creative.watch": creative_watch,
+    "creative.action": creative_action,
+    "creative.actions.list": creative_actions_list,
+    "director.create": director_create,
+    "director.status": director_status,
+    "director.analyze_reference": director_analyze_reference,
+    "director.retry": director_retry,
+    "director.continue": director_continue,
+    "system.capabilities.list": system_capabilities_list,
 }
 
 
@@ -137,8 +242,13 @@ def dispatch(name: str, project_id: str = "", **kwargs) -> dict:
     fn = HIGH_LEVEL_TOOLS.get(name)
     if fn is None:
         raise GatewayError("UNKNOWN_TOOL", f"未知高层工具 {name!r}，应为 {sorted(HIGH_LEVEL_TOOLS)}")
-    if name != "creative.inspect" and name != "creative.watch" and not project_id:
+    if name not in {"creative.inspect", "creative.watch", "director.create", "director.status", "director.analyze_reference", "system.capabilities.list"} and not project_id:
         raise GatewayError("MISSING_PROJECT", f"{name} 需 project_id")
+    if project_id:
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", str(project_id)):
+            raise GatewayError("INVALID_PROJECT_ID",
+                               "project_id 只能包含字母、数字、点、下划线和连字符，且必须以字母或数字开头")
     try:
         return fn(project_id, **kwargs) if project_id else fn(**kwargs)
     except GatewayError:

@@ -58,10 +58,11 @@ def main(argv=None):
     auto.add_argument("--height", type=int, default=None)
     auto.add_argument("--fps", type=int, default=None)
     auto.add_argument("--bgm", default=None)
-    auto.add_argument("--confirm", action="store_true",
-                      help="先预览分镜再渲染（规划完成暂停，输出分镜书 + 项目ID）")
-    auto.add_argument("--auto", action="store_true",
-                      help="不确认，一键到底（默认行为，与 --confirm 互斥）")
+    auto_mode = auto.add_mutually_exclusive_group()
+    auto_mode.add_argument("--confirm", action="store_true",
+                           help="先预览分镜再渲染（规划完成暂停，输出分镜书 + 项目ID）")
+    auto_mode.add_argument("--auto", action="store_true",
+                           help="不确认，一键到底")
     auto.add_argument("--json", action="store_true")
 
     txt = sub.add_parser("text", help="纯文案模式：文案 → 文字卡+旁白+字幕 → 成片（无需素材）")
@@ -143,6 +144,7 @@ def main(argv=None):
             project_id=getattr(a, "project_id", "auto-run"),
             voice=a.voice,
             voice_rate=a.voice_rate,
+            auto_confirm=not a.confirm,
             manual_manifest=a.semantic if getattr(a, "semantic", None) else None,
             style_intent=a.style if getattr(a, "style", None) else None,
             bgm_asset_id=a.bgm if getattr(a, "bgm", None) else None,
