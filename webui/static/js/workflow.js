@@ -63,9 +63,31 @@ async function taskShowDetail(runId){
       <span class="tb-sep"></span>
       <button class="btn-secondary btn-sm" onclick="taskRefresh()">返回列表</button>
       ${result.project_id ? `<button class="btn-sm" onclick="taskOpenProject('${esc(result.project_id)}')">打开项目</button>` : ''}
+      ${(run.status === 'FAILED' || run.status === 'INTERRUPTED') && run.project_id && run.kind === 'director_create' ? `<button class="btn-sm" onclick="taskRetryDirector('${esc(run.project_id)}')">重新执行</button>` : ''}
     </div>
     ${run.error ? `<div class="err-box">失败原因：${esc(run.error.slice(0, 160))}</div>` : ''}
     <div style="margin-top:6px">${stepRows || '<div class="hint">无步骤记录</div>'}</div>`;
+}
+
+/** 失败的 AI Director 任务在任务中心直接重试，复用后端持久化 bundle 门禁。 */
+async function taskRetryDirector(projectId){
+  if(!projectId) return;
+  const buttons = document.querySelectorAll('#task-drawer-list button');
+  buttons.forEach(b => { if (b.textContent.trim() === '重新执行') b.disabled = true; });
+  try {
+    const r = await apiPost('/api/director/retry', {project_id: projectId});
+    if (!r || !r.ok) {
+      editorToast('重新执行未启动：' + ((r && r.error) || '未知原因'), true);
+      taskRefresh();
+      return;
+    }
+    editorToast('已提交重新执行任务');
+    await taskRefresh();
+    if (r.run_id) taskShowDetail(r.run_id);
+  } catch (e) {
+    editorToast('重新执行请求失败：' + (e.message || e), true);
+    taskRefresh();
+  }
 }
 
 /** §46 失败任务「查看」→ 详情（含失败步骤定位）。 */
@@ -122,8 +144,8 @@ function renderTaskDrawer(){
   box.innerHTML=controls+
     section('正在处理',running.map(r=>row(r,(r.current?'步骤：'+esc(r.current)+'……':'排队中'))),'没有进行中的任务')+
     section('等待确认',waiting.map(r=>row(r,'分镜/草稿等待你确认')),'无')+
-    section('失败',failed.map(r=>'<div class="proj-row"><span style="width:28px"><input type="checkbox" '+(WFUI.selected.has(r.run_id)?'checked':'')+' onchange="taskToggleSelected(\''+esc(r.run_id)+'\',this.checked)" onclick="event.stopPropagation()"></span><span style="flex:1"><b>'+esc(r.kind)+(r.project_id?' · '+esc(r.project_id):'')+'</b><span class="hint">'+esc(r.status==='INTERRUPTED'?('服务中断：'+(r.error||'可重新执行')):((r.error||'').slice(0,50)||'失败'))+'</span></span><button class="btn-secondary btn-sm" onclick="taskShowDetail(\''+esc(r.run_id)+'\')">查看</button></div>'),'没有失败/中断任务')+
+    section('失败',failed.map(r=>'<div class="proj-row"><span style="width:28px"><input type="checkbox" '+(WFUI.selected.has(r.run_id)?'checked':'')+' onchange="taskToggleSelected(\''+esc(r.run_id)+'\',this.checked)" onclick="event.stopPropagation()"></span><span style="flex:1"><b>'+esc(r.kind)+(r.project_id?' · '+esc(r.project_id):'')+'</b><span class="hint">'+esc(r.status==='INTERRUPTED'?('服务中断：'+(r.error||'可重新执行')):((r.error||'').slice(0,50)||'失败'))+'</span></span>'+(r.project_id&&r.kind==='director_create'?'<button class="btn-secondary btn-sm" onclick="taskRetryDirector(\''+esc(r.project_id)+'\')">重新执行</button>':'')+'<button class="btn-secondary btn-sm" onclick="taskShowDetail(\''+esc(r.run_id)+'\')">查看</button></div>'),'没有失败/中断任务')+
     section('已完成',done.slice(0,10).map(r=>'<div class="proj-row"><span style="width:28px"><input type="checkbox" '+(WFUI.selected.has(r.run_id)?'checked':'')+' onchange="taskToggleSelected(\''+esc(r.run_id)+'\',this.checked)" onclick="event.stopPropagation()"></span><span style="flex:1"><b>'+esc(r.kind)+(r.project_id?' · '+esc(r.project_id):'')+'</b><span class="hint">'+new Date((r.updated_at||0)*1000).toLocaleString()+'</span></span><button class="btn-secondary btn-sm" onclick="taskShowDetail(\''+esc(r.run_id)+'\')">查看</button></div>'),'暂无');
 }
 
-Object.assign(window, {taskDrawerToggle, taskRefresh, taskShowDetail, taskOpenProject, renderTaskDrawer, taskBulkCleanup, taskToggleAllTerminal, taskToggleSelected, WFUI});
+Object.assign(window, {taskDrawerToggle, taskRefresh, taskShowDetail, taskOpenProject, taskRetryDirector, renderTaskDrawer, taskBulkCleanup, taskToggleAllTerminal, taskToggleSelected, WFUI});

@@ -2589,133 +2589,15 @@ class Handler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
                 return
-
-            inputs = payload.get("director_inputs") or {}
-            brief = (
-                (inputs.get("brief") if isinstance(inputs, dict) else "")
-                or payload.get("brief")
-                or payload.get("creative_brief")
-                or ""
-            ).strip()
-            script = (
-                (inputs.get("script", {}).get("text")
-                 if isinstance(inputs.get("script"), dict) else inputs.get("script"))
-                or payload.get("script")
-                or ""
-            ).strip()
-            assets = (inputs.get("assets") or {}) if isinstance(inputs, dict) else {}
-            has_sources = bool(
-                script
-                or (assets.get("asset_refs") if isinstance(assets, dict) else [])
-                or (inputs.get("references") if isinstance(inputs, dict) else [])
-                or (inputs.get("articles") if isinstance(inputs, dict) else [])
-                or (inputs.get("software_project") if isinstance(inputs, dict) else {})
-            )
-            if not brief and not script and not has_sources:
-                self._send_json({
-                    "ok": False,
-                    "error": "请告诉 AI 想做什么，并可同时附加文案、素材、参考视频或软件项目",
-                }, 400)
-                return
-
             try:
-                from video_director import director_inputs as _di
-                from video_director import workflow_run as _wf
-                from video_director import config as _cfg
-
-                pid = (
-                    payload.get("project_id") or
-                    (inputs.get("project_id") if isinstance(inputs, dict) else "") or
-                    f"web-{uuid.uuid4().hex[:8]}"
+                from video_director.director_service import (
+                    create_director_run, DirectorServiceError,
                 )
-                merged = dict(payload)
-                merged["project_id"] = pid
-                merged["brief"] = brief
-                merged["script"] = script
-                merged["director_inputs"] = dict(inputs)
-                merged["director_inputs"]["brief"] = brief
-                merged["director_inputs"]["script"] = {
-                    "text": script,
-                    "source": "user" if script else "director",
-                    "authority": "authoritative" if script else "generated",
-                    "editable": True,
-                }
-
-                # Settings belong to the same input bundle, not a separate creation mode.
-                merged["director_inputs"]["platform"] = (
-                    inputs.get("platform") if isinstance(inputs, dict) else ""
-                ) or payload.get("platform") or ""
-                merged["director_inputs"]["duration"] = (
-                    inputs.get("duration") if isinstance(inputs, dict) else ""
-                ) or payload.get("duration") or ""
-                merged["director_inputs"]["style"] = (
-                    inputs.get("style") if isinstance(inputs, dict) else ""
-                ) or payload.get("style") or payload.get("style_intent") or ""
-
-                bundle = _di.build_bundle(merged)
-                plan = _di.build_plan(bundle, brief or script or "AI Director 创作")
-
-                resolution = str(payload.get("resolution") or "").strip()
-                platform = str(payload.get("platform") or "").strip()
-                platform_dims = {
-                    "douyin": (1080, 1920), "video_channel": (1080, 1920),
-                    "bilibili": (1920, 1080), "xhs": (1080, 1440),
-                    "square": (1080, 1080),
-                }
-                if resolution and "x" in resolution:
-                    rw, rh = [int(x) for x in resolution.split("x", 1)]
-                else:
-                    rw, rh = platform_dims.get(platform, _cfg.DEFAULT_RESOLUTION)
-
-                confirm_mode = (payload.get("confirm_mode") or "preview").strip()
-                spec = {
-                    "project_id": pid,
-                    "script": script,
-                    "creative_brief": brief,
-                    "brief": brief,
-                    "mode": payload.get("mode") or "auto",
-                    "voice": payload.get("voice") or "zh-CN-XiaoxiaoNeural",
-                    "voice_mode": payload.get("voice_mode") or "auto",
-                    "voice_rate": payload.get("voice_rate") or "1.0",
-                    "style_intent": payload.get("style_intent") or "",
-                    "width": rw, "height": rh,
-                    "fps": int(payload.get("fps") or 30),
-                    "bgm": payload.get("bgm") or "auto",
-                    "bgm_volume": float(payload.get("bgm_volume") or 0.3),
-                    "narration_volume": float(payload.get("narration_volume") or 1.0),
-                    "sfx_plan": payload.get("sfx_plan"),
-                    # 音效自动搜索（Openverse 免 Key：freesound 源 CC0，本地未命中时自动搜）
-                    "auto_sfx_search": bool(payload.get("auto_sfx_search", False)),
-                    # 具体音效选择（前端 cf-sfx；此前选了也不进 spec，恒不生效）
-                    "sfx": payload.get("sfx") or payload.get("sfx_choice") or "auto",
-                    "subtitle_mode": payload.get("subtitle_mode") or "plain",
-                    "fit_mode": payload.get("fit_mode") or "cover",
-                    "clip_duration": payload.get("clip_duration"),
-                    "clip_speed": payload.get("clip_speed"),
-                    "concat_mode": payload.get("concat_mode") or "sequential",
-                    "transition_mode": payload.get("transition_mode") or "cut",
-                    "match_materials_to_script": bool(payload.get("match_materials_to_script", True)),
-                    "stop_at": str(payload.get("stop_at") or "video"),
-                    "watermark": payload.get("watermark") or "",
-                    "lower_third_name": payload.get("lower_third_name") or "",
-                    "lower_third_role": payload.get("lower_third_role") or "",
-                    "confirm_mode": confirm_mode,
-                    "auto_confirm": confirm_mode == "direct",
-                    "visual_source": payload.get("visual_source") or "auto",
-                    "video_paths": payload.get("video_paths") or [],
-                    "image_paths": payload.get("image_paths") or [],
-                    "narration_upload": payload.get("narration_upload") or "",
-                    "director_inputs": bundle,
-                }
-                run_id = _wf.run_director_create_async(spec, plan=plan)
+                self._send_json(create_director_run(payload))
+            except DirectorServiceError as exc:
                 self._send_json({
-                    "ok": True,
-                    "run_id": run_id,
-                    "project_id": pid,
-                    "script": script,
-                    "director_plan": plan,
-                    "director_inputs": bundle,
-                })
+                    "ok": False, "code": exc.code, "error": str(exc),
+                }, exc.status_code)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 503)
             return
@@ -2729,34 +2611,23 @@ class Handler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
                 return
-            pid = (payload.get("project_id") or "").strip()
-            target = (payload.get("target") or "preview").strip().lower()
-            if not pid:
-                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
-                return
             try:
-                from video_director import workflow_run as _wf
-                run_id = _wf.run_director_continue_async(pid, target=target)
-                if not run_id:
-                    # 已经完成目标检查点时无需新任务；其余情况按项目实际状态给出原因。
-                    from video_director import store as _vd_store
-                    proj = _vd_store.get_project(pid)
-                    if proj is None:
-                        self._send_json({"ok": False, "error": "项目不存在"}, 404)
-                    else:
-                        self._send_json({
-                            "ok": False,
-                            "error": "当前项目没有可继续的 AI Director 检查点，可能已经在目标阶段或需要重新执行",
-                        }, 409)
-                    return
-                self._send_json({"ok": True, "run_id": run_id, "project_id": pid, "target": target})
+                from video_director.director_service import (
+                    continue_director_project, DirectorServiceError,
+                )
+                self._send_json(continue_director_project(
+                    payload.get("project_id") or "",
+                    target=payload.get("target") or "preview",
+                ))
+            except DirectorServiceError as exc:
+                self._send_json({
+                    "ok": False, "code": exc.code, "error": str(exc),
+                }, exc.status_code)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
         if parsed.path == "/api/director/retry":
-            # FAILED 导演项目「重新执行」：读持久化 bundle/params → 新 director_create run。
-            # 门禁在 workflow_run.run_director_retry_async（项目存在/有 bundle/无 RUNNING run）。
             length = int(self.headers.get("Content-Length", 0))
             try:
                 payload = json.loads(
@@ -2765,25 +2636,15 @@ class Handler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
                 return
-            pid = (payload.get("project_id") or "").strip()
-            if not pid:
-                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
-                return
             try:
-                from video_director import workflow_run as _wf
-                run_id = _wf.run_director_retry_async(pid)
-                if not run_id:
-                    # 区分三种拒绝原因，给用户可解释错误
-                    from video_director import store as _vd_store
-                    if _vd_store.get_project(pid) is None:
-                        reason = "项目不存在"
-                    elif not (vd_config.project_dir(pid) / "plans" / "director_inputs.json").is_file():
-                        reason = "该项目没有 AI 导演输入记录（可能是旧流程项目），无法重新执行"
-                    else:
-                        reason = "项目有正在执行的任务，结束后再试"
-                    self._send_json({"ok": False, "error": reason}, 409)
-                    return
-                self._send_json({"ok": True, "run_id": run_id, "project_id": pid})
+                from video_director.director_service import (
+                    retry_director_project, DirectorServiceError,
+                )
+                self._send_json(retry_director_project(payload.get("project_id") or ""))
+            except DirectorServiceError as exc:
+                self._send_json({
+                    "ok": False, "code": exc.code, "error": str(exc),
+                }, exc.status_code)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
@@ -2793,51 +2654,27 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/action/execute":
             length = int(self.headers.get("Content-Length", 0))
             try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
             except json.JSONDecodeError:
-                self._send_json({"ok": False, "status": "REJECTED", "code": "INVALID_JSON", "error": "请求体不是合法 JSON"}, 400)
+                self._send_json({
+                    "ok": False, "status": "REJECTED", "code": "INVALID_JSON",
+                    "error": "请求体不是合法 JSON",
+                }, 400)
                 return
             pid = (payload.get("project_id") or "").strip()
-            action_id = (payload.get("action") or "").strip()
-            target = payload.get("target") or "current_selection"
-            params = payload.get("params") or {}
-            selection = payload.get("selection")
-            if not selection:
-                selection = _DIRECTOR_SELECTION.get(pid) or {"type": "project"}
-            if not pid or not action_id:
-                self._send_json({"ok": False, "status": "REJECTED", "code": "MISSING_REQUIREMENT", "error": "缺少 project_id 或 action"}, 400)
-                return
+            if not payload.get("selection"):
+                payload["selection"] = _DIRECTOR_SELECTION.get(pid) or {"type": "project"}
             try:
-                from video_director import action_registry as vd_actions
-                from video_director import project_context as vd_pctx
-                from video_director import tool_executor as vd_tools
-                context = vd_pctx.inspect_project_context(pid, selection)
-                availability = vd_actions.action_availability(action_id, pid, context=context)
-                if not availability.get("available"):
-                    self._send_json({"ok": False, "status": "REJECTED", "code": "ACTION_UNAVAILABLE", "action": action_id, "reason": availability.get("reason") or "当前对象不可执行该操作", "next_actions": availability.get("next_actions") or []}, 409)
-                    return
-                resolved = vd_actions.resolve_step({"action": action_id, "target": target, "params": params}, selection=selection)
-                if resolved.get("error"):
-                    self._send_json({"ok": False, "status": "REJECTED", "code": "ACTION_RESOLVE_FAILED", "action": action_id, "error": resolved["error"]}, 400)
-                    return
-                spec = vd_actions.get_action(resolved["action"])
-                sel_type = (selection or {}).get("type") or "project"
-                target_type = "project" if target == "project" or not resolved.get("targetId") else sel_type
-                if spec and spec.targets and target_type not in spec.targets:
-                    self._send_json({"ok": False, "status": "REJECTED", "code": "TARGET_NOT_ALLOWED", "action": resolved["action"], "error": "动作 %s 不允许目标 %s" % (resolved["action"], target_type)}, 409)
-                    return
-                if resolved["action"] == "render.final":
-                    from video_director import preflight as vd_preflight
-                    preflight = vd_preflight.run_preflight(pid, for_publish=True)
-                    if preflight.status != "PASS":
-                        self._send_json({"ok": False, "status": "REJECTED", "code": "PREFLIGHT_REJECT", "action": resolved["action"], "reason": "商用预检未通过", "preflight": preflight.to_dict()}, 409)
-                        return
-                result = vd_tools.execute_tool(pid, {"tool": resolved["capability"], "targetId": resolved.get("targetId") or "", "payload": resolved.get("payload") or {}})
-                ok = bool(result.get("ok"))
-                self._send_json({"ok": ok, "status": result.get("status") or ("APPLIED" if ok else "REJECTED"), "action": resolved["action"], "capability": resolved["capability"], "command": resolved["command"], "revision_id": result.get("revision_id"), "composition_version": result.get("composition_version"), "result": result.get("result") or {}, "verify": result.get("verify") or {}, "next_actions": [] if ok else (availability.get("next_actions") or []), "error": result.get("error"), "message": spec.label if ok and spec else ""}, 200)
-            except Exception as exc:
-                self._send_json({"ok": False, "status": "ERROR", "code": "ACTION_EXECUTE_FAILED", "action": action_id, "error": str(exc)}, 500)
+                from video_director.action_service import (
+                    execute_action_request, ActionServiceError,
+                )
+                self._send_json(execute_action_request(payload))
+            except ActionServiceError as exc:
+                self._send_json(exc.body, exc.status_code)
             return
+
         if parsed.path == "/api/director/execute":
             length = int(self.headers.get("Content-Length", 0))
             try:

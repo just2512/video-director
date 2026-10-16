@@ -572,26 +572,39 @@ async function cfAnalyzeReference(){
   const f = document.getElementById('cf-reference');
   const st = document.getElementById('cf-reference-status');
   const out = document.getElementById('cf-reference-result');
-  if (!f || !f.files || !f.files.length) { if (st) st.textContent = '请先选择参考视频'; return; }
+  if (!f || !f.files || !f.files.length) { if (st) st.textContent = '请先选择参考视频'; return false; }
+  const file = f.files[0];
+  window._cfReference = null;
+  window._cfReferenceFileObject = null;
   if (st) st.textContent = '分析中……（镜头检测 + 语法提取，约 10-40 秒）';
   const fd = new FormData();
-  fd.append('reference', f.files[0], f.files[0].name);
-  const r = await apiUpload('/api/reference', fd);
-  if (!r.ok) { if (st) st.textContent = '分析失败：' + (r.error || '未知'); return; }
-  const rep = r.report || {};
-  const vl = rep.visual_language || {};
-  const sg = (rep.shot_grammar || []).slice(0, 8);
-  window._cfReference = {
-    id: `ref-${r.project_id || Date.now()}`,
-    project_id: r.project_id || '',
-    video: rep.video || '',
-    report_path: rep.report_path || '',
-    report: rep,
-    apply: ['pace', 'density', 'motion', 'transition', 'shot_grammar']
-  };
-  out.innerHTML = `<div class="ok-box">分析完成 · ${sg.length} 个镜头 · 节奏 ${esc(String(vl.pace||'—'))} · 运动语言 ${esc(String(vl.motion||'—'))}
-    <div class="hint">参考视频已作为结构化风格输入保存，AI 导演创作时与文案、素材、软件项目一起使用；不会复制参考内容。</div></div>`;
-  if (st) st.textContent = '分析完成，已加入 AI 导演输入。';
+  fd.append('reference', file, file.name);
+  try {
+    const r = await apiUpload('/api/reference', fd);
+    if (!r || !r.ok) {
+      if (st) st.textContent = '分析失败：' + ((r && r.error) || '未知错误');
+      return false;
+    }
+    const rep = r.report || {};
+    const vl = rep.visual_language || {};
+    const sg = (rep.shot_grammar || []).slice(0, 8);
+    window._cfReference = {
+      id: `ref-${r.project_id || Date.now()}`,
+      project_id: r.project_id || '',
+      video: rep.video || '',
+      report_path: rep.report_path || '',
+      report: rep,
+      apply: ['pace', 'density', 'motion', 'transition', 'shot_grammar']
+    };
+    window._cfReferenceFileObject = file;
+    if (out) out.innerHTML = `<div class="ok-box">分析完成 · ${sg.length} 个镜头 · 节奏 ${esc(String(vl.pace||'—'))} · 运动语言 ${esc(String(vl.motion||'—'))}
+      <div class="hint">参考视频已作为结构化风格输入保存，AI 导演创作时与文案、素材、软件项目一起使用；不会复制参考内容。</div></div>`;
+    if (st) st.textContent = '分析完成，已加入 AI 导演输入。';
+    return true;
+  } catch (e) {
+    if (st) st.textContent = '分析请求失败：' + (e.message || e);
+    return false;
+  }
 }
 /** §37 软件项目输入：保存完整 Evidence Graph，Director 只消费 VERIFIED 事实。 */
 async function cfScanRepo(){
@@ -643,6 +656,23 @@ async function createProject(){
   const brief = (document.getElementById('cf-director-brief') || {}).value || '';
   const assets = document.getElementById('cf-assets');
   const hasFiles = !!(assets && assets.files.length);
+  const referenceEl = document.getElementById('cf-reference');
+  const selectedReference = !!(referenceEl && referenceEl.files && referenceEl.files.length);
+  const referenceFile = selectedReference ? referenceEl.files[0] : null;
+  if (selectedReference && window._cfReferenceFileObject !== referenceFile) {
+    btn.disabled = true;
+    status.textContent = '检测到参考视频尚未分析，正在自动分析；分析成功后才会提交创作任务……';
+    const analyzed = await cfAnalyzeReference();
+    if (!analyzed) {
+      CF.state = 'failed';
+      status.textContent = '参考视频分析未成功，创作任务未提交。请重试分析或移除参考视频。';
+      btn.disabled = false;
+      return;
+    }
+  } else if (!selectedReference && window._cfReferenceFileObject) {
+    window._cfReference = null;
+    window._cfReferenceFileObject = null;
+  }
   const hasReference = !!window._cfReference;
   const hasArticle = !!window._cfArticle;
   const hasSoftwareProject = !!window._cfRepo;
