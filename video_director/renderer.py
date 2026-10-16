@@ -53,8 +53,25 @@ class RenderResult:
 # 命令执行
 # ---------------------------------------------------------------------------
 
+def _with_nostdin(cmd: List[str]) -> List[str]:
+    """给 ffmpeg 命令补 -nostdin。
+
+    ffmpeg 默认会读 stdin；在 stdin 是永不 EOF 的管道时（自建 CI runner 的
+    step 环境）会挂到超时——2026-10-16 自建 runner 首次真跑 CI 实测：两个
+    SFX 切分渲染用例各卡满 600s 超时，本地 Windows 同样的用例秒级通过。
+    渲染器从不向 ffmpeg 喂 stdin（全文件无 "-" 输入），统一加 -nostdin 无副作用。
+    """
+    parts = [str(c) for c in cmd]
+    if not parts:
+        return parts
+    if "ffmpeg" in os.path.basename(parts[0]) and "-nostdin" not in parts:
+        return [parts[0], "-nostdin", *parts[1:]]
+    return parts
+
+
 def _run(cmd: List[str], timeout: int = 600) -> str:
     """执行外部命令，失败抛 RenderError（精准日志）。"""
+    cmd = _with_nostdin(cmd)
     logger.debug(f"exec: {' '.join(str(c) for c in cmd[:12])}{' ...' if len(cmd) > 12 else ''}")
     try:
         completed = subprocess.run(
@@ -84,6 +101,7 @@ def _ffmpeg() -> str:
 
 def _run_capture(cmd: List[str], timeout: int = 600) -> tuple[str, str]:
     """Run an FFmpeg/ffprobe command and preserve stderr for machine-readable probe output."""
+    cmd = _with_nostdin(cmd)
     logger.debug(f"exec-capture: {' '.join(str(c) for c in cmd[:12])}{' ...' if len(cmd) > 12 else ''}")
     try:
         completed = subprocess.run(
@@ -1070,6 +1088,11 @@ def mix_audio(
             *inputs,
             "-filter_complex", ";".join(filters),
             "-map", "[aout]",
+            # 输出侧硬上限：图形本身已用 apad,atrim=0:total 收口，但收口
+            # 完全依赖 filter 图行为（apad 无界，跨 ffmpeg 版本对 amix
+            # duration=longest + atrim 的终止时机不一致——自建 runner 实测
+            # 两个 SFX 用例挂满 600s）。显式 -t 让终止不依赖图行为。
+            "-t", f"{total:.3f}",
             "-c:a", "pcm_s24le", "-ar", "44100", "-ac", "2",
             audio_tmp,
         ])

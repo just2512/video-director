@@ -211,7 +211,10 @@ def test_frontend_bulk_contracts_and_ci_coverage():
         assert marker in create_js
 
     assert "pytest -q" in ci
-    assert "python -m compileall video_director webui" in ci
+    # 只要求「跑 compileall 覆盖两个包」，不锁死解释器前缀——
+    # 自建 runner 用固定解释器路径（"$PY311_BIN/python3.11" -m compileall ...），
+    # 写死 "python -m compileall" 会在每次 CI 解释器调整时假失败（2026-10-16 实测）。
+    assert "-m compileall video_director webui" in ci
     assert 'node --check "$f"' in ci
 
 
