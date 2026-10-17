@@ -3848,10 +3848,25 @@ def _cmd_add_audio_asset_clip(ir: CompositionIR, target_id: str, payload: dict) 
     _ensure_audio_lane_unlocked(ir, track_id)
 
     from video_director import audio as vd_audio
-    library = vd_audio.scan_library()
-    asset = library.get(asset_id)
-    if asset is None:
-        raise EditorError("ASSET_NOT_FOUND", f"音频库不存在素材 {asset_id!r}", recoverable=False)
+    library_asset = vd_audio.scan_library().get(asset_id)
+    from_audio_manifest = library_asset is not None
+    if from_audio_manifest:
+        asset = library_asset
+    else:
+        from video_director import asset_catalog as vd_acat
+        catalog_entry = vd_acat.get_asset(asset_id)
+        if not catalog_entry or str(catalog_entry.get("type") or "").lower() != "audio":
+            raise EditorError("ASSET_NOT_FOUND", f"可信音频素材库不存在素材 {asset_id!r}", recoverable=False)
+        from video_director.models import AssetRef
+        asset_file = str(catalog_entry.get("file") or "")
+        if not asset_file:
+            raise EditorError("ASSET_NOT_FOUND", f"音频文件不可用：{asset_id!r}", recoverable=False)
+        asset = AssetRef(
+            id=asset_id, type="audio", file=asset_file, duration=catalog_entry.get("duration"),
+            keywords=list(catalog_entry.get("tags") or catalog_entry.get("keywords") or []),
+            source=catalog_entry.get("source", "unknown"),
+            license_note=catalog_entry.get("license_note"),
+        )
     if not asset.file or not Path(asset.file).is_file():
         raise EditorError("ASSET_NOT_FOUND", f"音频文件不可用：{asset_id!r}", recoverable=False)
     duration_value = getattr(asset, "duration", None)
@@ -3868,7 +3883,10 @@ def _cmd_add_audio_asset_clip(ir: CompositionIR, target_id: str, payload: dict) 
     if not math.isfinite(source_duration) or source_duration <= 0:
         raise EditorError("ASSET_PROBE_FAILED", "音频素材缺少有效时长")
 
-    role = str(payload.get("role") or getattr(asset, "type", "sfx") or "sfx").strip().lower()
+    inferred_role = str(getattr(asset, "type", "sfx") or "sfx").strip().lower()
+    if inferred_role not in ("dialogue", "bgm", "sfx", "ambience", "ambient"):
+        inferred_role = "dialogue"
+    role = str(payload.get("role") or inferred_role).strip().lower()
     role = {"ambient": "ambience", "voiceover": "dialogue", "voice": "dialogue"}.get(role, role)
     if role == "narration":
         raise EditorError("INVALID_PARAMETER", "TTS 主旁白由 narration 渲染链管理；额外录音请使用 dialogue/对白角色")
@@ -3917,8 +3935,9 @@ def _cmd_add_audio_asset_clip(ir: CompositionIR, target_id: str, payload: dict) 
 
     if not any(ref.id == asset_id for ref in ir.assets):
         from video_director.models import AssetRef
+        asset_reference_file = f"audio-library://{asset_id}" if from_audio_manifest else str(asset.file)
         ir.assets.append(AssetRef(
-            id=asset_id, type="audio", file=f"audio-library://{asset_id}", duration=source_duration,
+            id=asset_id, type="audio", file=asset_reference_file, duration=source_duration,
             keywords=list(getattr(asset, "keywords", None) or []),
             source=getattr(asset, "source", "unknown"),
             license_note=getattr(asset, "license_note", None),
