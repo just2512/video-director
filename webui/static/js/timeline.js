@@ -1326,7 +1326,7 @@ function editorAudioTrackMenu(ev, trackId){
     '<label for="audio-track-name">名称</label>' +
     '<input id="audio-track-name" type="text" maxlength="60" value="' + esc(lane.name || '') + '" autocomplete="off">' +
     '<p class="hint">此轨道有 ' + clipCount + ' 个片段。移动片段只改变轨道归属，不改变 BGM、SFX、原声等混音角色。</p>' +
-    '<footer><button type="button" class="btn-danger btn-sm" ' + (narrationProtected ? 'disabled title="系统主旁白与 TTS 渲染链绑定，不能删除；可静音或另建旁白轨"' : '') + ' onclick="editorAudioTrackRemove(\\'' + esc(trackId) + '\\', event)">删除轨道</button>' +
+    '<footer><button type="button" class="btn-danger btn-sm" ' + (narrationProtected ? 'disabled title="系统主旁白与 TTS 渲染链绑定，不能删除；可静音或另建旁白轨"' : '') + ' onclick="editorAudioTrackRemove(&quot;' + esc(trackId) + '&quot;, event)">删除轨道</button>' +
     '<button type="button" class="btn-primary btn-sm" onclick="editorAudioTrackApplyName(\'' + esc(trackId) + '\', event)">保存名称</button></footer></section>';
   mask.addEventListener('click', event => { if (event.target === mask) editorAudioTrackMenuClose(); });
   document.body.appendChild(mask);
