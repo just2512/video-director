@@ -200,12 +200,20 @@
     const selected = resolveEntry(state.selection);
     if (selected) {
       state.selection = selected;
-      timeline.querySelectorAll('.ed-audio-clip[data-audio-index], .ed-visual-overlay-clip[data-visual-overlay-index]').forEach(el => {
+      timeline.querySelectorAll('.ed-audio-clip[data-audio-index], .ed-visual-overlay-clip[data-visual-overlay-index], .ed-layer[data-scene][data-idx]').forEach(el => {
         const current = getEntry(el);
         if (!current) return;
-        const match = current.kind === 'visual'
-          ? selected.kind === 'visual' && current.origin.id === selected.origin.id
-          : selected.kind === 'audio' && current.index === selected.index;
+        let match = false;
+        if (current.kind === 'visual' && selected.kind === 'visual') {
+          if (current.origin.kind === 'layer' && selected.origin.kind === 'layer') {
+            match = current.origin.sceneId === selected.origin.sceneId &&
+              current.origin.layerIndex === selected.origin.layerIndex;
+          } else {
+            match = current.origin.id === selected.origin.id;
+          }
+        } else if (current.kind === 'audio' && selected.kind === 'audio') {
+          match = current.index === selected.index;
+        }
         if (match) el.classList.add('ed-clip-clipboard-selected');
       });
     }
