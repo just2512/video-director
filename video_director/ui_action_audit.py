@@ -78,7 +78,7 @@ UI_ONLY_PREFIXES = (
     "projectOverlayOpen(", "originalTrackOpen(", "bgmTrackOpen(",
     "editorAudioVolume(", "editorSubtitleStyleOpen(",
     "editorAudioClipOpen(", "editorAudioClipApply(", "editorAudioClipClose(", "editorAudioClipSplit(",
-    "editorAudioTrackAdd(", "editorAudioTrackMenu(", "editorAudioTrackMenuClose(",
+    "editorAudioTrackAdd(", "editorAudioAssetPick(", "editorAudioTrackMenu(", "editorAudioTrackMenuClose(",
     "editorAudioTrackApplyName(", "editorAudioTrackRemove(", "editorAudioTrackToggleLock(", "editorSubtitleCueSelect(",
     "editorWatermarkClipOpen(", "editorWatermarkClipApply(", "editorWatermarkClipClose(",
     "edxSelectScene(", "edxDirectorEdit(", "edxMaterialMatch(", "edxApplyMaterialMatch(",
