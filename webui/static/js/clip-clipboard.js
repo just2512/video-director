@@ -41,10 +41,27 @@
     const sourceIn = Number(layer.source_in || 0);
     const speed = Number(layer.speed || 1);
     const duration = Number(layer.duration || 0);
+    const globalStart = Number(scene.start || 0) + Number(layer.start || 0);
+    const sourceOut = layer.source_out == null ? sourceIn + duration * speed : Number(layer.source_out);
+    // A main-scene video may have a separately represented original-audio window.
+    // Copy that sound with the picture atomically instead of pasting a silent duplicate.
+    const linkedAudio = String(layer.type || '').toLowerCase() === 'video'
+      ? (ED.comp.audio || []).find(audio =>
+          String(audio.type || '') === 'original' &&
+          String(audio.asset_id || '') === String(layer.asset_id) &&
+          audio.linked_visual_overlay_id == null &&
+          audio.follows_scene_video !== false &&
+          Math.abs(Number(audio.start || 0) - globalStart) <= 0.05 &&
+          Math.abs(Number(audio.duration || 0) - duration) <= 0.05 &&
+          Math.abs(Number(audio.source_in || 0) - sourceIn) <= 0.05 &&
+          (audio.source_out == null || Math.abs(Number(audio.source_out) - sourceOut) <= 0.05) &&
+          Math.abs(Number(audio.speed || 1) - speed) <= 0.000001
+        )
+      : null;
     const clip = {
       id: 'copied-main-layer-' + String(scene.id) + '-' + String(layerIndex),
       asset_id: String(layer.asset_id),
-      start: Number(scene.start || 0) + Number(layer.start || 0),
+      start: globalStart,
       duration: duration,
       source_in: sourceIn,
       speed: speed,
@@ -59,9 +76,12 @@
     return {
       kind: 'visual', clip: clip,
       origin: {kind:'layer', sceneId:String(scene.id), layerIndex:Number(layerIndex),
-        assetId:String(layer.asset_id), sourceIn:sourceIn, speed:speed},
+        assetId:String(layer.asset_id), sourceIn:sourceIn, sourceOut:sourceOut, speed:speed,
+        start:globalStart, duration:duration},
       trackId:String(lane.id),
-      sourceIsMainLayer:true
+      sourceIsMainLayer:true,
+      linkedAudio: linkedAudio ? clone(linkedAudio) : null,
+      linkedAudioTrackId: linkedAudio ? String(linkedAudio.track_id || '') : ''
     };
   }
   function getEntry(element) {
@@ -109,7 +129,10 @@
         const current = mainLayerEntry(entry.origin.sceneId, entry.origin.layerIndex);
         if (!current || current.origin.assetId !== String(entry.origin.assetId || '') ||
             Math.abs(current.origin.sourceIn - Number(entry.origin.sourceIn || 0)) > 1e-6 ||
-            Math.abs(current.origin.speed - Number(entry.origin.speed || 1)) > 1e-6) return null;
+            Math.abs(current.origin.sourceOut - Number(entry.origin.sourceOut || 0)) > 1e-6 ||
+            Math.abs(current.origin.speed - Number(entry.origin.speed || 1)) > 1e-6 ||
+            Math.abs(current.origin.start - Number(entry.origin.start || 0)) > 1e-6 ||
+            Math.abs(current.origin.duration - Number(entry.origin.duration || 0)) > 1e-6) return null;
         return current;
       }
       const list = ED.comp.visual_overlays || [];
@@ -237,10 +260,11 @@
       cut: !!cut
     };
     if (selected.kind === 'visual') {
-      const linkedAudio = (ED.comp.audio || []).find(clip => String(clip.linked_visual_overlay_id || '') === String(selected.clip.id));
+      const linkedAudio = selected.linkedAudio ||
+        (ED.comp.audio || []).find(clip => String(clip.linked_visual_overlay_id || '') === String(selected.clip.id));
       if (linkedAudio) {
         clipboard.linkedAudio = clone(linkedAudio);
-        clipboard.linkedAudioTrackId = String(linkedAudio.track_id || '');
+        clipboard.linkedAudioTrackId = String(selected.linkedAudioTrackId || linkedAudio.track_id || '');
       }
     }
     state.clipboard = clipboard;
