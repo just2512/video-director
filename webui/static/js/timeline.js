@@ -1498,17 +1498,27 @@ function _tlBindAudioClipDrag(){
       payload = {start: round(nextStart)};
       if (targetTrackId && targetTrackId !== d.startTrackId) payload.trackId = targetTrackId;
     } else if (d.mode === 'trim-left') {
-      const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
-      const sourceIn = d.sourceIn + dt;
-      const sourceOut = d.sourceOut;
-      const start = d.start + dt;
-      if (sourceOut - sourceIn < 0.05) {
-        editorToast('音频裁剪后不足 0.05 秒，未修改', true);
-        editorRenderTimeline();
-        return;
+      if (d.loopToDuration) {
+        // A looped BGM has no finite source-out: trimming the left edge moves
+        // the timeline start and adjusts duration while keeping source_in=0.
+        const dt = Math.max(-d.start, Math.min(delta, d.duration - 0.05));
+        const start = d.start + dt;
+        const duration = d.duration - dt;
+        command = 'trim_audio_clip';
+        payload = {start: round(start), sourceIn: 0, duration: round(duration), loopToDuration: true};
+      } else {
+        const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
+        const sourceIn = d.sourceIn + dt;
+        const sourceOut = d.sourceOut;
+        const start = d.start + dt;
+        if (sourceOut - sourceIn < 0.05) {
+          editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+          editorRenderTimeline();
+          return;
+        }
+        command = 'trim_audio_clip';
+        payload = {start: round(start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
       }
-      command = 'trim_audio_clip';
-      payload = {start: round(start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
     } else {
       // A right trim may shorten freely, but must not extend beyond the project end.
       const dt = Math.max(-(d.duration - 0.05), Math.min(delta, total - d.start - d.duration));
