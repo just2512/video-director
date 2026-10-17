@@ -1315,7 +1315,9 @@ function editorAudioTrackMenu(ev, trackId){
   editorAudioTrackMenuClose();
   const lane = _timelineAudioTracks(ED.comp).find(item => item.id === trackId);
   if (!lane) { editorToast('音轨已变化，请刷新后重试', true); return; }
-  const clipCount = (ED.comp.audio || []).filter(clip => clip.track_id === trackId).length;
+  const trackClips = (ED.comp.audio || []).filter(clip => clip.track_id === trackId);
+  const clipCount = trackClips.length;
+  const narrationProtected = trackId === 'audio-narration' || trackClips.some(clip => String(clip.type || '') === 'narration');
   const mask = document.createElement('div');
   mask.id = 'audio-track-inspector-mask';
   mask.className = 'audio-track-inspector-mask';
@@ -1324,7 +1326,7 @@ function editorAudioTrackMenu(ev, trackId){
     '<label for="audio-track-name">名称</label>' +
     '<input id="audio-track-name" type="text" maxlength="60" value="' + esc(lane.name || '') + '" autocomplete="off">' +
     '<p class="hint">此轨道有 ' + clipCount + ' 个片段。移动片段只改变轨道归属，不改变 BGM、SFX、原声等混音角色。</p>' +
-    '<footer><button type="button" class="btn-danger btn-sm" onclick="editorAudioTrackRemove(\'' + esc(trackId) + '\', event)">删除轨道</button>' +
+    '<footer><button type="button" class="btn-danger btn-sm" ' + (narrationProtected ? 'disabled title="系统主旁白与 TTS 渲染链绑定，不能删除；可静音或另建旁白轨"' : '') + ' onclick="editorAudioTrackRemove(\\'' + esc(trackId) + '\\', event)">删除轨道</button>' +
     '<button type="button" class="btn-primary btn-sm" onclick="editorAudioTrackApplyName(\'' + esc(trackId) + '\', event)">保存名称</button></footer></section>';
   mask.addEventListener('click', event => { if (event.target === mask) editorAudioTrackMenuClose(); });
   document.body.appendChild(mask);
@@ -1349,6 +1351,10 @@ async function editorAudioTrackApplyName(trackId, ev){
 async function editorAudioTrackRemove(trackId, ev){
   if (ev) ev.stopPropagation();
   const clips = (ED.comp && ED.comp.audio || []).filter(clip => clip.track_id === trackId);
+  if (trackId === 'audio-narration' || clips.some(clip => String(clip.type || '') === 'narration')) {
+    editorToast('系统主旁白与 TTS 渲染链绑定，不能删除；可以静音或另建独立旁白/对白轨。', true);
+    return;
+  }
   if (clips.length && !confirm('此音轨包含 ' + clips.length + ' 个片段。删除轨道会同时删除这些片段，不能只撤回轨道本身。继续？')) return;
   try {
     const result = await executeCommand({command:'remove_audio_track', targetId:trackId, payload:{deleteContents:true}});
