@@ -30,8 +30,45 @@
     ]);
   }
 
+  function mainLayerEntry(sceneId, layerIndex) {
+    if (!window.ED || !ED.comp) return null;
+    const scene = (ED.comp.scenes || []).find(item => String(item.id) === String(sceneId));
+    const layer = scene && (scene.layers || [])[Number(layerIndex)];
+    if (!scene || !layer || !layer.asset_id || !['video', 'image'].includes(String(layer.type || '').toLowerCase())) return null;
+    const tracks = (ED.comp.visual_tracks || []).slice().sort((a,b) => Number(a.order || 0) - Number(b.order || 0));
+    const lane = tracks.find(track => !track.locked) || tracks[0];
+    if (!lane) return null;
+    const sourceIn = Number(layer.source_in || 0);
+    const speed = Number(layer.speed || 1);
+    const duration = Number(layer.duration || 0);
+    const clip = {
+      id: 'copied-main-layer-' + String(scene.id) + '-' + String(layerIndex),
+      asset_id: String(layer.asset_id),
+      start: Number(scene.start || 0) + Number(layer.start || 0),
+      duration: duration,
+      source_in: sourceIn,
+      speed: speed,
+      track_id: String(lane.id),
+      presentation_mode: 'full_frame',
+      fit_mode: String(layer.fit_mode || 'cover'),
+      source_audio_enabled: false,
+      source_audio_volume: 1,
+      x: 0, y: 0, width: 1, height: 1, opacity: 1, z_index: 0,
+      transform: layer.transform ? clone(layer.transform) : null
+    };
+    return {
+      kind: 'visual', clip: clip,
+      origin: {kind:'layer', sceneId:String(scene.id), layerIndex:Number(layerIndex),
+        assetId:String(layer.asset_id), sourceIn:sourceIn, speed:speed},
+      trackId:String(lane.id),
+      sourceIsMainLayer:true
+    };
+  }
   function getEntry(element) {
     if (!element || !window.ED || !ED.comp) return null;
+    if (element.matches('.ed-layer[data-scene][data-idx]')) {
+      return mainLayerEntry(element.dataset.scene, Number.parseInt(element.dataset.idx, 10));
+    }
     if (element.matches('.ed-audio-clip[data-audio-index]')) {
       const index = Number.parseInt(element.dataset.audioIndex, 10);
       const clip = (ED.comp.audio || [])[index];
@@ -68,6 +105,13 @@
   function resolveEntry(entry) {
     if (!entry || !window.ED || !ED.comp) return null;
     if (entry.kind === 'visual') {
+      if (entry.origin && entry.origin.kind === 'layer') {
+        const current = mainLayerEntry(entry.origin.sceneId, entry.origin.layerIndex);
+        if (!current || current.origin.assetId !== String(entry.origin.assetId || '') ||
+            Math.abs(current.origin.sourceIn - Number(entry.origin.sourceIn || 0)) > 1e-6 ||
+            Math.abs(current.origin.speed - Number(entry.origin.speed || 1)) > 1e-6) return null;
+        return current;
+      }
       const list = ED.comp.visual_overlays || [];
       const index = list.findIndex(item => String(item.id) === String(entry.origin.id));
       if (index < 0) return null;
@@ -167,6 +211,9 @@
   function isProtectedTtsNarration(entry) {
     return !!entry && entry.kind === 'audio' && String((entry.clip || {}).type || '') === 'narration';
   }
+  function isMainLayerSource(entry) {
+    return !!entry && entry.kind === 'visual' && !!entry.origin && entry.origin.kind === 'layer';
+  }
   function copySelection(cut) {
     const selected = resolveEntry(state.selection);
     if (!selected) {
@@ -175,6 +222,10 @@
     }
     if (isProtectedTtsNarration(selected)) {
       toast('系统主旁白由 TTS 渲染链管理，不能作为普通片段复制/剪切；额外旁白请先作为独立音频素材导入。', true);
+      return false;
+    }
+    if (cut && isMainLayerSource(selected)) {
+      toast('主画面镜头可以复制；若要剪切，请先“展开为自由时间线”再操作，避免破坏场景时长约束。', true);
       return false;
     }
     state.selection = selected;
@@ -196,7 +247,7 @@
     paintSelection();
     toast(cut
       ? '已标记剪切；粘贴成功后才会删除原片段。'
-      : '片段已复制，可以在播放头位置粘贴。');
+      : (isMainLayerSource(selected) ? '主画面镜头已复制；粘贴时会作为全画幅独立片段放入自由画面轨。' : '片段已复制，可以在播放头位置粘贴。'));
     return true;
   }
 
@@ -337,6 +388,10 @@
       toast('系统主旁白不能作为普通片段删除；请使用音量/静音控制。', true);
       return {ok:false, error:'TTS_NARRATION_PIPELINE_CLIP'};
     }
+    if (isMainLayerSource(selected)) {
+      toast('主画面镜头不能作为自由轨片段直接删除；若要删除/剪切，请先“展开为自由时间线”。', true);
+      return {ok:false, error:'MAIN_SCENE_LAYER_REQUIRES_FREE_TIMELINE'};
+    }
     const command = selected.kind === 'audio' ? 'remove_audio_clip' : 'remove_visual_overlay';
     const targetId = selected.kind === 'audio' ? 'audio#' + selected.index : selected.origin.id;
     let result;
@@ -370,6 +425,9 @@
       const selected = resolveEntry(state.selection);
       if (isProtectedTtsNarration(selected)) {
         actions.push(['protected','系统主旁白由 TTS 渲染链管理']);
+      } else if (isMainLayerSource(selected)) {
+        actions.push(['copy','复制镜头　Ctrl+C']);
+        actions.push(['main-layer-help','复制后将在自由画面轨粘贴']);
       } else {
         actions.push(['copy','复制　Ctrl+C']);
         actions.push(['cut','剪切　Ctrl+X']);
@@ -397,6 +455,7 @@
       const action = button.dataset.clipAction;
       closeMenu();
       if (action === 'protected') toast('系统主旁白不能作为普通片段编辑；额外旁白请添加为独立音频片段。', true);
+      else if (action === 'main-layer-help') toast('此镜头会粘贴成全画幅自由轨片段。若要在主序列内剪切/重排，请使用“展开为自由时间线”。');
       else if (action === 'copy') copySelection(false);
       else if (action === 'cut') copySelection(true);
       else if (action === 'delete') await deleteSelection();
@@ -422,16 +481,22 @@
   document.addEventListener('pointerdown', event => {
     if (!event.target.closest('#editor-timeline')) return;
     const row = event.target.closest('.ed-track[data-audio-track-id], .ed-track[data-visual-track-id]');
-    state.context = trackContext(row);
-    const clip = event.target.closest('.ed-audio-clip[data-audio-index], .ed-visual-overlay-clip[data-visual-overlay-index]');
+    const layer = event.target.closest('.ed-layer[data-scene][data-idx]');
+    state.context = trackContext(row) || (layer ? (() => {
+      const entry = mainLayerEntry(layer.dataset.scene, Number.parseInt(layer.dataset.idx, 10));
+      return entry ? {kind:'visual', trackId:entry.trackId} : null;
+    })() : null);
+    const clip = event.target.closest('.ed-audio-clip[data-audio-index], .ed-visual-overlay-clip[data-visual-overlay-index], .ed-layer[data-scene][data-idx]');
     if (clip) chooseSelection(clip);
   }, true);
 
   document.addEventListener('contextmenu', event => {
     if (!event.target.closest('#editor-timeline') || !window.ED || !ED.comp) return;
-    const clip = event.target.closest('.ed-audio-clip[data-audio-index], .ed-visual-overlay-clip[data-visual-overlay-index]');
+    const clip = event.target.closest('.ed-audio-clip[data-audio-index], .ed-visual-overlay-clip[data-visual-overlay-index], .ed-layer[data-scene][data-idx]');
     const row = (clip || event.target).closest('.ed-track[data-audio-track-id], .ed-track[data-visual-track-id]');
-    const context = trackContext(row);
+    const layer = clip && clip.matches('.ed-layer[data-scene][data-idx]') ? clip : null;
+    const layerEntry = layer ? mainLayerEntry(layer.dataset.scene, Number.parseInt(layer.dataset.idx, 10)) : null;
+    const context = trackContext(row) || (layerEntry ? {kind:'visual', trackId:layerEntry.trackId} : null);
     if (!context) return;
     if (clip) chooseSelection(clip);
     event.preventDefault();
