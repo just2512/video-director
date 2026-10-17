@@ -969,6 +969,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(_scan_bgm())
         elif route == "/api/sfx":
             self._send_json(_scan_sfx())
+        elif route == "/api/audio_library":
+            # Safe catalog for the editor audio-track picker: expose IDs/metadata, never absolute paths.
+            try:
+                library = vd_audio.scan_library()
+                choices = []
+                for asset in library.values():
+                    asset_type = str(getattr(asset, "type", "sfx") or "sfx").lower()
+                    role = "ambience" if asset_type in ("ambient", "ambience") else asset_type
+                    if role not in ("bgm", "sfx", "ambience"):
+                        continue
+                    file_value = str(getattr(asset, "file", "") or "")
+                    choices.append({
+                        "id": asset.id,
+                        "label": _audio_label(asset.id, getattr(asset, "keywords", None) or []),
+                        "role": role,
+                        "tags": list(getattr(asset, "keywords", None) or []),
+                        "duration": getattr(asset, "duration", None),
+                        "available": bool(file_value and Path(file_value).is_file()),
+                    })
+                self._send_json(choices)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
         elif route == "/api/llm_status":
             self._send_json(vd_llm.get_llm_config())
         elif route == "/api/settings/export":
