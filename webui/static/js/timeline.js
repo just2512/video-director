@@ -420,7 +420,7 @@ function renderPhysicalTimeline(){
         onclick:'editorSelectVisualOverlay(' + index + ', event)' };
     }).filter(item => String((visualOverlays[item.visualOverlayIndex] || {}).track_id || 'overlay-main') === trackId);
     tracks.picture.push({ id:'visual-overlay-' + trackId, label:track.name || '画面叠加',
-      visualTrackId:trackId, trackOrder:Number(track.order) || 0, locked:!!track.locked, addAction:'editorVisualOverlayPick', newTrackAction:(Number(track.order) === 0 ? 'editorVisualTrackCreate' : null), clips });
+      visualTrackId:trackId, trackOrder:Number(track.order) || 0, locked:!!track.locked, addAction:'editorVisualOverlayPick', newTrackAction:null, clips });
   });
   // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位.
   // 之前每类声音只显示第一条记录并绘制为 100% 全长，和实际渲染时间语义不一致。
@@ -597,8 +597,13 @@ function renderPhysicalTimeline(){
       html += `<div class="ed-track-group ed-group-closed" onclick="tlToggleGroup('${g}')">
         <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span></div>`;
     } else {
-      html += `<div class="ed-track-group" onclick="tlToggleGroup('${g}')">
-        <span class="ed-group-caret">▾</span> ${G.label}` + (g === 'sound' ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增音轨" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>' : '') + '</div>';
+      html += \`<div class="ed-track-group" onclick="tlToggleGroup('\${g}')">
+        <span class="ed-group-caret">▾</span> \${G.label}\` +
+        (g === 'picture'
+          ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增独立画面轨道（视频/图片/画中画）" onclick="event.stopPropagation(); editorVisualTrackCreate(event)">＋画面轨</button>'
+          : (g === 'sound'
+            ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增独立音轨（旁白/音乐/音效）" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>'
+            : '')) + '</div>';
       for (const t of tracks[g] || []) html += trackRow(t);
     }
   }
@@ -1319,7 +1324,7 @@ function editorAudioTrackMenu(ev, trackId){
     '<label for="audio-track-name">名称</label>' +
     '<input id="audio-track-name" type="text" maxlength="60" value="' + esc(lane.name || '') + '" autocomplete="off">' +
     '<p class="hint">此轨道有 ' + clipCount + ' 个片段。移动片段只改变轨道归属，不改变 BGM、SFX、原声等混音角色。</p>' +
-    '<footer><button type="button" class="btn-secondary btn-sm" ' + (clipCount ? 'disabled title="请先移动或删除片段"' : '') + ' onclick="editorAudioTrackRemove(\'' + esc(trackId) + '\', event)">删除空轨道</button>' +
+    '<footer><button type="button" class="btn-danger btn-sm" onclick="editorAudioTrackRemove(\'' + esc(trackId) + '\', event)">删除轨道</button>' +
     '<button type="button" class="btn-primary btn-sm" onclick="editorAudioTrackApplyName(\'' + esc(trackId) + '\', event)">保存名称</button></footer></section>';
   mask.addEventListener('click', event => { if (event.target === mask) editorAudioTrackMenuClose(); });
   document.body.appendChild(mask);
@@ -1344,13 +1349,13 @@ async function editorAudioTrackApplyName(trackId, ev){
 async function editorAudioTrackRemove(trackId, ev){
   if (ev) ev.stopPropagation();
   const clips = (ED.comp && ED.comp.audio || []).filter(clip => clip.track_id === trackId);
-  if (clips.length) { editorToast('该音轨仍有片段，请先移动或删除片段', true); return; }
+  if (clips.length && !confirm('此音轨包含 ' + clips.length + ' 个片段。删除轨道会同时删除这些片段，不能只撤回轨道本身。继续？')) return;
   try {
-    const result = await executeCommand({command:'remove_audio_track', targetId:trackId, payload:{}});
+    const result = await executeCommand({command:'remove_audio_track', targetId:trackId, payload:{deleteContents:true}});
     if (!result || !result.ok) { editorToast('删除音轨失败：' + ((result && result.error) || '未知错误'), true); return; }
     editorAudioTrackMenuClose();
     await refreshWorkspace();
-    editorToast('空音轨已删除');
+    editorToast('音轨及其内容已删除');
   } catch (error) { editorToast('删除音轨失败：' + (error.message || error), true); }
 }
 
