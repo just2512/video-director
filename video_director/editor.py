@@ -4022,8 +4022,6 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
             "duration": round(duration, 6),
             "linked_visual_overlay_id": None,
         })
-        if track.type == AudioTrackType.original:
-            raise EditorError("INVALID_PAYLOAD", "原声音轨不能按背景音乐循环")
         key = f"audio:{track.type.value}:{index}"
         return [key], [f"{key}:render", "project:audio:render", "project:preview"]
 
@@ -4047,6 +4045,13 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     start = _project_frame_time(ir, start)
     duration = _project_frame_time(ir, duration)
     source_out = source_in + duration * max(0.25, float(getattr(track, "speed", 1.0) or 1.0))
+    source_asset = next((asset for asset in ir.assets if asset.id == track.asset_id), None)
+    source_duration = float(getattr(source_asset, "duration", 0.0) or 0.0) if source_asset else 0.0
+    if source_duration > 0 and source_out > source_duration + 1e-6:
+        raise EditorError(
+            "INVALID_SOURCE_RANGE",
+            "裁剪后的音频源区间超出素材时长；背景音乐/环境音若要循环延长，请保留循环模式",
+        )
     if start < 0 or start >= total:
         raise EditorError("INVALID_PARAMETER", "裁剪后的音频起点必须位于项目时间范围内")
     if source_in < 0 or duration < 0.05:
