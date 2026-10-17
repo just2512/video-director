@@ -148,6 +148,26 @@ def test_looped_bgm_right_trim_preserves_looping_and_uses_project_frames():
     assert ir.audio[0].source_out is None
 
 
+def test_split_looped_bgm_keeps_looping_and_advances_source_offset():
+    ir = _composition()
+    ir.audio[0] = ir.audio[0].model_copy(update={"source_in": 0, "source_out": None, "duration": 3})
+
+    editor._cmd_split_audio_clip(ir, "audio#0", {"at": 1.5})
+
+    left, right = ir.audio
+    assert left.start == 0 and left.duration == pytest.approx(1.5)
+    assert right.start == pytest.approx(1.5) and right.duration == pytest.approx(1.5)
+    assert left.source_out is None and right.source_out is None
+    assert left.source_in == 0
+    assert right.source_in == pytest.approx(1.5)
+
+
+def test_renderer_loops_a_bgm_clip_from_nonzero_source_offset():
+    renderer_source = (ROOT / "video_director" / "renderer.py").read_text(encoding="utf-8")
+    assert "loop_to_duration = src_out is None" in renderer_source
+    assert 'inputs += ["-stream_loop", "-1"]' in renderer_source
+    assert 'inputs += ["-ss", f"{src_in:.3f}"]' in renderer_source
+
 def test_explicit_audio_trim_cannot_extend_past_source_duration():
     ir = _composition()
     with pytest.raises(editor.EditorError, match="超出素材时长"):
