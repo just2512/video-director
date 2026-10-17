@@ -1495,9 +1495,9 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 node["status"] = "PENDING"
             else:
                 # 2026-10-13 报障教训：只报节点名不报根因，查障全靠翻日志。
-                # 致命失败也必须落盘 plan（2026-10-17 物证：失败 run 的 plan
-                # 停在旧快照，UI 显示过期节点状态）。
-                di.persist_plan(pid, plan)
+                # FAILED 快照已由上方 update_node → persist_plan 落盘，无需再写
+                # （2026-10-17 对抗审查 E1：重复写盘既冗余又可能在磁盘异常时
+                # 覆盖节点真实根因）。
                 inner = str(tool_result.get("error") or "")[:400]
                 raise DirectorAgentError(
                     f"节点执行失败且无法恢复：{node_id}"

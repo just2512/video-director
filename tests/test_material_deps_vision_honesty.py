@@ -50,6 +50,29 @@ class TestVisionTextOnlyBlacklist:
         st = provider_matrix.state("vision", "vision.frame_analyze", _vision_cfg("glm-4v-9b"))
         assert st.status == provider_matrix.READY
 
+    def test_gpt4o_mini_default_not_blocked(self):
+        """gpt-4o-mini 是 vision 角色的 default_model 且为真多模态——不得拦。"""
+        st = provider_matrix.state("vision", "vision.frame_analyze", _vision_cfg("gpt-4o-mini"))
+        assert st.status == provider_matrix.READY
+
+    def test_vision_variant_not_blocked_by_text_prefix(self):
+        """前缀通吃会误杀视觉变体：gpt-4-turbo-vision-preview / moonshot-v1-8k-vision 放行。"""
+        for m in ("gpt-4-turbo-vision-preview", "moonshot-v1-8k-vision"):
+            st = provider_matrix.state("vision", "vision.frame_analyze", _vision_cfg(m))
+            assert st.status == provider_matrix.READY, m
+
+    def test_text_variants_blocked(self):
+        for m in ("gpt-4-turbo-2024-04-09", "moonshot-v1-8k", "GLM-4.5-Air"):
+            st = provider_matrix.state("vision", "vision.frame_analyze", _vision_cfg(m))
+            assert st.status != provider_matrix.READY, m
+
+    def test_namespace_last_segment_matching(self):
+        """ModelScope 风格 Org/Model：全名不命中时按末段匹配。"""
+        st = provider_matrix.state("vision", "vision.frame_analyze", _vision_cfg("deepseek-ai/deepseek-v3"))
+        assert st.status != provider_matrix.READY
+        st2 = provider_matrix.state("vision", "vision.frame_analyze", _vision_cfg("OpenBMB/MiniCPM-V-2_6"))
+        assert st2.status == provider_matrix.READY
+
 
 class TestMaterialMatchGuard:
     """修 D：narration_scenes 缺失时给可定位的中文报错，不是裸 KeyError。"""
@@ -82,11 +105,19 @@ class TestDependencyGraph:
 
 
 class TestDoctorVisionSameSource:
-    """修 C：doctor vision 检测必须与运行时同源（model_config 优先）。"""
+    """修 C：doctor vision 检测必须与运行时同源（model_config 优先）+ 可选 FAIL 不阻塞。"""
 
-    def test_doctor_reads_model_config(self, tmp_path, monkeypatch):
+    def test_doctor_reads_model_config(self):
         from video_director import doctor
         src = Path(doctor.__file__).read_text(encoding="utf-8")
-        # 检测源切换后，env-only 分支只允许作为「都未配置」的兜底
         assert "model_config.get_role_config" in src
         assert 'os.environ.get("COMPOSER_VISION_API_KEY")' in src  # env 兜底仍保留
+
+    def test_optional_vision_fail_does_not_block(self):
+        """D1：vision 误配 FAIL 不得阻塞主链（pipeline 等不依赖视觉）。"""
+        from video_director import doctor
+        vision_fail = doctor.CheckResult("Vision 增强（可选）", "FAIL",
+                                         "模型 X 是纯文本模型", optional=True)
+        assert doctor.has_blocking_failures([vision_fail]) is False
+        real_fail = doctor.CheckResult("FFmpeg", "FAIL", "缺失")
+        assert doctor.has_blocking_failures([real_fail]) is True

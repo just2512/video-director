@@ -103,10 +103,10 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
             # 已知纯文本模型（误配进 vision 角色时提前拦截，不发 image_url 才发现的 400）
             "MiniMax-M3*", "MiniMax-Text-*",
             "deepseek-v3*", "deepseek-chat*", "deepseek-r1*",
-            "gpt-3.5*", "gpt-4-mini", "gpt-4-turbo-*",
+            "gpt-3.5*", "gpt-4-mini", "gpt-4-turbo-2024-*", "gpt-4-turbo-1106*",
             "qwen-turbo*", "qwen-plus*", "qwen-max*",
-            "glm-4", "glm-4-[0-9]*", "glm-4.5", "glm-4.5-[0-9]*", "glm-4-air*",
-            "moonshot-v1-*",
+            "glm-4", "glm-4-*", "glm-4.5", "glm-4.5-*",
+            "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k",
             "*-text-*",
         ),
     ),

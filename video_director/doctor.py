@@ -35,6 +35,10 @@ class CheckResult:
     name: str
     status: str  # PASS | SKIP | FAIL
     detail: str
+    # 可选能力的 FAIL（如 vision 误配纯文本模型）只亮黄灯不阻塞主链：
+    # pipeline/script_only/product_promo/image_editor 都不依赖视觉，
+    # 误配一个视觉模型不该让整条流水线停摆（2026-10-17 对抗审查 D1）。
+    optional: bool = False
 
 
 def _resolve_ffmpeg_executable() -> str | None:
@@ -151,9 +155,9 @@ def _check_vision() -> CheckResult:
         if st.status == provider_matrix.READY:
             return CheckResult("Vision 增强（可选）", "PASS", str(cfg.get("model") or ""))
         # NOT_READY：纯文本模型误配等，如实亮出原因
-        return CheckResult("Vision 增强（可选）", "FAIL", st.reason or "视觉能力不可用")
+        return CheckResult("Vision 增强（可选）", "FAIL", st.reason or "视觉能力不可用", optional=True)
     except Exception as exc:
-        return CheckResult("Vision 增强（可选）", "FAIL", f"检测异常: {str(exc)[:120]}")
+        return CheckResult("Vision 增强（可选）", "FAIL", f"检测异常: {str(exc)[:120]}", optional=True)
 
 
 def _check_whisper() -> CheckResult:
@@ -217,4 +221,5 @@ def format_doctor_report(results: List[CheckResult]) -> str:
 
 
 def has_blocking_failures(results: List[CheckResult]) -> bool:
-    return any(r.status == "FAIL" for r in results)
+    # optional=True 的 FAIL（vision 误配等）不阻塞：主链四条流水线均不依赖视觉。
+    return any(r.status == "FAIL" and not r.optional for r in results)
