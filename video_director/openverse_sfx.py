@@ -146,13 +146,30 @@ def _manifest_entries() -> List[dict]:
         return []
 
 
+_manifest_lock = None  # 延迟创建（import 期不可用 threading 时兜底）
+
+
+def _get_manifest_lock():
+    """manifest 读-改-写进程级互斥（对抗审查 MEDIUM 5：ThreadingHTTPServer
+    + workflow 线程并发入库时，全文覆盖会丢另一线程的条目）。"""
+    global _manifest_lock
+    import threading
+    if _manifest_lock is None:
+        _manifest_lock = threading.Lock()
+    return _manifest_lock
+
+
 def _append_manifest(entry: dict) -> None:
-    entries = _manifest_entries()
-    if any(e.get("asset_id") == entry["asset_id"] for e in entries):
-        return
-    entries.append(entry)
-    mf = _openverse_dir() / "audio_manifest.json"
-    mf.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    with _get_manifest_lock():
+        entries = _manifest_entries()
+        if any(e.get("asset_id") == entry["asset_id"] for e in entries):
+            return
+        entries.append(entry)
+        # 临时文件 + rename：崩溃/并发不会留下半个 JSON
+        mf = _openverse_dir() / "audio_manifest.json"
+        tmp = mf.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(mf)
 
 
 def ensure_sfx_for_category(category: str, base_url: str = "") -> Optional[str]:

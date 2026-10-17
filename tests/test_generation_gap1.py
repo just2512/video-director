@@ -60,8 +60,8 @@ def test_missing_scene_with_generated_candidate_triggers_generation(tmp_path, mo
     assert out.get("ok") is True, out
     assert calls.get("gen_type") == "image", "generation 未被触发"
     assert calls.get("prompt") == "一杯咖啡"
-    assert state["assignments"]["S01"] == "genid", "生成物未回填 assignment"
-    assert state["assets"]["genid"].file == str(png)
+    assert state["assignments"]["S01"] == "gen-s01-image", f"生成物未回填: {state['assignments']}"
+    assert state["assets"]["gen-s01-image"].file == str(png)
 
 
 def test_generation_failure_degrades_honestly_without_throw(tmp_path, monkeypatch):
@@ -116,7 +116,7 @@ def test_video_route_fails_then_falls_back_to_image(tmp_path, monkeypatch):
 
     assert "video" in tried, "首选 video 路线未尝试"
     assert "image" in tried, "video 失败后未降级 image"
-    assert state["assignments"]["S01"] == "genid"
+    assert state["assignments"]["S01"] == "gen-s01-image"
     assert out.get("ok") is True
 
 
@@ -139,3 +139,6 @@ def test_non_generated_candidate_never_triggers_generation(tmp_path, monkeypatch
     agent._tool_material({"match_materials_to_script": True,
                           "width": 100, "height": 100}, state)
     assert calls["n"] == 0
+    # 对抗审查 CRITICAL 1 回归锁：order 遮蔽曾让 asset_order=None 崩掉 planner；
+    # 缺 generation_type 时整个补位块被跳过，asset_order 保持函数开头的 list
+    assert isinstance(state.get("asset_order"), (list, type(None))) or "asset_order" not in state

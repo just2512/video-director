@@ -92,12 +92,17 @@ def github_readme_url(value: str) -> str:
     抓单个 README 文件（几 KB）代替 clone 整个仓库——100 个地址也只用
     100 次 HTTP，不占本地硬盘。README 是 markdown 文本，交给文章抓取链
     （import_article）分析生成介绍视频。非 GitHub 地址原样返回。
+
+    注意：仓库根目录没有 README.md 时 raw 返回 404，import_article 会报
+    「网页提取失败」——该仓库就是没有 README，与登录墙/反爬不同。
     """
     clean = (value or "").strip().rstrip("/")
-    m = re.match(r"^https?://(?:www\.)?github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", clean)
-    if not m:
+    if not is_github_url(clean):
         return clean
-    owner, name = m.group(1), m.group(2)
+    parts = clean.split("/")
+    owner, name = parts[-2], parts[-1]
+    if name.endswith(".git"):
+        name = name[:-4]
     return f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/README.md"
 
 

@@ -554,15 +554,18 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         None,
                     )
                     gt = (cand or {}).get("generation_type") or ""
-                    order = _GEN_FALLBACK.get(gt)
-                    if not order:
+                    # 变量名不得用 order：外层 order 是 asset_order（List[str]），
+                    # 遮蔽后 state["asset_order"] 会拿到 None/tuple → planner
+                    # TypeError 整片崩（对抗审查 CRITICAL 1，已实测复现）。
+                    fallback_chain = _GEN_FALLBACK.get(gt)
+                    if not fallback_chain:
                         continue
                     prompt = str((cand or {}).get("generation_prompt")
                                  or next((s["text"] for s in state["narration_scenes"]
                                           if s.get("id") == sid), ""))
                     res = None
                     used_gt = None
-                    for try_gt in order:
+                    for try_gt in fallback_chain:
                         try:
                             results = gen_mod.generate(
                                 state["project_id"], prompt, try_gt,
@@ -589,19 +592,47 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         images.append(fpath)
                     generated_files.append((sid, fpath, used_gt))
                 if generated_files:
-                    # 重建素材清单，让生成物进入 all_assets/order；用 file 反查
-                    # build_manifest 产生的 asset_id（stem 命名），避免用 generation
-                    # 的项目内 id 与清单 id 错配。
-                    vv2, vo2 = assets_mod.build_manifest(videos, [], asset_metadata=metadata) if videos else ({}, [])
-                    ii2, io2 = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
-                    all_assets, order = {**vv2, **ii2}, vo2 + io2
+                    # 只把生成物**追加**进现有素材表，不整体重建——整体重建会让
+                    # build_manifest 重新编号，既有 assignments 变幽灵 id，静默毁掉
+                    # 已匹配结果（对抗审查 CRITICAL 2）。生成物 id 唯一化后追加。
+                    existing_files = {str(ref.file) for ref in all_assets.values()}
+                    new_refs: Dict[str, AssetRef] = {}
                     for sid, fpath, gt in generated_files:
-                        aid = next((a for a, ref in all_assets.items()
-                                    if str(ref.file) == str(fpath)), None)
-                        if aid:
-                            assignments[sid] = aid
-                            match_provenance[sid] = "generated"
-                            warnings.append(f"生成补位（{sid}/{gt}）→ {aid}")
+                        if str(fpath) in existing_files:
+                            continue  # 幂等：已登记过
+                        aid = f"gen-{sid.lower()}-{gt}"
+                        n = 2
+                        while aid in all_assets:
+                            aid = f"{aid}-{n}"
+                            n += 1
+                        try:
+                            from video_director.models import AssetRef as _AR
+                            new_refs[aid] = _AR(
+                                id=aid,
+                                type="video" if gt == "video" else "image",
+                                file=str(fpath),
+                                source="generated",
+                                license_note="AI generated in-app",
+                                rights_status="CLEAR",
+                            )
+                        except Exception as exc:
+                            warnings.append(f"生成物登记失败（{sid}）：{exc}")
+                    if new_refs:
+                        all_assets = {**all_assets, **new_refs}
+                        order = order + [aid for aid in new_refs]
+                        for sid, fpath, gt in generated_files:
+                            aid = next((a for a, ref in new_refs.items()
+                                        if str(ref.file) == str(fpath)), None)
+                            if aid:
+                                assignments[sid] = aid
+                                match_provenance[sid] = "generated"
+                                warnings.append(f"生成补位（{sid}/{gt}）→ {aid}")
+                    # 校验既有 assignments 仍然有效（防止任何路径产生幽灵 id）
+                    ghost = [sid for sid, aid in assignments.items() if aid not in all_assets]
+                    for sid in ghost:
+                        assignments.pop(sid, None)
+                        match_provenance.pop(sid, None)
+                        warnings.append(f"镜头 {sid} 的素材引用失效，已清除待重匹配")
             except Exception as exc:
                 warnings.append("生成补位链路失败：" + str(exc))
 

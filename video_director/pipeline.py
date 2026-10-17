@@ -502,20 +502,37 @@ def compose_project(
         # 「自动搜索匹配音效」：没有显式 sfx_plan 时按场景切点自动配音效——
         # 每个转场点一个 whoosh（guizang audio-cues：音效绑动作发生点）。
         # 本地库缺该类别 → resolve_action_sfx 内部去 Openverse（freesound CC0）搜配。
+        # 缓存 + 总时限：同一类别只搜一次（50 场景不会 50 次 HTTP）；
+        # 整段 Openverse 工作限时 60s，超时诚实降级——渲染主流程不被网络拖死
+        # （对抗审查 HIGH 4）。
+        import time as _time
+        _sfx_deadline = _time.monotonic() + 60.0
         lib = audio_mod.scan_library()
+        _aid_by_action = {}
+        _sfx_degraded = False
         for i, sc in enumerate(narration_scenes):
             if i == 0:
                 continue  # 第一个镜头没有切入，不需要转场音
             ev = {"at": float(sc.get("start") or 0.0), "action_id": "transition"}
-            aid = audio_mod.resolve_action_sfx(
-                ev, lib, auto_search_openverse=True)
+            if "transition" in _aid_by_action:
+                aid = _aid_by_action["transition"]
+            elif _time.monotonic() > _sfx_deadline:
+                aid = audio_mod.resolve_action_sfx(ev, lib)  # 只查本地，不碰网络
+            else:
+                aid = audio_mod.resolve_action_sfx(
+                    ev, lib, auto_search_openverse=True)
+                if aid is not None:
+                    _aid_by_action["transition"] = aid  # 成功一次即缓存
             if aid is None:
                 warnings.append("NO_SFX: 转场音效搜索未命中（Openverse 不可达或无 CC0 结果）")
+                _sfx_degraded = True
                 break  # 同类别连续失败没有意义，一次降级即可
             if aid not in lib:
                 lib = audio_mod.scan_library()  # Openverse 刚入库，重扫
             audio_assets[aid] = lib[aid]
             audio_tracks.append(audio_mod.build_sfx_track(aid, ev["at"], 0.7))
+        if _sfx_degraded:
+            logger.warning("SFX 自动搜索降级：后续渲染仅用已命中的音效")
 
     ir.audio = audio_tracks
     render_assets = audio_mod.append_audio_assets(asset_map, audio_assets)
@@ -880,20 +897,23 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile:
         storyboard = confirm_mod.apply_storyboard_edits(storyboard, effective_edits)
         confirm_mod.save_storyboard(storyboard, storyboard_path)
 
-    # 标记确认通过 → RENDERING
+    # 标记确认通过 → RENDERING（先转状态再闸门：BLOCKED 阻止只挡最终渲染，
+    # 不把项目卡死在 AWAITING_CONFIRM——用户替换素材后可以直接重试）
+    store.confirm_project(project_id, approved=True, edits=effective_edits or None)
+
     # 差距 7：正式渲染前的版权放行闸门——BLOCKED 硬阻止，UNKNOWN/REVIEW 警告。
     release = confirm_mod.commercial_release_gate(project_id)
     if release.get("blocked"):
         raise PipelineError(
             "商业发布被阻止：以下素材授权状态为 BLOCKED，禁止商用——"
             + ", ".join(release["blocked"])
+            + "。请在素材库删除或替换这些素材后重新确认渲染。"
         )
     if release.get("unknown"):
         logger.warning(
             f"版权提示：{len(release['unknown'])} 个素材授权状态待核实（UNKNOWN/REVIEW），"
             f"已放行但请人工确认，素材：{', '.join(release['unknown'][:20])}"
         )
-    store.confirm_project(project_id, approved=True, edits=effective_edits or None)
 
     # 重新规划（若有 edits）：
     # - 若 edits 改了 assignments（asset 字段），构造新 ContentMatchPlanner
