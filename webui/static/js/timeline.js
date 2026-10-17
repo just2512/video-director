@@ -1510,7 +1510,7 @@ function _tlBindAudioClipDrag(){
         const start = d.start + dt;
         const duration = d.duration - dt;
         command = 'trim_audio_clip';
-        payload = {start: round(start), sourceIn: roundMs(d.sourceIn), duration: round(duration), loopToDuration: true};
+        payload = {start: round(start), sourceIn: roundMs(d.sourceIn + dt), duration: round(duration), loopToDuration: true};
       } else {
         const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
         const sourceIn = d.sourceIn + dt;
