@@ -3584,17 +3584,69 @@ def _cmd_paste_visual_overlay(
         if source_duration > 0 and float(source.source_in) + duration * float(source.speed) > source_duration + 0.05:
             raise EditorError("INVALID_SOURCE_RANGE", "复制片段的源区间超出视频素材时长")
 
+    # If the source picture uses a separately detached original-audio clip, copy
+    # that sound as part of the same command so the duplicate is not unexpectedly silent.
+    linked_audio = None
+    linked_audio_track_id = ""
+    raw_linked_audio = payload.get("linkedAudio")
+    if raw_linked_audio is not None:
+        if not isinstance(raw_linked_audio, dict):
+            raise EditorError("INVALID_PAYLOAD", "linkedAudio 必须是音频片段对象")
+        from video_director.models import AudioTrack
+        try:
+            linked_audio = AudioTrack.model_validate(raw_linked_audio)
+        except Exception as exc:
+            raise EditorError("INVALID_PAYLOAD", f"关联原声音频数据无效：{exc}") from exc
+        if linked_audio.type != AudioTrackType.original or linked_audio.asset_id != source.asset_id:
+            raise EditorError("INVALID_PAYLOAD", "画面复制只能携带与源视频绑定的 original 音频片段")
+        if linked_audio.linked_visual_overlay_id not in (None, source.id):
+            raise EditorError("INVALID_PAYLOAD", "复制的原声音频关联到了其他画面片段")
+        source_in = float(source.source_in)
+        source_out = source_in + duration * float(source.speed)
+        if abs(float(linked_audio.source_in) - source_in) > 0.05:
+            raise EditorError("INVALID_SOURCE_RANGE", "画面与关联原声的源起点不一致，不能安全复制")
+        if abs(float(linked_audio.speed) - float(source.speed)) > 1e-6:
+            raise EditorError("INVALID_SOURCE_RANGE", "画面与关联原声的播放速度不一致，不能安全复制")
+        requested_audio_track = str(payload.get("audioTrackId") or linked_audio.track_id or "").strip()
+        unlocked_lanes = [lane for lane in sorted(ir.audio_tracks, key=lambda item: item.order) if not lane.locked]
+        if not requested_audio_track or not any(lane.id == requested_audio_track for lane in ir.audio_tracks):
+            requested_audio_track = unlocked_lanes[0].id if unlocked_lanes else ""
+        if not requested_audio_track:
+            raise EditorError("NO_UNLOCKED_AUDIO_TRACK", "复制画面包含独立原声，但项目没有可用的未锁定音轨")
+        _ensure_audio_lane_unlocked(ir, requested_audio_track)
+        linked_audio_track_id = requested_audio_track
+
     pasted = source.model_copy(update={
         "id": f"overlay-{uuid.uuid4().hex[:12]}",
         "start": round(start, 6),
         "duration": round(duration, 6),
         "track_id": track_id,
+        **({"source_audio_enabled": False} if linked_audio else {}),
     })
     ir.visual_overlays.append(pasted)
-    return [f"visual-overlay:{pasted.id}", f"visual-track:{track_id}"], [
+    changed = [f"visual-overlay:{pasted.id}", f"visual-track:{track_id}"]
+    stale = [
         f"visual-overlay:{pasted.id}:render", "project:visual-overlays:render",
         "project:timeline:render", "project:preview",
     ]
+    if linked_audio:
+        linked_start = float(pasted.source_in)
+        linked_end = linked_start + float(pasted.duration) * float(pasted.speed)
+        copied_audio = linked_audio.model_copy(update={
+            "id": f"audio-clip-{uuid.uuid4().hex[:12]}",
+            "track_id": linked_audio_track_id,
+            "start": round(float(pasted.start), 6),
+            "duration": round(float(pasted.duration), 6),
+            "source_in": round(linked_start, 6),
+            "source_out": round(linked_end, 6),
+            "speed": float(pasted.speed),
+            "linked_visual_overlay_id": pasted.id,
+            "follows_scene_video": False,
+        })
+        ir.audio.append(copied_audio)
+        changed.extend([f"audio:original:{len(ir.audio)-1}", f"audio-track:{linked_audio_track_id}"])
+        stale.extend(["project:audio:render", "project:audio-tracks"])
+    return changed, list(dict.fromkeys(stale))
 
 
 def _audio_clip_index(ir: CompositionIR, target_id: str) -> int:
