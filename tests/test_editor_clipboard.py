@@ -109,6 +109,32 @@ def test_add_audio_asset_clip_can_populate_a_second_voiceover_lane_and_loop_musi
     assert looping.source_out is None
 
 
+def test_add_audio_asset_clip_resolves_imported_catalog_audio(tmp_path, monkeypatch):
+    from video_director import asset_catalog as vd_acat
+
+    ir = _composition()
+    imported_audio = tmp_path / "voice-recording.wav"
+    imported_audio.write_bytes(b"registered audio fixture")
+    monkeypatch.setattr(vd_audio, "scan_library", lambda: {})
+    monkeypatch.setattr(vd_acat, "get_asset", lambda asset_id: {
+        "asset_id": asset_id, "type": "audio", "file": str(imported_audio),
+        "duration": 4.0, "tags": ["voice"], "source": "uploaded",
+    })
+
+    editor._cmd_add_audio_asset_clip(
+        ir, "audio-tracks",
+        {"assetId": "catalog-voice", "trackId": "audio-voice-2", "role": "dialogue",
+         "start": 2, "duration": 2, "volume": 1.0},
+    )
+
+    clip = ir.audio[-1]
+    asset = next(item for item in ir.assets if item.id == "catalog-voice")
+    assert clip.type == AudioTrackType.dialogue
+    assert clip.track_id == "audio-voice-2"
+    assert clip.start == 2 and clip.duration == 2
+    assert asset.file == str(imported_audio)
+    assert asset.file != "audio-library://catalog-voice"
+
 def test_looped_bgm_right_trim_preserves_looping_and_uses_project_frames():
     ir = _composition()
     ir.audio[0] = ir.audio[0].model_copy(update={"source_in": 0, "source_out": None, "duration": 3})
