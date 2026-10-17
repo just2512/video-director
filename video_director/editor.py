@@ -3552,11 +3552,25 @@ def _cmd_paste_visual_overlay(
         raise EditorError("INVALID_PAYLOAD", f"复制的画面片段数据无效：{exc}") from exc
 
     # Only a source already present in this project is eligible for clipboard paste.
-    known_asset = any(asset.id == source.asset_id for asset in ir.assets) or any(
-        clip.asset_id == source.asset_id for clip in ir.visual_overlays
+    # Main-scene clips can be copied directly into a free visual track even when a
+    # legacy project has no CompositionIR.assets entry for that manifest asset.
+    known_asset = (
+        any(asset.id == source.asset_id for asset in ir.assets)
+        or any(clip.asset_id == source.asset_id for clip in ir.visual_overlays)
+        or any(layer.asset_id == source.asset_id for scene in ir.scenes for layer in scene.layers)
     )
     if not known_asset:
         raise EditorError("ASSET_NOT_FOUND", "复制的画面素材不属于当前项目，无法粘贴")
+    asset = next((item for item in ir.assets if item.id == source.asset_id), None)
+    if asset is None:
+        manifest_asset = _asset_ref_from_project_manifest(project_id, source.asset_id)
+        if manifest_asset is not None:
+            if str(getattr(manifest_asset.type, "value", manifest_asset.type)).lower() not in ("video", "image"):
+                raise EditorError("ASSET_TYPE_MISMATCH", "画面片段只能从视频或图片素材复制粘贴")
+            asset = manifest_asset
+            ir.assets.append(manifest_asset)
+    if asset is None:
+        raise EditorError("ASSET_NOT_FOUND", "画面素材在工程 IR 和项目 manifest 中都不可用")
     track_id = str(payload.get("trackId") or source.track_id or "overlay-main").strip()
     if not any(track.id == track_id for track in ir.visual_tracks):
         raise EditorError("NOT_FOUND", f"目标画面轨道 {track_id!r} 不存在", recoverable=False)
@@ -3578,7 +3592,6 @@ def _cmd_paste_visual_overlay(
     if start + duration > float(ir.project.duration) + 1e-6:
         raise EditorError("INVALID_TIMELINE_RANGE", "粘贴后的画面片段超出项目时长")
 
-    asset = next((item for item in ir.assets if item.id == source.asset_id), None)
     if asset and str(getattr(asset.type, "value", asset.type)).lower() == "video":
         source_duration = float(asset.duration or 0.0)
         if source_duration > 0 and float(source.source_in) + duration * float(source.speed) > source_duration + 0.05:
