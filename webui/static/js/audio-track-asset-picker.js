@@ -25,7 +25,7 @@
     if (!select || !state) return null;
     return state.choices.find(item => String(item.id) === String(select.value)) || null;
   }
-  function setDefaultsFromChoice() {
+  function setDefaultsFromChoice(resetRole) {
     const choice = selectedChoice();
     const roleSelect = document.getElementById('audio-asset-picker-role');
     const durationInput = document.getElementById('audio-asset-picker-duration');
@@ -36,7 +36,7 @@
     const suggestedRole = ['bgm', 'sfx', 'ambience'].includes(String(choice.role || '').toLowerCase())
       ? String(choice.role).toLowerCase()
       : 'dialogue';
-    roleSelect.value = suggestedRole;
+    if (resetRole !== false) roleSelect.value = suggestedRole;
     const role = roleSelect.value;
     if (role === 'bgm' || role === 'ambience') {
       durationInput.value = Math.min(15, remaining).toFixed(2);
@@ -112,12 +112,12 @@
     startInput.value = start.toFixed(2);
     mask.querySelector('#audio-asset-picker-close').onclick = close;
     mask.querySelector('#audio-asset-picker-cancel').onclick = close;
-    mask.querySelector('#audio-asset-picker-asset').addEventListener('change', setDefaultsFromChoice);
-    mask.querySelector('#audio-asset-picker-role').addEventListener('change', setDefaultsFromChoice);
+    mask.querySelector('#audio-asset-picker-asset').addEventListener('change', () => setDefaultsFromChoice(true));
+    mask.querySelector('#audio-asset-picker-role').addEventListener('change', () => setDefaultsFromChoice(false));
     mask.querySelector('#audio-asset-picker-add').onclick = confirmAdd;
     mask.addEventListener('click', e => { if (e.target === mask) close(); });
     document.body.appendChild(mask);
-    setDefaultsFromChoice();
+    setDefaultsFromChoice(true);
   }
 
   function escapeText(value) {
