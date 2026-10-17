@@ -769,11 +769,27 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
     title_card_path = dirs["render"] / "title_card.mp4"
     title_card = str(title_card_path) if title_card_path.is_file() else None
 
+    # Keep render-only options that older projects stored in the project row
+    # rather than CompositionIR. They still apply when exporting hand-edited IR.
+    project_row = store.get_project(project_id) or {}
+    render_params = {}
+    if project_row.get("params_json"):
+        try:
+            render_params = json.loads(project_row["params_json"])
+        except (TypeError, json.JSONDecodeError):
+            render_params = {}
+    lower_third_name = render_params.get("lower_third_name")
+    lower_third_role = render_params.get("lower_third_role")
+    legacy_watermark = render_params.get("watermark")
+
     store.set_stage(project_id, store.Stage.RENDERING)
     work_dir = dirs["render"] / "editor-final"
     rendered = renderer.render_composition(
         render_ir, assets, work_dir, narration_file=narration,
         subtitle_file=subtitles, title_card=title_card,
+        lower_third_name=lower_third_name,
+        lower_third_role=lower_third_role,
+        watermark=legacy_watermark,
         project_id=project_id, artifact_kind="final",
     )
     final_path = dirs["output"] / "final.mp4"
@@ -785,10 +801,16 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
     # accepts the exact MP4 that will be shown/downloaded to the user.
     store.set_stage(project_id, store.Stage.QC)
     narration_duration = float(render_ir.project.duration)
+    narration_track = next((clip for clip in render_ir.audio if clip.type.value == "narration"), None)
+    narration_expected = bool(narration) and not bool(narration_track and narration_track.muted)
+    other_audio_expected = any(
+        not clip.muted and clip.type.value != "narration"
+        for clip in render_ir.audio
+    )
     report = qc.run_qc(
         render_ir, str(final_path), assets, narration_duration,
-        expect_subtitle=bool(subtitles or render_ir.subtitle_track),
-        expect_audio=bool(narration or any(not clip.muted for clip in render_ir.audio)),
+        expect_subtitle=bool(subtitles),
+        expect_audio=narration_expected or other_audio_expected,
     )
     report_data = report.to_dict()
     if not report.ok:
