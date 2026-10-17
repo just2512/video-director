@@ -61,9 +61,9 @@
     close();
     let choices;
     try {
-      const response = await fetch('/api/audio_library');
-      if (!response.ok) throw new Error('音频素材库请求失败（HTTP ' + response.status + '）');
-      choices = await response.json();
+      const response = await apiGet('/api/audio_library');
+      if (!Array.isArray(response)) throw new Error((response && response.error) || '音频素材库响应格式错误');
+      choices = response;
     } catch (error) {
       toast('读取音频素材库失败：' + (error.message || error), true);
       return;
