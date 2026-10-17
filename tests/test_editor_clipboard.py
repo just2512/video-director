@@ -419,7 +419,7 @@ def test_copy_main_scene_video_pastes_as_visual_clip_with_original_audio_in_brow
             page.locator('.ed-layer').dispatch_event('pointerdown')
             copied = page.evaluate("() => window.editorClipCopy(false)")
             assert copied is True
-            page.evaluate("() => { window.PLAYHEAD.at = 5; }")
+            page.evaluate("() => { window.PLAYHEAD.at = 5; delete window.ED.comp.duration; }")
             pasted = page.evaluate("async () => await window.editorClipPaste()")
             assert pasted['ok'] is True
             command = page.evaluate("() => window.__commands[0]")
@@ -454,3 +454,4 @@ def test_clipboard_frontend_is_loaded_and_uses_shared_command_service():
     assert ".ed-layer[data-scene][data-idx]" in source
     assert "presentation_mode: 'full_frame'" in source
     assert "paste_visual_overlay" in source
+    assert "ED.comp.project && ED.comp.project.duration" in source
