@@ -1385,8 +1385,7 @@ function _tlBindAudioClipDrag(){
           ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
           : Number(track.source_out),
         loopToDuration: track.source_out == null &&
-          ['bgm', 'ambience', 'ambient'].includes(String(track.type || '').toLowerCase()) &&
-          Math.abs(Number(track.source_in) || 0) < 0.000001,
+          ['bgm', 'ambience', 'ambient'].includes(String(track.type || '').toLowerCase()),
         startTrackId: String(track.track_id || (((el.closest('.ed-track[data-audio-track-id]') || {}).dataset || {}).audioTrackId) || ''),
         baseLeft: Number.parseFloat(el.style.left) || 0,
         baseWidth: Number.parseFloat(el.style.width) || 0,
@@ -1505,7 +1504,7 @@ function _tlBindAudioClipDrag(){
         const start = d.start + dt;
         const duration = d.duration - dt;
         command = 'trim_audio_clip';
-        payload = {start: round(start), sourceIn: 0, duration: round(duration), loopToDuration: true};
+        payload = {start: round(start), sourceIn: roundMs(d.sourceIn), duration: round(duration), loopToDuration: true};
       } else {
         const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
         const sourceIn = d.sourceIn + dt;
@@ -1530,7 +1529,7 @@ function _tlBindAudioClipDrag(){
           return;
         }
         command = 'trim_audio_clip';
-        payload = {start: round(d.start), sourceIn: 0, duration: round(duration), loopToDuration: true};
+        payload = {start: round(d.start), sourceIn: roundMs(d.sourceIn), duration: round(duration), loopToDuration: true};
       } else {
         const sourceIn = d.sourceIn;
         const sourceOut = d.sourceOut + dt;
