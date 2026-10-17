@@ -637,6 +637,30 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[
         for a in json.loads(manifest_path.read_text(encoding="utf-8")):
             ref = AssetRef(**a)
             assets[ref.id] = ref
+    # 已被编辑器写入 IR、但不在项目 manifest 的全局素材，也必须参与预览/导出。
+    # 仅信任资产库中的 asset_id→file 映射；不能直接信任 composition.json 中任意路径。
+    try:
+        from video_director import asset_catalog as asset_catalog_mod
+        for ir_asset in ir.assets:
+            if ir_asset.id in assets or str(ir_asset.file or "").startswith("audio-library://"):
+                continue
+            entry = asset_catalog_mod.get_asset(ir_asset.id)
+            if not entry or not entry.get("file"):
+                continue
+            trusted_file = Path(str(entry["file"])).resolve()
+            if not trusted_file.is_file():
+                continue
+            from video_director.models import AssetRef
+            assets[ir_asset.id] = AssetRef(
+                id=ir_asset.id, type=entry.get("type") or ir_asset.type, file=str(trusted_file),
+                duration=entry.get("duration") if entry.get("duration") is not None else ir_asset.duration,
+                keywords=list(entry.get("tags") or entry.get("keywords") or ir_asset.keywords or []),
+                source=entry.get("source") or ir_asset.source,
+                license_note=entry.get("license_note") or ir_asset.license_note,
+            )
+    except Exception as exc:
+        logger.warning(f"draft: IR 全局素材解析失败（继续检查可用资产）: {exc}")
+
     # 音频库资产并入（IR.audio 引用 bgm/sfx 时渲染器要找文件）
     try:
         from video_director import audio as audio_mod
