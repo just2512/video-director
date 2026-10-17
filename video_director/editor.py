@@ -4221,8 +4221,8 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
         loop_source_duration = float(getattr(source_asset, "duration", 0.0) or 0.0) if source_asset else 0.0
         if not math.isfinite(loop_source_duration) or loop_source_duration <= 0:
             raise EditorError(
-                "LOOP_SOURCE_DURATION_UNKNOWN",
-                "无法确定背景音乐/环境音的源时长，不能安全切分循环片段；先重新探测该素材时长",
+                "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW",
+                "循环片段缺少可核验的源时长，暂不能安全分割；请先给素材记录时长或裁剪出明确源区间",
             )
         if source_in >= loop_source_duration:
             raise EditorError("INVALID_SOURCE_RANGE", "循环音乐的源起点必须落在素材时长内")
