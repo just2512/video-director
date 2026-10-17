@@ -331,11 +331,13 @@
     if (item.kind === 'visual') {
       const clips = ED.comp.visual_overlays || [];
       const last = clips.length ? clips[clips.length - 1] : null;
-      if (last && String(last.asset_id || '') === String(item.clip.asset_id || '') && Number(last.start || 0) === Number(start)) pastedId = String(last.id || '');
+      const startTolerance = Math.max(0.001, 1 / Math.max(1, Number(ED.comp.project && ED.comp.project.fps) || 30) + 1e-6);
+      if (last && String(last.asset_id || '') === String(item.clip.asset_id || '') && Math.abs(Number(last.start || 0) - Number(start)) <= startTolerance) pastedId = String(last.id || '');
     } else {
       const clips = ED.comp.audio || [];
       const last = clips.length ? clips[clips.length - 1] : null;
-      if (last && String(last.asset_id || '') === String(item.clip.asset_id || '') && String(last.track_id || '') === String(trackId) && Number(last.start || 0) === Number(start)) pastedId = String(last.id || '');
+      const startTolerance = Math.max(0.001, 1 / Math.max(1, Number(ED.comp.project && ED.comp.project.fps) || 30) + 1e-6);
+      if (last && String(last.asset_id || '') === String(item.clip.asset_id || '') && String(last.track_id || '') === String(trackId) && Math.abs(Number(last.start || 0) - Number(start)) <= startTolerance) pastedId = String(last.id || '');
     }
 
     if (item.cut && item.origin) {
