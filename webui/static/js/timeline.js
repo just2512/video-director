@@ -1535,7 +1535,7 @@ function _tlBindAudioClipDrag(){
           return;
         }
         command = 'trim_audio_clip';
-        payload = {start: round(d.start), sourceIn: roundMs(d.sourceIn), duration: round(duration), loopToDuration: true};
+        payload = {start: round(d.start), sourceIn: roundMs(d.sourceIn), sourceOut: roundMs(d.sourceOut + dt), duration: round(duration), loopToDuration: true};
       } else {
         const sourceIn = d.sourceIn;
         const sourceOut = d.sourceOut + dt;
