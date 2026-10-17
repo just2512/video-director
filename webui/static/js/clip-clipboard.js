@@ -178,13 +178,21 @@
       return false;
     }
     state.selection = selected;
-    state.clipboard = {
+    const clipboard = {
       kind: selected.kind,
       clip: clone(selected.clip),
       origin: clone(selected.origin),
       trackId: selected.trackId,
       cut: !!cut
     };
+    if (selected.kind === 'visual') {
+      const linkedAudio = (ED.comp.audio || []).find(clip => String(clip.linked_visual_overlay_id || '') === String(selected.clip.id));
+      if (linkedAudio) {
+        clipboard.linkedAudio = clone(linkedAudio);
+        clipboard.linkedAudioTrackId = String(linkedAudio.track_id || '');
+      }
+    }
+    state.clipboard = clipboard;
     paintSelection();
     toast(cut
       ? '已标记剪切；粘贴成功后才会删除原片段。'
@@ -237,6 +245,15 @@
       if (!trackId) { toast('工程没有可用的画面轨道。', true); return {ok:false}; }
     }
 
+    let linkedAudioTrackId = '';
+    if (item.kind === 'visual' && item.linkedAudio) {
+      const audioLanes = (ED.comp.audio_tracks || []).slice().sort((a,b) => Number(a.order || 0) - Number(b.order || 0));
+      const preferredAudioLane = audioLanes.find(lane => String(lane.id) === String(item.linkedAudioTrackId) && !lane.locked);
+      const fallbackAudioLane = audioLanes.find(lane => !lane.locked);
+      const chosenAudioLane = preferredAudioLane || fallbackAudioLane;
+      if (!chosenAudioLane) { toast('该视频带有独立原声，但项目没有可用的未锁定音轨，未粘贴。', true); return {ok:false}; }
+      linkedAudioTrackId = String(chosenAudioLane.id);
+    }
     const command = item.kind === 'audio' ? 'paste_audio_clip' : 'paste_visual_overlay';
     const targetId = item.kind === 'audio' ? 'audio-tracks' : 'overlays';
     let result;
@@ -244,7 +261,10 @@
       result = await window.executeCommand({
         command: command,
         targetId: targetId,
-        payload: {clip:clone(item.clip), start:start, trackId:trackId}
+        payload: {
+          clip:clone(item.clip), start:start, trackId:trackId,
+          ...(item.kind === 'visual' && item.linkedAudio ? {linkedAudio:clone(item.linkedAudio), audioTrackId:linkedAudioTrackId} : {})
+        }
       });
     } catch (error) {
       toast('粘贴失败：' + (error.message || error), true);
@@ -253,6 +273,18 @@
     if (!result || !result.ok) {
       toast('粘贴失败：' + ((result && result.error) || '工程没有变化'), true);
       return {ok:false, error:(result && result.error) || 'PASTE_REJECTED'};
+    }
+
+    // Capture the newly written stable clip ID before a cut removes the source.
+    let pastedId = '';
+    if (item.kind === 'visual') {
+      const clips = ED.comp.visual_overlays || [];
+      const last = clips.length ? clips[clips.length - 1] : null;
+      if (last && String(last.asset_id || '') === String(item.clip.asset_id || '') && Number(last.start || 0) === Number(start)) pastedId = String(last.id || '');
+    } else {
+      const clips = ED.comp.audio || [];
+      const last = clips.length ? clips[clips.length - 1] : null;
+      if (last && String(last.asset_id || '') === String(item.clip.asset_id || '') && String(last.track_id || '') === String(trackId) && Number(last.start || 0) === Number(start)) pastedId = String(last.id || '');
     }
 
     if (item.cut && item.origin) {
@@ -279,6 +311,17 @@
 
     try { await window.refreshWorkspace(); }
     catch (error) { toast('片段已写入工程，但时间线刷新失败：' + (error.message || error), true); }
+    if (pastedId && ED.comp) {
+      if (item.kind === 'visual') {
+        const index = (ED.comp.visual_overlays || []).findIndex(clip => String(clip.id || '') === pastedId);
+        const element = index >= 0 ? document.querySelector('#editor-timeline .ed-visual-overlay-clip[data-visual-overlay-index="' + index + '"]') : null;
+        if (element) state.selection = getEntry(element);
+      } else {
+        const index = (ED.comp.audio || []).findIndex(clip => String(clip.id || '') === pastedId);
+        const element = index >= 0 ? document.querySelector('#editor-timeline .ed-audio-clip[data-audio-index="' + index + '"]') : null;
+        if (element) state.selection = getEntry(element);
+      }
+    }
     if (!item.cut) toast('片段已粘贴到时间线。');
     paintSelection();
     return {ok:true};
