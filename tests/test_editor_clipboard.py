@@ -358,6 +358,20 @@ def test_populated_visual_track_requires_explicit_delete_and_removes_contents_wh
     assert [track.order for track in ir.visual_tracks] == [0]
 
 
+def test_final_export_uses_saved_editor_ir_instead_of_replanning_when_no_storyboard_edits(monkeypatch):
+    from video_director import confirm
+
+    calls = []
+    monkeypatch.setattr(
+        confirm, "_render_saved_composition_final",
+        lambda project_id, profile=None: calls.append((project_id, profile)) or "/tmp/final.mp4",
+    )
+
+    result = confirm.finalize_after_review("edited-project", profile="vertical-1080p")
+
+    assert result == "/tmp/final.mp4"
+    assert calls == [("edited-project", "vertical-1080p")]
+
 def test_clipboard_frontend_is_loaded_and_uses_shared_command_service():
     clipboard = ROOT / "webui" / "static" / "js" / "clip-clipboard.js"
     index = ROOT / "webui" / "static" / "index.html"
