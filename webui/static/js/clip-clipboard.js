@@ -308,7 +308,7 @@
       toast('剪贴板为空，请先选择片段并复制。', true);
       return {ok:false};
     }
-    const total = Math.max(0, Number(ED.comp.duration) || 0);
+    const total = Math.max(0, Number(ED.comp.duration || (ED.comp.project && ED.comp.project.duration)) || 0);
     const duration = Math.max(0, Number(item.clip.duration) || 0);
     if (!total || !duration || duration > total) {
       toast('片段时长超出当前工程范围，未粘贴。', true);
