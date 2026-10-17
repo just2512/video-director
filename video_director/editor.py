@@ -4103,10 +4103,10 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
 def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Split one editable audio clip at an absolute project playhead time.
 
-    The two clips keep the same source sequence and mix settings. Fade-in remains
-    on the left head, fade-out remains on the right tail. Looping BGM/ambience
-    without an explicit source window is rejected because splitting it naïvely
-    would restart the loop at the cut instead of preserving source continuity.
+    The two clips keep the same mix settings. Source-window clips split at the
+    matching source timestamp. Looping BGM/ambience keeps source_out=None and
+    advances the right clip source offset modulo source duration, so the render
+    path can continue the loop rather than accidentally truncate the audio.
     """
     index = _audio_clip_index(ir, target_id)
     track = ir.audio[index]
