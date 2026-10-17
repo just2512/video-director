@@ -3877,6 +3877,48 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
     index = _audio_clip_index(ir, target_id)
     track = ir.audio[index]
     _ensure_audio_lane_unlocked(ir, str(track.track_id or f"audio-{track.type.value}"))
+
+    # BGM/ambience clips with source_out=None are intentionally looped by the
+    # renderer to their requested timeline duration. Preserve that contract when
+    # the user drags the right edge; materializing source_out would silently turn
+    # the loop into a one-pass trim and could produce a shorter-than-timeline mix.
+    if payload.get("loopToDuration") is True:
+        if track.type not in (AudioTrackType.bgm, AudioTrackType.ambience):
+            raise EditorError("INVALID_PAYLOAD", "仅背景音乐或环境音支持循环延长")
+        raw_start = payload.get("start", track.start)
+        raw_duration = payload.get("duration")
+        if isinstance(raw_start, bool) or isinstance(raw_duration, bool):
+            raise EditorError("INVALID_PAYLOAD", "循环片段的 start/duration 不能是布尔值")
+        try:
+            start = float(raw_start)
+            duration = float(raw_duration)
+        except (TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PAYLOAD", "循环片段需要数字 start/duration") from exc
+        if not math.isfinite(start) or not math.isfinite(duration):
+            raise EditorError("INVALID_PARAMETER", "循环片段的 start/duration 必须为有限数字")
+        start = _project_frame_time(ir, start)
+        duration = _project_frame_time(ir, duration)
+        total = float(ir.project.duration)
+        if start < 0 or start >= total:
+            raise EditorError("INVALID_PARAMETER", "循环片段起点必须位于项目时间范围内")
+        if duration < _project_frame_min_duration(ir):
+            raise EditorError("INVALID_SOURCE_RANGE", "循环片段时长必须至少为一帧")
+        if start + duration > total + 1e-6:
+            raise EditorError("INVALID_TIMELINE_RANGE", "循环片段不能超出项目总时长")
+        if abs(float(track.source_in or 0.0)) > 1e-6:
+            raise EditorError("INVALID_SOURCE_RANGE", "当前循环片段不是从素材起点播放；请先恢复源入点或改为普通裁剪")
+        ir.audio[index] = track.model_copy(update={
+            "start": round(start, 6),
+            "source_in": 0.0,
+            "source_out": None,
+            "duration": round(duration, 6),
+            "linked_visual_overlay_id": None,
+        })
+        if track.type == AudioTrackType.original:
+            raise EditorError("INVALID_PAYLOAD", "原声音轨不能按背景音乐循环")
+        key = f"audio:{track.type.value}:{index}"
+        return [key], [f"{key}:render", "project:audio:render", "project:preview"]
+
     raw_start = payload.get("start", track.start)
     raw_source_in = payload.get("sourceIn", payload.get("source_in", track.source_in or 0.0))
     source_out_raw = payload.get("sourceOut", payload.get("source_out"))
