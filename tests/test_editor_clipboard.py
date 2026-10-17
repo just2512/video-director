@@ -275,6 +275,19 @@ def test_audio_clip_delete_updates_linked_picture_source_audio_state():
     assert "project:visual-overlays:render" in stale
 
 
+def test_system_tts_narration_is_not_deleted_as_a_normal_clip_or_track():
+    ir = _composition()
+    ir.audio_tracks.append(AudioLane(id="audio-narration", name="主旁白", order=2))
+    ir.audio.append(AudioTrack(
+        type=AudioTrackType.narration, id="tts-narration", track_id="audio-narration",
+        start=0, duration=10, asset_id=None, volume=1.0,
+    ))
+
+    with pytest.raises(editor.EditorError, match="TTS_NARRATION_LANE_PROTECTED"):
+        editor._cmd_remove_audio_track(ir, "audio-narration", {"deleteContents": True})
+    with pytest.raises(editor.EditorError, match="TTS_NARRATION_PIPELINE_CLIP"):
+        editor._cmd_remove_audio_clip(ir, "audio#1", {})
+
 def test_populated_audio_track_requires_explicit_delete_and_removes_contents_when_confirmed():
     ir = _composition()
     with pytest.raises(editor.EditorError, match="deleteContents=true"):
