@@ -4014,15 +4014,17 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
             raise EditorError("INVALID_PAYLOAD", "仅背景音乐或环境音支持循环延长")
         raw_start = payload.get("start", track.start)
         raw_duration = payload.get("duration")
-        if isinstance(raw_start, bool) or isinstance(raw_duration, bool):
-            raise EditorError("INVALID_PAYLOAD", "循环片段的 start/duration 不能是布尔值")
+        raw_source_in = payload.get("sourceIn", track.source_in or 0.0)
+        if any(isinstance(value, bool) for value in (raw_start, raw_duration, raw_source_in)):
+            raise EditorError("INVALID_PAYLOAD", "循环片段的 start/duration/sourceIn 不能是布尔值")
         try:
             start = float(raw_start)
             duration = float(raw_duration)
+            source_in = float(raw_source_in)
         except (TypeError, ValueError) as exc:
-            raise EditorError("INVALID_PAYLOAD", "循环片段需要数字 start/duration") from exc
-        if not math.isfinite(start) or not math.isfinite(duration):
-            raise EditorError("INVALID_PARAMETER", "循环片段的 start/duration 必须为有限数字")
+            raise EditorError("INVALID_PAYLOAD", "循环片段需要数字 start/duration/sourceIn") from exc
+        if not all(math.isfinite(value) for value in (start, duration, source_in)):
+            raise EditorError("INVALID_PARAMETER", "循环片段的 start/duration/sourceIn 必须为有限数字")
         start = _project_frame_time(ir, start)
         duration = _project_frame_time(ir, duration)
         total = float(ir.project.duration)
@@ -4032,11 +4034,13 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
             raise EditorError("INVALID_SOURCE_RANGE", "循环片段时长必须至少为一帧")
         if start + duration > total + 1e-6:
             raise EditorError("INVALID_TIMELINE_RANGE", "循环片段不能超出项目总时长")
-        if abs(float(track.source_in or 0.0)) > 1e-6:
-            raise EditorError("INVALID_SOURCE_RANGE", "当前循环片段不是从素材起点播放；请先恢复源入点或改为普通裁剪")
+        source_asset = next((asset for asset in ir.assets if asset.id == track.asset_id), None)
+        source_duration = float(getattr(source_asset, "duration", 0.0) or 0.0) if source_asset else 0.0
+        if source_in < 0 or (source_duration > 0 and source_in >= source_duration):
+            raise EditorError("INVALID_SOURCE_RANGE", "循环片段的源起点必须落在音频素材时长内")
         ir.audio[index] = track.model_copy(update={
             "start": round(start, 6),
-            "source_in": 0.0,
+            "source_in": round(source_in, 6),
             "source_out": None,
             "duration": round(duration, 6),
             "linked_visual_overlay_id": None,
