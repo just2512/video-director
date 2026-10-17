@@ -227,6 +227,38 @@ def test_paste_visual_clip_keeps_transform_and_uses_destination_track_and_time()
     assert any(key.startswith("visual-overlay:") for key in changed)
 
 
+def test_paste_visual_clip_duplicates_its_separately_linked_source_audio_atomically():
+    ir = _composition()
+    visual = ir.visual_overlays[0]
+    ir.visual_overlays[0] = visual.model_copy(update={"source_audio_enabled": False})
+    original_audio = AudioTrack(
+        type=AudioTrackType.original, id="original-audio-1", asset_id="overlay-video",
+        track_id="audio-main", start=0, duration=2, source_in=1, source_out=3,
+        linked_visual_overlay_id="overlay-original-1", follows_scene_video=False, volume=0.7,
+    )
+    ir.audio.append(original_audio)
+
+    editor._cmd_paste_visual_overlay(
+        ir, "overlays",
+        {
+            "clip": visual.model_dump(mode="json"), "start": 4, "trackId": "visual-pip",
+            "linkedAudio": original_audio.model_dump(mode="json"), "audioTrackId": "audio-voice-2",
+        },
+        "test-project",
+    )
+
+    pasted_visual = ir.visual_overlays[-1]
+    pasted_audio = ir.audio[-1]
+    assert pasted_visual.id != visual.id
+    assert pasted_visual.start == 4 and pasted_visual.duration == 2
+    assert pasted_visual.source_audio_enabled is False
+    assert pasted_audio.id != original_audio.id
+    assert pasted_audio.track_id == "audio-voice-2"
+    assert pasted_audio.start == 4 and pasted_audio.duration == 2
+    assert pasted_audio.source_in == 1 and pasted_audio.source_out == 3
+    assert pasted_audio.linked_visual_overlay_id == pasted_visual.id
+    assert pasted_audio.asset_id == pasted_visual.asset_id
+
 def test_paste_clips_reject_a_locked_destination_track():
     ir = _composition()
     ir.audio_tracks[1] = ir.audio_tracks[1].model_copy(update={"locked": True})
