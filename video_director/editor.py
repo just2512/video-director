@@ -428,7 +428,8 @@ SUPPORTED_COMMANDS = (
     "rename_audio_track",         # 重命名音轨
     "remove_audio_track",         # 仅允许删除空音轨
     "set_track_locked",            # 音频/画面物理轨道锁定
-    "add_audio_clip",            # 通过音频库加入一条可独立编辑的 SFX 片段
+    "add_audio_clip",            # 兼容旧 SFX 入口
+    "add_audio_asset_clip",       # 把可信音频库中的素材加入任意物理音轨
     "move_audio_clip",           # §17 独立音频片段位置编辑
     "trim_audio_clip",           # §17 独立音频片段源区间裁剪
     "split_audio_clip",           # 在播放头切分单条音频片段，保留连续源区间
@@ -740,6 +741,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_track_locked(ir, target_id, payload)
         elif cmd_name == "add_audio_clip":
             changed, stale = _cmd_add_audio_clip(ir, target_id, payload)
+        elif cmd_name == "add_audio_asset_clip":
+            changed, stale = _cmd_add_audio_asset_clip(ir, target_id, payload)
         elif cmd_name == "move_audio_clip":
             changed, stale = _cmd_move_audio_clip(ir, target_id, payload)
         elif cmd_name == "trim_audio_clip":
@@ -3828,6 +3831,111 @@ def _cmd_add_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tup
     key = f"audio:sfx:{index}"
     return [key], [f"{key}:render", "project:audio:render"]
 
+
+def _cmd_add_audio_asset_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Add a trusted audio-library asset to a chosen physical audio lane.
+
+    AudioTrackType remains the renderer's semantic role; track_id identifies the
+    physical timeline lane. BGM/ambience can loop when source_out is None.
+    """
+    if target_id != "audio-tracks":
+        raise EditorError("INVALID_TARGET", "add_audio_asset_clip 的 targetId 必须是 audio-tracks")
+    asset_id = str(payload.get("assetId") or "").strip()
+    track_id = str(payload.get("trackId") or "").strip()
+    if not asset_id:
+        raise EditorError("INVALID_PAYLOAD", "必须选择音频素材 assetId")
+    lane_index = _audio_lane_index(ir, track_id)
+    _ensure_audio_lane_unlocked(ir, track_id)
+
+    from video_director import audio as vd_audio
+    library = vd_audio.scan_library()
+    asset = library.get(asset_id)
+    if asset is None:
+        raise EditorError("ASSET_NOT_FOUND", f"音频库不存在素材 {asset_id!r}", recoverable=False)
+    if not asset.file or not Path(asset.file).is_file():
+        raise EditorError("ASSET_NOT_FOUND", f"音频文件不可用：{asset_id!r}", recoverable=False)
+    duration_value = getattr(asset, "duration", None)
+    if duration_value is None:
+        try:
+            asset = vd_audio.ensure_audio_duration(asset)
+            duration_value = asset.duration
+        except Exception as exc:
+            raise EditorError("ASSET_PROBE_FAILED", f"无法读取音频时长：{exc}") from exc
+    try:
+        source_duration = float(duration_value)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("ASSET_PROBE_FAILED", "音频素材缺少有效时长") from exc
+    if not math.isfinite(source_duration) or source_duration <= 0:
+        raise EditorError("ASSET_PROBE_FAILED", "音频素材缺少有效时长")
+
+    role = str(payload.get("role") or getattr(asset, "type", "sfx") or "sfx").strip().lower()
+    role = {"ambient": "ambience", "voiceover": "dialogue", "voice": "dialogue"}.get(role, role)
+    if role == "narration":
+        raise EditorError("INVALID_PARAMETER", "TTS 主旁白由 narration 渲染链管理；额外录音请使用 dialogue/对白角色")
+    if role == "original":
+        raise EditorError("INVALID_PARAMETER", "original 用于视频源原声；独立音频文件请选择 dialogue、BGM、SFX 或 ambience")
+    try:
+        clip_type = AudioTrackType(role)
+    except ValueError as exc:
+        raise EditorError("INVALID_PARAMETER", "role 必须是 dialogue、bgm、sfx 或 ambience") from exc
+    if clip_type not in (AudioTrackType.dialogue, AudioTrackType.bgm, AudioTrackType.sfx, AudioTrackType.ambience):
+        raise EditorError("INVALID_PARAMETER", "不支持的独立音频片段角色")
+
+    def number(key: str, default: float, minimum: float, maximum: Optional[float] = None) -> float:
+        raw = payload.get(key, default)
+        if isinstance(raw, bool):
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是有限数字")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise EditorError("INVALID_PARAMETER", f"{key} 必须是有限数字") from exc
+        if not math.isfinite(value) or value < minimum or (maximum is not None and value > maximum):
+            raise EditorError("INVALID_PARAMETER", f"{key} 超出允许范围")
+        return value
+
+    total = float(ir.project.duration)
+    start = _project_frame_time(ir, number("start", 0.0, 0.0))
+    if start >= total:
+        raise EditorError("INVALID_TIMELINE_RANGE", "音频片段起点必须位于项目时间范围内")
+    source_in = number("sourceIn", 0.0, 0.0)
+    looping_role = clip_type in (AudioTrackType.bgm, AudioTrackType.ambience)
+    duration_default = min(source_duration, total - start)
+    duration = _project_frame_time(ir, number("duration", duration_default, 0.05, total - start))
+    if duration < _project_frame_min_duration(ir) - 1e-6:
+        raise EditorError("INVALID_PARAMETER", "音频片段按项目帧率对齐后不足一帧")
+    if start + duration > total + 1e-6:
+        raise EditorError("INVALID_TIMELINE_RANGE", "音频片段不能超出项目总时长")
+    if source_in > source_duration:
+        raise EditorError("INVALID_SOURCE_RANGE", "音频源入点超出素材时长")
+    loop_to_duration = looping_role and abs(source_in) <= 1e-6
+    source_out = None if loop_to_duration else source_in + duration
+    if source_out is not None and source_out > source_duration + 1e-6:
+        raise EditorError("INVALID_SOURCE_RANGE", "音频源区间超出素材时长；背景音乐/环境音可从源起点添加并循环延长")
+    volume = number("volume", 1.0 if clip_type == AudioTrackType.dialogue else 0.6, 0.0, 2.0)
+    fade_in = number("fadeIn", 0.0, 0.0, duration)
+    fade_out = number("fadeOut", 0.0, 0.0, duration)
+
+    if not any(ref.id == asset_id for ref in ir.assets):
+        from video_director.models import AssetRef
+        ir.assets.append(AssetRef(
+            id=asset_id, type="audio", file=f"audio-library://{asset_id}", duration=source_duration,
+            keywords=list(getattr(asset, "keywords", None) or []),
+            source=getattr(asset, "source", "unknown"),
+            license_note=getattr(asset, "license_note", None),
+        ))
+    clip = AudioTrack(
+        type=clip_type, id=f"audio-clip-{uuid.uuid4().hex[:12]}",
+        asset_id=asset_id, track_id=track_id, start=round(start, 6),
+        duration=round(duration, 6), source_in=round(source_in, 6),
+        source_out=None if loop_to_duration else round(float(source_out), 6),
+        volume=volume, fadeIn=fade_in, fadeOut=fade_out, muted=False,
+    )
+    ir.audio.append(clip)
+    index = len(ir.audio) - 1
+    key = f"audio:{clip.type.value}:{index}"
+    return [key, f"audio-track:{ir.audio_tracks[lane_index].id}"], [
+        f"{key}:render", "project:audio:render", "project:audio-tracks", "project:preview",
+    ]
 
 def _cmd_move_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Move an audio clip in time and/or between physical lanes without changing mix role/source."""
