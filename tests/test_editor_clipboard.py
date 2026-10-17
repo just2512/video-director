@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from video_director import audio as vd_audio
 from video_director import editor
 from video_director.models import (
     AssetRef,
@@ -75,6 +76,58 @@ def _composition():
         ],
     )
 
+
+def test_add_audio_asset_clip_can_populate_a_second_voiceover_lane_and_loop_music(tmp_path, monkeypatch):
+    ir = _composition()
+    music_file = tmp_path / "library-music.mp3"
+    music_file.write_bytes(b"fake audio fixture")
+    library_asset = AssetRef(
+        id="library-music", type="bgm", file=str(music_file), duration=4, keywords=["music"]
+    )
+    monkeypatch.setattr(vd_audio, "scan_library", lambda: {library_asset.id: library_asset})
+
+    editor._cmd_add_audio_asset_clip(
+        ir, "audio-tracks",
+        {"assetId": "library-music", "trackId": "audio-voice-2", "role": "dialogue",
+         "start": 2, "duration": 3, "volume": 1.0},
+    )
+    voice = ir.audio[-1]
+    assert voice.type == AudioTrackType.dialogue
+    assert voice.track_id == "audio-voice-2"
+    assert voice.start == 2 and voice.duration == 3
+    assert voice.source_out == 3
+    assert any(asset.id == "library-music" and asset.file == "audio-library://library-music" for asset in ir.assets)
+
+    editor._cmd_add_audio_asset_clip(
+        ir, "audio-tracks",
+        {"assetId": "library-music", "trackId": "audio-main", "role": "bgm",
+         "start": 4, "duration": 6},
+    )
+    looping = ir.audio[-1]
+    assert looping.type == AudioTrackType.bgm
+    assert looping.start == 4 and looping.duration == 6
+    assert looping.source_out is None
+
+
+def test_looped_bgm_right_trim_preserves_looping_and_uses_project_frames():
+    ir = _composition()
+    ir.audio[0] = ir.audio[0].model_copy(update={"source_in": 0, "source_out": None, "duration": 3})
+
+    editor._cmd_trim_audio_clip(
+        ir, "audio#0", {"start": 0, "sourceIn": 0, "duration": 8, "loopToDuration": True}
+    )
+
+    assert ir.audio[0].duration == 8
+    assert ir.audio[0].source_in == 0
+    assert ir.audio[0].source_out is None
+
+
+def test_explicit_audio_trim_cannot_extend_past_source_duration():
+    ir = _composition()
+    with pytest.raises(editor.EditorError, match="超出素材时长"):
+        editor._cmd_trim_audio_clip(
+            ir, "audio#0", {"start": 0, "sourceIn": 0, "sourceOut": 6}
+        )
 
 def test_paste_audio_clip_keeps_media_settings_but_uses_destination_lane_and_time():
     ir = _composition()
@@ -205,8 +258,13 @@ def test_clipboard_frontend_is_loaded_and_uses_shared_command_service():
     index = ROOT / "webui" / "static" / "index.html"
     source = clipboard.read_text(encoding="utf-8")
     html = index.read_text(encoding="utf-8")
+    asset_picker = ROOT / "webui" / "static" / "js" / "audio-track-asset-picker.js"
+    asset_picker_source = asset_picker.read_text(encoding="utf-8")
 
     assert '/static/js/clip-clipboard.js' in html
+    assert '/static/js/audio-track-asset-picker.js' in html
+    assert "add_audio_asset_clip" in asset_picker_source
+    assert "/api/audio_library" in asset_picker_source
     assert "paste_audio_clip" in source and "paste_visual_overlay" in source
     assert "remove_audio_clip" in source and "remove_visual_overlay" in source
     assert "window.executeCommand" in source
