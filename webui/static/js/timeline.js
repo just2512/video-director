@@ -1384,6 +1384,9 @@ function _tlBindAudioClipDrag(){
         sourceOut: track.source_out == null
           ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
           : Number(track.source_out),
+        loopToDuration: track.source_out == null &&
+          ['bgm', 'ambience', 'ambient'].includes(String(track.type || '').toLowerCase()) &&
+          Math.abs(Number(track.source_in) || 0) < 0.000001,
         startTrackId: String(track.track_id || (((el.closest('.ed-track[data-audio-track-id]') || {}).dataset || {}).audioTrackId) || ''),
         baseLeft: Number.parseFloat(el.style.left) || 0,
         baseWidth: Number.parseFloat(el.style.width) || 0,
@@ -1509,15 +1512,26 @@ function _tlBindAudioClipDrag(){
     } else {
       // A right trim may shorten freely, but must not extend beyond the project end.
       const dt = Math.max(-(d.duration - 0.05), Math.min(delta, total - d.start - d.duration));
-      const sourceIn = d.sourceIn;
-      const sourceOut = d.sourceOut + dt;
-      if (sourceOut - sourceIn < 0.05) {
-        editorToast('音频裁剪后不足 0.05 秒，未修改', true);
-        editorRenderTimeline();
-        return;
+      if (d.loopToDuration) {
+        const duration = d.duration + dt;
+        if (duration < 0.05) {
+          editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+          editorRenderTimeline();
+          return;
+        }
+        command = 'trim_audio_clip';
+        payload = {start: round(d.start), sourceIn: 0, duration: round(duration), loopToDuration: true};
+      } else {
+        const sourceIn = d.sourceIn;
+        const sourceOut = d.sourceOut + dt;
+        if (sourceOut - sourceIn < 0.05) {
+          editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+          editorRenderTimeline();
+          return;
+        }
+        command = 'trim_audio_clip';
+        payload = {start: round(d.start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
       }
-      command = 'trim_audio_clip';
-      payload = {start: round(d.start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
     }
     editorToast(command === 'move_audio_clip' ? '正在移动音频片段……' : '正在裁剪音频源区间……');
     executeCommand({command, targetId: 'audio#' + d.index, payload})
