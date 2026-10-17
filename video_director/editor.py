@@ -4093,6 +4093,12 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
             raise EditorError("INVALID_TIMELINE_RANGE", "循环片段不能超出项目总时长")
         source_asset = next((asset for asset in ir.assets if asset.id == track.asset_id), None)
         source_duration = float(getattr(source_asset, "duration", 0.0) or 0.0) if source_asset else 0.0
+        if source_duration > 0:
+            # A loop may wrap its source offset when the user extends the left edge
+            # backwards or trims past the end of one source pass.
+            source_in = source_in % source_duration
+        elif source_in < 0:
+            raise EditorError("INVALID_SOURCE_RANGE", "无法核验循环片段源起点，当前项目未记录素材时长")
         if source_in < 0 or (source_duration > 0 and source_in >= source_duration):
             raise EditorError("INVALID_SOURCE_RANGE", "循环片段的源起点必须落在音频素材时长内")
         ir.audio[index] = track.model_copy(update={
