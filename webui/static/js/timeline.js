@@ -597,8 +597,8 @@ function renderPhysicalTimeline(){
       html += `<div class="ed-track-group ed-group-closed" onclick="tlToggleGroup('${g}')">
         <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span></div>`;
     } else {
-      html += \`<div class="ed-track-group" onclick="tlToggleGroup('\${g}')">
-        <span class="ed-group-caret">▾</span> \${G.label}\` +
+      html += `<div class="ed-track-group" onclick="tlToggleGroup('${g}')">
+        <span class="ed-group-caret">▾</span> ${G.label}` +
         (g === 'picture'
           ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增独立画面轨道（视频/图片/画中画）" onclick="event.stopPropagation(); editorVisualTrackCreate(event)">＋画面轨</button>'
           : (g === 'sound'
