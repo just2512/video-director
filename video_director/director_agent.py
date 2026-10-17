@@ -586,8 +586,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
                             cand["status"] = "NEEDS_HUMAN"
                         warnings.append(f"镜头 {sid} 所有生产路线均失败，标记 NEEDS_HUMAN")
                         continue
-                    if used_gt == "video":
-                        videos.append(fpath)
+                    if used_gt in ("video", "motion"):
+                        videos.append(fpath)  # motion（Huashu 动效）产物是视频
                     else:
                         images.append(fpath)
                     generated_files.append((sid, fpath, used_gt))
@@ -607,9 +607,13 @@ def _tool_material(spec: dict, state: dict) -> dict:
                             n += 1
                         try:
                             from video_director.models import AssetRef as _AR
+                            # motion 产物（Huashu 动效）在 generation manifest 里
+                            # type=video；这里同步归 video，与渲染层契约一致
+                            #（此前判成 image，与 generation.py 落盘类型不一致）。
+                            ref_type = "video" if gt in ("video", "motion") else "image"
                             new_refs[aid] = _AR(
                                 id=aid,
-                                type="video" if gt == "video" else "image",
+                                type=ref_type,
                                 file=str(fpath),
                                 source="generated",
                                 license_note="AI generated in-app",
@@ -633,6 +637,46 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         assignments.pop(sid, None)
                         match_provenance.pop(sid, None)
                         warnings.append(f"镜头 {sid} 的素材引用失效，已清除待重匹配")
+
+                    # 差距 4：生成补位产物过独立视觉审核（provider 分层：
+                    # Twelve Labs → frame-vision（vision 角色，Jerry 已配）→ 跳过）。
+                    # CONFLICT = 画面与场景核心意思冲突——审核拒收，标记 NEEDS_HUMAN，
+                    # 不让「生成成功但答非所问」的画面静默进片（报告二场景 F）。
+                    try:
+                        from video_director import visual_qa as vqa_mod
+                        reviewed = []
+                        for sid, fpath, gt in list(generated_files):
+                            scene_text = next(
+                                (s.get("text", "") for s in state.get("narration_scenes") or []
+                                 if s.get("id") == sid), "")
+                            try:
+                                ev = vqa_mod.frame_vision_visual_qa(sid, scene_text, "gen", fpath)
+                            except Exception as exc:
+                                # 审核不可用 ≠ 审核拒收：诚实记录后放行（不阻塞生成链）
+                                warnings.append(f"视觉审核不可用（{sid}）：{str(exc)[:120]}")
+                                continue
+                            reviewed.append((sid, ev.verdict, ev.evidence))
+                            vqa_mod.save_scene_evidence(state["project_id"], ev)
+                            if ev.verdict == "CONFLICT":
+                                cand2 = next(
+                                    (c for c in (candidate_sets_by_scene.get(sid) or [])
+                                     if isinstance(c, dict) and c.get("id") == selected_candidate_by_scene.get(sid)),
+                                    None)
+                                if isinstance(cand2, dict):
+                                    cand2["status"] = "NEEDS_HUMAN"
+                                aid_bad = assignments.pop(sid, None)
+                                if aid_bad:
+                                    all_assets.pop(aid_bad, None)
+                                    if aid_bad in order:
+                                        order.remove(aid_bad)
+                                generated_files = [g for g in generated_files if g[0] != sid]
+                                warnings.append(
+                                    f"视觉审核拒收（{sid}/CONFLICT）：{ev.evidence[:80]}——已移除生成画面，标记 NEEDS_HUMAN")
+                        if reviewed:
+                            logger.info(f"visual_qa: 审核 {len(reviewed)} 个生成补位画面: "
+                                        + ", ".join(f"{s}={v}" for s, v, _ in reviewed))
+                    except Exception as exc:
+                        warnings.append(f"视觉审核链路异常（不阻塞生成）: {str(exc)[:120]}")
             except Exception as exc:
                 warnings.append("生成补位链路失败：" + str(exc))
 

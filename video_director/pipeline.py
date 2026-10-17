@@ -268,6 +268,34 @@ def _inject_transitions(ir: CompositionIR, budget: int) -> None:
     logger.info(f"转场注入：{len(picks)} 处 crossfade 溶解")
 
 
+def _apply_scale_hints(ir: CompositionIR, narration_scenes: List[dict]) -> int:
+    """差距 6：把 NL 编辑产出的 scale_hint（如「把产品放大一点」）落到图层 transform。
+
+    narration_scenes 与 ir.scenes 同序（同一 scene 计划），scale_hint 由
+    apply_storyboard_edits 从用户 NL 编辑解析写入。图层已有 transform 时在其上
+    改 scale；没有则按场景主图层新建 Transform(scale=hint)。
+    返回应用了缩放的场景数（0 = 无提示，静默跳过）。
+    """
+    from video_director.visual_semantics import Transform
+    applied = 0
+    for i, sc_meta in enumerate(narration_scenes or []):
+        hint = float((sc_meta or {}).get("scale_hint") or 0)
+        if not hint or hint == 1.0 or i >= len(ir.scenes):
+            continue
+        scene = ir.scenes[i]
+        if not scene.layers:
+            continue
+        layer = scene.layers[0]  # 主图层（背景/主体）承载用户缩放意图
+        if layer.transform is not None:
+            layer.transform = layer.transform.model_copy(update={"scale": hint})
+        else:
+            layer.transform = Transform(scale=hint)
+        applied += 1
+    if applied:
+        logger.info(f"scale_hint 应用：{applied} 个场景图层缩放已按用户编辑调整")
+    return applied
+
+
 class PipelineError(Exception):
     pass
 
@@ -454,6 +482,9 @@ def compose_project(
     effect_transition_budget = int(transition_budget or 0)
     if transition_mode in ("crossfade", "fade") and effect_transition_budget > 0:
         _inject_transitions(ir, effect_transition_budget)
+
+    # 差距 6：NL 编辑的 scale_hint（「把产品放大一点」）落到图层 transform
+    _apply_scale_hints(ir, narration_scenes or [])
 
     # 4. 音频计划（BGM/SFX 一等公民，V2 §30）
     narration_duration = scenes[-1]["start"] + scenes[-1]["duration"]

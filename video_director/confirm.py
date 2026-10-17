@@ -263,6 +263,25 @@ def apply_storyboard_edits(sb: dict, edits: dict) -> dict:
             continue
         if "text" in edit and edit["text"]:
             sc["text"] = str(edit["text"])
+        # 数值类编辑（差距 6）：scale（画面缩放）与 duration_delta（时长增减）。
+        # 分镜书记录用户意图；真正的 IR 缩放/时长重算在 resume_after_confirm。
+        if "scale" in edit and edit["scale"]:
+            try:
+                sc["scale_hint"] = round(min(max(float(edit["scale"]), 0.2), 3.0), 3)
+            except (TypeError, ValueError):
+                pass
+        if "duration_delta" in edit and edit["duration_delta"]:
+            try:
+                delta = float(edit["duration_delta"])
+                cur = float(sc.get("duration") or 0.0)
+                new_dur = min(max(cur + delta, 0.3), 60.0)
+                sc["duration"] = round(new_dur, 3)
+                for a in sc.get("assets_used", []):
+                    if a.get("duration"):
+                        a["duration"] = round(
+                            max(a["duration"] + delta, 0.3), 3)
+            except (TypeError, ValueError):
+                pass
         if "asset" in edit and edit["asset"]:
             new_aid = str(edit["asset"])
             # 在 assets_used 中找已存在条目替换，否则追加
@@ -454,6 +473,35 @@ def parse_edit_instruction(instruction: str, storyboard: dict) -> dict:
         idx = _resolve_scene_index(text, n)
         if idx is not None:
             return {ids[idx]: {"text": m.group(1).strip()}}
+
+    # 数值类编辑（差距 6：报告二点名「把产品放大一点」类指令）：
+    #   放大/缩小 [N倍] / 加长/延长 N秒 / 缩短 N秒
+    # 两步解析：先用动作词定性+取倍数，再用 _resolve_scene_index 定位场景——
+    # 避免「第2段的产品放大一点」这类中间插词把单一正则搞炸。
+    _ZOOM_M = re.search(r"(放大|缩小|放大一点|缩小一点)"
+                        r"(?:\s*([0-9.]+|一|二|两|三|四|五)\s*倍)?", text)
+    if _ZOOM_M:
+        idx = _resolve_scene_index(text, n)
+        if idx is not None:
+            word, factor = _ZOOM_M.group(1), _ZOOM_M.group(2)
+            if word.startswith("缩"):
+                scale = 1.0 / (float(factor) if factor and "." in factor
+                               else _CN_NUM.get(factor, 1.25) if factor else 1.25)
+            else:
+                scale = (float(factor) if factor and "." in factor
+                         else _CN_NUM.get(factor, 1.25) if factor else 1.25)
+            return {ids[idx]: {"scale": round(min(max(scale, 0.2), 3.0), 3)}}
+
+    m = re.search(r"(?:加长|延长|多放)\s*([0-9.]+)\s*秒", text)
+    if m:
+        idx = _resolve_scene_index(text, n)
+        if idx is not None:
+            return {ids[idx]: {"duration_delta": float(m.group(1))}}
+    m = re.search(r"(?:缩短|减短|减去)\s*([0-9.]+)\s*秒", text)
+    if m:
+        idx = _resolve_scene_index(text, n)
+        if idx is not None:
+            return {ids[idx]: {"duration_delta": -float(m.group(1))}}
 
     return {}
 
