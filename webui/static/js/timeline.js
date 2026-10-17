@@ -1505,7 +1505,7 @@ function _tlBindAudioClipDrag(){
     } else if (d.mode === 'trim-left') {
       if (d.loopToDuration) {
         // A looped BGM has no finite source-out: trimming the left edge moves
-        // the timeline start and adjusts duration while keeping source_in=0.
+        // the timeline start and adjusts duration while preserving the loop's source offset.
         const dt = Math.max(-d.start, Math.min(delta, d.duration - 0.05));
         const start = d.start + dt;
         const duration = d.duration - dt;
