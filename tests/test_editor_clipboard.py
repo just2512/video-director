@@ -389,3 +389,8 @@ def test_clipboard_frontend_is_loaded_and_uses_shared_command_service():
     assert "window.executeCommand" in source
     assert "Ctrl+V" in source
     assert "editor:timeline-rendered" in source
+    # Main scene video/image bars are copyable; paste materializes them as
+    # editable full-frame clips on the unified free visual-track command path.
+    assert ".ed-layer[data-scene][data-idx]" in source
+    assert "presentation_mode: 'full_frame'" in source
+    assert "paste_visual_overlay" in source
