@@ -104,6 +104,10 @@ UI_ONLY_PREFIXES = (
     "inboxToggle(", "inboxToggleAll(", "inboxBulkAction(", "inboxBulkDeleteSelected(", "inboxBulkDismissSelected(",
     "taskToggleSelected(", "taskToggleAllTerminal(", "taskBulkCleanup(",
     "edLibToggleAsset(", "edLibToggleUnusedAll(", "edLibBulkDeleteAssets(",
+    # 素材语义编辑（/api/asset_semantics 写入链）
+    "edLibSemanticsForm(", "edLibSaveSemantics(", "edLibLoad(",
+    # 任务中心失败重试（PR #94 director.retry 链）
+    "taskRetryDirector(",
     # FAILED 项目失败查看（项目页就地 modal，不进编辑器）
     "pmShowFailure(",
     "event.stopPropagation()",

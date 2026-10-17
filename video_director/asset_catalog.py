@@ -131,6 +131,31 @@ def find_by_hash(file_path: str) -> Optional[dict]:
     return None
 
 
+def find_by_path(file_path: str) -> Optional[dict]:
+    """按文件绝对路径查 Library 条目。
+
+    上传素材入库时 `file` 就是这个绝对路径（文件名 stem 又是 asset_id），
+    因此这是「项目里那个文件 → Library 条目」最直接的键。语义（description/
+    tags）只登记在 Library，素材清单必须靠它回落，否则上传素材永远是「无描述」。
+    """
+    if not file_path:
+        return None
+    try:
+        target = os.path.normcase(str(Path(file_path).resolve()))
+    except OSError:
+        return None
+    for a in _load_catalog().values():
+        stored = a.get("file") or ""
+        if not stored:
+            continue
+        try:
+            if os.path.normcase(str(Path(stored).resolve())) == target:
+                return a
+        except OSError:
+            continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # §26 上传链：安检 → probe → 缩略图 → hash → Metadata → Library
 # ---------------------------------------------------------------------------
@@ -325,6 +350,29 @@ def make_thumbnail(asset_id: str, src_file: Optional[str] = None,
 
 def get_asset(asset_id: str) -> Optional[dict]:
     return _load_catalog().get(asset_id)
+
+
+def update_asset_semantics(asset_id: str, description: Optional[str] = None,
+                           tags: Optional[List[str]] = None) -> dict:
+    """写入素材语义（§25 description/tags）。
+
+    只改语义字段：file / source / 权利 / content_hash 一律不动——语义是人对
+    画面的判断，不能顺手把溯源信息一起覆盖掉。None 表示「该字段不修改」；
+    传空字符串或空列表表示显式清空。写入后素材清单与 LLM 匹配立即可用。
+    """
+    catalog = _load_catalog()
+    entry = catalog.get(asset_id)
+    if entry is None:
+        raise AssetLibraryError("ASSET_NOT_FOUND", f"素材不存在：{asset_id}")
+    if description is not None:
+        entry["description"] = str(description).strip()
+    if tags is not None:
+        entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
+    entry["semantics_updated_at"] = time.time()
+    catalog[asset_id] = entry
+    _save_catalog(catalog)
+    logger.info(f"asset_library: 语义更新 {asset_id}")
+    return entry
 
 
 def list_assets(kind: Optional[str] = None, source: Optional[str] = None,

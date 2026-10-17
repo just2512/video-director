@@ -624,8 +624,13 @@ def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> di
     from video_director import narration as narration_mod
     voice_rate = narration_mod.normalize_rate(spec.get("voice_rate", "+0%"))
 
-    # sfx 选择归一（'auto' → None 走默认；'' → [] 关闭；具体 id → 铺底）
+    # sfx 选择归一（'auto' → None 走默认；'' → [] 关闭；具体 id → 铺底；
+    # 'openverse-auto' = auto + 自动搜索 Openverse，不是 asset_id，不能当铺底值）
     sfx_choice = spec.get("sfx", spec.get("sfx_choice", "auto"))
+    auto_sfx_search = bool(spec.get("auto_sfx_search", False))
+    if sfx_choice == "openverse-auto":
+        auto_sfx_search = True
+        sfx_choice = "auto"
     sfx_plan = spec.get("sfx_plan")
     if sfx_plan is None:
         if sfx_choice == "":
@@ -688,6 +693,7 @@ def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> di
                 style_intent=spec.get("style_intent"),
                 bgm_asset_id=spec.get("bgm") or spec.get("bgm_asset_id"),
                 sfx_plan=sfx_plan,
+                auto_sfx_search=auto_sfx_search,
                 bgm_volume=spec.get("bgm_volume"),
                 narration_volume=float(spec.get("narration_volume", 1.0) or 1.0),
                 width=spec.get("width", 1080), height=spec.get("height", 1920),

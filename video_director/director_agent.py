@@ -392,6 +392,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
     visual_source = state.get("constraints", {}).get("visual_source") or "auto"
     assignments = {}
     policy_decisions: List[dict] = []
+    # 逐场景记录分配实际由哪种机制产生（llm/deterministic/sequential/policy）。
+    # 必须如实报给用户：顺序兜底是「按素材顺序硬排」，不能写成「语义匹配」。
+    match_provenance: Dict[str, str] = {}
     match_enabled = bool(spec.get("match_materials_to_script", True))
 
     # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
@@ -467,6 +470,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 state["narration_scenes"], all_assets, llm_call,
                 policy_by_scene=source_policy_by_scene,
                 policy_decisions_out=policy_decisions,
+                provenance_out=match_provenance,
             ) or {}
         except Exception as exc:
             warnings.append("本地素材匹配失败：" + str(exc))
@@ -516,11 +520,165 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     state["narration_scenes"], all_assets, llm_call,
                     policy_by_scene=source_policy_by_scene,
                     policy_decisions_out=policy_decisions,
+                    provenance_out=match_provenance,
                 )
                 if match_enabled and visual_source != "online" else {}
             )
         except Exception as exc:
             warnings.append("网络素材补足失败：" + str(exc))
+
+    # 差距 1 + 2（仓库审计）：stock 补足后仍 missing 的场景，若分镜选中了
+    # generated 候选（generation_type ∈ image/video/graphic/motion），按兜底链
+    # 逐级尝试生成画面补位——复用现有生成链，不新建 Agent。
+    # 差距 2：首选路线失败按顺序降级（视频→图片运动→代码画面）；全失败标记
+    # NEEDS_HUMAN（诚实，不伪装成功、不静默整片失败）。
+    _GEN_FALLBACK = {
+        "video": ("video", "image", "graphic"),
+        "image": ("image", "graphic"),
+        "graphic": ("graphic",),
+        "motion": ("motion", "graphic"),
+    }
+    if missing and match_enabled:
+        _gen_missing = [m for m in missing if m not in assignments]
+        if _gen_missing:
+            try:
+                from video_director import generation as gen_mod
+                gen_rw = int(spec.get("width") or config.DEFAULT_RESOLUTION[0])
+                gen_rh = int(spec.get("height") or config.DEFAULT_RESOLUTION[1])
+                generated_files = []
+                for sid in _gen_missing:
+                    sel_id = selected_candidate_by_scene.get(sid, "")
+                    cand = next(
+                        (c for c in (candidate_sets_by_scene.get(sid) or [])
+                         if isinstance(c, dict) and c.get("id") == sel_id),
+                        None,
+                    )
+                    gt = (cand or {}).get("generation_type") or ""
+                    # 变量名不得用 order：外层 order 是 asset_order（List[str]），
+                    # 遮蔽后 state["asset_order"] 会拿到 None/tuple → planner
+                    # TypeError 整片崩（对抗审查 CRITICAL 1，已实测复现）。
+                    fallback_chain = _GEN_FALLBACK.get(gt)
+                    if not fallback_chain:
+                        continue
+                    prompt = str((cand or {}).get("generation_prompt")
+                                 or next((s["text"] for s in state["narration_scenes"]
+                                          if s.get("id") == sid), ""))
+                    res = None
+                    used_gt = None
+                    for try_gt in fallback_chain:
+                        try:
+                            results = gen_mod.generate(
+                                state["project_id"], prompt, try_gt,
+                                width=gen_rw, height=gen_rh, variant="A",
+                            )
+                        except Exception as exc:
+                            warnings.append(f"生成路线 {try_gt} 失败（{sid}）：{exc}")
+                            continue
+                        res = results[0] if results else None
+                        fpath = getattr(res, "file", "",) if res else ""
+                        if fpath and Path(fpath).is_file():
+                            used_gt = try_gt
+                            break
+                        warnings.append(f"生成路线 {try_gt} 无产物（{sid}）")
+                    if not used_gt:
+                        # 兜底链走尽仍失败 → NEEDS_HUMAN（诚实暴露缺项，不伪装成功）
+                        if isinstance(cand, dict):
+                            cand["status"] = "NEEDS_HUMAN"
+                        warnings.append(f"镜头 {sid} 所有生产路线均失败，标记 NEEDS_HUMAN")
+                        continue
+                    if used_gt in ("video", "motion"):
+                        videos.append(fpath)  # motion（Huashu 动效）产物是视频
+                    else:
+                        images.append(fpath)
+                    generated_files.append((sid, fpath, used_gt))
+                if generated_files:
+                    # 只把生成物**追加**进现有素材表，不整体重建——整体重建会让
+                    # build_manifest 重新编号，既有 assignments 变幽灵 id，静默毁掉
+                    # 已匹配结果（对抗审查 CRITICAL 2）。生成物 id 唯一化后追加。
+                    existing_files = {str(ref.file) for ref in all_assets.values()}
+                    new_refs: Dict[str, AssetRef] = {}
+                    for sid, fpath, gt in generated_files:
+                        if str(fpath) in existing_files:
+                            continue  # 幂等：已登记过
+                        aid = f"gen-{sid.lower()}-{gt}"
+                        n = 2
+                        while aid in all_assets:
+                            aid = f"{aid}-{n}"
+                            n += 1
+                        try:
+                            from video_director.models import AssetRef as _AR
+                            # motion 产物（Huashu 动效）在 generation manifest 里
+                            # type=video；这里同步归 video，与渲染层契约一致
+                            #（此前判成 image，与 generation.py 落盘类型不一致）。
+                            ref_type = "video" if gt in ("video", "motion") else "image"
+                            new_refs[aid] = _AR(
+                                id=aid,
+                                type=ref_type,
+                                file=str(fpath),
+                                source="generated",
+                                license_note="AI generated in-app",
+                                rights_status="CLEAR",
+                            )
+                        except Exception as exc:
+                            warnings.append(f"生成物登记失败（{sid}）：{exc}")
+                    if new_refs:
+                        all_assets = {**all_assets, **new_refs}
+                        order = order + [aid for aid in new_refs]
+                        for sid, fpath, gt in generated_files:
+                            aid = next((a for a, ref in new_refs.items()
+                                        if str(ref.file) == str(fpath)), None)
+                            if aid:
+                                assignments[sid] = aid
+                                match_provenance[sid] = "generated"
+                                warnings.append(f"生成补位（{sid}/{gt}）→ {aid}")
+                    # 校验既有 assignments 仍然有效（防止任何路径产生幽灵 id）
+                    ghost = [sid for sid, aid in assignments.items() if aid not in all_assets]
+                    for sid in ghost:
+                        assignments.pop(sid, None)
+                        match_provenance.pop(sid, None)
+                        warnings.append(f"镜头 {sid} 的素材引用失效，已清除待重匹配")
+
+                    # 差距 4：生成补位产物过独立视觉审核（provider 分层：
+                    # Twelve Labs → frame-vision（vision 角色，Jerry 已配）→ 跳过）。
+                    # CONFLICT = 画面与场景核心意思冲突——审核拒收，标记 NEEDS_HUMAN，
+                    # 不让「生成成功但答非所问」的画面静默进片（报告二场景 F）。
+                    try:
+                        from video_director import visual_qa as vqa_mod
+                        reviewed = []
+                        for sid, fpath, gt in list(generated_files):
+                            scene_text = next(
+                                (s.get("text", "") for s in state.get("narration_scenes") or []
+                                 if s.get("id") == sid), "")
+                            try:
+                                ev = vqa_mod.frame_vision_visual_qa(sid, scene_text, "gen", fpath)
+                            except Exception as exc:
+                                # 审核不可用 ≠ 审核拒收：诚实记录后放行（不阻塞生成链）
+                                warnings.append(f"视觉审核不可用（{sid}）：{str(exc)[:120]}")
+                                continue
+                            reviewed.append((sid, ev.verdict, ev.evidence))
+                            vqa_mod.save_scene_evidence(state["project_id"], ev)
+                            if ev.verdict == "CONFLICT":
+                                cand2 = next(
+                                    (c for c in (candidate_sets_by_scene.get(sid) or [])
+                                     if isinstance(c, dict) and c.get("id") == selected_candidate_by_scene.get(sid)),
+                                    None)
+                                if isinstance(cand2, dict):
+                                    cand2["status"] = "NEEDS_HUMAN"
+                                aid_bad = assignments.pop(sid, None)
+                                if aid_bad:
+                                    all_assets.pop(aid_bad, None)
+                                    if aid_bad in order:
+                                        order.remove(aid_bad)
+                                generated_files = [g for g in generated_files if g[0] != sid]
+                                warnings.append(
+                                    f"视觉审核拒收（{sid}/CONFLICT）：{ev.evidence[:80]}——已移除生成画面，标记 NEEDS_HUMAN")
+                        if reviewed:
+                            logger.info(f"visual_qa: 审核 {len(reviewed)} 个生成补位画面: "
+                                        + ", ".join(f"{s}={v}" for s, v, _ in reviewed))
+                    except Exception as exc:
+                        warnings.append(f"视觉审核链路异常（不阻塞生成）: {str(exc)[:120]}")
+            except Exception as exc:
+                warnings.append("生成补位链路失败：" + str(exc))
 
     if not all_assets:
         return {
@@ -562,10 +720,24 @@ def _tool_material(spec: dict, state: dict) -> dict:
         for i, row in enumerate(scene_plan_items)
         if isinstance(row, dict)
     }
-    selection_reasons = {
-        sid: "场景语义匹配：结合场景文案、素材语义与素材可用性选择"
-        for sid in assignments
+    # 匹配来源必须诚实：顺序兜底不是语义匹配。把 match_assets 逐场景记录的
+    # 实际机制翻译成用户可读、且不会误导的说明；再叠加政策调整的说明。
+    _REASON_BY_SOURCE = {
+        "llm": "LLM 语义匹配：场景文案与素材语义由大模型对齐",
+        "deterministic": "关键词重合：场景文案与素材描述/标签有词面重合",
+        "policy": "来源与复用政策调整：在语义匹配结果上按连续来源与复用边界重排",
+        "sequential": "顺序兜底：无可用语义，按素材顺序分配（非语义匹配）",
     }
+    selection_reasons = {}
+    for sid in assignments:
+        src = match_provenance.get(sid) or "sequential"
+        reason_text = _REASON_BY_SOURCE.get(src, _REASON_BY_SOURCE["sequential"])
+        note = policy_decisions and any(
+            isinstance(d, dict) and d.get("scene_id") == sid for d in policy_decisions
+        )
+        selection_reasons[sid] = (
+            reason_text + "；并依据来源/复用政策调整" if note and src != "policy" else reason_text
+        )
     intent_data = mpt_semantics.material_intent_snapshot(
         state.get("narration_scenes") or [],
         search_terms_by_scene={
@@ -797,7 +969,10 @@ def _tool_composition(spec: dict, state: dict) -> dict:
     if spec.get("sfx_plan"):
         lib = audio.scan_library()
         for ev in audio.normalize_sfx_events(spec.get("sfx_plan") or []):
-            aid = ev.get("asset_id") or audio.resolve_action_sfx(ev, lib)
+            aid = ev.get("asset_id") or audio.resolve_action_sfx(
+                ev, lib,
+                auto_search_openverse=bool(spec.get("auto_sfx_search", False)),
+            )
             if not aid:
                 continue
             audio_assets[aid] = lib[aid]

@@ -268,6 +268,34 @@ def _inject_transitions(ir: CompositionIR, budget: int) -> None:
     logger.info(f"转场注入：{len(picks)} 处 crossfade 溶解")
 
 
+def _apply_scale_hints(ir: CompositionIR, narration_scenes: List[dict]) -> int:
+    """差距 6：把 NL 编辑产出的 scale_hint（如「把产品放大一点」）落到图层 transform。
+
+    narration_scenes 与 ir.scenes 同序（同一 scene 计划），scale_hint 由
+    apply_storyboard_edits 从用户 NL 编辑解析写入。图层已有 transform 时在其上
+    改 scale；没有则按场景主图层新建 Transform(scale=hint)。
+    返回应用了缩放的场景数（0 = 无提示，静默跳过）。
+    """
+    from video_director.visual_semantics import Transform
+    applied = 0
+    for i, sc_meta in enumerate(narration_scenes or []):
+        hint = float((sc_meta or {}).get("scale_hint") or 0)
+        if not hint or hint == 1.0 or i >= len(ir.scenes):
+            continue
+        scene = ir.scenes[i]
+        if not scene.layers:
+            continue
+        layer = scene.layers[0]  # 主图层（背景/主体）承载用户缩放意图
+        if layer.transform is not None:
+            layer.transform = layer.transform.model_copy(update={"scale": hint})
+        else:
+            layer.transform = Transform(scale=hint)
+        applied += 1
+    if applied:
+        logger.info(f"scale_hint 应用：{applied} 个场景图层缩放已按用户编辑调整")
+    return applied
+
+
 class PipelineError(Exception):
     pass
 
@@ -355,6 +383,7 @@ def compose_project(
     bgm_asset_id: Optional[str] = None,
     bgm_volume: float = None,
     sfx_plan: Optional[List[dict]] = None,
+    auto_sfx_search: bool = False,
     subtitle_entries: Optional[List[dict]] = None,
     subtitle_file: Optional[str] = None,
     title: Optional[str] = None,
@@ -454,6 +483,9 @@ def compose_project(
     if transition_mode in ("crossfade", "fade") and effect_transition_budget > 0:
         _inject_transitions(ir, effect_transition_budget)
 
+    # 差距 6：NL 编辑的 scale_hint（「把产品放大一点」）落到图层 transform
+    _apply_scale_hints(ir, narration_scenes or [])
+
     # 4. 音频计划（BGM/SFX 一等公民，V2 §30）
     narration_duration = scenes[-1]["start"] + scenes[-1]["duration"]
     audio_assets: Dict[str, AssetRef] = {}
@@ -484,17 +516,54 @@ def compose_project(
         # guizang audio-cues：SFX 绑定动作发生点（action_id 驱动语义选择），
         # 旧格式 {start, tags/asset_id} 向后兼容
         for ev in audio_mod.normalize_sfx_events(sfx_plan):
-            aid = ev.get("asset_id") or audio_mod.resolve_action_sfx(ev, lib) or (
+            aid = ev.get("asset_id") or audio_mod.resolve_action_sfx(
+                ev, lib, auto_search_openverse=auto_sfx_search,
+            ) or (
                 audio_mod.resolve({"type": "sfx", "tags": ev.get("tags") or []}, lib)
             )
             if aid is None:
                 reason = ev.get("action_id") or ev.get("tags") or "?"
                 warnings.append(f"NO_SFX: 无匹配音效（action={reason}），跳过（不随机替代）")
                 continue
-            audio_assets[aid] = lib[aid]
+            audio_assets[aid] = lib.get(aid) or audio_mod.scan_library().get(aid)
             audio_tracks.append(audio_mod.build_sfx_track(
                 aid, ev["at"], ev.get("duration", 0.7), ev.get("volume"),
             ))
+    elif auto_sfx_search and narration_scenes:
+        # 「自动搜索匹配音效」：没有显式 sfx_plan 时按场景切点自动配音效——
+        # 每个转场点一个 whoosh（guizang audio-cues：音效绑动作发生点）。
+        # 本地库缺该类别 → resolve_action_sfx 内部去 Openverse（freesound CC0）搜配。
+        # 缓存 + 总时限：同一类别只搜一次（50 场景不会 50 次 HTTP）；
+        # 整段 Openverse 工作限时 60s，超时诚实降级——渲染主流程不被网络拖死
+        # （对抗审查 HIGH 4）。
+        import time as _time
+        _sfx_deadline = _time.monotonic() + 60.0
+        lib = audio_mod.scan_library()
+        _aid_by_action = {}
+        _sfx_degraded = False
+        for i, sc in enumerate(narration_scenes):
+            if i == 0:
+                continue  # 第一个镜头没有切入，不需要转场音
+            ev = {"at": float(sc.get("start") or 0.0), "action_id": "transition"}
+            if "transition" in _aid_by_action:
+                aid = _aid_by_action["transition"]
+            elif _time.monotonic() > _sfx_deadline:
+                aid = audio_mod.resolve_action_sfx(ev, lib)  # 只查本地，不碰网络
+            else:
+                aid = audio_mod.resolve_action_sfx(
+                    ev, lib, auto_search_openverse=True)
+                if aid is not None:
+                    _aid_by_action["transition"] = aid  # 成功一次即缓存
+            if aid is None:
+                warnings.append("NO_SFX: 转场音效搜索未命中（Openverse 不可达或无 CC0 结果）")
+                _sfx_degraded = True
+                break  # 同类别连续失败没有意义，一次降级即可
+            if aid not in lib:
+                lib = audio_mod.scan_library()  # Openverse 刚入库，重扫
+            audio_assets[aid] = lib[aid]
+            audio_tracks.append(audio_mod.build_sfx_track(aid, ev["at"], 0.7))
+        if _sfx_degraded:
+            logger.warning("SFX 自动搜索降级：后续渲染仅用已命中的音效")
 
     ir.audio = audio_tracks
     render_assets = audio_mod.append_audio_assets(asset_map, audio_assets)
@@ -859,8 +928,23 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile:
         storyboard = confirm_mod.apply_storyboard_edits(storyboard, effective_edits)
         confirm_mod.save_storyboard(storyboard, storyboard_path)
 
-    # 标记确认通过 → RENDERING
+    # 标记确认通过 → RENDERING（先转状态再闸门：BLOCKED 阻止只挡最终渲染，
+    # 不把项目卡死在 AWAITING_CONFIRM——用户替换素材后可以直接重试）
     store.confirm_project(project_id, approved=True, edits=effective_edits or None)
+
+    # 差距 7：正式渲染前的版权放行闸门——BLOCKED 硬阻止，UNKNOWN/REVIEW 警告。
+    release = confirm_mod.commercial_release_gate(project_id)
+    if release.get("blocked"):
+        raise PipelineError(
+            "商业发布被阻止：以下素材授权状态为 BLOCKED，禁止商用——"
+            + ", ".join(release["blocked"])
+            + "。请在素材库删除或替换这些素材后重新确认渲染。"
+        )
+    if release.get("unknown"):
+        logger.warning(
+            f"版权提示：{len(release['unknown'])} 个素材授权状态待核实（UNKNOWN/REVIEW），"
+            f"已放行但请人工确认，素材：{', '.join(release['unknown'][:20])}"
+        )
 
     # 重新规划（若有 edits）：
     # - 若 edits 改了 assignments（asset 字段），构造新 ContentMatchPlanner
@@ -1016,6 +1100,7 @@ def compose_auto(
     bgm_asset_id: Optional[str] = None,
     bgm_volume: float = None,
     sfx_plan: Optional[List[dict]] = None,
+    auto_sfx_search: bool = False,
     width: int = None,
     height: int = None,
     fps: int = None,
@@ -1326,6 +1411,7 @@ def compose_auto(
             bgm_asset_id=bgm_asset_id,
             bgm_volume=bgm_volume,
             sfx_plan=sfx_plan,
+            auto_sfx_search=auto_sfx_search,
             doctor_results=doctor_results,
             video_files=video_files,
             image_files=image_files,
@@ -1345,6 +1431,7 @@ def compose_auto(
         bgm_asset_id=bgm_asset_id,
         bgm_volume=(bgm_volume if bgm_volume is not None else style_contract.bgm_volume),
         sfx_plan=sfx_plan,
+        auto_sfx_search=auto_sfx_search,
         subtitle_entries=sub_entries,
         subtitle_file=str(sub_file),
         title=title,

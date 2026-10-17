@@ -10,6 +10,13 @@
     creative-os watch [--project <id>]
     creative-os capabilities list
     creative-os capabilities describe watermark.add
+    creative-os actions --project <id> [--selection '{...}']
+    creative-os action --project <id> --action asset.search --json '{...}'
+    creative-os director-create --input director-request.json
+    creative-os director-status --run-id <run-id>
+    creative-os director-reference --video ./reference.mp4 [--no-llm]
+    creative-os director-retry --project <project-id>
+    creative-os director-continue --project <project-id> --target preview|video
 
 Gate（§31.3）：CLI execute 与 UI execute 产生同样的 Revision / Composition
 ——因为两者都走 capability_gateway → tool_executor → editor.execute_command。
@@ -20,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from video_director.agent_gateway import GatewayError, dispatch
 from video_director.capability_registry import describe_capability, list_capabilities
@@ -62,6 +70,36 @@ def main(argv=None) -> int:
     p_watch = sub.add_parser("watch", help="项目状态快照（长连接走 webui SSE）")
     p_watch.add_argument("--project", default="")
 
+    p_actions = sub.add_parser("actions", help="列出项目可用的 Action Registry 动作")
+    p_actions.add_argument("--project", required=True)
+    p_actions.add_argument("--selection", default=None, help="可选目标 selection JSON 对象")
+
+    p_action = sub.add_parser("action", help="执行 Action Registry 中的用户语义动作")
+    p_action.add_argument("--project", required=True)
+    p_action.add_argument("--action", dest="action_id", required=True, help="例如 creative.select_candidate、asset.search、generate.image")
+    p_action.add_argument("--target", default="current_selection")
+    p_action.add_argument("--json", dest="params_json", default="{}", help="动作参数 JSON 对象")
+    p_action.add_argument("--selection", default=None, help="目标 selection JSON 对象")
+
+    p_dreference = sub.add_parser("director-reference", help="分析本地参考视频并返回可复用的参考输入")
+    p_dreference.add_argument("--video", dest="video_path", required=True)
+    p_dreference.add_argument("--no-llm", action="store_true", help="仅使用确定性分析，不调用已配置的 LLM")
+
+    p_dcreate = sub.add_parser("director-create", help="通过共享 Director 服务创建混合输入任务")
+    create_input = p_dcreate.add_mutually_exclusive_group(required=True)
+    create_input.add_argument("--input", dest="input_path", help="JSON 请求文件路径")
+    create_input.add_argument("--json", dest="payload_json", help="JSON 请求对象字符串")
+
+    p_dstatus = sub.add_parser("director-status", help="读取持久化 Director 任务状态")
+    p_dstatus.add_argument("--run-id", required=True)
+
+    p_dretry = sub.add_parser("director-retry", help="重试失败的 Director 项目")
+    p_dretry.add_argument("--project", required=True)
+
+    p_dcontinue = sub.add_parser("director-continue", help="从保存的 Director 检查点继续")
+    p_dcontinue.add_argument("--project", required=True)
+    p_dcontinue.add_argument("--target", choices=["preview", "video"], default="preview")
+
     p_caps = sub.add_parser("capabilities", help="能力清单")
     p_caps.add_argument("action", choices=["list", "describe"])
     p_caps.add_argument("name", nargs="?", default="", help="describe 用的 capability id")
@@ -72,6 +110,72 @@ def main(argv=None) -> int:
         return 2
 
     try:
+        if args.verb == "actions":
+            try:
+                selection = json.loads(args.selection) if args.selection else None
+                if selection is not None and not isinstance(selection, dict):
+                    raise ValueError("--selection 必须是 JSON 对象")
+            except json.JSONDecodeError as exc:
+                _print({"ok": False, "code": "INVALID_JSON", "error": str(exc)})
+                return 2
+            except ValueError as exc:
+                _print({"ok": False, "code": "INVALID_INPUT", "error": str(exc)})
+                return 2
+            result = dispatch("creative.actions.list", project_id=args.project,
+                              selection=selection)
+            _print(result)
+            return 0 if result.get("ok") else 1
+
+        if args.verb == "action":
+            try:
+                params = json.loads(args.params_json or "{}")
+                selection = json.loads(args.selection) if args.selection else None
+                if not isinstance(params, dict) or (selection is not None and not isinstance(selection, dict)):
+                    raise ValueError("--json 和 --selection 必须是 JSON 对象")
+            except json.JSONDecodeError as exc:
+                _print({"ok": False, "code": "INVALID_JSON", "error": str(exc)})
+                return 2
+            except ValueError as exc:
+                _print({"ok": False, "code": "INVALID_INPUT", "error": str(exc)})
+                return 2
+            result = dispatch("creative.action", project_id=args.project,
+                              action=args.action_id, target=args.target,
+                              params=params, selection=selection)
+            _print(result)
+            return 0 if result.get("ok") else 1
+
+        if args.verb in {"director-create", "director-reference", "director-status", "director-retry", "director-continue"}:
+            from video_director import director_service as service
+            from video_director.director_service import DirectorServiceError
+            if args.verb == "director-create":
+                try:
+                    raw = (Path(args.input_path).read_text(encoding="utf-8")
+                           if args.input_path else args.payload_json)
+                    payload = json.loads(raw or "{}")
+                    if not isinstance(payload, dict):
+                        raise ValueError("Director 创建 JSON 顶层必须是对象")
+                except (json.JSONDecodeError, OSError, ValueError) as exc:
+                    _print({"ok": False, "code": "INVALID_INPUT", "error": str(exc)})
+                    return 2
+            try:
+                if args.verb == "director-create":
+                    result = service.create_director_run(payload)
+                elif args.verb == "director-status":
+                    result = service.get_director_status(args.run_id)
+                elif args.verb == "director-retry":
+                    result = service.retry_director_project(args.project)
+                elif args.verb == "director-reference":
+                    result = service.analyze_reference_video(
+                        args.video_path, use_llm=not args.no_llm
+                    )
+                else:
+                    result = service.continue_director_project(args.project, target=args.target)
+            except DirectorServiceError as exc:
+                _print({"ok": False, "code": exc.code, "error": str(exc)})
+                return 1
+            _print(result)
+            return 0 if result.get("ok") else 1
+
         if args.verb == "capabilities":
             if args.action == "list":
                 caps = list_capabilities()

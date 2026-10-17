@@ -414,6 +414,80 @@ def pegasus_visual_qa(scene_id: str, scene_text: str, asset_id: str,
     )
 
 
+def frame_vision_visual_qa(scene_id: str, scene_text: str, asset_id: str,
+                           asset_file: str) -> VisualEvidence:
+    """用 vision 角色（FrameVisionProvider，Jerry 已配置）做同一契约的视觉 QA。
+
+    差距 4 吸收：视觉审核进默认链不必等 Twelve Labs key——vision 角色的
+    多模态 LLM（抽帧→chat/completions）就能执行同一个 QA_PROMPT 契约。
+    provider 标 frame-vision；与 pegasus_visual_qa 输出完全同构（VERDICTS 复用）。
+    """
+    from video_director import vision as vision_mod
+    provider = vision_mod.FrameVisionProvider()
+    if not provider.available():
+        raise VisualAnalysisError(
+            "PROVIDER_MISSING", "vision 角色未配置（大模型设置→视觉理解模型）")
+
+    work_dir = config.project_dir(f"vqa-{scene_id.lower()}")
+    frames = vision_mod.extract_frames(asset_file, work_dir / "frames", frames=4)
+    if not frames:
+        raise VisualAnalysisError("ASSET_FILE_MISSING", f"抽帧失败：{asset_file}")
+
+    content = [{"type": "text",
+                "text": QA_PROMPT.format(scene_text=scene_text)}]
+    for fp in frames:
+        b64 = base64.b64encode(Path(fp).read_bytes()).decode()
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"},
+        })
+    payload = json.dumps({
+        "model": provider._model,
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 500,
+    }).encode()
+    req = urllib.request.Request(
+        f"{provider._base_url}/chat/completions",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {provider._api_key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as exc:
+        raise VisualAnalysisError("PROVIDER_FETCH_FAILED", f"视觉 QA 调用失败: {exc}") from exc
+    raw = str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+    if not raw:
+        raise VisualAnalysisError("PROVIDER_EMPTY", "vision 角色未返回分析文本")
+    parsed = _parse_json_text(raw)
+
+    ranges = []
+    for row in parsed.get("time_ranges") or []:
+        try:
+            if isinstance(row, (list, tuple)) and len(row) == 2:
+                a, b = float(row[0]), float(row[1])
+                if a >= 0 and b >= a:
+                    ranges.append((a, b))
+        except (TypeError, ValueError):
+            continue
+
+    return VisualEvidence(
+        scene_id=scene_id,
+        asset_id=asset_id,
+        verdict=_normalize_verdict(parsed.get("verdict")),
+        provider="frame-vision",
+        evidence=str(parsed.get("evidence") or "").strip(),
+        subjects=tuple(str(x).strip() for x in parsed.get("subjects") or [] if str(x).strip())[:12],
+        actions=tuple(str(x).strip() for x in parsed.get("actions") or [] if str(x).strip())[:12],
+        on_screen_text=tuple(str(x).strip() for x in parsed.get("on_screen_text") or [] if str(x).strip())[:12],
+        time_ranges=tuple(ranges[:12]),
+    )
+
+
 def verify_scene_candidates(
     scene_id: str,
     scene_text: str,
@@ -436,19 +510,30 @@ def verify_scene_candidates(
         asset_file = str(candidate.get("file") or "")
         if not asset_id or not asset_file:
             continue
-        try:
-            qa_results.append(
-                pegasus_visual_qa(scene_id, scene_text, asset_id, asset_file)
-            )
-        except VisualAnalysisError as exc:
-            qa_results.append(VisualEvidence(
+        evidence = None
+        last_reason = ""
+        # Provider 分层（差距 4）：visual_qa 角色（Twelve Labs Pegasus，配了优先）
+        # → frame-vision（vision 角色，FrameVisionProvider，零新增 key）→ UNKNOWN。
+        for qa_fn, provider_name in (
+            (pegasus_visual_qa, "twelvelabs-pegasus"),
+            (frame_vision_visual_qa, "frame-vision"),
+        ):
+            try:
+                evidence = qa_fn(scene_id, scene_text, asset_id, asset_file)
+                break
+            except VisualAnalysisError as exc:
+                logger.info(f"visual_qa: {provider_name} 不可用（{exc}），尝试下一层")
+                last_reason = str(exc)
+        if evidence is None:
+            evidence = VisualEvidence(
                 scene_id=scene_id,
                 asset_id=asset_id,
                 verdict="UNKNOWN",
-                provider="twelvelabs-pegasus",
+                provider="none",
                 status=RERANK_UNKNOWN,
-                reason=str(exc),
-            ))
+                reason=last_reason or "无可用视觉审核 provider",
+            )
+        qa_results.append(evidence)
 
     order = {
         "DIRECT_MATCH": 0,

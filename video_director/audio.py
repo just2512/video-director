@@ -289,11 +289,19 @@ ACTION_SFX_MAP = {
 }
 
 
-def resolve_action_sfx(event: dict, library: Dict[str, AssetRef]) -> Optional[str]:
+def resolve_action_sfx(
+    event: dict,
+    library: Dict[str, AssetRef],
+    auto_search_openverse: bool = False,
+) -> Optional[str]:
     """动作事件 → SFX asset_id（guizang 按类别回退：先精确 tag 再类别，缺则 None）。
 
     event: {action_id, at, role, tags?} —— action_id 驱动语义，role 可选
     （feedback/emphasis/transition），tags 显式指定时优先。
+
+    auto_search_openverse=True（用户设置「自动搜索匹配音效」）且本地库未命中时，
+    按 ACTION_SFX_MAP 语义类别去 Openverse（freesound 源、CC0）搜一条下载入库，
+    再重扫本地库重试——失败诚实返回 None，不装成功。
     """
     action_id = event.get("action_id", "")
     explicit_tags = event.get("tags") or []
@@ -312,7 +320,20 @@ def resolve_action_sfx(event: dict, library: Dict[str, AssetRef]) -> Optional[st
             categories = ["click"]
     if not categories:
         return None
-    return resolve({"type": "sfx", "tags": categories}, library)
+    aid = resolve({"type": "sfx", "tags": categories}, library)
+    if aid or not auto_search_openverse:
+        return aid
+
+    # Openverse 自动搜索兜底（免 Key：api.openverse.org，freesound 源 CC0）
+    from video_director import openverse_sfx
+    for category in categories:
+        try:
+            openverse_sfx.ensure_sfx_for_category(category)
+        except Exception as exc:  # 网络/限频/磁盘都不炸渲染主流程
+            logger.warning(f"openverse 兜底失败（{category}）: {exc}")
+            continue
+    lib2 = scan_library()  # 入库后重扫（新 asset 携带类别 tags）
+    return resolve({"type": "sfx", "tags": categories}, lib2)
 
 
 def normalize_sfx_events(events: List[dict]) -> List[dict]:

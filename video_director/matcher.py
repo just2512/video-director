@@ -176,10 +176,14 @@ def llm_match(
     if start < 0:
         raise MatcherError(f"LLM 匹配输出无 JSON: {raw[:200]}")
     parsed = json.loads(raw[start : end + 1])
+    scene_ids = {s["id"] for s in scenes}
+    video_ids = {k for k, v in assets.items() if v.type == "video"}
     assignments = {}
     for a in parsed.get("assignments", []):
         sid, aid = a.get("scene_id"), a.get("asset_id")
-        if sid in scenes and aid in [k for k, v in assets.items() if v.type == "video"]:
+        # 注意：scenes 是 dict 列表，「sid in scenes」比较元素相等永远 False，
+        # 会让 LLM 匹配整体失效（永远「结果为空」）。必须按 id 集合判定。
+        if sid in scene_ids and aid in video_ids:
             assignments[sid] = aid
     if not assignments:
         raise MatcherError("LLM 匹配结果为空")
@@ -193,13 +197,19 @@ def match_assets(
     *,
     policy_by_scene: Optional[Dict[str, Dict[str, str]]] = None,
     policy_decisions_out: Optional[List[dict]] = None,
+    provenance_out: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
     """统一入口：LLM 主路 → 确定性 fallback → 顺序兜底（保证总有结果）。
 
     返回 {scene_id: asset_id}（每个场景至少有一个候选）。
+
+    provenance_out（可选）逐场景记录这条分配**实际由哪种机制产生**：
+    "llm" / "deterministic" / "sequential" / "policy"。调用方必须据此如实
+    表述来源——顺序兜底是「按素材顺序硬排」，不是语义匹配。
     """
     scene_ids = [s["id"] for s in scenes]
     assignments: Dict[str, str] = {}
+    provenance: Dict[str, str] = {}
     used: set = set()
 
     # 主路：LLM
@@ -207,6 +217,8 @@ def match_assets(
         try:
             assignments = llm_match(scenes, assets, llm_call)
             used = set(assignments.values())
+            for sid in assignments:
+                provenance[sid] = "llm"
             logger.info(f"asset match: LLM 主路完成 {len(assignments)}/{len(scenes)} 场景")
         except Exception as exc:
             # 任意 LLM 失败（429 余额不足/限流/超时）都降级，不炸主流程
@@ -220,6 +232,7 @@ def match_assets(
         aid = deterministic_match(s["text"], s["id"], assets, used)
         if aid:
             assignments[s["id"]] = aid
+            provenance[s["id"]] = "deterministic"
             used.add(aid)
     if assignments:
         logger.info(f"asset match: 确定性补齐至 {len(assignments)}/{len(scenes)}")
@@ -229,15 +242,20 @@ def match_assets(
     for i, s in enumerate(scenes):
         if s["id"] not in assignments and video_ids:
             assignments[s["id"]] = video_ids[i % len(video_ids)]
+            provenance[s["id"]] = "sequential"
             logger.warning(f"asset match: 场景 {s['id']} 无语义匹配，顺序兜底 {assignments[s['id']]}")
 
     # Step ⑤：语义匹配完成后再执行来源/复用政策。
     # 政策不能改变“是否匹配”的语义模型，只负责处理连续重复、来源切换与复用边界。
     if assignments and assets:
+        before = dict(assignments)
         assignments, decisions = enforce_assignments(
             scenes, assets, assignments, video_ids,
             policy_by_scene=policy_by_scene,
         )
+        for sid, aid in assignments.items():
+            if before.get(sid) != aid:
+                provenance[sid] = "policy"
         if policy_decisions_out is not None:
             policy_decisions_out.extend(decisions)
         deferred = [d for d in decisions if d.get("reason", "").startswith("存在其他")]
@@ -245,4 +263,8 @@ def match_assets(
             logger.info(
                 f"asset usage policy: 调整 {len(deferred)} 个场景的来源/复用顺序",
             )
+    if provenance_out is not None:
+        # 本调用的结果为准：先清空再写入，避免上一轮（如本地预匹配）的陈旧来源残留。
+        provenance_out.clear()
+        provenance_out.update(provenance)
     return assignments

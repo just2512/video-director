@@ -10,13 +10,15 @@ from video_director.agent_gateway import HIGH_LEVEL_TOOLS, GatewayError, dispatc
 
 
 class TestHighLevelTools:
-    """§19 七高层工具注册 + 统一入口。"""
+    """高层 Agent 工具注册 + 统一入口。"""
 
-    def test_seven_tools_registered(self):
+    def test_gateway_tools_registered(self):
         assert sorted(HIGH_LEVEL_TOOLS) == sorted([
             "creative.inspect", "creative.plan", "creative.execute",
             "creative.preview", "creative.render", "creative.verify",
-            "creative.watch"])
+            "creative.watch", "creative.action", "creative.actions.list",
+            "director.create", "director.analyze_reference", "director.status",
+            "director.retry", "director.continue", "system.capabilities.list"])
 
     def test_inspect_system_summary(self):
         r = dispatch("creative.inspect")
@@ -31,6 +33,11 @@ class TestHighLevelTools:
         with pytest.raises(GatewayError) as exc:
             dispatch("creative.verify")
         assert exc.value.code == "MISSING_PROJECT"
+
+    def test_path_like_project_id_is_rejected_before_dispatch(self):
+        with pytest.raises(GatewayError) as exc:
+            dispatch("creative.actions.list", project_id="../outside")
+        assert exc.value.code == "INVALID_PROJECT_ID"
 
     def test_capabilities_count_117(self):
         r = dispatch("creative.inspect")
@@ -59,13 +66,69 @@ class TestMCPGatewayProtocol:
         assert resps[0]["result"]["serverInfo"]["name"] == "creative-os-mcp"
         assert resps[0]["result"]["protocolVersion"] == "2025-06-18"
 
-    def test_tools_list_seven(self):
+    def test_tools_list_exposes_agent_actions(self):
         resps = self._invoke([
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
         ])
         tools = [t["name"] for t in resps[1]["result"]["tools"]]
         assert "creative.execute" in tools and "creative.verify" in tools
+        assert "director.create" in tools and "director.status" in tools
+        assert "creative.action" in tools and "creative.actions.list" in tools
+        assert "system.capabilities.list" in tools
+        action = next(t for t in resps[1]["result"]["tools"] if t["name"] == "creative.action")
+        assert action["inputSchema"]["properties"]["params"]["type"] == "object"
+        action_list = next(t for t in resps[1]["result"]["tools"] if t["name"] == "creative.actions.list")
+        assert action_list["inputSchema"]["required"] == ["project_id"]
+        reference_tool = next(t for t in resps[1]["result"]["tools"] if t["name"] == "director.analyze_reference")
+        assert reference_tool["inputSchema"]["required"] == ["video_path"]
+        create = next(t for t in resps[1]["result"]["tools"] if t["name"] == "director.create")
+        assert create["inputSchema"]["properties"]["payload"]["type"] == "object"
+
+    def test_every_registered_tool_has_an_explicit_schema(self):
+        from video_director.agent_gateway.mcp_server import _tool_schema_for
+        for name in HIGH_LEVEL_TOOLS:
+            schema = _tool_schema_for(name)
+            assert schema.get("type") == "object", name
+            assert isinstance(schema.get("properties"), dict), name
+
+    def test_mcp_schemas_use_native_parameter_types(self):
+        from video_director.agent_gateway.mcp_server import _tool_schema_for
+        execute = _tool_schema_for("creative.execute")
+        preview = _tool_schema_for("creative.preview")
+        assert execute["properties"]["payload"]["type"] == "object"
+        assert preview["properties"]["scale"]["type"] == "number"
+        assert "project_id" in execute["required"]
+        assert _tool_schema_for("director.status")["required"] == ["run_id"]
+        assert _tool_schema_for("system.capabilities.list")["additionalProperties"] is False
+
+    def test_tools_call_analyze_reference(self, monkeypatch):
+        import video_director.director_service as service
+        seen = {}
+        def fake_analyze(video_path, use_llm=True):
+            seen["video_path"] = video_path
+            seen["use_llm"] = use_llm
+            return {"ok": True, "reference": {"id": "ref-test"}}
+        monkeypatch.setattr(service, "analyze_reference_video", fake_analyze)
+        resps = self._invoke([{
+            "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+            "params": {"name": "director.analyze_reference", "arguments": {
+                "video_path": "/tmp/reference.mp4", "use_llm": False
+            }},
+        }])
+        inner = json.loads(resps[0]["result"]["content"][0]["text"])
+        assert inner["ok"] is True
+        assert seen == {"video_path": "/tmp/reference.mp4", "use_llm": False}
+        assert inner["reference"]["id"] == "ref-test"
+
+    def test_tools_call_director_status_validation(self):
+        resps = self._invoke([
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+             "params": {"name": "director.status", "arguments": {"run_id": ""}}},
+        ])
+        inner = json.loads(resps[0]["result"]["content"][0]["text"])
+        assert inner["ok"] is False
+        assert inner["code"] == "MISSING_RUN_ID"
 
     def test_tools_call_inspect(self):
         resps = self._invoke([
@@ -121,6 +184,65 @@ class TestCLIGateway:
         code, out = self._run("inspect")
         assert code == 0
         assert "projects" in out
+
+    def test_actions_cli_lists_current_project_actions(self, monkeypatch):
+        import video_director.agent_gateway.cli as cli
+        seen = {}
+        def fake_dispatch(name, **kwargs):
+            seen["name"] = name
+            seen.update(kwargs)
+            return {"ok": True, "groups": {"scene": []}}
+        monkeypatch.setattr(cli, "dispatch", fake_dispatch)
+        code, out = self._run("actions", "--project", "project-1",
+                              "--selection", '{"type":"scene","id":"S01"}')
+        assert code == 0
+        assert seen["name"] == "creative.actions.list"
+        assert seen["project_id"] == "project-1"
+        assert seen["selection"]["id"] == "S01"
+        assert out["ok"] is True
+
+    def test_action_cli_rejects_non_object_parameters(self):
+        code, out = self._run("action", "--project", "p", "--action", "asset.search",
+                              "--json", '["not","object"]')
+        assert code == 2
+        assert out["code"] == "INVALID_INPUT"
+
+    def test_director_status_reports_missing_run_id(self):
+        code, out = self._run("director-status", "--run-id", "")
+        assert code == 1
+        assert out["ok"] is False
+        assert out["code"] == "MISSING_RUN_ID"
+
+    def test_director_reference_cli_calls_shared_service(self, tmp_path, monkeypatch):
+        import video_director.agent_gateway.cli as cli
+        import video_director.director_service as service
+        video = tmp_path / "reference.mp4"
+        video.write_bytes(b"video-placeholder")
+        seen = {}
+        def fake_analyze(path, use_llm=True):
+            seen["path"] = path
+            seen["use_llm"] = use_llm
+            return {"ok": True, "reference": {"id": "ref-test"}}
+        monkeypatch.setattr(service, "analyze_reference_video", fake_analyze)
+        code, out = self._run("director-reference", "--video", str(video), "--no-llm")
+        assert code == 0
+        assert seen["path"] == str(video)
+        assert seen["use_llm"] is False
+        assert out["reference"]["id"] == "ref-test"
+
+    def test_director_create_reads_json_payload_file(self, tmp_path, monkeypatch):
+        import video_director.director_service as service
+        payload_file = tmp_path / "director-request.json"
+        payload_file.write_text('{"brief":"制作视频"}', encoding="utf-8")
+        seen = {}
+        def fake_create(payload):
+            seen["payload"] = payload
+            return {"ok": True, "project_id": "p-1", "run_id": "r-1"}
+        monkeypatch.setattr(service, "create_director_run", fake_create)
+        code, out = self._run("director-create", "--input", str(payload_file))
+        assert code == 0
+        assert seen["payload"]["brief"] == "制作视频"
+        assert out["run_id"] == "r-1"
 
     def test_execute_missing_project(self):
         code, out = self._run("execute", "--project", "nope", "--command",
