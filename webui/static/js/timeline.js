@@ -1386,7 +1386,7 @@ function _tlBindAudioClipDrag(){
         duration: Number(track.duration) || 0,
         sourceIn: Number(track.source_in) || 0,
         // A missing source_out means a loop-to-duration track (typically BGM).
-        // First trim materializes its current window as an explicit source range.
+        // Preserve this loop contract through split/trim; do not synthesize source_out.
         sourceOut: track.source_out == null
           ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
           : Number(track.source_out),
