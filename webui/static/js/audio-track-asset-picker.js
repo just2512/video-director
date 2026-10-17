@@ -70,7 +70,7 @@
     }
     choices = (Array.isArray(choices) ? choices : [])
       .filter(item => item && item.id && item.available !== false &&
-        ['bgm', 'sfx', 'ambience'].includes(String(item.role || '').toLowerCase()));
+        ['dialogue', 'bgm', 'sfx', 'ambience'].includes(String(item.role || '').toLowerCase()));
     if (!choices.length) {
       toast('音频素材库没有可用素材；请先在音频库登记 BGM、SFX 或环境音。', true);
       return;
