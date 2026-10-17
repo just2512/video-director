@@ -3669,6 +3669,11 @@ def _cmd_remove_audio_track(ir: CompositionIR, target_id: str, payload: dict) ->
     if len(ir.audio_tracks) <= 1:
         raise EditorError("LAST_AUDIO_TRACK", "项目至少需要保留一条音频轨道")
     clips = [(i, clip) for i, clip in enumerate(ir.audio) if clip.track_id == target_id]
+    if target_id == "audio-narration" or any(clip.type == AudioTrackType.narration for _i, clip in clips):
+        raise EditorError(
+            "TTS_NARRATION_LANE_PROTECTED",
+            "系统主旁白轨与独立 TTS 渲染链绑定，不能删除；可锁定/静音它，并通过“＋音轨”新增可自由编辑的旁白/对白轨",
+        )
     if clips and payload.get("deleteContents") is not True:
         raise EditorError(
             "AUDIO_TRACK_NOT_EMPTY",
@@ -4220,6 +4225,11 @@ def _cmd_remove_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> 
     """Delete one independently editable audio clip, respecting lane locks."""
     index = _audio_clip_index(ir, target_id)
     clip = ir.audio[index]
+    if clip.type == AudioTrackType.narration:
+        raise EditorError(
+            "TTS_NARRATION_PIPELINE_CLIP",
+            "主 TTS 旁白由独立渲染链管理，不能作为普通音频片段删除；请使用音量/静音控制，额外旁白请添加为 dialogue 片段",
+        )
     lane_id = str(clip.track_id or f"audio-{clip.type.value}")
     _ensure_audio_lane_unlocked(ir, lane_id)
     linked_overlay_id = clip.linked_visual_overlay_id
