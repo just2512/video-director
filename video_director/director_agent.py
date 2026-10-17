@@ -527,9 +527,17 @@ def _tool_material(spec: dict, state: dict) -> dict:
         except Exception as exc:
             warnings.append("网络素材补足失败：" + str(exc))
 
-    # 差距 1（仓库审计）：stock 补足后仍 missing 的场景，若分镜选中了 generated
-    # 候选（generation_type ∈ image/video/graphic/motion），调 generation 生成画面
-    # 补位——复用现有生成链，不新建 Agent。生成失败诚实降级，不炸主链。
+    # 差距 1 + 2（仓库审计）：stock 补足后仍 missing 的场景，若分镜选中了
+    # generated 候选（generation_type ∈ image/video/graphic/motion），按兜底链
+    # 逐级尝试生成画面补位——复用现有生成链，不新建 Agent。
+    # 差距 2：首选路线失败按顺序降级（视频→图片运动→代码画面）；全失败标记
+    # NEEDS_HUMAN（诚实，不伪装成功、不静默整片失败）。
+    _GEN_FALLBACK = {
+        "video": ("video", "image", "graphic"),
+        "image": ("image", "graphic"),
+        "graphic": ("graphic",),
+        "motion": ("motion", "graphic"),
+    }
     if missing and match_enabled:
         _gen_missing = [m for m in missing if m not in assignments]
         if _gen_missing:
@@ -544,31 +552,42 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         (c for c in (candidate_sets_by_scene.get(sid) or [])
                          if isinstance(c, dict) and c.get("id") == sel_id),
                         None,
-                    ) or {}
-                    gt = cand.get("generation_type") or ""
-                    if gt not in ("image", "video", "graphic", "motion"):
+                    )
+                    gt = (cand or {}).get("generation_type") or ""
+                    order = _GEN_FALLBACK.get(gt)
+                    if not order:
                         continue
-                    prompt = str(cand.get("generation_prompt")
+                    prompt = str((cand or {}).get("generation_prompt")
                                  or next((s["text"] for s in state["narration_scenes"]
                                           if s.get("id") == sid), ""))
-                    try:
-                        results = gen_mod.generate(
-                            state["project_id"], prompt, gt,
-                            width=gen_rw, height=gen_rh, variant="A",
-                        )
-                    except Exception as exc:
-                        warnings.append(f"生成补位失败（{sid}/{gt}）：{exc}")
+                    res = None
+                    used_gt = None
+                    for try_gt in order:
+                        try:
+                            results = gen_mod.generate(
+                                state["project_id"], prompt, try_gt,
+                                width=gen_rw, height=gen_rh, variant="A",
+                            )
+                        except Exception as exc:
+                            warnings.append(f"生成路线 {try_gt} 失败（{sid}）：{exc}")
+                            continue
+                        res = results[0] if results else None
+                        fpath = getattr(res, "file", "",) if res else ""
+                        if fpath and Path(fpath).is_file():
+                            used_gt = try_gt
+                            break
+                        warnings.append(f"生成路线 {try_gt} 无产物（{sid}）")
+                    if not used_gt:
+                        # 兜底链走尽仍失败 → NEEDS_HUMAN（诚实暴露缺项，不伪装成功）
+                        if isinstance(cand, dict):
+                            cand["status"] = "NEEDS_HUMAN"
+                        warnings.append(f"镜头 {sid} 所有生产路线均失败，标记 NEEDS_HUMAN")
                         continue
-                    res = results[0] if results else None
-                    fpath = getattr(res, "file", "") if res else ""
-                    if not fpath or not Path(fpath).is_file():
-                        warnings.append(f"生成补位无产物（{sid}/{gt}）")
-                        continue
-                    if gt == "video":
+                    if used_gt == "video":
                         videos.append(fpath)
                     else:
                         images.append(fpath)
-                    generated_files.append((sid, fpath, gt))
+                    generated_files.append((sid, fpath, used_gt))
                 if generated_files:
                     # 重建素材清单，让生成物进入 all_assets/order；用 file 反查
                     # build_manifest 产生的 asset_id（stem 命名），避免用 generation

@@ -78,9 +78,46 @@ def test_generation_failure_degrades_honestly_without_throw(tmp_path, monkeypatc
     out = agent._tool_material({"match_materials_to_script": True,
                                 "width": 100, "height": 100}, state)
 
-    # 生成失败必须诚实降级：不抛异常，不假装有素材，S01 仍无 assignment
+    # 全失败必须诚实标记 NEEDS_HUMAN：不抛异常，不假装有素材
     assert "S01" not in state.get("assignments", {})
-    assert any("生成补位失败" in w for w in out.get("result", {}).get("warnings", []))
+    cand = state["scene_plan"]["scenes"][0]["candidates"][0]
+    assert cand["status"] == "NEEDS_HUMAN"
+    assert any("NEEDS_HUMAN" in w for w in out.get("result", {}).get("warnings", []))
+
+
+def test_video_route_fails_then_falls_back_to_image(tmp_path, monkeypatch):
+    """差距 2：首选 video 失败 → 自动降级 image/graphic，不是重试到死。"""
+    png = tmp_path / "gen.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+
+    def fake_build(videos, images, asset_metadata=None):
+        if images:
+            return ({"genid": AssetRef(id="genid", type="image", file=str(images[0]),
+                                       width=100, height=100)}, ["genid"])
+        return ({}, [])
+
+    monkeypatch.setattr(agent.assets_mod, "build_manifest", fake_build)
+    monkeypatch.setattr(agent.matcher, "match_assets", lambda *a, **k: {})
+
+    tried = []
+
+    def fake_gen(project_id, prompt, gen_type, width=1080, height=1920, variant=None, **kw):
+        tried.append(gen_type)
+        if gen_type == "video":
+            raise RuntimeError("VIDEO_GENERATION_FAILED: 视频 API 挂")
+        return [SimpleNamespace(asset_id="any", file=str(png), type="image",
+                                width=100, height=100)]
+
+    monkeypatch.setattr("video_director.generation.generate", fake_gen)
+
+    state = _state(tmp_path, gen_type="video")
+    out = agent._tool_material({"match_materials_to_script": True,
+                                "width": 100, "height": 100}, state)
+
+    assert "video" in tried, "首选 video 路线未尝试"
+    assert "image" in tried, "video 失败后未降级 image"
+    assert state["assignments"]["S01"] == "genid"
+    assert out.get("ok") is True
 
 
 def test_non_generated_candidate_never_triggers_generation(tmp_path, monkeypatch):
