@@ -72,7 +72,7 @@ function _createPanelHtml(){
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>文章链接</b><span class="hint"> 可选；提取公开网页正文作为创作资料，不会自动覆盖你已写的文案</span>
       <div class="btn-row" style="margin-top:6px;align-items:center">
-        <input type="url" id="cf-article-url" class="rev-input" placeholder="https://example.com/article" style="flex:1;min-width:180px">
+        <input type="url" id="cf-article-url" class="rev-input" placeholder="文章 / GitHub 仓库地址均可，如 https://github.com/owner/repo" style="flex:1;min-width:180px">
         <button type="button" id="cf-import-article-btn" class="btn-secondary btn-sm" onclick="cfImportArticle()">导入文章</button>
         <button type="button" id="cf-clear-article-btn" class="btn-secondary btn-sm" onclick="cfClearArticleSource()" disabled>移除</button>
       </div>
@@ -95,7 +95,7 @@ function _createPanelHtml(){
     </div>
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>软件项目</b><span class="hint"> 可选；AI 只使用已验证的功能事实</span>
-      <input type="text" id="cf-repo-root" class="rev-input" placeholder="例：D:\\Projects\\my-app" style="margin-top:6px">
+      <input type="text" id="cf-repo-root" class="rev-input" placeholder="例：D:\Projects\my-app（本地项目路径）" style="margin-top:6px">
       <div class="btn-row" style="margin-top:6px">
         <button class="btn-secondary btn-sm" onclick="cfScanRepo()">扫描软件项目</button>
         <span class="hint" id="cf-repo-status">扫描 README / CHANGELOG 等证据文件。</span>

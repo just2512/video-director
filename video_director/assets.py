@@ -43,23 +43,30 @@ def _unique_id(stem: str, used: set) -> str:
 
 
 def _library_semantics(path: str) -> dict:
-    """从 Asset Library 取回已写入的语义（description/tags）。
+    """从 Asset Library 取回已写入的语义 + 授权状态。
 
-    上传素材入库时只有 Library 台账记着它的语义；素材清单若不在这里回落，
-    这些素材到 analyze_assets 时永远是「无描述」→ LLM 匹配拿到空名册 →
-    顺序兜底。任何失败都静默返回空（语义回落不能炸主流程）。
+    上传素材入库时只有 Library 台账记着它的语义与 commercial_status；素材
+    清单若不在这一同回落，这些素材到 analyze_assets 时永远「无描述」，
+    且版权闸门（差距 7）拿不到授权状态。任何失败静默返回空（不炸主流程）。
     """
     try:
         from video_director import asset_catalog
         entry = asset_catalog.find_by_path(path)
     except Exception as exc:
-        logger.debug(f"library 语义回落失败 {path}: {exc}")
+        logger.debug(f"library 语义/授权回落失败 {path}: {exc}")
         return {}
     if not entry:
         return {}
+    # commercial_status → rights_status 归一：USER_SUPPLIED（用户自担权利）
+    # 与 CLEAR 等价；其余（UNKNOWN/REVIEW/BLOCKED/CLEAR）原样透传。
+    cs = entry.get("commercial_status") or ""
+    rights = {cs: cs, asset_catalog.USER_SUPPLIED: asset_catalog.CLEAR}.get(cs, cs)
     return {
         "description": entry.get("description") or "",
         "keywords": list(entry.get("tags") or []),
+        # 授权状态留空时不要用 None 覆盖调用方显式值：用 "" 表示「库无记录」，
+        # 让 _asset_meta 的调用方 metadata 仍有机会覆盖（见下面的 merge 顺序）。
+        "rights_status": (rights or None),
     }
 
 

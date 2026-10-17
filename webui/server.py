@@ -2492,7 +2492,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director.article_import import ArticleImportError, import_article
-                article = import_article(str(payload.get("url") or ""))
+                from video_director.repo_promo import github_readme_url
+                # GitHub 仓库地址 → raw README 文本直链（不 clone 全仓库，不占硬盘）
+                url = github_readme_url(str(payload.get("url") or ""))
+                article = import_article(url)
                 self._send_json({"ok": True, "article": article})
             except Exception as exc:
                 from video_director.article_import import ArticleImportError

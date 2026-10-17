@@ -638,3 +638,27 @@ def finalize_after_review(project_id: str, edits: Optional[dict] = None, profile
     """
     from video_director import pipeline
     return pipeline.resume_after_confirm(project_id, edits=edits, profile=profile)
+
+
+def commercial_release_gate(project_id: str) -> dict:
+    """差距 7（仓库审计）：正式渲染前检查素材授权状态。
+
+    BLOCKED（明确禁止商用）→ 硬阻止；UNKNOWN/REVIEW（授权待核实）→ 警告
+    但不阻止（Jerry 裁决：当前 stock 素材多为 UNKNOWN，硬阻止会出不了片）。
+
+    返回 {"blocked": [...], "unknown": [...]}。授权状态取 Composition IR 里
+    AssetRef.rights_status（由 assets._library_semantics 从 Library 的
+    commercial_status 归一而来，USER_SUPPLIED→CLEAR）。
+    """
+    from video_director import editor
+    ir = editor.load_composition(project_id)
+    blocked: List[str] = []
+    unknown: List[str] = []
+    for a in ir.assets:
+        rs = str(getattr(a, "rights_status", "") or "").strip().upper()
+        if rs == "BLOCKED":
+            blocked.append(a.id)
+        elif rs in ("UNKNOWN", "REVIEW"):
+            unknown.append(a.id)
+    return {"blocked": list(dict.fromkeys(blocked)),
+            "unknown": list(dict.fromkeys(unknown))}

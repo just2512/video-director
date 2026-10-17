@@ -881,6 +881,18 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile:
         confirm_mod.save_storyboard(storyboard, storyboard_path)
 
     # 标记确认通过 → RENDERING
+    # 差距 7：正式渲染前的版权放行闸门——BLOCKED 硬阻止，UNKNOWN/REVIEW 警告。
+    release = confirm_mod.commercial_release_gate(project_id)
+    if release.get("blocked"):
+        raise PipelineError(
+            "商业发布被阻止：以下素材授权状态为 BLOCKED，禁止商用——"
+            + ", ".join(release["blocked"])
+        )
+    if release.get("unknown"):
+        logger.warning(
+            f"版权提示：{len(release['unknown'])} 个素材授权状态待核实（UNKNOWN/REVIEW），"
+            f"已放行但请人工确认，素材：{', '.join(release['unknown'][:20])}"
+        )
     store.confirm_project(project_id, approved=True, edits=effective_edits or None)
 
     # 重新规划（若有 edits）：
