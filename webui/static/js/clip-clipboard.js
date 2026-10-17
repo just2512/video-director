@@ -43,6 +43,7 @@
         origin: {
           kind: 'audio',
           index: index,
+          id: String(clip.id || ''),
           fingerprint: audioFingerprint(clip),
           assetId: String(clip.asset_id || ''),
           type: String(clip.type || '')
