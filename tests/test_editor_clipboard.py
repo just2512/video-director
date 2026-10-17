@@ -416,7 +416,7 @@ def test_copy_main_scene_video_pastes_as_visual_clip_with_original_audio_in_brow
               };
             }""")
             page.add_script_tag(path=str(script))
-            page.locator('.ed-layer').dispatch_event('pointerdown', button=0)
+            page.locator('.ed-layer').dispatch_event('pointerdown')
             copied = page.evaluate("() => window.editorClipCopy(false)")
             assert copied is True
             page.evaluate("() => { window.PLAYHEAD.at = 5; }")
