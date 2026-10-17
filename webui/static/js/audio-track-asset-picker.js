@@ -106,7 +106,7 @@
       assetSelect.appendChild(option);
     });
     const startInput = mask.querySelector('#audio-asset-picker-start');
-    const total = Math.max(0, Number(ED.comp.duration) || 0);
+    const total = Math.max(0, Number(ED.comp.duration || (ED.comp.project && ED.comp.project.duration)) || 0);
     const start = Math.max(0, Math.min(Math.max(0, total - 0.05), Number((window.PLAYHEAD || {}).at) || 0));
     startInput.max = String(total);
     startInput.value = start.toFixed(2);
@@ -136,8 +136,9 @@
     const durationRaw = String(mask.querySelector('#audio-asset-picker-duration').value || '').trim();
     const volume = Number(mask.querySelector('#audio-asset-picker-volume').value);
     const fadeIn = Number(mask.querySelector('#audio-asset-picker-fade').value);
-    const remaining = Math.max(0, Number(ED.comp.duration) - start);
-    if (!Number.isFinite(start) || start < 0 || start >= Number(ED.comp.duration)) {
+    const projectDuration = Math.max(0, Number(ED.comp.duration || (ED.comp.project && ED.comp.project.duration)) || 0);
+    const remaining = Math.max(0, projectDuration - start);
+    if (!Number.isFinite(start) || start < 0 || start >= projectDuration) {
       toast('时间线起点必须位于工程时长内。', true); return;
     }
     if (durationRaw && (!Number.isFinite(Number(durationRaw)) || Number(durationRaw) <= 0 ||
