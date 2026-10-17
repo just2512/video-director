@@ -417,6 +417,9 @@ SUPPORTED_COMMANDS = (
     "set_visual_overlay",
     "separate_visual_overlay_source_audio",  # detach source sound into an editable original-audio clip
     "remove_visual_overlay",
+    "paste_visual_overlay",       # 复制/粘贴独立画面片段
+    "remove_audio_clip",          # 删除独立音频片段
+    "paste_audio_clip",           # 复制/粘贴独立音频片段
     "add_visual_track",
     "rename_visual_track",
     "reorder_visual_track",
@@ -717,6 +720,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_separate_visual_overlay_source_audio(ir, target_id, payload, project_id)
         elif cmd_name == "remove_visual_overlay":
             changed, stale = _cmd_remove_visual_overlay(ir, target_id, payload)
+        elif cmd_name == "paste_visual_overlay":
+            changed, stale = _cmd_paste_visual_overlay(ir, target_id, payload, project_id)
         elif cmd_name == "add_visual_track":
             changed, stale = _cmd_add_visual_track(ir, target_id, payload)
         elif cmd_name == "rename_visual_track":
@@ -741,6 +746,10 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_trim_audio_clip(ir, target_id, payload)
         elif cmd_name == "split_audio_clip":
             changed, stale = _cmd_split_audio_clip(ir, target_id, payload)
+        elif cmd_name == "remove_audio_clip":
+            changed, stale = _cmd_remove_audio_clip(ir, target_id, payload)
+        elif cmd_name == "paste_audio_clip":
+            changed, stale = _cmd_paste_audio_clip(ir, target_id, payload, project_id)
         elif cmd_name == "set_audio_clip_properties":
             changed, stale = _cmd_set_audio_clip_properties(ir, target_id, payload)
         elif cmd_name == "set_audio_volume":
@@ -2075,12 +2084,33 @@ def _cmd_remove_visual_track(ir: CompositionIR, target_id: str, payload: dict) -
     index = _visual_track_index(ir, target_id)
     if len(ir.visual_tracks) <= 1:
         raise EditorError("LAST_VISUAL_TRACK", "项目至少需要保留一条画面轨道")
-    if any(clip.track_id == target_id for clip in ir.visual_overlays):
-        raise EditorError("VISUAL_TRACK_NOT_EMPTY", "该轨道仍有片段，请先移动或删除片段")
+    clips = [clip for clip in ir.visual_overlays if clip.track_id == target_id]
+    if clips and payload.get("deleteContents") is not True:
+        raise EditorError(
+            "VISUAL_TRACK_NOT_EMPTY",
+            "该轨道仍有片段；确认同时删除轨道内容时，请传入 deleteContents=true",
+        )
+    clip_ids = {clip.id for clip in clips}
+    linked_audio = [
+        (i, clip) for i, clip in enumerate(ir.audio)
+        if clip.linked_visual_overlay_id in clip_ids
+    ]
+    for _audio_index, audio_clip in linked_audio:
+        _ensure_audio_lane_unlocked(ir, str(audio_clip.track_id or f"audio-{audio_clip.type.value}"))
+    ir.visual_overlays = [clip for clip in ir.visual_overlays if clip.track_id != target_id]
+    linked_indices = {i for i, _clip in linked_audio}
+    ir.audio = [clip for i, clip in enumerate(ir.audio) if i not in linked_indices]
     ir.visual_tracks.pop(index)
     ordered = sorted(ir.visual_tracks, key=lambda item: item.order)
     ir.visual_tracks = [item.model_copy(update={"order": pos}) for pos, item in enumerate(ordered)]
-    return [f"visual-track:{target_id}"], ["project:visual-tracks", "project:preview"]
+    changed = [f"visual-track:{target_id}"] + [f"visual-overlay:{clip.id}" for clip in clips]
+    changed.extend(f"audio:{clip.type.value}:{i}" for i, clip in linked_audio)
+    stale = ["project:visual-tracks", "project:visual-overlays:render", "project:preview"]
+    if clips:
+        stale.append("project:timeline:render")
+    if linked_audio:
+        stale.extend(["project:audio:render", "project:audio-tracks"])
+    return changed, list(dict.fromkeys(stale))
 
 
 def _asset_ref_from_project_manifest(project_id: Optional[str], asset_id: str) -> Optional[AssetRef]:
@@ -3501,6 +3531,69 @@ def _cmd_remove_visual_overlay(ir: CompositionIR, target_id: str, payload: dict)
     return changed, list(dict.fromkeys(stale))
 
 
+
+def _cmd_paste_visual_overlay(
+    ir: CompositionIR, target_id: str, payload: dict, project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """Paste a copied global visual clip onto any unlocked visual track."""
+    if target_id != "overlays":
+        raise EditorError("INVALID_TARGET", "paste_visual_overlay 的 targetId 必须是 overlays")
+    from video_director.models import VisualOverlayClip
+
+    raw_clip = payload.get("clip")
+    if not isinstance(raw_clip, dict):
+        raise EditorError("INVALID_PAYLOAD", "粘贴画面片段缺少 clip 对象")
+    try:
+        source = VisualOverlayClip.model_validate(raw_clip)
+    except Exception as exc:
+        raise EditorError("INVALID_PAYLOAD", f"复制的画面片段数据无效：{exc}") from exc
+
+    # Only a source already present in this project is eligible for clipboard paste.
+    known_asset = any(asset.id == source.asset_id for asset in ir.assets) or any(
+        clip.asset_id == source.asset_id for clip in ir.visual_overlays
+    )
+    if not known_asset:
+        raise EditorError("ASSET_NOT_FOUND", "复制的画面素材不属于当前项目，无法粘贴")
+    track_id = str(payload.get("trackId") or source.track_id or "overlay-main").strip()
+    if not any(track.id == track_id for track in ir.visual_tracks):
+        raise EditorError("NOT_FOUND", f"目标画面轨道 {track_id!r} 不存在", recoverable=False)
+    _ensure_visual_track_unlocked(ir, track_id)
+
+    raw_start = payload.get("start")
+    if isinstance(raw_start, bool):
+        raise EditorError("INVALID_PAYLOAD", "start 不能是布尔值")
+    try:
+        start = float(raw_start)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "粘贴位置 start 必须是数字") from exc
+    if not math.isfinite(start) or start < 0:
+        raise EditorError("INVALID_PARAMETER", "粘贴位置必须是有限非负数字")
+    start = _project_frame_time(ir, start)
+    duration = _project_frame_time(ir, float(source.duration))
+    if duration < _project_frame_min_duration(ir) - 1e-6:
+        raise EditorError("INVALID_PARAMETER", "复制片段按项目帧率对齐后不足一帧")
+    if start + duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_TIMELINE_RANGE", "粘贴后的画面片段超出项目时长")
+
+    asset = next((item for item in ir.assets if item.id == source.asset_id), None)
+    if asset and str(getattr(asset.type, "value", asset.type)).lower() == "video":
+        source_duration = float(asset.duration or 0.0)
+        if source_duration > 0 and float(source.source_in) + duration * float(source.speed) > source_duration + 0.05:
+            raise EditorError("INVALID_SOURCE_RANGE", "复制片段的源区间超出视频素材时长")
+
+    pasted = source.model_copy(update={
+        "id": f"overlay-{uuid.uuid4().hex[:12]}",
+        "start": round(start, 6),
+        "duration": round(duration, 6),
+        "track_id": track_id,
+    })
+    ir.visual_overlays.append(pasted)
+    return [f"visual-overlay:{pasted.id}", f"visual-track:{track_id}"], [
+        f"visual-overlay:{pasted.id}:render", "project:visual-overlays:render",
+        "project:timeline:render", "project:preview",
+    ]
+
+
 def _audio_clip_index(ir: CompositionIR, target_id: str) -> int:
     """Resolve a per-instance audio clip target (audio#<index>).
 
@@ -3572,12 +3665,30 @@ def _cmd_remove_audio_track(ir: CompositionIR, target_id: str, payload: dict) ->
     index = _audio_lane_index(ir, target_id)
     if len(ir.audio_tracks) <= 1:
         raise EditorError("LAST_AUDIO_TRACK", "项目至少需要保留一条音频轨道")
-    if any(clip.track_id == target_id for clip in ir.audio):
-        raise EditorError("AUDIO_TRACK_NOT_EMPTY", "该音轨仍有片段，请先把片段移动到其他音轨或删除片段")
+    clips = [(i, clip) for i, clip in enumerate(ir.audio) if clip.track_id == target_id]
+    if clips and payload.get("deleteContents") is not True:
+        raise EditorError(
+            "AUDIO_TRACK_NOT_EMPTY",
+            "该音轨仍有片段；确认同时删除轨道内容时，请传入 deleteContents=true",
+        )
+    linked_visual_ids = {clip.linked_visual_overlay_id for _i, clip in clips if clip.linked_visual_overlay_id}
+    for overlay_id in linked_visual_ids:
+        overlay_index = next((i for i, overlay in enumerate(ir.visual_overlays) if overlay.id == overlay_id), None)
+        if overlay_index is not None:
+            overlay = ir.visual_overlays[overlay_index]
+            _ensure_visual_track_unlocked(ir, str(overlay.track_id or "overlay-main"))
+            ir.visual_overlays[overlay_index] = overlay.model_copy(update={"source_audio_enabled": False})
+    removed_indices = {i for i, _clip in clips}
+    ir.audio = [clip for i, clip in enumerate(ir.audio) if i not in removed_indices]
     ir.audio_tracks.pop(index)
     ordered = sorted(ir.audio_tracks, key=lambda lane: lane.order)
     ir.audio_tracks = [lane.model_copy(update={"order": order}) for order, lane in enumerate(ordered)]
-    return [f"audio-track:{target_id}"], ["project:audio-tracks", "project:preview"]
+    stale = ["project:audio-tracks", "project:audio:render", "project:preview"]
+    if linked_visual_ids:
+        stale.extend(["project:visual-overlays:render", "project:timeline:render"])
+    changed = [f"audio-track:{target_id}"] + [f"audio:{clip.type.value}:{i}" for i, clip in clips]
+    changed.extend(f"visual-overlay:{overlay_id}" for overlay_id in linked_visual_ids)
+    return changed, list(dict.fromkeys(stale))
 
 
 def _cmd_set_track_locked(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
@@ -3916,6 +4027,102 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
         f"{right_key}:render",
         "project:audio:render",
         "project:preview",
+    ]
+
+
+
+def _cmd_remove_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """Delete one independently editable audio clip, respecting lane locks."""
+    index = _audio_clip_index(ir, target_id)
+    clip = ir.audio[index]
+    lane_id = str(clip.track_id or f"audio-{clip.type.value}")
+    _ensure_audio_lane_unlocked(ir, lane_id)
+    linked_overlay_id = clip.linked_visual_overlay_id
+    changed = [f"audio:{clip.type.value}:{index}"]
+    stale = ["project:audio:render", "project:audio-tracks", "project:preview"]
+    if linked_overlay_id:
+        overlay_index = next(
+            (i for i, item in enumerate(ir.visual_overlays) if item.id == linked_overlay_id),
+            None,
+        )
+        if overlay_index is not None:
+            overlay = ir.visual_overlays[overlay_index]
+            _ensure_visual_track_unlocked(ir, str(overlay.track_id or "overlay-main"))
+            ir.visual_overlays[overlay_index] = overlay.model_copy(update={"source_audio_enabled": False})
+            changed.append(f"visual-overlay:{linked_overlay_id}")
+            stale.extend(["project:visual-overlays:render", "project:timeline:render"])
+    ir.audio.pop(index)
+    return changed, list(dict.fromkeys(stale))
+
+
+def _cmd_paste_audio_clip(
+    ir: CompositionIR, target_id: str, payload: dict, project_id: str,
+) -> Tuple[List[str], List[str]]:
+    """Paste a copied audio clip while keeping its mix role and editable parameters."""
+    if target_id != "audio-tracks":
+        raise EditorError("INVALID_TARGET", "paste_audio_clip 的 targetId 必须是 audio-tracks")
+    from video_director.models import AudioTrack
+
+    raw_clip = payload.get("clip")
+    if not isinstance(raw_clip, dict):
+        raise EditorError("INVALID_PAYLOAD", "粘贴音频片段缺少 clip 对象")
+    try:
+        source = AudioTrack.model_validate(raw_clip)
+    except Exception as exc:
+        raise EditorError("INVALID_PAYLOAD", f"复制的音频片段数据无效：{exc}") from exc
+    if not source.asset_id:
+        raise EditorError("ASSET_NOT_FOUND", "该音频片段未绑定可复用素材，不能复制粘贴")
+    known_asset = any(asset.id == source.asset_id for asset in ir.assets) or any(
+        clip.asset_id == source.asset_id for clip in ir.audio
+    )
+    if not known_asset:
+        raise EditorError("ASSET_NOT_FOUND", "复制的音频素材不属于当前项目，无法粘贴")
+
+    track_id = str(payload.get("trackId") or source.track_id or "").strip()
+    if not track_id or not any(lane.id == track_id for lane in ir.audio_tracks):
+        raise EditorError("NOT_FOUND", f"目标音频轨道 {track_id!r} 不存在", recoverable=False)
+    _ensure_audio_lane_unlocked(ir, track_id)
+    raw_start = payload.get("start")
+    if isinstance(raw_start, bool):
+        raise EditorError("INVALID_PAYLOAD", "start 不能是布尔值")
+    try:
+        start = float(raw_start)
+    except (TypeError, ValueError) as exc:
+        raise EditorError("INVALID_PAYLOAD", "粘贴位置 start 必须是数字") from exc
+    if not math.isfinite(start) or start < 0:
+        raise EditorError("INVALID_PARAMETER", "粘贴位置必须是有限非负数字")
+    start = _project_frame_time(ir, start)
+    duration = _project_frame_time(ir, float(source.duration))
+    if duration < _project_frame_min_duration(ir) - 1e-6:
+        raise EditorError("INVALID_PARAMETER", "复制音频片段按项目帧率对齐后不足一帧")
+    if start + duration > float(ir.project.duration) + 1e-6:
+        raise EditorError("INVALID_TIMELINE_RANGE", "粘贴后的音频片段超出项目时长")
+
+    asset = next((item for item in ir.assets if item.id == source.asset_id), None)
+    if asset and asset.duration is not None and source.source_out is not None:
+        try:
+            source_duration = float(asset.duration)
+        except (TypeError, ValueError):
+            source_duration = 0.0
+        if source_duration > 0 and float(source.source_out) > source_duration + 0.05:
+            raise EditorError("INVALID_SOURCE_RANGE", "复制音频片段的源区间超出素材时长")
+
+    updates = {
+        "id": f"audio-clip-{uuid.uuid4().hex[:12]}",
+        "start": round(start, 6),
+        "duration": round(duration, 6),
+        "track_id": track_id,
+        # A pasted source-audio clip is independent; never retain the source clip's linkage.
+        "linked_visual_overlay_id": None,
+    }
+    if str(getattr(source.type, "value", source.type)) == "original":
+        updates["follows_scene_video"] = False
+    pasted = source.model_copy(update=updates)
+    ir.audio.append(pasted)
+    index = len(ir.audio) - 1
+    key = f"audio:{pasted.type.value}:{index}"
+    return [key, f"audio-track:{track_id}"], [
+        f"{key}:render", "project:audio:render", "project:audio-tracks", "project:preview",
     ]
 
 
