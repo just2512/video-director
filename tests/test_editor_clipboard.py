@@ -148,6 +148,20 @@ def test_looped_bgm_right_trim_preserves_looping_and_uses_project_frames():
     assert ir.audio[0].source_out is None
 
 
+def test_left_trimmed_loop_bgm_advances_and_wraps_source_offset():
+    ir = _composition()
+    ir.audio[0] = ir.audio[0].model_copy(update={"source_in": 4.5, "source_out": None, "duration": 3})
+
+    editor._cmd_trim_audio_clip(
+        ir, "audio#0",
+        {"start": 1, "sourceIn": 5.5, "duration": 2, "loopToDuration": True},
+    )
+
+    assert ir.audio[0].start == 1
+    assert ir.audio[0].duration == 2
+    assert ir.audio[0].source_out is None
+    assert ir.audio[0].source_in == pytest.approx(0.5)
+
 def test_split_looped_bgm_keeps_looping_and_advances_source_offset():
     ir = _composition()
     ir.audio[0] = ir.audio[0].model_copy(update={"source_in": 0, "source_out": None, "duration": 3})
