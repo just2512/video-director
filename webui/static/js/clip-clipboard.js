@@ -81,11 +81,18 @@
     if (entry.kind === 'audio') {
       const list = ED.comp.audio || [];
       const origin = entry.origin || {};
-      let index = Number.isInteger(origin.index) ? origin.index : -1;
-      if (index < 0 || index >= list.length ||
-          String(list[index].type || '') !== String(origin.type || '') ||
-          String(list[index].asset_id || '') !== String(origin.assetId || '') ||
-          audioFingerprint(list[index]) !== String(origin.fingerprint || '')) {
+      let index = origin.id
+        ? list.findIndex(clip => String(clip.id || '') === String(origin.id))
+        : -1;
+      if (index < 0 && Number.isInteger(origin.index) &&
+          origin.index >= 0 && origin.index < list.length) {
+        const candidate = list[origin.index];
+        // AudioTrack.id is optional in legacy projects. Keep the selection anchored
+        // through ordinary move/trim operations when the indexed media is unchanged.
+        if (String(candidate.type || '') === String(origin.type || '') &&
+            String(candidate.asset_id || '') === String(origin.assetId || '')) index = origin.index;
+      }
+      if (index < 0) {
         index = list.findIndex(clip =>
           String(clip.type || '') === String(origin.type || '') &&
           String(clip.asset_id || '') === String(origin.assetId || '') &&
@@ -97,7 +104,7 @@
       return {
         kind: 'audio', clip: clone(clip),
         origin: {
-          kind: 'audio', index: index, fingerprint: audioFingerprint(clip),
+          kind: 'audio', index: index, id: String(clip.id || ''), fingerprint: audioFingerprint(clip),
           assetId: String(clip.asset_id || ''), type: String(clip.type || '')
         },
         trackId: String(clip.track_id || ''), index: index
