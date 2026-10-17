@@ -164,10 +164,17 @@
     return entry;
   }
 
+  function isProtectedTtsNarration(entry) {
+    return !!entry && entry.kind === 'audio' && String((entry.clip || {}).type || '') === 'narration';
+  }
   function copySelection(cut) {
     const selected = resolveEntry(state.selection);
     if (!selected) {
       toast('先选择一条独立画面或音频片段。', true);
+      return false;
+    }
+    if (isProtectedTtsNarration(selected)) {
+      toast('系统主旁白由 TTS 渲染链管理，不能作为普通片段复制/剪切；额外旁白请先作为独立音频素材导入。', true);
       return false;
     }
     state.selection = selected;
@@ -283,6 +290,10 @@
       toast('先选择需要删除的独立画面或音频片段。', true);
       return {ok:false};
     }
+    if (isProtectedTtsNarration(selected)) {
+      toast('系统主旁白不能作为普通片段删除；请使用音量/静音控制。', true);
+      return {ok:false, error:'TTS_NARRATION_PIPELINE_CLIP'};
+    }
     const command = selected.kind === 'audio' ? 'remove_audio_clip' : 'remove_visual_overlay';
     const targetId = selected.kind === 'audio' ? 'audio#' + selected.index : selected.origin.id;
     let result;
@@ -313,9 +324,14 @@
     const canPaste = !!(state.clipboard && context && state.clipboard.kind === context.kind);
     const actions = [];
     if (hasClip) {
-      actions.push(['copy','复制　Ctrl+C']);
-      actions.push(['cut','剪切　Ctrl+X']);
-      actions.push(['delete','删除　Delete']);
+      const selected = resolveEntry(state.selection);
+      if (isProtectedTtsNarration(selected)) {
+        actions.push(['protected','系统主旁白由 TTS 渲染链管理']);
+      } else {
+        actions.push(['copy','复制　Ctrl+C']);
+        actions.push(['cut','剪切　Ctrl+X']);
+        actions.push(['delete','删除　Delete']);
+      }
     }
     if (canPaste) actions.push(['paste','粘贴到播放头　Ctrl+V']);
     actions.push(['close','取消']);
@@ -337,7 +353,8 @@
       event.stopPropagation();
       const action = button.dataset.clipAction;
       closeMenu();
-      if (action === 'copy') copySelection(false);
+      if (action === 'protected') toast('系统主旁白不能作为普通片段编辑；额外旁白请添加为独立音频片段。', true);
+      else if (action === 'copy') copySelection(false);
       else if (action === 'cut') copySelection(true);
       else if (action === 'delete') await deleteSelection();
       else if (action === 'paste') await pasteClipboard();
