@@ -970,15 +970,32 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/sfx":
             self._send_json(_scan_sfx())
         elif route == "/api/audio_library":
-            # Safe catalog for the editor audio-track picker: expose IDs/metadata, never absolute paths.
+            # Safe audio choices from both the structured Asset Catalog and legacy audio manifests.
+            # Expose IDs/metadata only; never return absolute filesystem paths to the browser.
             try:
-                library = vd_audio.scan_library()
+                from video_director import asset_catalog as vd_acat
                 choices = []
-                for asset in library.values():
+                seen_audio_ids = set()
+                for entry in vd_acat.list_assets(kind="audio"):
+                    asset_id = str(entry.get("asset_id") or "")
+                    file_value = str(entry.get("file") or "")
+                    if not asset_id or asset_id in seen_audio_ids:
+                        continue
+                    seen_audio_ids.add(asset_id)
+                    choices.append({
+                        "id": asset_id,
+                        "label": entry.get("name") or asset_id,
+                        "role": "dialogue",
+                        "tags": list(entry.get("tags") or entry.get("keywords") or []),
+                        "duration": entry.get("duration"),
+                        "available": bool(file_value and Path(file_value).is_file()),
+                    })
+                for asset in vd_audio.scan_library().values():
                     asset_type = str(getattr(asset, "type", "sfx") or "sfx").lower()
                     role = "ambience" if asset_type in ("ambient", "ambience") else asset_type
-                    if role not in ("bgm", "sfx", "ambience"):
+                    if role not in ("bgm", "sfx", "ambience") or asset.id in seen_audio_ids:
                         continue
+                    seen_audio_ids.add(asset.id)
                     file_value = str(getattr(asset, "file", "") or "")
                     choices.append({
                         "id": asset.id,
