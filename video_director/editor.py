@@ -4112,11 +4112,6 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
             "SPLIT_UNSUPPORTED_NARRATION_PIPELINE",
             "旁白由独立渲染链路按单条旁白轨处理；当前版本暂不支持切分旁白，以免成片遗漏右段",
         )
-    if track.type in (AudioTrackType.bgm, AudioTrackType.ambience) and track.source_out is None:
-        raise EditorError(
-            "SPLIT_LOOPING_AUDIO_REQUIRES_SOURCE_WINDOW",
-            "背景音乐/环境音当前按循环模式播放。请先修剪出明确的源区间，再在播放头处分割",
-        )
 
     raw_at = payload.get("at")
     if isinstance(raw_at, bool):
@@ -4152,6 +4147,18 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
     source_out = track.source_out
     if not math.isfinite(source_in) or source_in < 0:
         raise EditorError("INVALID_SOURCE_RANGE", "音频源起点必须为有限非负时间")
+    looping = track.type in (AudioTrackType.bgm, AudioTrackType.ambience) and source_out is None
+    loop_source_duration = 0.0
+    if looping:
+        source_asset = next((asset for asset in ir.assets if asset.id == track.asset_id), None)
+        loop_source_duration = float(getattr(source_asset, "duration", 0.0) or 0.0) if source_asset else 0.0
+        if not math.isfinite(loop_source_duration) or loop_source_duration <= 0:
+            raise EditorError(
+                "LOOP_SOURCE_DURATION_UNKNOWN",
+                "无法确定背景音乐/环境音的源时长，不能安全切分循环片段；先重新探测该素材时长",
+            )
+        if source_in >= loop_source_duration:
+            raise EditorError("INVALID_SOURCE_RANGE", "循环音乐的源起点必须落在素材时长内")
     if source_out is not None:
         source_out = float(source_out)
         if (
@@ -4165,8 +4172,8 @@ def _cmd_split_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> T
             )
 
     source_boundary = source_in + left_duration * float(getattr(track, "speed", 1.0) or 1.0)
-    right_source_in = source_boundary
-    left_source_out = source_boundary if source_out is not None else None
+    right_source_in = (source_boundary % loop_source_duration) if looping else source_boundary
+    left_source_out = None if looping else (source_boundary if source_out is not None else None)
     fade_in = max(0.0, float(getattr(track, "fadeIn", 0.0) or 0.0))
     fade_out = max(0.0, float(getattr(track, "fadeOut", 0.0) or 0.0))
     left_update = {
