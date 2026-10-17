@@ -361,6 +361,8 @@
 
   document.addEventListener('pointerdown', event => {
     if (!event.target.closest('#editor-timeline')) return;
+    const row = event.target.closest('.ed-track[data-audio-track-id], .ed-track[data-visual-track-id]');
+    state.context = trackContext(row);
     const clip = event.target.closest('.ed-audio-clip[data-audio-index], .ed-visual-overlay-clip[data-visual-overlay-index]');
     if (clip) chooseSelection(clip);
   }, true);
