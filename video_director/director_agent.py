@@ -527,6 +527,65 @@ def _tool_material(spec: dict, state: dict) -> dict:
         except Exception as exc:
             warnings.append("网络素材补足失败：" + str(exc))
 
+    # 差距 1（仓库审计）：stock 补足后仍 missing 的场景，若分镜选中了 generated
+    # 候选（generation_type ∈ image/video/graphic/motion），调 generation 生成画面
+    # 补位——复用现有生成链，不新建 Agent。生成失败诚实降级，不炸主链。
+    if missing and match_enabled:
+        _gen_missing = [m for m in missing if m not in assignments]
+        if _gen_missing:
+            try:
+                from video_director import generation as gen_mod
+                gen_rw = int(spec.get("width") or config.DEFAULT_RESOLUTION[0])
+                gen_rh = int(spec.get("height") or config.DEFAULT_RESOLUTION[1])
+                generated_files = []
+                for sid in _gen_missing:
+                    sel_id = selected_candidate_by_scene.get(sid, "")
+                    cand = next(
+                        (c for c in (candidate_sets_by_scene.get(sid) or [])
+                         if isinstance(c, dict) and c.get("id") == sel_id),
+                        None,
+                    ) or {}
+                    gt = cand.get("generation_type") or ""
+                    if gt not in ("image", "video", "graphic", "motion"):
+                        continue
+                    prompt = str(cand.get("generation_prompt")
+                                 or next((s["text"] for s in state["narration_scenes"]
+                                          if s.get("id") == sid), ""))
+                    try:
+                        results = gen_mod.generate(
+                            state["project_id"], prompt, gt,
+                            width=gen_rw, height=gen_rh, variant="A",
+                        )
+                    except Exception as exc:
+                        warnings.append(f"生成补位失败（{sid}/{gt}）：{exc}")
+                        continue
+                    res = results[0] if results else None
+                    fpath = getattr(res, "file", "") if res else ""
+                    if not fpath or not Path(fpath).is_file():
+                        warnings.append(f"生成补位无产物（{sid}/{gt}）")
+                        continue
+                    if gt == "video":
+                        videos.append(fpath)
+                    else:
+                        images.append(fpath)
+                    generated_files.append((sid, fpath, gt))
+                if generated_files:
+                    # 重建素材清单，让生成物进入 all_assets/order；用 file 反查
+                    # build_manifest 产生的 asset_id（stem 命名），避免用 generation
+                    # 的项目内 id 与清单 id 错配。
+                    vv2, vo2 = assets_mod.build_manifest(videos, [], asset_metadata=metadata) if videos else ({}, [])
+                    ii2, io2 = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
+                    all_assets, order = {**vv2, **ii2}, vo2 + io2
+                    for sid, fpath, gt in generated_files:
+                        aid = next((a for a, ref in all_assets.items()
+                                    if str(ref.file) == str(fpath)), None)
+                        if aid:
+                            assignments[sid] = aid
+                            match_provenance[sid] = "generated"
+                            warnings.append(f"生成补位（{sid}/{gt}）→ {aid}")
+            except Exception as exc:
+                warnings.append("生成补位链路失败：" + str(exc))
+
     if not all_assets:
         return {
             "ok": False, "tool": "material.match", "status": "MISSING_REQUIREMENT",
@@ -578,12 +637,12 @@ def _tool_material(spec: dict, state: dict) -> dict:
     selection_reasons = {}
     for sid in assignments:
         src = match_provenance.get(sid) or "sequential"
-        base = _REASON_BY_SOURCE.get(src, _REASON_BY_SOURCE["sequential"])
+        reason_text = _REASON_BY_SOURCE.get(src, _REASON_BY_SOURCE["sequential"])
         note = policy_decisions and any(
             isinstance(d, dict) and d.get("scene_id") == sid for d in policy_decisions
         )
         selection_reasons[sid] = (
-            base + "；并依据来源/复用政策调整" if note and src != "policy" else base
+            reason_text + "；并依据来源/复用政策调整" if note and src != "policy" else reason_text
         )
     intent_data = mpt_semantics.material_intent_snapshot(
         state.get("narration_scenes") or [],
