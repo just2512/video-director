@@ -187,6 +187,10 @@
 
   function findAudioOrigin(origin) {
     const list = (ED.comp && ED.comp.audio) || [];
+    if (origin.id) {
+      const stableIndex = list.findIndex(clip => String(clip.id || '') === String(origin.id));
+      if (stableIndex >= 0) return stableIndex;
+    }
     if (Number.isInteger(origin.index) && origin.index >= 0 && origin.index < list.length) {
       const clip = list[origin.index];
       if (String(clip.type || '') === String(origin.type || '') &&
