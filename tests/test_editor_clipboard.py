@@ -372,6 +372,66 @@ def test_final_export_uses_saved_editor_ir_instead_of_replanning_when_no_storybo
     assert result == "/tmp/final.mp4"
     assert calls == [("edited-project", "vertical-1080p")]
 
+def test_copy_main_scene_video_pastes_as_visual_clip_with_original_audio_in_browser():
+    from playwright.sync_api import sync_playwright
+
+    script = ROOT / "webui" / "static" / "js" / "clip-clipboard.js"
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(
+                '<div id="editor-timeline"><div class="ed-layer" data-scene="S1" data-idx="0">shot</div></div>'
+            )
+            page.evaluate("""() => {
+              window.ED = {pid: 'p1', comp: {
+                duration: 10, project: {fps: 30},
+                scenes: [{id:'S1', start:0, layers:[{type:'video', asset_id:'video-a', start:0,
+                  duration:4, source_in:0, source_out:4, speed:1, fit_mode:'cover'}]}],
+                assets: [{id:'video-a', type:'video', file:'/tmp/video-a.mp4', duration:8}],
+                visual_tracks: [{id:'visual-main', name:'主画面', order:0, locked:false}],
+                visual_overlays: [],
+                audio_tracks: [{id:'audio-original', name:'原声', order:0, locked:false}],
+                audio: [{id:'original-a', type:'original', asset_id:'video-a', track_id:'audio-original',
+                  start:0, duration:4, source_in:0, source_out:4, speed:1, follows_scene_video:true, volume:0.7}]
+              }};
+              window.PLAYHEAD = {at: 0};
+              window.__commands = [];
+              window.editorToast = (message, isError) => { window.__toast = {message, isError}; };
+              window.refreshWorkspace = async () => {};
+              window.executeCommand = async request => {
+                window.__commands.push(JSON.parse(JSON.stringify(request)));
+                const visual = JSON.parse(JSON.stringify(request.payload.clip));
+                visual.id = 'overlay-copy'; visual.start = request.payload.start;
+                visual.track_id = request.payload.trackId;
+                window.ED.comp.visual_overlays.push(visual);
+                if (request.payload.linkedAudio) {
+                  const audio = JSON.parse(JSON.stringify(request.payload.linkedAudio));
+                  audio.id = 'copy-audio'; audio.start = visual.start;
+                  audio.track_id = request.payload.audioTrackId;
+                  audio.linked_visual_overlay_id = visual.id;
+                  window.ED.comp.audio.push(audio);
+                }
+                return {ok:true};
+              };
+            }""")
+            page.add_script_tag(path=str(script))
+            page.locator('.ed-layer').dispatch_event('pointerdown', button=0)
+            copied = page.evaluate("() => window.editorClipCopy(false)")
+            assert copied is True
+            page.evaluate("() => { window.PLAYHEAD.at = 5; }")
+            pasted = page.evaluate("async () => await window.editorClipPaste()")
+            assert pasted['ok'] is True
+            command = page.evaluate("() => window.__commands[0]")
+            assert command['command'] == 'paste_visual_overlay'
+            assert command['payload']['start'] == 5
+            assert command['payload']['trackId'] == 'visual-main'
+            assert command['payload']['linkedAudio']['asset_id'] == 'video-a'
+            assert command['payload']['linkedAudio']['type'] == 'original'
+            assert command['payload']['audioTrackId'] == 'audio-original'
+        finally:
+            browser.close()
+
 def test_clipboard_frontend_is_loaded_and_uses_shared_command_service():
     clipboard = ROOT / "webui" / "static" / "js" / "clip-clipboard.js"
     index = ROOT / "webui" / "static" / "index.html"
