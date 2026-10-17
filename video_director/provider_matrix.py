@@ -52,6 +52,9 @@ class ProviderDefinition:
     requires_model: bool = False
     implemented: bool = True
     note: str = ""
+    # 已知纯文本模型黑名单（2026-10-17 生产事故：vision 配 MiniMax-M3 → 全部素材 400 白烧）。
+    # 命中即判 NOT_CONFIGURED 并写明原因；未收录模型放行，由真实调用失败诚实降级。
+    text_only_model_patterns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,16 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
         "frame-vision-openai-compatible", "vision", "OpenAI 兼容视觉",
         ("vision.frame_analyze",), requires_model=True, requires_base_url=True,
         note="抽帧后调用 chat/completions 多模态消息",
+        text_only_model_patterns=(
+            # 已知纯文本模型（误配进 vision 角色时提前拦截，不发 image_url 才发现的 400）
+            "MiniMax-M3*", "MiniMax-Text-*",
+            "deepseek-v3*", "deepseek-chat*", "deepseek-r1*",
+            "gpt-3.5*", "gpt-4-mini", "gpt-4-turbo-*",
+            "qwen-turbo*", "qwen-plus*", "qwen-max*",
+            "glm-4", "glm-4-[0-9]*", "glm-4.5", "glm-4.5-[0-9]*", "glm-4-air*",
+            "moonshot-v1-*",
+            "*-text-*",
+        ),
     ),
     ProviderDefinition(
         "twelvelabs-marengo", "semantic_rerank", "Twelve Labs Marengo",
@@ -256,6 +269,17 @@ def _configured(defn: ProviderDefinition, cfg: Mapping[str, Any], *, manual_mani
 
     if defn.requires_model and not str(cfg.get("model") or "").strip():
         return False, "未配置模型名"
+
+    # 已知纯文本模型配进多模态角色 → 提前判不就绪（不发 image_url 才发现的 400）。
+    # 同时匹配全名与「/」末段（ModelScope 风格 Org/Model 前缀：MiniMax/MiniMax-M3）。
+    model_id = str(cfg.get("model") or "").strip()
+    if defn.text_only_model_patterns and model_id:
+        import fnmatch
+        candidates = {model_id.lower(), model_id.rsplit("/", 1)[-1].lower()}
+        for pat in defn.text_only_model_patterns:
+            pat = pat.lower()
+            if any(fnmatch.fnmatch(m, pat) for m in candidates):
+                return False, f"模型 {model_id} 是纯文本模型，不支持视觉输入；请在设置里换成多模态模型"
 
     return True, ""
 

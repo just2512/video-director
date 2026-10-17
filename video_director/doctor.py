@@ -129,14 +129,31 @@ def _check_llm() -> CheckResult:
 
 def _check_vision() -> CheckResult:
     """Vision 是可选增强：不配 key 完全不影响使用，核心内容匹配靠
-    文件名语义 + 概念桥接（零依赖零成本）。"""
-    import os
-    if os.environ.get("COMPOSER_VISION_API_KEY"):
-        return CheckResult("Vision 增强（可选）", "PASS",
-                           os.environ.get("COMPOSER_VISION_MODEL", "gpt-4o"))
-    return CheckResult("Vision 增强（可选）", "SKIP",
-                       "未配置——不影响使用。核心匹配已用文件名语义零依赖完成；"
-                       "配 COMPOSER_VISION_API_KEY 可升级为视觉级理解")
+    文件名语义 + 概念桥接（零依赖零成本）。
+
+    2026-10-17 生产事故修复：检测源必须与运行时同源——运行时
+    FrameVisionProvider 读 model_config（env 只是兜底），本检查却只查 env，
+    导致用户前端配好 vision、doctor 却报「未配置」的自相矛盾。改为同读
+    model_config + provider_matrix，纯文本模型误配（MiniMax-M3→400 白烧）
+    在这里直接亮出来。
+    """
+    try:
+        from video_director import model_config, provider_matrix
+        cfg = model_config.get_role_config("vision")
+        if not str(cfg.get("api_key") or "").strip():
+            # env 兜底（与 FrameVisionProvider.__init__ 同序：model_config 优先，env 次之）
+            import os
+            if not os.environ.get("COMPOSER_VISION_API_KEY"):
+                return CheckResult("Vision 增强（可选）", "SKIP",
+                                   "未配置——不影响使用。核心匹配已用文件名语义零依赖完成；"
+                                   "在设置 → 模型里配视觉角色可升级为视觉级理解")
+        st = provider_matrix.state("vision", "vision.frame_analyze", cfg)
+        if st.status == provider_matrix.READY:
+            return CheckResult("Vision 增强（可选）", "PASS", str(cfg.get("model") or ""))
+        # NOT_READY：纯文本模型误配等，如实亮出原因
+        return CheckResult("Vision 增强（可选）", "FAIL", st.reason or "视觉能力不可用")
+    except Exception as exc:
+        return CheckResult("Vision 增强（可选）", "FAIL", f"检测异常: {str(exc)[:120]}")
 
 
 def _check_whisper() -> CheckResult:

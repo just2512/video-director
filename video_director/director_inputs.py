@@ -424,7 +424,7 @@ def build_plan(bundle: dict, brief: str) -> dict:
         "script": sources,
         "scene_plan": ["script:main"] + [x for x in sources if x != "script:user"],
         "narration": ["script:main"],
-        "material_match": ["scene_plan"] + [x for x in sources if x.startswith(("asset_pool", "reference:", "software_project:"))],
+        "material_match": ["scene_plan", "narration:timeline"] + [x for x in sources if x.startswith(("asset_pool", "reference:", "software_project:"))],
         "subtitle": ["narration:timeline"],
         "music": ["scene_plan", "reference:style"],
         "composition": ["scene_plan", "narration:timeline", "material_match:assets", "subtitle:track", "music:track", "director:constraints"],
@@ -435,7 +435,7 @@ def build_plan(bundle: dict, brief: str) -> dict:
     }
     dependencies = {
         "script": ["understand"], "scene_plan": ["script"], "narration": ["script"],
-        "material_match": ["scene_plan"], "subtitle": ["narration"],
+        "material_match": ["scene_plan", "narration"], "subtitle": ["narration"],
         "music": ["scene_plan"], "composition": [
             "scene_plan", "narration", "material_match", "subtitle", "music"
         ], "watermark": ["composition"], "preview": ["composition", "watermark"],

@@ -355,6 +355,17 @@ def _tool_narration(spec: dict, state: dict) -> dict:
 
 def _tool_material(spec: dict, state: dict) -> dict:
     pid = state["project_id"]
+    # 2026-10-17 生产事故：依赖图曾漏声明 narration（material_match 硬读
+    # narration_scenes），调度器选了 material_match 先跑 → 裸 KeyError。依赖已补，
+    # 这里再做一道前置校验：任何原因导致 narration_scenes 缺失时，报可定位的根因
+    # 而不是 'narration_scenes' 一个词。
+    if not state.get("narration_scenes"):
+        return {
+            "ok": False, "tool": "material.plan", "status": "MISSING_REQUIREMENT",
+            "error": "narration（配音）尚未完成，无法匹配画面：请先完成或重试配音节点",
+            "result": {}, "verify": {"ok": False,
+                "checks": [{"id": "narration_scenes", "ok": False}]},
+        }
     base = config.project_dir(pid)
     videos = list(state.get("video_files") or [])
     images = list(state.get("image_files") or [])
@@ -1484,7 +1495,9 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 node["status"] = "PENDING"
             else:
                 # 2026-10-13 报障教训：只报节点名不报根因，查障全靠翻日志。
-                # 内层 error 必须随异常上抛（落 run.error → 前端可见）。
+                # 致命失败也必须落盘 plan（2026-10-17 物证：失败 run 的 plan
+                # 停在旧快照，UI 显示过期节点状态）。
+                di.persist_plan(pid, plan)
                 inner = str(tool_result.get("error") or "")[:400]
                 raise DirectorAgentError(
                     f"节点执行失败且无法恢复：{node_id}"
