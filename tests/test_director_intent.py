@@ -91,6 +91,12 @@ class TestValueNormalization:
         assert r.get("clip_duration") == "3"
         assert "duration" not in r, f"单镜头语境被误报成总时长: {r}"
 
+    def test_compound_clip_and_total_duration(self):
+        """复合 brief：镜头时长与总时长独立提取（不互斥、不互吞）。"""
+        r = resolve_director_intents("时长40秒以上，每个镜头3秒")
+        assert r.get("clip_duration") == "3"
+        assert r.get("duration", "").startswith("40"), r
+
 
 class TestLaneMutedAndHidden:
     """lane 级静音 + 轨道隐藏命令。"""
