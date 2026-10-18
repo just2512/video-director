@@ -50,9 +50,9 @@
 /* Named audio lanes: lane ownership is separate from semantic mix role. */
 .ed-audio-track-label { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:3px; }
 .ed-audio-track-label > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ed-audio-track-menu, .ed-audio-track-add { flex:0 0 auto; padding:2px 5px; line-height:1.2; }
+.ed-audio-track-menu, .ed-audio-track-add, .ed-visual-track-add { flex:0 0 auto; padding:2px 5px; line-height:1.2; }
 .ed-audio-track-menu::after { content:"⋯"; }
-.ed-audio-track-add { margin-left:8px; }
+.ed-audio-track-add, .ed-visual-track-add { margin-left:8px; }
 .audio-track-inspector-mask {
   position:fixed; inset:0; z-index:1800; display:flex; align-items:center;
   justify-content:center; padding:16px; background:rgb(0 0 0 / 42%);

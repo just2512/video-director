@@ -137,13 +137,14 @@
     const volume = Number(mask.querySelector('#audio-asset-picker-volume').value);
     const fadeIn = Number(mask.querySelector('#audio-asset-picker-fade').value);
     const projectDuration = Math.max(0, Number(ED.comp.duration || (ED.comp.project && ED.comp.project.duration)) || 0);
-    const remaining = Math.max(0, projectDuration - start);
-    if (!Number.isFinite(start) || start < 0 || start >= projectDuration) {
+    // 工程时长未知（raw-IR 响应）：不替后端拒死，仅校验有限非负，范围交服务端裁决。
+    if (!Number.isFinite(start) || start < 0 || (projectDuration && start >= projectDuration)) {
       toast('时间线起点必须位于工程时长内。', true); return;
     }
+    const remaining = projectDuration ? Math.max(0, projectDuration - start) : 0;
     if (durationRaw && (!Number.isFinite(Number(durationRaw)) || Number(durationRaw) <= 0 ||
-        Number(durationRaw) > remaining + 1e-6)) {
-      toast('片段时长必须大于 0，且不能超过工程剩余时长。', true); return;
+        (projectDuration && Number(durationRaw) > remaining + 1e-6))) {
+      toast('片段时长必须大于 0' + (projectDuration ? '，且不能超过工程剩余时长。' : '。'), true); return;
     }
     if (!Number.isFinite(volume) || volume < 0 || volume > 2) {
       toast('音量必须在 0–2 之间。', true); return;

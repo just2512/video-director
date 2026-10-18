@@ -310,12 +310,14 @@
     }
     const total = Math.max(0, Number(ED.comp.duration || (ED.comp.project && ED.comp.project.duration)) || 0);
     const duration = Math.max(0, Number(item.clip.duration) || 0);
-    if (!total || !duration || duration > total) {
+    if (duration <= 0 || (total && duration > total)) {
       toast('片段时长超出当前工程范围，未粘贴。', true);
       return {ok:false};
     }
+    // total 未知（raw-IR 编辑器响应可能不带 duration/project.duration）：不替后端
+    // 拒死，交服务端按 canonical 工程时长校验（INVALID_TIMELINE_RANGE 会被如实回显）。
     const rawPlayhead = Number(window.PLAYHEAD && PLAYHEAD.at) || 0;
-    const start = Math.max(0, Math.min(rawPlayhead, total - duration));
+    const start = total ? Math.max(0, Math.min(rawPlayhead, total - duration)) : Math.max(0, rawPlayhead);
     const preferred = state.context && state.context.kind === item.kind ? state.context : null;
     let trackId = String((preferred && preferred.trackId) || item.trackId || '');
     if (item.kind === 'audio') {

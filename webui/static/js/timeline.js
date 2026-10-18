@@ -420,7 +420,7 @@ function renderPhysicalTimeline(){
         onclick:'editorSelectVisualOverlay(' + index + ', event)' };
     }).filter(item => String((visualOverlays[item.visualOverlayIndex] || {}).track_id || 'overlay-main') === trackId);
     tracks.picture.push({ id:'visual-overlay-' + trackId, label:track.name || '画面叠加',
-      visualTrackId:trackId, trackOrder:Number(track.order) || 0, locked:!!track.locked, addAction:'editorVisualOverlayPick', newTrackAction:null, clips });
+      visualTrackId:trackId, trackOrder:Number(track.order) || 0, locked:!!track.locked, addAction:'editorVisualOverlayPick', newTrackAction:'editorVisualTrackCreate', clips });
   });
   // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位.
   // 之前每类声音只显示第一条记录并绘制为 100% 全长，和实际渲染时间语义不一致。
@@ -600,7 +600,7 @@ function renderPhysicalTimeline(){
       html += `<div class="ed-track-group" onclick="tlToggleGroup('${g}')">
         <span class="ed-group-caret">▾</span> ${G.label}` +
         (g === 'picture'
-          ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增独立画面轨道（视频/图片/画中画）" onclick="event.stopPropagation(); editorVisualTrackCreate(event)">＋画面轨</button>'
+          ? '<button type="button" class="btn-secondary btn-sm ed-visual-track-add" title="新增独立画面轨道（视频/图片/画中画）" onclick="event.stopPropagation(); editorVisualTrackCreate(event)">＋画面轨</button>'
           : (g === 'sound'
             ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增独立音轨（旁白/音乐/音效）" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>'
             : '')) + '</div>';
