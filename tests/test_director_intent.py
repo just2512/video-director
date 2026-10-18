@@ -57,6 +57,39 @@ class TestDirectorIntent:
             assert f in fields, f
 
 
+class TestValueNormalization:
+    """意图值 → 系统真实契约的二次映射（防「识别了但下游 Invalid」）。"""
+
+    def test_voice_freetext_to_real_id(self):
+        """「温柔女声」必须落白名单 voice_id，不是字面文本。"""
+        assert director_intent._normalize_voice("温柔女声") == "zh-CN-XiaoxiaoNeural"
+        assert director_intent._normalize_voice("沉稳男声") == "zh-CN-YunjianNeural"
+        # 已是合法 id 透传
+        assert director_intent._normalize_voice("zh-CN-YunxiNeural") == "zh-CN-YunxiNeural"
+        # 无法识别的性别词 → None（不传，用默认）
+        assert director_intent._normalize_voice("外星人") is None
+
+    def test_style_freetext_to_registry_id(self):
+        """「电影感大片」→ cinematic-story；未注册风格保留原文作 style_intent。"""
+        assert director_intent._normalize_style("电影感大片") == "cinematic-story"
+        assert director_intent._normalize_style("赛博朋克") == "赛博朋克"  # 未注册：透传
+        assert director_intent._normalize_style("documentary-calm") == "documentary-calm"
+
+    def test_transition_and_fit_enum(self):
+        assert director_intent._normalize_value("transition_mode", "淡入淡出") == "fade"
+        assert director_intent._normalize_value("fit_mode", "完整显示留黑边") == "contain"
+
+    def test_subtitle_mode_enum(self):
+        assert director_intent._normalize_value("subtitle_mode", "中英双语") == "bilingual"
+        assert director_intent._normalize_value("subtitle_mode", "不要") == "off"
+
+    def test_clip_duration_not_total_duration(self):
+        """「每个镜头 3 秒」是单镜头时长，不得误报成片总时长。"""
+        r = resolve_director_intents("每个镜头 3 秒")
+        assert r.get("clip_duration") == "3"
+        assert "duration" not in r, f"单镜头语境被误报成总时长: {r}"
+
+
 class TestLaneMutedAndHidden:
     """lane 级静音 + 轨道隐藏命令。"""
 
