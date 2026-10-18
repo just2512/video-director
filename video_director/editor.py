@@ -428,6 +428,8 @@ SUPPORTED_COMMANDS = (
     "rename_audio_track",         # 重命名音轨
     "remove_audio_track",         # 仅允许删除空音轨
     "set_track_locked",            # 音频/画面物理轨道锁定
+    "set_track_muted",             # 音频物理轨道静音（lane 级，差距 P1）
+    "set_track_hidden",            # 轨道隐藏（画面/音频，时间线折叠，差距 P1）
     "add_audio_clip",            # 兼容旧 SFX 入口
     "add_audio_asset_clip",       # 把可信音频库中的素材加入任意物理音轨
     "move_audio_clip",           # §17 独立音频片段位置编辑
@@ -739,6 +741,10 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_remove_audio_track(ir, target_id, payload)
         elif cmd_name == "set_track_locked":
             changed, stale = _cmd_set_track_locked(ir, target_id, payload)
+        elif cmd_name == "set_track_muted":
+            changed, stale = _cmd_set_track_muted(ir, target_id, payload)
+        elif cmd_name == "set_track_hidden":
+            changed, stale = _cmd_set_track_hidden(ir, target_id, payload)
         elif cmd_name == "add_audio_clip":
             changed, stale = _cmd_add_audio_clip(ir, target_id, payload)
         elif cmd_name == "add_audio_asset_clip":
@@ -3798,6 +3804,46 @@ def _cmd_set_track_locked(ir: CompositionIR, target_id: str, payload: dict) -> T
         ir.visual_tracks[index] = track.model_copy(update={"locked": locked})
         key = f"visual-track:{target_id}"
         return [key], ["project:visual-tracks", "project:visual-overlays:render", "project:preview"]
+    raise EditorError("INVALID_PAYLOAD", "trackType 必须是 audio 或 visual")
+
+def _cmd_set_track_muted(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """轨级静音（差距 P1）：整条物理音轨静音，渲染时该 lane 所有片段不发声音。
+
+    与片段级 muted 正交——轨道静音是 lane 属性，片段静音仍是 clip 属性。
+    """
+    if payload.get("trackType") != "audio":
+        raise EditorError("INVALID_PAYLOAD", "set_track_muted 只支持 audio 轨道")
+    muted = payload.get("muted")
+    if not isinstance(muted, bool):
+        raise EditorError("INVALID_PAYLOAD", "muted 必须是布尔值")
+    index = _audio_lane_index(ir, target_id)
+    lane = ir.audio_tracks[index]
+    if bool(lane.muted) == muted:
+        raise EditorError("NOOP", "音频轨道已处于该静音状态")
+    ir.audio_tracks[index] = lane.model_copy(update={"muted": muted})
+    stale = ["project:audio-tracks", "project:audio:render", "project:preview"]
+    return [f"audio-track:{target_id}"], stale
+
+def _cmd_set_track_hidden(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
+    """轨道隐藏（差距 P1）：时间线折叠该轨，仅排查用，不影响渲染输出。"""
+    track_type = payload.get("trackType")
+    hidden = payload.get("hidden")
+    if not isinstance(hidden, bool):
+        raise EditorError("INVALID_PAYLOAD", "hidden 必须是布尔值")
+    if track_type == "audio":
+        index = _audio_lane_index(ir, target_id)
+        lane = ir.audio_tracks[index]
+        if bool(lane.hidden) == hidden:
+            raise EditorError("NOOP", "音频轨道已处于该显示状态")
+        ir.audio_tracks[index] = lane.model_copy(update={"hidden": hidden})
+        return [f"audio-track:{target_id}"], ["project:audio-tracks"]
+    if track_type == "visual":
+        index = _visual_track_index(ir, target_id)
+        track = ir.visual_tracks[index]
+        if bool(track.hidden) == hidden:
+            raise EditorError("NOOP", "画面轨道已处于该显示状态")
+        ir.visual_tracks[index] = track.model_copy(update={"hidden": hidden})
+        return [f"visual-track:{target_id}"], ["project:visual-tracks"]
     raise EditorError("INVALID_PAYLOAD", "trackType 必须是 audio 或 visual")
 
 def _ensure_audio_roles_unlocked(ir: CompositionIR, track_types):

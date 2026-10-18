@@ -81,7 +81,7 @@ UI_ONLY_PREFIXES = (
     "editorInspectorPatchVisualOverlay(", "editorInspectorToggleOverlayAudio(", "editorInspectorPatchAudioClip(",
     "editorEditSelectedVisualOverlay(", "editorClipCopy(",
     "editorAudioTrackAdd(", "editorAudioAssetPick(", "editorAudioTrackMenu(", "editorAudioTrackMenuClose(",
-    "editorAudioTrackApplyName(", "editorAudioTrackRemove(", "editorAudioTrackToggleLock(", "editorSubtitleCueSelect(",
+    "editorAudioTrackApplyName(", "editorAudioTrackRemove(", "editorAudioTrackToggleLock(", "editorAudioTrackToggleMute(", "editorAudioTrackToggleHidden(", "editorSubtitleCueSelect(",
     "editorWatermarkClipOpen(", "editorWatermarkClipApply(", "editorWatermarkClipClose(",
     "edxSelectScene(", "edxDirectorEdit(", "edxMaterialMatch(", "edxApplyMaterialMatch(",
     "edxProposeTransitions(", "edxApproveTransition(", "edxRejectTransition(",

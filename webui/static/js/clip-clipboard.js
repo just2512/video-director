@@ -287,6 +287,24 @@
     return true;
   }
 
+  async function duplicateInPlace() {
+    // 差距 P1：原位复制——选中片段后一次 Ctrl+D 生成同轨紧邻副本，不用复制→
+    // 移播放头→粘贴三步。复用 copy（保留源引用/裁剪/参数）→ 就地粘贴同链。
+    const selected = resolveEntry(state.selection);
+    if (!selected) { toast('先选择一条独立画面或音频片段。', true); return false; }
+    if (isProtectedTtsNarration(selected)) {
+      toast('系统主旁白由 TTS 渲染链管理，不能复制。', true); return false;
+    }
+    if (!copySelection(false)) return false;
+    // 就地粘贴：播放头设到源片段尾部，落同轨紧邻位置
+    const tail = (Number(selected.clip.start) || 0) + (Number(selected.clip.duration) || 0);
+    if (window.PLAYHEAD) PLAYHEAD.at = tail;
+    state.context = {kind: selected.kind, trackId: selected.trackId};
+    const result = await pasteClipboard();
+    if (result && result.ok) toast('已生成原位副本');
+    return result && result.ok;
+  }
+
   function findAudioOrigin(origin) {
     const list = (ED.comp && ED.comp.audio) || [];
     if (origin.id) {
@@ -574,6 +592,9 @@
     if (modifier && key === 'v' && state.clipboard) {
       event.preventDefault(); await pasteClipboard(); return;
     }
+    if (modifier && key === 'd' && resolveEntry(state.selection)) {
+      event.preventDefault(); await duplicateInPlace(); return;
+    }
     if (key === 'delete' && resolveEntry(state.selection)) {
       event.preventDefault(); await deleteSelection(); return;
     }
@@ -584,4 +605,5 @@
   window.editorClipCopy = copySelection;
   window.editorClipPaste = pasteClipboard;
   window.editorClipDeleteSelected = deleteSelection;
+  window.editorClipDuplicate = duplicateInPlace;
 })();

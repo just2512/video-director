@@ -186,7 +186,10 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     "x": 0.6, "y": 0.1, "width": 0.3, "height": 0.3,
                     "opacity": 0.8, "z_index": 1,
                 }, api_composition
-                assert api_composition["body"]["audio_tracks"] == [
+                assert [
+                    {key: lane.get(key) for key in ("id", "name", "order", "locked")}
+                    for lane in api_composition["body"]["audio_tracks"]
+                ] == [
                     {"id": "audio-custom-music", "name": "自定义配乐", "order": 0, "locked": False},
                     {"id": "audio-custom-foley", "name": "细节音效", "order": 1, "locked": False},
                 ], api_composition
@@ -205,7 +208,10 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                      "source_in": 0.0, "source_out": 0.25, "volume": 0.45,
                      "muted": False, "fadeIn": 0.0, "fadeOut": 0.0},
                 ], api_composition
-                assert api_composition["body"]["visual_tracks"] == [
+                assert [
+                    {key: t.get(key) for key in ("id", "name", "order", "locked")}
+                    for t in api_composition["body"]["visual_tracks"]
+                ] == [
                     {"id": "overlay-main", "name": "品牌叠加", "order": 0, "locked": False},
                     {"id": "overlay-callouts", "name": "动态字卡", "order": 1, "locked": False},
                 ], api_composition

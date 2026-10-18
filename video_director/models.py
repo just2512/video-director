@@ -475,6 +475,8 @@ class AudioLane(BaseModel):
     name: str
     order: int = 0
     locked: bool = False  # 锁轨：阻止对轨内片段进行时间线编辑
+    muted: bool = False   # 轨级静音（§37 Audio Bus lane 化）：整条 lane 静音，不逐个片段
+    hidden: bool = False  # 轨道隐藏：时间线折叠，仅用于复杂工程排查（不影响渲染）
 
     @model_validator(mode="after")
     def _check_audio_lane(self):
@@ -614,6 +616,7 @@ class VisualTrack(BaseModel):
     name: str
     order: int = 0
     locked: bool = False  # 锁轨：阻止对轨内片段进行时间线编辑
+    hidden: bool = False  # 轨道隐藏：时间线折叠（不影响渲染）
 
     @model_validator(mode="after")
     def _check_visual_track(self):

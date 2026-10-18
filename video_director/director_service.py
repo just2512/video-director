@@ -121,7 +121,28 @@ def create_director_run(payload: dict) -> dict:
         if rw <= 0 or rh <= 0:
             raise DirectorServiceError("INVALID_RESOLUTION", "resolution 的宽高必须大于 0")
     else:
-        rw, rh = platform_dims.get(platform, config.DEFAULT_RESOLUTION)
+        resolved_dims = platform_dims.get(platform)
+        rw = rh = None
+        if resolved_dims:
+            rw, rh = resolved_dims
+        # 2026-10-18：无显式分辨率时优先匹配用户第一个视频素材的宽高（16:9 素材
+        # 不该被默认成 9:16）。只在用户确实指定了平台画幅时用平台默认；否则
+        # probe 源素材，均失败才回 config.DEFAULT_RESOLUTION。
+        if rw is None:
+            for ref in (bundle.get("assets") or {}).get("asset_refs") or []:
+                f = (ref or {}).get("file")
+                if not f or str(ref.get("type") or "").lower() != "video":
+                    continue
+                try:
+                    from video_director import prober
+                    pr = prober.probe_media(str(f))
+                    if pr and pr.width and pr.height:
+                        rw, rh = int(pr.width), int(pr.height)
+                        break
+                except Exception:
+                    continue
+        if rw is None:
+            rw, rh = config.DEFAULT_RESOLUTION
 
     confirm_mode = str(payload.get("confirm_mode") or "preview").strip()
     if confirm_mode not in {"preview", "direct"}:
@@ -153,37 +174,55 @@ def create_director_run(payload: dict) -> dict:
             "INVALID_VISUAL_SOURCE", "visual_source 仅支持 auto、mixed、online、local"
         )
 
+    # 2026-10-18 系统性修复：自然语言 brief → 导演参数。此前用户说「加水印」
+    # 「40 秒以上」「放慢配音速度」都只存在 brief 文本里，从不进 spec——AI 导演
+    # 「看不到」这些要求。这里用能力目录驱动解析，结果只回填 payload 未显式给的
+    # 字段（显式前端选择永远优先，用户意图是兜底不是覆盖）。
+    from video_director import director_intent
+    intent = director_intent.resolve_director_intents(brief)
+    # 意图解析出的分辨率走与显式 resolution 相同的校验/归一路径
+    if not resolution and intent.get("resolution"):
+        resolution = intent.get("resolution")
+        rw, rh = (int(part) for part in resolution.split("x", 1))
+
     spec = {
         "project_id": pid, "script": script, "creative_brief": brief, "brief": brief,
         "mode": payload.get("mode") or "auto",
-        "voice": payload.get("voice") or "zh-CN-XiaoxiaoNeural",
-        "voice_mode": payload.get("voice_mode") or "auto",
-        "voice_rate": payload.get("voice_rate") or "1.0",
-        "style_intent": payload.get("style_intent") or inputs.get("style") or "",
+        "voice": payload.get("voice") or intent.get("voice") or "zh-CN-XiaoxiaoNeural",
+        "voice_mode": payload.get("voice_mode") or intent.get("voice_mode") or "auto",
+        "voice_rate": payload.get("voice_rate") or intent.get("voice_rate") or "1.0",
+        "style_intent": payload.get("style_intent") or inputs.get("style") or intent.get("style") or "",
         "width": rw, "height": rh, "fps": fps,
-        "bgm": payload.get("bgm") or "auto", "bgm_volume": bgm_volume,
-        "narration_volume": narration_volume, "sfx_plan": payload.get("sfx_plan"),
+        "bgm": payload.get("bgm") or intent.get("bgm") or "auto",
+        "bgm_volume": bgm_volume,
+        "narration_volume": narration_volume,
+        "sfx_plan": payload.get("sfx_plan"),
         # 音效自动搜索（Openverse 免 Key：freesound 源 CC0，本地未命中自动搜）
         "auto_sfx_search": bool(payload.get("auto_sfx_search", False)),
         # 具体音效选择（前端 cf-sfx；'openverse-auto' 由 workflow_run 归一）
-        "sfx": payload.get("sfx") or payload.get("sfx_choice") or "auto",
-        "subtitle_mode": payload.get("subtitle_mode") or "plain",
-        "fit_mode": payload.get("fit_mode") or "cover",
+        "sfx": payload.get("sfx") or payload.get("sfx_choice") or intent.get("sfx") or "auto",
+        "subtitle_mode": payload.get("subtitle_mode") or intent.get("subtitle_mode") or "plain",
+        "fit_mode": payload.get("fit_mode") or intent.get("fit_mode") or "cover",
         "clip_duration": payload.get("clip_duration"),
         "clip_speed": payload.get("clip_speed"),
         "concat_mode": payload.get("concat_mode") or "sequential",
-        "transition_mode": payload.get("transition_mode") or "cut",
+        "transition_mode": payload.get("transition_mode") or intent.get("transition_mode") or "cut",
         "match_materials_to_script": bool(payload.get("match_materials_to_script", True)),
         "stop_at": str(payload.get("stop_at") or "video"),
-        "watermark": payload.get("watermark") or "",
-        "lower_third_name": payload.get("lower_third_name") or "",
-        "lower_third_role": payload.get("lower_third_role") or "",
+        "watermark": payload.get("watermark") or intent.get("watermark") or "",
+        "title": payload.get("title") or intent.get("title") or "",
+        "lower_third_name": payload.get("lower_third_name") or intent.get("lower_third_name") or "",
+        "lower_third_role": payload.get("lower_third_role") or intent.get("lower_third_role") or "",
         "confirm_mode": confirm_mode, "auto_confirm": confirm_mode == "direct",
         "visual_source": visual_source,
         "video_paths": payload.get("video_paths") or [],
         "image_paths": payload.get("image_paths") or [],
         "narration_upload": payload.get("narration_upload") or "",
         "director_inputs": bundle,
+        # 意图解析出的目标时长（秒）——脚本生成时注入 constraints 控制文案长度。
+        # 挂在 spec 上而非 dirinputs（dirinputs 的 creative_settings.duration 语义是
+        # 「总时长」字符串，意图值是秒的规范化结果，二者不要混同）。
+        "_intent_duration_s": intent.get("duration") or "",
     }
     run_id = wf.run_director_create_async(spec, plan=plan)
     return {

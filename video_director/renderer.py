@@ -877,6 +877,15 @@ def mix_audio(
     idx = 0
     total = ir.project.duration
 
+    # 2026-10-18 lane 级静音（差距 P1）：物理音轨 muted=True 时，该 lane 上所有
+    # 片段都静音。逐片段 muted 仍是片段级控制，二者取「或」。
+    muted_lanes = {
+        str(lane.id) for lane in (ir.audio_tracks or []) if getattr(lane, "muted", False)
+    }
+
+    def _lane_or_clip_muted(track) -> bool:
+        return bool(getattr(track, "muted", False)) or str(getattr(track, "track_id", "") or "") in muted_lanes
+
     # ---- narration（AudioTrack 控制音量、静音、fade 和时间位置）----
     def gain_filter(volume: float, extra_db: float = 0.0) -> str:
         """Render zero as silence, otherwise apply a linear gain in dB."""
@@ -886,7 +895,7 @@ def mix_audio(
         return f"volume={20 * math.log10(value) + extra_db:.2f}dB"
 
     narration_track = next((t for t in ir.audio if t.type == AudioTrackType.narration), None)
-    if narration_file and not (narration_track and getattr(narration_track, "muted", False)):
+    if narration_file and not (narration_track and _lane_or_clip_muted(narration_track)):
         nar_start = max(0.0, float(narration_track.start)) if narration_track else 0.0
         nar_requested = float(narration_track.duration) if narration_track else total
         nar_duration = min(nar_requested, max(0.0, total - nar_start))
@@ -914,7 +923,7 @@ def mix_audio(
     original_tracks = [
         t for t in ir.audio
         if t.type == AudioTrackType.original
-        and not getattr(t, "muted", False)
+        and not _lane_or_clip_muted(t)
         and assets.get(t.asset_id or "")
     ]
     for oi, original_track in enumerate(original_tracks):
@@ -961,7 +970,7 @@ def mix_audio(
     continuous_tracks = [
         t for t in ir.audio
         if t.type in (AudioTrackType.bgm, AudioTrackType.ambience)
-        and not getattr(t, "muted", False)
+        and not _lane_or_clip_muted(t)
         and assets.get(t.asset_id or "")
     ]
     continuous_index = {AudioTrackType.bgm: 0, AudioTrackType.ambience: 0}
@@ -1017,7 +1026,7 @@ def mix_audio(
     for track in ir.audio:
         if track.type not in (AudioTrackType.sfx, AudioTrackType.dialogue):
             continue
-        if getattr(track, "muted", False):
+        if getattr(track, "muted", False) or _lane_or_clip_muted(track):
             continue
         asset = assets.get(track.asset_id or "")
         if asset is None:

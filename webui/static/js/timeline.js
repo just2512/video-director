@@ -1297,6 +1297,31 @@ async function editorAudioTrackToggleLock(ev, trackId) {
   } catch (error) { editorToast('音轨锁定状态未修改：' + (error.message || error), true); }
 }
 
+async function editorAudioTrackToggleMute(trackId){
+  const lane = (ED.comp && ED.comp.audio_tracks || []).find(item => String(item.id) === String(trackId));
+  if (!lane) { editorToast('音轨已变化，请刷新后重试', true); return; }
+  const muted = !Boolean(lane.muted);
+  try {
+    const result = await executeCommand({command:'set_track_muted', targetId:trackId, payload:{trackType:'audio', muted}});
+    if (!result || !result.ok) { editorToast('静音状态未修改：' + ((result && result.error) || '未知错误'), true); return; }
+    await refreshWorkspace();
+    editorToast(muted ? '已静音整条音轨（渲染时该轨所有片段不发声音）' : '已取消静音');
+    editorAudioTrackMenuClose();
+  } catch (error) { editorToast('静音状态未修改：' + (error.message || error), true); }
+}
+
+async function editorAudioTrackToggleHidden(trackId){
+  const lane = (ED.comp && ED.comp.audio_tracks || []).find(item => String(item.id) === String(trackId));
+  if (!lane) { editorToast('音轨已变化，请刷新后重试', true); return; }
+  const hidden = !Boolean(lane.hidden);
+  try {
+    const result = await executeCommand({command:'set_track_hidden', targetId:trackId, payload:{trackType:'audio', hidden}});
+    if (!result || !result.ok) { editorToast('显示状态未修改：' + ((result && result.error) || '未知错误'), true); return; }
+    await refreshWorkspace();
+    editorToast(hidden ? '已隐藏音轨（仅时间线折叠，不影响渲染）' : '已显示音轨');
+  } catch (error) { editorToast('显示状态未修改：' + (error.message || error), true); }
+}
+
 async function editorAudioTrackAdd(ev){
   if (ev) ev.stopPropagation();
   if (!ED.pid || !ED.comp) { editorToast('先打开项目'); return; }
@@ -1329,6 +1354,8 @@ function editorAudioTrackMenu(ev, trackId){
     '<label for="audio-track-name">名称</label>' +
     '<input id="audio-track-name" type="text" maxlength="60" value="' + esc(lane.name || '') + '" autocomplete="off">' +
     '<p class="hint">此轨道有 ' + clipCount + ' 个片段。移动片段只改变轨道归属，不改变 BGM、SFX、原声等混音角色。</p>' +
+    '<div class="btn-row"><button type="button" class="btn-secondary btn-sm" onclick="editorAudioTrackToggleMute(&quot;' + esc(trackId) + '&quot;)">' + (lane.muted ? '取消静音' : '静音整轨') + '</button>' +
+    '<button type="button" class="btn-secondary btn-sm" onclick="editorAudioTrackToggleHidden(&quot;' + esc(trackId) + '&quot;)">' + (lane.hidden ? '显示轨道' : '隐藏轨道') + '</button></div>' +
     '<footer><button type="button" class="btn-danger btn-sm" ' + (narrationProtected ? 'disabled title="系统主旁白与 TTS 渲染链绑定，不能删除；可静音或另建旁白轨"' : '') + ' onclick="editorAudioTrackRemove(&quot;' + esc(trackId) + '&quot;, event)">删除轨道</button>' +
     '<button type="button" class="btn-primary btn-sm" onclick="editorAudioTrackApplyName(\'' + esc(trackId) + '\', event)">保存名称</button></footer></section>';
   mask.addEventListener('click', event => { if (event.target === mask) editorAudioTrackMenuClose(); });
@@ -2178,7 +2205,7 @@ Object.assign(window, {
   editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorJoinThroughEdits, editorLiftSelectedLayerToPlayhead, editorExpandMainTimelineToGlobalTrack, editorAddEditAllTracks,
   editorProjectFrameTime, editorSnapPlayheadToFrame,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
-  editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackMenu, editorAudioTrackMenuClose,
+  editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackToggleMute, editorAudioTrackToggleHidden, editorAudioTrackMenu, editorAudioTrackMenuClose,
   editorAudioTrackApplyName, editorAudioTrackRemove,
   selectNarration, projectOverlayOpen, originalTrackOpen, bgmTrackOpen,
   editorUndo, editorRedo, editorSaveBar, editorPreviewBar, editorTopbarRefresh,
