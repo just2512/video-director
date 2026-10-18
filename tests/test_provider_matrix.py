@@ -87,9 +87,12 @@ def test_stock_coverr_is_unsupported_even_when_key_exists(monkeypatch):
 
 
 def test_generation_video_missing_provider_is_honest(monkeypatch, tmp_path):
-    from video_director import config
+    from video_director import config, model_config
     monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
     monkeypatch.delenv("VIDEO_API_KEY", raising=False)
+    # model_config 模块级 _cache 会在测试间残留生产配置（含 video key），
+    # 必须清掉才能真实验证「未配置」态（测试隔离缺陷，2026-10-18 根修）。
+    monkeypatch.setattr(model_config, "_cache", None)
     try:
         generation.generate("p", "test", gen_type="video", width=1080, height=1920)
     except generation.GenerationError as exc:
@@ -114,7 +117,12 @@ def test_matrix_frontend_reports_unimplemented_tts_as_unsupported(monkeypatch):
     assert tts["kokoro"]["operations"]["tts.speak"] == provider_matrix.UNSUPPORTED
 
 
-def test_matrix_frontend_reports_stock_states(monkeypatch):
+def test_matrix_frontend_reports_stock_states(monkeypatch, tmp_path):
+    from video_director import config, model_config
+    # stock key 已迁移到 model_config.json 文件配置（文件 > env）——仅 delenv
+    # 删不掉文件配置。隔离到 tmp_path + 清缓存，真实验证「未配置」态。
+    monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
+    monkeypatch.setattr(model_config, "_cache", None)
     monkeypatch.delenv("PEXELS_API_KEY", raising=False)
     rows = provider_matrix.matrix_for_frontend()
     stock_rows = {r["provider"]: r for r in rows if r["role"] == "stock"}

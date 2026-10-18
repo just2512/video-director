@@ -223,6 +223,7 @@ def create_director_run(payload: dict) -> dict:
         # 挂在 spec 上而非 dirinputs（dirinputs 的 creative_settings.duration 语义是
         # 「总时长」字符串，意图值是秒的规范化结果，二者不要混同）。
         "_intent_duration_s": intent.get("duration") or "",
+        "_unresolved": intent.get("_unresolved") or "",
     }
     run_id = wf.run_director_create_async(spec, plan=plan)
     return {

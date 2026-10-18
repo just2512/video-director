@@ -116,11 +116,18 @@ def _resolve_resolution(text: str) -> Optional[str]:
 def _resolve_duration(text: str) -> Optional[str]:
     m = re.search(r"(\d+(?:\.\d+)?)\s*分钟", text)
     if m:
-        return str(int(float(m.group(1)) * 60))
-    m = re.search(r"(\d+(?:\.\d+)?)\s*秒", text)
-    if m:
-        return str(int(round(float(m.group(1)))))
-    return None
+        secs = int(float(m.group(1)) * 60)
+    else:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*秒", text)
+        if not m:
+            return None
+        secs = int(round(float(m.group(1))))
+    # 方向语义保留：「以上/至少」= 下限；「以内/不超过」= 上限；默认 = 目标值。
+    if any(w in text for w in ("以上", "至少", "不少于", "不低于")):
+        return f"{secs}+"
+    if any(w in text for w in ("以内", "不超过", "最多", "之内")):
+        return f"{secs}-"
+    return str(secs)
 
 
 def _resolve_voice_rate(text: str) -> Optional[str]:
@@ -150,14 +157,11 @@ def _resolve_subtitle(text: str) -> Optional[str]:
 def _resolve_text_field(text: str, field: str, aliases: List[str]) -> Optional[str]:
     for alias in aliases:
         if alias in text:
-            m = re.search(alias + r"\s*[:：是]?\s*[「『\"\']([^」「』\"\']+)", text)
+            m = re.search(alias + r"\s*(?:叫|是|为|叫做|名为|设成|设为)?\s*[「『\"\']([^」「』\"\']+)", text)
             if m:
                 return m.group(1).strip()
             m = re.search(r"[「『\"\']([^」「』\"\']+)[」』\"\']\s*" + re.escape(alias), text)
             if m:
-                return m.group(1).strip()
-            m = re.search(alias + r"\s*[:：是]?\s*([A-Za-z0-9一-鿿_\-\.]{1,20})", text)
-            if m and m.group(1) not in aliases:
                 return m.group(1).strip()
     return None
 
@@ -182,9 +186,16 @@ def _rule_resolve(brief: str) -> Tuple[Dict[str, str], List[str]]:
     r = _resolve_resolution(text)
     if r:
         out["resolution"] = r
-    d = _resolve_duration(text)
-    if d:
-        out["duration"] = d
+    # 「每个镜头 N 秒」是单镜头时长（clip_duration），先于总时长提取；
+    # 镜头语境命中时 N 秒不得同时算作成片总时长。
+    if any(w in text for w in ("每个镜头", "单镜头", "每个画面", "镜头时长")):
+        d = _resolve_duration(text)
+        if d:
+            out["clip_duration"] = d
+    else:
+        d = _resolve_duration(text)
+        if d:
+            out["duration"] = d
     vr = _resolve_voice_rate(text)
     if vr:
         out["voice_rate"] = vr
@@ -222,7 +233,10 @@ def _llm_resolve(brief: str) -> Dict[str, str]:
     )
     system = (
         "你是视频导演参数解析器。从用户的创作要求中，把能映射到下列字段的指令抽取出来。"
-        "只输出 JSON 对象，键是下列字段名，值按字段说明归一化。"
+        "只输出 JSON 对象，键是下列字段名。"
+        "voice 字段输出用户的自然语言描述（如「温柔女声」「沉稳男声」），系统会自动映射到真实音色，不要自己编 id。"
+        "style 字段输出用户的风格描述原文（如「赛博朋克」「纪录片风格」），系统会映射到注册风格或作风格意图。"
+        "其余枚举字段按字段说明的取值输出。"
         "要求没有提到的字段不要输出；系统没有对应字段的要求忽略不要臆造。"
         "只输出 JSON，不要解释、不要 markdown 代码块。"
     )
@@ -244,14 +258,121 @@ def _llm_resolve(brief: str) -> Dict[str, str]:
     return {str(k): v for k, v in parsed.items() if k in known and v not in (None, "")}
 
 
+def _normalize_voice(value: str) -> Optional[str]:
+    """自由文本音色（「温柔女声」）→ 系统 voice_id 白名单。"""
+    v = str(value or "").strip()
+    if not v:
+        return None
+    from video_director import voice
+    try:
+        profiles = voice.list_voices("edge-tts")
+    except Exception:
+        return v  # voice 模块不可用时不拦截，交给下游兜底
+    # 已是合法 voice_id
+    if any(p["voiceId"] == v for p in profiles):
+        return v
+    # 按 gender + style 匹配自由文本
+    female = any(w in v for w in ("女", "女生", "温柔", "活泼", "晓"))
+    male = any(w in v for w in ("男", "男生", "沉稳", "阳光", "清亮", "新闻", "云"))
+    for p in profiles:
+        if p.get("language") and p["language"] != "zh-CN" and p["language"] != "zh-TW":
+            continue
+        style = str(p.get("style") or "")
+        if female and str(p.get("gender") or "") == "female":
+            if style and style in v:
+                return p["voiceId"]
+        if male and str(p.get("gender") or "") == "male":
+            if style and style in v:
+                return p["voiceId"]
+    # 兜底：gender 匹配取第一个
+    for p in profiles:
+        if p.get("language") and p["language"] not in ("zh-CN", "zh-TW"):
+            continue
+        if female and str(p.get("gender") or "") == "female":
+            return p["voiceId"]
+        if male and str(p.get("gender") or "") == "male":
+            return p["voiceId"]
+    return None  # 无法落到系统音色：不传，交默认女声
+
+
+def _normalize_style(value: str) -> str:
+    """自由文本风格（「赛博朋克」）优先映射系统 style_id，否则保留原文作 style_intent。"""
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    try:
+        from video_director import style as style_mod
+        if v in style_mod.available_styles():
+            return v
+        for style_id, words in getattr(style_mod, "_DESC_MAP", {}).items():
+            if any(w in v for w in words):
+                return style_id
+    except Exception:
+        pass
+    return v  # 未命中注册风格：保留自由文本，由 select_style 的 user_intent 透传兜底
+
+
+def _normalize_value(field: str, value: str) -> Optional[str]:
+    """字段级归一化：把 LLM/规则的粗值落到系统真实契约。"""
+    if value is None:
+        return None
+    v = str(value).strip()
+    if not v:
+        return None
+    if field == "voice":
+        mapped = _normalize_voice(v)
+        if mapped is None:
+            # 无法落到系统音色：不喂非法 id 给 edge-tts，但原始请求必须带出
+            # （director 侧据此发 warning，用户知道「温柔女声」没配上）。
+            return None
+        return mapped
+    if field == "style":
+        return _normalize_style(v)
+    if field == "transition_mode":
+        # fade/淡入淡出 → fade；其余透传（cut 等）
+        return "fade" if any(w in v for w in ("淡入", "淡出", "fade", "溶解")) else v
+    if field == "fit_mode":
+        return "cover" if any(w in v for w in ("填满", "裁剪", "cover", "铺满")) else \
+               ("contain" if any(w in v for w in ("黑边", "完整", "contain", "适应")) else v)
+    if field == "subtitle_mode":
+        return v if v in ("plain", "bilingual", "off") else (
+            "off" if any(w in v for w in ("不要", "无", "去掉", "关")) else
+            ("bilingual" if any(w in v for w in ("双", "中英")) else "plain"))
+    if field in ("clip_duration",):
+        try:
+            return str(int(round(float(v))))
+        except (TypeError, ValueError):
+            return None
+    return v
+
+
 def resolve_director_intents(brief: str) -> Dict[str, str]:
-    """brief → {spec_field: normalized_value}。规则层 + LLM 层合并，规则层优先。"""
+    """brief → {spec_field: normalized_value}。规则层 + LLM 层合并，规则层优先。
+
+    附加键 `_unresolved`（逗号分隔）：系统有字段但值无法落到真实契约的原始
+    请求（如「外星女声」），由 director 侧转 warning 如实告知用户。
+    """
     rule, _ = _rule_resolve(brief or "")
     merged = dict(rule)
     llm = _llm_resolve(brief or "")
     for k, v in llm.items():
         merged.setdefault(k, v)  # 规则层已给的确定性值优先，LLM 只补齐
-    return merged
+    # LLM 常把「每个镜头 N 秒」同时输出成 duration+clip_duration——
+    # 单镜头语境下 clip_duration 优先，移除总时长误报。
+    if "clip_duration" in merged and any(w in (brief or "") for w in ("每个镜头", "单镜头", "每个画面", "镜头时长")):
+        merged.pop("duration", None)
+    normalized: Dict[str, str] = {}
+    unresolved: List[str] = []
+    for k, v in merged.items():
+        nv = _normalize_value(k, v)
+        if nv is None:
+            if k in ("voice", "style"):
+                unresolved.append(f"{k}={v}")
+            continue
+        normalized[k] = nv
+    if unresolved:
+        normalized["_unresolved"] = "；".join(unresolved)
+    return normalized
 
 
 def catalog_for_frontend() -> List[Dict[str, str]]:
