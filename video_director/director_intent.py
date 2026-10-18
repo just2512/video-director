@@ -186,16 +186,17 @@ def _rule_resolve(brief: str) -> Tuple[Dict[str, str], List[str]]:
     r = _resolve_resolution(text)
     if r:
         out["resolution"] = r
-    # 「每个镜头 N 秒」是单镜头时长（clip_duration），先于总时长提取；
-    # 镜头语境命中时 N 秒不得同时算作成片总时长。
-    if any(w in text for w in ("每个镜头", "单镜头", "每个画面", "镜头时长")):
-        d = _resolve_duration(text)
-        if d:
-            out["clip_duration"] = d
-    else:
-        d = _resolve_duration(text)
-        if d:
-            out["duration"] = d
+    # 「每个镜头 N 秒」（clip_duration）与总时长（duration）独立提取，不互斥：
+    # 复合 brief「时长40秒以上，每个镜头3秒」两者都要拿到。镜头语境只接管
+    # 紧跟语境词的那个数字，其余「N 秒」仍归总时长。
+    clip_m = re.search(r"(?:每个镜头|单镜头|每个画面|镜头时长)\s*(\d+(?:\.\d+)?)\s*秒", text)
+    if clip_m:
+        out["clip_duration"] = str(int(round(float(clip_m.group(1)))))
+        # 从总时长扫描文本里剔除镜头语境片段，避免「3 秒」被误当总时长
+        text = text[:clip_m.start()] + text[clip_m.end():]
+    d = _resolve_duration(text)
+    if d:
+        out["duration"] = d
     vr = _resolve_voice_rate(text)
     if vr:
         out["voice_rate"] = vr
@@ -357,9 +358,11 @@ def resolve_director_intents(brief: str) -> Dict[str, str]:
     llm = _llm_resolve(brief or "")
     for k, v in llm.items():
         merged.setdefault(k, v)  # 规则层已给的确定性值优先，LLM 只补齐
-    # LLM 常把「每个镜头 N 秒」同时输出成 duration+clip_duration——
-    # 单镜头语境下 clip_duration 优先，移除总时长误报。
-    if "clip_duration" in merged and any(w in (brief or "") for w in ("每个镜头", "单镜头", "每个画面", "镜头时长")):
+    # 规则层已按镜头语境正确分流（clip_duration 独立提取并从总时长扫描剔除）；
+    # 此处只在「规则层没拿到 duration 而 LLM 给了」且镜头语境成立时防 LLM 双输出。
+    if ("clip_duration" in merged and "duration" in merged
+            and "duration" not in rule
+            and any(w in (brief or "") for w in ("每个镜头", "单镜头", "每个画面", "镜头时长"))):
         merged.pop("duration", None)
     normalized: Dict[str, str] = {}
     unresolved: List[str] = []
