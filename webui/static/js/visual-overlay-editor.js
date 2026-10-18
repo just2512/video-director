@@ -478,9 +478,9 @@ function editorVisualTrackMenu(ev, trackId) {
         <button type="button" class="btn-secondary" ${index === tracks.length - 1 ? 'disabled' : ''} onclick="editorVisualTrackMove(event, '${id}', ${index + 1})">上移一层</button>
         <button type="button" class="btn-secondary" ${index === 0 ? 'disabled' : ''} onclick="editorVisualTrackMove(event, '${id}', ${index - 1})">下移一层</button>
         <button type="button" class="btn-secondary" onclick="editorVisualTrackRename(event, '${id}')">重命名</button>
-        <button type="button" class="btn-danger" ${tracks.length <= 1 || hasClips ? 'disabled' : ''} onclick="editorVisualTrackRemove(event, '${id}')">删除空轨道</button>
+        <button type="button" class="btn-danger" ${tracks.length <= 1 ? 'disabled title="至少保留一条画面轨道"' : ''} onclick="editorVisualTrackRemove(event, '${id}')">删除轨道</button>
       </div>
-      <p class="hint">${hasClips ? '先将此轨道中的片段拖到其他画面轨，或删除片段，再删除此轨道。' : '轨道顺序会直接影响最终成片里的叠加层级。'}</p>
+      <p class="hint">${hasClips ? '删除此轨道前会二次确认；确认后将同时删除轨道中的画面片段及其关联原声音频。' : '轨道顺序会直接影响最终成片里的叠加层级。'}</p>
     </section>`;
   mask.addEventListener('click', event => { if (event.target === mask) editorVisualTrackMenuClose(); });
   document.body.appendChild(mask);
@@ -529,15 +529,18 @@ async function editorVisualTrackRename(ev, trackId) {
 }
 async function editorVisualTrackRemove(ev, trackId) {
   if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  const tracks = (ED.comp && ED.comp.visual_tracks) || [];
+  const clips = (ED.comp && ED.comp.visual_overlays || []).filter(clip => String(clip.track_id || 'overlay-main') === String(trackId));
+  if (tracks.length <= 1) { editorToast('至少保留一条画面轨道', true); return; }
+  if (clips.length && !confirm('此画面轨道包含 ' + clips.length + ' 个片段。删除轨道将同时删除这些片段及关联原声音频，继续？')) return;
   editorVisualTrackMenuClose();
   try {
-    const result = await executeCommand({command:'remove_visual_track', targetId:trackId, payload:{}});
+    const result = await executeCommand({command:'remove_visual_track', targetId:trackId, payload:{deleteContents:true}});
     if (!result || !result.ok) { editorToast('轨道未删除：' + ((result && result.error) || '未知错误'), true); return; }
-    editorToast('空画面轨道已删除');
+    editorToast('画面轨道及其内容已删除');
     await refreshWorkspace();
   } catch (error) { editorToast('轨道未删除：' + (error.message || error), true); }
 }
-
 let _visualOverlayDrag = null;
 let _visualOverlaySuppressClick = null;
 function _tlBindVisualOverlayDrag() {

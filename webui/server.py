@@ -969,6 +969,45 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(_scan_bgm())
         elif route == "/api/sfx":
             self._send_json(_scan_sfx())
+        elif route == "/api/audio_library":
+            # Safe audio choices from both the structured Asset Catalog and legacy audio manifests.
+            # Expose IDs/metadata only; never return absolute filesystem paths to the browser.
+            try:
+                from video_director import asset_catalog as vd_acat
+                choices = []
+                seen_audio_ids = set()
+                for entry in vd_acat.list_assets(kind="audio"):
+                    asset_id = str(entry.get("asset_id") or "")
+                    file_value = str(entry.get("file") or "")
+                    if not asset_id or asset_id in seen_audio_ids:
+                        continue
+                    seen_audio_ids.add(asset_id)
+                    choices.append({
+                        "id": asset_id,
+                        "label": entry.get("name") or asset_id,
+                        "role": "dialogue",
+                        "tags": list(entry.get("tags") or entry.get("keywords") or []),
+                        "duration": entry.get("duration"),
+                        "available": bool(file_value and Path(file_value).is_file()),
+                    })
+                for asset in vd_audio.scan_library().values():
+                    asset_type = str(getattr(asset, "type", "sfx") or "sfx").lower()
+                    role = "ambience" if asset_type in ("ambient", "ambience") else asset_type
+                    if role not in ("bgm", "sfx", "ambience") or asset.id in seen_audio_ids:
+                        continue
+                    seen_audio_ids.add(asset.id)
+                    file_value = str(getattr(asset, "file", "") or "")
+                    choices.append({
+                        "id": asset.id,
+                        "label": _audio_label(asset.id, getattr(asset, "keywords", None) or []),
+                        "role": role,
+                        "tags": list(getattr(asset, "keywords", None) or []),
+                        "duration": getattr(asset, "duration", None),
+                        "available": bool(file_value and Path(file_value).is_file()),
+                    })
+                self._send_json(choices)
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500)
         elif route == "/api/llm_status":
             self._send_json(vd_llm.get_llm_config())
         elif route == "/api/settings/export":

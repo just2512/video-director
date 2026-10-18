@@ -877,6 +877,15 @@ def mix_audio(
     idx = 0
     total = ir.project.duration
 
+    # 2026-10-18 lane 级静音（差距 P1）：物理音轨 muted=True 时，该 lane 上所有
+    # 片段都静音。逐片段 muted 仍是片段级控制，二者取「或」。
+    muted_lanes = {
+        str(lane.id) for lane in (ir.audio_tracks or []) if getattr(lane, "muted", False)
+    }
+
+    def _lane_or_clip_muted(track) -> bool:
+        return bool(getattr(track, "muted", False)) or str(getattr(track, "track_id", "") or "") in muted_lanes
+
     # ---- narration（AudioTrack 控制音量、静音、fade 和时间位置）----
     def gain_filter(volume: float, extra_db: float = 0.0) -> str:
         """Render zero as silence, otherwise apply a linear gain in dB."""
@@ -886,7 +895,7 @@ def mix_audio(
         return f"volume={20 * math.log10(value) + extra_db:.2f}dB"
 
     narration_track = next((t for t in ir.audio if t.type == AudioTrackType.narration), None)
-    if narration_file and not (narration_track and getattr(narration_track, "muted", False)):
+    if narration_file and not (narration_track and _lane_or_clip_muted(narration_track)):
         nar_start = max(0.0, float(narration_track.start)) if narration_track else 0.0
         nar_requested = float(narration_track.duration) if narration_track else total
         nar_duration = min(nar_requested, max(0.0, total - nar_start))
@@ -914,7 +923,7 @@ def mix_audio(
     original_tracks = [
         t for t in ir.audio
         if t.type == AudioTrackType.original
-        and not getattr(t, "muted", False)
+        and not _lane_or_clip_muted(t)
         and assets.get(t.asset_id or "")
     ]
     for oi, original_track in enumerate(original_tracks):
@@ -961,7 +970,7 @@ def mix_audio(
     continuous_tracks = [
         t for t in ir.audio
         if t.type in (AudioTrackType.bgm, AudioTrackType.ambience)
-        and not getattr(t, "muted", False)
+        and not _lane_or_clip_muted(t)
         and assets.get(t.asset_id or "")
     ]
     continuous_index = {AudioTrackType.bgm: 0, AudioTrackType.ambience: 0}
@@ -973,16 +982,21 @@ def mix_audio(
         remaining = max(0.0, total - track_start)
         src_in = max(0.0, float(getattr(track, "source_in", 0.0) or 0.0))
         src_out = getattr(track, "source_out", None)
-        has_source_window = src_in > 0 or src_out is not None
+        # source_out=None is the explicit loop-to-timeline contract. source_in may
+        # be non-zero after splitting a looped track; seek to that offset for the
+        # first pass, then let FFmpeg loop the source for the rest of the clip.
+        loop_to_duration = src_out is None
         source_span = max(0.0, float(src_out) - src_in) if src_out is not None else float(track.duration)
         clip_duration = min(float(track.duration), source_span, remaining)
         if clip_duration <= 0.01:
             continue
-        if has_source_window:
-            inputs += ["-ss", f"{src_in:.3f}", "-t", f"{clip_duration:.3f}", "-i", asset.file]
+        if loop_to_duration:
+            inputs += ["-stream_loop", "-1"]
+            if src_in > 0.0005:
+                inputs += ["-ss", f"{src_in:.3f}"]
+            inputs += ["-i", asset.file]
         else:
-            # Default BGM/ambience loops to its requested timeline duration.
-            inputs += ["-stream_loop", "-1", "-i", asset.file]
+            inputs += ["-ss", f"{src_in:.3f}", "-t", f"{clip_duration:.3f}", "-i", asset.file]
         duck_db = config.DUCKING_DB if (narration_file and track.type == AudioTrackType.bgm) else 0.0
         chain = (
             f"[{idx}:a]aresample=44100,aformat=channel_layouts=mono,"
@@ -1012,7 +1026,7 @@ def mix_audio(
     for track in ir.audio:
         if track.type not in (AudioTrackType.sfx, AudioTrackType.dialogue):
             continue
-        if getattr(track, "muted", False):
+        if getattr(track, "muted", False) or _lane_or_clip_muted(track):
             continue
         asset = assets.get(track.asset_id or "")
         if asset is None:

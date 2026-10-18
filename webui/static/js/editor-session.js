@@ -247,12 +247,17 @@
     box.style.display = '';
     updateBox(ev);
     try { root.setPointerCapture(ev.pointerId); } catch (_) {}
+    // 差距 P1：框选拖到画布边缘自动滚动（复用 timeline.js 的 ScrollTimer 基建，
+    // 剪映 selectedBoxScrollTimer 模式）。重算框选高亮跟随视口滚动。
+    if (typeof _tlStartEdgeAutoScroll === 'function') _tlStartEdgeAutoScroll(() => updateBox(ev));
+    if (typeof _tlFeedEdgeAutoScroll === 'function') _tlFeedEdgeAutoScroll(ev.clientX);
     ev.preventDefault();
     ev.stopImmediatePropagation();
     return true;
   }
 
   function updateBox(ev) {
+    if (typeof _tlFeedEdgeAutoScroll === 'function') _tlFeedEdgeAutoScroll(ev.clientX);
     const b = state.box;
     const box = document.getElementById('ed-session-box');
     if (!b || !box) return;
@@ -285,6 +290,7 @@
   }
 
   function endBox() {
+    if (typeof _tlStopEdgeAutoScroll === 'function') _tlStopEdgeAutoScroll();
     const b = state.box;
     state.box = null;
     const box = document.getElementById('ed-session-box');

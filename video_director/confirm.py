@@ -637,6 +637,30 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[
         for a in json.loads(manifest_path.read_text(encoding="utf-8")):
             ref = AssetRef(**a)
             assets[ref.id] = ref
+    # 已被编辑器写入 IR、但不在项目 manifest 的全局素材，也必须参与预览/导出。
+    # 仅信任资产库中的 asset_id→file 映射；不能直接信任 composition.json 中任意路径。
+    try:
+        from video_director import asset_catalog as asset_catalog_mod
+        for ir_asset in ir.assets:
+            if ir_asset.id in assets or str(ir_asset.file or "").startswith("audio-library://"):
+                continue
+            entry = asset_catalog_mod.get_asset(ir_asset.id)
+            if not entry or not entry.get("file"):
+                continue
+            trusted_file = Path(str(entry["file"])).resolve()
+            if not trusted_file.is_file():
+                continue
+            from video_director.models import AssetRef
+            assets[ir_asset.id] = AssetRef(
+                id=ir_asset.id, type=entry.get("type") or ir_asset.type, file=str(trusted_file),
+                duration=entry.get("duration") if entry.get("duration") is not None else ir_asset.duration,
+                keywords=list(entry.get("tags") or entry.get("keywords") or ir_asset.keywords or []),
+                source=entry.get("source") or ir_asset.source,
+                license_note=entry.get("license_note") or ir_asset.license_note,
+            )
+    except Exception as exc:
+        logger.warning(f"draft: IR 全局素材解析失败（继续检查可用资产）: {exc}")
+
     # 音频库资产并入（IR.audio 引用 bgm/sfx 时渲染器要找文件）
     try:
         from video_director import audio as audio_mod
@@ -679,14 +703,153 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[
     return draft_path
 
 
-def finalize_after_review(project_id: str, edits: Optional[dict] = None, profile: Optional[str] = None):
-    """Gate B 审片通过 → 正式渲染（复用 pipeline.resume_after_confirm）。
 
-    返回 PipelineResult（final.mp4 + QC）。profile（§43）透传给渲染链。
+def _render_saved_composition_final(project_id: str, profile: Optional[str] = None) -> str:
+    """Render the saved editor CompositionIR as the final artifact without re-planning it.
+
+    The editor has already committed its picture/audio clips through revisioned commands.
+    Re-running the story planner at export time would overwrite those edits, so this path
+    compiles the persisted IR directly through the same deterministic renderer.
     """
-    from video_director import pipeline
-    return pipeline.resume_after_confirm(project_id, edits=edits, profile=profile)
+    import shutil
+    from video_director import asset_catalog, audio as audio_mod, config, prober, qc, renderer, store
 
+    base = config.project_dir(project_id)
+    dirs = config.init_project_dirs(base)
+    ir_path = dirs["plans"] / "composition.json"
+    if not ir_path.is_file():
+        raise ConfirmError(f"composition.json 不存在（项目未规划完成）: {ir_path}")
+    ir = CompositionIR(**json.loads(ir_path.read_text(encoding="utf-8")))
+
+    # Project manifest remains authoritative for project-local uploads.
+    assets: dict = {}
+    manifest_path = dirs["assets"] / "manifest.json"
+    if manifest_path.is_file():
+        for row in json.loads(manifest_path.read_text(encoding="utf-8")):
+            ref = AssetRef(**row)
+            assets[ref.id] = ref
+
+    # Resolve global catalog references by stable asset ID, never by trusting a
+    # filesystem path from the editable Composition JSON.
+    for ir_asset in ir.assets:
+        if ir_asset.id in assets or str(ir_asset.file or "").startswith("audio-library://"):
+            continue
+        entry = asset_catalog.get_asset(ir_asset.id)
+        if not entry or not entry.get("file"):
+            continue
+        trusted_file = Path(str(entry["file"])).resolve()
+        if not trusted_file.is_file():
+            continue
+        assets[ir_asset.id] = AssetRef(
+            id=ir_asset.id, type=entry.get("type") or ir_asset.type, file=str(trusted_file),
+            duration=entry.get("duration") if entry.get("duration") is not None else ir_asset.duration,
+            keywords=list(entry.get("tags") or entry.get("keywords") or ir_asset.keywords or []),
+            source=entry.get("source") or ir_asset.source,
+            license_note=entry.get("license_note") or ir_asset.license_note,
+        )
+    # Audio manifest is the canonical resolver for audio-library:// IDs; merge
+    # it after catalog/manifest assets, matching the draft-render path contract.
+    assets = audio_mod.append_audio_assets(assets, audio_mod.scan_library())
+
+    render_ir = ir.model_copy(deep=True)
+    if profile:
+        from video_director import output_profile
+        resolved_profile = output_profile.resolve_profile(
+            profile, render_ir.project.width, render_ir.project.height
+        )
+        object.__setattr__(render_ir.project, "width", resolved_profile.width)
+        object.__setattr__(render_ir.project, "height", resolved_profile.height)
+
+    narration_path = dirs["audio"] / "narration.wav"
+    if not narration_path.is_file():
+        narration_path = dirs["audio"] / "narration.mp3"
+    narration = str(narration_path) if narration_path.is_file() else None
+    subtitle_path = dirs["render"] / "master.ass"
+    # 对抗审查 MEDIUM 8：编辑器改过字幕（set_subtitle_track 写 ir.subtitle_track.cues）
+    # 但旧 master.ass 是规划期产物——原样烧录会把用户改的文字/时间点丢掉。
+    # cues 非空时从 IR 重建 ass（样式仍由 renderer 读 ir.subtitle_style 控制）。
+    if ir.subtitle_track and ir.subtitle_track.cues:
+        from video_director.subtitle import ASS_PLAIN_HEADER, _ass_time
+        width = int(render_ir.project.width or 1080)
+        height = int(render_ir.project.height or 1920)
+        font_size = 64
+        if ir.subtitle_style is not None:
+            try:
+                font_size = max(20, int(64 * float(ir.subtitle_style.size or 1.0)))
+            except (TypeError, ValueError):
+                font_size = 64
+        header = ASS_PLAIN_HEADER.format(
+            width=width, height=height, font_size=font_size,
+            margin_v=max(40, int(height * 0.08)),
+        )
+        events = []
+        for cue in ir.subtitle_track.cues:
+            text = str(cue.text or "").strip()
+            if not text:
+                continue
+            disp = text if len(text) <= 16 else text[: len(text) // 2] + "\\N" + text[len(text) // 2:]
+            events.append(f"Dialogue: 0,{_ass_time(cue.start)},{_ass_time(cue.end)},Sub,,0,0,0,,{disp}")
+        subtitle_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+    subtitles = str(subtitle_path) if subtitle_path.is_file() else None
+    title_card_path = dirs["render"] / "title_card.mp4"
+    title_card = str(title_card_path) if title_card_path.is_file() else None
+
+    # Keep render-only options that older projects stored in the project row
+    # rather than CompositionIR. They still apply when exporting hand-edited IR.
+    project_row = store.get_project(project_id) or {}
+    render_params = {}
+    if project_row.get("params_json"):
+        try:
+            render_params = json.loads(project_row["params_json"])
+        except (TypeError, json.JSONDecodeError):
+            render_params = {}
+    lower_third_name = render_params.get("lower_third_name")
+    lower_third_role = render_params.get("lower_third_role")
+    legacy_watermark = render_params.get("watermark")
+
+    store.set_stage(project_id, store.Stage.RENDERING)
+    work_dir = dirs["render"] / "editor-final"
+    # 对抗审查 HIGH 1：渲染失败必须落 FAILED+error，否则项目永久卡 RENDERING。
+    # 旧管线 pipeline._compose 有同型 except → _fail(...) 收口，这条新导出路径
+    # 之前没有，缺素材时异常穿透、DB 停在「渲染中」60%。
+    try:
+        rendered = renderer.render_composition(
+            render_ir, assets, work_dir, narration_file=narration,
+            subtitle_file=subtitles, title_card=title_card,
+            lower_third_name=lower_third_name,
+            lower_third_role=lower_third_role,
+            watermark=legacy_watermark,
+            project_id=project_id, artifact_kind="final",
+        )
+    except Exception as exc:
+        store.set_stage(project_id, store.Stage.FAILED, error=f"最终导出渲染失败：{exc}")
+        raise
+    final_path = dirs["output"] / "final.mp4"
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    if Path(rendered.final_path).resolve() != final_path.resolve():
+        shutil.copyfile(rendered.final_path, final_path)
+
+    # Final export is not reported as complete unless the deterministic QC gate
+    # accepts the exact MP4 that will be shown/downloaded to the user.
+    store.set_stage(project_id, store.Stage.QC)
+    narration_duration = float(render_ir.project.duration)
+    narration_track = next((clip for clip in render_ir.audio if clip.type.value == "narration"), None)
+    narration_expected = bool(narration) and not bool(narration_track and narration_track.muted)
+    other_audio_expected = any(
+        not clip.muted and clip.type.value != "narration"
+        for clip in render_ir.audio
+    )
+    report = qc.run_qc(
+        render_ir, str(final_path), assets, narration_duration,
+        expect_subtitle=bool(subtitles),
+        expect_audio=narration_expected or other_audio_expected,
+    )
+    report_data = report.to_dict()
+    if not report.ok:
+        store.set_stage(project_id, store.Stage.FAILED, error=json.dumps(report_data, ensure_ascii=False))
+        raise ConfirmError(f"编辑器最终导出未通过 QC，成片没有被标记为完成：{report_data}")
+    store.finish_project(project_id, str(final_path), narration_duration, report_data)
+    return str(final_path)
 
 def commercial_release_gate(project_id: str) -> dict:
     """差距 7（仓库审计）：正式渲染前检查素材授权状态。
@@ -710,3 +873,14 @@ def commercial_release_gate(project_id: str) -> dict:
             unknown.append(a.id)
     return {"blocked": list(dict.fromkeys(blocked)),
             "unknown": list(dict.fromkeys(unknown))}
+
+def finalize_after_review(project_id: str, edits: Optional[dict] = None, profile: Optional[str] = None):
+    """最终渲染：不带分镜修改时直接编译编辑器保存的 CompositionIR。
+
+    明确的分镜 edits 仍走旧的规划恢复流程；时间线编辑则必须以保存后的 IR 为
+    唯一事实源，不能在导出时重新运行 planner 覆盖手工调整。
+    """
+    if edits:
+        from video_director import pipeline
+        return pipeline.resume_after_confirm(project_id, edits=edits, profile=profile)
+    return _render_saved_composition_final(project_id, profile=profile)

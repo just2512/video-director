@@ -22,6 +22,10 @@ function resolveInspector(selection, composition){
   if (selection.type === 'scene') return {kind: 'scene', id: selection.id};
   if (selection.type === 'layer') return {kind: 'layer', id: selection.id};
   if (selection.type === 'scene_pair') return {kind: 'scene_pair', id: selection.id};
+  // 差距分析 K 项：物理片段也是一等可检视对象。此前这两种 selection 落到
+  // null → 工程概览——用户点片段却显示项目参数，是误导形态。
+  if (selection.type === 'visual_overlay') return {kind: 'visual_overlay', id: selection.id};
+  if (selection.type === 'audio_clip') return {kind: 'audio_clip', id: selection.id};
   return null;
 }
 
@@ -48,6 +52,8 @@ function edShowInspector(){
   if (ctx.kind === 'scene') { if (tag) tag.textContent = '场景'; _inspectorScene(ctx.id); return; }
   if (ctx.kind === 'layer') { if (tag) tag.textContent = '图层'; _inspectorLayer(ctx.id); return; }
   if (ctx.kind === 'scene_pair') { if (tag) tag.textContent = '镜头关系'; _inspectorScenePair(ctx.id); return; }
+  if (ctx.kind === 'visual_overlay') { if (tag) tag.textContent = '画面片段'; _inspectorVisualOverlay(ctx.id); return; }
+  if (ctx.kind === 'audio_clip') { if (tag) tag.textContent = '音频片段'; _inspectorAudioClip(ctx.id); return; }
 }
 
 /** §12 Inspector 分区打开（Review Locate 用：滚动到指定分组）。 */
@@ -494,6 +500,114 @@ function _inspectorScenePair(pairId){
     </div>`;
 }
 
+// ---------------------------------------------------------------------------
+// 物理片段 Inspector（差距分析 K 项）：overlay / audio clip 的真实参数面板。
+// 每项编辑都走 executeCommand（set_visual_overlay / set_audio_clip_properties）
+// 真回写，与右键菜单/拖拽同一命令链——不另造第二编辑通路。
+// ---------------------------------------------------------------------------
+function _inspectorVisualOverlay(clipId){
+  const box = document.getElementById('editor-inspector');
+  const clip = (ED.comp.visual_overlays || []).find(o => String(o.id || '') === String(clipId));
+  if (!clip) { clearSelection('inspector'); box.innerHTML = '<div class="hint">画面片段已变化，请重新选择</div>'; return; }
+  const idx = ED.comp.visual_overlays.indexOf(clip);
+  const target = 'overlay#' + idx;
+  const t = clip.transform || {};
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  box.innerHTML = `
+    <b>画面片段</b> <span class="hint">${esc(String(clip.asset_id || ''))}</span>
+    <div class="hint">轨道 ${esc(String(clip.track_id || 'overlay-main'))} · ${num(clip.start,0).toFixed(2)}–${(num(clip.start,0)+num(clip.duration,0)).toFixed(2)}s</div>
+    <div class="role-block" data-section="geometry">
+      <b>布局</b>
+      <div class="btn-row"><label>X <input id="vo-x" type="number" step="0.05" value="${num(t.x ?? clip.x, 0)}" style="width:70px"></label>
+      <label>Y <input id="vo-y" type="number" step="0.05" value="${num(t.y ?? clip.y, 0)}" style="width:70px"></label></div>
+      <div class="btn-row"><label>宽 <input id="vo-w" type="number" step="0.05" min="0.05" max="1" value="${num(t.scale ?? clip.width, 1)}" style="width:70px"></label>
+      <label>透明度 <input id="vo-o" type="number" step="0.05" min="0" max="1" value="${num(t.opacity ?? clip.opacity, 1)}" style="width:70px"></label></div>
+      <div class="btn-row"><button class="btn-sm" onclick="editorInspectorPatchVisualOverlay('${esc(target)}')">应用布局</button></div>
+    </div>
+    <div class="role-block" data-section="source_audio">
+      <b>独立原声</b>
+      <div class="hint">此视频片段分离出的原声音频 ${clip.source_audio_enabled === false ? '已关闭' : '开启中'}</div>
+      <div class="btn-row">
+        <button class="btn-secondary btn-sm" onclick="editorInspectorToggleOverlayAudio('${esc(target)}', ${clip.source_audio_enabled !== false})">${clip.source_audio_enabled === false ? '启用原声' : '关闭原声'}</button>
+      </div>
+    </div>
+    <div class="role-block" data-section="ops">
+      <b>操作</b>
+      <div class="btn-row">
+        <button class="btn-secondary btn-sm" onclick="editorEditSelectedVisualOverlay()">编辑器打开</button>
+        <button class="btn-secondary btn-sm" onclick="editorClipCopy(false)">复制</button>
+      </div>
+    </div>`;
+}
+
+async function editorInspectorPatchVisualOverlay(target){
+  const read = id => Number(document.getElementById(id).value);
+  const payload = {};
+  const clip = (() => { const i = parseInt(String(target).split('#')[1] || '0', 10); return (ED.comp.visual_overlays || [])[i]; })();
+  if (!clip) { editorToast('片段已变化，请刷新', true); return; }
+  if (clip.transform != null) {
+    payload.transform = {x: read('vo-x'), y: read('vo-y'), scale: read('vo-w'), opacity: read('vo-o')};
+  } else {
+    payload.x = read('vo-x'); payload.y = read('vo-y');
+    payload.width = read('vo-w'); payload.opacity = read('vo-o');
+  }
+  try {
+    const r = await executeCommand({command: 'set_visual_overlay', targetId: target, payload});
+    if (!r || !r.ok) { editorToast('布局未修改：' + ((r && r.error) || '未知错误'), true); return; }
+    editorToast('画面片段布局已更新');
+    await refreshWorkspace();
+  } catch (e) { editorToast('布局未修改：' + (e.message || e), true); }
+}
+
+async function editorInspectorToggleOverlayAudio(target, wantOff){
+  try {
+    const r = await executeCommand({command: 'set_visual_overlay', targetId: target,
+      payload: {source_audio_enabled: !wantOff}});
+    if (!r || !r.ok) { editorToast('原声未修改：' + ((r && r.error) || '未知错误'), true); return; }
+    editorToast(wantOff ? '已关闭独立原声' : '已启用独立原声');
+    await refreshWorkspace();
+  } catch (e) { editorToast('原声未修改：' + (e.message || e), true); }
+}
+
+function _inspectorAudioClip(clipId){
+  const box = document.getElementById('editor-inspector');
+  // clipId 形如 "audio#<index>"（物理片段 targetId）
+  const clips = ED.comp.audio || [];
+  const idx = String(clipId).startsWith('audio#') ? parseInt(String(clipId).split('#')[1] || '0', 10)
+    : clips.findIndex(c => String(c.id || '') === String(clipId));
+  const clip = clips[idx];
+  if (!clip) { clearSelection('inspector'); box.innerHTML = '<div class="hint">音频片段已变化，请重新选择</div>'; return; }
+  const target = 'audio#' + idx;
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const role = {bgm: '背景音乐', sfx: '音效', narration: '旁白', original: '原声', ambience: '环境音', dialogue: '对白'}[clip.type] || clip.type;
+  box.innerHTML = `
+    <b>音频片段 · ${esc(role)}</b> <span class="hint">${esc(String(clip.asset_id || ''))}</span>
+    <div class="hint">轨道 ${esc(String(clip.track_id || ''))} · ${num(clip.start,0).toFixed(2)}–${(num(clip.start,0)+num(clip.duration,0)).toFixed(2)}s</div>
+    <div class="role-block" data-section="mix">
+      <b>混音</b>
+      <div class="btn-row"><label>音量 <input id="ac-vol" type="number" step="0.1" min="0" max="2" value="${num(clip.volume, 1)}" style="width:70px"></label>
+      <label><input id="ac-mute" type="checkbox" ${clip.muted ? 'checked' : ''}> 静音</label></div>
+      <div class="btn-row"><label>淡入 <input id="ac-fi" type="number" step="0.1" min="0" value="${num(clip.fadeIn, 0)}" style="width:60px">s</label>
+      <label>淡出 <input id="ac-fo" type="number" step="0.1" min="0" value="${num(clip.fadeOut, 0)}" style="width:60px">s</label></div>
+      <div class="btn-row"><button class="btn-sm" onclick="editorInspectorPatchAudioClip('${esc(target)}')">应用混音</button></div>
+    </div>`;
+}
+
+async function editorInspectorPatchAudioClip(target){
+  const read = id => document.getElementById(id);
+  const payload = {
+    volume: Number(read('ac-vol').value),
+    muted: read('ac-mute').checked,
+    fadeIn: Number(read('ac-fi').value || 0),
+    fadeOut: Number(read('ac-fo').value || 0),
+  };
+  try {
+    const r = await executeCommand({command: 'set_audio_clip_properties', targetId: target, payload});
+    if (!r || !r.ok) { editorToast('混音未修改：' + ((r && r.error) || '未知错误'), true); return; }
+    editorToast('音频片段混音已更新');
+    await refreshWorkspace();
+  } catch (e) { editorToast('混音未修改：' + (e.message || e), true); }
+}
 // ---------------------------------------------------------------------------
 // 多选聚合（§47 批量命令）
 // ---------------------------------------------------------------------------

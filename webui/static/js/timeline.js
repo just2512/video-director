@@ -420,7 +420,7 @@ function renderPhysicalTimeline(){
         onclick:'editorSelectVisualOverlay(' + index + ', event)' };
     }).filter(item => String((visualOverlays[item.visualOverlayIndex] || {}).track_id || 'overlay-main') === trackId);
     tracks.picture.push({ id:'visual-overlay-' + trackId, label:track.name || '画面叠加',
-      visualTrackId:trackId, trackOrder:Number(track.order) || 0, locked:!!track.locked, addAction:'editorVisualOverlayPick', newTrackAction:(Number(track.order) === 0 ? 'editorVisualTrackCreate' : null), clips });
+      visualTrackId:trackId, trackOrder:Number(track.order) || 0, locked:!!track.locked, addAction:'editorVisualOverlayPick', newTrackAction:'editorVisualTrackCreate', clips });
   });
   // 声音组：每个音频 clip 依据 Composition 中的 start/duration 定位.
   // 之前每类声音只显示第一条记录并绘制为 100% 全长，和实际渲染时间语义不一致。
@@ -575,7 +575,7 @@ function renderPhysicalTimeline(){
       `<span class="ed-kf-dot" style="left:${k.leftPct}%" title="${esc(k.title)}" onclick="${k.onclick}">◆</span>`).join('');
     const empty = (!t.clips || !t.clips.length) && !t.isSceneTrack && !(t.kfPoints || []).length;
     const labelHtml = t.audioTrackId
-      ? '<div class="ed-track-label ed-audio-track-label"><span title="' + esc(t.label) + '">' + esc(t.label) + '</span><button type="button" class="btn-secondary btn-sm ed-track-lock" title="' + (t.locked ? '解锁音轨' : '锁定音轨') + '" aria-label="' + (t.locked ? '解锁音轨' : '锁定音轨') + '" aria-pressed="' + (t.locked ? 'true' : 'false') + '" onclick="editorAudioTrackToggleLock(event, &quot;' + esc(t.audioTrackId) + '&quot;)"></button><button type="button" class="btn-secondary btn-sm ed-audio-track-menu" title="音轨名称与删除" aria-label="编辑音轨" onclick="editorAudioTrackMenu(event, &quot;' + esc(t.audioTrackId) + '&quot;)"></button></div>'
+      ? '<div class="ed-track-label ed-audio-track-label"><span title="' + esc(t.label) + '">' + esc(t.label) + '</span><button type="button" class="btn-secondary btn-sm ed-track-add" title="' + (t.locked ? '轨道已锁定' : '向此音轨添加音频片段') + '" aria-label="添加音频片段" ' + (t.locked ? 'disabled' : '') + ' onclick="editorAudioAssetPick(event, &quot;' + esc(t.audioTrackId) + '&quot;)">＋</button><button type="button" class="btn-secondary btn-sm ed-track-lock" title="' + (t.locked ? '解锁音轨' : '锁定音轨') + '" aria-label="' + (t.locked ? '解锁音轨' : '锁定音轨') + '" aria-pressed="' + (t.locked ? 'true' : 'false') + '" onclick="editorAudioTrackToggleLock(event, &quot;' + esc(t.audioTrackId) + '&quot;)"></button><button type="button" class="btn-secondary btn-sm ed-audio-track-menu" title="音轨名称与删除" aria-label="编辑音轨" onclick="editorAudioTrackMenu(event, &quot;' + esc(t.audioTrackId) + '&quot;)"></button></div>'
       : t.visualTrackId && t.showTrackControls !== false
       ? `<div class="ed-track-label ed-visual-track-label"><span class="ed-visual-track-name" title="${esc(t.label)}">${esc(t.label)}</span><div class="ed-visual-track-actions"><button type="button" class="btn-secondary btn-sm ed-track-add" title="${t.locked ? '轨道已锁定' : '从项目素材库向此轨道添加片段'}" ${t.locked ? 'disabled' : ''} onclick="editorVisualOverlayPick(event, '${esc(t.visualTrackId)}')">＋</button><button type="button" class="btn-secondary btn-sm ed-track-lock" title="${t.locked ? '解锁画面轨道' : '锁定画面轨道'}" aria-label="${t.locked ? '解锁画面轨道' : '锁定画面轨道'}" aria-pressed="${t.locked ? 'true' : 'false'}" onclick="editorVisualTrackToggleLock(event, '${esc(t.visualTrackId)}')"></button><button type="button" class="btn-secondary btn-sm" title="轨道名称、顺序与删除" onclick="editorVisualTrackMenu(event, '${esc(t.visualTrackId)}')">⋯</button>${t.newTrackAction ? `<button type="button" class="btn-secondary btn-sm" title="新增画面轨道" onclick="editorVisualTrackCreate(event)">＋轨</button>` : ''}</div></div>`
       : t.visualTrackId
@@ -598,7 +598,12 @@ function renderPhysicalTimeline(){
         <span class="ed-group-caret">▸</span> ${G.label} <span class="hint">${summary}</span></div>`;
     } else {
       html += `<div class="ed-track-group" onclick="tlToggleGroup('${g}')">
-        <span class="ed-group-caret">▾</span> ${G.label}` + (g === 'sound' ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增音轨" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>' : '') + '</div>';
+        <span class="ed-group-caret">▾</span> ${G.label}` +
+        (g === 'picture'
+          ? '<button type="button" class="btn-secondary btn-sm ed-visual-track-add" title="新增独立画面轨道（视频/图片/画中画）" onclick="event.stopPropagation(); editorVisualTrackCreate(event)">＋画面轨</button>'
+          : (g === 'sound'
+            ? '<button type="button" class="btn-secondary btn-sm ed-audio-track-add" title="新增独立音轨（旁白/音乐/音效）" onclick="event.stopPropagation(); editorAudioTrackAdd(event)">＋音轨</button>'
+            : '')) + '</div>';
       for (const t of tracks[g] || []) html += trackRow(t);
     }
   }
@@ -1122,6 +1127,9 @@ function editorAudioClipOpen(index, ev){
   if (ev) { ev.preventDefault(); ev.stopPropagation(); }
   const clip = ED.comp && (ED.comp.audio || [])[index];
   if (!clip) { editorToast('音频片段已变化，请重新选择', true); return; }
+  // 差距分析 K 项：点开片段设置同时置选中态——右侧 Inspector 显示该片段
+  // 真实混音参数（此前点片段 Inspector 仍显示工程概览，误导）。
+  if (typeof select === 'function') select('audio_clip', 'audio#' + index, ev, 'timeline');
   editorAudioClipClose();
   const type = String(clip.type || '');
   const asset = clip.asset_id && ED.comp.assets && ED.comp.assets[clip.asset_id];
@@ -1289,6 +1297,31 @@ async function editorAudioTrackToggleLock(ev, trackId) {
   } catch (error) { editorToast('音轨锁定状态未修改：' + (error.message || error), true); }
 }
 
+async function editorAudioTrackToggleMute(trackId){
+  const lane = (ED.comp && ED.comp.audio_tracks || []).find(item => String(item.id) === String(trackId));
+  if (!lane) { editorToast('音轨已变化，请刷新后重试', true); return; }
+  const muted = !Boolean(lane.muted);
+  try {
+    const result = await executeCommand({command:'set_track_muted', targetId:trackId, payload:{trackType:'audio', muted}});
+    if (!result || !result.ok) { editorToast('静音状态未修改：' + ((result && result.error) || '未知错误'), true); return; }
+    await refreshWorkspace();
+    editorToast(muted ? '已静音整条音轨（渲染时该轨所有片段不发声音）' : '已取消静音');
+    editorAudioTrackMenuClose();
+  } catch (error) { editorToast('静音状态未修改：' + (error.message || error), true); }
+}
+
+async function editorAudioTrackToggleHidden(trackId){
+  const lane = (ED.comp && ED.comp.audio_tracks || []).find(item => String(item.id) === String(trackId));
+  if (!lane) { editorToast('音轨已变化，请刷新后重试', true); return; }
+  const hidden = !Boolean(lane.hidden);
+  try {
+    const result = await executeCommand({command:'set_track_hidden', targetId:trackId, payload:{trackType:'audio', hidden}});
+    if (!result || !result.ok) { editorToast('显示状态未修改：' + ((result && result.error) || '未知错误'), true); return; }
+    await refreshWorkspace();
+    editorToast(hidden ? '已隐藏音轨（仅时间线折叠，不影响渲染）' : '已显示音轨');
+  } catch (error) { editorToast('显示状态未修改：' + (error.message || error), true); }
+}
+
 async function editorAudioTrackAdd(ev){
   if (ev) ev.stopPropagation();
   if (!ED.pid || !ED.comp) { editorToast('先打开项目'); return; }
@@ -1310,7 +1343,9 @@ function editorAudioTrackMenu(ev, trackId){
   editorAudioTrackMenuClose();
   const lane = _timelineAudioTracks(ED.comp).find(item => item.id === trackId);
   if (!lane) { editorToast('音轨已变化，请刷新后重试', true); return; }
-  const clipCount = (ED.comp.audio || []).filter(clip => clip.track_id === trackId).length;
+  const trackClips = (ED.comp.audio || []).filter(clip => clip.track_id === trackId);
+  const clipCount = trackClips.length;
+  const narrationProtected = trackId === 'audio-narration' || trackClips.some(clip => String(clip.type || '') === 'narration');
   const mask = document.createElement('div');
   mask.id = 'audio-track-inspector-mask';
   mask.className = 'audio-track-inspector-mask';
@@ -1319,7 +1354,9 @@ function editorAudioTrackMenu(ev, trackId){
     '<label for="audio-track-name">名称</label>' +
     '<input id="audio-track-name" type="text" maxlength="60" value="' + esc(lane.name || '') + '" autocomplete="off">' +
     '<p class="hint">此轨道有 ' + clipCount + ' 个片段。移动片段只改变轨道归属，不改变 BGM、SFX、原声等混音角色。</p>' +
-    '<footer><button type="button" class="btn-secondary btn-sm" ' + (clipCount ? 'disabled title="请先移动或删除片段"' : '') + ' onclick="editorAudioTrackRemove(\'' + esc(trackId) + '\', event)">删除空轨道</button>' +
+    '<div class="btn-row"><button type="button" class="btn-secondary btn-sm" onclick="editorAudioTrackToggleMute(&quot;' + esc(trackId) + '&quot;)">' + (lane.muted ? '取消静音' : '静音整轨') + '</button>' +
+    '<button type="button" class="btn-secondary btn-sm" onclick="editorAudioTrackToggleHidden(&quot;' + esc(trackId) + '&quot;)">' + (lane.hidden ? '显示轨道' : '隐藏轨道') + '</button></div>' +
+    '<footer><button type="button" class="btn-danger btn-sm" ' + (narrationProtected ? 'disabled title="系统主旁白与 TTS 渲染链绑定，不能删除；可静音或另建旁白轨"' : '') + ' onclick="editorAudioTrackRemove(&quot;' + esc(trackId) + '&quot;, event)">删除轨道</button>' +
     '<button type="button" class="btn-primary btn-sm" onclick="editorAudioTrackApplyName(\'' + esc(trackId) + '\', event)">保存名称</button></footer></section>';
   mask.addEventListener('click', event => { if (event.target === mask) editorAudioTrackMenuClose(); });
   document.body.appendChild(mask);
@@ -1344,13 +1381,17 @@ async function editorAudioTrackApplyName(trackId, ev){
 async function editorAudioTrackRemove(trackId, ev){
   if (ev) ev.stopPropagation();
   const clips = (ED.comp && ED.comp.audio || []).filter(clip => clip.track_id === trackId);
-  if (clips.length) { editorToast('该音轨仍有片段，请先移动或删除片段', true); return; }
+  if (trackId === 'audio-narration' || clips.some(clip => String(clip.type || '') === 'narration')) {
+    editorToast('系统主旁白与 TTS 渲染链绑定，不能删除；可以静音或另建独立旁白/对白轨。', true);
+    return;
+  }
+  if (clips.length && !confirm('此音轨包含 ' + clips.length + ' 个片段。删除轨道会同时删除这些片段，关联的画面片段将同时失去独立原声（变静音）。继续？')) return;
   try {
-    const result = await executeCommand({command:'remove_audio_track', targetId:trackId, payload:{}});
+    const result = await executeCommand({command:'remove_audio_track', targetId:trackId, payload:{deleteContents:true}});
     if (!result || !result.ok) { editorToast('删除音轨失败：' + ((result && result.error) || '未知错误'), true); return; }
     editorAudioTrackMenuClose();
     await refreshWorkspace();
-    editorToast('空音轨已删除');
+    editorToast('音轨及其内容已删除');
   } catch (error) { editorToast('删除音轨失败：' + (error.message || error), true); }
 }
 
@@ -1375,10 +1416,12 @@ function _tlBindAudioClipDrag(){
         duration: Number(track.duration) || 0,
         sourceIn: Number(track.source_in) || 0,
         // A missing source_out means a loop-to-duration track (typically BGM).
-        // First trim materializes its current window as an explicit source range.
+        // Preserve this loop contract through split/trim; do not synthesize source_out.
         sourceOut: track.source_out == null
           ? (Number(track.source_in) || 0) + (Number(track.duration) || 0)
           : Number(track.source_out),
+        loopToDuration: track.source_out == null &&
+          ['bgm', 'ambience', 'ambient'].includes(String(track.type || '').toLowerCase()),
         startTrackId: String(track.track_id || (((el.closest('.ed-track[data-audio-track-id]') || {}).dataset || {}).audioTrackId) || ''),
         baseLeft: Number.parseFloat(el.style.left) || 0,
         baseWidth: Number.parseFloat(el.style.width) || 0,
@@ -1490,29 +1533,50 @@ function _tlBindAudioClipDrag(){
       payload = {start: round(nextStart)};
       if (targetTrackId && targetTrackId !== d.startTrackId) payload.trackId = targetTrackId;
     } else if (d.mode === 'trim-left') {
-      const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
-      const sourceIn = d.sourceIn + dt;
-      const sourceOut = d.sourceOut;
-      const start = d.start + dt;
-      if (sourceOut - sourceIn < 0.05) {
-        editorToast('音频裁剪后不足 0.05 秒，未修改', true);
-        editorRenderTimeline();
-        return;
+      if (d.loopToDuration) {
+        // A looped BGM has no finite source-out: trimming the left edge moves
+        // the timeline start and adjusts duration while preserving the loop's source offset.
+        const dt = Math.max(-d.start, Math.min(delta, d.duration - 0.05));
+        const start = d.start + dt;
+        const duration = d.duration - dt;
+        command = 'trim_audio_clip';
+        payload = {start: round(start), sourceIn: roundMs(d.sourceIn + dt), duration: round(duration), loopToDuration: true};
+      } else {
+        const dt = Math.min(Math.max(delta, -Math.min(d.start, d.sourceIn)), d.duration - 0.05);
+        const sourceIn = d.sourceIn + dt;
+        const sourceOut = d.sourceOut;
+        const start = d.start + dt;
+        if (sourceOut - sourceIn < 0.05) {
+          editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+          editorRenderTimeline();
+          return;
+        }
+        command = 'trim_audio_clip';
+        payload = {start: round(start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
       }
-      command = 'trim_audio_clip';
-      payload = {start: round(start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
     } else {
       // A right trim may shorten freely, but must not extend beyond the project end.
       const dt = Math.max(-(d.duration - 0.05), Math.min(delta, total - d.start - d.duration));
-      const sourceIn = d.sourceIn;
-      const sourceOut = d.sourceOut + dt;
-      if (sourceOut - sourceIn < 0.05) {
-        editorToast('音频裁剪后不足 0.05 秒，未修改', true);
-        editorRenderTimeline();
-        return;
+      if (d.loopToDuration) {
+        const duration = d.duration + dt;
+        if (duration < 0.05) {
+          editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+          editorRenderTimeline();
+          return;
+        }
+        command = 'trim_audio_clip';
+        payload = {start: round(d.start), sourceIn: roundMs(d.sourceIn), sourceOut: roundMs(d.sourceOut + dt), duration: round(duration), loopToDuration: true};
+      } else {
+        const sourceIn = d.sourceIn;
+        const sourceOut = d.sourceOut + dt;
+        if (sourceOut - sourceIn < 0.05) {
+          editorToast('音频裁剪后不足 0.05 秒，未修改', true);
+          editorRenderTimeline();
+          return;
+        }
+        command = 'trim_audio_clip';
+        payload = {start: round(d.start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
       }
-      command = 'trim_audio_clip';
-      payload = {start: round(d.start), sourceIn: roundMs(sourceIn), sourceOut: roundMs(sourceOut)};
     }
     editorToast(command === 'move_audio_clip' ? '正在移动音频片段……' : '正在裁剪音频源区间……');
     executeCommand({command, targetId: 'audio#' + d.index, payload})
@@ -2141,7 +2205,7 @@ Object.assign(window, {
   editorRenderTimeline, tlToggleGroup, editorSelectVisualOverlay, editorEditSelectedVisualOverlay, editorSplitSelectedLayer, editorJoinThroughEdits, editorLiftSelectedLayerToPlayhead, editorExpandMainTimelineToGlobalTrack, editorAddEditAllTracks,
   editorProjectFrameTime, editorSnapPlayheadToFrame,
   editorAudioClipOpen, editorAudioClipClose, editorAudioClipApply,
-  editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackMenu, editorAudioTrackMenuClose,
+  editorAudioTrackAdd, editorAudioTrackToggleLock, editorAudioTrackToggleMute, editorAudioTrackToggleHidden, editorAudioTrackMenu, editorAudioTrackMenuClose,
   editorAudioTrackApplyName, editorAudioTrackRemove,
   selectNarration, projectOverlayOpen, originalTrackOpen, bgmTrackOpen,
   editorUndo, editorRedo, editorSaveBar, editorPreviewBar, editorTopbarRefresh,
