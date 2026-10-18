@@ -20,7 +20,9 @@ class TestDirectorIntent:
         assert resolve_director_intents("竖屏 9:16")["resolution"] == "1080x1920"
 
     def test_duration_seconds_and_minutes(self):
-        assert resolve_director_intents("时长控制在 40 秒以上")["duration"] == "40"
+        """方向语义：「N+」=不少于、「N-」=不超过、无方向词=目标值。"""
+        assert resolve_director_intents("时长控制在 40 秒以上")["duration"] == "40+"
+        assert resolve_director_intents("不超过 30 秒")["duration"] == "30-"
         assert resolve_director_intents("做 1 分钟")["duration"] == "60"
 
     def test_voice_rate(self):

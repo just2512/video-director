@@ -116,11 +116,18 @@ def _resolve_resolution(text: str) -> Optional[str]:
 def _resolve_duration(text: str) -> Optional[str]:
     m = re.search(r"(\d+(?:\.\d+)?)\s*分钟", text)
     if m:
-        return str(int(float(m.group(1)) * 60))
-    m = re.search(r"(\d+(?:\.\d+)?)\s*秒", text)
-    if m:
-        return str(int(round(float(m.group(1)))))
-    return None
+        secs = int(float(m.group(1)) * 60)
+    else:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*秒", text)
+        if not m:
+            return None
+        secs = int(round(float(m.group(1))))
+    # 方向语义保留：「以上/至少」= 下限；「以内/不超过」= 上限；默认 = 目标值。
+    if any(w in text for w in ("以上", "至少", "不少于", "不低于")):
+        return f"{secs}+"
+    if any(w in text for w in ("以内", "不超过", "最多", "之内")):
+        return f"{secs}-"
+    return str(secs)
 
 
 def _resolve_voice_rate(text: str) -> Optional[str]:
@@ -313,7 +320,12 @@ def _normalize_value(field: str, value: str) -> Optional[str]:
     if not v:
         return None
     if field == "voice":
-        return _normalize_voice(v)
+        mapped = _normalize_voice(v)
+        if mapped is None:
+            # 无法落到系统音色：不喂非法 id 给 edge-tts，但原始请求必须带出
+            # （director 侧据此发 warning，用户知道「温柔女声」没配上）。
+            return None
+        return mapped
     if field == "style":
         return _normalize_style(v)
     if field == "transition_mode":
@@ -335,7 +347,11 @@ def _normalize_value(field: str, value: str) -> Optional[str]:
 
 
 def resolve_director_intents(brief: str) -> Dict[str, str]:
-    """brief → {spec_field: normalized_value}。规则层 + LLM 层合并，规则层优先。"""
+    """brief → {spec_field: normalized_value}。规则层 + LLM 层合并，规则层优先。
+
+    附加键 `_unresolved`（逗号分隔）：系统有字段但值无法落到真实契约的原始
+    请求（如「外星女声」），由 director 侧转 warning 如实告知用户。
+    """
     rule, _ = _rule_resolve(brief or "")
     merged = dict(rule)
     llm = _llm_resolve(brief or "")
@@ -345,7 +361,18 @@ def resolve_director_intents(brief: str) -> Dict[str, str]:
     # 单镜头语境下 clip_duration 优先，移除总时长误报。
     if "clip_duration" in merged and any(w in (brief or "") for w in ("每个镜头", "单镜头", "每个画面", "镜头时长")):
         merged.pop("duration", None)
-    return {k: nv for k, v in merged.items() if (nv := _normalize_value(k, v)) is not None}
+    normalized: Dict[str, str] = {}
+    unresolved: List[str] = []
+    for k, v in merged.items():
+        nv = _normalize_value(k, v)
+        if nv is None:
+            if k in ("voice", "style"):
+                unresolved.append(f"{k}={v}")
+            continue
+        normalized[k] = nv
+    if unresolved:
+        normalized["_unresolved"] = "；".join(unresolved)
+    return normalized
 
 
 def catalog_for_frontend() -> List[Dict[str, str]]:

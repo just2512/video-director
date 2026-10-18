@@ -189,9 +189,22 @@ def _tool_script(spec: dict, state: dict) -> dict:
             raise RuntimeError("没有用户文案且没有可用文本大模型")
         # 2026-10-18：用户自然语言「40 秒以上」解析出的目标时长注入文案生成，
         # 否则脚本长度（从而总时长）完全由 LLM 自由发挥——「要 40 秒只给 30 秒」。
+        # 方向语义：「N+」=不少于 N 秒（下限）；「N-」=不超过 N 秒（上限）。
         intent_duration = str(spec.get("_intent_duration_s") or "").strip()
         duration_hint = ""
-        if intent_duration:
+        if intent_duration.endswith("+"):
+            n = intent_duration[:-1]
+            duration_hint = (
+                f"成片总时长不少于 {n} 秒（这是下限，只能更长不能更短）。按正常中文配音语速"
+                f"（约每秒 4 字）文案总字数至少 {n} 秒对应篇幅。\n"
+            )
+        elif intent_duration.endswith("-"):
+            n = intent_duration[:-1]
+            duration_hint = (
+                f"成片总时长不超过 {n} 秒（这是上限，只能更短不能更长）。按正常中文配音语速"
+                f"（约每秒 4 字）文案总字数至多 {n} 秒对应篇幅。\n"
+            )
+        elif intent_duration:
             duration_hint = (
                 f"成片目标总时长约 {intent_duration} 秒。按正常中文配音语速（约每秒 4 字）"
                 f"控制文案总字数在 {intent_duration} 秒对应的篇幅内，不要明显偏离目标时长。\n"
@@ -1309,6 +1322,10 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     style_contract, style_warnings = style_mod.select_style(
         initial_script, seeded_style or None
     )
+    # 意图解析「识别了但值落不到真实契约」的原始请求如实提示（voice/style）。
+    unresolved = str(spec.get("_unresolved") or "").strip()
+    if unresolved and isinstance(style_warnings, list):
+        style_warnings.append(f"以下要求暂无法映射到系统可用取值，已按默认处理：{unresolved}")
 
     try:
         from video_director import store
