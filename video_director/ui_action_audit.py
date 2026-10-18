@@ -78,6 +78,8 @@ UI_ONLY_PREFIXES = (
     "projectOverlayOpen(", "originalTrackOpen(", "bgmTrackOpen(",
     "editorAudioVolume(", "editorSubtitleStyleOpen(",
     "editorAudioClipOpen(", "editorAudioClipApply(", "editorAudioClipClose(", "editorAudioClipSplit(",
+    "editorInspectorPatchVisualOverlay(", "editorInspectorToggleOverlayAudio(", "editorInspectorPatchAudioClip(",
+    "editorEditSelectedVisualOverlay(", "editorClipCopy(",
     "editorAudioTrackAdd(", "editorAudioAssetPick(", "editorAudioTrackMenu(", "editorAudioTrackMenuClose(",
     "editorAudioTrackApplyName(", "editorAudioTrackRemove(", "editorAudioTrackToggleLock(", "editorSubtitleCueSelect(",
     "editorWatermarkClipOpen(", "editorWatermarkClipApply(", "editorWatermarkClipClose(",

@@ -776,7 +776,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
         elif cmd_name == "lock":
             changed, stale = _cmd_lock(ir, target_id, payload)
         elif cmd_name == "batch":
-            changed, stale = _cmd_batch(ir, payload)
+            changed, stale = _cmd_batch(ir, payload, project_id)
         elif cmd_name == "set_original_audio":
             changed, stale = _cmd_set_original_audio(ir, target_id, payload)
         elif cmd_name == "set_original_audio_volume":
@@ -3523,11 +3523,23 @@ def _cmd_remove_visual_overlay(ir: CompositionIR, target_id: str, payload: dict)
     # locked; never remove the picture and leave an invalid/dangling audio reference.
     for _audio_index, audio_clip in linked:
         _ensure_audio_lane_unlocked(ir, str(audio_clip.track_id or f"audio-{audio_clip.type.value}"))
+    removed_start = float(clip.start)
+    removed_duration = float(clip.duration)
+    removed_track = str(clip.track_id or "overlay-main")
     ir.visual_overlays.pop(index)
     removed_indices = {audio_index for audio_index, _audio_clip in linked}
     ir.audio = [audio_clip for i, audio_clip in enumerate(ir.audio) if i not in removed_indices]
     changed = [f"visual-overlay:{clip.id}"]
     changed.extend(f"audio:{audio_clip.type.value}:{audio_index}" for audio_index, audio_clip in linked)
+    # 差距分析 C 项（剪映方案「波纹删除」）：ripple=true 时同轨后续片段前移
+    # 补齐删除段。普通删除留空隙——两种语义显式分开，不混同。
+    if payload.get("ripple") is True:
+        for li, later in enumerate(ir.visual_overlays):
+            if str(later.track_id or "overlay-main") == removed_track and float(later.start) > removed_start:
+                ir.visual_overlays[li] = later.model_copy(
+                    update={"start": round(max(0.0, float(later.start) - removed_duration), 6)}
+                )
+        changed.append(f"visual-track:{removed_track}")
     stale = [f"visual-overlay:{clip.id}:render", "project:visual-overlays:render", "project:preview"]
     if linked:
         stale.extend(["project:audio:render", "project:audio-tracks"])
@@ -4095,6 +4107,13 @@ def _cmd_trim_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> Tu
             raise EditorError("INVALID_PAYLOAD", "循环片段需要数字 start/duration/sourceIn") from exc
         if not all(math.isfinite(value) for value in (start, duration, source_in)):
             raise EditorError("INVALID_PARAMETER", "循环片段的 start/duration/sourceIn 必须为有限数字")
+        # 对抗审查 MEDIUM 6：循环 BGM 左边缘裁剪必须保持 source_in 位移与时间轴
+        # 位移严格相等。前端对 start 做帧对齐（editorProjectFrameTime）、对
+        # sourceIn 只做毫秒取整——两者独立取整后差值漂移可达一帧（33ms），
+        # 累积成音画错位。这里用时间轴帧对齐后的位移量反推 source_in，
+        # 而不是信任前端传来的独立取整值。
+        start_delta = _project_frame_time(ir, start) - float(track.start)
+        source_in = float(track.source_in or 0.0) + start_delta
         start = _project_frame_time(ir, start)
         duration = _project_frame_time(ir, duration)
         total = float(ir.project.duration)
@@ -4318,6 +4337,17 @@ def _cmd_remove_audio_clip(ir: CompositionIR, target_id: str, payload: dict) -> 
             changed.append(f"visual-overlay:{linked_overlay_id}")
             stale.extend(["project:visual-overlays:render", "project:timeline:render"])
     ir.audio.pop(index)
+    # 差距分析 C 项：音频波纹删除——同轨（lane id）后续片段前移补齐。
+    if payload.get("ripple") is True:
+        removed_start = float(clip.start)
+        removed_duration = float(clip.duration)
+        removed_lane = str(clip.track_id or f"audio-{clip.type.value}")
+        for ai, later in enumerate(ir.audio):
+            if str(later.track_id or f"audio-{later.type.value}") == removed_lane and float(later.start) > removed_start:
+                ir.audio[ai] = later.model_copy(
+                    update={"start": round(max(0.0, float(later.start) - removed_duration), 6)}
+                )
+        changed.append(f"audio-track:{removed_lane}")
     return changed, list(dict.fromkeys(stale))
 
 
@@ -4336,6 +4366,16 @@ def _cmd_paste_audio_clip(
         source = AudioTrack.model_validate(raw_clip)
     except Exception as exc:
         raise EditorError("INVALID_PAYLOAD", f"复制的音频片段数据无效：{exc}") from exc
+    # 对抗审查 MEDIUM 3：旁白是 TTS 渲染链管线素材，复制粘贴会产生第二条
+    # narration——渲染器只混第一条（renderer next(narration)），时间线却显示
+    # 两条，预览/成片不一致。与 remove/split/add 的守卫同文案。
+    from video_director.models import AudioTrackType
+    if getattr(source.type, "value", source.type) == AudioTrackType.narration.value:
+        raise EditorError(
+            "TTS_NARRATION_PIPELINE_CLIP",
+            "旁白是 TTS 管线素材：由系统按分镜时间轴合成，不支持在时间线复制粘贴；"
+            "如需第二段旁白请另建旁白轨并使用配音重生成",
+        )
     if not source.asset_id:
         raise EditorError("ASSET_NOT_FOUND", "该音频片段未绑定可复用素材，不能复制粘贴")
     known_asset = any(asset.id == source.asset_id for asset in ir.assets) or any(
@@ -4372,6 +4412,10 @@ def _cmd_paste_audio_clip(
             source_duration = 0.0
         if source_duration > 0 and float(source.source_out) > source_duration + 0.05:
             raise EditorError("INVALID_SOURCE_RANGE", "复制音频片段的源区间超出素材时长")
+    # 对抗审查 MEDIUM 4：负 source_in 渲染端会被静默夹到 0（音频整体前移且
+    # 无人知晓）；模型 validator 不查 source_in，这里显式拒绝。
+    if float(source.source_in or 0.0) < -1e-9:
+        raise EditorError("INVALID_SOURCE_RANGE", "复制音频片段的源起点不能为负")
 
     updates = {
         "id": f"audio-clip-{uuid.uuid4().hex[:12]}",
@@ -4748,14 +4792,49 @@ def _cmd_lock(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[st
     return [layer_id], []
 
 
-def _cmd_batch(ir: CompositionIR, payload: dict) -> Tuple[List[str], List[str]]:
+def _cmd_batch(ir: CompositionIR, payload: dict, project_id: str = "") -> Tuple[List[str], List[str]]:
     """多选批量命令（§47）：单 revision 原子执行。
 
-    支持 delete / duplicate / lock，以及 OpenCut 风格的多场景移动。
-    move 使用 anchorId：把选中的场景按当前相对顺序移动到锚点场景之前。
-    持久化仍只有 Composition IR + Revision，不创建第二套时间线。
+    两种形状：
+    - subcommand + targets（delete/duplicate/lock/move，旧形状）
+    - operations: [{command, targetId, payload}]（顺序执行任意编辑命令）。
+      对抗审查 HIGH 2：剪切=paste+remove 必须合成单 revision——两次独立命令
+      时 Ctrl+Z 只回退一半，时间线出现「副本留下+原片段复活」。
+      顺序在内存 ir 上执行；任何子命令抛错整个 batch 不落盘（原子）。
     """
     sub = payload.get("subcommand") or ""
+    operations = [op for op in (payload.get("operations") or []) if isinstance(op, dict)]
+
+    # operations 形状：顺序执行命令（paste+remove 的原子剪切等）。
+    # 显式映射（签名差异：paste 命令需要 project_id）；不支持的命令明确
+    # 报错，不做泛化递归 dispatch——batch 内不可嵌 batch/undo/redo/select。
+    _OPS_HANDLERS = {
+        "paste_visual_overlay": lambda ir, t, p: _cmd_paste_visual_overlay(ir, t, p, project_id),
+        "remove_visual_overlay": lambda ir, t, p: _cmd_remove_visual_overlay(ir, t, p),
+        "paste_audio_clip": lambda ir, t, p: _cmd_paste_audio_clip(ir, t, p, project_id),
+        "remove_audio_clip": lambda ir, t, p: _cmd_remove_audio_clip(ir, t, p),
+        "add_visual_overlay": lambda ir, t, p: _cmd_add_visual_overlay(ir, t, p, project_id),
+        "move_visual_overlay": lambda ir, t, p: _cmd_move_visual_overlay(ir, t, p),
+        "move_audio_clip": lambda ir, t, p: _cmd_move_audio_clip(ir, t, p),
+    }
+    if operations:
+        changed_all: List[str] = []
+        stale_all: List[str] = []
+        for op in operations:
+            op_cmd = str(op.get("command") or "")
+            handler = _OPS_HANDLERS.get(op_cmd)
+            if handler is None:
+                raise EditorError(
+                    "INVALID_PAYLOAD",
+                    f"batch operations 不支持 {op_cmd!r}（可用：{', '.join(sorted(_OPS_HANDLERS))}）",
+                )
+            c, s = handler(ir, str(op.get("targetId") or ""), op.get("payload") or {})
+            changed_all.extend(c or [])
+            stale_all.extend(s or [])
+        if not changed_all:
+            raise EditorError("NOOP", "batch operations 未产生任何变更")
+        return changed_all, stale_all
+
     targets = [t for t in (payload.get("targets") or []) if t]
     if not targets:
         raise EditorError("INVALID_PAYLOAD", "batch 缺 targets")

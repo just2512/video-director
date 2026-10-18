@@ -1,6 +1,7 @@
 /* Physical timeline clip clipboard. All mutations go through Editor Command,
  * so clipboard edits receive the same validation, revision history and undo path.
- * Cut deletes the source only after a paste was accepted by the server.
+ * Cut pastes + removes the source in ONE atomic batch revision, so Ctrl+Z
+ * restores the pre-cut timeline in a single undo (no half-cut duplicates).
  */
 (function installTimelineClipClipboard() {
   if (window.__editorClipClipboardInstalled) return;
@@ -156,8 +157,11 @@
         const candidate = list[origin.index];
         // AudioTrack.id is optional in legacy projects. Keep the selection anchored
         // through ordinary move/trim operations when the indexed media is unchanged.
+        // 对抗审查 MEDIUM 5：index 回退必须严匹配 fingerprint——同 type 同素材
+        // 的多条 legacy 片段在切分/插播后 index 会漂移，宽匹配会命中错误片段。
         if (String(candidate.type || '') === String(origin.type || '') &&
-            String(candidate.asset_id || '') === String(origin.assetId || '')) index = origin.index;
+            String(candidate.asset_id || '') === String(origin.assetId || '') &&
+            audioFingerprint(candidate) === String(origin.fingerprint || '')) index = origin.index;
       }
       if (index < 0) {
         index = list.findIndex(clip =>
@@ -341,15 +345,49 @@
     }
     const command = item.kind === 'audio' ? 'paste_audio_clip' : 'paste_visual_overlay';
     const targetId = item.kind === 'audio' ? 'audio-tracks' : 'overlays';
+    const pastePayload = {
+      clip:clone(item.clip), start:start, trackId:trackId,
+      ...(item.kind === 'visual' && item.linkedAudio ? {linkedAudio:clone(item.linkedAudio), audioTrackId:linkedAudioTrackId} : {})
+    };
+    // 对抗审查 HIGH 2：剪切=paste+remove 必须是单 revision（batch 原子）。
+    // 两次独立命令时 Ctrl+Z 只回退 remove——副本留下、原片段复活，重复片段。
     let result;
+    if (item.cut && item.origin) {
+      let removeOp = null;
+      if (item.kind === 'visual') {
+        removeOp = {command:'remove_visual_overlay', targetId:String(item.origin.id), payload:{}};
+      } else {
+        const index = findAudioOrigin(item.origin);
+        if (index >= 0) removeOp = {command:'remove_audio_clip', targetId:'audio#' + index, payload:{}};
+      }
+      if (removeOp) {
+        try {
+          result = await window.executeBatch({commands: [
+            {command: command, targetId: targetId, payload: pastePayload},
+            removeOp,
+          ]});
+        } catch (error) {
+          toast('剪切失败：' + (error.message || error), true);
+          return {ok:false};
+        }
+        if (!result || !result.ok) {
+          toast('剪切失败：' + ((result && result.error) || '工程没有变化'), true);
+          return {ok:false, error:(result && result.error) || 'CUT_REJECTED'};
+        }
+        item.cut = false;
+        try { await window.refreshWorkspace(); }
+        catch (error) { toast('已写入工程，但时间线刷新失败：' + (error.message || error), true); }
+        return result;
+      }
+      // 原片段已无法定位（结构变化）：退回粘贴-only 并如实提示。
+      item.cut = false;
+      toast('原片段已变化：仅执行了粘贴，原片段未删除，请手动清理。', true);
+    }
     try {
       result = await window.executeCommand({
         command: command,
         targetId: targetId,
-        payload: {
-          clip:clone(item.clip), start:start, trackId:trackId,
-          ...(item.kind === 'visual' && item.linkedAudio ? {linkedAudio:clone(item.linkedAudio), audioTrackId:linkedAudioTrackId} : {})
-        }
+        payload: pastePayload
       });
     } catch (error) {
       toast('粘贴失败：' + (error.message || error), true);
@@ -374,27 +412,8 @@
       if (last && String(last.asset_id || '') === String(item.clip.asset_id || '') && String(last.track_id || '') === String(trackId) && Math.abs(Number(last.start || 0) - Number(start)) <= startTolerance) pastedId = String(last.id || '');
     }
 
-    if (item.cut && item.origin) {
-      let removed;
-      try {
-        if (item.kind === 'visual') {
-          removed = await window.executeCommand({
-            command:'remove_visual_overlay', targetId:String(item.origin.id), payload:{}
-          });
-        } else {
-          const index = findAudioOrigin(item.origin);
-          removed = index >= 0
-            ? await window.executeCommand({command:'remove_audio_clip', targetId:'audio#' + index, payload:{}})
-            : {ok:false, error:'原片段已变化，未自动删除'};
-        }
-      } catch (error) {
-        removed = {ok:false, error:error.message || String(error)};
-      }
-      item.cut = false;
-      if (!removed || !removed.ok) {
-        toast('片段已粘贴，但原片段未能删除：' + ((removed && removed.error) || '请检查时间线。'), true);
-      }
-    }
+    // 剪切路径已在上方 batch（paste+remove 单 revision）提前返回；
+    // 走到这里的一定是纯粘贴（cut=false 或 origin 不可定位已降级）。
 
     try { await window.refreshWorkspace(); }
     catch (error) { toast('片段已写入工程，但时间线刷新失败：' + (error.message || error), true); }

@@ -120,6 +120,16 @@ def _build_manifest() -> List[Capability]:
     caps.append(_cap("timeline.duplicate", "edit",
         "复制场景", input_schema="TargetRequest", outputs=("Composition",),
         examples=("复制这一段",)))
+    # 多轨时间线与物理片段（差距分析 L 项：Agent 与鼠标同命令集）。
+    # 一个 capability 聚合一族编辑命令；命令在 editor.SUPPORTED_COMMANDS 内。
+    caps.append(_cap("timeline.track", "edit",
+        "多轨管理：新增/重命名/删除/排序画面轨与音轨、轨道锁定",
+        input_schema="TrackRequest", outputs=("Composition",),
+        examples=("加一条音轨", "锁定旁白轨")))
+    caps.append(_cap("timeline.clip", "edit",
+        "物理片段编辑：移动/裁剪/切分/删除画面片段与音频片段、插入音频素材",
+        input_schema="ClipRequest", outputs=("Composition",),
+        examples=("把这段音效挪到 5 秒", "裁掉画面片段右侧 2 秒")))
     caps.append(_cap("timeline.replace", "edit",
         "替换镜头配方（Shot Picker）", input_schema="RecipeReplaceRequest",
         outputs=("Composition",), examples=("换成产品近景",)))

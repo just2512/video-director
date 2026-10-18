@@ -1127,6 +1127,9 @@ function editorAudioClipOpen(index, ev){
   if (ev) { ev.preventDefault(); ev.stopPropagation(); }
   const clip = ED.comp && (ED.comp.audio || [])[index];
   if (!clip) { editorToast('音频片段已变化，请重新选择', true); return; }
+  // 差距分析 K 项：点开片段设置同时置选中态——右侧 Inspector 显示该片段
+  // 真实混音参数（此前点片段 Inspector 仍显示工程概览，误导）。
+  if (typeof select === 'function') select('audio_clip', 'audio#' + index, ev, 'timeline');
   editorAudioClipClose();
   const type = String(clip.type || '');
   const asset = clip.asset_id && ED.comp.assets && ED.comp.assets[clip.asset_id];
@@ -1355,7 +1358,7 @@ async function editorAudioTrackRemove(trackId, ev){
     editorToast('系统主旁白与 TTS 渲染链绑定，不能删除；可以静音或另建独立旁白/对白轨。', true);
     return;
   }
-  if (clips.length && !confirm('此音轨包含 ' + clips.length + ' 个片段。删除轨道会同时删除这些片段，不能只撤回轨道本身。继续？')) return;
+  if (clips.length && !confirm('此音轨包含 ' + clips.length + ' 个片段。删除轨道会同时删除这些片段，关联的画面片段将同时失去独立原声（变静音）。继续？')) return;
   try {
     const result = await executeCommand({command:'remove_audio_track', targetId:trackId, payload:{deleteContents:true}});
     if (!result || !result.ok) { editorToast('删除音轨失败：' + ((result && result.error) || '未知错误'), true); return; }

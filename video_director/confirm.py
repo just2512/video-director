@@ -765,6 +765,31 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
         narration_path = dirs["audio"] / "narration.mp3"
     narration = str(narration_path) if narration_path.is_file() else None
     subtitle_path = dirs["render"] / "master.ass"
+    # 对抗审查 MEDIUM 8：编辑器改过字幕（set_subtitle_track 写 ir.subtitle_track.cues）
+    # 但旧 master.ass 是规划期产物——原样烧录会把用户改的文字/时间点丢掉。
+    # cues 非空时从 IR 重建 ass（样式仍由 renderer 读 ir.subtitle_style 控制）。
+    if ir.subtitle_track and ir.subtitle_track.cues:
+        from video_director.subtitle import ASS_PLAIN_HEADER, _ass_time
+        width = int(render_ir.project.width or 1080)
+        height = int(render_ir.project.height or 1920)
+        font_size = 64
+        if ir.subtitle_style is not None:
+            try:
+                font_size = max(20, int(64 * float(ir.subtitle_style.size or 1.0)))
+            except (TypeError, ValueError):
+                font_size = 64
+        header = ASS_PLAIN_HEADER.format(
+            width=width, height=height, font_size=font_size,
+            margin_v=max(40, int(height * 0.08)),
+        )
+        events = []
+        for cue in ir.subtitle_track.cues:
+            text = str(cue.text or "").strip()
+            if not text:
+                continue
+            disp = text if len(text) <= 16 else text[: len(text) // 2] + "\\N" + text[len(text) // 2:]
+            events.append(f"Dialogue: 0,{_ass_time(cue.start)},{_ass_time(cue.end)},Sub,,0,0,0,,{disp}")
+        subtitle_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
     subtitles = str(subtitle_path) if subtitle_path.is_file() else None
     title_card_path = dirs["render"] / "title_card.mp4"
     title_card = str(title_card_path) if title_card_path.is_file() else None
@@ -784,14 +809,21 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
 
     store.set_stage(project_id, store.Stage.RENDERING)
     work_dir = dirs["render"] / "editor-final"
-    rendered = renderer.render_composition(
-        render_ir, assets, work_dir, narration_file=narration,
-        subtitle_file=subtitles, title_card=title_card,
-        lower_third_name=lower_third_name,
-        lower_third_role=lower_third_role,
-        watermark=legacy_watermark,
-        project_id=project_id, artifact_kind="final",
-    )
+    # 对抗审查 HIGH 1：渲染失败必须落 FAILED+error，否则项目永久卡 RENDERING。
+    # 旧管线 pipeline._compose 有同型 except → _fail(...) 收口，这条新导出路径
+    # 之前没有，缺素材时异常穿透、DB 停在「渲染中」60%。
+    try:
+        rendered = renderer.render_composition(
+            render_ir, assets, work_dir, narration_file=narration,
+            subtitle_file=subtitles, title_card=title_card,
+            lower_third_name=lower_third_name,
+            lower_third_role=lower_third_role,
+            watermark=legacy_watermark,
+            project_id=project_id, artifact_kind="final",
+        )
+    except Exception as exc:
+        store.set_stage(project_id, store.Stage.FAILED, error=f"最终导出渲染失败：{exc}")
+        raise
     final_path = dirs["output"] / "final.mp4"
     final_path.parent.mkdir(parents=True, exist_ok=True)
     if Path(rendered.final_path).resolve() != final_path.resolve():
