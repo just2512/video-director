@@ -175,7 +175,7 @@ Reference 是创作输入 ≠ 可直接使用的商业素材。可用于 style/c
 
 ## 25. Preview / Final 契约
 
-Preview 与 Final 必须共享 Composition IR。允许 preview quality ≠ final quality；**不允许 preview semantics ≠ final semantics**。
+Preview 与 Final 必须共享项目当前权威的影片状态与 revision（未迁移旧项目共享 CompositionIR revision；film.html 活动项目共享 film.html revision）。允许 preview quality ≠ final quality；**不允许 preview semantics ≠ final semantics**。
 
 ## 26. Editor 契约
 

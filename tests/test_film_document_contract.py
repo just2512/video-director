@@ -561,6 +561,14 @@ def test_film_runtime_buffers_commands_until_iframe_load_and_acknowledges_revisi
     assert "hasRuntimeData" in studio
 
 
+def test_preview_and_final_contract_follows_per_project_authority():
+    root = Path(__file__).resolve().parents[1]
+    contract = (root / "CONTRACT.md").read_text(encoding="utf-8")
+    assert "未迁移旧项目共享 CompositionIR revision" in contract
+    assert "film.html 活动项目共享 film.html revision" in contract
+    assert "Preview 与 Final 必须共享 Composition IR。" not in contract
+
+
 def test_film_revision_export_routes_to_film_renderer_not_legacy_ir():
     root = Path(__file__).resolve().parents[1]
     server = (root / "webui" / "server.py").read_text(encoding="utf-8")
