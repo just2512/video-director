@@ -223,6 +223,8 @@ def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track
     assert "/static/js/film-runtime.js" in runtime
     assert "film-runtime:load" in runtime
     assert "film-runtime:seek" in runtime
+    assert "film-runtime:seek-pause" in runtime
+    assert "syncRuntime(wasPlaying?'seek-pause':undefined)" in studio
     assert "film-runtime:time" in runtime
     assert "fs-preview-composition" in studio
     assert "filmStudioTogglePlayback" in index

@@ -170,6 +170,11 @@
         renderTime(state.time,true);
       }
     }
+    else if(message.type==='film-runtime:seek-pause'){
+      state.playing=false;if(state.raf)cancelAnimationFrame(state.raf);state.raf=0;
+      state.time=clamp(finite(message.time,0),0,state.duration);
+      renderTime(state.time,true);pauseAll();post({type:'film-runtime:paused',time:state.time});
+    }
     else if(message.type==='film-runtime:play')play();
     else if(message.type==='film-runtime:pause')pause();
   });

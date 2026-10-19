@@ -33,6 +33,7 @@
       S.runtimeRev=S.rev;
     }else if(type==='play')frame.contentWindow.postMessage({type:'film-runtime:play'},window.location.origin);
     else if(type==='pause')frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);
+    else if(type==='seek-pause')frame.contentWindow.postMessage({type:'film-runtime:seek-pause',time:S.playhead},window.location.origin);
     else frame.contentWindow.postMessage({type:'film-runtime:seek',time:S.playhead},window.location.origin);
     var button=$('fs-play-toggle');if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
   }
@@ -302,7 +303,7 @@
   window.filmStudioSeek=function(value){
     var wasPlaying=!!window.filmStudioPlaying;
     S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));window.filmStudioPlaying=false;setPlayheadVisual();
-    syncRuntime(wasPlaying?'pause':undefined);
+    syncRuntime(wasPlaying?'seek-pause':undefined);
   };
   window.filmStudioNudge=function(direction){window.filmStudioSeek(S.playhead+direction/30);};
   window.filmStudioTogglePlayback=function(){
