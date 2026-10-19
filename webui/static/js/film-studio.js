@@ -405,6 +405,7 @@
   }
   async function filmStudioHistory(action) {
     if(!S.data||S.busy)return;
+    if(S.broken){showStatus('影片文件无效，暂时不能撤销或重做。','error');return;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     S.busy=true;
     try{
@@ -507,9 +508,9 @@
       var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(S.projectId));
       if(r&&r.ok&&r.exists&&r.rev!==S.rev){
         if(S.proposal){appendMessage('影片已被外部修改，旧 AI 提案已作废。','assistant');S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
-        S.data=r;S.rev=r.rev;S.runtimeRev='';render();showStatus('检测到外部 Agent/文件修改，已按新 revision 刷新。');
+        S.data=r;S.rev=r.rev;S.broken=false;S.runtimeRev='';render();showStatus('检测到外部文件修改，已按新 revision 刷新。');
       }
-      else if(r&&!r.ok&&r.code==='INVALID_FILM')showStatus('film.html 当前无法解析。已冻结编辑；修复文件后重新载入。','error');
+      else if(r&&!r.ok&&r.code==='INVALID_FILM'){S.broken=true;if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}showStatus('film.html 当前无法解析。已暂停编辑；修复后重新载入。','error');}
     },1600);
   };
   window.filmStudioClose=function(){
@@ -690,12 +691,13 @@
   window.filmStudioRejectProposal=function(){
     if(!S.proposal)return;
     appendMessage('已拒绝本次 AI 提案。正式影片文档与 revision 未改变。','assistant');
-    S.proposal=null;renderProposalPanel();S.runtimeRev='';
+    S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
     syncRuntime('seek-pause');
     showStatus('已拒绝提案；未修改正式影片。','success');
   };
   window.filmStudioApplyProposal=async function(){
     var proposal=S.proposal;if(!proposal||S.busy)return;
+    if(S.broken){showStatus('影片文件无效，不能应用 AI 提案。','error');return;}
     if(proposal.project_id!==S.projectId){showStatus('提案所属项目已变化，不能应用。','error');return;}
     S.busy=true;
     try{
@@ -706,7 +708,7 @@
         appendMessage((result&&result.error)||'提案应用失败。','assistant');
         showStatus((result&&result.error)||'提案应用失败。','error');
         if(result&&result.code==='REVISION_CONFLICT'){
-          S.proposal=null;renderProposalPanel();S.runtimeRev='';
+          S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
           S.busy=false;await filmStudioLoad(true);
         }
         return;
@@ -719,6 +721,7 @@
   window.filmStudioAsk=async function(){
     var input=$('fs-chat-input'),message=(input.value||'').trim();if(!message||S.busy)return;
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
+    if(S.broken){showStatus('影片文件无效，已暂停 AI 编辑；修复后重新载入。','error');return;}
     if(S.proposal){window.filmStudioRejectProposal();}
     appendMessage(message,'user');input.value='';S.busy=true;
     try{
