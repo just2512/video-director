@@ -355,3 +355,18 @@ def test_agent_preserves_online_visual_source(monkeypatch, tmp_path):
     out = agent._tool_material({"match_materials_to_script": True, "width": 100, "height": 100}, state)
     assert out["ok"] is True
     assert state["video_files"] == [str(stock_video)]
+
+
+
+def test_create_form_tracks_explicit_fields_without_nonexistent_dom_guard():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "create.js").read_text(encoding="utf-8")
+    assert "function cfMarkExplicitControl(event)" in source
+    assert "if (CF.state !== 'editing') return;" in source
+    assert "getElementById('cf-panel')" not in source
+    assert "_explicit_fields: Array.from(CF.explicitFields || [])" in source
+    for control in (
+        "cf-platform", "cf-resolution", "cf-duration", "cf-voice-rate",
+        "cf-subtitle", "cf-bgm", "cf-watermark", "cf-lower-name",
+    ):
+        assert f'id="{control}"' in source
+        assert f"'{control}':" in source
