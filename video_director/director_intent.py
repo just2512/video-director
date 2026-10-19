@@ -20,8 +20,11 @@ duration 用秒等），避免「解析出来但下游不认识」的二次断�
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # 系统能力目录：用户自然语言要求 → 导演 spec 字段。
 # label 给 LLM 看；aliases 给规则层用；kind 决定归一化。
@@ -219,14 +222,29 @@ def _rule_resolve(brief: str) -> Tuple[Dict[str, str], List[str]]:
         out.setdefault("bgm", "off")
     if any(w in text for w in ("不要音效", "无音效")):
         out.setdefault("sfx", "off")
+    # clip_speed：显式「N 倍速」或快/慢方向词（审计：规则层原本完全没有提取分支）
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:倍速|倍)", text)
+    if m:
+        v = float(m.group(1))
+        if 0.25 <= v <= 4.0:
+            out["clip_speed"] = str(v)
+    elif any(w in text for w in ("画面快进", "加速播放", "画面快一点")):
+        out.setdefault("clip_speed", "1.5")
+    elif any(w in text for w in ("慢动作", "画面慢一点", "慢镜头")):
+        out.setdefault("clip_speed", "0.8")
     return out, []
 
 
 def _llm_resolve(brief: str) -> Dict[str, str]:
-    """LLM 泛化层：目录驱动，把规则层没命中的语义意图映射到字段。"""
+    """LLM 泛化层：目录驱动，把规则层没命中的语义意图映射到字段。
+
+    诚实可观测：provider 缺失/调用失败/解析失败都在日志留痕（INFO/WARNING），
+    不再静默吞掉——用户在后台日志必须能看到「意图 LLM 层为什么没生效」。
+    """
     from video_director import llm_provider
     provider = llm_provider.get_llm()
     if provider is None:
+        logger.info("意图解析 LLM 层跳过：未配置文本大模型，仅规则层解析")
         return {}
     catalog = "\n".join(
         f"- {item['field']}（{item['label']}）；别名：{'、'.join(item['aliases'])}"
@@ -244,19 +262,25 @@ def _llm_resolve(brief: str) -> Dict[str, str]:
     prompt = "可映射字段：\n" + catalog + "\n\n用户要求：\n" + brief
     try:
         raw = provider.generate(prompt, system=system).strip()
-    except Exception:
+    except Exception as exc:
+        logger.warning(f"意图解析 LLM 层失败，仅规则层解析生效: {exc}")
         return {}
     start, end = raw.find("{"), raw.rfind("}")
     if start < 0:
+        logger.warning(f"意图解析 LLM 层返回非 JSON（前80字符）: {str(raw)[:80]}")
         return {}
     try:
         parsed = json.loads(raw[start:end + 1])
     except (json.JSONDecodeError, ValueError):
+        logger.warning(f"意图解析 LLM 层 JSON 解析失败（前80字符）: {str(raw)[:80]}")
         return {}
     if not isinstance(parsed, dict):
+        logger.warning(f"意图解析 LLM 层返回非对象（{type(parsed).__name__}），忽略")
         return {}
     known = {item["field"] for item in INTENT_FIELDS}
-    return {str(k): v for k, v in parsed.items() if k in known and v not in (None, "")}
+    accepted = {str(k): v for k, v in parsed.items() if k in known and v not in (None, "")}
+    logger.info(f"意图解析 LLM 层命中 {len(accepted)} 个字段: {sorted(accepted)}")
+    return accepted
 
 
 def _normalize_voice(value: str) -> Optional[str]:

@@ -53,6 +53,7 @@ def run_qc(
     narration_duration: float,
     expect_subtitle: bool = True,
     expect_audio: bool = True,
+    intent_duration: str = "",
 ) -> QCReport:
     """对最终产物跑确定性 QC 全清单（V2 §45）。"""
     report = QCReport(verdict="PASS")
@@ -85,6 +86,26 @@ def run_qc(
     # 5. fps（25/30 都接受，concat 后容器时间基可能微小漂移）
     _check(report, "fps", probe.fps is not None and probe.fps >= 24,
            f"fps={probe.fps}")
+
+    # 5b. 成片总时长 vs 用户意图目标（方案节点 20/21：总时长是确定性校验项，
+    # 不是 prompt 提示项）。方向语义与意图解析一致：N+=下限、N-=上限、N=精确。
+    _s = str(intent_duration or "").strip()
+    if _s and probe.duration is not None:
+        try:
+            if _s.endswith("+"):
+                _target, _ok = float(_s[:-1]), probe.duration >= float(_s[:-1]) - 1.0
+                _want = f">= {_s[:-1]}s"
+            elif _s.endswith("-"):
+                _target, _ok = float(_s[:-1]), probe.duration <= float(_s[:-1]) + 1.0
+                _want = f"<= {_s[:-1]}s"
+            else:
+                _target, _ok = float(_s), abs(probe.duration - float(_s)) <= 1.0
+                _want = f"≈ {_s}s"
+            _check(report, "duration_vs_intent", _ok,
+                   f"final {probe.duration:.1f}s vs 用户目标 {_want}"
+                   + ("" if _ok else "（预算补足未能达成，见 narration 节点警告）"))
+        except ValueError:
+            pass
 
     # 6. 音轨（预期有旁白时）
     if expect_audio:

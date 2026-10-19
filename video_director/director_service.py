@@ -180,6 +180,10 @@ def create_director_run(payload: dict) -> dict:
     # 字段（显式前端选择永远优先，用户意图是兜底不是覆盖）。
     from video_director import director_intent
     intent = director_intent.resolve_director_intents(brief)
+    import logging as _logging
+    _logging.getLogger(__name__).info(
+        "自然语言意图解析结果（brief=%.60s）: %s", brief or "", intent or {}
+    )
     # 意图解析出的分辨率走与显式 resolution 相同的校验/归一路径
     if not resolution and intent.get("resolution"):
         resolution = intent.get("resolution")
@@ -194,8 +198,10 @@ def create_director_run(payload: dict) -> dict:
         "style_intent": payload.get("style_intent") or inputs.get("style") or intent.get("style") or "",
         "width": rw, "height": rh, "fps": fps,
         "bgm": payload.get("bgm") or intent.get("bgm") or "auto",
-        "bgm_volume": bgm_volume,
-        "narration_volume": narration_volume,
+        # 2026-10-19 意图链修复（审计：合并层丢弃4字段）：音量/镜头参数的
+        # 显式 payload 优先，意图解析值兜底——「音乐小声」「每个镜头3秒」不再被扔。
+        "bgm_volume": bgm_volume if bgm_volume != 0.3 else float(intent.get("bgm_volume") or bgm_volume),
+        "narration_volume": narration_volume if narration_volume != 1.0 else float(intent.get("narration_volume") or narration_volume),
         "sfx_plan": payload.get("sfx_plan"),
         # 音效自动搜索（Openverse 免 Key：freesound 源 CC0，本地未命中自动搜）
         "auto_sfx_search": bool(payload.get("auto_sfx_search", False)),
@@ -203,8 +209,8 @@ def create_director_run(payload: dict) -> dict:
         "sfx": payload.get("sfx") or payload.get("sfx_choice") or intent.get("sfx") or "auto",
         "subtitle_mode": payload.get("subtitle_mode") or intent.get("subtitle_mode") or "plain",
         "fit_mode": payload.get("fit_mode") or intent.get("fit_mode") or "cover",
-        "clip_duration": payload.get("clip_duration"),
-        "clip_speed": payload.get("clip_speed"),
+        "clip_duration": payload.get("clip_duration") or intent.get("clip_duration"),
+        "clip_speed": payload.get("clip_speed") or intent.get("clip_speed"),
         "concat_mode": payload.get("concat_mode") or "sequential",
         "transition_mode": payload.get("transition_mode") or intent.get("transition_mode") or "cut",
         "match_materials_to_script": bool(payload.get("match_materials_to_script", True)),

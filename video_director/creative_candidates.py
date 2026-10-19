@@ -59,7 +59,10 @@ def _clean_candidate(scene_id: str, index: int, raw: Mapping[str, Any], scene_te
         source = {"direct": "user_asset", "broll": "stock", "concept": "generated"}[approach]
 
     generation_type = str(raw.get("generation_type") or "").strip().lower()
-    if generation_type not in {"", "image", "video"}:
+    # 2026-10-19 架构审计修复：白名单原先只有 ""/image/video，LLM 输出的
+    # graphic/motion 被静默清空 → _GEN_FALLBACK 对应分支永远到不了（死分支）。
+    # generation.py 已支持 graphic/motion 生成，纯白名单收窄，放开。
+    if generation_type not in {"", "image", "video", "graphic", "motion"}:
         generation_type = ""
     if not generation_type and source == "generated":
         generation_type = "image"

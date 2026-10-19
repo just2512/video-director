@@ -180,8 +180,19 @@ async function _startRenderWorkflow(actionId, pid){
           }
           const meta2 = document.getElementById('ed-preview-meta');
           if (meta2 && path) meta2.textContent = (kind === 'render_draft' ? '草稿已完成' : '成片已完成');
+          // 成片完成 = 交付（方案节点24）：载入预览 + 给出下载入口。
+          // 此前 final 分支只改状态文字，成片既不进预览也无下载按钮——用户
+          // 渲染完成后找不到视频在哪（2026-10-19 生产反馈）。
+          if (kind === 'render_final' && path) {
+            previewShowVideo(path, '成片 · 已完成');
+            const box = document.getElementById('editor-preflight-box');
+            if (box) {
+              box.innerHTML =
+                `<div class="panel ok-box">成片渲染完成：<a class="dl" href="/file?path=${encodeURIComponent(path)}" download="final.mp4">下载 final.mp4</a></div>`;
+            }
+          }
           if (typeof taskRefresh === 'function') taskRefresh();
-          editorToast(kind === 'render_draft' ? '草稿渲染完成，已载入预览' : '成片渲染完成');
+          editorToast(kind === 'render_draft' ? '草稿渲染完成，已载入预览' : '成片渲染完成，已载入预览');
           return;
         }
         if (['FAILED','INTERRUPTED','CANCELLED'].includes(st)) {

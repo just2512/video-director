@@ -172,16 +172,37 @@ class FrameVisionProvider(VisionProvider):
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(req, timeout=90) as resp:
-                data = json.loads(resp.read().decode())
-        except Exception as exc:
-            raise VisionError(f"视觉 LLM 调用失败: {exc}") from exc
-        raw = data["choices"][0]["message"]["content"]
+        # 限次重试（方案§五：网络抖动限次重试，不无限等待）+ 超时放宽到 120s
+        # （生产日志显示该视觉服务调用经常在 70~90s 边缘超时，90s 过紧）。
+        data = None
+        last_exc: Optional[Exception] = None
+        for attempt in (1, 2):
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    data = json.loads(resp.read().decode())
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(f"视觉 LLM 调用第 {attempt}/2 次失败: {exc}")
+        if data is None:
+            raise VisionError(f"视觉 LLM 调用失败（重试后）: {last_exc}") from last_exc
+        # 防三连：choices 空（网关错误体）→ IndexError；content 为 None（安全
+        # 过滤/截断）→ NoneType.find；花括号切片非 JSON → 裸 json.loads 崩。
+        # 全部换成带原始响应摘要的诚实报错，调用方仍按 provider 失败降级。
+        choices = data.get("choices") or []
+        content = (choices[0].get("message") or {}).get("content") if choices else None
+        if content is None or not str(content).strip():
+            err = data.get("error")
+            detail = f"：{str(err)[:160]}" if err else f"（响应键：{sorted(data.keys())[:6]}）"
+            raise VisionError(f"视觉 LLM 返回空内容{detail}")
+        raw = str(content).strip()
         start, end = raw.find("{"), raw.rfind("}")
-        if start < 0:
+        if start < 0 or end <= start:
             raise VisionError(f"视觉 LLM 输出无 JSON: {raw[:200]}")
-        parsed = json.loads(raw[start : end + 1])
+        try:
+            parsed = json.loads(raw[start : end + 1])
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise VisionError(f"视觉 LLM 输出 JSON 解析失败: {raw[:120]}") from exc
         return {
             "description": parsed.get("description", ""),
             "tags": parsed.get("tags", []),

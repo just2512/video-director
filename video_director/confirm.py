@@ -704,6 +704,18 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[
 
 
 
+def _read_intent_duration(base: Path) -> str:
+    """从落盘 spec 读回用户目标时长（编辑器导出路径没有内存 spec，
+    director_agent 已把它持久化在 plans/director_spec.json）。"""
+    try:
+        p = base / "plans" / "director_spec.json"
+        if p.is_file():
+            return str(json.loads(p.read_text(encoding="utf-8")).get("_intent_duration_s") or "")
+    except Exception:
+        pass
+    return ""
+
+
 def _render_saved_composition_final(project_id: str, profile: Optional[str] = None) -> str:
     """Render the saved editor CompositionIR as the final artifact without re-planning it.
 
@@ -843,6 +855,7 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
         render_ir, str(final_path), assets, narration_duration,
         expect_subtitle=bool(subtitles),
         expect_audio=narration_expected or other_audio_expected,
+        intent_duration=_read_intent_duration(base),
     )
     report_data = report.to_dict()
     if not report.ok:
