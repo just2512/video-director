@@ -17,6 +17,12 @@ The document is parsed into stage, tracks and clips. Editing supports set, move,
 
 Supported video/image/audio and overlay clips are mapped into tracks. Subtitle cues can be exported to a page-backed track. Fields that are not yet losslessly mapped, including some transforms, keyframes, transitions and watermark types, are reported as migration warnings. The API requires explicit confirmation if warnings exist. The migration manifest stores the source Composition revision and warning list.
 
+## Legacy-source isolation
+
+- Presence of film.html is the migration switch, even if that document is currently malformed. Once present, legacy CompositionIR command writes, direct saves and CompositionIR-based draft/final rendering are rejected with FILM_DOCUMENT_AUTHORITATIVE (HTTP 409 at the WebUI boundary).
+- The new Studio remains editable against film.html; it never silently writes edits back to composition.json. The legacy renderer is deliberately blocked rather than allowed to export an old timeline.
+- This gate prevents state divergence; it does not claim the final MP4 export adapter has been migrated yet.
+
 ## Current boundaries
 
 - The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.

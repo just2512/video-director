@@ -548,6 +548,23 @@ def _film_path(project_id: str) -> Path:
     return _project_root(project_id) / FILM_NAME
 
 
+def assert_legacy_composition_access(project_id: str, operation: str = "编辑或渲染") -> None:
+    """Fail closed when film.html owns the project timeline.
+
+    Existence is the switch, not parse success: even a damaged film.html must
+    never cause old CompositionIR writes or exports to resume silently.
+    """
+    pid = validate_project_id(project_id)
+    if _film_path(pid).is_file():
+        verb = str(operation or "编辑或渲染").strip() or "编辑或渲染"
+        raise FilmError(
+            "FILM_DOCUMENT_AUTHORITATIVE",
+            f"项目 {pid} 已以 film.html 作为影片事实源；旧 CompositionIR 的{verb}已拒绝，"
+            "请从 OpenFilm 影片工作台操作。旧编辑链尚未实现与 film.html 的双向同步。",
+            409,
+        )
+
+
 def _history_path(project_id: str) -> Path:
     return _project_root(project_id) / HISTORY_NAME
 

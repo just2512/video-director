@@ -557,6 +557,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self._send_json({"ok": False, "code": "INVALID_REQUEST", "error": "请求体必须是 JSON 对象。"}, 400)
             return
+        if self._reject_legacy_composition_access(payload.get("project_id", ""), "生成旧时间线风格样片"):
+            return
         try:
             result = render_style_sample(payload.get("project_id", ""), payload.get("style_id", ""), COMPOSER_ROOT / "style-samples")
             self._send_json(result)
@@ -911,6 +913,19 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+
+    def _reject_legacy_composition_access(self, project_id, operation):
+        """Block old CompositionIR writes/renders once film.html owns the project."""
+        from video_director import film_document as fd
+        try:
+            fd.assert_legacy_composition_access(project_id, operation)
+        except fd.FilmError as exc:
+            self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
+            return True
+        except ValueError as exc:
+            self._send_json({"ok": False, "code": "INVALID_PROJECT_ID", "error": str(exc)}, 400)
+            return True
+        return False
 
     def _film_document_api(self, method, parsed):
         """OpenFilm-inspired film.html API with explicit migration and revision-safe edits."""
@@ -2101,6 +2116,8 @@ class Handler(BaseHTTPRequestHandler):
                     if not pid:
                         self._send_json({"error": "缺少 project_id"}, 400)
                         return
+                    if self._reject_legacy_composition_access(pid, "启动旧时间线渲染"):
+                        return
                     # 信任边界：成片渲染前要求 Shotbook 已通过服务端确认
                     # （用过 Shotbook 的项目才受门约束；legacy 项目兼容放行）。
                     if kind == "render_final":
@@ -2803,6 +2820,8 @@ class Handler(BaseHTTPRequestHandler):
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
+            if self._reject_legacy_composition_access(pid, "生成旧时间线草稿"):
+                return
             try:
                 from video_director import confirm as confirm_mod
                 draft_path = confirm_mod.render_draft(pid)
@@ -3141,6 +3160,8 @@ class Handler(BaseHTTPRequestHandler):
             edits = payload.get("edits") or None
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            if self._reject_legacy_composition_access(pid, "导出旧时间线成片"):
                 return
             from video_director import confirm as confirm_mod
             try:

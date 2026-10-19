@@ -733,6 +733,8 @@ def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> di
 
 def run_render_async(project_id: str, kind: str = "draft") -> str:
     """渲染也走 WorkflowRun（§70-4 一个流程一个 run）。kind: draft|final。"""
+    from video_director import film_document as fd
+    fd.assert_legacy_composition_access(project_id, f"渲染 {kind}")
     run_id = start_run("render_" + kind, project_id=project_id,
                        steps=["render", "verify"])
     t = threading.Thread(target=_render_worker, args=(run_id, project_id, kind),

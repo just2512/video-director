@@ -305,3 +305,39 @@ def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track
     assert "fs-preview-composition" in studio
     assert "filmStudioTogglePlayback" in index
     assert "event.source!==parent" in runtime
+
+
+def test_legacy_composition_is_blocked_once_film_html_exists(tmp_path, monkeypatch):
+    from video_director import editor, workflow_run
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-test"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text("not even valid HTML", encoding="utf-8")
+
+    with pytest.raises(fd.FilmError) as raised:
+        fd.assert_legacy_composition_access("film-test", "导出")
+    assert raised.value.code == "FILM_DOCUMENT_AUTHORITATIVE"
+    assert raised.value.status == 409
+
+    command = editor.execute_command("film-test", {"command": "set_duration", "payload": {}})
+    assert command.status == "REJECTED"
+    assert command.errors[0]["code"] == "FILM_DOCUMENT_AUTHORITATIVE"
+
+    with pytest.raises(fd.FilmError, match="film.html"):
+        workflow_run.run_render_async("film-test", "final")
+
+
+def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
+    root = Path(__file__).resolve().parents[1]
+    editor = (root / "video_director" / "editor.py").read_text(encoding="utf-8")
+    workflow = (root / "video_director" / "workflow_run.py").read_text(encoding="utf-8")
+    confirm = (root / "video_director" / "confirm.py").read_text(encoding="utf-8")
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    assert 'assert_legacy_composition_access(project_id, "保存 CompositionIR")' in editor
+    assert 'assert_legacy_composition_access(project_id, f"渲染 {kind}")' in workflow
+    assert 'assert_legacy_composition_access(project_id, "导出旧时间线成片")' in confirm
+    assert '_reject_legacy_composition_access(pid, "启动旧时间线渲染")' in server
+    assert '_reject_legacy_composition_access(pid, "导出旧时间线成片")' in server
+
+

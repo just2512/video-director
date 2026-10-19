@@ -107,6 +107,11 @@ def load_composition(project_id: str) -> CompositionIR:
 
 def save_composition(project_id: str, ir: CompositionIR) -> None:
     """Atomically replace the persisted IR so a crash cannot leave partial JSON."""
+    from video_director import film_document as fd
+    try:
+        fd.assert_legacy_composition_access(project_id, "保存 CompositionIR")
+    except fd.FilmError as exc:
+        raise EditorError(exc.code, str(exc), recoverable=False) from exc
     p = config.project_dir(project_id) / "plans" / "composition.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
@@ -907,6 +912,13 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             "code": "INVALID_PROJECT_ID", "message": str(exc), "recoverable": False,
         }])
     with project_lock(project_id):
+        from video_director import film_document as fd
+        try:
+            fd.assert_legacy_composition_access(project_id, "执行旧时间线命令")
+        except fd.FilmError as exc:
+            return CommandResult(status="REJECTED", errors=[{
+                "code": exc.code, "message": str(exc), "recoverable": False,
+            }])
         return _execute_command_unlocked(project_id, command)
 
 
