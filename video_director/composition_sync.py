@@ -222,7 +222,7 @@ def composition_from_film(document: dict) -> dict:
                 if lane_id in lane_state and lane_state[lane_id]!=state: _fail("COMPOSITION_LANE_STATE_CONFLICT",f"音频 lane {lane_id} 的物理轨道状态冲突")
                 lane_state[lane_id]=state; label=str(ta.get("data-label") or lane.get("name") or "")
                 if lane_id in lane_name and lane_name[lane_id]!=label: _fail("COMPOSITION_LANE_NAME_CONFLICT",f"音频 lane {lane_id} 名称不一致")
-                lane_name[lane_id]=label; lane.update(state); lane["name"]=label or lane.get("name")
+                lane_name[lane_id]=label
             elif clips: _fail("COMPOSITION_AUDIO_LANE_MISSING",f"音频轨道 {track.get('id')} 缺少 lane ID")
             for clip in clips:
                 a=clip.get("attrs") or {}; tag=clip.get("tag"); cid=str(clip.get("id") or "?")

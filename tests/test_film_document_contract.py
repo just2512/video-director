@@ -434,6 +434,43 @@ def test_composition_reverse_mapping_rejects_unbound_inserted_clip(tmp_path, mon
     }
 
 
+
+def test_reverse_mapping_merges_multiple_audio_clips_on_one_muted_lane(tmp_path, monkeypatch):
+    from video_director.models import AudioTrack, AudioTrackType, AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-audio-lane-sync"
+    (root / "assets").mkdir(parents=True)
+    still = root / "assets" / "still.png"
+    music = root / "assets" / "music.mp3"
+    still.write_bytes(b"test-image-bytes")
+    music.write_bytes(b"test-audio-bytes")
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=4),
+        scenes=[SceneIR(id="scene-audio-lane", start=0, duration=2, text="scene",
+                        layers=[Layer(type=LayerType.image, asset_id="still-1", duration=2)])],
+        audio=[
+            AudioTrack(type=AudioTrackType.bgm, id="music-a", asset_id="music-1", start=0, duration=2, source_out=2),
+            AudioTrack(type=AudioTrackType.bgm, id="music-b", asset_id="music-1", start=2, duration=2, source_out=2),
+        ],
+        assets=[
+            AssetRef(id="still-1", type="image", file=str(still), duration=2, width=320, height=180),
+            AssetRef(id="music-1", type="audio", file=str(music), duration=2),
+        ],
+    )
+    plan = fd.build_film_from_composition("film-audio-lane-sync", composition)
+    assert plan["warnings"] == []
+    doc = fd.parse_film(fd.serialize_film(plan["document"]))
+    audio_tracks = [t for t in doc["tracks"] if (t["attrs"].get("data-vd-role") == "audio")]
+    assert len(audio_tracks) == 2
+    for track in audio_tracks:
+        track["attrs"]["muted"] = ""
+    synced = fd.composition_from_film(fd.parse_film(fd.serialize_film(doc)))
+    lane = next(t for t in synced["audio_tracks"] if t["id"] == "audio-bgm")
+    assert lane["muted"] is True
+    assert {item["id"] for item in synced["audio"]} == {"music-a", "music-b"}
+
+
 def test_trim_start_and_end_preserve_source_time_and_speed():
     doc = fd.parse_film(SAMPLE)
     edited, ops = fd.apply_ops(doc, [
