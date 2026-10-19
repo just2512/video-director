@@ -103,6 +103,10 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - A materially different repeated frame fails the render with NON_DETERMINISTIC_FRAME instead of silently exporting. Successful output records determinism_status and the number of sampled timestamps.
 - This is a sampled deterministic audit, not proof that every frame or arbitrary CSS feature is deterministic; the existing iframe/CSS constraints remain in force.
 
+## Agent file-watching browser regression
+
+- Playwright opens the real Studio, observes its SSE connection, externally changes a valid clip speed and verifies the Inspector hot reloads. It then writes a broken partial document and verifies the broken-state alert, followed by a repaired document that must clear the error and hot reload again.
+
 ## Agent file-watching milestone
 
 - A standard-library watcher registers projects viewed by Studio, debounces file changes for at least 120 ms, validates a stable text snapshot, then emits revision_changed/document_broken events on the existing SSE bus.
