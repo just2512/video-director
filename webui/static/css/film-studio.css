@@ -210,3 +210,13 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 
 .fs-clip.fs-rolling{outline:1px dashed #ffe08a;outline-offset:-2px;opacity:.92}
 .fs-clip[data-roll-delta]::after{content:attr(data-roll-delta);position:absolute;left:4px;right:4px;bottom:4px;z-index:9;text-align:center;font-size:10px;background:#191919e8;color:#ffe08a;border-radius:3px;padding:2px;pointer-events:none}
+
+
+/* Override the application's global full-width button defaults inside Studio.
+   Without this, every .fs-btn becomes a full-row flex item and the timeline
+   toolbar grows over the clip canvas, blocking pointer hit-testing. */
+.film-studio-panel .fs-btn{width:auto;margin-top:0;flex:0 0 auto}
+.film-studio-panel .fs-timeline-toolbar .fs-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap;min-width:0}
+.film-studio-panel .fs-timeline-toolbar .fs-toolbar .fs-btn{width:auto;margin:0;flex:0 0 auto}
+.film-studio-panel .fs-scrub-row .fs-btn{width:auto;margin:0;flex:0 0 auto}
+.film-studio-panel .fs-track-controls .fs-btn{width:auto;margin:0;flex:0 0 auto;padding:4px 5px}

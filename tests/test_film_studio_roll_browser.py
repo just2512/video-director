@@ -65,6 +65,11 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 # while the home tab is display:none correctly leaves it hidden.
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
+                # editorInit() repopulates the select asynchronously; wait before
+                # inserting the test-only fixture project to avoid a lost selection.
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
                 page.evaluate("""(pid) => {
                   const select = document.querySelector('#editor-project');
                   if (!select) throw new Error('project selector is missing');

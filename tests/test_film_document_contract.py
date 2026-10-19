@@ -600,6 +600,13 @@ def test_roll_trim_rejects_different_playback_speeds():
         fd.apply_ops(split, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 0.1}])
 
 
+def test_film_studio_buttons_override_global_full_width_button_defaults():
+    root = Path(__file__).resolve().parents[1]
+    css = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
+    assert ".film-studio-panel .fs-btn{width:auto;margin-top:0;flex:0 0 auto}" in css
+    assert ".film-studio-panel .fs-timeline-toolbar .fs-toolbar .fs-btn{width:auto;margin:0;flex:0 0 auto}" in css
+
+
 def test_roll_trim_ctrl_drag_and_operation_contract():
     root = Path(__file__).resolve().parents[1]
     script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
