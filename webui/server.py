@@ -930,7 +930,7 @@ class Handler(BaseHTTPRequestHandler):
     def _film_document_api(self, method, parsed):
         """OpenFilm-inspired film.html API with explicit migration and revision-safe edits."""
         route = parsed.path
-        get_routes = {"/api/editor/film", "/api/editor/film/media"}
+        get_routes = {"/api/editor/film", "/api/editor/film/media", "/api/editor/film/revision"}
         post_routes = {"/api/editor/film/initialize", "/api/editor/film/insert-asset", "/api/editor/film/edit",
                        "/api/editor/film/undo", "/api/editor/film/redo",
                        "/api/editor/film/command", "/api/editor/film/render"}
@@ -951,6 +951,10 @@ class Handler(BaseHTTPRequestHandler):
                 return True
             try:
                 pid = fd.validate_project_id(pid)
+                if route == "/api/editor/film/revision":
+                    self._send_json(fd.peek_project_revision(pid))
+                    return True
+
                 if route == "/api/editor/film/media":
                     media_path = fd.media_path_for_src(pid, qs.get("src", [""])[0])
                     total = media_path.stat().st_size
@@ -1102,7 +1106,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"op": "insert", "track_id": track_id,
                      "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}},
                 ]
-                result = fd.edit_project_film(pid, payload.get("base"), operations)
+                result = fd.edit_project_film(pid, payload.get("base"), operations, payload.get("base_snapshot"))
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
                              "inserted_clip_id": clip["id"], "inserted_track_id": track_id})
@@ -1110,7 +1114,7 @@ class Handler(BaseHTTPRequestHandler):
                 return True
 
             if route == "/api/editor/film/edit":
-                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"))
+                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"), payload.get("base_snapshot"))
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"]})
                 self._send_json(data)

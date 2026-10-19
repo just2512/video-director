@@ -91,12 +91,111 @@ def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     original=fd.read_project_film("film-test")
     first=fd.edit_project_film("film-test",original["rev"],[{"op":"set","clip":"clip-b","field":"at","value":7}])
     assert first["rebased"] is False
-    rebased=fd.edit_project_film("film-test",original["rev"],[{"op":"set","clip":"clip-b","field":"at","value":8}])
+    rebased=fd.edit_project_film(
+        "film-test", original["rev"],
+        [{"op":"set","clip":"clip-b","field":"volume","value":0.4}],
+        base_snapshot=original["doc"],
+    )
     assert rebased["rebased"] is True
+    latest=fd.read_project_film("film-test")
+    clip=next(c for t in latest["doc"]["tracks"] for c in t["clips"] if c["id"]=="clip-b")
+    assert clip["attrs"]["at"] == "7"
+    assert clip["attrs"]["volume"] == "0.4"
     undone=fd.undo_redo_project_film("film-test",rebased["rev"],"undo")
     assert undone["rev"]==first["rev"]
     redone=fd.undo_redo_project_film("film-test",undone["rev"],"redo")
     assert redone["rev"]==rebased["rev"]
+
+
+def test_stale_edit_without_base_snapshot_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-test"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film("film-test")
+    fd.edit_project_film(
+        "film-test", original["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 7}],
+    )
+    with pytest.raises(fd.FilmError) as raised:
+        fd.edit_project_film(
+            "film-test", original["rev"],
+            [{"op": "set", "clip": "clip-b", "field": "volume", "value": 0.4}],
+        )
+    assert raised.value.code == "BASE_SNAPSHOT_REQUIRED"
+    assert raised.value.status == 409
+
+
+def test_stale_same_field_edit_is_rejected_without_overwriting_latest(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-test"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film("film-test")
+    first = fd.edit_project_film(
+        "film-test", original["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 7}],
+    )
+    with pytest.raises(fd.FilmError) as raised:
+        fd.edit_project_film(
+            "film-test", original["rev"],
+            [{"op": "set", "clip": "clip-b", "field": "at", "value": 8}],
+            base_snapshot=original["doc"],
+        )
+    assert raised.value.code == "REVISION_CONFLICT"
+    assert raised.value.status == 409
+    latest = fd.read_project_film("film-test")
+    clip = next(c for t in latest["doc"]["tracks"] for c in t["clips"] if c["id"] == "clip-b")
+    assert clip["attrs"]["at"] == "7"
+    assert latest["rev"] == first["rev"]
+
+
+def test_external_file_edit_allows_disjoint_field_rebase_but_rejects_same_field(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-test"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film("film-test")
+    externally_edited, _ = fd.apply_ops(
+        original["doc"], [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}]
+    )
+    (root / fd.FILM_NAME).write_text(fd.serialize_film(externally_edited), encoding="utf-8")
+    independent = fd.edit_project_film(
+        "film-test", original["rev"],
+        [{"op": "set", "clip": "clip-a", "field": "volume", "value": 0.3}],
+        base_snapshot=original["doc"],
+    )
+    assert independent["rebased"] is True
+    latest = fd.read_project_film("film-test")
+    clip = next(c for t in latest["doc"]["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    assert clip["attrs"]["speed"] == "1.5"
+    assert clip["attrs"]["volume"] == "0.3"
+
+    fresh = fd.read_project_film("film-test")
+    new_base = fresh["doc"]
+    changed, _ = fd.apply_ops(
+        fresh["doc"], [{"op": "set", "clip": "clip-a", "field": "speed", "value": 2}]
+    )
+    (root / fd.FILM_NAME).write_text(fd.serialize_film(changed), encoding="utf-8")
+    with pytest.raises(fd.FilmError) as raised:
+        fd.edit_project_film(
+            "film-test", fresh["rev"],
+            [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.25}],
+            base_snapshot=new_base,
+        )
+    assert raised.value.code == "REVISION_CONFLICT"
+
+
+def test_revision_peek_hashes_malformed_document_without_parsing(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-test"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text("<html><head><script>partial", encoding="utf-8")
+    peek = fd.peek_project_revision("film-test")
+    assert peek["ok"] is True and peek["exists"] is True
+    assert peek["rev"]
+    with pytest.raises(fd.FilmError):
+        fd.read_project_film("film-test")
 
 
 def test_head_script_is_rejected():
@@ -117,6 +216,14 @@ def test_api_ui_routes_are_wired():
     assert "filmStudioAddAsset" in js
     assert "/api/editor/film/insert-asset" in server
     assert "base:S.rev" in js
+    assert "base_snapshot" in js
+    assert "baseSnapshot()" in js
+    assert "REVISION_CONFLICT" in js
+    assert 'payload.get("base_snapshot")' in server
+    assert "_clip_rebase_conflicts" in module
+    assert "/api/editor/film/revision" in server
+    assert "peek_project_revision" in server
+    assert "film/revision" in js
     assert "/static/css/film-studio.css" in index
 
 

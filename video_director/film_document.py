@@ -604,6 +604,18 @@ def read_project_film(project_id: str) -> dict:
     text = path.read_text(encoding="utf-8")
     return {"exists": True, "project_id": project_id, "text": text, "rev": revision_of(text), "doc": parse_film(text)}
 
+def peek_project_revision(project_id: str) -> dict:
+    """Read only the file bytes needed to detect external edits; do not parse HTML."""
+    pid = validate_project_id(project_id)
+    path = _film_path(pid)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"ok": True, "exists": False, "project_id": pid, "rev": revision_of("")}
+    except OSError as exc:
+        raise FilmError("FILM_READ_FAILED", f"无法读取影片文档 revision：{exc}", 500) from exc
+    return {"ok": True, "exists": True, "project_id": pid, "rev": revision_of(text)}
+
 
 def _history_read(project_id: str) -> dict:
     path = _history_path(project_id)
@@ -622,13 +634,203 @@ def _history_write(project_id: str, state: dict):
     _write_atomic(_history_path(project_id), json.dumps(state, ensure_ascii=False, separators=(",", ":")))
 
 
-def edit_project_film(project_id: str, base: str | None, ops: list[dict]) -> dict:
+
+def _base_snapshot_doc(snapshot: Any, base: str | None) -> dict:
+    """Normalize the editor's compact base snapshot for safe optimistic rebasing."""
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("tracks"), list):
+        raise FilmError(
+            "BASE_SNAPSHOT_REQUIRED",
+            "文档已被外部修改，但请求没有携带编辑时的基线快照；请重新载入后重试",
+            409,
+        )
+    snapshot_rev = str(snapshot.get("rev") or "")
+    if base and snapshot_rev and snapshot_rev != base:
+        raise FilmError("INVALID_BASE_SNAPSHOT", "基线快照 revision 与请求 base 不一致", 409)
+
+    tracks = []
+    for raw_track in snapshot["tracks"]:
+        if not isinstance(raw_track, dict):
+            raise FilmError("INVALID_BASE_SNAPSHOT", "基线快照包含无效轨道", 409)
+        track_id = str(raw_track.get("id") or "")
+        attrs = raw_track.get("attrs") or {}
+        clips_raw = raw_track.get("clips")
+        if not track_id or not isinstance(attrs, dict) or not isinstance(clips_raw, list):
+            raise FilmError("INVALID_BASE_SNAPSHOT", "基线快照轨道结构不完整", 409)
+        track_attrs = copy.deepcopy(attrs)
+        track_attrs["id"] = track_id
+        clips = []
+        for raw_clip in clips_raw:
+            if not isinstance(raw_clip, dict):
+                raise FilmError("INVALID_BASE_SNAPSHOT", "基线快照包含无效片段", 409)
+            clip_id, tag = str(raw_clip.get("id") or ""), str(raw_clip.get("tag") or "")
+            clip_attrs = raw_clip.get("attrs") or {}
+            if not clip_id or tag not in CLIP_TAGS or not isinstance(clip_attrs, dict):
+                raise FilmError("INVALID_BASE_SNAPSHOT", "基线快照片段结构不完整", 409)
+            normalized_attrs = copy.deepcopy(clip_attrs)
+            if normalized_attrs.get("id") not in (None, clip_id):
+                raise FilmError("INVALID_BASE_SNAPSHOT", f"片段 {clip_id} 的 ID 与属性不一致", 409)
+            normalized_attrs["id"] = clip_id
+            clips.append({"id": clip_id, "tag": tag, "attrs": normalized_attrs})
+        tracks.append({"id": track_id, "attrs": track_attrs, "clips": clips})
+
+    stage = snapshot.get("stage")
+    if not isinstance(stage, dict):
+        stage = {"width": 1920, "height": 1080}
+    doc = {"stage": copy.deepcopy(stage), "head_html": str(snapshot.get("head_html") or ""), "tracks": tracks}
+    _validate_doc(doc)
+    return doc
+
+
+def _clip_location(doc: dict, clip_id: str):
+    for track in doc.get("tracks", []):
+        for clip in track.get("clips", []):
+            if clip.get("id") == clip_id:
+                return track, clip
+    return None, None
+
+
+def _clip_rebase_conflicts(base_doc: dict, current_doc: dict, ops: list[dict]) -> list[str]:
+    """Reject stale writes to changed fields/objects, while allowing disjoint-field rebases."""
+    if not isinstance(ops, list) or len(ops) > MAX_OPERATIONS:
+        return []
+    conflicts = []
+    created_clips = set()
+    created_tracks = set()
+    seen = set()
+
+    def conflict_once(message: str):
+        if message not in seen:
+            seen.add(message)
+            conflicts.append(message)
+
+    def attr_value(clip, field):
+        return None if clip is None else clip.get("attrs", {}).get(field, None)
+
+    def clip_fingerprint(track, clip):
+        if clip is None:
+            return None
+        return (track.get("id"), clip.get("tag"), copy.deepcopy(clip.get("attrs") or {}))
+
+    def track_fingerprint(track):
+        if track is None:
+            return None
+        return (
+            copy.deepcopy(track.get("attrs") or {}),
+            [(c.get("id"), c.get("tag"), copy.deepcopy(c.get("attrs") or {}))
+             for c in track.get("clips", [])],
+        )
+
+    def find_track(doc, track_id):
+        return next((t for t in doc.get("tracks", []) if t.get("id") == track_id), None)
+
+    for index, op in enumerate(ops, 1):
+        if not isinstance(op, dict):
+            continue
+        kind = str(op.get("op") or "")
+        clip_id = str(op.get("clip") or "")
+        track_id = str(op.get("track_id") or "")
+
+        if kind in {"set", "move", "trim", "split", "remove"}:
+            if clip_id in created_clips:
+                continue
+            base_track, base_clip = _clip_location(base_doc, clip_id)
+            now_track, now_clip = _clip_location(current_doc, clip_id)
+            if base_clip is None or now_clip is None:
+                conflict_once(f"第 {index} 项：片段 {clip_id or '(缺少 ID)'} 在基线或当前文档中不存在")
+                continue
+
+            if kind == "set":
+                field = str(op.get("field") or "")
+                if attr_value(base_clip, field) != attr_value(now_clip, field):
+                    conflict_once(f"第 {index} 项：片段 {clip_id} 的字段 {field} 已被外部修改")
+            elif kind == "move":
+                if (base_track.get("id"), attr_value(base_clip, "at")) != (
+                    now_track.get("id"), attr_value(now_clip, "at")
+                ):
+                    conflict_once(f"第 {index} 项：片段 {clip_id} 的轨道或入点已被外部修改")
+            elif kind == "trim":
+                if (attr_value(base_clip, "src"), attr_value(base_clip, "at")) != (
+                    attr_value(now_clip, "src"), attr_value(now_clip, "at")
+                ):
+                    conflict_once(f"第 {index} 项：片段 {clip_id} 的源区间或入点已被外部修改")
+            elif kind == "split":
+                if clip_fingerprint(base_track, base_clip) != clip_fingerprint(now_track, now_clip):
+                    conflict_once(f"第 {index} 项：片段 {clip_id} 已变化，不能按旧时间点切分")
+                try:
+                    split_at = _number(op.get("at"), "split at", 0)
+                    generated_id = _safe_id(
+                        str(op.get("new_id") or f"{clip_id}-split-{revision_of(str(split_at))[:6]}"),
+                        "clip-right",
+                    )
+                    created_clips.add(generated_id)
+                except FilmError:
+                    pass
+            elif kind == "remove":
+                if clip_fingerprint(base_track, base_clip) != clip_fingerprint(now_track, now_clip):
+                    conflict_once(f"第 {index} 项：片段 {clip_id} 已变化，拒绝删除外部修改")
+        elif kind == "insert":
+            insert_clip = op.get("clip") if isinstance(op.get("clip"), dict) else {}
+            new_id = str(insert_clip.get("id") or "")
+            if new_id and _clip_location(current_doc, new_id)[1] is not None:
+                conflict_once(f"第 {index} 项：新片段 ID {new_id} 已被当前文档占用")
+            if track_id and track_id not in created_tracks:
+                if find_track(base_doc, track_id) is None or find_track(current_doc, track_id) is None:
+                    conflict_once(f"第 {index} 项：目标轨道 {track_id} 已不存在")
+            if new_id:
+                created_clips.add(new_id)
+        elif kind == "track_add":
+            new_track_id = str(op.get("track_id") or "")
+            if find_track(current_doc, new_track_id) is not None and find_track(base_doc, new_track_id) is None:
+                conflict_once(f"第 {index} 项：新轨道 ID {new_track_id} 已被当前文档占用")
+            if new_track_id:
+                created_tracks.add(new_track_id)
+        elif kind == "track":
+            field = str(op.get("field") or "")
+            base_track, now_track = find_track(base_doc, track_id), find_track(current_doc, track_id)
+            if base_track is None or now_track is None:
+                conflict_once(f"第 {index} 项：目标轨道 {track_id} 已不存在")
+            elif (field in (base_track.get("attrs") or {})) != (field in (now_track.get("attrs") or {})):
+                conflict_once(f"第 {index} 项：轨道 {track_id} 的属性 {field} 已被外部修改")
+        elif kind == "track_remove":
+            base_track, now_track = find_track(base_doc, track_id), find_track(current_doc, track_id)
+            if track_fingerprint(base_track) != track_fingerprint(now_track):
+                conflict_once(f"第 {index} 项：轨道 {track_id} 已变化，拒绝删除")
+
+    return conflicts
+
+
+def edit_project_film(project_id: str, base: str | None, ops: list[dict], base_snapshot: dict | None = None) -> dict:
     pid = validate_project_id(project_id)
     with project_lock(pid):
         current = read_project_film(pid)
         if not current["exists"]:
             raise FilmError("FILM_NOT_INITIALIZED", "当前项目还没有 film.html，请先初始化影片文档", 409)
-        doc, normalized = apply_ops(current["doc"], ops)
+        rebased = bool(base and base != current["rev"])
+        if rebased:
+            baseline = _base_snapshot_doc(base_snapshot, base)
+            conflicts = _clip_rebase_conflicts(baseline, current["doc"], ops)
+            if conflicts:
+                detail = "；".join(conflicts[:8])
+                if len(conflicts) > 8:
+                    detail += f"；另有 {len(conflicts) - 8} 项冲突"
+                raise FilmError(
+                    "REVISION_CONFLICT",
+                    "影片已被外部修改，存在同字段或结构冲突；本次操作未写入。请检查并重新应用： " + detail,
+                    409,
+                )
+        try:
+            doc, normalized = apply_ops(current["doc"], ops)
+        except FilmError as exc:
+            if rebased and exc.code in {
+                "CLIP_NOT_FOUND", "TRACK_NOT_FOUND", "TRACK_LOCKED", "TRACK_OVERLAP",
+                "DUPLICATE_CLIP_ID", "DUPLICATE_TRACK_ID", "TRACK_NOT_EMPTY",
+            }:
+                raise FilmError(
+                    "REVISION_CONFLICT",
+                    f"影片已被外部修改，当前文档无法安全应用本次操作（{exc}）；本次操作未写入，请重新载入后重试",
+                    409,
+                ) from exc
+            raise
         updated = serialize_film(doc)
         parse_film(updated)
         history = _history_read(pid)
@@ -640,7 +842,7 @@ def edit_project_film(project_id: str, base: str | None, ops: list[dict]) -> dic
         _write_atomic(_film_path(pid), updated)
         _history_write(pid, history)
         return {"ok": True, "project_id": pid, "rev": revision_of(updated), "base": base,
-                "rebased": bool(base and base != current["rev"]), "document": doc, "ops": normalized}
+                "rebased": rebased, "document": doc, "ops": normalized}
 
 
 def undo_redo_project_film(project_id: str, base: str | None, action: str) -> dict:

@@ -1,13 +1,48 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, polling:false, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
   function fmtTime(v) { var n = Math.max(0, Number(v) || 0), m = Math.floor(n / 60), s = n - m * 60; return String(m).padStart(2,'0') + ':' + s.toFixed(3).padStart(6,'0'); }
   function clips() { return (S.data && S.data.tracks || []).reduce(function (a,t) { return a.concat((t.clips || []).map(function (c) { c.track_id = t.id; return c; })); }, []); }
   function findClip(id) { return clips().find(function (c) { return c.id === id; }) || null; }
+  function baseSnapshot() {
+    return {
+      rev: S.rev,
+      stage: S.data && S.data.stage,
+      tracks: (S.data && S.data.tracks || []).map(function (track) {
+        return {
+          id: track.id,
+          attrs: track.attrs || {},
+          clips: (track.clips || []).map(function (clip) {
+            return {id: clip.id, tag: clip.tag, attrs: clip.attrs || {}};
+          })
+        };
+      })
+    };
+  }
+  async function recoverFilmConflict(message) {
+    var projectId = S.projectId, selectedId = S.selectedId;
+    try {
+      var latest = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(projectId));
+      if (projectId === S.projectId && latest && latest.ok && latest.exists) {
+        S.data = latest;
+        S.rev = latest.rev;
+        S.selectedId = selectedId && latest.tracks.some(function (track) {
+          return (track.clips || []).some(function (clip) { return clip.id === selectedId; });
+        }) ? selectedId : '';
+        render();
+        showStatus((message || '检测到影片文档并发修改。') + ' 已载入最新版本；本次冲突操作没有写入，请检查后重试。', 'error');
+        return;
+      }
+    } catch (_) {}
+    showStatus((message || '检测到影片文档并发修改。') + ' 未能自动刷新，请手动重新载入。', 'error');
+  }
+  function isRevisionConflict(response) {
+    return !!response && ['REVISION_CONFLICT', 'BASE_SNAPSHOT_REQUIRED', 'INVALID_BASE_SNAPSHOT'].indexOf(response.code) >= 0;
+  }
   function showStatus(message, kind) { var el=$('film-studio-alert'); if(!el)return; el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':''); el.textContent=message||''; }
   function appendMessage(text, role) {
     S.messages.push({text:String(text),role:role});
@@ -251,8 +286,13 @@
     if(!S.projectId||!S.data||!S.data.exists||S.busy)return;
     S.busy=true;
     try{
-      var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
-      if(!r||!r.ok){showStatus((r&&r.error)||'编辑提交失败。','error');return;}
+      var base=S.rev, snapshot=baseSnapshot();
+      var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:base,base_snapshot:snapshot,ops:ops});
+      if(!r||!r.ok){
+        if(isRevisionConflict(r)){await recoverFilmConflict((r&&r.error)||'影片文档发生并发修改。');}
+        else showStatus((r&&r.error)||'编辑提交失败。','error');
+        return;
+      }
       S.data=r;S.rev=r.rev;
       showStatus(r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。',r.rebased?'':'success');render();
     }finally{S.busy=false;}
@@ -309,11 +349,33 @@
     $('editor-body').style.display='none';$('editor-empty').style.display='none';filmStudioLoad(true);
     if(S.poll)clearInterval(S.poll);
     S.poll=setInterval(async function(){
-      if(!S.open||S.busy||S.drag)return;
-      var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(S.projectId));
-      if(r&&r.ok&&r.exists&&r.rev!==S.rev){S.data=r;S.rev=r.rev;render();showStatus('检测到外部 Agent/文件修改，已按新 revision 刷新。');}
-      else if(r&&!r.ok&&r.code==='INVALID_FILM')showStatus('film.html 当前无法解析。已冻结编辑；修复文件后重新载入。','error');
-    },1600);
+      if(!S.open||S.busy||S.drag||S.polling)return;
+      var projectId=S.projectId;
+      S.polling=true;
+      try{
+        var stamp=await apiGet('/api/editor/film/revision?project_id='+encodeURIComponent(projectId));
+        if(!S.open||S.projectId!==projectId||!stamp||!stamp.ok)return;
+        var localExists=!!(S.data&&S.data.exists);
+        if(!stamp.exists&&localExists){
+          showStatus('film.html 已被外部删除。当前预览保留，写入已无法继续；请恢复文件。系统不会自动切回旧工作台。','error');
+          return;
+        }
+        if(stamp.exists!==localExists||(stamp.exists&&stamp.rev!==S.rev)){
+          var latest=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));
+          if(!S.open||S.projectId!==projectId)return;
+          if(latest&&latest.ok&&latest.exists){
+            S.data=latest;S.rev=latest.rev;
+            render();showStatus('检测到外部 Agent/文件修改，已按新 revision 刷新。');
+          }else if(latest&&!latest.ok){
+            showStatus('film.html 当前无法解析。编辑已冻结，保留上一次有效预览；修复文件后将自动重试。','error');
+          }else if(latest&&latest.ok&&!latest.exists){
+            showStatus('film.html 已不存在。为避免使用过期数据，当前工作台保持冻结。','error');
+          }
+        }
+      }catch(_){
+        // A transient read during an external atomic write is retried on the next poll.
+      }finally{S.polling=false;}
+    },500);
   };
   window.filmStudioClose=function(){
     if(S.data&&S.data.exists){
@@ -449,8 +511,14 @@
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
     appendMessage(message,'user');input.value='';S.busy=true;
     try{
-      var r=await apiPost('/api/editor/film/command',{project_id:S.projectId,base:S.rev,message:message,selected_clip_id:S.selectedId});
-      if(!r||!r.ok){appendMessage((r&&r.error)||'AI 编辑失败。','assistant');showStatus((r&&r.error)||'AI 编辑失败。','error');return;}
+      var base=S.rev, snapshot=baseSnapshot();
+      var r=await apiPost('/api/editor/film/command',{project_id:S.projectId,base:base,base_snapshot:snapshot,message:message,selected_clip_id:S.selectedId});
+      if(!r||!r.ok){
+        if(isRevisionConflict(r)){await recoverFilmConflict((r&&r.error)||'影片文档发生并发修改。');}
+        appendMessage((r&&r.error)||'AI 编辑失败。','assistant');
+        if(!isRevisionConflict(r))showStatus((r&&r.error)||'AI 编辑失败。','error');
+        return;
+      }
       if(r.no_op){appendMessage(r.message||'AI 没有执行编辑，请补充目标。','assistant');showStatus(r.message||'没有产生编辑操作。');return;}
       S.data=r;S.rev=r.rev;appendMessage(r.message||('已执行 '+(r.ops||[]).length+' 项操作。'),'assistant');render();
     }finally{S.busy=false;}
