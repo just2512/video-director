@@ -326,6 +326,142 @@ def _validate_doc(doc: dict):
             end_seen = end if end is not None else None
 
 
+def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = None) -> dict:
+    """Delete the selected clip's timeline interval and ripple every unlocked track."""
+    target_track, target_clip = _find_clip(doc, clip_id)
+    _ensure_unlocked(target_track)
+    cut_start = _number(target_clip.get("attrs", {}).get("at", 0), "at", 0)
+    cut_end = clip_end(target_clip)
+    if cut_end is None or not math.isfinite(cut_end) or cut_end <= cut_start:
+        raise FilmError("RIPPLE_DURATION_UNKNOWN", "波纹删除要求目标片段有明确且为正的时长", 422)
+    duration = cut_end - cut_start
+    eps = 1e-7
+
+    if requested_split_ids is None:
+        requested_split_ids = {}
+    if not isinstance(requested_split_ids, dict):
+        raise FilmError("INVALID_SPLIT_IDS", "split_ids 必须是对象映射", 422)
+    requested_split_ids = {str(key): str(value) for key, value in requested_split_ids.items()}
+    known_ids = {clip["id"] for track in doc["tracks"] for clip in track.get("clips", [])}
+    used_ids = set(known_ids)
+    split_ids: dict[str, str] = {}
+    removed_ids: list[str] = []
+    shifted_ids: list[str] = []
+
+    # Reject the whole edit rather than silently modifying a locked track.
+    for track in doc["tracks"]:
+        if "locked" not in (track.get("attrs") or {}):
+            continue
+        for clip in track.get("clips") or []:
+            at = _number(clip.get("attrs", {}).get("at", 0), "at", 0)
+            end = clip_end(clip)
+            affected = (
+                clip["id"] == clip_id
+                or (end is None and (at >= cut_start - eps or at < cut_start - eps))
+                or (end is not None and (at >= cut_end - eps or end > cut_start + eps))
+            )
+            if affected:
+                raise FilmError(
+                    "TRACK_LOCKED",
+                    f"波纹删除会影响锁定轨道 {track['id']}；整笔操作已拒绝",
+                    409,
+                )
+
+    for track in doc["tracks"]:
+        rewritten: list[dict] = []
+        for clip in track.get("clips") or []:
+            cid = clip["id"]
+            attrs = clip.get("attrs") or {}
+            at = _number(attrs.get("at", 0), "at", 0)
+            end = clip_end(clip)
+
+            if cid == clip_id:
+                removed_ids.append(cid)
+                continue
+
+            if end is None:
+                if at >= cut_end - eps:
+                    clip["attrs"]["at"] = _fmt(max(0.0, at - duration))
+                    shifted_ids.append(cid)
+                    rewritten.append(clip)
+                    continue
+                raise FilmError(
+                    "RIPPLE_DURATION_UNKNOWN",
+                    f"片段 {cid} 的时长未知，无法判断它与波纹删除区间的关系",
+                    422,
+                )
+
+            if end <= cut_start + eps:
+                rewritten.append(clip)
+                continue
+
+            if at >= cut_end - eps:
+                clip["attrs"]["at"] = _fmt(max(0.0, at - duration))
+                shifted_ids.append(cid)
+                rewritten.append(clip)
+                continue
+
+            source_in, source_out = _source_range(str(attrs.get("src") or ""))
+            if source_out is None:
+                raise FilmError("RIPPLE_DURATION_UNKNOWN", f"片段 {cid} 缺少明确的源出点", 422)
+            speed = (
+                _number(attrs.get("speed", 1), "speed", 0.25, 4)
+                if clip["tag"] in {"video", "audio"} else 1.0
+            )
+            left_duration = max(0.0, min(end, cut_start) - at)
+            right_duration = max(0.0, end - max(at, cut_end))
+
+            if left_duration <= eps and right_duration <= eps:
+                removed_ids.append(cid)
+                continue
+
+            if left_duration > eps:
+                left = copy.deepcopy(clip)
+                left_source_out = min(source_out, source_in + left_duration * speed)
+                if left_source_out <= source_in + eps:
+                    raise FilmError("RIPPLE_RANGE_INVALID", f"片段 {cid} 的左侧源区间无效", 422)
+                left["attrs"]["src"] = _with_source_range(str(left["attrs"]["src"]), source_in, left_source_out)
+                rewritten.append(left)
+
+            if right_duration > eps:
+                right = copy.deepcopy(clip)
+                right_source_in = max(source_in, min(source_out, source_in + (cut_end - at) * speed))
+                if right_source_in >= source_out - eps:
+                    raise FilmError("RIPPLE_RANGE_INVALID", f"片段 {cid} 的右侧源区间无效", 422)
+                right["attrs"]["src"] = _with_source_range(str(right["attrs"]["src"]), right_source_in, source_out)
+                right["attrs"]["at"] = _fmt(cut_start)
+                if left_duration > eps:
+                    new_id = requested_split_ids.get(cid, "")
+                    if not new_id:
+                        token = hashlib.sha1(
+                            f"{cid}|{cut_start:.9f}|{cut_end:.9f}|{time.time_ns()}".encode("utf-8")
+                        ).hexdigest()[:10]
+                        new_id = _safe_id(f"{cid}-ripple-{token}", "clip")
+                    if not re.fullmatch(r"[A-Za-z0-9_-]{1,72}", new_id) or new_id in used_ids:
+                        raise FilmError("DUPLICATE_CLIP_ID", f"波纹删除生成了无效或重复 ID：{new_id}", 409)
+                    used_ids.add(new_id)
+                    split_ids[cid] = new_id
+                    right["id"] = new_id
+                    right["attrs"]["id"] = new_id
+                else:
+                    # If only the right part survives, preserve its stable original ID.
+                    right["id"] = cid
+                    right["attrs"]["id"] = cid
+                rewritten.append(right)
+
+        track["clips"] = rewritten
+
+    if set(requested_split_ids) - set(split_ids):
+        raise FilmError("INVALID_SPLIT_IDS", "split_ids 包含本次操作没有拆分的片段", 422)
+    return {
+        "split_ids": split_ids,
+        "removed_clip_ids": removed_ids,
+        "shifted_clip_ids": shifted_ids,
+        "start": _fmt(cut_start),
+        "end": _fmt(cut_end),
+    }
+
+
 def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
     if not isinstance(ops, list) or not ops or len(ops) > MAX_OPERATIONS:
         raise FilmError("INVALID_OPERATIONS", f"ops 必须是 1–{MAX_OPERATIONS} 项的数组")
@@ -386,6 +522,15 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             clip["attrs"]["at"] = _fmt(at)
             new_track["clips"].append(clip)
             normalized.append({"op": "move", "clip": clip["id"], "track_id": track_id, "at": _fmt(at)})
+        elif kind == "ripple_delete":
+            if op.get("scope", "all") != "all":
+                raise FilmError("INVALID_RIPPLE_SCOPE", "当前只支持明确的全轨道波纹删除 scope='all'", 422)
+            clip_id = str(op.get("clip") or "")
+            result = _apply_ripple_delete(out, clip_id, op.get("split_ids"))
+            normalized.append({
+                "op": "ripple_delete", "clip": clip_id, "scope": "all",
+                "split_ids": result["split_ids"],
+            })
         elif kind == "remove":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
             _ensure_unlocked(track)
@@ -1415,6 +1560,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
         "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
+        "可用 ripple_delete 操作: {op:'ripple_delete',clip:准确片段ID,scope:'all'}。仅当用户明确要求波纹删除或删除并收拢时间线时使用；会影响全部轨道，并切分跨越删除区间的片段。"
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
@@ -1446,7 +1592,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
         if op["op"] == "trim" and (op.get("edge") not in {"start", "end"} or
                                    (op.get("edge") == "start" and "at" not in op) or

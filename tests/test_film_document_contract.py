@@ -272,6 +272,37 @@ def test_frame_determinism_audit_accepts_identical_pixels_and_rejects_real_diffe
     assert changed[1:] == (32 * 24, 32, 24)
 
 
+def test_ripple_delete_closes_gap_across_tracks_and_replays_identical_split_ids():
+    doc = fd.parse_film(SAMPLE)
+    updated, operations = fd.apply_ops(doc, [
+        {"op": "ripple_delete", "clip": "clip-b", "scope": "all"}
+    ])
+    normalized = operations[0]
+    assert normalized["op"] == "ripple_delete"
+    assert "audio-1" in normalized["split_ids"]
+    tracks = {track["id"]: track for track in updated["tracks"]}
+    main = {clip["id"]: clip for clip in tracks["video-main"]["clips"]}
+    assert "clip-b" not in main
+    audio = tracks["audio-bed"]["clips"]
+    assert len(audio) == 2
+    by_id = {clip["id"]: clip for clip in audio}
+    assert by_id["audio-1"]["attrs"]["src"].endswith("#t=0,5")
+    right_id = normalized["split_ids"]["audio-1"]
+    assert by_id[right_id]["attrs"]["src"].endswith("#t=10,20")
+    assert float(by_id[right_id]["attrs"]["at"]) == 5
+    replayed, _ = fd.apply_ops(fd.parse_film(SAMPLE), operations)
+    assert fd.serialize_film(replayed) == fd.serialize_film(updated)
+
+
+def test_ripple_delete_rejects_locked_affected_track_without_mutating_original():
+    doc = fd.parse_film(SAMPLE)
+    doc["tracks"][1]["attrs"]["locked"] = ""
+    before = fd.serialize_film(doc)
+    with pytest.raises(fd.FilmError, match="锁定轨道"):
+        fd.apply_ops(doc, [{"op": "ripple_delete", "clip": "clip-b", "scope": "all"}])
+    assert fd.serialize_film(doc) == before
+
+
 def test_film_studio_is_fullscreen_and_ai_dock_shares_inspector_column():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")

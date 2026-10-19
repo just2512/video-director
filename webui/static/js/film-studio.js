@@ -533,6 +533,13 @@
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
   window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段？此操作可撤销。'))return;await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
+  window.filmStudioRippleDelete=async function(){
+    var clip=findClip(S.selectedId);
+    if(!clip){showStatus('请选择一个有明确时长的片段作为波纹删除范围。','error');return;}
+    if(clip.end==null||clip.end<=clip.at){showStatus('目标片段时长未知，不能执行波纹删除。','error');return;}
+    if(!window.confirm('将删除 '+fmtTime(clip.at)+'–'+fmtTime(clip.end)+'，并收拢全部轨道后续内容。跨越该时间段的片段会被切分；锁定轨道或未知时长会导致整笔拒绝。继续？'))return;
+    await filmStudioCommit([{op:'ripple_delete',clip:clip.id,scope:'all'}]);
+  };
   window.filmStudioUndo=function(){filmStudioHistory('undo');};window.filmStudioRedo=function(){filmStudioHistory('redo');};
   window.filmStudioRender=async function(){
     if(!S.projectId||!S.data||!S.data.exists){showStatus('请先载入或初始化 film.html。','error');return;}
@@ -772,6 +779,7 @@
     'frame-next': () => window.filmStudioNudge(1),
     split: () => window.filmStudioSplit(),
     remove: () => window.filmStudioRemove(),
+    'ripple-delete': () => window.filmStudioRippleDelete(),
     'add-track': () => window.filmStudioAddTrack(),
     'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),
     'zoom-out': () => window.filmStudioZoom(-1),

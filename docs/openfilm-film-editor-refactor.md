@@ -45,6 +45,13 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Document revision changes and AI planning phases use the repository's existing SSE event bus; file polling remains the fallback for external local-agent writes that do not pass through the server.
 - Model-token streaming is not claimed: the current LLM abstraction exposes a blocking generate call, so this milestone streams lifecycle events, not partial model text.
 
+## Global ripple-delete operation
+
+- The unified operation engine supports explicit `ripple_delete`: it removes the selected finite timeline interval and closes the gap across all tracks.
+- Clips crossing the cut retain their remaining source ranges; a crossing clip is split into source-contiguous left/right segments. The normalized operation records generated right-side clip IDs so proposal preview and confirmed apply produce the same document.
+- Affected locked tracks and ambiguous unknown-duration clips reject the whole transaction. The edit remains revisioned and undoable through the same FilmDocument history.
+- This does not claim full Roll/Slip/Slide trim support; those require separate operation contracts and pointer interactions.
+
 ## Render consistency milestone
 
 - The final browser renderer re-renders representative first/middle/last timestamps in reverse order after the frame sequence. Each repeat is compared with the captured PNG using a per-channel tolerance of 32 and a bounded changed-pixel allowance.
