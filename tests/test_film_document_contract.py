@@ -480,6 +480,43 @@ def test_volume_envelope_rejects_duplicate_times_and_non_finite_gain(tmp_path, m
                            "value": [{"t": 0, "v": 1}, {"t": 1, "v": 1.5}]}])
 
 
+def test_slip_changes_source_range_without_changing_timeline_position_or_duration():
+    doc = fd.parse_film(SAMPLE)
+    original = next(c for t in doc["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    original_at = float(original["attrs"]["at"])
+    original_duration = fd.clip_duration(original)
+    changed, operations = fd.apply_ops(doc, [
+        {"op": "slip", "clip": "clip-a", "delta_source": 1.25}
+    ])
+    moved = next(c for t in changed["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    assert moved["attrs"]["src"].endswith("#t=3.25,13.25")
+    assert float(moved["attrs"]["at"]) == original_at
+    assert fd.clip_duration(moved) == original_duration
+    assert operations == [{"op": "slip", "clip": "clip-a", "delta_source": "1.25"}]
+
+
+def test_slip_rejects_negative_source_in_and_locked_tracks():
+    doc = fd.parse_film(SAMPLE)
+    with pytest.raises(fd.FilmError, match="源入点不能小于零"):
+        fd.apply_ops(doc, [{"op": "slip", "clip": "clip-a", "delta_source": -3}])
+    doc["tracks"][0]["attrs"]["locked"] = ""
+    with pytest.raises(fd.FilmError, match="已锁定"):
+        fd.apply_ops(doc, [{"op": "slip", "clip": "clip-a", "delta_source": 1}])
+
+
+def test_slip_and_speed_preset_controls_are_wired_into_timeline():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    styles = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert "e.altKey&&(clip.tag==='video'||clip.tag==='audio')" in script
+    assert "field == \"slip\"" not in module  # slip is a first-class operation, not an inspector field
+    assert 'data-speed-preset="'+"" in script
+    assert ".fs-speed-chip-active" in styles
+    assert "Alt 拖动滑移源区间" in index
+
+
 def test_ripple_delete_closes_gap_across_tracks_and_replays_identical_split_ids():
     doc = fd.parse_film(SAMPLE)
     updated, operations = fd.apply_ops(doc, [

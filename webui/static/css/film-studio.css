@@ -199,3 +199,11 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-clip-title,.fs-clip-subtitle{z-index:6}
 .fs-trim-handle{z-index:7}
 .fs-clip-envelope:focus-visible{outline:1px solid #ffe08a;outline-offset:-1px}
+
+.fs-clip.fs-slipping{outline:1px dashed #ffe08a;outline-offset:-2px;opacity:.9}
+.fs-clip[data-slip-delta]::after{content:attr(data-slip-delta);position:absolute;left:4px;right:4px;bottom:4px;z-index:9;text-align:center;font-size:10px;background:#191919e8;color:#ffe08a;border-radius:3px;padding:2px;pointer-events:none}
+.fs-speed-presets{display:flex;align-items:center;gap:7px;margin:6px 0 10px;font-size:10px;color:#aaa}
+.fs-speed-presets>div{display:flex;gap:4px;flex-wrap:wrap}
+.fs-speed-chip{border:1px solid #3b3b3b;background:#222;color:#bbb;border-radius:4px;padding:4px 7px;font-size:10px;cursor:pointer}
+.fs-speed-chip:hover{border-color:#6b918b;color:#eee}
+.fs-speed-chip-active{background:#23423e;border-color:#45c2b4;color:#effffb}

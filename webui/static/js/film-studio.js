@@ -216,7 +216,9 @@
         var canDrag=selectClipWithModifiers(clip.id,e);
         if(!canDrag){e.preventDefault();return;}
         S.playhead=clip.at;setPlayheadVisual();previewCurrent();
-        var trim=e.target.closest('[data-trim]'),mode=trim?(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'):'move';
+        var trim=e.target.closest('[data-trim]');
+        var mode=trim?(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end')
+          :((e.altKey&&(clip.tag==='video'||clip.tag==='audio'))?'slip':'move');
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
         var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
         var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
@@ -454,11 +456,21 @@
       '<label class="fs-inspector-field">时间位置（秒）<input id="fs-field-at" type="number" min="0" step="0.033333" value="'+esc(a.at||clip.at||0)+'"></label>';
     if(clip.tag==='video'||clip.tag==='audio'){
       fields+='<label class="fs-inspector-field">速度<input id="fs-field-speed" type="number" min="0.25" max="4" step="0.05" value="'+esc(a.speed||1)+'"></label>';
+      fields+='<div class="fs-speed-presets"><span>预设倍率</span><div>'+[0.5,1,1.5,2,4].map(function(value){return '<button type="button" class="fs-speed-chip '+(Math.abs(num(a.speed,1)-value)<0.001?'fs-speed-chip-active':'')+'" data-speed-preset="'+value+'">'+value+'×</button>';}).join('')+'</div></div>';
       fields+='<label class="fs-inspector-field">音量<input id="fs-field-volume" type="number" min="0" max="2" step="0.05" value="'+esc(a.volume==null?1:a.volume)+'"></label>';
       fields+='<label class="fs-inspector-field">静音<select id="fs-field-muted"><option value="false">否</option><option value="true"'+(Object.prototype.hasOwnProperty.call(a,'muted')?' selected':'')+'>是</option></select></label>';
     }
     fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     $('fs-inspector').innerHTML=fields;
+    $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(button){
+      button.addEventListener('click',function(e){
+        e.preventDefault();e.stopPropagation();
+        var input=$('fs-field-speed');if(!input)return;
+        input.value=button.getAttribute('data-speed-preset');
+        $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(other){other.classList.toggle('fs-speed-chip-active',other===button);});
+        input.focus();
+      });
+    });
   }
   function render() {
     if(!S.data||!S.data.exists){renderMigration();return;}
@@ -553,7 +565,12 @@
       var nextTrack=row.getAttribute('data-track');
       if(nextTrack!==d.targetTrackId){clearDragTrackTarget(d);d.targetTrackId=nextTrack;d.targetRow=row;row.classList.add('fs-track-drop-target');}
     }
-    if(d.mode==='trim-start'){
+    if(d.mode==='slip'){
+      var slipClip=findClip(d.id),slipSpeed=slipClip?num(slipClip.attrs.speed,1):1;
+      var sourceDelta=dx/S.pxPerSec*slipSpeed;
+      d.element.setAttribute('data-slip-delta','源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s');
+      d.element.classList.add('fs-slipping');
+    }else if(d.mode==='trim-start'){
       var newStart=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,d.originalAt+dx/S.pxPerSec));
       d.element.style.left=(newStart*S.pxPerSec)+'px';
       d.element.style.width=Math.max(3,(d.originalEnd-newStart)*S.pxPerSec)+'px';
@@ -584,6 +601,14 @@
     (d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
     if(!d.active){syncClipSelectionVisual();return;}
     var deltaPx=e.clientX-d.startX+($('fs-timeline-scroll').scrollLeft-d.startScrollLeft);
+    d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
+    if(d.mode==='slip'){
+      var slipClip=findClip(d.id);
+      if(!slipClip||slipClip.duration==null){renderTimeline();return;}
+      var sourceDelta=deltaPx/S.pxPerSec*num(slipClip.attrs.speed,1);
+      if(Math.abs(sourceDelta)<0.001){renderTimeline();return;}
+      await filmStudioCommit([{op:'slip',clip:d.id,delta_source:Number(sourceDelta.toFixed(3))}]);return;
+    }
     if(d.mode==='trim-start'){
       var trimAt=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,d.originalAt+deltaPx/S.pxPerSec));
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:Number(trimAt.toFixed(3))}]);return;
@@ -617,7 +642,10 @@
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){
       var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
-      (drag.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
+      (drag.members||[]).forEach(function(member){
+        member.element.classList.remove('fs-dragging','fs-slipping');
+        member.element.removeAttribute('data-slip-delta');
+      });
     }
     if(S.data&&S.data.exists)renderTimeline();
   });

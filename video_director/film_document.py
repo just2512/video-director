@@ -596,6 +596,20 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             clip["attrs"]["at"] = _fmt(at)
             new_track["clips"].append(clip)
             normalized.append({"op": "move", "clip": clip["id"], "track_id": track_id, "at": _fmt(at)})
+        elif kind == "slip":
+            track, clip = _find_clip(out, str(op.get("clip") or ""))
+            _ensure_unlocked(track)
+            if clip["tag"] not in {"video", "audio"}:
+                raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持源区间滑移", 422)
+            source_in, source_out = _source_range(str(clip["attrs"].get("src") or ""))
+            if source_out is None:
+                raise FilmError("SOURCE_RANGE_REQUIRED", f"片段 {clip['id']} 缺少明确源区间，不能滑移", 422)
+            delta_source = _number(op.get("delta_source"), "源区间滑移量")
+            next_in, next_out = source_in + delta_source, source_out + delta_source
+            if next_in < 0 or next_out <= next_in:
+                raise FilmError("INVALID_SLIP_RANGE", "滑移后源入点不能小于零，且源区间必须保持为正", 422)
+            clip["attrs"]["src"] = _with_source_range(str(clip["attrs"]["src"]), next_in, next_out)
+            normalized.append({"op": "slip", "clip": clip["id"], "delta_source": _fmt(delta_source)})
         elif kind == "ripple_delete":
             if op.get("scope", "all") != "all":
                 raise FilmError("INVALID_RIPPLE_SCOPE", "当前只支持明确的全轨道波纹删除 scope='all'", 422)
@@ -1640,6 +1654,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         '"operations":[...],"summary":"..."}。'
         "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'muted'|'style'|'class'|'title',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
+        "可用 slip 操作: {op:'slip',clip:准确视频/音频片段ID,delta_source:素材源时间偏移秒}。滑移只改变 #t 入出点，不改变时间线位置和长度；仅在用户明确要求保持时间线位置但更换素材源区间时使用。 "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
         "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
@@ -1675,8 +1690,14 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
+        if op["op"] == "slip":
+            if op.get("clip") not in valid_ids or not isinstance(op.get("delta_source"), (int, float)):
+                raise FilmError("LLM_INVALID_PLAN", "AI 滑移操作必须包含有效片段 ID 和数字 delta_source", 422)
+            target_clip = next(clip for track in doc["tracks"] for clip in track["clips"] if clip["id"] == op["clip"])
+            if target_clip["tag"] not in {"video", "audio"}:
+                raise FilmError("LLM_INVALID_PLAN", "AI 只能对视频/音频片段执行源区间滑移", 422)
         if op["op"] == "trim" and (op.get("edge") not in {"start", "end"} or
                                    (op.get("edge") == "start" and "at" not in op) or
                                    (op.get("edge") == "end" and "end" not in op)):
