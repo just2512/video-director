@@ -185,7 +185,7 @@
   }
   function render() {
     if(!S.data||!S.data.exists){renderMigration();return;}
-    $('fs-project-label').textContent=S.projectId+' · rev '+S.rev;S.duration=Math.max(1,num(S.data.duration,10));
+    $('fs-project-label').textContent=S.projectId+' · rev '+S.rev;S.duration=Math.max(0.001,num(S.data.duration,10));
     if(!findClip(S.selectedId)){var first=clips().filter(function(c){return c.tag!=='audio';})[0];S.selectedId=first?first.id:'';}
     renderAssets();renderTimeline();renderInspector();setPlayheadVisual();previewCurrent();
     var warnings=S.data.migration&&S.data.migration.warnings||[];
