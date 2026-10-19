@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="/static/css/shotbook-storyboard.css">
 <link rel="stylesheet" href="/static/css/shotbook-sfx.css">
 <link rel="stylesheet" href="/static/css/editor-enhanced.css">
+<link rel="stylesheet" href="/static/css/film-studio.css">
 <link rel="stylesheet" href="/static/css/creative-plan.css">
 </head>
 <body>
@@ -102,6 +103,73 @@
       <button class="btn-secondary btn-sm" onclick="editorLoad()">打开</button>
       <span class="hint" id="editor-lib-hint">选中场景/图层后，Inspector 会给出对应的修改项</span>
     </div>
+    <div class="film-studio-launch panel">
+      <div>
+        <strong>OpenFilm 多轨影片工作台</strong>
+        <p>以项目 film.html 为编辑文档，按稳定片段 ID 修改；支持多轨时间线、属性编辑、撤销重做和 AI 指令。</p>
+      </div>
+      <button class="btn-sm" id="film-studio-toggle" type="button" onclick="filmStudioToggle()">打开多轨工作台</button>
+    </div>
+    <section id="film-studio-panel" class="film-studio-panel" style="display:none" aria-label="OpenFilm 多轨影片工作台">
+      <header class="fs-topbar">
+        <div><strong>影片 Studio</strong><span class="fs-project-label" id="fs-project-label">尚未载入项目</span></div>
+        <div class="fs-toolbar">
+          <button class="fs-btn" type="button" onclick="filmStudioUndo()">撤销</button>
+          <button class="fs-btn" type="button" onclick="filmStudioRedo()">重做</button>
+          <button class="fs-btn" type="button" onclick="filmStudioLoad(true)">重新载入</button>
+          <button class="fs-btn" type="button" onclick="filmStudioClose()">返回原工作台</button>
+        </div>
+      </header>
+      <div id="film-studio-alert" class="fs-alert" role="status" aria-live="polite">载入项目后显示影片文档。</div>
+      <div class="fs-workspace">
+        <aside class="fs-pane fs-assets-pane">
+          <div class="fs-pane-title">影片片段 <span id="fs-clip-count">0</span></div>
+          <div class="fs-assets-list" id="fs-assets-list"><div class="fs-empty">还没有影片文档。</div></div>
+        </aside>
+        <section class="fs-pane fs-monitor-pane">
+          <div class="fs-pane-title">节目监视器 <span id="fs-monitor-time">00:00.000</span></div>
+          <div class="fs-monitor-stage" id="fs-monitor-stage">
+            <div class="fs-monitor-placeholder">选择项目并初始化影片文档</div>
+            <video id="fs-preview-video" controls preload="metadata" style="display:none"></video>
+            <img id="fs-preview-image" alt="" style="display:none">
+            <iframe id="fs-preview-page" title="影片图层预览" style="display:none" sandbox="allow-scripts allow-same-origin"></iframe>
+          </div>
+          <div class="fs-scrub-row">
+            <button class="fs-btn" type="button" onclick="filmStudioNudge(-1)">上一帧</button>
+            <input id="fs-playhead" type="range" min="0" max="10" step="0.033333" value="0" oninput="filmStudioSeek(this.value)" aria-label="播放头">
+            <button class="fs-btn" type="button" onclick="filmStudioNudge(1)">下一帧</button>
+            <span id="fs-playhead-value">00:00.000</span>
+          </div>
+        </section>
+        <aside class="fs-pane fs-inspector-pane">
+          <div class="fs-pane-title">属性检查器</div>
+          <div id="fs-inspector"><div class="fs-empty">选择时间线片段后编辑属性。</div></div>
+        </aside>
+      </div>
+      <section class="fs-pane fs-timeline-pane">
+        <div class="fs-timeline-toolbar">
+          <div><strong>多轨时间线</strong><span id="fs-timeline-meta">—</span></div>
+          <div class="fs-toolbar">
+            <button class="fs-btn" type="button" onclick="filmStudioSplit()">在播放头切分</button>
+            <button class="fs-btn" type="button" onclick="filmStudioRemove()">删除片段</button>
+            <button class="fs-btn" type="button" onclick="filmStudioZoom(-1)">−</button>
+            <button class="fs-btn" type="button" onclick="filmStudioZoom(1)">＋</button>
+            <button class="fs-btn fs-primary" type="button" onclick="filmStudioSaveInspector()">应用属性</button>
+          </div>
+        </div>
+        <div class="fs-timeline-scroll" id="fs-timeline-scroll">
+          <div id="fs-timeline" class="fs-timeline"><div class="fs-empty">初始化影片文档后显示多轨时间线。</div></div>
+        </div>
+      </section>
+      <section class="fs-pane fs-chat-pane">
+        <div class="fs-pane-title">AI 实时编辑 <span>以当前选中片段和 film.html revision 为上下文</span></div>
+        <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以用自然语言修改当前影片，例如：“把选中的片段提速到 1.5 倍，音量设为 20%”。AI 只返回白名单内的编辑操作；不明确的动作不会被擅自执行。</div></div>
+        <div class="fs-chat-input-row">
+          <input id="fs-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
+          <button class="fs-btn fs-primary" type="button" onclick="filmStudioAsk()">发送指令</button>
+        </div>
+      </section>
+    </section>
     <!-- 无项目态 -->
     <div id="editor-empty" class="panel empty-state">
       <div>还没有打开的项目</div>
@@ -456,5 +524,6 @@
 <script src="/static/js/editor-enhanced.js"></script>
 <script src="/static/js/clip-clipboard.js"></script>
 <script src="/static/js/audio-track-asset-picker.js"></script>
+  <script src="/static/js/film-studio.js"></script>
 </body>
 </html>

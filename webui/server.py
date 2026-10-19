@@ -911,8 +911,194 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+
+    def _film_document_api(self, method, parsed):
+        """OpenFilm-inspired film.html API with explicit migration and revision-safe edits."""
+        route = parsed.path
+        get_routes = {"/api/editor/film", "/api/editor/film/media"}
+        post_routes = {"/api/editor/film/initialize", "/api/editor/film/edit",
+                       "/api/editor/film/undo", "/api/editor/film/redo",
+                       "/api/editor/film/command"}
+        if method == "GET" and route not in get_routes:
+            return False
+        if method == "POST" and route not in post_routes:
+            return False
+        if method not in {"GET", "POST"}:
+            return False
+
+        from video_director import film_document as fd
+
+        if method == "GET":
+            qs = parse_qs(parsed.query)
+            pid = (qs.get("project_id", [""])[0] or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "code": "PROJECT_ID_REQUIRED", "error": "缺少 project_id"}, 400)
+                return True
+            try:
+                pid = fd.validate_project_id(pid)
+                if route == "/api/editor/film/media":
+                    media_path = fd.media_path_for_src(pid, qs.get("src", [""])[0])
+                    total = media_path.stat().st_size
+                    start, end, status = 0, max(0, total - 1), 200
+                    range_header = self.headers.get("Range", "")
+                    if range_header:
+                        match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
+                        if not match or (not match.group(1) and not match.group(2)):
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{total}")
+                            self.end_headers()
+                            return True
+                        if not match.group(1):
+                            start = max(0, total - int(match.group(2)))
+                        else:
+                            start = int(match.group(1))
+                            end = int(match.group(2)) if match.group(2) else total - 1
+                        if start >= total or end < start:
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{total}")
+                            self.end_headers()
+                            return True
+                        end, status = min(end, total - 1), 206
+                    self.send_response(status)
+                    self.send_header("Content-Type", mimetypes.guess_type(str(media_path))[0] or "application/octet-stream")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Content-Length", str(max(0, end - start + 1)))
+                    self.send_header("Cache-Control", "no-cache")
+                    if status == 206:
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+                    self.end_headers()
+                    with media_path.open("rb") as stream:
+                        stream.seek(start)
+                        remaining = max(0, end - start + 1)
+                        while remaining:
+                            chunk = stream.read(min(65536, remaining))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            remaining -= len(chunk)
+                    return True
+
+                state = fd.read_project_film(pid)
+                if state["exists"]:
+                    self._send_json(fd.film_payload(pid, state))
+                    return True
+                preview = {"migration_available": False, "migration_error": "项目没有可编辑的 CompositionIR"}
+                try:
+                    from video_director import editor as vd_editor
+                    ir = vd_editor.load_composition(pid)
+                    version = vd_editor.composition_version(pid)
+                    plan = fd.build_film_from_composition(pid, ir)
+                    preview = {
+                        "migration_available": True,
+                        "source_composition_version": version,
+                        "migration_preview": {
+                            "duration": plan["duration"], "track_count": plan["track_count"],
+                            "clip_count": plan["clip_count"], "warnings": plan["warnings"],
+                        },
+                    }
+                except Exception as exc:
+                    preview["migration_error"] = str(exc)
+                self._send_json({"ok": True, "exists": False, "project_id": pid, "rev": state["rev"], **preview})
+                return True
+            except fd.FilmError as exc:
+                self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
+                return True
+            except Exception as exc:
+                self._send_json({"ok": False, "code": "FILM_READ_FAILED", "error": str(exc)}, 500)
+                return True
+
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length <= 0 or length > 1024 * 1024:
+            self._send_json({"ok": False, "code": "INVALID_REQUEST_SIZE", "error": "请求体为空或超过 1 MiB"}, 400)
+            return True
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8", errors="strict"))
+            if not isinstance(payload, dict):
+                raise ValueError("请求体必须是 JSON 对象")
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            self._send_json({"ok": False, "code": "INVALID_JSON", "error": f"请求体不是合法 UTF-8 JSON：{exc}"}, 400)
+            return True
+        pid = str(payload.get("project_id") or "").strip()
+        if not pid:
+            self._send_json({"ok": False, "code": "PROJECT_ID_REQUIRED", "error": "缺少 project_id"}, 400)
+            return True
+        try:
+            pid = fd.validate_project_id(pid)
+            if route == "/api/editor/film/initialize":
+                from video_director import editor as vd_editor
+                expected = payload.get("expected_composition_version")
+                current_version = vd_editor.composition_version(pid)
+                if expected is None or int(expected) != current_version:
+                    self._send_json({"ok": False, "code": "COMPOSITION_CHANGED",
+                                     "error": "初始化前项目 Composition 已变化，请重新载入迁移预览",
+                                     "source_composition_version": current_version}, 409)
+                    return True
+                ir = vd_editor.load_composition(pid)
+                plan = fd.build_film_from_composition(pid, ir)
+                if plan["warnings"] and not payload.get("accept_warnings", False):
+                    self._send_json({
+                        "ok": False, "code": "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION",
+                        "error": "旧项目包含暂未无损迁移的字段；确认接受警告后才会写入 film.html",
+                        "warnings": plan["warnings"], "migration_preview": {
+                            "duration": plan["duration"], "track_count": plan["track_count"],
+                            "clip_count": plan["clip_count"], "source_composition_version": current_version,
+                        }}, 409)
+                    return True
+                result = fd.initialize_project_film(pid, plan["document"], plan["pages"],
+                                                     current_version, plan["warnings"])
+                state = fd.read_project_film(pid)
+                self._send_json({**fd.film_payload(pid, state), "warnings": result["warnings"],
+                                 "migration": result["migration"]}, 201)
+                return True
+
+            if route == "/api/editor/film/edit":
+                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"))
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"]})
+                self._send_json(data)
+                return True
+
+            if route in {"/api/editor/film/undo", "/api/editor/film/redo"}:
+                action = "undo" if route.endswith("/undo") else "redo"
+                fd.undo_redo_project_film(pid, payload.get("base"), action)
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data["action"] = action
+                self._send_json(data)
+                return True
+
+            if route == "/api/editor/film/command":
+                state = fd.read_project_film(pid)
+                llm = vd_llm.get_llm()
+                if llm is None:
+                    self._send_json({"ok": False, "code": "LLM_UNAVAILABLE",
+                                     "error": "当前未配置可用文本模型；影片文档的手动编辑仍可使用"}, 503)
+                    return True
+                operations = fd.plan_film_command(llm, state, str(payload.get("message") or ""),
+                                                  str(payload.get("selected_clip_id") or ""))
+                if not operations:
+                    self._send_json({"ok": True, "no_op": True,
+                                     "message": "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
+                                     "rev": state["rev"]})
+                    return True
+                result = fd.edit_project_film(pid, payload.get("base"), operations)
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data.update({"ops": result["ops"], "rebased": result["rebased"],
+                             "message": f"已提交 {len(result['ops'])} 项编辑操作；结果已从影片文档重新读取。"})
+                self._send_json(data)
+                return True
+        except fd.FilmError as exc:
+            self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
+            return True
+        except Exception as exc:
+            self._send_json({"ok": False, "code": "FILM_OPERATION_FAILED", "error": str(exc)}, 500)
+            return True
+        return False
+
+
     def do_GET(self):
         parsed = urlparse(self.path)
+        if self._film_document_api("GET", parsed):
+            return
         route = parsed.path
 
         if route == "/" or route == "/index.html":
@@ -1858,6 +2044,8 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
     def do_POST(self):
         parsed = urlparse(self.path)
+        if self._film_document_api("POST", parsed):
+            return
 
         if parsed.path == "/api/styles/sample_render":
             self._style_sample_render()
