@@ -81,7 +81,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - The target track always ripples. Other tracks participate only when their `sync-lock` flag is enabled; a locked participating track rejects the whole operation. Clips crossing the insertion point are split at a source-aware boundary, with clip-relative volume envelopes sliced/rebased.
 - Unknown-duration clips that start before the insertion point are rejected because the editor cannot prove whether they cross it. Turning insert mode off preserves the existing behavior of creating a separate new track.
 
-## Roll-trim browser regression
+## Roll/Slide/Slip browser regression
 
 - Playwright opens a real film.html project in the Studio, uses the Split button, then Ctrl-drags the real trim handle. It verifies both the visible interaction and the persisted source in/out points plus the right segment timeline start. The fixture retains the cut's combined duration.
 
@@ -120,7 +120,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 ## Current boundaries
 
-- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, Alt-drag source slip, Ctrl-drag same-source roll trim, split/join-cut, delete/ripple-delete, clip fades, clip-relative volume envelopes, speed presets, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/slip/roll/join) and revision polling. Dock separators persist panel widths.
+- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, Alt-drag source slip, Ctrl-drag same-source roll trim, Alt+Shift-drag slide trim, split/join-cut, delete/ripple-delete, clip fades, clip-relative volume envelopes, speed presets, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/slip/roll/slide/join) and revision polling. Dock separators persist panel widths.
 - The MP4 adapter samples the same browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages acknowledge their requested time; arbitrary iframe pages are rejected until they implement the same contract.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.

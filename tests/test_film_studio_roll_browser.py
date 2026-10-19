@@ -223,7 +223,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                   return !!left && String(left.attrs.src).endsWith('#t=2.5,8')
                     && Math.abs(Number(left.attrs.at)) < 0.001
                     && Math.abs((Number(left.attrs.src.match(/#t=[^,]+,([^#]+)/)?.[1]) - Number(left.attrs.src.match(/#t=([^,]+)/)?.[1])) / Number(left.attrs.speed) - 2.75) < 0.001;
-                }""", project_id, timeout=10000)
+                }""", arg=project_id, timeout=10000)
 
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
