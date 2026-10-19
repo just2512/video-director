@@ -1110,6 +1110,30 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         return _safe_storage_uri(pid, file_value)
 
     clips, tracks, pages, warnings = [], [], {}, []
+    asset_metadata = []
+    for asset in (raw_ir.get("assets") or []):
+        if not isinstance(asset, dict) or not asset.get("id"):
+            continue
+        entry = {key: asset.get(key) for key in (
+            "id", "type", "duration", "width", "height", "fps", "prompt", "description",
+            "keywords", "source", "license_note", "provenance", "rights_status"
+        ) if key in asset}
+        try:
+            entry["file_uri"] = unquote(asset_uri(str(asset["id"])))
+        except FilmError as exc:
+            warnings.append(f"素材 {asset['id']} 无法建立可逆的安全路径映射：{exc}")
+        asset_metadata.append(entry)
+    scene_inventory = []
+    for scene_index, scene in enumerate(raw_ir.get("scenes") or []):
+        scene_inventory.append({
+            "id": str(scene.get("id") or ""),
+            "index": scene_index,
+            "start": scene.get("start", 0),
+            "duration": scene.get("duration", 0),
+            "layer_count": len(scene.get("layers") or []),
+            "metadata": {key: value for key, value in scene.items()
+                         if key not in {"start", "duration", "layers"}},
+        })
     project_metadata = {
         "schema": "video-director-composition-metadata/1",
         "version": raw_ir.get("version", 1),
@@ -1128,13 +1152,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         "audio_tracks": raw_ir.get("audio_tracks") or [],
         "watermarks": raw_ir.get("watermarks") or [],
         "subtitle_style": raw_ir.get("subtitle_style"),
-        "assets": [
-            {key: asset.get(key) for key in (
-                "id", "type", "duration", "width", "height", "fps", "prompt", "description",
-                "keywords", "source", "license_note", "provenance", "rights_status"
-            ) if key in asset}
-            for asset in (raw_ir.get("assets") or []) if isinstance(asset, dict)
-        ],
+        "subtitle_track": raw_ir.get("subtitle_track"),
+        "scene_inventory": scene_inventory,
+        "assets": asset_metadata,
     }
     # These global semantics currently have no equivalent executable representation in the
     # film renderer. Keep them in metadata, but block migration until their behavior is mapped.
@@ -1170,11 +1190,12 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         r"(#[0-9a-fA-F]{6})(?:@([0-9]*(?:\.[0-9]+)?))?", str(subtitle_style.get("background"))
     ):
         warnings.append("SubtitleStyle.background 格式不受支持，无法无损映射")
-    for scene in raw_ir.get("scenes") or []:
+    for scene_index, scene in enumerate(raw_ir.get("scenes") or []):
         scene_start = _number(scene.get("start", 0), "scene start", 0)
         for idx, layer in enumerate(scene.get("layers") or []):
             kind = str(layer.get("type") or "")
             if kind == "gap":
+                warnings.append(f"场景 {scene.get('id')} 的 gap 图层 {idx} 未有独立可编辑映射")
                 continue
             if kind not in {"video", "image"}:
                 warnings.append(f"场景 {scene.get('id')} 图层 {idx + 1} 类型 {kind} 尚不能无损迁移")
@@ -1182,6 +1203,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             uri = asset_uri(layer.get("asset_id"))
             d = _number(layer.get("duration"), "layer duration", 0.001)
             speed = _number(layer.get("speed", 1), "layer speed", 0.25, 4) if kind == "video" else 1.0
+            if kind == "image" and (_number(layer.get("source_in", 0), "image source_in", 0) > 1e-6
+                                    or layer.get("source_out") is not None):
+                warnings.append(f"图片图层 {scene.get('id')}:{idx} 带有 source_in/source_out，film.html 没有等价源时间语义")
             src_in = _number(layer.get("source_in", 0), "source_in", 0) if kind == "video" else 0
             src_out = _number(layer.get("source_out") if kind == "video" and layer.get("source_out") is not None else src_in + d * speed, "source_out", src_in + 0.001)
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
@@ -1190,6 +1214,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)),
                 "data-asset-id": str(layer.get("asset_id") or ""),
                 "data-vd-scene-id": str(scene.get("id") or ""),
+                "data-vd-scene-index": str(scene_index),
+                "data-vd-scene-start": _fmt(scene_start),
+                "data-vd-scene-duration": _fmt(_number(scene.get("duration"), "scene duration", 0.001)),
+                "data-vd-layer-index": str(idx),
                 "data-vd-scene-meta": json.dumps(
                     {key: value for key, value in scene.items() if key not in {"start", "duration", "layers"}},
                     ensure_ascii=False, separators=(",", ":"),
@@ -1206,9 +1234,32 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             if raw_fit_mode not in {"contain", "cover"}:
                 warnings.append(f"片段 {cid} 的 fit_mode={raw_fit_mode!r} 不受支持，无法无损映射")
             fit = "contain" if raw_fit_mode == "contain" else "cover"
-            attrs["style"] = f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;object-fit:{fit}"
-            if layer.get("transform"):
-                warnings.append(f"片段 {cid} 的 Transform（位置/缩放/锚点/旋转/透明度）尚未映射到等价的实际画面变换")
+            transform = layer.get("transform")
+            if transform:
+                anchor_positions = {
+                    "top_left": (0.0, 0.0), "top_center": (0.5, 0.0), "top_right": (1.0, 0.0),
+                    "center_left": (0.0, 0.5), "center": (0.5, 0.5), "center_right": (1.0, 0.5),
+                    "bottom_left": (0.0, 1.0), "bottom_center": (0.5, 1.0), "bottom_right": (1.0, 1.0),
+                }
+                anchor = str(transform.get("anchor") or "center")
+                if anchor not in anchor_positions:
+                    warnings.append(f"片段 {cid} 的 Transform.anchor={anchor!r} 无法无损映射")
+                    anchor = "center"
+                ax, ay = anchor_positions[anchor]
+                tx = _number(transform.get("x", 0.5), "Transform.x", 0, 1)
+                ty = _number(transform.get("y", 0.5), "Transform.y", 0, 1)
+                scale = _number(transform.get("scale", 1), "Transform.scale", 0.1, 5)
+                rotation = _number(transform.get("rotation", 0), "Transform.rotation", -3600, 3600)
+                opacity = _number(transform.get("opacity", 1), "Transform.opacity", 0, 1)
+                box_width, box_height = stage["width"] * scale, stage["height"] * scale
+                left, top = tx * stage["width"] - ax * box_width, ty * stage["height"] - ay * box_height
+                attrs["style"] = (
+                    f"left:{_fmt(left)}px;top:{_fmt(top)}px;width:{_fmt(box_width)}px;"
+                    f"height:{_fmt(box_height)}px;opacity:{_fmt(opacity)};object-fit:{fit};"
+                    f"transform:rotate({_fmt(rotation)}deg);transform-origin:{_fmt(ax * 100)}% {_fmt(ay * 100)}%"
+                )
+            else:
+                attrs["style"] = f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;object-fit:{fit}"
             if layer.get("keyframes"):
                 warnings.append(f"片段 {cid} 的关键帧尚未由 film.html 渲染器执行")
             if layer.get("mask"):
@@ -1221,8 +1272,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 warnings.append(f"片段 {cid} 的 Motion Recipe/实例参数尚未由 film.html 渲染器执行")
             if layer.get("text"):
                 warnings.append(f"片段 {cid} 的图层 text 尚未接入实际画面渲染")
-            if layer.get("locked"):
-                warnings.append(f"片段 {cid} 的单片段 locked 尚不能映射为独立可锁定轨道")
             clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
 
     # Put each overlapping overlay/audio item on its own physical section; OpenFilm tracks may not overlap internally.
@@ -1259,6 +1308,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         attrs = {
             "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
             "style": style, "data-asset-id": str(overlay.get("asset_id") or ""),
+            "data-vd-overlay-id": str(overlay.get("id") or ""),
             "data-vd-overlay-meta": json.dumps(
                 {key: value for key, value in overlay.items()
                  if key not in {"id", "asset_id", "start", "duration", "source_in", "speed",
@@ -1278,7 +1328,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if overlay.get("z_index", 0) != 0:
             warnings.append(f"叠加层 {cid} 的显式 z_index 尚未映射到文档层级顺序")
         tid = _safe_id("track-" + cid, "track")
-        tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": "img" if kind == "image" else "video", "attrs": attrs}))
+        tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": "img" if kind == "image" else "video", "attrs": attrs},
+                                     track_attrs={"data-vd-role": "overlay",
+                                                  "data-vd-overlay-id": str(overlay.get("id") or ""),
+                                                  "data-vd-track-id": str(overlay.get("track_id") or "overlay-main")}))
 
     subtitle = raw_ir.get("subtitle_track") or {}
     cues = subtitle.get("cues") or []
@@ -1294,7 +1347,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                       ),
                       "data-vd-subtitle-style": json.dumps(
                           raw_ir.get("subtitle_style") or {}, ensure_ascii=False, separators=(",", ":")
-                      )}}))
+                      )}}, track_attrs={"data-vd-role": "subtitle"}))
         subtitle_style = raw_ir.get("subtitle_style") or {}
         if subtitle_style.get("animation") not in (None, "", "none"):
             warnings.append(f"字幕动画 {subtitle_style.get('animation')} 尚未由确定性字幕运行时执行")
@@ -1313,10 +1366,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
             "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)),
             "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""),
+            "data-vd-audio-id": str(audio.get("id") or ""),
             "data-vd-audio-meta": json.dumps(
                 {key: value for key, value in audio.items()
                  if key not in {"id", "type", "track_id", "asset_id", "start", "duration",
-                                "source_in", "source_out", "speed", "volume", "muted"}},
+                                "source_in", "source_out", "speed", "volume"}},
                 ensure_ascii=False, separators=(",", ":"),
             ),
         }
@@ -1327,6 +1381,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         tid = _safe_id("track-" + (lane_id or cid) + "-" + cid, "track")
         track_attrs = {
             "id": tid, "data-label": str(lane.get("name") or audio.get("type") or "音频"),
+            "data-vd-role": "audio",
             "data-vd-audio-lane-id": lane_id,
             "data-vd-audio-lane-meta": json.dumps(lane, ensure_ascii=False, separators=(",", ":")),
         }
@@ -1334,6 +1389,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             track_attrs["locked"] = ""
         if lane.get("hidden"):
             track_attrs["hidden"] = ""
+        if lane.get("muted"):
+            track_attrs["muted"] = ""
         if audio.get("fadeIn") or audio.get("fadeOut"):
             warnings.append(f"音频片段 {cid} 的 fadeIn/fadeOut 尚未由 film.html 音频混音器执行")
         if audio.get("ducking"):
@@ -1352,9 +1409,32 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if transition not in {"cut", "none", ""}:
             warnings.append(f"场景 {scene.get('id')} 转场 {transition} 尚未完整映射")
     if clips:
-        tracks.append({"id": "track-main", "attrs": {"id": "track-main", "data-label": "主画面"}, "clips": clips})
+        main_tracks = []
+        for clip in clips:
+            clip_attrs = clip["attrs"]
+            track_id = _safe_id(f"track-main-{clip['id']}", "track")
+            scene_id = str(clip_attrs.get("data-vd-scene-id") or "")
+            layer_index = str(clip_attrs.get("data-vd-layer-index") or "0")
+            track_attrs = {
+                "id": track_id,
+                "data-label": f"主画面 · {scene_id} · 图层 {int(layer_index) + 1}",
+                "data-vd-role": "scene-layer",
+                "data-vd-scene-id": scene_id,
+                "data-vd-layer-index": layer_index,
+            }
+            layer_meta = json.loads(clip_attrs.get("data-vd-layer-meta") or "{}")
+            if layer_meta.get("locked"):
+                track_attrs["locked"] = ""
+            main_tracks.append({"id": track_id, "attrs": track_attrs, "clips": [clip]})
+        # CompositionIR allows overlapping scene layers; each physical section is isolated.
+        tracks = main_tracks + tracks
     if not tracks:
         raise FilmError("NO_SUPPORTED_CLIPS", "当前 Composition 没有可迁移的视频、图片、字幕或音频片段", 422)
+    # Track z-order is not part of CompositionIR yet. Preserve a baseline and reject
+    # track reorders during reverse sync instead of silently changing rendered stacking.
+    for track_order, track in enumerate(tracks):
+        track.setdefault("attrs", {})["data-vd-order"] = str(track_order)
+    project_metadata["film_track_order"] = [track["id"] for track in tracks]
     warnings = list(dict.fromkeys(warnings))
     project_meta_attr = html.escape(
         json.dumps(project_metadata, ensure_ascii=False, separators=(",", ":")), quote=True
@@ -1370,6 +1450,12 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     _validate_doc(document)
     return {"document": document, "pages": pages, "warnings": warnings, "duration": duration,
             "track_count": len(tracks), "clip_count": sum(len(t["clips"]) for t in tracks)}
+
+
+def composition_from_film(document: dict) -> dict:
+    """Public lazy wrapper for the loss-aware reverse CompositionIR mapper."""
+    from video_director.composition_sync import composition_from_film as convert
+    return convert(document)
 
 
 def initialize_project_film(project_id: str, document: dict, pages: dict[str, str], source_version: int, warnings: list[str]) -> dict:

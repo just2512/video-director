@@ -308,7 +308,7 @@ def test_migration_preserves_scene_layer_and_project_semantics_through_film_roun
     loaded = fd.parse_film(raw)
     saved_again = fd.serialize_film(loaded)
     roundtrip = fd.parse_film(saved_again)
-    clip = roundtrip["tracks"][-1]["clips"][0]
+    clip = next(c for track in roundtrip["tracks"] for c in track["clips"] if "data-vd-scene-id" in c["attrs"])
     scene_meta = json.loads(clip["attrs"]["data-vd-scene-meta"])
     layer_meta = json.loads(clip["attrs"]["data-vd-layer-meta"])
     project_meta_tag = re.search(
@@ -333,7 +333,7 @@ def test_migration_preserves_scene_layer_and_project_semantics_through_film_roun
     assert project_meta["style_id"] == "brand-style"
     assert project_meta["assets"][0]["license_note"] == "test license"
     assert loaded["stage"] == {"width": 320, "height": 180}
-    assert roundtrip["tracks"][-1]["clips"][0]["attrs"]["src"].endswith("#t=0,2")
+    assert clip["attrs"]["src"].endswith("#t=0,2")
 
 
 def test_migration_warns_and_never_overwrites_existing_film():
@@ -353,7 +353,77 @@ def test_migration_warns_and_never_overwrites_existing_film():
     assert "document_revision" in module
     assert "data-vd-scene-meta" in module
     assert "data-vd-layer-meta" in module
+    assert "data-vd-layer-index" in module
+    assert "composition_from_film" in module
+    assert '"/api/editor/film/composition"' in server
     assert "video-director-project-meta" in module
+
+
+
+def test_composition_ir_reverse_mapping_tracks_timeline_edits_and_preserves_asset_paths(tmp_path, monkeypatch):
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-reverse-roundtrip"
+    (root / "assets").mkdir(parents=True)
+    source = root / "assets" / "still.png"
+    source.write_bytes(b"test-image-bytes")
+    asset = AssetRef(
+        id="still-1", type="image", file=str(source), duration=2, width=320, height=180,
+        source="uploaded", license_note="reverse test", rights_status="CLEAR",
+    )
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(
+            id="scene-1", start=0, duration=2, text="场景语义",
+            layers=[Layer(type=LayerType.image, asset_id="still-1", duration=2, fit_mode="contain")],
+            semantic_role="hook", intent="保留语义",
+        )],
+        assets=[asset], style_id="reverse-style",
+    )
+    plan = fd.build_film_from_composition("film-reverse-roundtrip", composition)
+    assert plan["warnings"] == []
+    loaded = fd.parse_film(fd.serialize_film(plan["document"]))
+    initial = fd.composition_from_film(loaded)
+    assert initial["scenes"][0]["intent"] == "保留语义"
+    assert initial["scenes"][0]["layers"][0]["fit_mode"] == "contain"
+    assert initial["assets"][0]["file"] == "assets/still.png"
+
+    clip = next(c for t in loaded["tracks"] for c in t["clips"] if c["attrs"].get("data-vd-scene-id"))
+    edited, _ = fd.apply_ops(loaded, [{"op": "set", "clip": clip["id"], "field": "at", "value": 0.5}])
+    synced = fd.composition_from_film(fd.parse_film(fd.serialize_film(edited)))
+    assert synced["scenes"][0]["layers"][0]["start"] == 0.5
+    assert synced["scenes"][0]["duration"] == 2.5
+    assert synced["project"]["duration"] == 2.5
+
+def test_composition_reverse_mapping_rejects_unbound_inserted_clip(tmp_path, monkeypatch):
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-unbound-clip"
+    (root / "assets").mkdir(parents=True)
+    source = root / "assets" / "still.png"
+    source.write_bytes(b"test-image-bytes")
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(id="scene-unbound", start=0, duration=2, text="scene",
+                        layers=[Layer(type=LayerType.image, asset_id="still-1", duration=2)])],
+        assets=[AssetRef(id="still-1", type="image", file=str(source), duration=2, width=320, height=180)],
+    )
+    plan = fd.build_film_from_composition("film-unbound-clip", composition)
+    assert plan["warnings"] == []
+    doc = fd.parse_film(fd.serialize_film(plan["document"]))
+    # This is a valid film edit, but it has no stable CompositionIR clip binding.
+    edited, _ = fd.apply_ops(doc, [{
+        "op": "insert", "track_id": doc["tracks"][0]["id"],
+        "clip": {"id": "unbound-clip", "tag": "img",
+                 "attrs": {"src": "../assets/unbound.png#t=0,1", "at": "20"}},
+    }])
+    with pytest.raises(fd.FilmError) as raised:
+        fd.composition_from_film(edited)
+    assert raised.value.code in {
+        "COMPOSITION_TRACK_BINDING_MISSING", "COMPOSITION_BINDING_MISSING",
+        "COMPOSITION_TRACK_ORDER_UNSUPPORTED",
+    }
 
 
 def test_trim_start_and_end_preserve_source_time_and_speed():

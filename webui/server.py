@@ -930,7 +930,7 @@ class Handler(BaseHTTPRequestHandler):
     def _film_document_api(self, method, parsed):
         """OpenFilm-inspired film.html API with explicit migration and revision-safe edits."""
         route = parsed.path
-        get_routes = {"/api/editor/film", "/api/editor/film/media", "/api/editor/film/revision"}
+        get_routes = {"/api/editor/film", "/api/editor/film/media", "/api/editor/film/revision", "/api/editor/film/composition"}
         post_routes = {"/api/editor/film/initialize", "/api/editor/film/insert-asset", "/api/editor/film/edit",
                        "/api/editor/film/undo", "/api/editor/film/redo",
                        "/api/editor/film/command", "/api/editor/film/render"}
@@ -995,6 +995,17 @@ class Handler(BaseHTTPRequestHandler):
                                 break
                             self.wfile.write(chunk)
                             remaining -= len(chunk)
+                    return True
+
+                if route == "/api/editor/film/composition":
+                    state = fd.read_project_film(pid)
+                    if not state["exists"]:
+                        self._send_json({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                                         "error": "当前项目还没有可反向映射的 film.html"}, 409)
+                        return True
+                    composition = fd.composition_from_film(state["doc"])
+                    self._send_json({"ok": True, "project_id": pid, "rev": state["rev"],
+                                     "composition": composition}, 200)
                     return True
 
                 state = fd.read_project_film(pid)
