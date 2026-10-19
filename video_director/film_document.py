@@ -133,6 +133,35 @@ def _normalize_volume_envelope(value: Any) -> str:
     canonical = [{"t": float(_fmt(point["t"])), "v": float(_fmt(point["v"]))} for point in points]
     return json.dumps(canonical, ensure_ascii=False, separators=(",", ":"))
 
+def _volume_envelope_value(points: list[dict[str, float]], timestamp: float) -> float:
+    if not points:
+        return 1.0
+    if timestamp <= points[0]["t"]:
+        return points[0]["v"]
+    for left, right in zip(points, points[1:]):
+        if timestamp <= right["t"]:
+            amount = (timestamp - left["t"]) / (right["t"] - left["t"])
+            return left["v"] + (right["v"] - left["v"]) * min(1.0, max(0.0, amount))
+    return points[-1]["v"]
+
+
+def _slice_volume_envelope(attrs: dict, old_start: float, old_end: float) -> None:
+    """Rebase an envelope to a retained subrange of the old clip-local timeline."""
+    if "volume_envelope" not in attrs:
+        return
+    if not math.isfinite(old_start) or not math.isfinite(old_end) or old_start < 0 or old_end <= old_start:
+        raise FilmError("INVALID_VOLUME_ENVELOPE", "不能将音量包络切片到无效的片段区间", 422)
+    points = _parse_volume_envelope(attrs["volume_envelope"])
+    if not points:
+        attrs.pop("volume_envelope", None)
+        return
+    rebased = [{"t": 0.0, "v": _volume_envelope_value(points, old_start)}]
+    for point in points:
+        if old_start + 1e-7 < point["t"] < old_end - 1e-7:
+            rebased.append({"t": point["t"] - old_start, "v": point["v"]})
+    rebased.append({"t": old_end - old_start, "v": _volume_envelope_value(points, old_end)})
+    attrs["volume_envelope"] = _normalize_volume_envelope(rebased)
+
 
 def revision_of(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
@@ -459,6 +488,7 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
                 if left_source_out <= source_in + eps:
                     raise FilmError("RIPPLE_RANGE_INVALID", f"片段 {cid} 的左侧源区间无效", 422)
                 left["attrs"]["src"] = _with_source_range(str(left["attrs"]["src"]), source_in, left_source_out)
+                _slice_volume_envelope(left["attrs"], 0.0, left_duration)
                 rewritten.append(left)
 
             if right_duration > eps:
@@ -468,6 +498,7 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
                     raise FilmError("RIPPLE_RANGE_INVALID", f"片段 {cid} 的右侧源区间无效", 422)
                 right["attrs"]["src"] = _with_source_range(str(right["attrs"]["src"]), right_source_in, source_out)
                 right["attrs"]["at"] = _fmt(cut_start)
+                _slice_volume_envelope(right["attrs"], cut_end - at, clip_duration(clip))
                 if left_duration > eps:
                     new_id = requested_split_ids.get(cid, "")
                     if not new_id:
@@ -614,11 +645,18 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             if any(right_id == c["id"] for t in out["tracks"] for c in t["clips"]):
                 raise FilmError("DUPLICATE_CLIP_ID", f"切分后 ID 已存在：{right_id}")
             original_id = clip["id"]
+            original_envelope = attrs.get("volume_envelope")
+            split_offset = at - start
             clip["attrs"]["src"] = _with_source_range(attrs["src"], src_in, mid)
+            if original_envelope is not None:
+                _slice_volume_envelope(clip["attrs"], 0.0, split_offset)
             right = copy.deepcopy(clip)
             right["id"], right["attrs"]["id"] = right_id, right_id
             right["attrs"]["src"] = _with_source_range(attrs["src"], mid, src_out)
             right["attrs"]["at"] = _fmt(at)
+            if original_envelope is not None:
+                right["attrs"]["volume_envelope"] = original_envelope
+                _slice_volume_envelope(right["attrs"], split_offset, duration)
             track["clips"].insert(track["clips"].index(clip) + 1, right)
             normalized.append({"op": "split", "clip": original_id, "at": _fmt(at), "new_id": right_id})
         elif kind == "trim":
@@ -644,6 +682,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                     raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
                 attrs["src"] = _with_source_range(attrs["src"], new_src_in, new_src_out)
                 attrs["at"] = _fmt(new_start)
+                _slice_volume_envelope(attrs, delta, duration)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "start", "at": _fmt(new_start)})
             elif edge == "end":
                 new_end = _number(op.get("end"), "trim end", start + 0.001, old_end - 0.001)
@@ -651,6 +690,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 if new_src_out <= src_in + 0.001:
                     raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
                 attrs["src"] = _with_source_range(attrs["src"], src_in, min(src_out, new_src_out))
+                _slice_volume_envelope(attrs, 0.0, new_end - start)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "end", "end": _fmt(new_end)})
             else:
                 raise FilmError("INVALID_TRIM_EDGE", "trim edge 只能是 start 或 end")

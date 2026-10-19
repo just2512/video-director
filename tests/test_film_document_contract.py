@@ -399,6 +399,46 @@ def test_volume_envelope_contract_drives_ffmpeg_and_preview_consistently():
     assert "S.envelopeDrag" in studio
 
 
+def test_volume_envelope_is_sliced_and_rebased_by_split_trim_and_ripple():
+    doc = fd.parse_film(SAMPLE)
+    envelope = [{"t": 0, "v": 1}, {"t": 5, "v": 0.2}, {"t": 12, "v": 0.8}, {"t": 20, "v": 0.6}]
+    with_envelope, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "audio-1", "field": "volume_envelope", "value": envelope}
+    ])
+
+    split_doc, _ = fd.apply_ops(with_envelope, [
+        {"op": "split", "clip": "audio-1", "at": 10, "new_id": "audio-right"}
+    ])
+    split_clips = {c["id"]: c for t in split_doc["tracks"] for c in t["clips"]}
+    left_points = json.loads(split_clips["audio-1"]["attrs"]["volume_envelope"])
+    right_points = json.loads(split_clips["audio-right"]["attrs"]["volume_envelope"])
+    assert left_points[0] == {"t": 0.0, "v": 1.0}
+    assert left_points[-1] == {"t": 10.0, "v": 0.6}
+    assert right_points[0] == {"t": 0.0, "v": 0.6}
+    assert right_points[-1] == {"t": 10.0, "v": 0.6}
+    assert right_points[1] == {"t": 2.0, "v": 0.8}
+
+    trim_doc, _ = fd.apply_ops(with_envelope, [
+        {"op": "trim", "clip": "audio-1", "edge": "start", "at": 5}
+    ])
+    trimmed = next(c for t in trim_doc["tracks"] for c in t["clips"] if c["id"] == "audio-1")
+    trim_points = json.loads(trimmed["attrs"]["volume_envelope"])
+    assert trim_points[0] == {"t": 0.0, "v": 0.2}
+    assert trim_points[-1] == {"t": 15.0, "v": 0.6}
+    assert trim_points[1] == {"t": 7.0, "v": 0.8}
+
+    ripple_doc, _ = fd.apply_ops(with_envelope, [
+        {"op": "ripple_delete", "clip": "clip-b", "scope": "all",
+         "split_ids": {"audio-1": "audio-ripple-right"}}
+    ])
+    ripple_audio = [c for t in ripple_doc["tracks"] for c in t["clips"] if c["tag"] == "audio"]
+    ripple_by_id = {c["id"]: c for c in ripple_audio}
+    ripple_right = json.loads(ripple_by_id["audio-ripple-right"]["attrs"]["volume_envelope"])
+    assert ripple_right[0] == {"t": 0.0, "v": 0.6}
+    assert ripple_right[-1] == {"t": 10.0, "v": 0.6}
+    assert ripple_right[1] == {"t": 2.0, "v": 0.8}
+
+
 def test_volume_envelope_rejects_duplicate_times_and_non_finite_gain(tmp_path, monkeypatch):
     doc = fd.parse_film(SAMPLE)
     with pytest.raises(fd.FilmError, match="时间点必须严格递增"):

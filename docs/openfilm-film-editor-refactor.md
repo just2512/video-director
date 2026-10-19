@@ -49,7 +49,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 - `volume_envelope` is a JSON array in the clip's own timeline seconds: `[{"t":0,"v":1},{"t":2,"v":0.2}]`. Gain `v` is a 0–1 multiplier over the clip volume fader; it is not a decibel value.
 - The Studio draws the envelope over audio/video clips. Clicking inserts a point, dragging a point adjusts its time/value, and Shift/right-click removes an interior point. A completed gesture commits one operation and one undo step.
-- Browser preview evaluates the same piecewise-linear curve against clip-local time; MP4 audio uses FFmpeg's per-frame volume expression. Invalid JSON, duplicate timestamps and out-of-range gain values are rejected before write/render.
+- Browser preview evaluates the same piecewise-linear curve against clip-local time; MP4 audio uses FFmpeg's per-frame volume expression. Split, trim and ripple-delete operations slice/rebase the envelope, preserving gain continuity at edit boundaries. Invalid JSON, duplicate timestamps and out-of-range gain values are rejected before write/render.
 
 ## Global ripple-delete operation
 

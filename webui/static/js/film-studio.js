@@ -384,7 +384,7 @@
       var duration=clip.duration,rect=canvas.getBoundingClientRect();
       if(!rect.width||!rect.height)return;
       var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
-      var value=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
+      var value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
       var points=envelopePointsForClip(clip).map(function(p){return {t:Number(p.t),v:Number(p.v)};});
       var nearest=-1,nearestPx=Infinity;
       points.forEach(function(p,i){
@@ -410,7 +410,8 @@
         value=volumeEnvelopeAtStudio(points,time);
         // Clicking the envelope canvas inserts a new local keyframe at the clicked
         // time and value; dragging immediately after insertion edits its gain.
-        value=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
+        value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
+        time=Math.max(0.01,Math.min(duration-0.01,time));
         index=points.findIndex(function(p){return p.t>time;});
         if(index<0)index=points.length;
         points.splice(index,0,{t:time,v:value});added=true;
@@ -521,7 +522,7 @@
         var lower=ed.points[ed.index-1].t+0.01,upper=ed.points[ed.index+1].t-0.01;
         point.t=Math.max(lower,Math.min(upper,x/rect.width*ed.duration));
       }
-      point.v=Math.max(0,Math.min(1,1-y/rect.height));
+      point.v=Math.max(0,Math.min(1,1-(y-4)/Math.max(1,rect.height-8)));
       ed.active=true;ed.changed=true;drawVolumeEnvelope(ed.canvas,ed.points);e.preventDefault();return;
     }
     var d=S.drag;if(!d)return;
