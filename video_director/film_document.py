@@ -22,8 +22,8 @@ HISTORY_NAME = ".film-history.json"
 MIGRATION_NAME = "film-migration.json"
 CLIP_TAGS = {"iframe", "video", "img", "audio"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
-SETTABLE_FIELDS = {"at", "src", "speed", "volume", "volume_envelope", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
-AI_SETTABLE_FIELDS = {"at", "speed", "volume", "volume_envelope", "style", "class", "muted", "title"}
+SETTABLE_FIELDS = {"at", "src", "speed", "volume", "volume_envelope", "fade", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
+AI_SETTABLE_FIELDS = {"at", "speed", "volume", "volume_envelope", "fade", "style", "class", "muted", "title"}
 TRACK_FLAGS = {"locked", "hidden", "muted"}
 MAX_OPERATIONS = 200
 
@@ -99,6 +99,37 @@ def clip_duration(clip: dict) -> float | None:
 def clip_end(clip: dict) -> float | None:
     duration = clip_duration(clip)
     return None if duration is None else _number(clip["attrs"].get("at", 0), "at", 0) + duration
+
+
+def _parse_fade(value: Any) -> tuple[float, float]:
+    """Parse the optional clip-relative visual/audio fade durations (in,out) in seconds."""
+    if value is None or value == "":
+        return 0.0, 0.0
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        parts = value
+    elif isinstance(value, str):
+        parts = value.split(",")
+    else:
+        raise FilmError("INVALID_FADE", "fade 必须是淡入秒数,淡出秒数", 422)
+    if len(parts) != 2:
+        raise FilmError("INVALID_FADE", "fade 必须是淡入秒数,淡出秒数", 422)
+    fade_in = _number(parts[0], "淡入时长", 0, 60)
+    fade_out = _number(parts[1], "淡出时长", 0, 60)
+    return fade_in, fade_out
+
+
+def _normalize_fade(value: Any, clip: dict) -> str | None:
+    fade_in, fade_out = _parse_fade(value)
+    duration = clip_duration(clip)
+    if duration is not None and fade_in + fade_out > duration + 0.001:
+        raise FilmError(
+            "INVALID_FADE",
+            f"淡入和淡出合计 {fade_in + fade_out:.3f}s，超过片段时长 {duration:.3f}s",
+            422,
+        )
+    if fade_in <= 0 and fade_out <= 0:
+        return None
+    return _fmt(fade_in) + "," + _fmt(fade_out)
 
 
 def _parse_volume_envelope(value: Any) -> list[dict[str, float]]:
@@ -303,6 +334,16 @@ def parse_film(text: str) -> dict:
                     _parse_volume_envelope(clip["attrs"]["volume_envelope"])
                 except FilmError as exc:
                     problems.append(f"片段 {clip['id']} 的音量包络无效：{exc}")
+            if "fade" in clip["attrs"]:
+                try:
+                    fade_in, fade_out = _parse_fade(clip["attrs"]["fade"])
+                    fade_duration = clip_duration(clip)
+                    if fade_duration is not None and fade_in + fade_out > fade_duration + 0.001:
+                        problems.append(
+                            f"片段 {clip['id']} 的淡入淡出合计超过片段时长"
+                        )
+                except FilmError as exc:
+                    problems.append(f"片段 {clip['id']} 的 fade 无效：{exc}")
             end = clip_end(clip)
             at = _number(clip["attrs"].get("at", 0), "at", 0)
             if end is not None and last_end is not None and at < last_end - 0.001:
@@ -568,6 +609,11 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                     raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持音量包络")
                 if value is not None:
                     value = _normalize_volume_envelope(value)
+            elif field == "fade":
+                if clip["tag"] not in {"video", "audio", "img", "iframe"}:
+                    raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持淡入淡出")
+                if value is not None:
+                    value = _normalize_fade(value, clip)
             elif field == "muted":
                 if clip["tag"] not in {"video", "audio"} or not isinstance(value, bool):
                     raise FilmError("INVALID_BOOLEAN", "muted 只接受视频/音频片段的布尔值")
@@ -581,6 +627,8 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 if isinstance(value, str) and len(value) > 20000:
                     raise FilmError("FIELD_TOO_LARGE", f"{field} 太长")
             if value is None or value is False:
+                attrs.pop(field, None)
+            elif field == "fade" and value == "":
                 attrs.pop(field, None)
             else:
                 attrs[field] = value
@@ -1646,13 +1694,13 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
                 "duration": clip_duration(clip), "src": attrs.get("src", ""),
                 "source_in": source_in, "source_out": source_out,
                 "speed": attrs.get("speed", "1"), "volume": attrs.get("volume", "1"),
-                "muted": "muted" in attrs, "volume_envelope": attrs.get("volume_envelope", ""), "style": attrs.get("style", ""),
+                "muted": "muted" in attrs, "volume_envelope": attrs.get("volume_envelope", ""), "fade": attrs.get("fade", "0,0"), "style": attrs.get("style", ""),
                 "title": attrs.get("title", ""),
             })
     prompt = (
         "你是视频时间线编辑规划器。只输出 JSON：{"
         '"operations":[...],"summary":"..."}。'
-        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'muted'|'style'|'class'|'title',value:...}; "
+        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'fade'|'muted'|'style'|'class'|'title',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 slip 操作: {op:'slip',clip:准确视频/音频片段ID,delta_source:素材源时间偏移秒}。滑移只改变 #t 入出点，不改变时间线位置和长度；仅在用户明确要求保持时间线位置但更换素材源区间时使用。 "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
@@ -1662,7 +1710,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
-        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
+        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"
         f"\n用户指令：{message}"

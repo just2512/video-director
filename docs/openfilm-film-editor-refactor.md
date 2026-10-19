@@ -59,6 +59,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Affected locked tracks and ambiguous unknown-duration clips reject the whole transaction. The edit remains revisioned and undoable through the same FilmDocument history.
 - This does not claim full Roll/Slip/Slide trim support; those require separate operation contracts and pointer interactions.
 
+## Clip fade in/out
+
+- The clip attribute `fade="in_seconds,out_seconds"` is validated by FilmDocument, restricted to supported media elements, and rejected when total fade duration exceeds clip duration.
+- Studio Inspector edits both durations as one atomic field operation. Browser preview applies the same clip-relative multiplier to visual opacity and audio gain; MP4 export uses FFmpeg `afade` after source trim and speed processing.
+- This remains a two-sided linear fade rather than a general opacity keyframe/Bezier transition system.
+
 ## Render consistency milestone
 
 - The final browser renderer re-renders representative first/middle/last timestamps in reverse order after the frame sequence. Each repeat is compared with the captured PNG using a per-channel tolerance of 32 and a bounded changed-pixel allowance.

@@ -32,7 +32,7 @@
   4 种（无 Bezier 手柄），value 无类型约束（Any），无 keyframe 编辑交互（只能 add/remove）。
 - **吸收判断**：easing 扩展（加 Bezier + influence）是渲染器配套改造 [成本中]。
   value 类型化是 schema 卫生 [成本低]。**本轮吸收**：不动数据模型，补交互缺口
-  （关键帧当前不可拖动/改值——见 D5）。
+  （旧 CompositionIR 的通用 Bezier 关键帧仍未接入；film.html 路径的音量包络已经可拖动/改值，见下文更新）。
 
 ### D3. 编辑代数完整性：Premiere 语义 vs 我系统子集
 filmcraft edit crate 实现完整 Premiere 语义：Overwrite/Insert（sync-lock 联动 ripple）/
@@ -68,10 +68,8 @@ slide/rate-stretch）/through-edit 检测+愈合/join。我系统对照：
 ### D5. 关键帧交互：点表批量下发 + 激活三态 vs 完全无时间线关键帧 UI
 - **剪映**：片段上音量包络线（QSG 自绘）+ 点表批量下发（QML 不持模型）+ 播放头扫过
   高亮（Activated 三态）+ record 参数（程序化补偿不污染 undo）。
-- **我系统**：关键帧只有后端命令（add_audio_keyframe/add_keyframe），**时间线上完全
-  没有可视化/编辑入口**——用户看不到也拖不了。
-- **吸收**：本轮吸收最小可见版——音频片段上渲染音量包络折线（读 clip.keyframes
-  property=volume 的点表 → SVG polyline）+ 播放头高亮最近点。编辑（拖点/加点）后续轮。
+- **旧 CompositionIR 路径**：仍有 add_audio_keyframe/add_keyframe 命令，但没有通用时间线关键帧 UI；OpenFilm film.html 路径现在已经有独立音量曲线模式和点编辑。
+- **吸收（film.html）**：音频/视频片段上渲染可编辑 Canvas 音量包络；点添加、拖动、删除写成 clip-relative volume_envelope 属性；同一曲线驱动预览与 FFmpeg 导出。旧 CompositionIR 的 Bezier/通用属性关键帧仍是独立工作。
 
 ### D6. 吸附交互：吸附纯函数 + 显式吸附区 vs 播放头吸附已有、片段吸附缺
 - **剪映**：三类吸附（播放头/主轨/音频节拍）+ bottomAdsorb 显式区域（拖音频靠近底部
@@ -123,7 +121,7 @@ slide/rate-stretch）/through-edit 检测+愈合/join。我系统对照：
 | A2 | 拖拽边缘自动滚动器 | 挂现有 5 个 pointermove 拖拽（playhead/clip/audio/overlay/watermark） | 前端 |
 | A3 | 片段拖拽磁贴吸附（播放头+邻块边界候选，吸附态高亮） | 复用 editorSessionSnapTime 引擎加候选源 | 前端 |
 | A4 | 变速预设档 chips + 统一前置校验 | visual-overlay-editor 现有 speed input 升级 | 前端 |
-| A5 | 音量包络线可视化（clip.keyframes→SVG 折线） | split_audio_clip 已拒切带 keyframes 的片段——包络线让用户看见原因 | 前端 |
+| A5 | film.html 音量包络折线及关键帧编辑（volume_envelope→Canvas） | 已落地；split/trim/ripple 会切片包络，FFmpeg 与预览共用线性曲线 | 前端+文档契约 |
 | A6 | `_project_frame_time` 入口统一（分发层集中 snap 时间 payload） | 消灭「漏 snap」类 bug 的根因；保留 per-command snap 兜底 | 后端 |
 | A7 | through-edit 检测（split 后相邻段同源连续→标记）+ join_through_edits 命令 | add_edit_all_tracks 的自然补全：切得开也要合得上 | 后端+前端 |
 | A8 | roll/slip trim 不做（拖拽语义复杂，非本轮） | — | 暂缓 |

@@ -28,6 +28,21 @@
       el.style.setProperty(key,value);
     });
   }
+  function parseClipFade(value){
+    if(value==null||value==='')return {in:0,out:0};
+    var parts=String(value).split(',');
+    if(parts.length!==2)return {in:0,out:0};
+    var fadeIn=Number(parts[0]),fadeOut=Number(parts[1]);
+    if(!Number.isFinite(fadeIn)||!Number.isFinite(fadeOut)||fadeIn<0||fadeOut<0)return {in:0,out:0};
+    return {in:fadeIn,out:fadeOut};
+  }
+  function clipFadeAt(entry,t){
+    var fade=entry.fade||{in:0,out:0},clip=entry.clip;
+    var local=Math.max(0,t-finite(clip.at,0)),factor=1;
+    if(fade.in>0)factor=Math.min(factor,clamp(local/fade.in,0,1));
+    if(fade.out>0&&clip.end!=null)factor=Math.min(factor,clamp((clip.end-t)/fade.out,0,1));
+    return factor;
+  }
   function mediaTime(clip,t){
     var at=finite(clip.at,0),speed=(clip.tag==='video'||clip.tag==='audio')?clamp(finite(clip.attrs&&clip.attrs.speed,1),0.25,4):1;
     return Math.max(0,finite(clip.src_in,0)+Math.max(0,t-at)*speed);
@@ -100,7 +115,8 @@
     if(Number.isFinite(opacity))el.style.opacity=String(clamp(opacity,0,1));
     var src=sourceBase(clip.media_url||'');
     if(src)el.src=src;
-    var entry={track:track,clip:clip,el:el,active:false,volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope)};
+    var entry={track:track,clip:clip,el:el,active:false,volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope),
+      fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1)};
     byId[clip.id]=entry;return entry;
   }
   function pauseAll(){
@@ -131,7 +147,16 @@
       if(has(track.attrs,'hidden'))lane.style.display='none';
       var entries=[];
       (track.clips||[]).forEach(function(clip){var entry=makeClip(track,clip);if(entry){lane.appendChild(entry.el);entries.push(entry);}});
-      stage.appendChild(lane);state.tracks.push({data:track,el:lane,clips:entries});
+      stage.appendChild(lane);
+      // Capture class-based opacity after attachment so a fade multiplies, rather
+      // than overwrites, any opacity supplied by the document's authored CSS.
+      entries.forEach(function(entry){
+        var attrs=entry.clip.attrs||{},styleText=String(attrs.style||'');
+        if(!has(attrs,'opacity')&&!/(?:^|;)\s*opacity\s*:/i.test(styleText)){
+          entry.baseOpacity=clamp(finite(window.getComputedStyle(entry.el).opacity,1),0,1);
+        }
+      });
+      state.tracks.push({data:track,el:lane,clips:entries});
     });
     notice.style.display=state.tracks.length?'none':'grid';
     if(!state.tracks.length)notice.textContent='当前影片没有可显示的轨道';
@@ -149,6 +174,8 @@
       return;
     }
     el.style.display='block';
+    var fadeFactor=clipFadeAt(entry,t);
+    if(tag!=='audio')el.style.opacity=String(entry.baseOpacity*fadeFactor);
     if(tag==='iframe'){
       var localTime=mediaTime(clip,t);
       try{if(el.contentWindow)el.contentWindow.postMessage({type:'film-time',time:localTime},'*');}catch(_){}
@@ -159,7 +186,7 @@
     el.playbackRate=speed;
     var baseVolume=clamp(finite(attrs.volume,1),0,1);
     var localTime=Math.max(0,t-finite(clip.at,0));
-    el.volume=clamp(baseVolume*volumeEnvelopeAt(entry.volumeEnvelope,localTime),0,1);
+    el.volume=clamp(baseVolume*volumeEnvelopeAt(entry.volumeEnvelope,localTime)*fadeFactor,0,1);
     el.muted=state.renderMode||muted;
     var drift=Math.abs(finite(el.currentTime,0)-desired);
     if(forceSeek||!entry.active||drift>(state.playing?0.45:0.04)){try{el.currentTime=desired;}catch(_){}}

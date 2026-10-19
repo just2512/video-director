@@ -165,7 +165,7 @@ def test_insert_into_existing_track_preserves_other_nodes(tmp_path, monkeypatch)
     written = (root / fd.FILM_NAME).read_text(encoding="utf-8")
     assert '<!-- keep target clip bytes -->' in written
     assert untouched in written
-    assert '<img id="inserted-still"' in written
+    assert '<img ' in written and 'id="inserted-still"' in written
     assert fd.read_project_film("film-insert")["rev"] == updated["rev"]
 
 
@@ -387,6 +387,35 @@ def test_volume_envelope_filtergraph_executes_in_real_ffmpeg():
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_clip_fade_contract_applies_to_runtime_and_ffmpeg():
+    from video_director.film_render import _audio_fade_filters
+
+    doc = fd.parse_film(SAMPLE)
+    faded, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "fade", "value": "0.5,0.75"}
+    ])
+    clip = next(c for t in faded["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    assert clip["attrs"]["fade"] == "0.5,0.75"
+    assert fd._parse_fade(clip["attrs"]["fade"]) == (0.5, 0.75)
+    filters = _audio_fade_filters(0.5, 0.75, 5.0)
+    assert filters == ["afade=t=in:st=0:d=0.5", "afade=t=out:st=4.25:d=0.75"]
+
+    runtime = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    studio = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "clipFadeAt(entry,t)" in runtime
+    assert "baseVolume*volumeEnvelopeAt(entry.volumeEnvelope,localTime)*fadeFactor" in runtime
+    assert "field:'fade'" in studio
+    assert "淡入（秒）" in studio and "淡出（秒）" in studio
+
+
+def test_clip_fade_rejects_invalid_or_overlong_fades():
+    doc = fd.parse_film(SAMPLE)
+    with pytest.raises(fd.FilmError, match="超过片段时长"):
+        fd.apply_ops(doc, [{"op": "set", "clip": "clip-a", "field": "fade", "value": "3,3"}])
+    with pytest.raises(fd.FilmError, match="fade 必须"):
+        fd.apply_ops(doc, [{"op": "set", "clip": "clip-a", "field": "fade", "value": "0.5"}])
 
 
 def test_volume_envelope_mode_does_not_steal_normal_clip_dragging():

@@ -291,6 +291,20 @@ def _volume_envelope_filter(base_volume: float, points: list[dict]) -> str:
     return f"volume='{_fmt(base)}*({expression})':eval=frame"
 
 
+def _audio_fade_filters(fade_in: float, fade_out: float, duration: float) -> list[str]:
+    """Create timeline-relative FFmpeg fades for a clip's post-speed audio."""
+    if duration <= 0:
+        return []
+    fi = min(max(0.0, float(fade_in)), duration)
+    fo = min(max(0.0, float(fade_out)), duration)
+    filters = []
+    if fi > 0:
+        filters.append(f"afade=t=in:st=0:d={_fmt(fi)}")
+    if fo > 0:
+        filters.append(f"afade=t=out:st={_fmt(max(0.0, duration - fo))}:d={_fmt(fo)}")
+    return filters
+
+
 def _audio_specs(project_id: str, doc: dict, duration: float) -> list[dict]:
     from video_director import prober
 
@@ -332,6 +346,8 @@ def _audio_specs(project_id: str, doc: dict, duration: float) -> list[dict]:
                 "duration": min((src_out-src_in)/speed, duration-start),
                 "volume": min(2.0, max(0.0, volume)),
                 "volume_envelope": fd._parse_volume_envelope(attrs.get("volume_envelope")),
+                "fade_in": fd._parse_fade(attrs.get("fade"))[0],
+                "fade_out": fd._parse_fade(attrs.get("fade"))[1],
             })
     return specs
 
@@ -361,6 +377,7 @@ def _mux_audio(ffmpeg: str, silent_video: Path, output: Path, specs: list[dict],
             f"atrim=start={_fmt(spec['src_in'])}:end={_fmt(spec['src_out'])}",
             "asetpts=PTS-STARTPTS",
             *speed_filters,
+            *_audio_fade_filters(spec.get("fade_in", 0), spec.get("fade_out", 0), spec["duration"]),
             _volume_envelope_filter(spec["volume"], spec.get("volume_envelope") or []),
         ]
         delay_ms = max(0, int(round(spec["start"] * 1000)))

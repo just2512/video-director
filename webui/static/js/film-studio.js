@@ -460,6 +460,11 @@
       fields+='<label class="fs-inspector-field">音量<input id="fs-field-volume" type="number" min="0" max="2" step="0.05" value="'+esc(a.volume==null?1:a.volume)+'"></label>';
       fields+='<label class="fs-inspector-field">静音<select id="fs-field-muted"><option value="false">否</option><option value="true"'+(Object.prototype.hasOwnProperty.call(a,'muted')?' selected':'')+'>是</option></select></label>';
     }
+    if(clip.duration!=null){
+      var fadeValues=String(a.fade||'0,0').split(',');
+      fields+='<label class="fs-inspector-field">淡入（秒）<input id="fs-field-fade-in" type="number" min="0" max="60" step="0.05" value="'+esc(fadeValues[0]||0)+'"></label>';
+      fields+='<label class="fs-inspector-field">淡出（秒）<input id="fs-field-fade-out" type="number" min="0" max="60" step="0.05" value="'+esc(fadeValues[1]||0)+'"></label>';
+    }
     fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     $('fs-inspector').innerHTML=fields;
     $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(button){
@@ -774,6 +779,20 @@
         if(Math.abs(num(old,defaultValue)-value)>1e-5)ops.push({op:'set',clip:clip.id,field:pair[0],value:value});
       }else if(String(old||'')!==value)ops.push({op:'set',clip:clip.id,field:pair[0],value:value||null});
     });
+    var fadeInEl=$('fs-field-fade-in'),fadeOutEl=$('fs-field-fade-out');
+    if(fadeInEl&&fadeOutEl){
+      var fadeIn=Number(fadeInEl.value),fadeOut=Number(fadeOutEl.value);
+      if(!Number.isFinite(fadeIn)||!Number.isFinite(fadeOut)||fadeIn<0||fadeOut<0||fadeIn>60||fadeOut>60){
+        showStatus('淡入/淡出必须是 0–60 秒的有效数字。','error');return;
+      }
+      if(clip.duration!=null&&fadeIn+fadeOut>clip.duration+0.001){
+        showStatus('淡入与淡出时长之和不能超过片段时长。','error');return;
+      }
+      var currentFade=String(attrs.fade||'0,0').split(',');
+      if(Math.abs(Number(currentFade[0]||0)-fadeIn)>0.001||Math.abs(Number(currentFade[1]||0)-fadeOut)>0.001){
+        ops.push({op:'set',clip:clip.id,field:'fade',value:(fadeIn>0||fadeOut>0)?fadeIn.toFixed(3)+','+fadeOut.toFixed(3):null});
+      }
+    }
     var muted=$('fs-field-muted');
     if(muted&&Object.prototype.hasOwnProperty.call(attrs,'muted')!==(muted.value==='true'))ops.push({op:'set',clip:clip.id,field:'muted',value:muted.value==='true'});
     if(!ops.length){showStatus('属性没有变化。');return;}await filmStudioCommit(ops);
