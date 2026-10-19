@@ -395,11 +395,11 @@ def test_composition_layer_and_overlay_order_matches_render_stack(tmp_path, monk
     plan = fd.build_film_from_composition("film-z-order", composition)
     assert plan["warnings"] == []
     tracks = plan["document"]["tracks"]
-    assert [t["attrs"].get("data-vd-role") for t in tracks] == ["scene-layer", "scene-layer", "overlay", "overlay"]
-    assert [t["attrs"]["data-vd-layer-index"] for t in tracks[:2]] == ["0", "0"]
-    assert [t["attrs"]["data-vd-overlay-id"] for t in tracks[2:]] == ["overlay-a", "overlay-b"]
-    # The runtime assigns a larger z-index to later document tracks, so overlays
-    # must follow all base scene tracks in film.html.
+    # The document stores top-most layers first; the isolated runtime assigns
+    # earlier tracks larger z-index values so exported frames match the editor.
+    assert [t["attrs"].get("data-vd-role") for t in tracks] == ["overlay", "overlay", "scene-layer", "scene-layer"]
+    assert [t["attrs"]["data-vd-overlay-id"] for t in tracks[:2]] == ["overlay-b", "overlay-a"]
+    assert [t["attrs"]["data-vd-scene-id"] for t in tracks[2:]] == ["scene-b", "scene-a"]
     restored = fd.composition_from_film(fd.parse_film(fd.serialize_film(plan["document"])))
     assert [x["id"] for x in restored["visual_overlays"]] == ["overlay-a", "overlay-b"]
     assert [scene["layers"][0]["asset_id"] for scene in restored["scenes"]] == ["asset-a", "asset-b"]
