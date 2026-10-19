@@ -234,7 +234,7 @@ def composition_from_film(document: dict) -> dict:
                 dur=fd.clip_duration(clip)
                 if dur is None or dur<=0: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"音频片段 {cid} 没有有效时长")
                 item=copy.deepcopy(ameta)
-                item.update({"id":aid_id,"type":str(a.get("data-role") or "audio"),"track_id":lane_id or None,"asset_id":aid,
+                item.update({"id":ameta.get("id") if "id" in ameta else aid_id,"type":str(a.get("data-role") or "audio"),"track_id":lane_id or None,"asset_id":aid,
                     "start":fd._number(a.get("at",0),"at",0),"duration":dur,"source_in":source[0],"source_out":source[1],
                     "speed":fd._number(a.get("speed",1),"speed",.25,4),"volume":fd._number(a.get("volume",1),"volume",0,2)})
                 item["muted"]=bool(ameta.get("muted",False)) if lane_id and lane_state.get(lane_id,{}).get("muted") else ("muted" in a)

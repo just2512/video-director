@@ -1366,10 +1366,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
             "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)),
             "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""),
-            "data-vd-audio-id": str(audio.get("id") or ""),
+            # Stable document binding is independent of AudioTrack.id, which is optional in legacy IR.
+            "data-vd-audio-id": str(audio.get("id") or cid),
             "data-vd-audio-meta": json.dumps(
                 {key: value for key, value in audio.items()
-                 if key not in {"id", "type", "track_id", "asset_id", "start", "duration",
+                 if key not in {"type", "track_id", "asset_id", "start", "duration",
                                 "source_in", "source_out", "speed", "volume"}},
                 ensure_ascii=False, separators=(",", ":"),
             ),

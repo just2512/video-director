@@ -361,17 +361,20 @@ def test_migration_warns_and_never_overwrites_existing_film():
 
 
 def test_composition_ir_reverse_mapping_tracks_timeline_edits_and_preserves_asset_paths(tmp_path, monkeypatch):
-    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+    from video_director.models import AudioTrack, AudioTrackType, AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
 
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-reverse-roundtrip"
     (root / "assets").mkdir(parents=True)
     source = root / "assets" / "still.png"
     source.write_bytes(b"test-image-bytes")
+    music_source = root / "assets" / "music.mp3"
+    music_source.write_bytes(b"test-audio-bytes")
     asset = AssetRef(
         id="still-1", type="image", file=str(source), duration=2, width=320, height=180,
         source="uploaded", license_note="reverse test", rights_status="CLEAR",
     )
+    music = AssetRef(id="music-1", type="audio", file=str(music_source), duration=2, source="uploaded")
     composition = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=24, duration=2),
         scenes=[SceneIR(
@@ -379,7 +382,8 @@ def test_composition_ir_reverse_mapping_tracks_timeline_edits_and_preserves_asse
             layers=[Layer(type=LayerType.image, asset_id="still-1", duration=2, fit_mode="contain")],
             semantic_role="hook", intent="保留语义",
         )],
-        assets=[asset], style_id="reverse-style",
+        audio=[AudioTrack(type=AudioTrackType.bgm, asset_id="music-1", start=0, duration=2, source_out=2)],
+        assets=[asset, music], style_id="reverse-style",
     )
     plan = fd.build_film_from_composition("film-reverse-roundtrip", composition)
     assert plan["warnings"] == []
@@ -388,6 +392,10 @@ def test_composition_ir_reverse_mapping_tracks_timeline_edits_and_preserves_asse
     assert initial["scenes"][0]["intent"] == "保留语义"
     assert initial["scenes"][0]["layers"][0]["fit_mode"] == "contain"
     assert initial["assets"][0]["file"] == "assets/still.png"
+    assert len(initial["audio"]) == 1
+    assert initial["audio"][0]["id"] is None
+    assert initial["audio"][0]["track_id"] == "audio-bgm"
+    assert initial["assets"][1]["file"] == "assets/music.mp3"
 
     clip = next(c for t in loaded["tracks"] for c in t["clips"] if c["attrs"].get("data-vd-scene-id"))
     edited, _ = fd.apply_ops(loaded, [{"op": "set", "clip": clip["id"], "field": "at", "value": 0.5}])
