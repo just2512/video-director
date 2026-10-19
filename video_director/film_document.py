@@ -1038,7 +1038,7 @@ def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], s
         vertical_css = "top:auto;bottom:5%"
     background = str(opts.get("background") or "")
     background_css = "background:transparent;padding:0"
-    background_match = re.fullmatch(r"(#[0-9a-fA-F]{6})(?:@([0-9]*\\.?[0-9]+))?", background)
+    background_match = re.fullmatch(r"(#[0-9a-fA-F]{6})(?:@([0-9]*(?:\.[0-9]+)?))?", background)
     if background_match:
         rgb = background_match.group(1).lstrip("#")
         red, green, blue = (int(rgb[i:i + 2], 16) for i in (0, 2, 4))
@@ -1113,6 +1113,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     project_metadata = {
         "schema": "video-director-composition-metadata/1",
         "version": raw_ir.get("version", 1),
+        "project": raw_ir.get("project") or {},
         "fps": raw_ir.get("project", {}).get("fps", 30),
         "style_id": raw_ir.get("style_id"),
         "origin_template_id": raw_ir.get("origin_template_id"),
@@ -1229,14 +1230,18 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         return {"id": track_id, "attrs": attrs, "clips": [clip]}
 
     for idx, overlay in enumerate(raw_ir.get("visual_overlays") or []):
-        kind = str(overlay.get("type") or overlay.get("kind") or "video")
+        asset_info = by_id.get(str(overlay.get("asset_id") or ""), {})
+        kind = str(overlay.get("type") or overlay.get("kind") or asset_info.get("type") or "video").lower()
         if kind not in {"video", "image"}:
             warnings.append(f"叠加层 {overlay.get('id')} 类型 {kind} 尚不能无损迁移")
             continue
+        if str(asset_info.get("type") or kind).lower() != kind:
+            warnings.append(f"叠加层 {overlay.get('id')} 的素材类型与轨道类型不一致")
+            continue
         uri = asset_uri(overlay.get("asset_id"))
         at, d = _number(overlay.get("start", 0), "overlay start", 0), _number(overlay.get("duration"), "overlay duration", 0.001)
-        speed = _number(overlay.get("speed", 1), "overlay speed", 0.25, 4)
-        src_in = _number(overlay.get("source_in", 0), "overlay source_in", 0)
+        speed = _number(overlay.get("speed", 1), "overlay speed", 0.25, 4) if kind == "video" else 1.0
+        src_in = _number(overlay.get("source_in", 0), "overlay source_in", 0) if kind == "video" else 0.0
         src_out = src_in + d * (speed if kind == "video" else 1)
         cid = _safe_id(f"overlay-{overlay.get('id') or idx + 1}", "clip")
         x = _number(overlay.get("x", 0), "overlay x", 0, 1) * stage["width"]
@@ -1267,7 +1272,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if overlay.get("z_index", 0) != 0:
             warnings.append(f"叠加层 {cid} 的显式 z_index 尚未映射到文档层级顺序")
         tid = _safe_id("track-" + cid, "track")
-        tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": kind, "attrs": attrs}))
+        tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": "img" if kind == "image" else "video", "attrs": attrs}))
 
     subtitle = raw_ir.get("subtitle_track") or {}
     cues = subtitle.get("cues") or []
@@ -1331,6 +1336,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             warnings.append(f"音频片段 {cid} 的音量关键帧尚未由 film.html 音频混音器执行")
         if audio.get("linked_visual_overlay_id"):
             warnings.append(f"音频片段 {cid} 与视觉叠加层的同步关系尚未映射")
+        if str(audio.get("type") or "") == "original" and audio.get("follows_scene_video", True):
+            warnings.append(f"原声音频 {cid} 依赖场景视频联动，但该关联尚未接入 film.html 编辑操作")
         tracks.append(one_clip_track(tid, str(lane.get("name") or audio.get("type") or "音频"),
                                      {"id": cid, "tag": "audio", "attrs": attrs}, track_attrs=track_attrs))
 
