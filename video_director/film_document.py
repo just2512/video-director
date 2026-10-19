@@ -671,7 +671,7 @@ class _FilmSourceLocator(HTMLParser):
         item = {"tag": tag, "start": start, "open_end": open_end, "end": open_end,
                 "open": token, "attrs": attr_map}
         if tag == "section":
-            self.current_track += 1
+            self.current_track = len(self.tracks)
             item["close_start"] = None
             item["close_end"] = None
             self.tracks.append(item)
@@ -696,7 +696,7 @@ class _FilmSourceLocator(HTMLParser):
         item = {"tag": tag, "start": start, "open_end": open_end, "end": open_end,
                 "open": token, "attrs": attr_map}
         if tag == "section":
-            self.current_track += 1
+            self.current_track = len(self.tracks)
             item["close_start"] = None
             item["close_end"] = None
             self.tracks.append(item)

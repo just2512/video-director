@@ -105,14 +105,14 @@ def test_attribute_edit_preserves_unrelated_html_text_and_comments(tmp_path, mon
 
     updated = fd.edit_project_film(
         "film-preserve", before["rev"],
-        [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}],
+        [{"op": "set", "clip": "clip-a", "field": "speed", "value": 2.1}],
     )
     written = (root / fd.FILM_NAME).read_text(encoding="utf-8")
     assert '<!-- keep head formatting and comments -->' in written
     assert '<!-- retain this clip marker -->' in written
     assert '<!-- untouched clip bytes must survive -->' in written
     assert untouched in written
-    assert '<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="1.5" volume="1"></video>' in written
+    assert '<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2.1" volume="1"></video>' in written
     assert fd.read_project_film("film-preserve")["rev"] == updated["rev"]
 
 
@@ -177,7 +177,7 @@ def test_proposal_apply_requires_exact_revision_without_breaking_manual_rebase(t
     original = fd.read_project_film("film-proposal")
     fd.edit_project_film(
         "film-proposal", original["rev"],
-        [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.25}],
+        [{"op": "set", "clip": "clip-a", "field": "speed", "value": 2.5}],
     )
     current = fd.read_project_film("film-proposal")
     with pytest.raises(fd.FilmError, match="提案已过期"):
@@ -459,7 +459,8 @@ def test_film_runtime_buffers_commands_until_iframe_load_and_acknowledges_revisi
     assert "function filmStudioRuntimeFrameLoaded()" in studio
     assert "runtimeFrame.addEventListener('load',filmStudioRuntimeFrameLoaded)" in studio
     assert "S.runtimeCommand=type" in studio
-    assert "message.rev!==S.rev" in studio
+    assert "message.rev!==expectedRuntimeRev" in studio
+    assert "hasRuntimeData" in studio
 
 
 def test_film_revision_export_routes_to_film_renderer_not_legacy_ir():
