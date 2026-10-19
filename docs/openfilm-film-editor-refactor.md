@@ -57,7 +57,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - The unified operation engine supports explicit `ripple_delete`: it removes the selected finite timeline interval and closes the gap across all tracks.
 - Clips crossing the cut retain their remaining source ranges; a crossing clip is split into source-contiguous left/right segments. The normalized operation records generated right-side clip IDs so proposal preview and confirmed apply produce the same document.
 - Affected locked tracks and ambiguous unknown-duration clips reject the whole transaction. The edit remains revisioned and undoable through the same FilmDocument history.
-- This does not claim full Roll/Slip/Slide trim support; those require separate operation contracts and pointer interactions.
+- Roll and Slip are implemented as separate validated operations with pointer gestures. Roll is currently restricted to same-source continuous cuts with equal playback speeds; Slide trim, which must adjust both neighboring source handles, remains unimplemented.
 
 ## Clip fade in/out
 
@@ -70,6 +70,10 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Ctrl-drag a trim handle at an adjacent same-source cut to slide the edit point without changing combined duration.
 - The backend rejects nonadjacent, different-source, locked-track, faded, or invalid-duration operations. Source ranges are changed together, clip-relative volume curves are cropped/extended, and the edit is one undoable operation.
 - Only same-source continuous cuts are supported in this first pass; rolling between distinct source assets requires media-probe boundary checks.
+
+## Roll-trim browser regression
+
+- Playwright opens a real film.html project in the Studio, uses the Split button, then Ctrl-drags the real trim handle. It verifies both the visible interaction and the persisted source in/out points plus the right segment timeline start. The fixture retains the cut's combined duration.
 
 ## Through-edit / join-cut milestone
 
@@ -96,7 +100,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 ## Current boundaries
 
-- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.
+- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, Alt-drag source slip, Ctrl-drag same-source roll trim, split/join-cut, delete/ripple-delete, clip fades, clip-relative volume envelopes, speed presets, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/slip/roll/join) and revision polling. Dock separators persist panel widths.
 - The MP4 adapter samples the same browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages acknowledge their requested time; arbitrary iframe pages are rejected until they implement the same contract.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.

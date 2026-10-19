@@ -61,6 +61,10 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 )
                 assert response and response.status == 200
                 page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                # The workspace Studio is mounted inside the editor tab; opening it
+                # while the home tab is display:none correctly leaves it hidden.
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
                 page.evaluate("""(pid) => {
                   const select = document.querySelector('#editor-project');
                   if (!select) throw new Error('project selector is missing');

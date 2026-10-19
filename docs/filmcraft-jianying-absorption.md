@@ -44,11 +44,11 @@ slide/rate-stretch）/through-edit 检测+愈合/join。我系统对照：
 | Insert + sync-lock ripple | add_visual_overlay placement_mode=insert（只延长时间线，不推后内容） | **半成品**：insert 不推挤已有片段 |
 | Lift（留隙） | delete + gap（PR 已有显式 gap 层） | 有 |
 | Extract（闭隙 ripple delete） | **无** | 缺 |
-| Roll trim（切口两侧互让） | **无** | 缺 |
-| Slip trim（源区间滑动不动时间线） | **无** | 缺 |
+| Roll trim（切口两侧互让） | film.html Studio 已有同源连续切口 Ctrl 拖动 | 已落地；限制同源、速度一致、无 fade |
+| Slip trim（源区间滑动不动时间线） | film.html Studio 对视频/音频 Alt 拖动 | 已落地；固定 timeline 入点与长度 |
 | Slide trim | **无** | 缺 |
 | Rate stretch trim | speed 手改（无拖拽联动） | 弱 |
-| Through-edit 检测+愈合 | **无** | 缺（split 留下的隐形切口可检测可愈合） |
+| Through-edit 检测+愈合 | film.html Studio 的“愈合切口”操作 | 已落地；要求同轨相邻、源区间连续和属性兼容 |
 | 转场对齐模型 | Scene.transition_out{type,duration} | 缺 Center/Start/End/Custom + 拖边缘改时长 |
 
 ---
@@ -120,11 +120,11 @@ slide/rate-stretch）/through-edit 检测+愈合/join。我系统对照：
 | A1 | 时间线缩放（Ctrl+滚轮以指针为锚 + ±按钮） | ED.zoom 接入 _tlPlayheadLeft 现有映射 | 前端 |
 | A2 | 拖拽边缘自动滚动器 | 挂现有 5 个 pointermove 拖拽（playhead/clip/audio/overlay/watermark） | 前端 |
 | A3 | 片段拖拽磁贴吸附（播放头+邻块边界候选，吸附态高亮） | 复用 editorSessionSnapTime 引擎加候选源 | 前端 |
-| A4 | 变速预设档 chips + 统一前置校验 | visual-overlay-editor 现有 speed input 升级 | 前端 |
+| A4 | 变速预设档 chips + 统一前置校验 | film.html Studio 已有 0.5/1/1.5/2/4× chips；旧 CompositionIR editor 仍独立 | 前端分路径落地 |
 | A5 | film.html 音量包络折线及关键帧编辑（volume_envelope→Canvas） | 已落地；split/trim/ripple 会切片包络，FFmpeg 与预览共用线性曲线 | 前端+文档契约 |
 | A6 | `_project_frame_time` 入口统一（分发层集中 snap 时间 payload） | 消灭「漏 snap」类 bug 的根因；保留 per-command snap 兜底 | 后端 |
-| A7 | through-edit 检测（split 后相邻段同源连续→标记）+ join_through_edits 命令 | add_edit_all_tracks 的自然补全：切得开也要合得上 | 后端+前端 |
-| A8 | roll/slip trim 不做（拖拽语义复杂，非本轮） | — | 暂缓 |
+| A7 | through-edit 检测（split 后相邻段同源连续→标记）+ join_through_edits 命令 | film.html 已有 guarded join 操作；legacy CompositionIR path 尚独立 | 分路径落地 |
+| A8 | Roll/Slip trim | film.html 已有 Ctrl-roll 与 Alt-slip；roll 暂限同源连续、等速切口；Slide trim 仍待补 | film.html 前端+后端已落地一部分 |
 
 A1–A5 前端交互、A6 后端防御、A7 真功能补全。A8 暂缓防堆砌。
 
