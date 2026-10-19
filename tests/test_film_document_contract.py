@@ -84,6 +84,38 @@ def test_overlap_failure_does_not_mutate_original_document():
     assert fd.serialize_film(doc)==before
 
 
+def test_attribute_edit_preserves_unrelated_html_text_and_comments(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-preserve"
+    root.mkdir(parents=True)
+    source = SAMPLE.replace(
+        "<head>",
+        "<head><!-- keep head formatting and comments -->",
+    ).replace(
+        '<video id="clip-a"',
+        '<!-- retain this clip marker -->\n<video id="clip-a"',
+    ).replace(
+        '<video id="clip-b"',
+        '<!-- untouched clip bytes must survive -->\n<video  id = "clip-b"',
+    )
+    (root / fd.FILM_NAME).write_text(source, encoding="utf-8")
+    before = fd.read_project_film("film-preserve")
+    untouched = '<video  id = "clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>'
+    assert untouched in source
+
+    updated = fd.edit_project_film(
+        "film-preserve", before["rev"],
+        [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}],
+    )
+    written = (root / fd.FILM_NAME).read_text(encoding="utf-8")
+    assert '<!-- keep head formatting and comments -->' in written
+    assert '<!-- retain this clip marker -->' in written
+    assert '<!-- untouched clip bytes must survive -->' in written
+    assert untouched in written
+    assert '<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="1.5" volume="1"></video>' in written
+    assert fd.read_project_film("film-preserve")["rev"] == updated["rev"]
+
+
 def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT",str(tmp_path/"composer"))
     root=tmp_path/"composer"/"film-test";root.mkdir(parents=True)

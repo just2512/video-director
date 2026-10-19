@@ -30,6 +30,13 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Dynamic arbitrary iframe HTML is rejected unless it participates in the generated subtitle page's frame-time contract. CSS imports, external URLs, URL functions, animations and transitions are rejected for repeatable offline frame export.
 - Single export is limited to 600 seconds, 18,000 frames and stage edges up to 3840 px. This is a constrained local export adapter, not full feature parity with OpenFilm's injected deterministic runtime or every CSS/transition feature.
 
+## Executed foundation milestone
+
+- The repository contract distinguishes legacy CompositionIR projects from active film.html projects. A migrated project has one authoritative physical timeline; legacy writes and exports remain blocked.
+- Non-structural FilmDocument edits use a source-span patch path when track and clip membership is unchanged. The writer preserves unrelated original HTML bytes, including comments, whitespace and style blocks, then reparses the complete result before committing.
+- Structural changes still use the established serializer in this milestone. Full source-preserving node insertion/removal/reordering remains a separate implementation requirement; this document does not claim it is solved.
+- A regression test covers property editing while proving an untouched clip and neighboring comments remain byte-for-byte present.
+
 ## Current boundaries
 
 - The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.

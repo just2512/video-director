@@ -62,11 +62,17 @@ AI 输出必须是结构化对象。禁止 `AI → arbitrary JSON mutation`；�
 
 **默认 PROPOSED ≠ APPLIED。** 用户点击 Reject 后：Composition 不变、Artifact 不变、Revision 不增加、Source 不变。
 
-## 6. Composition IR 是唯一创作事实源
+## 6. 项目活动状态的唯一权威事实源
 
-Editor、AI、Template、Recipe、Generation 都不得直接修改最终 Render 文件。
+Editor、AI、Template、Recipe、Generation 都不得直接修改最终 Render 文件。一个项目在任一时刻只能有一份权威的物理剪辑状态，不允许 CompositionIR 与 film.html 双写或靠后台同步任务猜测谁是最新值。
 
-统一：`Command → Composition IR → Revision → Dependency Analysis → Render`。
+- **尚未迁移的旧项目**：CompositionIR 仍是其兼容编辑与渲染事实源。
+- **已初始化/迁移出 film.html 的项目**：film.html 是唯一权威的物理影片文档；所有人工编辑、AI 编辑、生成结果入轨、撤销重做和正式导出必须通过 FilmDocument 操作服务读取、验证和提交同一 revision。
+- **创作计划、Shotbook、Storyboard 和 WorkflowRun**：保留脚本、镜头意图、素材来源、任务状态等语义信息，但不得另建一份能独立覆盖活动项目物理时间线的状态。
+- **迁移行为**：必须显式预览警告与用户确认；转换未覆盖的字段不得静默丢弃。film.html 存在时，旧 CompositionIR 写入和导出必须 fail closed，不得回退到旧状态。
+- **修改活动项目事实源契约**：先进行跨模块影响分析并更新本节与相关测试，再开始实现；不得只改单个调用点。
+
+统一生产路径：`Intent/Plan → Validated Film Operation → FilmDocument Revision → Dependency/QC → Revision-pinned Render → Verify`。旧项目在明确迁移前继续沿用旧路径，迁移后不得混用两条写入路径。
 
 ## 7. Timeline 契约
 

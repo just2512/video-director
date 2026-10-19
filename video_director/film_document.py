@@ -622,14 +622,147 @@ def _history_write(project_id: str, state: dict):
     _write_atomic(_history_path(project_id), json.dumps(state, ensure_ascii=False, separators=(",", ":")))
 
 
+
+
+class _FilmSourceLocator(HTMLParser):
+    """Locate opening-tag spans in the original text without normalizing unrelated markup."""
+
+    def __init__(self, source: str):
+        super().__init__(convert_charrefs=False)
+        self.line_offsets = [0]
+        for match in re.finditer("\n", source):
+            self.line_offsets.append(match.end())
+        self.in_body = False
+        self.current_track = -1
+        self.tracks: list[dict] = []
+        self.clips_by_track: list[list[dict]] = []
+        self.feed(source)
+        self.close()
+
+    def _span(self, tag: str) -> dict:
+        line, column = self.getpos()
+        start = self.line_offsets[line - 1] + column
+        token = self.get_starttag_text() or ""
+        return {"tag": tag.lower(), "start": start, "end": start + len(token),
+                "open": token, "attrs": {}}
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        attr_map = {key.lower(): ("" if value is None else value) for key, value in attrs}
+        if tag == "body":
+            self.in_body = True
+            return
+        if not self.in_body:
+            return
+        item = self._span(tag)
+        item["attrs"] = attr_map
+        if tag == "section":
+            self.current_track += 1
+            self.tracks.append(item)
+            self.clips_by_track.append([])
+        elif tag in CLIP_TAGS and self.current_track >= 0:
+            self.clips_by_track[self.current_track].append(item)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "body":
+            self.in_body = False
+
+
+def _replace_html_attribute(open_tag: str, name: str, value: Any) -> str:
+    """Replace/remove one attribute in a located opening tag; preserve all other bytes."""
+    if not re.fullmatch(r"[A-Za-z_:][A-Za-z0-9_.:-]*", name):
+        raise FilmError("INVALID_ATTRIBUTE_NAME", f"非法 HTML 属性名：{name}", 422)
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_:-])" + re.escape(name) +
+        r"(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s/>]+))?",
+        re.I,
+    )
+    match = pattern.search(open_tag)
+    if value is None or value is False:
+        if match:
+            return open_tag[:match.start()] + open_tag[match.end():]
+        return open_tag
+    serialized = f'{name}="{html.escape(str(value), quote=True)}"'
+    if match:
+        return open_tag[:match.start()] + serialized + open_tag[match.end():]
+    close_at = open_tag.rfind(">")
+    if close_at < 0:
+        raise FilmError("SOURCE_SPAN_INVALID", "无法定位 HTML 开始标签结尾", 422)
+    insert_at = close_at - 1 if close_at > 0 and open_tag[close_at - 1] == "/" else close_at
+    return open_tag[:insert_at] + " " + serialized + open_tag[insert_at:]
+
+
+def _preserve_film_text(original_text: str, old_doc: dict, new_doc: dict) -> str | None:
+    """Patch changed attributes only if the document's track/clip membership is unchanged.
+
+    Comments, whitespace, style blocks and untouched element bytes remain exactly as
+    supplied. Structural edits use the established serializer until a source-aware
+    node insertion/removal path is available.
+    """
+    old_tracks, new_tracks = old_doc.get("tracks") or [], new_doc.get("tracks") or []
+    if [t["id"] for t in old_tracks] != [t["id"] for t in new_tracks]:
+        return None
+    old_by_track = {t["id"]: t for t in old_tracks}
+    new_by_track = {t["id"]: t for t in new_tracks}
+    for track_id, old_track in old_by_track.items():
+        new_track = new_by_track[track_id]
+        old_clips = {c["id"]: c for c in old_track.get("clips") or []}
+        new_clips = {c["id"]: c for c in new_track.get("clips") or []}
+        if set(old_clips) != set(new_clips):
+            return None
+        if any(old_clips[cid]["tag"] != new_clips[cid]["tag"] for cid in old_clips):
+            return None
+
+    locator = _FilmSourceLocator(original_text)
+    if len(locator.tracks) != len(old_tracks):
+        return None
+    for index, old_track in enumerate(old_tracks):
+        if len(locator.clips_by_track[index]) != len(old_track.get("clips") or []):
+            return None
+
+    patches: dict[tuple[int, int], str] = {}
+
+    def plan_patch(item: dict, old_attrs: dict, new_attrs: dict, stable_id: str):
+        keys = set(old_attrs) | set(new_attrs)
+        changed = [key for key in keys if old_attrs.get(key) != new_attrs.get(key)]
+        needs_id = bool(changed) and "id" not in item["attrs"] and bool(stable_id)
+        if not changed and not needs_id:
+            return
+        token = item["open"]
+        for key in sorted(changed):
+            token = _replace_html_attribute(token, key, new_attrs.get(key))
+        if needs_id:
+            token = _replace_html_attribute(token, "id", stable_id)
+        patches[(item["start"], item["end"])] = token
+
+    for index, (old_track, new_track) in enumerate(zip(old_tracks, new_tracks)):
+        plan_patch(locator.tracks[index], old_track.get("attrs") or {},
+                   new_track.get("attrs") or {}, old_track["id"])
+        source_items = locator.clips_by_track[index]
+        # Source elements align with the parser's original clip order; look up the
+        # updated record by stable ID because a same-track move can reorder the model.
+        for old_clip, item in zip(old_track.get("clips") or [], source_items):
+            new_clip = next(c for c in new_track.get("clips") or [] if c["id"] == old_clip["id"])
+            plan_patch(item, old_clip.get("attrs") or {}, new_clip.get("attrs") or {}, old_clip["id"])
+
+    result = original_text
+    for (start, end), token in sorted(patches.items(), reverse=True):
+        result = result[:start] + token + result[end:]
+    return result
+
+
 def edit_project_film(project_id: str, base: str | None, ops: list[dict]) -> dict:
     pid = validate_project_id(project_id)
     with project_lock(pid):
         current = read_project_film(pid)
         if not current["exists"]:
             raise FilmError("FILM_NOT_INITIALIZED", "当前项目还没有 film.html，请先初始化影片文档", 409)
-        doc, normalized = apply_ops(current["doc"], ops)
-        updated = serialize_film(doc)
+        original_doc = current["doc"]
+        doc, normalized = apply_ops(original_doc, ops)
+        updated = _preserve_film_text(current["text"], original_doc, doc)
+        if updated is None:
+            updated = serialize_film(doc)
+        # Fail closed: every write must still satisfy the full document contract.
         parse_film(updated)
         history = _history_read(pid)
         history["past"].append({"before": current["text"], "after": updated,
