@@ -125,3 +125,55 @@ def test_migration_warns_and_never_overwrites_existing_film():
     assert "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION" in server
     assert "FILM_ALREADY_INITIALIZED" in module
     assert "document_revision" in module
+
+
+def test_trim_start_and_end_preserve_source_time_and_speed():
+    doc = fd.parse_film(SAMPLE)
+    edited, ops = fd.apply_ops(doc, [
+        {"op": "trim", "clip": "clip-a", "edge": "start", "at": 1},
+        {"op": "trim", "clip": "clip-a", "edge": "end", "end": 3},
+    ])
+    clip = next(c for c in edited["tracks"][0]["clips"] if c["id"] == "clip-a")
+    assert clip["attrs"]["at"] == "1"
+    assert clip["attrs"]["src"].endswith("#t=4,8")
+    assert fd.clip_duration(clip) == 2
+    assert [item["op"] for item in ops] == ["trim", "trim"]
+
+
+def test_still_trim_keeps_zero_source_in_and_changes_visible_duration():
+    still = '''<!doctype html><html><head><meta charset="utf-8"></head><body>
+    <section id="still-track"><img id="still" src="../assets/still.png#t=0,4" at="2"></section>
+    </body></html>'''
+    doc = fd.parse_film(still)
+    edited, _ = fd.apply_ops(doc, [{"op": "trim", "clip": "still", "edge": "start", "at": 3}])
+    clip = edited["tracks"][0]["clips"][0]
+    assert clip["attrs"]["at"] == "3"
+    assert clip["attrs"]["src"].endswith("#t=0,3")
+    assert fd.clip_duration(clip) == 3
+
+
+def test_external_absolute_and_encoded_protocol_src_are_rejected():
+    for value in ("https://example.com/a.mp4#t=0,4", "/etc/passwd#t=0,4",
+                  "%6a%61vascript%3aalert(1)#t=0,4"):
+        doc_text = SAMPLE.replace("../assets/a.mp4#t=2,12", value)
+        with pytest.raises(fd.FilmError, match="src|路径"):
+            fd.parse_film(doc_text)
+
+
+def test_empty_track_removal_is_safe_and_nonempty_track_cannot_be_removed():
+    doc = fd.parse_film(SAMPLE)
+    with pytest.raises(fd.FilmError, match="只能删除空轨道"):
+        fd.apply_ops(doc, [{"op": "track_remove", "track_id": "video-main"}])
+    edited, _ = fd.apply_ops(doc, [{"op": "track_add", "track_id": "empty-extra", "label": "待删除", "index": 0},
+                                   {"op": "track_remove", "track_id": "empty-extra"}])
+    assert all(track["id"] != "empty-extra" for track in edited["tracks"])
+
+
+def test_ai_planner_contract_includes_trim_and_persisted_revision_guards():
+    root = Path(__file__).resolve().parents[1]
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    ui = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert '"trim"' in module
+    assert "data-trim" in ui
+    assert "legacyEditorLoad" in ui
+    assert "fs-pane-divider" in ui

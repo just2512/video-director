@@ -72,6 +72,20 @@ def _with_source_range(src: str, start: float, end: float) -> str:
     return re.sub(r"#t=[^#]*$", "", src) + f"#t={_fmt(start)},{_fmt(end)}"
 
 
+def _validate_src_syntax(src: Any) -> str:
+    """Only accept local relative asset paths; encoded absolute paths are rejected too."""
+    if not isinstance(src, str) or not src.strip() or len(src) > 4096:
+        raise FilmError("INVALID_SRC", "src 必须是非空相对路径字符串")
+    value = src.strip()
+    path = unquote(value.split("#", 1)[0]).strip()
+    if (not path or path.startswith(("/", "\\")) or "\\" in path
+            or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", path)
+            or path.startswith("//")):
+        raise FilmError("INVALID_SRC", "影片素材 src 只能使用系统存储范围内的相对路径")
+    _source_range(value)
+    return value
+
+
 def clip_duration(clip: dict) -> float | None:
     attrs = clip.get("attrs") or {}
     src_in, src_out = _source_range(str(attrs.get("src") or ""))
@@ -136,8 +150,15 @@ class _FilmParser(HTMLParser):
             src = str(attr_map.get("src") or "").strip()
             if not src:
                 self.problems.append(f"{tag} 缺少 src")
-            if src.lower().startswith(("javascript:", "data:", "file:")):
-                self.problems.append(f"不允许的素材 URL：{src[:80]}")
+            else:
+                try:
+                    _validate_src_syntax(src)
+                except FilmError as exc:
+                    self.problems.append(str(exc))
+            if tag in {"img", "iframe"} and src:
+                src_in, src_out = _source_range(src)
+                if src_out is None or abs(src_in) > 0.001:
+                    self.problems.append(f"{tag} 必须使用 #t=0,length 指定片段时长")
             at = attr_map.get("at", "0")
             try:
                 _number(at, "at", 0)
@@ -323,10 +344,11 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             if field == "at":
                 value = _fmt(_number(value, "at", 0))
             elif field == "src":
-                if not isinstance(value, str) or not value.strip() or value.lower().startswith(("javascript:", "data:", "file:")):
-                    raise FilmError("INVALID_SRC", "src 必须是可信的非空相对路径")
-                value = value.strip()
-                _source_range(value)
+                value = _validate_src_syntax(value)
+                if clip["tag"] in {"img", "iframe"}:
+                    src_in, src_out = _source_range(value)
+                    if src_out is None or abs(src_in) > 0.001:
+                        raise FilmError("INVALID_SOURCE_RANGE", f"{clip['tag']} 必须使用 #t=0,length 指定片段时长")
             elif field == "speed":
                 if clip["tag"] not in {"video", "audio"}:
                     raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持 speed")
@@ -378,9 +400,11 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             if not clip["id"] or any(clip["id"] == c["id"] for t in out["tracks"] for c in t["clips"]):
                 raise FilmError("DUPLICATE_CLIP_ID", "新片段必须有未使用的稳定 ID")
             clip["attrs"]["id"] = clip["id"]
-            source = str(clip["attrs"].get("src") or "")
-            if not source or source.lower().startswith(("javascript:", "data:", "file:")):
-                raise FilmError("INVALID_SRC", "insert 的 src 无效")
+            clip["attrs"]["src"] = _validate_src_syntax(clip["attrs"].get("src"))
+            if clip["tag"] in {"img", "iframe"}:
+                src_in, src_out = _source_range(clip["attrs"]["src"])
+                if src_out is None or abs(src_in) > 0.001:
+                    raise FilmError("INVALID_SOURCE_RANGE", f"{clip['tag']} 必须使用 #t=0,length 指定片段时长")
             _number(clip["attrs"].get("at", 0), "at", 0)
             track["clips"].append(clip)
             normalized.append({"op": "insert", "track_id": track["id"], "clip": clip})
@@ -408,10 +432,54 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             right["attrs"]["at"] = _fmt(at)
             track["clips"].insert(track["clips"].index(clip) + 1, right)
             normalized.append({"op": "split", "clip": original_id, "at": _fmt(at), "new_id": right_id})
+        elif kind == "trim":
+            track, clip = _find_clip(out, str(op.get("clip") or ""))
+            _ensure_unlocked(track)
+            attrs = clip["attrs"]
+            edge = str(op.get("edge") or "")
+            start = _number(attrs.get("at", 0), "at", 0)
+            duration = clip_duration(clip)
+            if duration is None:
+                raise FilmError("SOURCE_RANGE_REQUIRED", f"片段 {clip['id']} 必须有 #t=in,out 源区间才能修剪")
+            old_end = start + duration
+            src_in, src_out = _source_range(attrs["src"])
+            speed = _number(attrs.get("speed", 1), "speed", 0.25, 4) if clip["tag"] in {"video", "audio"} else 1.0
+            if edge == "start":
+                new_start = _number(op.get("at"), "trim start", start + 0.001, old_end - 0.001)
+                delta = new_start - start
+                if clip["tag"] in {"img", "iframe"}:
+                    new_src_in, new_src_out = src_in, src_out - delta
+                else:
+                    new_src_in, new_src_out = src_in + delta * speed, src_out
+                if new_src_out is None or new_src_in >= new_src_out - 0.001:
+                    raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
+                attrs["src"] = _with_source_range(attrs["src"], new_src_in, new_src_out)
+                attrs["at"] = _fmt(new_start)
+                normalized.append({"op": "trim", "clip": clip["id"], "edge": "start", "at": _fmt(new_start)})
+            elif edge == "end":
+                new_end = _number(op.get("end"), "trim end", start + 0.001, old_end - 0.001)
+                new_src_out = src_in + (new_end - start) * speed
+                if new_src_out <= src_in + 0.001:
+                    raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
+                attrs["src"] = _with_source_range(attrs["src"], src_in, min(src_out, new_src_out))
+                normalized.append({"op": "trim", "clip": clip["id"], "edge": "end", "end": _fmt(new_end)})
+            else:
+                raise FilmError("INVALID_TRIM_EDGE", "trim edge 只能是 start 或 end")
+        elif kind == "track_remove":
+            track = _find_track(out, str(op.get("track_id") or ""))
+            _ensure_unlocked(track)
+            if track["clips"]:
+                raise FilmError("TRACK_NOT_EMPTY", "只能删除空轨道；请先移动或删除其中的片段")
+            if len(out["tracks"]) <= 1:
+                raise FilmError("LAST_TRACK", "影片必须保留至少一条轨道")
+            out["tracks"].remove(track)
+            normalized.append({"op": "track_remove", "track_id": track["id"]})
         elif kind == "track_add":
             track_id = str(op.get("track_id") or "").strip()
             label = str(op.get("label") or "新轨道").strip()[:120]
-            if not track_id or any(track_id == t["id"] for t in out["tracks"]):
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", track_id):
+                raise FilmError("INVALID_TRACK_ID", "新轨道 ID 只允许 ASCII 字母、数字、下划线和连字符")
+            if any(track_id == t["id"] for t in out["tracks"]):
                 raise FilmError("DUPLICATE_TRACK_ID", "新轨道必须有未使用的 ID")
             raw_index = op.get("index", 0)
             index = int(_number(raw_index, "track index", 0, len(out["tracks"])))
@@ -804,6 +872,9 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
         path = _film_path(pid)
         if path.exists():
             raise FilmError("FILM_ALREADY_INITIALIZED", "film.html 已存在，不会覆盖已有影片文档", 409)
+        from video_director.editor import composition_version
+        if composition_version(pid) != int(source_version):
+            raise FilmError("COMPOSITION_CHANGED", "初始化期间旧 Composition 已变化，请重新载入迁移预览", 409)
         root = _project_root(pid)
         for relative, page in pages.items():
             dest = (root / relative).resolve()
@@ -863,8 +934,9 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         '"operations":[...],"summary":"..."}。'
         "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'muted'|'style'|'class'|'title',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
-        "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}。不要编造 ID。"
-        "目标不明确时返回空 operations，并在 summary 提出一个简短澄清问题。"
+        "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
+        "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}。"
+        "不要编造 ID；修剪只能缩短当前源区间，且必须保留正时长。目标不明确时返回空 operations，并在 summary 提出一个简短澄清问题。"
         "删除、插入素材、付费动作及源码修改不在范围内。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"
@@ -890,8 +962,12 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
+        if op["op"] == "trim" and (op.get("edge") not in {"start", "end"} or
+                                   (op.get("edge") == "start" and "at" not in op) or
+                                   (op.get("edge") == "end" and "end" not in op)):
+            raise FilmError("LLM_INVALID_PLAN", "AI 修剪操作缺少有效 edge/时间值", 422)
         if op.get("clip") not in valid_ids:
             raise FilmError("LLM_INVALID_PLAN", f"AI 使用了未知片段 ID：{op.get('clip')}", 422)
         if op["op"] == "move" and op.get("track_id") not in valid_tracks:

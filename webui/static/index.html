@@ -128,6 +128,7 @@
           <div class="fs-asset-tabs"><button class="fs-asset-tab fs-asset-tab-active" id="fs-mode-clips" type="button" onclick="filmStudioShowAssetMode('clips')">时间线片段</button><button class="fs-asset-tab" id="fs-mode-library" type="button" onclick="filmStudioLoadLibrary()">素材库</button></div>
           <div class="fs-assets-list" id="fs-assets-list"><div class="fs-empty">还没有影片文档。</div></div>
         </aside>
+        <div class="fs-pane-divider" data-divider="left" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整素材栏宽度"></div>
         <section class="fs-pane fs-monitor-pane">
           <div class="fs-pane-title">节目监视器 <span id="fs-monitor-time">00:00.000</span></div>
           <div class="fs-monitor-stage" id="fs-monitor-stage">
@@ -143,6 +144,7 @@
             <span id="fs-playhead-value">00:00.000</span>
           </div>
         </section>
+        <div class="fs-pane-divider" data-divider="right" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整属性栏宽度"></div>
         <aside class="fs-pane fs-inspector-pane">
           <div class="fs-pane-title">属性检查器</div>
           <div id="fs-inspector"><div class="fs-empty">选择时间线片段后编辑属性。</div></div>
@@ -154,6 +156,8 @@
           <div class="fs-toolbar">
             <button class="fs-btn" type="button" onclick="filmStudioSplit()">在播放头切分</button>
             <button class="fs-btn" type="button" onclick="filmStudioRemove()">删除片段</button>
+            <button class="fs-btn" type="button" onclick="filmStudioAddTrack()">＋轨道</button>
+            <button class="fs-btn" type="button" onclick="filmStudioRemoveEmptyTrack()">删空轨</button>
             <button class="fs-btn" type="button" onclick="filmStudioZoom(-1)">−</button>
             <button class="fs-btn" type="button" onclick="filmStudioZoom(1)">＋</button>
             <button class="fs-btn fs-primary" type="button" onclick="filmStudioSaveInspector()">应用属性</button>
