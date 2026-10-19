@@ -157,7 +157,7 @@ def test_external_file_edit_allows_disjoint_field_rebase_but_rejects_same_field(
     (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
     original = fd.read_project_film("film-test")
     externally_edited, _ = fd.apply_ops(
-        original["doc"], [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}]
+        original["doc"], [{"op": "set", "clip": "clip-a", "field": "speed", "value": 4}]
     )
     (root / fd.FILM_NAME).write_text(fd.serialize_film(externally_edited), encoding="utf-8")
     independent = fd.edit_project_film(
@@ -168,7 +168,7 @@ def test_external_file_edit_allows_disjoint_field_rebase_but_rejects_same_field(
     assert independent["rebased"] is True
     latest = fd.read_project_film("film-test")
     clip = next(c for t in latest["doc"]["tracks"] for c in t["clips"] if c["id"] == "clip-a")
-    assert clip["attrs"]["speed"] == "1.5"
+    assert clip["attrs"]["speed"] == "4"
     assert clip["attrs"]["volume"] == "0.3"
 
     fresh = fd.read_project_film("film-test")
