@@ -59,10 +59,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             try:
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 tracing = True
-                response = page.goto(
-                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
-                )
+                with page.expect_request("**/api/events", timeout=10000) as event_request:
+                    response = page.goto(
+                        f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                    )
                 assert response and response.status == 200
+                assert event_request.value.url.endswith("/api/events")
                 page.wait_for_function("typeof window.filmStudioToggle === 'function'")
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
@@ -78,15 +80,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.evaluate("window.filmStudioToggle()")
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
-                page.wait_for_function(
-                    "() => performance.getEntriesByType('resource').some(entry => entry.name.endsWith('/api/events'))",
-                    timeout=10000,
-                )
                 page.evaluate("window.filmStudioSelectClip('clip-a')")
                 page.wait_for_function(
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
-                assert any(url.endswith("/api/events") for url in event_requests), "Studio should open its SSE connection"
 
                 changed = SAMPLE.replace('speed="2"', 'speed="2.5"')
                 film_path.write_text(changed, encoding="utf-8")
