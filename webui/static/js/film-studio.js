@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, waveformCache:Object.create(null), waveformPending:Object.create(null), playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -193,8 +193,9 @@
         var width=Math.max(24,(clip.duration==null?2:clip.duration)*S.pxPerSec),left=Math.max(0,clip.at*S.pxPerSec),title=clip.attrs.title||clip.id;
         var aid=clip.attrs['data-asset-id']||'',thumb=aid&&clip.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
         var thumbHtml=thumb?'<img class="fs-clip-thumb" src="'+esc(thumb)+'" loading="lazy" alt="" onerror="this.remove()">':'';
+        var waveformHtml=clip.tag==='audio'?'<canvas class="fs-clip-waveform" data-waveform-clip="'+esc(clip.id)+'" aria-label="音频波形"></canvas>':'';
         var handles=clip.duration==null?'':'<span class="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点"></span><span class="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点"></span>';
-        lane+='<div class="fs-clip '+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
+        lane+='<div class="fs-clip '+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
       });
       lane+='</div>';
       return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
@@ -254,6 +255,82 @@
     });
     $('fs-ruler-body').querySelectorAll('[data-at]').forEach(function(el){el.addEventListener('click',function(e){window.filmStudioSeek(el.getAttribute('data-at'));});});
     setPlayheadVisual();
+    renderAudioWaveforms();
+  }
+  async function decodeAudioWaveform(url){
+    var key=String(url||'').split('#',1)[0];
+    if(S.waveformCache[key])return S.waveformCache[key];
+    if(S.waveformPending[key])return S.waveformPending[key];
+    var task=(async function(){
+      var response=await fetch(key,{credentials:'same-origin'});
+      if(!response.ok)throw new Error('音频素材读取失败');
+      var declared=Number(response.headers.get('content-length')||0);
+      if(declared>8*1024*1024)throw new Error('素材超过 8 MiB，跳过波形解码');
+      var bytes=await response.arrayBuffer();
+      if(bytes.byteLength>8*1024*1024)throw new Error('素材超过 8 MiB，跳过波形解码');
+      var AudioCtx=window.AudioContext||window.webkitAudioContext;
+      if(!AudioCtx)throw new Error('当前浏览器不支持音频解码');
+      var context=new AudioCtx();
+      try{
+        var buffer=await context.decodeAudioData(bytes.slice(0));
+        if(!Number.isFinite(buffer.duration)||buffer.duration<=0||buffer.duration>600)
+          throw new Error('音频时长超过 600 秒波形解码限制');
+        var bins=8192,peaks=new Uint8Array(bins),channels=[];
+        for(var c=0;c<buffer.numberOfChannels;c++)channels.push(buffer.getChannelData(c));
+        var sampleCount=buffer.length;
+        for(var b=0;b<bins;b++){
+          var start=Math.floor(b*sampleCount/bins);
+          var end=Math.max(start+1,Math.floor((b+1)*sampleCount/bins));
+          var stride=Math.max(1,Math.floor((end-start)/96)),peak=0;
+          for(var i=start;i<end;i+=stride){
+            for(var ch=0;ch<channels.length;ch++){
+              var value=Math.abs(channels[ch][i]);
+              if(value>peak)peak=value;
+            }
+          }
+          peaks[b]=Math.max(0,Math.min(255,Math.round(peak*255)));
+        }
+        var result={duration:buffer.duration,peaks:peaks};
+        S.waveformCache[key]=result;
+        var keys=Object.keys(S.waveformCache);
+        while(keys.length>8){delete S.waveformCache[keys.shift()];}
+        return result;
+      }finally{try{await context.close();}catch(_){}}
+    })();
+    S.waveformPending[key]=task;
+    try{return await task;}finally{delete S.waveformPending[key];}
+  }
+  async function drawAudioWaveform(canvas){
+    var id=canvas.getAttribute('data-waveform-clip'),clip=findClip(id);
+    if(!clip||!clip.media_url)return;
+    try{
+      var data=await decodeAudioWaveform(clip.media_url);
+      if(!canvas.isConnected)return;
+      var width=Math.max(16,Math.min(1800,Math.ceil((clip.duration||1)*S.pxPerSec)));
+      var height=Math.max(18,Math.min(40,canvas.parentElement?canvas.parentElement.clientHeight-6:30));
+      canvas.width=width;canvas.height=height;
+      var ctx=canvas.getContext('2d');if(!ctx)return;
+      ctx.clearRect(0,0,width,height);
+      var sourceStart=Math.max(0,Number(clip.src_in)||0);
+      var sourceEnd=Number.isFinite(clip.src_out)?Math.min(data.duration,clip.src_out):data.duration;
+      var first=Math.max(0,Math.min(data.peaks.length-1,Math.floor(sourceStart/data.duration*data.peaks.length)));
+      var last=Math.max(first+1,Math.min(data.peaks.length,Math.ceil(sourceEnd/data.duration*data.peaks.length)));
+      var count=last-first,mid=height/2;
+      ctx.fillStyle='rgba(211,250,241,.72)';
+      for(var x=0;x<width;x++){
+        var idx=first+Math.min(count-1,Math.floor(x/width*count));
+        var amplitude=(data.peaks[idx]||0)/255;
+        var bar=Math.max(1,amplitude*(height-4));
+        ctx.fillRect(x,mid-bar/2,1,bar);
+      }
+      canvas.title='素材波形 · 源区间 '+sourceStart.toFixed(2)+'–'+sourceEnd.toFixed(2)+' 秒';
+    }catch(error){
+      if(canvas.isConnected)canvas.title='波形暂不可用：'+String(error&&error.message||error);
+    }
+  }
+  function renderAudioWaveforms(){
+    var timeline=$('fs-timeline');if(!timeline)return;
+    timeline.querySelectorAll('[data-waveform-clip]').forEach(function(canvas){drawAudioWaveform(canvas);});
   }
   function renderInspector() {
     var clip=findClip(S.selectedId);

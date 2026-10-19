@@ -64,6 +64,11 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Invalid Agent writes freeze the editor; a repaired valid revision can be loaded again. The watcher discards inactive project registrations after a bounded idle period.
 - Model-token streaming and simultaneous multi-user editing are not claimed by this local single-user watcher.
 
+## Audio waveform visualization
+
+- Audio timeline clips display a cached waveform derived from decoded media samples and sliced to the actual source in/out range.
+- Decoding is limited to 8 MiB assets and 600-second audio. Unsupported or oversized media reports that the waveform is unavailable without blocking edits; editable keyframe envelopes remain separate work.
+
 ## Current boundaries
 
 - The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.

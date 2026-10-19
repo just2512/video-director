@@ -240,6 +240,19 @@ def test_api_ui_routes_are_wired():
     assert "/static/css/film-studio.css" in index
 
 
+def test_film_timeline_renders_real_audio_waveforms_with_decode_guards():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    styles = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
+    assert 'class="fs-clip-waveform" data-waveform-clip=' in script
+    assert "decodeAudioData(bytes.slice(0))" in script
+    assert "declared>8*1024*1024" in script
+    assert "buffer.duration>600" in script
+    assert "clip.src_in" in script and "clip.src_out" in script
+    assert "renderAudioWaveforms();" in script
+    assert ".fs-clip-waveform" in styles
+
+
 def test_film_timeline_supports_group_selection_drag_and_pointer_anchored_zoom():
     root = Path(__file__).resolve().parents[1]
     script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
