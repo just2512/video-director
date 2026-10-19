@@ -213,13 +213,14 @@
       el.addEventListener('pointerdown',function(e){
         if(e.button!==0||e.target.closest('button'))return;
         var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
-        var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),canDrag;
-        if(rollGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
+        var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
+            slideGesture=!!(!trim&&e.altKey&&e.shiftKey&&(clip.tag==='video'||clip.tag==='audio')),canDrag;
+        if(rollGesture||slideGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
         else{canDrag=selectClipWithModifiers(clip.id,e);}
         if(!canDrag){e.preventDefault();return;}
         S.playhead=clip.at;setPlayheadVisual();previewCurrent();
         var mode=trim?(rollGesture?'roll':(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'))
-          :((e.altKey&&(clip.tag==='video'||clip.tag==='audio'))?'slip':'move');
+          :(slideGesture?'slide':((e.altKey&&(clip.tag==='video'||clip.tag==='audio'))?'slip':'move'));
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
         var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
         var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
@@ -230,7 +231,27 @@
             trackId:selected.track_id,trackIndex:trackOrder.indexOf(selected.track_id),element:element}:null;
         }).filter(Boolean);
         if(!members.length)return;
-        if(mode==='roll'){
+        if(mode==='slide'){
+          var slideTrack=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
+          var slideClips=(slideTrack&&slideTrack.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
+          var slideIndex=slideClips.findIndex(function(item){return item.id===clip.id;});
+          var leftClip=slideIndex>0?slideClips[slideIndex-1]:null;
+          var rightClip=slideIndex>=0&&slideIndex+1<slideClips.length?slideClips[slideIndex+1]:null;
+          if(!leftClip||!rightClip||leftClip.end==null||clip.end==null
+             ||Math.abs(leftClip.end-clip.at)>0.001||Math.abs(clip.end-rightClip.at)>0.001){
+            showStatus('Alt+Shift 滑移式修剪要求所选片段左右都有时间上连续的邻接片段。','error');e.preventDefault();return;
+          }
+          var elements=Array.from($('fs-timeline').querySelectorAll('[data-clip]'));
+          var leftElement=elements.find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
+          var rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
+          if(!leftElement||!rightElement){showStatus('无法定位滑移式修剪的邻接片段。','error');return;}
+          S.drag={id:clip.id,mode:'slide',startX:e.clientX,startY:e.clientY,
+            leftClipId:leftClip.id,centerClipId:clip.id,rightClipId:rightClip.id,
+            leftDuration:leftClip.duration,centerDuration:clip.duration,rightDuration:rightClip.duration,
+            centerAt:clip.at,rightAt:rightClip.at,pxPerSec:S.pxPerSec,
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,
+            slideElements:[leftElement,el,rightElement],members:members,targetTrackId:clip.track_id,targetRow:null};
+        }else if(mode==='roll'){
           var trackData=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
           var ordered=(trackData&&trackData.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
           var index=ordered.findIndex(function(item){return item.id===clip.id;}),leftClip=null,rightClip=null;
@@ -583,12 +604,27 @@
     var dx=e.clientX-d.startX+(scroll.scrollLeft-d.startScrollLeft);
     if(!d.active&&Math.sqrt(dx*dx+(e.clientY-d.startY)*(e.clientY-d.startY))<5)return;
     d.active=true;
-    var target=document.elementFromPoint(e.clientX,e.clientY),row=target&&target.closest('.fs-track');
-    if(row){
-      var nextTrack=row.getAttribute('data-track');
-      if(nextTrack!==d.targetTrackId){clearDragTrackTarget(d);d.targetTrackId=nextTrack;d.targetRow=row;row.classList.add('fs-track-drop-target');}
+    // Only plain clip moves can change tracks. Trim/roll/slip/slide gestures
+    // must remain bound to their original track even if the pointer crosses rows.
+    if(d.mode==='move'){
+      var target=document.elementFromPoint(e.clientX,e.clientY),row=target&&target.closest('.fs-track');
+      if(row){
+        var nextTrack=row.getAttribute('data-track');
+        if(nextTrack!==d.targetTrackId){clearDragTrackTarget(d);d.targetTrackId=nextTrack;d.targetRow=row;row.classList.add('fs-track-drop-target');}
+      }
     }
-    if(d.mode==='roll'){
+    if(d.mode==='slide'){
+      var deltaSlide=dx/S.pxPerSec;
+      var slideMin=-Math.min(d.leftDuration,d.centerDuration)+0.04;
+      var slideMax=Math.min(d.centerDuration,d.rightDuration)-0.04;
+      deltaSlide=Math.max(slideMin,Math.min(slideMax,deltaSlide));
+      d.slideElements[0].style.width=Math.max(3,(d.leftDuration+deltaSlide)*S.pxPerSec)+'px';
+      d.slideElements[1].style.left=Math.max(0,(d.centerAt+deltaSlide)*S.pxPerSec)+'px';
+      d.slideElements[2].style.left=Math.max(0,(d.rightAt+deltaSlide)*S.pxPerSec)+'px';
+      d.slideElements[2].style.width=Math.max(3,(d.rightDuration-deltaSlide)*S.pxPerSec)+'px';
+      d.element.setAttribute('data-slide-delta','滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s');
+      d.element.classList.add('fs-sliding');
+    }else if(d.mode==='roll'){
       var deltaRoll=dx/S.pxPerSec;
       deltaRoll=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,deltaRoll));
       d.rollElements[0].style.width=Math.max(3,(d.leftDuration+deltaRoll)*S.pxPerSec)+'px';
@@ -634,6 +670,14 @@
     var deltaPx=e.clientX-d.startX+($('fs-timeline-scroll').scrollLeft-d.startScrollLeft);
     d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
     d.element.removeAttribute('data-roll-delta');d.element.classList.remove('fs-rolling');
+    d.element.removeAttribute('data-slide-delta');d.element.classList.remove('fs-sliding');
+    if(d.mode==='slide'){
+      var slideDelta=deltaPx/S.pxPerSec;
+      slideDelta=Math.max(-Math.min(d.leftDuration,d.centerDuration)+0.04,
+        Math.min(Math.min(d.centerDuration,d.rightDuration)-0.04,slideDelta));
+      if(Math.abs(slideDelta)<0.001){renderTimeline();return;}
+      await filmStudioCommit([{op:'slide',clip:d.centerClipId,delta:Number(slideDelta.toFixed(3))}]);return;
+    }
     if(d.mode==='roll'){
       var rollDelta=deltaPx/S.pxPerSec;
       rollDelta=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,rollDelta));
@@ -681,8 +725,8 @@
     if(S.drag){
       var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
       (drag.members||[]).forEach(function(member){
-        member.element.classList.remove('fs-dragging','fs-slipping','fs-rolling');
-        member.element.removeAttribute('data-slip-delta');member.element.removeAttribute('data-roll-delta');
+        member.element.classList.remove('fs-dragging','fs-slipping','fs-rolling','fs-sliding');
+        member.element.removeAttribute('data-slip-delta');member.element.removeAttribute('data-roll-delta');member.element.removeAttribute('data-slide-delta');
       });
     }
     if(S.data&&S.data.exists)renderTimeline();

@@ -75,6 +75,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 - Playwright opens a real film.html project in the Studio, uses the Split button, then Ctrl-drags the real trim handle. It verifies both the visible interaction and the persisted source in/out points plus the right segment timeline start. The fixture retains the cut's combined duration.
 
+## Slide trim
+
+- Alt+Shift-drag on a middle video/audio clip moves it on the timeline while adjusting the immediate left and right neighbours; the left source out-point changes and the right source in-point changes, but the outside timeline bounds remain fixed.
+- The first pass rejects gaps, non-identical sources, discontinuous source ranges, mixed media types, different playback speeds, locked tracks and clips with fades. This is intentionally narrower than a full NLE slide tool because media-handle availability is not yet probed for arbitrary sources.
+- The gesture previews all three clips together and commits one undoable `slide` operation on pointer release. AI planning may request the same validated operation.
+
 ## Through-edit / join-cut milestone
 
 - A new `join` operation heals a split only if the clips are adjacent on the same unlocked track, use the same source with contiguous source ranges, and agree on speed and all other clip-level attributes.

@@ -553,6 +553,75 @@ def test_join_through_edit_ui_and_ai_contract_are_wired():
     assert "愈合切口" in module
 
 
+SLIDE_SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
+<body><section id="video-main" data-label="主画面">
+<video id="slide-left" src="../assets/a.mp4#t=0,2" at="0" speed="1" volume="1"></video>
+<video id="slide-middle" src="../assets/a.mp4#t=2,5" at="2" speed="1" volume="1"></video>
+<video id="slide-right" src="../assets/a.mp4#t=5,9" at="5" speed="1" volume="1"></video>
+</section></body></html>'''
+
+
+def test_slide_trim_moves_middle_and_keeps_outer_timeline_bounds():
+    doc = fd.parse_film(SLIDE_SAMPLE)
+    slid, operations = fd.apply_ops(doc, [{"op": "slide", "clip": "slide-middle", "delta": 0.5}])
+    clips = {clip["id"]: clip for track in slid["tracks"] for clip in track["clips"]}
+    left, middle, right = clips["slide-left"], clips["slide-middle"], clips["slide-right"]
+    assert left["attrs"]["src"].endswith("#t=0,2.5")
+    assert left["attrs"]["at"] == "0"
+    assert middle["attrs"]["src"].endswith("#t=2,5")
+    assert float(middle["attrs"]["at"]) == pytest.approx(2.5)
+    assert right["attrs"]["src"].endswith("#t=5.5,9")
+    assert float(right["attrs"]["at"]) == pytest.approx(5.5)
+    assert fd.clip_end(right) == pytest.approx(9)
+    assert fd.clip_end(left) == pytest.approx(float(middle["attrs"]["at"]))
+    assert fd.clip_end(middle) == pytest.approx(float(right["attrs"]["at"]))
+    assert operations == [{"op": "slide", "clip": "slide-middle", "delta": "0.5"}]
+
+
+def test_slide_trim_negative_delta_extends_right_head_and_preserves_total_duration():
+    doc = fd.parse_film(SLIDE_SAMPLE)
+    slid, _ = fd.apply_ops(doc, [{"op": "slide", "clip": "slide-middle", "delta": -0.5}])
+    clips = {clip["id"]: clip for track in slid["tracks"] for clip in track["clips"]}
+    assert clips["slide-left"]["attrs"]["src"].endswith("#t=0,1.5")
+    assert float(clips["slide-middle"]["attrs"]["at"]) == pytest.approx(1.5)
+    assert clips["slide-right"]["attrs"]["src"].endswith("#t=4.5,9")
+    assert float(clips["slide-right"]["attrs"]["at"]) == pytest.approx(4.5)
+    assert fd.clip_end(clips["slide-right"]) == pytest.approx(9)
+
+
+def test_slide_trim_rejects_discontinuous_sources_fades_locks_and_bounds():
+    doc = fd.parse_film(SLIDE_SAMPLE)
+    mismatch = fd.copy.deepcopy(doc)
+    next(c for t in mismatch["tracks"] for c in t["clips"] if c["id"] == "slide-right")["attrs"]["src"] = "../assets/b.mp4#t=5,9"
+    with pytest.raises(fd.FilmError, match="同源连续"):
+        fd.apply_ops(mismatch, [{"op": "slide", "clip": "slide-middle", "delta": 0.2}])
+    faded = fd.copy.deepcopy(doc)
+    next(c for t in faded["tracks"] for c in t["clips"] if c["id"] == "slide-middle")["attrs"]["fade"] = "0.1,0.1"
+    with pytest.raises(fd.FilmError, match="淡入淡出"):
+        fd.apply_ops(faded, [{"op": "slide", "clip": "slide-middle", "delta": 0.2}])
+    locked = fd.copy.deepcopy(doc)
+    locked["tracks"][0]["attrs"]["locked"] = ""
+    with pytest.raises(fd.FilmError, match="已锁定"):
+        fd.apply_ops(locked, [{"op": "slide", "clip": "slide-middle", "delta": 0.2}])
+    with pytest.raises(fd.FilmError, match="剩余时长"):
+        fd.apply_ops(doc, [{"op": "slide", "clip": "slide-middle", "delta": 3}])
+
+
+def test_slide_trim_alt_shift_drag_and_ai_contract_are_wired():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert "e.altKey&&e.shiftKey" in script
+    assert "data-slide-delta" in script
+    assert "if(d.mode==='move'){\n      var target=document.elementFromPoint" in script
+    assert 'elif kind == "slide"' in module
+    assert "Alt+Shift 拖动滑移式修剪" in index
+    assert "可用 slide 操作" in module
+
+
+
 def test_roll_trim_moves_cut_and_preserves_combined_timeline_duration():
     doc = fd.parse_film(SAMPLE)
     split, _ = fd.apply_ops(doc, [

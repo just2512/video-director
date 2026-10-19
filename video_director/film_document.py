@@ -572,6 +572,86 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
     }
 
 
+def _slide_trim(doc: dict, clip_id: str, delta: Any) -> dict:
+    """Move one clip within a same-source three-clip run while keeping outer timeline bounds fixed."""
+    track, middle = _find_clip(doc, clip_id)
+    _ensure_unlocked(track)
+    if middle["tag"] not in {"video", "audio"}:
+        raise FilmError("SLIDE_MEDIA_UNSUPPORTED", "滑移式修剪只支持视频/音频片段", 422)
+
+    ordered = sorted(track["clips"], key=lambda item: _number(item["attrs"].get("at", 0), "at", 0))
+    index = next((i for i, item in enumerate(ordered) if item["id"] == clip_id), -1)
+    if index <= 0 or index >= len(ordered) - 1:
+        raise FilmError("SLIDE_NEIGHBOURS_REQUIRED", "滑移式修剪要求所选片段左右都有相邻片段", 422)
+    left, right = ordered[index - 1], ordered[index + 1]
+    if left["tag"] != middle["tag"] or right["tag"] != middle["tag"]:
+        raise FilmError("SLIDE_MEDIA_MISMATCH", "滑移式修剪要求三段使用相同的视频/音频类型", 422)
+    left_duration, middle_duration, right_duration = map(clip_duration, (left, middle, right))
+    left_end, middle_end = clip_end(left), clip_end(middle)
+    middle_at = _number(middle["attrs"].get("at", 0), "at", 0)
+    right_at = _number(right["attrs"].get("at", 0), "at", 0)
+    if any(value is None for value in (left_duration, middle_duration, right_duration, left_end, middle_end)):
+        raise FilmError("SOURCE_RANGE_REQUIRED", "滑移式修剪要求三段均有明确源时间区间", 422)
+    if abs(left_end - middle_at) > 0.001 or abs(middle_end - right_at) > 0.001:
+        raise FilmError("SLIDE_NOT_ADJACENT", "滑移式修剪要求三段在时间线上连续相邻", 422)
+
+    attrs = [item["attrs"] for item in (left, middle, right)]
+    if any(item.get("fade") for item in attrs):
+        raise FilmError("SLIDE_FADE_BOUNDARY", "含淡入淡出属性的片段暂不支持滑移式修剪；请先移除淡化", 422)
+    srcs = [str(item.get("src") or "") for item in attrs]
+    ranges = [_source_range(src) for src in srcs]
+    if any(out is None for _, out in ranges):
+        raise FilmError("SOURCE_RANGE_REQUIRED", "滑移式修剪要求三段均有明确源入点和源出点", 422)
+    bases = [re.sub(r"#t=[^#]*$", "", src) for src in srcs]
+    if len(set(bases)) != 1 or abs(ranges[0][1] - ranges[1][0]) > 0.001 or abs(ranges[1][1] - ranges[2][0]) > 0.001:
+        raise FilmError("SLIDE_SOURCE_DISCONTINUITY", "为避免素材越界，滑移式修剪当前只支持同源连续的三段素材", 422)
+
+    speeds = [
+        _number(item.get("speed", 1), "speed", 0.25, 4) if clip["tag"] in {"video", "audio"} else 1.0
+        for item, clip in zip(attrs, (left, middle, right))
+    ]
+    if max(speeds) - min(speeds) > 1e-7:
+        raise FilmError("SLIDE_SPEED_MISMATCH", "滑移式修剪要求三段播放速度一致", 422)
+    speed = speeds[0]
+    amount = _number(delta, "slide delta")
+    if abs(amount) < 0.001:
+        raise FilmError("INVALID_SLIDE_DELTA", "滑移式修剪位移必须至少为 0.001 秒", 422)
+    negative_limit = min(left_duration, middle_duration)
+    positive_limit = min(middle_duration, right_duration)
+    if amount <= -negative_limit + 0.001 or amount >= positive_limit - 0.001:
+        raise FilmError("SLIDE_EMPTY_CLIP", "滑移式修剪会令相邻片段剩余时长不足 0.001 秒", 422)
+
+    left_in, left_out = ranges[0]
+    middle_in, middle_out = ranges[1]
+    right_in, right_out = ranges[2]
+    new_left_out = left_out + amount * speed
+    new_right_in = right_in + amount * speed
+    if new_left_out <= left_in + 0.001 or new_left_out >= middle_out - 0.001:
+        raise FilmError("SLIDE_LEFT_SOURCE_RANGE", "滑移后左邻片段源区间无效或超出中间片段可用素材", 422)
+    if new_right_in < middle_in or new_right_in >= right_out - 0.001:
+        raise FilmError("SLIDE_RIGHT_SOURCE_RANGE", "滑移后右邻片段源区间无效或超出中间片段可用素材", 422)
+
+    attrs[0]["src"] = _with_source_range(srcs[0], left_in, new_left_out)
+    attrs[1]["at"] = _fmt(middle_at + amount)
+    attrs[2]["src"] = _with_source_range(srcs[2], new_right_in, right_out)
+    attrs[2]["at"] = _fmt(right_at + amount)
+
+    if attrs[0].get("volume_envelope"):
+        _slice_volume_envelope(attrs[0], 0.0, left_duration + amount)
+    if attrs[2].get("volume_envelope"):
+        if amount > 0:
+            _slice_volume_envelope(attrs[2], amount, right_duration)
+        else:
+            extension = -amount
+            right_copy = {"volume_envelope": attrs[2]["volume_envelope"]}
+            _slice_volume_envelope(right_copy, 0.0, right_duration)
+            points = _parse_volume_envelope(right_copy["volume_envelope"])
+            extended = [{"t": 0.0, "v": points[0]["v"]}]
+            extended.extend({"t": point["t"] + extension, "v": point["v"]} for point in points)
+            attrs[2]["volume_envelope"] = _normalize_volume_envelope(extended)
+    return {"clip": clip_id, "left_clip": left["id"], "right_clip": right["id"], "delta": _fmt(amount)}
+
+
 def _roll_trim(doc: dict, left_id: str, right_id: str, delta: Any) -> dict:
     """Move an existing split cut without changing the two clips' combined duration."""
     left_track, left = _find_clip(doc, left_id)
@@ -770,6 +850,9 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             clip["attrs"]["at"] = _fmt(at)
             new_track["clips"].append(clip)
             normalized.append({"op": "move", "clip": clip["id"], "track_id": track_id, "at": _fmt(at)})
+        elif kind == "slide":
+            result = _slide_trim(out, str(op.get("clip") or ""), op.get("delta"))
+            normalized.append({"op": "slide", "clip": result["clip"], "delta": result["delta"]})
         elif kind == "slip":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
             _ensure_unlocked(track)
@@ -1836,7 +1919,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         '"operations":[...],"summary":"..."}。'
         "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'fade'|'muted'|'style'|'class'|'title',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
-        "可用 slip 操作: {op:'slip',clip:准确视频/音频片段ID,delta_source:素材源时间偏移秒}。滑移只改变 #t 入出点，不改变时间线位置和长度；仅在用户明确要求保持时间线位置但更换素材源区间时使用。 "
+        "可用 slip 操作: {op:'slip',clip:准确视频/音频片段ID,delta_source:素材源时间偏移秒}。滑移只改变 #t 入出点，不改变时间线位置和长度；仅在用户明确要求保持时间线位置但更换素材源区间时使用。 " "可用 slide 操作: {op:'slide',clip:中间视频/音频片段ID,delta:时间线秒}。滑移式修剪会移动中间片段，同时修剪左右相邻片段以保持三段总时长与外侧边界不变；当前仅支持同源连续、同类型、等速且无 fade 的三段。只在用户明确要求 slide trim 时使用。 "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; " "可用 join 操作: {op:'join',clip:左片段ID,other_clip:右片段ID}。只在用户明确要求愈合切口/合并同源切开片段时使用；需要同轨相邻、源区间连续、属性一致。" "可用 roll 操作: {op:'roll',clip:左片段ID,other_clip:右片段ID,delta:秒}。只在用户明确要求滚动修剪切口时使用；仅允许同源连续切口；正数延长左段并缩短右段，负数相反，总时长不变。"
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
         "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
@@ -1872,7 +1955,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip", "join", "roll"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip", "join", "roll", "slide"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
         if op["op"] == "join" and (op.get("clip") not in valid_ids or op.get("other_clip") not in valid_ids):
             raise FilmError("LLM_INVALID_PLAN", "AI 愈合切口操作必须指定两个已存在的片段 ID", 422)
@@ -1880,6 +1963,13 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
             if (op.get("clip") not in valid_ids or op.get("other_clip") not in valid_ids
                     or isinstance(op.get("delta"), bool) or not isinstance(op.get("delta"), (int, float))):
                 raise FilmError("LLM_INVALID_PLAN", "AI 滚动修剪操作必须指定左右片段 ID 和数字 delta", 422)
+        if op["op"] == "slide":
+            if (op.get("clip") not in valid_ids
+                    or isinstance(op.get("delta"), bool) or not isinstance(op.get("delta"), (int, float))):
+                raise FilmError("LLM_INVALID_PLAN", "AI 滑移式修剪操作必须指定中间片段 ID 和数字 delta", 422)
+            target_clip = next(clip for track in doc["tracks"] for clip in track["clips"] if clip["id"] == op["clip"])
+            if target_clip["tag"] not in {"video", "audio"}:
+                raise FilmError("LLM_INVALID_PLAN", "AI 滑移式修剪只支持视频/音频片段", 422)
         if op["op"] == "slip":
             if op.get("clip") not in valid_ids or not isinstance(op.get("delta_source"), (int, float)):
                 raise FilmError("LLM_INVALID_PLAN", "AI 滑移操作必须包含有效片段 ID 和数字 delta_source", 422)
