@@ -60,7 +60,7 @@
 .fs-clip[data-kind="audio"]{background:#316c4b;border-color:#4d966d}
 .fs-clip[data-kind="iframe"]{background:#765b32;border-color:#b28c51}
 .fs-clip.fs-clip-selected{outline:2px solid #f1f1f1;outline-offset:-2px;z-index:4}
-.fs-clip.fs-dragging{opacity:.72;border-style:dashed;cursor:grabbing}
+.fs-clip.fs-dragging{opacity:.72;border-style:dashed;cursor:grabbing;pointer-events:none}
 .fs-clip-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fs-clip-subtitle{display:block;opacity:.74;font-size:9px;margin-top:3px;white-space:nowrap}
 .fs-playhead{position:absolute;z-index:10;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;box-shadow:0 0 0 1px #0004}
