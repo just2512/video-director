@@ -23,18 +23,64 @@
       })
     };
   }
+  function findClipInData(data, id) {
+    if(!data||!id)return null;
+    var tracks=data.tracks||[];
+    for(var i=0;i<tracks.length;i++){
+      var row=tracks[i], items=row.clips||[];
+      for(var j=0;j<items.length;j++)if(items[j].id===id)return {track:row,clip:items[j]};
+    }
+    return null;
+  }
+  async function adoptExternalFilmDocument(latest, previousData, selectedId, reason, allowBusyRecovery) {
+    var previous=selectedId?findClipInData(previousData,selectedId):null;
+    var current=selectedId?findClipInData(latest,selectedId):null;
+    S.data=latest;S.rev=latest.rev;
+    if(previous&&!current){
+      var targetTrack=null;
+      (latest.tracks||[]).forEach(function(track){if(track.id===previous.track.id)targetTrack=track;});
+      S.selectedId='';
+      render();
+      if(!targetTrack){
+        showStatus((reason||'检测到外部修改。')+' 当前选中片段已被删除，原轨道也已移除。为避免丢失轨道语义，系统没有自动重建轨道。','error');
+        return;
+      }
+      if(Object.prototype.hasOwnProperty.call(targetTrack.attrs||{},'locked')){
+        showStatus((reason||'检测到外部修改。')+' 当前选中片段已被删除，但原轨道已锁定，不能自动恢复。','error');
+        return;
+      }
+      var attrs=previous.clip.attrs||{}, title=String(attrs.title||previous.clip.id);
+      var confirmed=window.confirm('外部更新删除了当前选中片段“'+title+'”。是否从上一个有效版本恢复到原轨道？这会生成一条新的可撤销编辑；若时间区间与现有片段冲突，恢复会被拒绝。');
+      if(!confirmed){
+        showStatus((reason||'检测到外部修改。')+' 已保留最新文档；未恢复被删除的片段。');
+        return;
+      }
+      S.selectedId=previous.clip.id;
+      await filmStudioCommit([{
+        op:'insert',track_id:previous.track.id,
+        clip:{id:previous.clip.id,tag:previous.clip.tag,attrs:previous.clip.attrs}
+      }], !!allowBusyRecovery);
+      if(findClip(previous.clip.id)){
+        showStatus('已将外部删除的片段恢复到原轨道。','success');
+      }else{
+        S.selectedId='';render();
+        showStatus('片段恢复未完成；最新影片文档未被覆盖。检查前一条编辑错误后再手动处理。','error');
+      }
+      return;
+    }
+    S.selectedId=current?selectedId:'';
+    render();
+    if(reason)showStatus(reason);
+  }
   async function recoverFilmConflict(message) {
-    var projectId = S.projectId, selectedId = S.selectedId;
+    var projectId = S.projectId, selectedId = S.selectedId, previousData = S.data;
     try {
       var latest = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(projectId));
       if (projectId === S.projectId && latest && latest.ok && latest.exists) {
-        S.data = latest;
-        S.rev = latest.rev;
-        S.selectedId = selectedId && latest.tracks.some(function (track) {
-          return (track.clips || []).some(function (clip) { return clip.id === selectedId; });
-        }) ? selectedId : '';
-        render();
-        showStatus((message || '检测到影片文档并发修改。') + ' 已载入最新版本；本次冲突操作没有写入，请检查后重试。', 'error');
+        await adoptExternalFilmDocument(
+          latest, previousData, selectedId,
+          (message || '检测到影片文档并发修改。') + ' 已载入最新版本。', true
+        );
         return;
       }
     } catch (_) {}
@@ -435,13 +481,18 @@
     var selector=$('editor-project'),nextId=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||S.projectId;
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return;}
     if(S.busy)return;
+    var previousData=S.data, previousSelectedId=S.selectedId;
     var changed=nextId!==S.projectId;
-    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;S.selectedId='';window.filmStudioPlaying=false;}
+    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;S.selectedId='';window.filmStudioPlaying=false;previousData=null;previousSelectedId='';}
     S.projectId=nextId;
     var requestProjectId=nextId;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
     if(requestProjectId!==S.projectId)return;
-    if(r&&r.ok&&r.exists){S.data=r;S.rev=r.rev;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();}
+    if(r&&r.ok&&r.exists){
+      S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);
+      if(previousData&&previousData.exists)await adoptExternalFilmDocument(r,previousData,previousSelectedId,'重新载入影片文档。');
+      else{S.data=r;S.rev=r.rev;render();}
+    }
     else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';window.filmStudioPlaying=false;S.migration=r;renderMigration();}
     else {S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
   }
@@ -459,8 +510,9 @@
     S.data=r;S.rev=r.rev;S.migration=null;S.selectedId='';
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();
   }
-  async function filmStudioCommit(ops) {
-    if(!S.projectId||!S.data||!S.data.exists||S.busy)return;
+  async function filmStudioCommit(ops, allowBusyRecovery) {
+    if(!S.projectId||!S.data||!S.data.exists||(S.busy&&!allowBusyRecovery))return;
+    var wasBusy=S.busy;
     S.busy=true;
     try{
       var base=S.rev, snapshot=baseSnapshot();
@@ -472,7 +524,7 @@
       }
       S.data=r;S.rev=r.rev;
       showStatus(r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。',r.rebased?'':'success');render();
-    }finally{S.busy=false;}
+    }finally{if(!wasBusy)S.busy=false;}
   }
   async function filmStudioHistory(action) {
     if(!S.data||S.busy)return;S.busy=true;
@@ -598,11 +650,11 @@
           return;
         }
         if(stamp.exists!==localExists||(stamp.exists&&stamp.rev!==S.rev)){
+          var previousData=S.data,previousSelectedId=S.selectedId;
           var latest=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));
           if(!S.open||S.projectId!==projectId)return;
           if(latest&&latest.ok&&latest.exists){
-            S.data=latest;S.rev=latest.rev;
-            render();showStatus('检测到外部 Agent/文件修改，已按新 revision 刷新。');
+            await adoptExternalFilmDocument(latest,previousData,previousSelectedId,'检测到外部 Agent/文件修改，已按新 revision 刷新。');
           }else if(latest&&!latest.ok){
             showStatus('film.html 当前无法解析。编辑已冻结，保留上一次有效预览；修复文件后将自动重试。','error');
           }else if(latest&&latest.ok&&!latest.exists){

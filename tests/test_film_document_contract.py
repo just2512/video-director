@@ -623,6 +623,20 @@ def test_gap_layers_roundtrip_as_unoccupied_film_time(tmp_path, monkeypatch):
 
 
 
+
+def test_studio_prompts_restore_selected_clip_after_external_deletion():
+    root = Path(__file__).resolve().parents[1]
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "function findClipInData(data, id)" in studio
+    assert "async function adoptExternalFilmDocument" in studio
+    assert "外部更新删除了当前选中片段" in studio
+    assert "op:'insert',track_id:previous.track.id" in studio
+    assert "系统没有自动重建轨道" in studio
+    assert "await adoptExternalFilmDocument(latest,previousData,previousSelectedId" in studio
+    assert "async function filmStudioCommit(ops, allowBusyRecovery)" in studio
+    assert "], !!allowBusyRecovery)" in studio
+
+
 def test_trim_start_and_end_preserve_source_time_and_speed():
     doc = fd.parse_film(SAMPLE)
     edited, ops = fd.apply_ops(doc, [
