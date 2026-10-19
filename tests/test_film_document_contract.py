@@ -738,14 +738,14 @@ def test_slide_trim_rejects_discontinuous_sources_fades_locks_and_bounds():
 
 
 def test_slide_trim_alt_shift_drag_and_ai_contract_are_wired():
-    assert "window.filmStudioToggleSlideMode" in script
-    assert "slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))" in script
-    assert 'data-film-action="slide-mode"' in index
-    assert ".fs-btn.fs-slide-mode-active" in styles
     root = Path(__file__).resolve().parents[1]
     script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert "window.filmStudioToggleSlideMode" in script
+    assert "slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))" in script
+    assert 'data-film-action="slide-mode"' in index
+    assert ".fs-btn.fs-slide-mode-active" in (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     assert "e.altKey&&e.shiftKey" in script
     assert "data-slide-delta" in script
     assert "if(d.mode==='move'){\n      var target=document.elementFromPoint" in script
