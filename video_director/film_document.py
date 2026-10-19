@@ -1054,7 +1054,7 @@ html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:transparen
 #caption{{position:absolute;left:{left:.4f}%;width:{max_width*100:.4f}%;{vertical_css};text-align:{alignment};font-family:{font};font-size:{font_size}px;font-weight:700;color:{color};{outline_css};text-shadow:0 2px 4px #000;white-space:pre-wrap;line-height:1.25;box-sizing:border-box;{background_css}}}
 </style></head><body><div id="stage"><div id="caption"></div></div><script>
 const cues={data};const caption=document.getElementById('caption');
-window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));caption.textContent=active.map(c=>String(c.text||'')).join('\\\\n');caption.style.display=active.length?'block':'none';}}}};
+window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));caption.textContent=active.map(c=>String(c.text||'')).join('\\n');caption.style.display=active.length?'block':'none';}}}};
 window.film.frame(0);
 window.addEventListener('message',function(event){{
   if(event.source!==parent||!event.data||event.data.type!=='film-time')return;
@@ -1167,7 +1167,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if color_value and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(color_value)):
             warnings.append(f"SubtitleStyle.{color_field} 必须是 #RRGGBB 才能无损映射")
     if subtitle_style.get("background") and not re.fullmatch(
-        r"(#[0-9a-fA-F]{6})(?:@([0-9]*\\.?[0-9]+))?", str(subtitle_style.get("background"))
+        r"(#[0-9a-fA-F]{6})(?:@([0-9]*(?:\.[0-9]+)?))?", str(subtitle_style.get("background"))
     ):
         warnings.append("SubtitleStyle.background 格式不受支持，无法无损映射")
     for scene in raw_ir.get("scenes") or []:
