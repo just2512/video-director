@@ -134,7 +134,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     && String(left.attrs.src).endsWith('#t=2,7')
                     && String(right.attrs.src).endsWith('#t=7,12')
                     && Math.abs(Number(right.attrs.at) - 2.5) < 0.001;
-                }""", {"pid": project_id, "rightId": right_id}, timeout=10000)
+                }""", arg={"pid": project_id, "rightId": right_id}, timeout=10000)
 
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
@@ -187,7 +187,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     && Math.abs(Number(middle.attrs.at) - 2.75) < 0.001
                     && String(right.attrs.src).endsWith('#t=10.5,12')
                     && Math.abs(Number(right.attrs.at) - 4.25) < 0.001;
-                }""", {"pid": project_id, "middleId": right_id, "rightId": slide_right_id}, timeout=10000)
+                }""", arg={"pid": project_id, "middleId": right_id, "rightId": slide_right_id}, timeout=10000)
 
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}

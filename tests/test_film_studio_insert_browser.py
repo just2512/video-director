@@ -106,7 +106,7 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                     && Math.abs(Number(laterVideo.attrs.at) - 5) < 0.001
                     && Math.abs(Number(audioRight.attrs.at) - 3) < 0.001
                     && Math.abs(Number(laterAudio.attrs.at) - 4) < 0.001;
-                }""", project_id, timeout=10000)
+                }""", arg=project_id, timeout=10000)
 
                 persisted = fd.read_project_film(project_id)
                 tracks = {track["id"]: track for track in persisted["doc"]["tracks"]}
