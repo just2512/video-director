@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, waveformCache:Object.create(null), waveformPending:Object.create(null), playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -365,14 +365,14 @@
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return;}
     if(S.busy)return;
     var changed=nextId!==S.projectId;
-    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.proposal=null;S.previewProposalActive=false;window.filmStudioPlaying=false;}
+    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.proposal=null;S.previewProposalActive=false;S.broken=false;window.filmStudioPlaying=false;}
     S.projectId=nextId;
     var requestProjectId=nextId;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
     if(requestProjectId!==S.projectId)return;
-    if(r&&r.ok&&r.exists){S.data=r;S.rev=r.rev;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();}
+    if(r&&r.ok&&r.exists){S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();}
     else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';window.filmStudioPlaying=false;S.migration=r;renderMigration();}
-    else {S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
+    else {if(r&&r.code==='INVALID_FILM')S.broken=true;S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
   }
   async function filmStudioInitialize(acceptWarnings) {
     if(!S.projectId){showStatus('缺少项目编号。','error');return;}
@@ -390,6 +390,7 @@
   }
   async function filmStudioCommit(ops) {
     if(!S.projectId||!S.data||!S.data.exists||S.busy)return;
+    if(S.broken){showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     S.busy=true;
     try{
@@ -763,8 +764,16 @@
         var packet;try{packet=JSON.parse(event.data||'{}');}catch(_){return;}
         var data=packet.data||{};
         if(data.project_id&&S.projectId&&data.project_id!==S.projectId)return;
-        if(packet.event==='film'&&data.phase==='revision_changed'&&S.open&&data.revision&&data.revision!==S.rev&&!S.busy&&!S.drag){
-          if(S.proposal){appendMessage('影片 revision 已变化，待确认提案已作废。','assistant');S.proposal=null;renderProposalPanel();}
+        if(packet.event==='film'&&data.phase==='document_broken'&&S.open){
+          S.broken=true;
+          if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
+          showStatus('影片文件校验失败，已暂停编辑：'+String(data.error||'文档解析失败'),'error');
+        }else if(packet.event==='film'&&data.phase==='revision_changed'&&data.source==='external_file'&&S.open){
+          S.broken=false;
+          if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
+          if(data.revision&&data.revision!==S.rev&&!S.busy&&!S.drag){S.runtimeRev='';filmStudioLoad(true);}
+        }else if(packet.event==='film'&&data.phase==='revision_changed'&&S.open&&data.revision&&data.revision!==S.rev&&!S.busy&&!S.drag){
+          if(S.proposal){appendMessage('影片 revision 已变化，待确认提案已作废。','assistant');S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
           filmStudioLoad(true);
         }else if(packet.event==='film_ai'&&S.open&&data.project_id===S.projectId&&data.phase==='planning'){
           showStatus('AI 正在分析影片与编辑约束……');
