@@ -247,6 +247,37 @@ def test_ai_no_op_can_return_a_clarifying_question_for_the_chat():
     assert summary["summary"] == "你说的第二段是主画面，还是叠加画面？"
 
 
+
+
+def test_ai_planner_cannot_change_source_path_or_page_overrides():
+    class FakeLLM:
+        def __init__(self, field):
+            self.field = field
+
+        def generate(self, prompt):
+            value = "../assets/another.mp4#t=0,5" if self.field == "src" else '[{"at":"#caption","text":"injected"}]'
+            return json.dumps({
+                "operations": [{"op": "set", "clip": "clip-a", "field": self.field, "value": value}],
+                "summary": "修改字段",
+            }, ensure_ascii=False)
+
+    state = {"exists": True, "doc": fd.parse_film(SAMPLE), "rev": "test-revision"}
+    for field in ("src", "overrides"):
+        with pytest.raises(fd.FilmError, match="AI 使用了不允许的片段字段"):
+            fd.plan_film_command(FakeLLM(field), state, "修改选中片段")
+
+
+def test_real_asset_thumbnails_are_wired_from_clip_asset_lineage():
+    root = Path(__file__).resolve().parents[1]
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    css = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
+    assert '"data-asset-id": str(layer.get("asset_id") or "")' in module
+    assert "fs-clip-thumb" in studio
+    assert "fs-asset-thumb" in studio
+    assert ".fs-clip-thumb" in css
+
+
 def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track_messages():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")

@@ -108,16 +108,16 @@
         <strong>OpenFilm 多轨影片工作台</strong>
         <p>以项目 film.html 为编辑文档，按稳定片段 ID 修改；支持多轨时间线、属性编辑、撤销重做和 AI 指令。</p>
       </div>
-      <button class="btn-sm" id="film-studio-toggle" type="button" onclick="filmStudioToggle()">打开多轨工作台</button>
+      <button class="btn-sm" id="film-studio-toggle" type="button" data-film-action="toggle">打开多轨工作台</button>
     </div>
     <section id="film-studio-panel" class="film-studio-panel" style="display:none" aria-label="OpenFilm 多轨影片工作台">
       <header class="fs-topbar">
         <div><strong>影片 Studio</strong><span class="fs-project-label" id="fs-project-label">尚未载入项目</span></div>
         <div class="fs-toolbar">
-          <button class="fs-btn" type="button" onclick="filmStudioUndo()">撤销</button>
-          <button class="fs-btn" type="button" onclick="filmStudioRedo()">重做</button>
-          <button class="fs-btn" type="button" onclick="filmStudioLoad(true)">重新载入</button>
-          <button class="fs-btn" type="button" onclick="filmStudioClose()">返回旧工作台（仅未迁移项目）</button>
+          <button class="fs-btn" type="button" data-film-action="undo">撤销</button>
+          <button class="fs-btn" type="button" data-film-action="redo">重做</button>
+          <button class="fs-btn" type="button" data-film-action="reload">重新载入</button>
+          <button class="fs-btn" type="button" data-film-action="close">返回旧工作台（仅未迁移项目）</button>
         </div>
       </header>
       <div id="film-studio-alert" class="fs-alert" role="status" aria-live="polite">载入项目后显示影片文档。</div>
@@ -125,7 +125,7 @@
       <div class="fs-workspace">
         <aside class="fs-pane fs-assets-pane">
           <div class="fs-pane-title">素材 / 片段 <span id="fs-clip-count">0</span></div>
-          <div class="fs-asset-tabs"><button class="fs-asset-tab fs-asset-tab-active" id="fs-mode-clips" type="button" onclick="filmStudioShowAssetMode('clips')">时间线片段</button><button class="fs-asset-tab" id="fs-mode-library" type="button" onclick="filmStudioLoadLibrary()">素材库</button></div>
+          <div class="fs-asset-tabs"><button class="fs-asset-tab fs-asset-tab-active" id="fs-mode-clips" type="button" data-film-action="clips-mode">时间线片段</button><button class="fs-asset-tab" id="fs-mode-library" type="button" data-film-action="library-mode">素材库</button></div>
           <div class="fs-assets-list" id="fs-assets-list"><div class="fs-empty">还没有影片文档。</div></div>
         </aside>
         <div class="fs-pane-divider" data-divider="left" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整素材栏宽度"></div>
@@ -136,10 +136,10 @@
             <iframe id="fs-preview-composition" title="多轨影片预览" src="/static/film-runtime.html" style="display:none" aria-label="多轨影片预览"></iframe>
           </div>
           <div class="fs-scrub-row">
-            <button class="fs-btn" type="button" onclick="filmStudioNudge(-1)">上一帧</button>
-            <button class="fs-btn" type="button" id="fs-play-toggle" onclick="filmStudioTogglePlayback()">播放</button>
+            <button class="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>
+            <button class="fs-btn" type="button" id="fs-play-toggle" data-film-action="play-toggle">播放</button>
             <input id="fs-playhead" type="range" min="0" max="10" step="0.033333" value="0" oninput="filmStudioSeek(this.value)" aria-label="播放头">
-            <button class="fs-btn" type="button" onclick="filmStudioNudge(1)">下一帧</button>
+            <button class="fs-btn" type="button" data-film-action="frame-next">下一帧</button>
             <span id="fs-playhead-value">00:00.000</span>
           </div>
         </section>
@@ -153,13 +153,13 @@
         <div class="fs-timeline-toolbar">
           <div><strong>多轨时间线</strong><span id="fs-timeline-meta">—</span></div>
           <div class="fs-toolbar">
-            <button class="fs-btn" type="button" onclick="filmStudioSplit()">在播放头切分</button>
-            <button class="fs-btn" type="button" onclick="filmStudioRemove()">删除片段</button>
-            <button class="fs-btn" type="button" onclick="filmStudioAddTrack()">＋轨道</button>
-            <button class="fs-btn" type="button" onclick="filmStudioRemoveEmptyTrack()">删空轨</button>
-            <button class="fs-btn" type="button" onclick="filmStudioZoom(-1)">−</button>
-            <button class="fs-btn" type="button" onclick="filmStudioZoom(1)">＋</button>
-            <button class="fs-btn fs-primary" type="button" onclick="filmStudioSaveInspector()">应用属性</button>
+            <button class="fs-btn" type="button" data-film-action="split">在播放头切分</button>
+            <button class="fs-btn" type="button" data-film-action="remove">删除片段</button>
+            <button class="fs-btn" type="button" data-film-action="add-track">＋轨道</button>
+            <button class="fs-btn" type="button" data-film-action="remove-empty-track">删空轨</button>
+            <button class="fs-btn" type="button" data-film-action="zoom-out">−</button>
+            <button class="fs-btn" type="button" data-film-action="zoom-in">＋</button>
+            <button class="fs-btn fs-primary" type="button" data-film-action="apply-inspector">应用属性</button>
           </div>
         </div>
         <div class="fs-timeline-scroll" id="fs-timeline-scroll">
@@ -171,7 +171,7 @@
         <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以用自然语言修改当前影片，例如：“把选中的片段提速到 1.5 倍，音量设为 20%”。AI 只返回白名单内的编辑操作；不明确的动作不会被擅自执行。</div></div>
         <div class="fs-chat-input-row">
           <input id="fs-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
-          <button class="fs-btn fs-primary" type="button" onclick="filmStudioAsk()">发送指令</button>
+          <button class="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
         </div>
       </section>
     </section>

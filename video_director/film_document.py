@@ -23,6 +23,7 @@ MIGRATION_NAME = "film-migration.json"
 CLIP_TAGS = {"iframe", "video", "img", "audio"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 SETTABLE_FIELDS = {"at", "src", "speed", "volume", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
+AI_SETTABLE_FIELDS = {"at", "speed", "volume", "style", "class", "muted", "title"}
 TRACK_FLAGS = {"locked", "hidden", "muted"}
 MAX_OPERATIONS = 200
 
@@ -260,7 +261,7 @@ def _serialize_attrs(attrs: dict[str, Any]) -> str:
 def serialize_film(doc: dict) -> str:
     stage = doc.get("stage") or {"width": 1920, "height": 1080}
     head = doc.get("head_html") or '<head><meta charset="utf-8"></head>'
-    viewport = f'<meta name="viewport" content="width={int(stage["width"])},height={int(stage["height"])}>'
+    viewport = f'<meta name="viewport" content="width={int(stage["width"])},height={int(stage["height"])}">'
     if re.search(r"<meta\b[^>]*\bname\s*=\s*['\"]?viewport", head, re.I):
         head = re.sub(r"<meta\b[^>]*\bname\s*=\s*['\"]?viewport['\"]?[^>]*>", viewport, head, count=1, flags=re.I)
     else:
@@ -728,7 +729,7 @@ def library_asset_clip(project_id: str, asset_id: str, at: float, still_duration
         tag = "audio" if kind == "audio" else "video"
     clip_id = "clip-" + hashlib.sha1(f"{aid}|{time.time_ns()}".encode("utf-8")).hexdigest()[:16]
     attrs = {"id": clip_id, "src": f"{src_uri}#t=0,{_fmt(duration)}", "at": at_value,
-             "title": str(entry.get("description") or Path(str(file_value)).name)[:200]}
+             "title": str(entry.get("description") or Path(str(file_value)).name)[:200], "data-asset-id": aid}
     if tag in {"video", "audio"}:
         attrs["volume"] = "1"
     if tag == "audio":
@@ -815,7 +816,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             src_in = _number(layer.get("source_in", 0), "source_in", 0) if kind == "video" else 0
             src_out = _number(layer.get("source_out") if kind == "video" and layer.get("source_out") is not None else src_in + d * speed, "source_out", src_in + 0.001)
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
-            attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0))}
+            attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)), "data-asset-id": str(layer.get("asset_id") or "")}
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
             if layer.get("transform"):
@@ -845,7 +846,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         h = _number(overlay.get("height", 1), "overlay height", 0.001, 1) * stage["height"]
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
         style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(_number(overlay.get('opacity',1),'opacity',0,1))};object-fit:{fit}"
-        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at), "style": style}
+        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at), "style": style, "data-asset-id": str(overlay.get("asset_id") or "")}
         if kind == "video" and abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
         tid = _safe_id("track-" + cid, "track")
@@ -868,7 +869,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         src_out = _number(audio.get("source_out") if audio.get("source_out") is not None else src_in + d * speed, "audio source_out", src_in + 0.001)
         cid = _safe_id(f"audio-{audio.get('id') or idx + 1}", "clip")
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
-                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio")}
+                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or "")}
         if abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
         if audio.get("muted"):
@@ -1027,7 +1028,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
                                    (op.get("edge") == "start" and "at" not in op) or
                                    (op.get("edge") == "end" and "end" not in op)):
             raise FilmError("LLM_INVALID_PLAN", "AI 修剪操作缺少有效 edge/时间值", 422)
-        if op["op"] == "set" and op.get("field") not in SETTABLE_FIELDS:
+        if op["op"] == "set" and op.get("field") not in AI_SETTABLE_FIELDS:
             raise FilmError("LLM_INVALID_PLAN", f"AI 使用了不允许的片段字段：{op.get('field')}", 422)
         if op.get("clip") not in valid_ids:
             raise FilmError("LLM_INVALID_PLAN", f"AI 使用了未知片段 ID：{op.get('clip')}", 422)

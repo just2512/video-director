@@ -78,8 +78,9 @@
     if(S.assetMode==='library'){renderLibraryAssets();return;}
     if(!all.length){$('fs-assets-list').innerHTML='<div class="fs-empty">此影片没有片段。可从素材库添加视频或图片。</div>';return;}
     $('fs-assets-list').innerHTML=all.map(function(c){
-      var label=c.attrs.title||c.attrs['data-role']||c.id;
-      return '<button type="button" class="fs-asset-item '+(c.id===S.selectedId?'fs-selected':'')+'" data-clip="'+esc(c.id)+'"><span class="fs-asset-icon">'+esc(c.tag.toUpperCase())+'</span><span class="fs-asset-name">'+esc(label)+'<span class="fs-asset-meta">'+fmtTime(c.at)+' · '+(c.duration==null?'时长未知':c.duration.toFixed(2)+'s')+'</span></span></button>';
+      var label=c.attrs.title||c.attrs['data-role']||c.id, aid=c.attrs['data-asset-id']||'', thumb=aid&&c.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
+      var thumbHtml=thumb?'<img class="fs-asset-thumb" src="'+esc(thumb)+'" loading="lazy" alt="" onerror="this.remove()">':esc(c.tag.toUpperCase());
+      return '<button type="button" class="fs-asset-item '+(c.id===S.selectedId?'fs-selected':'')+'" data-clip="'+esc(c.id)+'"><span class="fs-asset-icon">'+thumbHtml+'</span><span class="fs-asset-name">'+esc(label)+'<span class="fs-asset-meta">'+fmtTime(c.at)+' · '+(c.duration==null?'时长未知':c.duration.toFixed(2)+'s')+'</span></span></button>';
     }).join('');
     $('fs-assets-list').querySelectorAll('[data-clip]').forEach(function(el){el.addEventListener('click',function(){window.filmStudioSelectClip(el.getAttribute('data-clip'));});});
   }
@@ -125,11 +126,13 @@
       var lane='<div class="fs-track-body" style="width:'+laneWidth+'px">';
       (track.clips||[]).forEach(function(clip){
         var width=Math.max(24,(clip.duration==null?2:clip.duration)*S.pxPerSec),left=Math.max(0,clip.at*S.pxPerSec),title=clip.attrs.title||clip.id;
+        var aid=clip.attrs['data-asset-id']||'',thumb=aid&&clip.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
+        var thumbHtml=thumb?'<img class="fs-clip-thumb" src="'+esc(thumb)+'" loading="lazy" alt="" onerror="this.remove()">':'';
         var handles=clip.duration==null?'':'<span class="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点"></span><span class="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点"></span>';
-        lane+='<div class="fs-clip '+(clip.id===S.selectedId?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
+        lane+='<div class="fs-clip '+(clip.id===S.selectedId?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
       });
       lane+='</div>';
-      return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-id="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-id="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
+      return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
     }).join('');
     $('fs-timeline').innerHTML=ruler+body+'<div class="fs-playhead" id="fs-playhead-line"></div>';
     $('fs-timeline').style.width=(132+laneWidth)+'px';$('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
@@ -160,7 +163,7 @@
     $('fs-timeline').querySelectorAll('[data-track-flag]').forEach(function(el){
       el.addEventListener('click',function(e){
         e.stopPropagation();
-        var track=(S.data.tracks||[]).find(function(t){return t.id===el.getAttribute('data-track-id');});
+        var track=(S.data.tracks||[]).find(function(t){return t.id===el.getAttribute('data-track-key');});
         if(!track)return;
         var field=el.getAttribute('data-track-flag'),on=Object.prototype.hasOwnProperty.call(track.attrs||{},field);
         filmStudioCommit([{op:'track',track_id:track.id,field:field,value:!on}]);
@@ -452,4 +455,35 @@
       return result;
     };
   }
+
+  const FILM_STUDIO_ACTIONS = {
+    toggle: () => window.filmStudioToggle(),
+    undo: () => window.filmStudioUndo(),
+    redo: () => window.filmStudioRedo(),
+    reload: () => window.filmStudioLoad(true),
+    close: () => window.filmStudioClose(),
+    'clips-mode': () => window.filmStudioShowAssetMode('clips'),
+    'library-mode': () => window.filmStudioLoadLibrary(),
+    'frame-prev': () => window.filmStudioNudge(-1),
+    'play-toggle': () => window.filmStudioTogglePlayback(),
+    'frame-next': () => window.filmStudioNudge(1),
+    split: () => window.filmStudioSplit(),
+    remove: () => window.filmStudioRemove(),
+    'add-track': () => window.filmStudioAddTrack(),
+    'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),
+    'zoom-out': () => window.filmStudioZoom(-1),
+    'zoom-in': () => window.filmStudioZoom(1),
+    'apply-inspector': () => window.filmStudioSaveInspector(),
+    ask: () => window.filmStudioAsk(),
+  };
+  document.addEventListener('click', function(event) {
+    var button = event.target && event.target.closest ? event.target.closest('[data-film-action]') : null;
+    if (!button || button.disabled) return;
+    var action = button.getAttribute('data-film-action');
+    var handler = FILM_STUDIO_ACTIONS[action];
+    if (typeof handler !== 'function') return;
+    event.preventDefault();
+    handler();
+  });
+
 })();

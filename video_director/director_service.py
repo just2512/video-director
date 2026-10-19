@@ -125,7 +125,12 @@ def create_director_run(payload: dict) -> dict:
                 return parsed
             return raw_value if raw_value is not None and raw_value != "" else default
         # Compatibility for existing MCP/CLI/API clients which do not send field provenance.
-        return raw_value or intent.get(key) or default
+        if raw_value is not None and raw_value != "":
+            return raw_value
+        parsed = intent.get(key)
+        if parsed is not None and parsed != "":
+            return parsed
+        return default
 
     raw_resolution = str(payload.get("resolution") or "").strip()
     raw_platform = str(payload.get("platform") or "").strip()
