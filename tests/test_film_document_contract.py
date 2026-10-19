@@ -266,6 +266,9 @@ def test_api_ui_routes_are_wired():
     assert "transformOpsForBox" in js
     assert "film-runtime:preview-transform" in js
     assert "previewTransform(message)" in runtime
+    assert "'transform-origin':1" in runtime
+    assert "key==='transform'&&!" in runtime
+    assert "key==='transform-origin'&&!" in runtime
     assert "fs-transform-overlay" in index
     assert ".fs-transform-overlay" in css
     assert "SETTABLE_FIELDS" in module
@@ -357,6 +360,109 @@ def test_migration_warns_and_never_overwrites_existing_film():
     assert "composition_from_film" in module
     assert '"/api/editor/film/composition"' in server
     assert "video-director-project-meta" in module
+
+
+
+
+def test_composition_layer_and_overlay_order_matches_render_stack(tmp_path, monkeypatch):
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, VisualOverlayClip
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-z-order"
+    assets_dir = root / "assets"
+    assets_dir.mkdir(parents=True)
+    asset_a_path, asset_b_path = assets_dir / "a.png", assets_dir / "b.png"
+    asset_a_path.write_bytes(b"test-image-a")
+    asset_b_path.write_bytes(b"test-image-b")
+    assets = [
+        AssetRef(id="asset-a", type="image", file=str(asset_a_path), duration=2, width=320, height=180),
+        AssetRef(id="asset-b", type="image", file=str(asset_b_path), duration=2, width=320, height=180),
+    ]
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(id="scene-z", start=0, duration=2, text="z",
+                        layers=[
+                            Layer(type=LayerType.image, asset_id="asset-a", duration=2),
+                            Layer(type=LayerType.image, asset_id="asset-b", duration=2),
+                        ])],
+        visual_overlays=[
+            VisualOverlayClip(id="overlay-a", asset_id="asset-a", start=0, duration=2, x=0.1, y=0.1, width=0.3, height=0.3),
+            VisualOverlayClip(id="overlay-b", asset_id="asset-b", start=0, duration=2, x=0.5, y=0.1, width=0.3, height=0.3),
+        ],
+        assets=assets,
+    )
+    plan = fd.build_film_from_composition("film-z-order", composition)
+    assert plan["warnings"] == []
+    tracks = plan["document"]["tracks"]
+    assert [t["attrs"].get("data-vd-role") for t in tracks] == ["overlay", "overlay", "scene-layer", "scene-layer"]
+    assert [t["attrs"]["data-vd-overlay-id"] for t in tracks[:2]] == ["overlay-b", "overlay-a"]
+    assert [t["attrs"]["data-vd-layer-index"] for t in tracks[2:]] == ["1", "0"]
+    restored = fd.composition_from_film(fd.parse_film(fd.serialize_film(plan["document"])))
+    assert [x["id"] for x in restored["visual_overlays"]] == ["overlay-a", "overlay-b"]
+    assert [x["asset_id"] for x in restored["scenes"][0]["layers"]] == ["asset-a", "asset-b"]
+
+
+def test_reverse_mapping_recovers_asset_metadata_from_project_manifest(tmp_path, monkeypatch):
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-manifest-asset"
+    assets_dir = root / "assets"
+    assets_dir.mkdir(parents=True)
+    source = assets_dir / "manifest-still.png"
+    source.write_bytes(b"test-image-bytes")
+    (assets_dir / "manifest.json").write_text(json.dumps([{
+        "id": "manifest-still", "type": "image", "file": str(source),
+        "duration": 2, "width": 320, "height": 180, "source": "uploaded", "rights_status": "CLEAR",
+    }]), encoding="utf-8")
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(id="scene-manifest", start=0, duration=2, text="scene",
+                        layers=[Layer(type=LayerType.image, asset_id="manifest-still", duration=2)])],
+    )
+    plan = fd.build_film_from_composition("film-manifest-asset", composition)
+    assert plan["warnings"] == []
+    restored = fd.composition_from_film(fd.parse_film(fd.serialize_film(plan["document"])))
+    assert restored["assets"][0]["id"] == "manifest-still"
+    assert restored["assets"][0]["file"] == "assets/manifest-still.png"
+    assert restored["assets"][0]["type"] == "image"
+
+
+def test_reverse_mapping_survives_persisted_edit_undo_redo(tmp_path, monkeypatch):
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    pid = "film-persisted-undo"
+    root = tmp_path / "composer" / pid
+    (root / "assets").mkdir(parents=True)
+    source = root / "assets" / "still.png"
+    source.write_bytes(b"test-image-bytes")
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(id="scene-undo", start=0, duration=2, text="undo",
+                        layers=[Layer(type=LayerType.image, asset_id="still-undo", duration=2)])],
+        assets=[AssetRef(id="still-undo", type="image", file=str(source), duration=2,
+                         width=320, height=180, source="uploaded")],
+    )
+    plan = fd.build_film_from_composition(pid, composition)
+    assert plan["warnings"] == []
+    fd._write_atomic(fd._film_path(pid), fd.serialize_film(plan["document"]))
+    fd._history_write(pid, {"past": [], "future": []})
+    original = fd.read_project_film(pid)
+    clip = next(c for t in original["doc"]["tracks"] for c in t["clips"]
+                if c["attrs"].get("data-vd-scene-id"))
+    edited = fd.edit_project_film(pid, original["rev"], [
+        {"op": "set", "clip": clip["id"], "field": "at", "value": 0.5},
+    ])
+    assert fd.composition_from_film(fd.read_project_film(pid)["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
+    undone = fd.undo_redo_project_film(pid, edited["rev"], "undo")
+    after_undo = fd.read_project_film(pid)
+    assert undone["rev"] == after_undo["rev"]
+    assert fd.composition_from_film(after_undo["doc"])["scenes"][0]["layers"][0]["start"] == 0
+    redone = fd.undo_redo_project_film(pid, undone["rev"], "redo")
+    after_redo = fd.read_project_film(pid)
+    assert redone["rev"] == after_redo["rev"]
+    assert fd.composition_from_film(after_redo["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
 
 
 

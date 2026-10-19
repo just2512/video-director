@@ -13,9 +13,29 @@ This is the first integrated vertical slice, not a claim of complete OpenFilm or
 
 The document is parsed into stage, tracks and clips. Editing supports set, move, split, insert, remove, ripple_remove (same-track downstream shift), plus locked/hidden/muted track flags. Operations are validated as a batch, atomically written, and stored for revision-checked undo/redo. Every edit requires a base revision. A stale request may rebase only when the touched fields/objects are unchanged in the current document; same-field or structural conflicts return 409 without writing. Missing target IDs fail rather than redirect an edit. Broken documents are not overwritten.
 
-## Migration behavior
+## Migration behavior and field contract
 
-Supported video/image/audio and overlay clips are mapped into tracks. Subtitle cues can be exported to a page-backed track. Scene/layer semantic metadata and project-level lineage are retained in namespaced inert metadata inside film.html. Fields whose behavior is not executed equivalently by the current film runtime—including transforms, keyframes, masks, motion recipes, non-cut transitions, watermarks, camera tracks, timed selections and audio fades/ducking—are reported as concrete migration blockers. The API rejects migration whenever blockers exist; a client cannot bypass the gate by setting accept_warnings. The migration manifest stores the source Composition revision and warning list.
+Mapping is loss-aware: fields are either executed by the film runtime, retained as provenance metadata, or rejected as blockers. Metadata retention alone is not treated as equivalent rendering behavior.
+
+| CompositionIR field | film.html representation | Current contract |
+|---|---|---|
+| `project.width/height` | Native stage dimensions | Mapped and validated |
+| `project.fps`, `style_id`, template lineage, variants, references and project metadata | `video-director-project-meta` in `<head>` | Round-tripped as metadata; export FPS remains an explicit render parameter |
+| Scene identity/order/start/duration | Scene inventory plus stable clip bindings, `at`, and source range | Supported for bound clips; duration grows if a clip extends a scene |
+| Scene semantic role/intent | `data-vd-scene-meta` plus scene inventory | Preserved as metadata; camera/beat/selection timing/entrance/exit/continuity execution remains blocked |
+| Main video/image identity, asset ID, relative source path, time range, speed, fit mode | `data-vd-*`, `src#t=in,out`, `at`, `speed`, CSS `object-fit` | Supported; path/type changes are rejected |
+| Main layer position, scale, anchor, rotation, opacity | CSS geometry, `transform`, `transform-origin`, `opacity` | Supported for nine anchors and uniform scale; constrained CSS is executed by the runtime |
+| Layer lock | Bound scene-layer track `locked` flag | Supported |
+| Keyframes, mask, motion, animation, motion recipe, text/gap/custom layer types | No equivalent execution mapping | Hard migration blocker |
+| Visual overlay identity/order, source path/type, timing, speed, fit, rectangle and opacity | Bound overlay tracks + CSS geometry; source-array index retained while physical order is reversed for z-stacking | Static overlays supported; transform, nonzero `z_index`, or embedded source audio blocks migration |
+| Audio clip/lane identity, source interval, timeline timing, speed, volume/mute, lane state | Audio clip attributes and lane metadata | Independent clips supported; follow-source, linked overlay, fades, ducking and keyframes block migration |
+| Subtitle cues/style | Generated subtitle iframe and namespaced metadata | Generated format/style subset supported; animation blocks migration |
+| Watermarks, camera tracks, style contract, non-cut transitions | Original values can be retained in metadata | Runtime equivalence is not implemented; hard migration blocker |
+| Referenced assets | Sanitized metadata plus root-relative `file_uri` | Recovered from CompositionIR or project manifest; missing metadata/path is a hard blocker |
+
+Reverse conversion is exposed read-only as `GET /api/editor/film/composition?project_id=...` and returns a model-validated CompositionIR payload. Unbound clips, source mismatches, unknown CSS, duplicate bindings, conflicting lane states, unsupported physical-track reorder or deletion of the last layer in a scene fail explicitly. It does not overwrite `plans/composition.json`; migrated `film.html` remains authoritative.
+
+Migration rejects any unsupported field. `accept_warnings` cannot bypass the gate.
 
 ## Legacy-source isolation
 

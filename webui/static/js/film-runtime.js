@@ -17,7 +17,7 @@
     stage.style.transform='translate(-50%,-50%) scale('+scale+')';
   }
   function safeStyle(styleText,el){
-    var allowed={left:1,top:1,width:1,height:1,opacity:1,'object-fit':1,'border-radius':1,rotate:1};
+    var allowed={left:1,top:1,width:1,height:1,opacity:1,'object-fit':1,'border-radius':1,rotate:1,transform:1,'transform-origin':1};
     String(styleText||'').split(';').forEach(function(part){
       var colon=part.indexOf(':');if(colon<1)return;
       var key=part.slice(0,colon).trim().toLowerCase(),value=part.slice(colon+1).trim();
@@ -25,6 +25,9 @@
       if(['left','top','width','height'].indexOf(key)>=0&&!/^-?[0-9]+(?:\.[0-9]+)?px$/.test(value))return;
       if(key==='opacity'&&(!Number.isFinite(Number(value))||Number(value)<0||Number(value)>1))return;
       if(key==='object-fit'&&['cover','contain','fill','none','scale-down'].indexOf(value)<0)return;
+      // CompositionIR.Transform serializes only a bounded rotation and a nine-point anchor.
+      if(key==='transform'&&!/^rotate\(\s*[-+]?(?:\d+(?:\.\d*)?|\.\d+)deg\s*\)$/i.test(value))return;
+      if(key==='transform-origin'&&!/^(?:left|center|right|0%|50%|100%)\s+(?:top|center|bottom|0%|50%|100%)$/i.test(value))return;
       el.style.setProperty(key,value);
     });
   }

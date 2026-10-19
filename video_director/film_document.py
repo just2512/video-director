@@ -1110,18 +1110,51 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         return _safe_storage_uri(pid, file_value)
 
     clips, tracks, pages, warnings = [], [], {}, []
+    raw_asset_rows = [asset for asset in (raw_ir.get("assets") or [])
+                      if isinstance(asset, dict) and asset.get("id")]
+    raw_asset_map = {str(asset["id"]): asset for asset in raw_asset_rows}
+    referenced_asset_ids = {
+        str(layer.get("asset_id") or "")
+        for scene in (raw_ir.get("scenes") or [])
+        for layer in (scene.get("layers") or [])
+        if layer.get("asset_id")
+    }
+    referenced_asset_ids.update(
+        str(item.get("asset_id") or "")
+        for collection in ("audio", "visual_overlays")
+        for item in (raw_ir.get(collection) or [])
+        if item.get("asset_id")
+    )
+    asset_ids = list(dict.fromkeys(
+        [str(asset["id"]) for asset in raw_asset_rows]
+        + sorted(referenced_asset_ids - set(raw_asset_map))
+    ))
     asset_metadata = []
-    for asset in (raw_ir.get("assets") or []):
-        if not isinstance(asset, dict) or not asset.get("id"):
+    for asset_id in asset_ids:
+        asset = raw_asset_map.get(asset_id) or by_id.get(asset_id)
+        if not isinstance(asset, dict):
+            try:
+                from video_director import asset_catalog
+                asset = asset_catalog.get_asset(asset_id)
+                if hasattr(asset, "model_dump"):
+                    asset = asset.model_dump(mode="json")
+                elif hasattr(asset, "to_dict"):
+                    asset = asset.to_dict()
+            except Exception:
+                asset = None
+        if not isinstance(asset, dict):
+            warnings.append(f"素材 {asset_id} 被时间线引用，但 IR/项目清单中没有可恢复的资产元数据")
             continue
         entry = {key: asset.get(key) for key in (
             "id", "type", "duration", "width", "height", "fps", "prompt", "description",
             "keywords", "source", "license_note", "provenance", "rights_status"
         ) if key in asset}
+        if not entry.get("type"):
+            warnings.append(f"素材 {asset_id} 缺少 media type，不能无损映射")
         try:
-            entry["file_uri"] = unquote(asset_uri(str(asset["id"])))
+            entry["file_uri"] = unquote(asset_uri(asset_id))
         except FilmError as exc:
-            warnings.append(f"素材 {asset['id']} 无法建立可逆的安全路径映射：{exc}")
+            warnings.append(f"素材 {asset_id} 无法建立可逆的安全路径映射：{exc}")
         asset_metadata.append(entry)
     scene_inventory = []
     for scene_index, scene in enumerate(raw_ir.get("scenes") or []):
@@ -1309,6 +1342,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
             "style": style, "data-asset-id": str(overlay.get("asset_id") or ""),
             "data-vd-overlay-id": str(overlay.get("id") or ""),
+            "data-vd-overlay-index": str(idx),
             "data-vd-overlay-meta": json.dumps(
                 {key: value for key, value in overlay.items()
                  if key not in {"id", "asset_id", "start", "duration", "source_in", "speed",
@@ -1331,6 +1365,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": "img" if kind == "image" else "video", "attrs": attrs},
                                      track_attrs={"data-vd-role": "overlay",
                                                   "data-vd-overlay-id": str(overlay.get("id") or ""),
+                                                  "data-vd-overlay-index": str(idx),
                                                   "data-vd-track-id": str(overlay.get("track_id") or "overlay-main")}))
 
     subtitle = raw_ir.get("subtitle_track") or {}
@@ -1409,26 +1444,29 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         transition = (scene.get("transition_out") or {}).get("type", "cut")
         if transition not in {"cut", "none", ""}:
             warnings.append(f"场景 {scene.get('id')} 转场 {transition} 尚未完整映射")
-    if clips:
-        main_tracks = []
-        for clip in clips:
-            clip_attrs = clip["attrs"]
-            track_id = _safe_id(f"track-main-{clip['id']}", "track")
-            scene_id = str(clip_attrs.get("data-vd-scene-id") or "")
-            layer_index = str(clip_attrs.get("data-vd-layer-index") or "0")
-            track_attrs = {
-                "id": track_id,
-                "data-label": f"主画面 · {scene_id} · 图层 {int(layer_index) + 1}",
-                "data-vd-role": "scene-layer",
-                "data-vd-scene-id": scene_id,
-                "data-vd-layer-index": layer_index,
-            }
-            layer_meta = json.loads(clip_attrs.get("data-vd-layer-meta") or "{}")
-            if layer_meta.get("locked"):
-                track_attrs["locked"] = ""
-            main_tracks.append({"id": track_id, "attrs": track_attrs, "clips": [clip]})
-        # CompositionIR allows overlapping scene layers; each physical section is isolated.
-        tracks = main_tracks + tracks
+    main_tracks = []
+    for clip in clips:
+        clip_attrs = clip["attrs"]
+        track_id = _safe_id(f"track-main-{clip['id']}", "track")
+        scene_id = str(clip_attrs.get("data-vd-scene-id") or "")
+        layer_index = str(clip_attrs.get("data-vd-layer-index") or "0")
+        track_attrs = {
+            "id": track_id,
+            "data-label": f"主画面 · {scene_id} · 图层 {int(layer_index) + 1}",
+            "data-vd-role": "scene-layer",
+            "data-vd-scene-id": scene_id,
+            "data-vd-layer-index": layer_index,
+        }
+        layer_meta = json.loads(clip_attrs.get("data-vd-layer-meta") or "{}")
+        if layer_meta.get("locked"):
+            track_attrs["locked"] = ""
+        main_tracks.append({"id": track_id, "attrs": track_attrs, "clips": [clip]})
+    # The runtime assigns higher z-index to earlier physical tracks. Preserve source order separately.
+    subtitle_tracks = [t for t in tracks if (t.get("attrs") or {}).get("data-vd-role") == "subtitle"]
+    overlay_tracks = [t for t in tracks if (t.get("attrs") or {}).get("data-vd-role") == "overlay"]
+    audio_tracks = [t for t in tracks if (t.get("attrs") or {}).get("data-vd-role") == "audio"]
+    other_tracks = [t for t in tracks if (t.get("attrs") or {}).get("data-vd-role") not in {"subtitle", "overlay", "audio"}]
+    tracks = subtitle_tracks + list(reversed(overlay_tracks)) + list(reversed(main_tracks)) + audio_tracks + other_tracks
     if not tracks:
         raise FilmError("NO_SUPPORTED_CLIPS", "当前 Composition 没有可迁移的视频、图片、字幕或音频片段", 422)
     # Track z-order is not part of CompositionIR yet. Preserve a baseline and reject

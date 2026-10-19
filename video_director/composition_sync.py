@@ -135,7 +135,7 @@ def composition_from_film(document: dict) -> dict:
     if not scenes: _fail("COMPOSITION_METADATA_MISSING","scene_inventory 缺失")
     lanes=copy.deepcopy(meta.get("audio_tracks") or [])
     lane_map={str(x.get("id")):x for x in lanes if isinstance(x,dict) and x.get("id")}
-    lane_state={}; lane_name={}; overlays=[]; audio=[]; overlay_ids=set(); audio_ids=set()
+    lane_state={}; lane_name={}; overlays=[]; audio=[]; overlay_ids=set(); overlay_indexes=set(); audio_ids=set()
     max_end=0.0; subtitle_seen=False
 
     def asset_for(a,cid,allowed):
@@ -191,9 +191,19 @@ def composition_from_film(document: dict) -> dict:
             if any(x in ta for x in ("locked","hidden","muted")): _fail("COMPOSITION_SYNC_UNSUPPORTED",f"叠加轨道 {track.get('id')} 的轨道状态无法映射")
             for clip in clips:
                 a=clip.get("attrs") or {}; tag=clip.get("tag"); cid=str(clip.get("id") or "?")
-                _attrs_allowed(a,{"id","src","at","speed","style","opacity","data-asset-id","data-vd-overlay-id","data-vd-overlay-meta","data-vd-track-id"},cid)
+                _attrs_allowed(a,{"id","src","at","speed","style","opacity","data-asset-id","data-vd-overlay-id","data-vd-overlay-index","data-vd-overlay-meta","data-vd-track-id"},cid)
                 oid=str(a.get("data-vd-overlay-id") or "")
                 if not oid or oid in overlay_ids or oid!=str(ta.get("data-vd-overlay-id") or ""): _fail("COMPOSITION_OVERLAY_BINDING_CONFLICT",f"叠加片段 {cid} 的稳定 ID 无效")
+                raw_index=a.get("data-vd-overlay-index",ta.get("data-vd-overlay-index"))
+                try: overlay_index=int(raw_index) if raw_index is not None else len(overlays)
+                except (TypeError,ValueError): _fail("COMPOSITION_OVERLAY_BINDING_CONFLICT",f"叠加片段 {cid} 的原始顺序索引无效")
+                if overlay_index<0 or overlay_index in overlay_indexes: _fail("COMPOSITION_OVERLAY_BINDING_CONFLICT",f"叠加片段 {cid} 的原始顺序索引重复或为负数")
+                try:
+                    track_overlay_index = int(ta["data-vd-overlay-index"]) if ta.get("data-vd-overlay-index") is not None else overlay_index
+                except (TypeError,ValueError):
+                    _fail("COMPOSITION_OVERLAY_BINDING_CONFLICT",f"叠加轨道 {track.get('id')} 的顺序索引无效")
+                if track_overlay_index != overlay_index: _fail("COMPOSITION_BINDING_CONFLICT",f"叠加片段 {cid} 的轨道与片段顺序索引冲突")
+                overlay_indexes.add(overlay_index)
                 overlay_ids.add(oid); ometa=_obj(a,"data-vd-overlay-meta"); aid,asset,source=asset_for(a,cid,{"video","image"})
                 if tag!=("video" if asset["type"]=="video" else "img"): _fail("COMPOSITION_ASSET_TYPE_MISMATCH",f"叠加片段 {cid} 的标签与素材类型不一致")
                 if tag=="img" and "speed" in a: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"图片叠加片段 {cid} 不支持 speed")
@@ -211,7 +221,7 @@ def composition_from_film(document: dict) -> dict:
                 if ometa.get("transform") is not None or css.get("transform") not in {None,"","none"} or "rotate" in a:
                     if ov.get("presentation_mode")!="full_frame": _fail("COMPOSITION_SYNC_UNSUPPORTED",f"叠加层 {oid} 的 Transform 不适用于当前 presentation_mode")
                     ov["transform"]=_transform(a,stage,cid)
-                overlays.append(ov); max_end=max(max_end,float(ov["start"])+dur)
+                overlays.append((overlay_index,ov)); max_end=max(max_end,float(ov["start"])+dur)
 
         elif role=="audio":
             lane_id=str(ta.get("data-vd-audio-lane-id") or "")
@@ -275,7 +285,7 @@ def composition_from_film(document: dict) -> dict:
     result={"version":meta.get("version",1),"project":project,"style_id":meta.get("style_id"),
         "scenes":[x[1] for x in sorted(scene_list,key=lambda x:x[0])],"audio":audio,"audio_tracks":lanes,
         "watermarks":copy.deepcopy(meta.get("watermarks") or []),"visual_tracks":copy.deepcopy(meta.get("visual_tracks") or []),
-        "visual_overlays":overlays,"subtitle_style":copy.deepcopy(meta.get("subtitle_style")),
+        "visual_overlays":[value for _index,value in sorted(overlays,key=lambda item:item[0])],"subtitle_style":copy.deepcopy(meta.get("subtitle_style")),
         "subtitle_track":copy.deepcopy(meta.get("subtitle_track")) if subtitle_seen else None,
         "origin_template_id":meta.get("origin_template_id"),"origin_template_version":meta.get("origin_template_version"),
         "active_variant_id":meta.get("active_variant_id"),"variants":copy.deepcopy(meta.get("variants") or []),
