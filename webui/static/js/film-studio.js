@@ -303,10 +303,27 @@
   }
   document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);
   document.addEventListener('pointercancel',function(){if(S.drag){S.drag.element.classList.remove('fs-dragging');S.drag=null;}});
+  window.filmStudioSetSideMode=function(mode){
+    S.sideMode=mode==='ai'?'ai':'inspector';
+    var inspector=$('fs-side-inspector'),ai=$('fs-side-ai');
+    var inspectorTab=$('fs-side-tab-inspector'),aiTab=$('fs-side-tab-ai');
+    if(inspector)inspector.hidden=S.sideMode!=='inspector';
+    if(ai)ai.hidden=S.sideMode!=='ai';
+    if(inspectorTab){inspectorTab.classList.toggle('fs-side-tab-active',S.sideMode==='inspector');inspectorTab.setAttribute('aria-selected',String(S.sideMode==='inspector'));}
+    if(aiTab){aiTab.classList.toggle('fs-side-tab-active',S.sideMode==='ai');aiTab.setAttribute('aria-selected',String(S.sideMode==='ai'));}
+    if(S.sideMode==='ai'&&$('fs-chat-input'))$('fs-chat-input').focus();
+  };
   window.filmStudioToggle=function(){
     if(S.open){window.filmStudioClose();return;}
-    S.open=true;$('film-studio-panel').style.display='block';$('film-studio-toggle').textContent='关闭多轨工作台';
-    $('editor-body').style.display='none';$('editor-empty').style.display='none';filmStudioLoad(true);
+    S.open=true;
+    var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
+    panel.classList.add('fs-studio-expanded');panel.style.display='flex';
+    document.documentElement.classList.add('fs-studio-open');
+    if(launcher)launcher.style.display='none';
+    $('film-studio-toggle').textContent='重新打开 Studio';
+    $('editor-body').style.display='none';$('editor-empty').style.display='none';
+    window.filmStudioSetSideMode(S.sideMode);
+    filmStudioLoad(true);
     if(S.poll)clearInterval(S.poll);
     S.poll=setInterval(async function(){
       if(!S.open||S.busy||S.drag)return;
@@ -316,13 +333,16 @@
     },1600);
   };
   window.filmStudioClose=function(){
-    if(S.data&&S.data.exists){
-      showStatus('当前项目已迁移到 film.html，旧 Composition 尚未实现双向同步。为避免旧时间线覆盖或导出过期内容，不能在本项目切回旧编辑器；请先在上方项目选择器切换到未迁移项目。','error');
-      return;
-    }
     S.open=false;if(S.poll){clearInterval(S.poll);S.poll=null;}
-    $('film-studio-panel').style.display='none';$('film-studio-toggle').textContent='打开多轨工作台';
-    if(typeof ED!=='undefined'&&ED.pid)$('editor-body').style.display='';else $('editor-empty').style.display='';
+    var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
+    if(panel){panel.classList.remove('fs-studio-expanded');panel.style.display='none';}
+    document.documentElement.classList.remove('fs-studio-open');
+    if(launcher)launcher.style.display='flex';
+    $('film-studio-toggle').textContent='重新打开 Studio';
+    // Exiting the Studio never resumes the old CompositionIR editor for an active film.html project.
+    var migrated=!!(S.data&&S.data.exists);
+    $('editor-body').style.display=migrated?'none':((typeof ED!=='undefined'&&ED.pid)?'':'none');
+    $('editor-empty').style.display=migrated?'none':((typeof ED!=='undefined'&&ED.pid)?'none':'');
   };
   window.filmStudioLoad=filmStudioLoad;window.filmStudioInitialize=filmStudioInitialize;
   window.filmStudioSelectClip=function(id){S.selectedId=id;var c=findClip(id);if(c)S.playhead=c.at;render();};
@@ -466,6 +486,16 @@
       e.preventDefault();window.filmStudioRedo();
     }else if(e.key==='Delete'||e.key==='Backspace'){
       e.preventDefault();window.filmStudioRemove();
+    }else if(e.code==='Space'){
+      e.preventDefault();window.filmStudioTogglePlayback();
+    }else if(e.key==='ArrowLeft'){
+      e.preventDefault();window.filmStudioNudge(e.shiftKey?-10:-1);
+    }else if(e.key==='ArrowRight'){
+      e.preventDefault();window.filmStudioNudge(e.shiftKey?10:1);
+    }else if(e.key==='Home'){
+      e.preventDefault();window.filmStudioSeek(0);
+    }else if(e.key==='End'){
+      e.preventDefault();window.filmStudioSeek(S.duration);
     }
   });
   var dock=$('fs-workspace-dock')||document.querySelector('.fs-workspace');
@@ -553,6 +583,8 @@
     'zoom-out': () => window.filmStudioZoom(-1),
     'zoom-in': () => window.filmStudioZoom(1),
     'apply-inspector': () => window.filmStudioSaveInspector(),
+    'show-inspector': () => window.filmStudioSetSideMode('inspector'),
+    'show-ai': () => window.filmStudioSetSideMode('ai'),
     render: () => window.filmStudioRender(),
     ask: () => window.filmStudioAsk(),
   };

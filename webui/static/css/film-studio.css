@@ -125,3 +125,53 @@
 
 .fs-render-result{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:6px 0;padding:8px 10px;border:1px solid #345e59;background:#172522;border-radius:5px;color:#ddd;font-size:11px}
 .fs-render-result[hidden]{display:none}
+
+
+/* Full-window Studio: the editor is a workspace, not an embedded demo panel. */
+html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
+.film-studio-panel.fs-studio-expanded{
+  position:fixed;inset:0;z-index:5000;box-sizing:border-box;width:100vw;height:100vh;height:100dvh;
+  display:flex!important;flex-direction:column;gap:6px;margin:0;padding:6px;border:0;border-radius:0;
+  min-height:0;overflow:hidden;background:var(--dock-shell,#111);color:#e7e7e7;
+}
+.film-studio-panel.fs-studio-expanded .fs-topbar{flex:0 0 auto}
+.film-studio-panel.fs-studio-expanded>.fs-alert{flex:0 0 auto;max-height:72px;overflow:auto}
+.film-studio-panel.fs-studio-expanded .fs-workspace{
+  flex:1 1 auto;min-height:180px;max-height:none;overflow:hidden;
+  grid-template-columns:minmax(170px,var(--fs-left,22%)) 6px minmax(280px,1fr) 6px minmax(220px,var(--fs-right,24%));
+}
+.film-studio-panel.fs-studio-expanded .fs-assets-pane,
+.film-studio-panel.fs-studio-expanded .fs-inspector-pane{min-height:0;max-height:none;overflow:hidden;display:flex;flex-direction:column}
+.film-studio-panel.fs-studio-expanded .fs-assets-list,
+.film-studio-panel.fs-studio-expanded #fs-side-inspector,
+.film-studio-panel.fs-studio-expanded #fs-side-ai{min-height:0;flex:1 1 auto;overflow:auto}
+.film-studio-panel.fs-studio-expanded .fs-monitor-pane{min-height:0}
+.film-studio-panel.fs-studio-expanded .fs-monitor-stage{aspect-ratio:auto;min-height:0;flex:1 1 auto}
+.film-studio-panel.fs-studio-expanded .fs-timeline-pane{
+  display:flex;flex-direction:column;flex:0 0 min(35vh,420px);min-height:200px;max-height:45vh;
+  margin-top:0;
+}
+.film-studio-panel.fs-studio-expanded .fs-timeline-scroll{flex:1 1 auto;min-height:0;max-height:none}
+.film-studio-panel.fs-studio-expanded .fs-timeline{min-height:100%;height:max-content}
+.film-studio-panel.fs-studio-expanded .fs-inspector-description{flex:0 0 auto}
+.film-studio-panel.fs-studio-expanded .fs-chat-log{max-height:none;min-height:120px;flex:1 1 auto}
+.fs-side-tabs{display:flex;gap:4px;flex:0 0 auto;padding:0 0 8px;border-bottom:1px solid #303030;margin-bottom:6px}
+.fs-side-tab{border:1px solid #343434;background:#202020;color:#aaa;border-radius:5px;padding:6px 10px;font-size:11px;cursor:pointer}
+.fs-side-tab:hover{border-color:#555;color:#eee}
+.fs-side-tab-active{background:#203b38;border-color:#39877f;color:#e6fffb}
+.fs-side-view[hidden]{display:none!important}
+.fs-side-ai{display:flex;flex-direction:column;gap:8px}
+.fs-side-ai .fs-chat-input-row{flex:0 0 auto}
+.fs-side-ai .fs-chat-log{overflow:auto}
+.fs-pane-divider:after{content:"";position:absolute;inset:-4px;z-index:12;background:transparent}
+@media(max-height:760px){
+  .film-studio-panel.fs-studio-expanded .fs-timeline-pane{flex-basis:32vh;min-height:160px}
+  .film-studio-panel.fs-studio-expanded .fs-workspace{min-height:150px}
+}
+@media(max-width:1080px){
+  .film-studio-panel.fs-studio-expanded .fs-workspace{grid-template-columns:minmax(150px,25%) minmax(0,1fr)}
+  .film-studio-panel.fs-studio-expanded .fs-pane-divider{display:none}
+  .film-studio-panel.fs-studio-expanded .fs-assets-pane{grid-column:1}
+  .film-studio-panel.fs-studio-expanded .fs-monitor-pane{grid-column:2}
+  .film-studio-panel.fs-studio-expanded .fs-inspector-pane{grid-column:1/-1;display:flex;flex:0 0 190px;min-height:120px}
+}

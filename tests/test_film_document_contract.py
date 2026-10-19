@@ -152,6 +152,25 @@ def test_api_ui_routes_are_wired():
     assert "/static/css/film-studio.css" in index
 
 
+def test_film_studio_is_fullscreen_and_ai_dock_shares_inspector_column():
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    styles = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
+
+    assert 'id="fs-workspace-dock"' in index
+    assert 'id="fs-side-inspector"' in index
+    assert 'id="fs-side-ai"' in index
+    assert 'data-film-action="show-ai"' in index
+    assert 'data-film-action="show-inspector"' in index
+    assert "fs-studio-expanded" in script
+    assert "filmStudioSetSideMode" in script
+    assert "position:fixed;inset:0" in styles
+    assert "fs-timeline-pane" in styles
+    # Exiting full-screen must not enable the obsolete CompositionIR editor for film.html projects.
+    assert "var migrated=!!(S.data&&S.data.exists)" in script
+
+
 def test_migration_warns_and_never_overwrites_existing_film():
     root=Path(__file__).resolve().parents[1]
     server=(root/"webui"/"server.py").read_text(encoding="utf-8")
