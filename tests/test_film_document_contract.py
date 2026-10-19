@@ -832,6 +832,37 @@ def test_slip_changes_source_range_without_changing_timeline_position_or_duratio
     assert operations == [{"op": "slip", "clip": "clip-a", "delta_source": "1.25"}]
 
 
+def test_slip_write_path_probes_actual_media_duration(monkeypatch):
+    from video_director import prober
+
+    doc = fd.parse_film(SAMPLE)
+    changed, operations = fd.apply_ops(doc, [{"op": "slip", "clip": "clip-a", "delta_source": 1.25}])
+    monkeypatch.setattr(fd, "media_path_for_src", lambda project_id, src: Path("validated-media.mp4"))
+    monkeypatch.setattr(prober, "probe_media", lambda path: prober.ProbeResult(
+        duration=12.5, has_video_stream=True, has_audio_stream=True,
+    ))
+    with pytest.raises(fd.FilmError, match="超出素材时长"):
+        fd._validate_slip_source_bounds("project", changed, operations)
+
+    monkeypatch.setattr(prober, "probe_media", lambda path: prober.ProbeResult(
+        duration=13.5, has_video_stream=True, has_audio_stream=True,
+    ))
+    fd._validate_slip_source_bounds("project", changed, operations)
+
+
+def test_slip_write_path_rejects_unknown_media_duration(monkeypatch):
+    from video_director import prober
+
+    doc = fd.parse_film(SAMPLE)
+    changed, operations = fd.apply_ops(doc, [{"op": "slip", "clip": "clip-a", "delta_source": 1.25}])
+    monkeypatch.setattr(fd, "media_path_for_src", lambda project_id, src: Path("validated-media.mp4"))
+    monkeypatch.setattr(prober, "probe_media", lambda path: prober.ProbeResult(
+        duration=None, has_video_stream=True, has_audio_stream=True,
+    ))
+    with pytest.raises(fd.FilmError, match="无法确认.*真实素材时长"):
+        fd._validate_slip_source_bounds("project", changed, operations)
+
+
 def test_slip_rejects_negative_source_in_and_locked_tracks():
     doc = fd.parse_film(SAMPLE)
     with pytest.raises(fd.FilmError, match="源入点不能小于零"):

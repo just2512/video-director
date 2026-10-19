@@ -65,6 +65,10 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Studio Inspector edits both durations as one atomic field operation. Browser preview applies the same clip-relative multiplier to visual opacity and audio gain; MP4 export uses FFmpeg `afade` after source trim and speed processing.
 - This remains a two-sided linear fade rather than a general opacity keyframe/Bezier transition system.
 
+## Slip source-bound validation
+
+- A slip changes only the source `#t=in,out` range, keeping the timeline start and duration fixed. Before the edit is written, the server probes the actual media file, verifies the expected stream and rejects an unknown or out-of-bounds source duration. This prevents a syntactically valid slip from leaving a clip that fails only at export.
+
 ## Roll trim
 
 - Ctrl-drag a trim handle at an adjacent same-source cut to slide the edit point without changing combined duration.

@@ -1702,6 +1702,54 @@ def _preserve_film_text(original_text: str, old_doc: dict, new_doc: dict) -> str
 
 
 
+def _validate_slip_source_bounds(project_id: str, doc: dict, normalized_ops: list[dict]) -> None:
+    """Reject slip edits that move a source range beyond the actual media duration."""
+    slip_ids = {
+        str(op.get("clip") or "")
+        for op in normalized_ops
+        if isinstance(op, dict) and op.get("op") == "slip"
+    }
+    if not slip_ids:
+        return
+
+    from video_director import prober
+
+    clips = {
+        clip["id"]: clip
+        for track in doc.get("tracks", [])
+        for clip in track.get("clips", [])
+    }
+    for clip_id in sorted(slip_ids):
+        clip = clips.get(clip_id)
+        if clip is None:
+            # A compound edit may subsequently remove the slipped clip; no invalid
+            # source range remains in the committed document in that case.
+            continue
+        if clip["tag"] not in {"video", "audio"}:
+            raise FilmError("SLIP_MEDIA_UNSUPPORTED", f"片段 {clip_id} 不支持源区间滑移", 422)
+        src = str((clip.get("attrs") or {}).get("src") or "")
+        source_in, source_out = _source_range(src)
+        if source_out is None or source_in < 0:
+            raise FilmError("SOURCE_RANGE_REQUIRED", f"滑移后的片段 {clip_id} 缺少合法源时间区间", 422)
+        path = media_path_for_src(project_id, src)
+        try:
+            probe = prober.probe_media(str(path))
+        except prober.ProbeError as exc:
+            raise FilmError("SOURCE_PROBE_FAILED", f"无法验证片段 {clip_id} 的素材时长：{exc}", 422) from None
+        if clip["tag"] == "video" and not probe.has_video_stream:
+            raise FilmError("VIDEO_STREAM_MISSING", f"视频片段 {clip_id} 指向的素材没有视频流", 422)
+        if clip["tag"] == "audio" and not probe.has_audio_stream:
+            raise FilmError("AUDIO_STREAM_MISSING", f"音频片段 {clip_id} 指向的素材没有音频流", 422)
+        if probe.duration is None or not math.isfinite(float(probe.duration)) or float(probe.duration) <= 0:
+            raise FilmError("SOURCE_DURATION_UNKNOWN", f"无法确认片段 {clip_id} 的真实素材时长，已拒绝滑移", 422)
+        if source_out > float(probe.duration) + 0.05:
+            raise FilmError(
+                "SOURCE_RANGE_OUT_OF_BOUNDS",
+                f"滑移后片段 {clip_id} 的源出点 {source_out:.3f}s 超出素材时长 {float(probe.duration):.3f}s",
+                422,
+            )
+
+
 def edit_project_film(project_id: str, base: str | None, ops: list[dict], *, require_base: bool = False) -> dict:
     pid = validate_project_id(project_id)
     with project_lock(pid):
@@ -1712,6 +1760,7 @@ def edit_project_film(project_id: str, base: str | None, ops: list[dict], *, req
             raise FilmError("REVISION_CONFLICT", "影片文档已变化；该 AI 提案已过期，请重新生成提案。", 409)
         original_doc = current["doc"]
         doc, normalized = apply_ops(original_doc, ops)
+        _validate_slip_source_bounds(pid, doc, normalized)
         updated = _preserve_film_text(current["text"], original_doc, doc)
         if updated is None:
             updated = serialize_film(doc)
