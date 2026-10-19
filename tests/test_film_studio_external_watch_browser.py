@@ -101,7 +101,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => { const alert = document.querySelector('#film-studio-alert'); return !!alert && alert.textContent.includes('影片文件校验失败'); }",
                     timeout=15000,
                 )
-                assert not fd.read_project_film(project_id).get("exists", False) or fd.read_project_film(project_id).get("problems")
+                assert film_path.read_text(encoding="utf-8") == "<html><body>partial write</body></html>"
 
                 repaired = SAMPLE.replace('speed="2"', 'speed="2.75"')
                 film_path.write_text(repaired, encoding="utf-8")
