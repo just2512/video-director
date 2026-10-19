@@ -210,15 +210,15 @@ def build_ass_bilingual(
     for cue in cues:
         start = float(cue.get("start", 0))
         end = float(cue.get("end", start))
-        original = str(cue.get("text") or "").replace("\\r", " ").replace("\\n", " ").strip()
-        translation = str(cue.get("translation") or "").replace("\\r", " ").replace("\\n", " ").strip()
+        original = str(cue.get("text") or "").replace("\r", " ").replace("\n", " ").strip()
+        translation = str(cue.get("translation") or "").replace("\r", " ").replace("\n", " ").strip()
         if not original or not translation or end <= start:
             continue
-        display = f"{original}\\\\N{translation}"
+        display = f"{original}\\N{translation}"
         events.append(
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Sub,,0,0,0,,{display}"
         )
-    return header + "\\n".join(events) + "\\n"
+    return header + "\n".join(events) + "\n"
 
 
 #: 卡拉OK默认样式（ASS Style 行参数；与普通字幕的烧录位置保持一致：底部安全区）

@@ -213,7 +213,7 @@ def test_bilingual_subtitle_builder_emits_both_languages():
         "start": 0.0, "end": 1.5, "text": "你好。",
         "translation": "Hello.",
     }])
-    assert "你好。\\\\NHello." in ass
+    assert "你好。\\NHello." in ass
 
 
 def test_numeric_zero_is_not_replaced_by_style_defaults():
@@ -229,3 +229,30 @@ def test_hard_cut_does_not_create_transition_proposals():
     proposals = _plan_transition_proposals(["S1", "S2", "S3"], "fade", 1)
     assert len(proposals) == 1
     assert proposals[0]["type"] == "fade"
+
+
+
+def test_tool_subtitle_bilingual_calls_model_and_writes_translated_cues(isolated_storage, monkeypatch):
+    from types import SimpleNamespace
+    from video_director import llm_provider
+
+    class FakeTranslationModel:
+        def generate(self, prompt, system=None):
+            assert "你好。" in prompt
+            assert system and "translate" in system.lower()
+            return json.dumps([{"id": "s1-C01", "translation": "Hello."}])
+
+    monkeypatch.setattr(llm_provider, "get_llm", lambda: FakeTranslationModel())
+    state = {
+        "project_id": "subtitle-bilingual-contract",
+        "style_contract": SimpleNamespace(subtitle_font_size=56),
+        "narration_scenes": [{"id": "s1", "text": "你好。", "start": 0.0, "duration": 1.5}],
+        "word_timeline": [],
+    }
+    result = agent._tool_subtitle(
+        {"subtitle_mode": "bilingual", "width": 1080, "height": 1920}, state
+    )
+    assert result["ok"] is True, result
+    text = Path(state["subtitle_file"]).read_text(encoding="utf-8")
+    assert "你好。\\NHello." in text
+    assert state["subtitle_entries"]
