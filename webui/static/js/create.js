@@ -40,7 +40,7 @@ const CF_EXPLICIT_CONTROL_FIELDS = {
 function cfMarkExplicitControl(event) {
   const target = event.target;
   if (!target || !target.id || !CF_EXPLICIT_CONTROL_FIELDS[target.id]) return;
-  if (!document.getElementById('cf-panel') || CF.state !== 'editing') return;
+  if (CF.state !== 'editing') return;
   CF.explicitFields.add(CF_EXPLICIT_CONTROL_FIELDS[target.id]);
 }
 document.addEventListener('input', cfMarkExplicitControl, true);
