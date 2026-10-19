@@ -391,6 +391,25 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             _ensure_unlocked(track)
             track["clips"].remove(clip)
             normalized.append({"op": "remove", "clip": clip["id"]})
+        elif kind == "ripple_remove":
+            track, clip = _find_clip(out, str(op.get("clip") or ""))
+            _ensure_unlocked(track)
+            start = _number(clip["attrs"].get("at", 0), "at", 0)
+            duration = clip_duration(clip)
+            if duration is None or duration <= 0:
+                raise FilmError("SOURCE_RANGE_REQUIRED", f"片段 {clip['id']} 缺少确定的源区间，不能安全波纹删除")
+            end = start + duration
+            track["clips"].remove(clip)
+            shifted_ids = []
+            for following in track["clips"]:
+                following_at = _number(following["attrs"].get("at", 0), "at", 0)
+                if following_at >= end - 0.000001:
+                    following["attrs"]["at"] = _fmt(max(0.0, following_at - duration))
+                    shifted_ids.append(following["id"])
+            normalized.append({
+                "op": "ripple_remove", "clip": clip["id"], "track_id": track["id"],
+                "start": _fmt(start), "duration": _fmt(duration), "shifted_clip_ids": shifted_ids,
+            })
         elif kind == "insert":
             track = _find_track(out, str(op.get("track_id") or ""))
             _ensure_unlocked(track)
@@ -730,7 +749,7 @@ def _clip_rebase_conflicts(base_doc: dict, current_doc: dict, ops: list[dict]) -
         clip_id = str(op.get("clip") or "")
         track_id = str(op.get("track_id") or "")
 
-        if kind in {"set", "move", "trim", "split", "remove"}:
+        if kind in {"set", "move", "trim", "split", "remove", "ripple_remove"}:
             if clip_id in created_clips:
                 continue
             base_track, base_clip = _clip_location(base_doc, clip_id)
@@ -768,6 +787,9 @@ def _clip_rebase_conflicts(base_doc: dict, current_doc: dict, ops: list[dict]) -
             elif kind == "remove":
                 if clip_fingerprint(base_track, base_clip) != clip_fingerprint(now_track, now_clip):
                     conflict_once(f"第 {index} 项：片段 {clip_id} 已变化，拒绝删除外部修改")
+            elif kind == "ripple_remove":
+                if track_fingerprint(base_track) != track_fingerprint(now_track):
+                    conflict_once(f"第 {index} 项：轨道 {base_track.get('id')} 已变化，拒绝基于旧轨道状态执行波纹删除")
         elif kind == "insert":
             insert_clip = op.get("clip") if isinstance(op.get("clip"), dict) else {}
             new_id = str(insert_clip.get("id") or "")
@@ -1226,7 +1248,9 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
-        "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
+        "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}（删除后保留时间空隙）；"
+        "可用 ripple_remove 操作: {op:'ripple_remove',clip:明确要删除的片段ID}（只删除当前轨道的时间区间，并将本轨后续片段前移）；"
+        "只有用户明确说波纹删除、删除并闭合空隙、或将本轨后续片段前移时才可使用 ripple_remove。"
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
@@ -1258,7 +1282,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_remove"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
         if op["op"] == "trim" and (op.get("edge") not in {"start", "end"} or
                                    (op.get("edge") == "start" and "at" not in op) or
@@ -1266,6 +1290,11 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
             raise FilmError("LLM_INVALID_PLAN", "AI 修剪操作缺少有效 edge/时间值", 422)
         if op["op"] == "set" and op.get("field") not in AI_SETTABLE_FIELDS:
             raise FilmError("LLM_INVALID_PLAN", f"AI 使用了不允许的片段字段：{op.get('field')}", 422)
+        if op.get("op") == "ripple_remove" and not any(
+            phrase in message.lower()
+            for phrase in ("波纹删除", "删除并闭合", "闭合空隙", "后续片段前移", "ripple delete", "ripple_remove")
+        ):
+            raise FilmError("LLM_INVALID_PLAN", "波纹删除会移动同轨后续片段；只有用户明确要求闭合空隙或波纹删除时才允许执行", 422)
         if op.get("clip") not in valid_ids:
             raise FilmError("LLM_INVALID_PLAN", f"AI 使用了未知片段 ID：{op.get('clip')}", 422)
         if op["op"] == "move" and op.get("track_id") not in valid_tracks:

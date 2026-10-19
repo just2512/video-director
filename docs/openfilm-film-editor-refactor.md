@@ -11,7 +11,7 @@ This is the first integrated vertical slice, not a claim of complete OpenFilm or
 
 ## Current document and operations
 
-The document is parsed into stage, tracks and clips. Editing supports set, move, split, insert, remove, plus locked/hidden/muted track flags. Operations are validated as a batch, atomically written, and stored for revision-checked undo/redo. A stale base is rebased on the latest valid document by stable IDs; missing target IDs fail rather than redirect an edit. Broken documents are not overwritten.
+The document is parsed into stage, tracks and clips. Editing supports set, move, split, insert, remove, ripple_remove (same-track downstream shift), plus locked/hidden/muted track flags. Operations are validated as a batch, atomically written, and stored for revision-checked undo/redo. Every edit requires a base revision. A stale request may rebase only when the touched fields/objects are unchanged in the current document; same-field or structural conflicts return 409 without writing. Missing target IDs fail rather than redirect an edit. Broken documents are not overwritten.
 
 ## Migration behavior
 
@@ -32,7 +32,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 ## Current boundaries
 
-- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.
+- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete/ripple-delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/remove/ripple_remove) and lightweight revision polling with a full-document fetch only after the revision changes. Ctrl/Command+wheel zooms around the pointer; clip dragging uses requestAnimationFrame edge auto-scroll. Dock separators persist panel widths.
 - The MP4 adapter samples the same browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages acknowledge their requested time; arbitrary iframe pages are rejected until they implement the same contract.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.

@@ -248,6 +248,9 @@ def test_api_ui_routes_are_wired():
     assert "function dragAutoScrollTick()" in js
     assert "requestAnimationFrame(dragAutoScrollTick)" in js
     assert "stopDragAutoScroll()" in js
+    assert "ripple_remove" in js
+    assert 'data-film-action="ripple-remove"' in index
+    assert '"ripple_remove"' in module
     assert "/static/css/film-studio.css" in index
 
 
@@ -347,6 +350,51 @@ def test_ai_planner_contract_includes_trim_and_persisted_revision_guards():
     assert "fs-pane-divider" in ui
 
 
+
+
+
+
+def test_ripple_remove_shifts_only_following_clips_on_same_track():
+    doc = fd.parse_film(SAMPLE)
+    edited, ops = fd.apply_ops(doc, [{"op": "ripple_remove", "clip": "clip-a"}])
+    video = next(track for track in edited["tracks"] if track["id"] == "video-main")
+    audio = next(track for track in edited["tracks"] if track["id"] == "audio-bed")
+    assert [clip["id"] for clip in video["clips"]] == ["clip-b"]
+    assert video["clips"][0]["attrs"]["at"] == "0"
+    assert audio["clips"][0]["attrs"]["at"] == "0"
+    assert ops[0]["track_id"] == "video-main"
+    assert ops[0]["shifted_clip_ids"] == ["clip-b"]
+    assert fd.clip_duration(video["clips"][0]) == 5
+
+
+def test_ripple_remove_respects_locked_tracks_and_requires_known_duration():
+    doc = fd.parse_film(SAMPLE)
+    doc["tracks"][0]["attrs"]["locked"] = ""
+    with pytest.raises(fd.FilmError, match="已锁定"):
+        fd.apply_ops(doc, [{"op": "ripple_remove", "clip": "clip-a"}])
+
+    unknown_duration = '''<!doctype html><html><head><meta charset="utf-8"></head><body>
+    <section id="track-a"><video id="unknown" src="../assets/a.mp4" at="0"></video></section>
+    </body></html>'''
+    doc = fd.parse_film(unknown_duration)
+    with pytest.raises(fd.FilmError, match="源区间"):
+        fd.apply_ops(doc, [{"op": "ripple_remove", "clip": "unknown"}])
+
+
+def test_ai_planner_requires_explicit_ripple_delete_intent():
+    class RippleLLM:
+        def generate(self, prompt):
+            assert "ripple_remove" in prompt
+            return json.dumps({
+                "operations": [{"op": "ripple_remove", "clip": "clip-b"}],
+                "summary": "波纹删除第二段",
+            }, ensure_ascii=False)
+
+    state = {"exists": True, "doc": fd.parse_film(SAMPLE), "rev": "test-revision"}
+    allowed = fd.plan_film_command(RippleLLM(), state, "对第二段波纹删除")
+    assert allowed == [{"op": "ripple_remove", "clip": "clip-b"}]
+    with pytest.raises(fd.FilmError, match="波纹删除会移动同轨后续片段"):
+        fd.plan_film_command(RippleLLM(), state, "删除第二段")
 
 
 def test_ai_planner_gets_stable_timeline_ordinals_can_remove_and_preserves_summary():

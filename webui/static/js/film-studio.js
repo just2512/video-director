@@ -532,7 +532,17 @@
     if(!ops.length){showStatus('属性没有变化。');return;}await filmStudioCommit(ops);
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
-  window.filmStudioRemove=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除片段 '+clip.id+'？此操作可撤销。'))return;await filmStudioCommit([{op:'remove',clip:clip.id}]);S.selectedId='';render();};
+  window.filmStudioRemove=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除片段 '+clip.id+'？此操作会保留时间空隙，可撤销。'))return;await filmStudioCommit([{op:'remove',clip:clip.id}]);S.selectedId='';render();};
+  window.filmStudioRippleRemove=async function(){
+    var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择波纹删除的片段。','error');return;}
+    if(clip.duration==null||!Number.isFinite(Number(clip.duration))||Number(clip.duration)<=0){showStatus('当前片段没有可靠的源区间，不能安全波纹删除。','error');return;}
+    var track=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
+    var trackName=track&&track.attrs&&track.attrs['data-label']||clip.track_id||'当前轨道';
+    if(!window.confirm('波纹删除「'+(clip.attrs.title||clip.id)+'」？只将「'+trackName+'」轨道中它后面的片段前移 '+Number(clip.duration).toFixed(3)+' 秒；其它轨道不移动。此操作可撤销。'))return;
+    await filmStudioCommit([{op:'ripple_remove',clip:clip.id}]);
+    if(!findClip(S.selectedId))S.selectedId='';
+    render();
+  };
   window.filmStudioUndo=function(){filmStudioHistory('undo');};window.filmStudioRedo=function(){filmStudioHistory('redo');};
   window.filmStudioRender=async function(){
     if(!S.projectId||!S.data||!S.data.exists){showStatus('请先载入或初始化 film.html。','error');return;}
@@ -695,6 +705,7 @@
     'frame-next': () => window.filmStudioNudge(1),
     split: () => window.filmStudioSplit(),
     remove: () => window.filmStudioRemove(),
+    'ripple-remove': () => window.filmStudioRippleRemove(),
     'add-track': () => window.filmStudioAddTrack(),
     'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),
     'zoom-out': () => window.filmStudioZoom(-1),
