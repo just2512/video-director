@@ -1,7 +1,7 @@
 /* Multi-track browser preview from the authoritative film.html projection. */
 (function(){
   'use strict';
-  var state={data:null,time:0,playing:false,originTime:0,originClock:0,lastParentUpdate:0,rev:'',tracks:[],duration:0,raf:0};
+  var state={data:null,time:0,playing:false,renderMode:false,originTime:0,originClock:0,lastParentUpdate:0,rev:'',tracks:[],duration:0,raf:0};
   var stage=document.getElementById('stage'),viewport=document.getElementById('viewport'),notice=document.getElementById('notice');
   var byId=Object.create(null);
   function finite(v,fallback){var n=Number(v);return Number.isFinite(n)?n:fallback;}
@@ -39,7 +39,9 @@
     else if(clip.tag==='img')el=document.createElement('img');
     else if(clip.tag==='iframe')el=document.createElement('iframe');
     else return null;
-    el.className='fs-runtime-media';el.setAttribute('data-clip-id',clip.id);
+    el.className='fs-runtime-media';el.id=String(clip.id||'');el.setAttribute('data-clip-id',clip.id);
+    var clipClasses=String(clip.attrs&&clip.attrs.class||'').split(/\s+/).filter(function(name){return /^[A-Za-z_][A-Za-z0-9_-]{0,79}$/.test(name);});
+    if(clipClasses.length)el.classList.add.apply(el.classList,clipClasses);
     if(clip.tag==='video'||clip.tag==='audio'){
       el.preload='auto';el.playsInline=true;
       el.volume=clamp(finite(clip.attrs&&clip.attrs.volume,1),0,1);
@@ -88,9 +90,16 @@
     var time=state.time,playing=state.playing;
     pauseAll();stage.innerHTML='';byId=Object.create(null);
     state.data=data;state.rev=rev||data.rev||'';state.duration=Math.max(0,finite(data.duration,0));state.tracks=[];
+    var oldStyle=document.getElementById('film-document-style');
+    if(oldStyle)oldStyle.remove();
+    if(data.render_css){
+      var filmStyle=document.createElement('style');filmStyle.id='film-document-style';filmStyle.textContent=String(data.render_css);document.head.appendChild(filmStyle);
+    }
     var tracks=data.tracks;
     tracks.forEach(function(track,index){
-      var lane=document.createElement('div');lane.className='fs-runtime-track';lane.setAttribute('data-track-id',track.id);
+      var lane=document.createElement('div');lane.className='fs-runtime-track';lane.id=String(track.id||'');lane.setAttribute('data-track-id',track.id);
+      var trackClasses=String(track.attrs&&track.attrs.class||'').split(/\s+/).filter(function(name){return /^[A-Za-z_][A-Za-z0-9_-]{0,79}$/.test(name);});
+      if(trackClasses.length)lane.classList.add.apply(lane.classList,trackClasses);
       lane.style.zIndex=String(tracks.length-index);
       if(has(track.attrs,'hidden'))lane.style.display='none';
       var entries=[];
@@ -120,7 +129,7 @@
     }
     if(tag==='img'){entry.active=true;return;}
     var desired=mediaTime(clip,t),speed=clamp(finite(attrs.speed,1),0.25,4);
-    el.playbackRate=speed;el.volume=clamp(finite(attrs.volume,1),0,1);el.muted=muted;
+    el.playbackRate=speed;el.volume=clamp(finite(attrs.volume,1),0,1);el.muted=state.renderMode||muted;
     var drift=Math.abs(finite(el.currentTime,0)-desired);
     if(forceSeek||!entry.active||drift>(state.playing?0.45:0.04)){try{el.currentTime=desired;}catch(_){}}
     if(state.playing){
@@ -135,7 +144,7 @@
     state.tracks.forEach(function(track){
       track.clips.forEach(function(entry){
         var clip=entry.clip,at=finite(clip.at,0),end=clip.end;
-        var active=at<=state.time&&(end==null||state.time<end||Math.abs(state.time-end)<0.0001);
+        var active=at<=state.time&&(end==null||state.time<end||(!state.renderMode&&Math.abs(state.time-end)<0.0001));
         syncMedia(entry,state.time,active,!!forceSeek);
       });
     });
@@ -153,6 +162,71 @@
     if(state.time>=state.duration)state.time=0;
     state.playing=true;state.originTime=state.time;state.originClock=performance.now();
     renderTime(state.time,true);state.raf=requestAnimationFrame(frame);
+  }
+  function waitForEvent(element,eventName,timeoutMs){
+    return new Promise(function(resolve){
+      var done=false;
+      function finish(){if(done)return;done=true;element.removeEventListener(eventName,finish);resolve();}
+      element.addEventListener(eventName,finish,{once:true});
+      setTimeout(finish,timeoutMs||8000);
+    });
+  }
+  function nextFrame(){return new Promise(function(resolve){requestAnimationFrame(function(){resolve();});});}
+  async function prepareFrameEntry(entry,t){
+    var clip=entry.clip,el=entry.el,tag=clip.tag;
+    var at=finite(clip.at,0),end=clip.end;
+    if(!(at<=t&&(end==null||t<end||Math.abs(t-end)<0.0001)))return;
+    if(tag==='video'||tag==='audio'){
+      el.muted=true;
+      try{el.pause();}catch(_){}
+      if(el.readyState===0)await waitForEvent(el,'loadedmetadata',12000);
+      if(el.readyState===0)throw new Error('素材元数据加载失败：'+clip.id);
+      var desired=mediaTime(clip,t);
+      if(Number.isFinite(el.duration)&&el.duration>0)desired=Math.min(desired,Math.max(0,el.duration-0.001));
+      if(Math.abs(finite(el.currentTime,0)-desired)>0.015){
+        var seeked=waitForEvent(el,'seeked',12000);
+        try{el.currentTime=desired;}catch(error){throw new Error('无法定位素材时间：'+clip.id+' '+error.message);}
+        await seeked;
+      }
+      if(tag==='video'&&typeof el.requestVideoFrameCallback==='function'){
+        await Promise.race([new Promise(function(resolve){el.requestVideoFrameCallback(function(){resolve();});}),new Promise(function(resolve){setTimeout(resolve,12000);})]);
+      }
+    }else if(tag==='img'){
+      if(!el.complete)await waitForEvent(el,'load',12000);
+      if(typeof el.decode==='function')try{await el.decode();}catch(_){}
+    }else if(tag==='iframe'){
+      var localTime=mediaTime(clip,t);
+      try{
+        if(el.contentWindow)el.contentWindow.postMessage({type:'film-time',time:localTime},'*');
+      }catch(_){}
+      if(String(clip.attrs&&clip.attrs.src||'').split('#',1)[0].replace(/\\/g,'/').endsWith('scenes/subtitles.html')){
+        await new Promise(function(resolve,reject){
+          var timer=setTimeout(function(){window.removeEventListener('message',onMessage);reject(new Error('字幕页未确认指定帧：'+clip.id));},6000);
+          function onMessage(event){
+            if(event.source!==el.contentWindow||!event.data||event.data.type!=='film-time:ready')return;
+            if(Math.abs(Number(event.data.time)-localTime)>0.0001)return;
+            clearTimeout(timer);window.removeEventListener('message',onMessage);resolve();
+          }
+          window.addEventListener('message',onMessage);
+          el.contentWindow.postMessage({type:'film-time',time:localTime},'*');
+        });
+      }
+    }
+  }
+  async function renderFrame(message){
+    state.renderMode=true;state.playing=false;
+    if(state.raf)cancelAnimationFrame(state.raf);state.raf=0;
+    state.time=clamp(finite(message.time,0),0,state.duration);
+    renderTime(state.time,true);
+    try{
+      var jobs=[];
+      state.tracks.forEach(function(track){track.clips.forEach(function(entry){jobs.push(prepareFrameEntry(entry,state.time));});});
+      await Promise.all(jobs);
+      await nextFrame();await nextFrame();
+      post({type:'film-runtime:frame-ready',frame:message.frame,time:state.time,rev:state.rev});
+    }catch(error){
+      post({type:'film-runtime:frame-ready',frame:message.frame,time:state.time,rev:state.rev,error:String(error&&error.message||error)});
+    }
   }
   function pause(){
     state.playing=false;if(state.raf)cancelAnimationFrame(state.raf);state.raf=0;
@@ -177,6 +251,7 @@
     }
     else if(message.type==='film-runtime:play')play();
     else if(message.type==='film-runtime:pause')pause();
+    else if(message.type==='film-runtime:render-frame')renderFrame(message);
   });
   post({type:'film-runtime:ready'});
 })();

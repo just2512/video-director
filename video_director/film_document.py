@@ -555,7 +555,7 @@ def assert_legacy_composition_access(project_id: str, operation: str = "编辑�
     never cause old CompositionIR writes or exports to resume silently.
     """
     pid = validate_project_id(project_id)
-    if _film_path(pid).is_file():
+    if _film_path(pid).exists():
         verb = str(operation or "编辑或渲染").strip() or "编辑或渲染"
         raise FilmError(
             "FILM_DOCUMENT_AUTHORITATIVE",
@@ -770,9 +770,14 @@ const cues={data};const caption=document.getElementById('caption');
 window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));caption.textContent=active.map(c=>String(c.text||'')).join('\\n');caption.style.display=active.length?'block':'none';}}}};
 window.film.frame(0);
 window.addEventListener('message',function(event){{
-  if(!event.data||event.data.type!=='film-time')return;
+  if(event.source!==parent||!event.data||event.data.type!=='film-time')return;
   const t=Number(event.data.time);
-  if(Number.isFinite(t))window.film.frame(Math.max(0,Math.min(window.film.duration,t)));
+  if(!Number.isFinite(t))return;
+  const current=Math.max(0,Math.min(window.film.duration,t));
+  window.film.frame(current);
+  requestAnimationFrame(function(){{requestAnimationFrame(function(){{
+    parent.postMessage({{type:'film-time:ready',time:current}},'*');
+  }});}});
 }});
 </script></body></html>'''
 
@@ -964,8 +969,14 @@ def film_payload(project_id: str, state: dict) -> dict:
             migration = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             migration = {"warnings": ["film-migration.json 无法读取"]}
+    head_html = doc.get("head_html", "")
+    style_blocks = re.findall(r"<style\b[^>]*>(.*?)</style\s*>", head_html, re.I | re.S)
+    render_css = "\n".join(style_blocks)
+    if re.search(r"@import\b|@keyframes\b|\banimation(?:-name)?\s*:|\btransition\s*:|url\s*\(|https?://|file:|javascript:|expression\s*\(|-moz-binding", render_css, re.I):
+        raise FilmError("UNSAFE_FILM_STYLE", "film.html head CSS 含外部资源、动画或可执行 CSS；请先移除后再载入。", 422)
     return {"ok": True, "exists": True, "project_id": project_id, "rev": state["rev"], "stage": doc["stage"],
-            "tracks": tracks, "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
+            "head_html": head_html, "render_css": render_css, "tracks": tracks,
+            "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
 
 
 def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "", summary_out: dict | None = None) -> list[dict]:

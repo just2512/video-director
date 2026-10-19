@@ -117,11 +117,16 @@
           <button class="fs-btn" type="button" data-film-action="undo">撤销</button>
           <button class="fs-btn" type="button" data-film-action="redo">重做</button>
           <button class="fs-btn" type="button" data-film-action="reload">重新载入</button>
+          <button class="fs-btn fs-primary" type="button" data-film-action="render">导出 MP4</button>
           <button class="fs-btn" type="button" data-film-action="close">返回旧工作台（仅未迁移项目）</button>
         </div>
       </header>
       <div id="film-studio-alert" class="fs-alert" role="status" aria-live="polite">载入项目后显示影片文档。</div>
-      <div class="fs-alert fs-visible" id="fs-render-warning" style="border-left:3px solid #b08b4b">中央监视器按 film.html 播放整条多轨时间线；最终 MP4 导出仍需下一阶段接入同一影片运行时，请勿用旧工作台导出迁移项目。</div>
+      <div class="fs-alert fs-visible" id="fs-render-warning" style="border-left:3px solid #b08b4b">中央监视器和 MP4 导出都读取同一 film.html revision；导出期间如时间线发生变化，成片会标明对应版本。</div>
+      <div class="fs-render-result" id="fs-render-result" hidden>
+        <span id="fs-render-result-text"></span>
+        <a id="fs-render-download" class="fs-btn fs-primary" href="#" target="_blank" rel="noopener">打开 MP4</a>
+      </div>
       <div class="fs-workspace">
         <aside class="fs-pane fs-assets-pane">
           <div class="fs-pane-title">素材 / 片段 <span id="fs-clip-count">0</span></div>

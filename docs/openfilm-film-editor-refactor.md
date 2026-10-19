@@ -21,11 +21,18 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 - Presence of film.html is the migration switch, even if that document is currently malformed. Once present, legacy CompositionIR command writes, direct saves and CompositionIR-based draft/final rendering are rejected with FILM_DOCUMENT_AUTHORITATIVE (HTTP 409 at the WebUI boundary).
 - The new Studio remains editable against film.html; it never silently writes edits back to composition.json. The legacy renderer is deliberately blocked rather than allowed to export an old timeline.
-- This gate prevents state divergence; it does not claim the final MP4 export adapter has been migrated yet.
+- The legacy renderer remains blocked; final MP4 export now has a separate film.html-backed workflow described below.
+
+## Film-backed MP4 export
+
+- The Studio Export MP4 button submits the current film revision to a background WorkflowRun; a revision mismatch returns HTTP 409 before rendering starts.
+- The renderer serves project/shared media through a loopback-only HTTP server, renders each requested timestamp through the same browser runtime, and uses FFmpeg to encode screenshots and mix available video/audio source streams. Source ranges, media duration, deterministic subtitle-page timing, video stream and duration are validated.
+- Dynamic arbitrary iframe HTML is rejected unless it participates in the generated subtitle page's frame-time contract. CSS imports, external URLs, URL functions, animations and transitions are rejected for repeatable offline frame export.
+- Single export is limited to 600 seconds, 18,000 frames and stage edges up to 3840 px. This is a constrained local export adapter, not full feature parity with OpenFilm's injected deterministic runtime or every CSS/transition feature.
 
 ## Current boundaries
 
 - The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.
-- The monitor remains a clip-level monitor rather than the final full-composition renderer. Generated subtitle pages accept time messages, but arbitrary iframe pages do not yet share an injected deterministic clock. Multi-track compositing/export convergence remains work to complete.
+- The MP4 adapter samples the same browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages acknowledge their requested time; arbitrary iframe pages are rejected until they implement the same contract.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.

@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -393,6 +393,57 @@
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
   window.filmStudioRemove=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除片段 '+clip.id+'？此操作可撤销。'))return;await filmStudioCommit([{op:'remove',clip:clip.id}]);S.selectedId='';render();};
   window.filmStudioUndo=function(){filmStudioHistory('undo');};window.filmStudioRedo=function(){filmStudioHistory('redo');};
+  window.filmStudioRender=async function(){
+    if(!S.projectId||!S.data||!S.data.exists){showStatus('请先载入或初始化 film.html。','error');return;}
+    if(S.rendering){showStatus('当前已有导出任务。');return;}
+    S.rendering=true;
+    var pid=S.projectId,revision=S.rev,button=document.querySelector('[data-film-action="render"]');
+    if(button)button.disabled=true;
+    var resultBox=$('fs-render-result'),link=$('fs-render-download');
+    if(resultBox)resultBox.hidden=true;
+    showStatus('正在提交 film.html revision '+revision+' 的 MP4 导出任务……');
+    try{
+      var started=await apiPost('/api/editor/film/render',{project_id:pid,expected_revision:revision,fps:30});
+      if(!started||!started.ok||!started.run_id){
+        showStatus((started&&started.error)||'导出任务启动失败。','error');S.rendering=false;if(button)button.disabled=false;return;
+      }
+      showStatus('导出任务已启动。文档 revision：'+revision+'；渲染进度可从任务状态查看。');
+      var terminal=false,readFailures=0;
+      while(!terminal){
+        await new Promise(function(resolve){setTimeout(resolve,1600);});
+        var run=await apiGet('/api/workflows/'+encodeURIComponent(started.run_id));
+        if(!run){
+          readFailures++;
+          if(readFailures>=8)throw new Error('无法读取导出任务状态；任务可能仍在后台运行，可从任务列表查看。');
+          continue;
+        }
+        readFailures=0;
+        if(run.status==='COMPLETED'){
+          terminal=true;S.rendering=false;if(button)button.disabled=false;
+          var out=run.result||{},path=out.mp4_path||'';
+          if(S.projectId===pid&&path&&link&&resultBox){
+            link.href='/file?path='+encodeURIComponent(path);
+            link.textContent=out.current===false?'打开该版本 MP4（文档已更新）':'打开 MP4';
+            var resultText=$('fs-render-result-text');
+            if(resultText)resultText.textContent=(out.width||'—')+'×'+(out.height||'—')+' · '+(Number(out.duration||0).toFixed(2))+' 秒 · revision '+(out.rendered_revision||revision);
+            resultBox.hidden=false;
+          }
+          if(S.projectId===pid){
+            showStatus(out.current===false
+              ?'MP4 已完成，但导出期间影片文档发生变化。成片对应 revision '+(out.rendered_revision||revision)+'，不是当前 revision。'
+              :'MP4 已完成并通过视频流/时长检查。导出 revision：'+(out.rendered_revision||revision),
+              out.current===false?'':'success');
+          }
+        }else if(run.status==='FAILED'||run.status==='INTERRUPTED'||run.status==='CANCELLED'){
+          terminal=true;S.rendering=false;if(button)button.disabled=false;
+          if(S.projectId===pid)showStatus((run.error&&String(run.error))||'MP4 导出失败，请检查素材范围与任务详情。','error');
+        }
+      }
+    }catch(error){
+      S.rendering=false;if(button)button.disabled=false;
+      showStatus('MP4 导出请求失败：'+String(error&&error.message||error),'error');
+    }
+  };
   window.filmStudioAsk=async function(){
     var input=$('fs-chat-input'),message=(input.value||'').trim();if(!message||S.busy)return;
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
@@ -502,6 +553,7 @@
     'zoom-out': () => window.filmStudioZoom(-1),
     'zoom-in': () => window.filmStudioZoom(1),
     'apply-inspector': () => window.filmStudioSaveInspector(),
+    render: () => window.filmStudioRender(),
     ask: () => window.filmStudioAsk(),
   };
   document.addEventListener('click', function(event) {

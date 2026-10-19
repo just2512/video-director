@@ -933,7 +933,7 @@ class Handler(BaseHTTPRequestHandler):
         get_routes = {"/api/editor/film", "/api/editor/film/media"}
         post_routes = {"/api/editor/film/initialize", "/api/editor/film/insert-asset", "/api/editor/film/edit",
                        "/api/editor/film/undo", "/api/editor/film/redo",
-                       "/api/editor/film/command"}
+                       "/api/editor/film/command", "/api/editor/film/render"}
         if method == "GET" and route not in get_routes:
             return False
         if method == "POST" and route not in post_routes:
@@ -1064,6 +1064,27 @@ class Handler(BaseHTTPRequestHandler):
                 state = fd.read_project_film(pid)
                 self._send_json({**fd.film_payload(pid, state), "warnings": result["warnings"],
                                  "migration": result["migration"]}, 201)
+                return True
+
+            if route == "/api/editor/film/render":
+                state = fd.read_project_film(pid)
+                if not state.get("exists"):
+                    raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html。", 409)
+                expected_revision = payload.get("expected_revision")
+                if not isinstance(expected_revision, str) or expected_revision != state["rev"]:
+                    self._send_json({
+                        "ok": False, "code": "REVISION_CONFLICT",
+                        "error": "影片文档已变化；请重新载入并确认当前时间线后再导出。",
+                        "current_revision": state["rev"],
+                    }, 409)
+                    return True
+                raw_fps = payload.get("fps", 30)
+                if isinstance(raw_fps, bool) or not isinstance(raw_fps, int) or not 1 <= raw_fps <= 60:
+                    raise fd.FilmError("INVALID_FPS", "帧率必须是 1–60 的整数。", 422)
+                from video_director import workflow_run as vd_wf
+                run_id = vd_wf.run_film_render_async(pid, expected_revision, fps=raw_fps)
+                self._send_json({"ok": True, "run_id": run_id, "project_id": pid,
+                                 "expected_revision": expected_revision}, 202)
                 return True
 
             if route == "/api/editor/film/insert-asset":

@@ -1,6 +1,8 @@
 """Contracts for the OpenFilm-inspired film document editor."""
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 
 import pytest
@@ -110,7 +112,7 @@ def test_api_ui_routes_are_wired():
     assert "/api/editor/film/initialize" in server
     assert "/api/editor/film/edit" in server
     assert "/api/editor/film/command" in server
-    assert "filmStudioToggle" in index
+    assert 'data-film-action="toggle"' in index
     assert "filmStudioCommit" in js
     assert "filmStudioAddAsset" in js
     assert "/api/editor/film/insert-asset" in server
@@ -289,6 +291,29 @@ def test_film_runtime_buffers_commands_until_iframe_load_and_acknowledges_revisi
     assert "message.rev!==S.rev" in studio
 
 
+def test_film_revision_export_routes_to_film_renderer_not_legacy_ir():
+    root = Path(__file__).resolve().parents[1]
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    workflow = (root / "video_director" / "workflow_run.py").read_text(encoding="utf-8")
+    renderer = (root / "video_director" / "film_render.py").read_text(encoding="utf-8")
+    assert '"/api/editor/film/render"' in server
+    assert "run_film_render_async" in server
+    assert "render_project_film" in workflow
+    assert "read_project_film" in renderer
+    assert "editor.load_composition" not in renderer
+
+
+def test_film_runtime_supports_frame_exact_video_seek_ack_and_css_projection():
+    root = Path(__file__).resolve().parents[1]
+    runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert "film-runtime:render-frame" in runtime
+    assert "film-runtime:frame-ready" in runtime
+    assert "requestVideoFrameCallback" in runtime
+    assert '"render_css": render_css' in module
+    assert "film-time:ready" in module
+
+
 def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track_messages():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
@@ -303,7 +328,7 @@ def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track
     assert "syncRuntime(wasPlaying?'seek-pause':undefined)" in studio
     assert "film-runtime:time" in runtime
     assert "fs-preview-composition" in studio
-    assert "filmStudioTogglePlayback" in index
+    assert 'data-film-action="play-toggle"' in index
     assert "event.source!==parent" in runtime
 
 
