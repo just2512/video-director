@@ -244,7 +244,7 @@
           S.drag={id:clip.id,mode:'roll',startX:e.clientX,startY:e.clientY,leftClipId:leftClip.id,rightClipId:rightClip.id,
             rightAt:rightClip.at,leftDuration:leftClip.duration,rightDuration:rightClip.duration,pxPerSec:S.pxPerSec,
             startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,rollElements:[leftElement,rightElement],
-            members:members,targetRow:null};
+            members:members,targetTrackId:clip.track_id,targetRow:null};
         }else{
           if(mode!=='move')members=members.filter(function(m){return m.id===clip.id;});
           S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,originalAt:clip.at,

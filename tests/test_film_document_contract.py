@@ -607,6 +607,7 @@ def test_roll_trim_ctrl_drag_and_operation_contract():
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert "rollGesture=!!(trim&&e.ctrlKey)" in script
     assert "data-roll-delta" in script
+    assert "members:members,targetTrackId:clip.track_id,targetRow:null" in script
     assert 'elif kind == "roll"' in module
     assert "Ctrl 拖动切口滚动修剪" in index
 
