@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -16,49 +16,29 @@
     log.scrollTop=log.scrollHeight;
   }
   function resetPreview() {
-    ['fs-preview-video','fs-preview-image','fs-preview-page'].forEach(function(id){
-      var el=$(id); if(!el)return;
-      if(id==='fs-preview-video'){try{el.pause();}catch(_){} el.removeAttribute('src'); el.removeAttribute('data-source');}
-      else {el.removeAttribute('src');el.removeAttribute('data-source');}
-      el.style.display='none';
-    });
+    var frame=$('fs-preview-composition');
+    if(frame){try{frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);}catch(_){}frame.style.display='none';}
     var ph=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
+    S.runtimeRev='';window.filmStudioPlaying=false;
+    var button=$('fs-play-toggle');if(button)button.textContent='播放';
+  }
+  function syncRuntime(type) {
+    var frame=$('fs-preview-composition');
+    if(!frame||!frame.contentWindow||!S.data||!S.data.exists)return;
+    frame.style.display='block';
+    var ph=$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');if(ph)ph.style.display='none';
+    if(S.runtimeRev!==S.rev){
+      frame.contentWindow.postMessage({type:'film-runtime:load',data:S.data,rev:S.rev},window.location.origin);
+      S.runtimeRev=S.rev;
+    }else if(type==='play')frame.contentWindow.postMessage({type:'film-runtime:play'},window.location.origin);
+    else if(type==='pause')frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);
+    else frame.contentWindow.postMessage({type:'film-runtime:seek',time:S.playhead},window.location.origin);
+    var button=$('fs-play-toggle');if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
   }
   function previewCurrent() {
     if(!S.data||!S.data.exists){resetPreview();return;}
-    var clip=findClip(S.selectedId);
-    if(!clip||clip.tag==='audio'){
-      clip=clips().filter(function(c){return c.tag!=='audio'&&c.at<=S.playhead&&(c.end==null||S.playhead<c.end);}).sort(function(a,b){return a.at-b.at;}).pop();
-    }
-    var ph=$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
-    if(!clip){resetPreview();return;}
-    if(ph)ph.style.display='none';
-    var id=clip.tag==='video'?'fs-preview-video':clip.tag==='img'?'fs-preview-image':clip.tag==='iframe'?'fs-preview-page':'';
-    ['fs-preview-video','fs-preview-image','fs-preview-page'].forEach(function(key){
-      var el=$(key);if(key!==id){if(key==='fs-preview-video'){try{el.pause();}catch(_){}}el.style.display='none';}
-    });
-    if(!id){if(ph){ph.textContent='当前所选片段没有可直接显示的画面';ph.style.display='';}return;}
-    var target=$(id), source=clip.media_url||'';
-    target.style.display='block';
-    if(target.getAttribute('data-source')!==source){
-      target.setAttribute('data-source',source);
-      if(id==='fs-preview-page'){
-        target.onload=function(){
-          try{target.contentWindow.postMessage({type:'film-time',time:Math.max(0,num(clip.src_in,0)+(S.playhead-clip.at)*num(clip.attrs.speed,1))},'*');}catch(_){}
-        };
-      }
-      target.src=source;
-      if(id==='fs-preview-video'){
-        target.onloadedmetadata=function(){
-          try{target.currentTime=Math.max(0,num(clip.src_in,0)+(S.playhead-clip.at)*num(clip.attrs.speed,1));target.playbackRate=num(clip.attrs.speed,1);target.pause();}catch(_){}
-        };
-      }
-    }else if(id==='fs-preview-video'&&target.readyState>0){
-      try{target.currentTime=Math.max(0,num(clip.src_in,0)+(S.playhead-clip.at)*num(clip.attrs.speed,1));target.playbackRate=num(clip.attrs.speed,1);target.pause();}catch(_){}
-    }else if(id==='fs-preview-page'&&target.contentWindow){
-      try{target.contentWindow.postMessage({type:'film-time',time:Math.max(0,num(clip.src_in,0)+(S.playhead-clip.at)*num(clip.attrs.speed,1))},'*');}catch(_){}
-    }
+    syncRuntime();
   }
   function setPlayheadVisual() {
     var range=$('fs-playhead');if(range){range.max=String(S.duration);range.value=String(Math.min(S.duration,Math.max(0,S.playhead)));}
@@ -217,13 +197,13 @@
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return;}
     if(S.busy)return;
     var changed=nextId!==S.projectId;
-    if(changed){S.data=null;S.rev='';S.migration=null;S.selectedId='';}
+    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.migration=null;S.selectedId='';window.filmStudioPlaying=false;}
     S.projectId=nextId;
     var requestProjectId=nextId;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
     if(requestProjectId!==S.projectId)return;
     if(r&&r.ok&&r.exists){S.data=r;S.rev=r.rev;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();}
-    else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.migration=r;renderMigration();}
+    else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';window.filmStudioPlaying=false;S.migration=r;renderMigration();}
     else {S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
   }
   async function filmStudioInitialize(acceptWarnings) {
@@ -319,8 +299,33 @@
   };
   window.filmStudioLoad=filmStudioLoad;window.filmStudioInitialize=filmStudioInitialize;
   window.filmStudioSelectClip=function(id){S.selectedId=id;var c=findClip(id);if(c)S.playhead=c.at;render();};
-  window.filmStudioSeek=function(value){S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));setPlayheadVisual();previewCurrent();};
+  window.filmStudioSeek=function(value){
+    var wasPlaying=!!window.filmStudioPlaying;
+    S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));window.filmStudioPlaying=false;setPlayheadVisual();
+    syncRuntime(wasPlaying?'pause':undefined);
+  };
   window.filmStudioNudge=function(direction){window.filmStudioSeek(S.playhead+direction/30);};
+  window.filmStudioTogglePlayback=function(){
+    if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
+    window.filmStudioPlaying=!window.filmStudioPlaying;
+    syncRuntime(window.filmStudioPlaying?'play':'pause');
+  };
+  window.addEventListener('message',function(event){
+    var frame=$('fs-preview-composition');
+    if(!frame||event.source!==frame.contentWindow||event.origin!==window.location.origin)return;
+    var message=event.data||{};
+    if(message.type==='film-runtime:ready'){
+      if(S.data&&S.data.exists&&S.runtimeRev!==S.rev)syncRuntime();
+    }else if(message.type==='film-runtime:time'){
+      S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
+      window.filmStudioPlaying=!!message.playing;setPlayheadVisual();
+      var button=$('fs-play-toggle');if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
+    }else if(message.type==='film-runtime:ended'||message.type==='film-runtime:paused'){
+      S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
+      window.filmStudioPlaying=false;setPlayheadVisual();
+      var button=$('fs-play-toggle');if(button)button.textContent='播放';
+    }
+  });
   window.filmStudioZoom=function(direction){S.pxPerSec=Math.max(12,Math.min(120,S.pxPerSec*(direction>0?1.25:0.8)));if(S.data&&S.data.exists)renderTimeline();};
   window.filmStudioAddTrack=async function(){
     if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档。','error');return;}

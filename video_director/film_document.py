@@ -751,6 +751,11 @@ html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:transparen
 const cues={data};const caption=document.getElementById('caption');
 window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));caption.textContent=active.map(c=>String(c.text||'')).join('\\n');caption.style.display=active.length?'block':'none';}}}};
 window.film.frame(0);
+window.addEventListener('message',function(event){
+  if(!event.data||event.data.type!=='film-time')return;
+  const t=Number(event.data.time);
+  if(Number.isFinite(t))window.film.frame(Math.max(0,Math.min(window.film.duration,t)));
+});
 </script></body></html>'''
 
 

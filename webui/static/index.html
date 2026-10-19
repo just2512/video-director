@@ -121,7 +121,7 @@
         </div>
       </header>
       <div id="film-studio-alert" class="fs-alert" role="status" aria-live="polite">载入项目后显示影片文档。</div>
-      <div class="fs-alert fs-visible" id="fs-render-warning" style="border-left:3px solid #b08b4b">注意：本轮已打通影片文档编辑与保存，但完整合成渲染尚未切换到 film.html。请勿使用旧工作台对迁移后的影片导出最终成片，避免导出旧 Composition。</div>
+      <div class="fs-alert fs-visible" id="fs-render-warning" style="border-left:3px solid #b08b4b">中央监视器按 film.html 播放整条多轨时间线；最终 MP4 导出仍需下一阶段接入同一影片运行时，请勿用旧工作台导出迁移项目。</div>
       <div class="fs-workspace">
         <aside class="fs-pane fs-assets-pane">
           <div class="fs-pane-title">素材 / 片段 <span id="fs-clip-count">0</span></div>
@@ -133,12 +133,11 @@
           <div class="fs-pane-title">节目监视器 <span id="fs-monitor-time">00:00.000</span></div>
           <div class="fs-monitor-stage" id="fs-monitor-stage">
             <div class="fs-monitor-placeholder">选择项目并初始化影片文档</div>
-            <video id="fs-preview-video" controls preload="metadata" style="display:none"></video>
-            <img id="fs-preview-image" alt="" style="display:none">
-            <iframe id="fs-preview-page" title="影片图层预览" style="display:none" sandbox="allow-scripts"></iframe>
+            <iframe id="fs-preview-composition" title="多轨影片预览" src="/static/film-runtime.html" style="display:none" aria-label="多轨影片预览"></iframe>
           </div>
           <div class="fs-scrub-row">
             <button class="fs-btn" type="button" onclick="filmStudioNudge(-1)">上一帧</button>
+            <button class="fs-btn" type="button" id="fs-play-toggle" onclick="filmStudioTogglePlayback()">播放</button>
             <input id="fs-playhead" type="range" min="0" max="10" step="0.033333" value="0" oninput="filmStudioSeek(this.value)" aria-label="播放头">
             <button class="fs-btn" type="button" onclick="filmStudioNudge(1)">下一帧</button>
             <span id="fs-playhead-value">00:00.000</span>

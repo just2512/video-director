@@ -19,7 +19,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 ## Current boundaries
 
-- The Studio provides a clip-level monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.
+- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.
 - The monitor remains a clip-level monitor rather than the final full-composition renderer. Generated subtitle pages accept time messages, but arbitrary iframe pages do not yet share an injected deterministic clock. Multi-track compositing/export convergence remains work to complete.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.

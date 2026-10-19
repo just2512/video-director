@@ -212,3 +212,18 @@ def test_ai_planner_contract_includes_trim_and_persisted_revision_guards():
     assert "data-trim" in ui
     assert "legacyEditorLoad" in ui
     assert "fs-pane-divider" in ui
+
+
+def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track_messages():
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "/static/film-runtime.html" in index
+    assert "/static/js/film-runtime.js" in runtime
+    assert "film-runtime:load" in runtime
+    assert "film-runtime:seek" in runtime
+    assert "film-runtime:time" in runtime
+    assert "fs-preview-composition" in studio
+    assert "filmStudioTogglePlayback" in index
+    assert "event.source!==parent" in runtime
