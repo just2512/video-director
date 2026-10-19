@@ -702,7 +702,7 @@
     S.busy=true;
     try{
       var result=await apiPost('/api/editor/film/apply-proposal',{
-        project_id:S.projectId,proposal_id:proposal.id,base_revision:proposal.base_revision,ops:proposal.operations
+        project_id:S.projectId,proposal_id:proposal.id,base_revision:proposal.base_revision
       });
       if(!result||!result.ok){
         appendMessage((result&&result.error)||'提案应用失败。','assistant');

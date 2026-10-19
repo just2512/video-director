@@ -169,6 +169,37 @@ def test_insert_into_existing_track_preserves_other_nodes(tmp_path, monkeypatch)
     assert fd.read_project_film("film-insert")["rev"] == updated["rev"]
 
 
+def test_film_proposal_store_is_project_scoped_single_use_and_expires():
+    from video_director.film_proposals import FilmProposalStore
+
+    now = [100.0]
+    store = FilmProposalStore(ttl_seconds=15, clock=lambda: now[0])
+    operations = [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}]
+    store.put("proposal-1", "project-a", "rev-1", operations)
+    operations[0]["value"] = 3.0
+
+    assert store.take("project-b", "proposal-1", "rev-1") is None
+    assert store.take("project-a", "proposal-1", "wrong-rev") is None
+    consumed = store.take("project-a", "proposal-1", "rev-1")
+    assert consumed["operations"][0]["value"] == 1.5
+    assert store.take("project-a", "proposal-1", "rev-1") is None
+
+    store.put("proposal-expired", "project-a", "rev-2", [{"op": "remove", "clip": "clip-b"}])
+    now[0] = 116.0
+    assert store.take("project-a", "proposal-expired", "rev-2") is None
+
+
+def test_apply_proposal_uses_server_registered_operations_not_request_ops():
+    root = Path(__file__).resolve().parents[1]
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    client = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert '_FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)' in server
+    assert '_FILM_PROPOSALS.take(pid, proposal_id, base_revision)' in server
+    assert 'approved["operations"], require_base=True' in server
+    apply_client = client.split("'/api/editor/film/apply-proposal'", 1)[1].split(");", 1)[0]
+    assert "ops:proposal.operations" not in apply_client
+
+
 def test_proposal_apply_requires_exact_revision_without_breaking_manual_rebase(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-proposal"

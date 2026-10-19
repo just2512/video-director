@@ -86,9 +86,11 @@ def sse_unsubscribe(q) -> None:
 
 
 from video_director.film_watch import get_film_watcher
+from video_director.film_proposals import FilmProposalStore
 
 # Watch only projects actively opened in Studio; publish validated changes on the existing SSE bus.
 _FILM_REVISION_WATCHER = get_film_watcher(sse_publish)
+_FILM_PROPOSALS = FilmProposalStore()
 
 
 # §三十四：通用 Registry 类别（shots/motions/templates/provenance 之外的 8 类）。
@@ -1180,6 +1182,7 @@ class Handler(BaseHTTPRequestHandler):
                     "candidate": candidate,
                     "affected_clip_ids": sorted({str(op.get("clip")) for op in normalized if op.get("clip")}),
                 }
+                _FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)
                 sse_publish("film_ai", {"phase": "proposed", "project_id": pid,
                                         "base_revision": state["rev"], "proposal_id": proposal["id"],
                                         "operation_count": len(normalized)})
@@ -1189,11 +1192,21 @@ class Handler(BaseHTTPRequestHandler):
 
             if route == "/api/editor/film/apply-proposal":
                 base_revision = payload.get("base_revision")
-                operations = payload.get("ops")
-                result = fd.edit_project_film(pid, base_revision, operations, require_base=True)
+                proposal_id = str(payload.get("proposal_id") or "")
+                if not proposal_id or not isinstance(base_revision, str):
+                    raise fd.FilmError("PROPOSAL_ID_REQUIRED", "确认操作缺少提案 ID 或基线 revision。", 400)
+                # The browser can only name a proposal; operation content is authoritative
+                # in this process-local registry and cannot be replaced by request JSON.
+                approved = _FILM_PROPOSALS.take(pid, proposal_id, base_revision)
+                if approved is None:
+                    raise fd.FilmError("PROPOSAL_NOT_FOUND_OR_STALE",
+                                       "提案不存在、已过期、属于其他项目或基线 revision 不匹配；请重新生成。", 409)
+                result = fd.edit_project_film(
+                    pid, approved["base_revision"], approved["operations"], require_base=True
+                )
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
-                             "base": base_revision, "applied_proposal": payload.get("proposal_id")})
+                             "base": approved["base_revision"], "applied_proposal": proposal_id})
                 sse_publish("film", {"phase": "revision_changed", "project_id": pid,
                                      "revision": data["rev"], "source": "ai_proposal",
                                      "proposal_id": payload.get("proposal_id"),
