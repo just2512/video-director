@@ -271,13 +271,80 @@ def test_api_ui_routes_are_wired():
     assert "/static/css/film-studio.css" in index
 
 
+
+
+def test_migration_preserves_scene_layer_and_project_semantics_through_film_roundtrip(tmp_path, monkeypatch):
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project = storage / "film-metadata-roundtrip"
+    assets = project / "assets"
+    assets.mkdir(parents=True)
+    source = assets / "still.png"
+    source.write_bytes(b"test-image-bytes")
+    asset = AssetRef(
+        id="still-1", type="image", file=str(source), duration=2,
+        width=320, height=180, source="uploaded",
+        license_note="test license", rights_status="CLEAR",
+    )
+    layer = Layer(
+        type=LayerType.image, asset_id="still-1", duration=2,
+        fit_mode="contain",
+    )
+    scene = SceneIR(
+        id="scene-1", start=0, duration=2, text="保留场景文本",
+        layers=[layer], semantic_role="hook",
+        intent="表达核心观点", visual_intent="固定机位展示产品",
+    )
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[scene], assets=[asset], style_id="brand-style",
+    )
+    plan = fd.build_film_from_composition("film-metadata-roundtrip", composition)
+    assert plan["warnings"] == []
+    raw = fd.serialize_film(plan["document"])
+    loaded = fd.parse_film(raw)
+    saved_again = fd.serialize_film(loaded)
+    roundtrip = fd.parse_film(saved_again)
+    clip = roundtrip["tracks"][-1]["clips"][0]
+    scene_meta = json.loads(clip["attrs"]["data-vd-scene-meta"])
+    layer_meta = json.loads(clip["attrs"]["data-vd-layer-meta"])
+    project_meta_tag = re.search(
+        r'<meta\\b(?=[^>]*\\bname\\s*=\\s*["\\']video-director-project-meta["\\'])[^>]*>',
+        roundtrip["head_html"], re.I | re.S,
+    )
+    assert project_meta_tag
+    content = re.search(r'\\bcontent\\s*=\\s*(["\\'])(.*?)\\1', project_meta_tag.group(0), re.I | re.S)
+    project_meta = json.loads(html.unescape(content.group(2)))
+    assert scene_meta["intent"] == "表达核心观点"
+    assert scene_meta["visual_intent"] == "固定机位展示产品"
+    assert scene_meta["semantic_role"] == "hook"
+    assert layer_meta["fit_mode"] == "contain" or "fit_mode" not in layer_meta
+    assert project_meta["schema"] == "video-director-composition-metadata/1"
+    assert project_meta["fps"] == 24
+    assert project_meta["style_id"] == "brand-style"
+    assert project_meta["assets"][0]["license_note"] == "test license"
+    assert loaded["stage"] == {"width": 320, "height": 180}
+    assert roundtrip["tracks"][-1]["clips"][0]["attrs"]["src"].endswith("#t=0,2")
+
+
 def test_migration_warns_and_never_overwrites_existing_film():
     root=Path(__file__).resolve().parents[1]
     server=(root/"webui"/"server.py").read_text(encoding="utf-8")
     module=(root/"video_director"/"film_document.py").read_text(encoding="utf-8")
-    assert "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION" in server
+    assert "MIGRATION_UNSUPPORTED_FIELDS" in server
+    assert "accept_warnings cannot bypass" not in server
+    route_start = server.index('if route == "/api/editor/film/initialize":')
+    route_end = server.index('if route == "/api/editor/film/render":', route_start)
+    migration_route = server[route_start:route_end]
+    assert 'if plan["warnings"]:' in migration_route
+    assert "accept_warnings" not in migration_route
     assert "FILM_ALREADY_INITIALIZED" in module
     assert "document_revision" in module
+    assert "data-vd-scene-meta" in module
+    assert "data-vd-layer-meta" in module
+    assert "video-director-project-meta" in module
 
 
 def test_trim_start_and_end_preserve_source_time_and_speed():

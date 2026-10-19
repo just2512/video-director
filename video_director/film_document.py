@@ -246,7 +246,24 @@ def parse_film(text: str) -> dict:
         raise FilmError("INVALID_FILM", "film.html 校验失败：\n- " + "\n- ".join(problems), 422)
     viewport = re.search(r'<meta\b[^>]*\bname\s*=\s*["\']?viewport["\']?[^>]*\bcontent\s*=\s*["\']width\s*=\s*(\d+)\s*,?\s*height\s*=\s*(\d+)', head, re.I)
     stage = {"width": int(viewport.group(1)), "height": int(viewport.group(2))} if viewport else {"width": 1920, "height": 1080}
-    return {"stage": stage, "head_html": head, "tracks": parser.tracks}
+    project_metadata = {}
+    meta_tag = re.search(
+        r'<meta\\b(?=[^>]*\\bname\\s*=\\s*["\\']video-director-project-meta["\\'])[^>]*>',
+        head, re.I | re.S,
+    )
+    if meta_tag:
+        content_match = re.search(r'\\bcontent\\s*=\\s*(["\\'])(.*?)\\1', meta_tag.group(0), re.I | re.S)
+        if content_match:
+            try:
+                decoded = json.loads(html.unescape(content_match.group(2)))
+                if not isinstance(decoded, dict) or decoded.get("schema") != "video-director-composition-metadata/1":
+                    raise ValueError("未知 metadata schema")
+                project_metadata = decoded
+            except (json.JSONDecodeError, ValueError) as exc:
+                problems.append(f"video-director-project-meta 无效：{exc}")
+    if problems:
+        raise FilmError("INVALID_FILM", "film.html 校验失败：\\n- " + "\\n- ".join(dict.fromkeys(problems)), 422)
+    return {"stage": stage, "head_html": head, "tracks": parser.tracks, "project_metadata": project_metadata}
 
 
 def _serialize_attrs(attrs: dict[str, Any]) -> str:
@@ -1061,6 +1078,53 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         return _safe_storage_uri(pid, file_value)
 
     clips, tracks, pages, warnings = [], [], {}, []
+    project_metadata = {
+        "schema": "video-director-composition-metadata/1",
+        "version": raw_ir.get("version", 1),
+        "fps": raw_ir.get("project", {}).get("fps", 30),
+        "style_id": raw_ir.get("style_id"),
+        "origin_template_id": raw_ir.get("origin_template_id"),
+        "origin_template_version": raw_ir.get("origin_template_version"),
+        "active_variant_id": raw_ir.get("active_variant_id"),
+        "variants": raw_ir.get("variants") or [],
+        "references": raw_ir.get("references"),
+        "style_contract": raw_ir.get("style_contract"),
+        "camera_tracks": raw_ir.get("camera_tracks") or [],
+        "continuity_links": raw_ir.get("continuity_links") or [],
+        "visual_tracks": raw_ir.get("visual_tracks") or [],
+        "audio_tracks": raw_ir.get("audio_tracks") or [],
+        "watermarks": raw_ir.get("watermarks") or [],
+        "subtitle_style": raw_ir.get("subtitle_style"),
+        "assets": [
+            {key: asset.get(key) for key in (
+                "id", "type", "duration", "width", "height", "fps", "prompt", "description",
+                "keywords", "source", "license_note", "provenance", "rights_status"
+            ) if key in asset}
+            for asset in (raw_ir.get("assets") or []) if isinstance(asset, dict)
+        ],
+    }
+    # These global semantics currently have no equivalent executable representation in the
+    # film renderer. Keep them in metadata, but block migration until their behavior is mapped.
+    if raw_ir.get("watermarks"):
+        warnings.append("CompositionIR.watermarks：水印图层尚未迁移为可渲染的影片轨道")
+    if raw_ir.get("camera_tracks"):
+        warnings.append("CompositionIR.camera_tracks：摄影机轨道尚未由 film.html 渲染器执行")
+    for scene in raw_ir.get("scenes") or []:
+        scene_id = str(scene.get("id") or "")
+        if scene.get("selections"):
+            warnings.append(f"场景 {scene_id} 的 selections 是绝对时间语义，当前没有随片段编辑同步的映射")
+        if scene.get("beats"):
+            warnings.append(f"场景 {scene_id} 的 beats/子层结构尚未映射为可编辑片段")
+        if scene.get("camera"):
+            warnings.append(f"场景 {scene_id} 的 camera 轨道尚未由 film.html 渲染器执行")
+        if scene.get("entrance_state") or scene.get("exit_state"):
+            warnings.append(f"场景 {scene_id} 的 entrance_state/exit_state 尚未接入影片编辑与连续性校验")
+        for key in ("continuity_in", "continuity_out"):
+            link = scene.get(key)
+            if link:
+                warnings.append(f"场景 {scene_id} 的 {key} 尚未接入可验证的时间线重映射")
+    if raw_ir.get("style_contract"):
+        warnings.append("CompositionIR.style_contract 尚未与 film.html 的运行时样式执行器建立等价映射")
     for scene in raw_ir.get("scenes") or []:
         scene_start = _number(scene.get("start", 0), "scene start", 0)
         for idx, layer in enumerate(scene.get("layers") or []):
@@ -1076,18 +1140,49 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             src_in = _number(layer.get("source_in", 0), "source_in", 0) if kind == "video" else 0
             src_out = _number(layer.get("source_out") if kind == "video" and layer.get("source_out") is not None else src_in + d * speed, "source_out", src_in + 0.001)
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
-            attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)), "data-asset-id": str(layer.get("asset_id") or "")}
+            attrs = {
+                "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}",
+                "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)),
+                "data-asset-id": str(layer.get("asset_id") or ""),
+                "data-vd-scene-id": str(scene.get("id") or ""),
+                "data-vd-scene-meta": json.dumps(
+                    {key: value for key, value in scene.items() if key not in {"start", "duration", "layers"}},
+                    ensure_ascii=False, separators=(",", ":"),
+                ),
+                "data-vd-layer-meta": json.dumps(
+                    {key: value for key, value in layer.items()
+                     if key not in {"type", "asset_id", "start", "duration", "speed", "source_in", "source_out", "fit_mode"}},
+                    ensure_ascii=False, separators=(",", ":"),
+                ),
+            }
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
+            fit = "contain" if layer.get("fit_mode") == "contain" else "cover"
+            attrs["style"] = f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;object-fit:{fit}"
             if layer.get("transform"):
-                warnings.append(f"片段 {cid} 的 transform 尚未映射到标准 CSS box")
+                warnings.append(f"片段 {cid} 的 Transform（位置/缩放/锚点/旋转/透明度）尚未映射到等价的实际画面变换")
             if layer.get("keyframes"):
-                warnings.append(f"片段 {cid} 的关键帧映射尚未完成")
+                warnings.append(f"片段 {cid} 的关键帧尚未由 film.html 渲染器执行")
+            if layer.get("mask"):
+                warnings.append(f"片段 {cid} 的 mask 尚未由 film.html 渲染器执行")
+            if layer.get("motion"):
+                warnings.append(f"片段 {cid} 的 motion 尚未由 film.html 渲染器执行")
+            if layer.get("animation"):
+                warnings.append(f"片段 {cid} 的 animation 尚未由 film.html 渲染器执行")
+            if layer.get("motion_recipe_id") or layer.get("motion_instance"):
+                warnings.append(f"片段 {cid} 的 Motion Recipe/实例参数尚未由 film.html 渲染器执行")
+            if layer.get("text"):
+                warnings.append(f"片段 {cid} 的图层 text 尚未接入实际画面渲染")
+            if layer.get("locked"):
+                warnings.append(f"片段 {cid} 的单片段 locked 尚不能映射为独立可锁定轨道")
             clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
 
     # Put each overlapping overlay/audio item on its own physical section; OpenFilm tracks may not overlap internally.
-    def one_clip_track(track_id, label, clip):
-        return {"id": track_id, "attrs": {"id": track_id, "data-label": label}, "clips": [clip]}
+    def one_clip_track(track_id, label, clip, track_attrs=None):
+        attrs = {"id": track_id, "data-label": label}
+        attrs.update(track_attrs or {})
+        attrs["id"] = track_id
+        return {"id": track_id, "attrs": attrs, "clips": [clip]}
 
     for idx, overlay in enumerate(raw_ir.get("visual_overlays") or []):
         kind = str(overlay.get("type") or overlay.get("kind") or "video")
@@ -1106,9 +1201,27 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         h = _number(overlay.get("height", 1), "overlay height", 0.001, 1) * stage["height"]
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
         style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(_number(overlay.get('opacity',1),'opacity',0,1))};object-fit:{fit}"
-        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at), "style": style, "data-asset-id": str(overlay.get("asset_id") or "")}
+        attrs = {
+            "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
+            "style": style, "data-asset-id": str(overlay.get("asset_id") or ""),
+            "data-vd-overlay-meta": json.dumps(
+                {key: value for key, value in overlay.items()
+                 if key not in {"id", "asset_id", "start", "duration", "source_in", "speed",
+                                "x", "y", "width", "height", "opacity", "fit_mode"}},
+                ensure_ascii=False, separators=(",", ":"),
+            ),
+            "data-vd-track-id": str(overlay.get("track_id") or "overlay-main"),
+        }
         if kind == "video" and abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
+        if overlay.get("transform"):
+            warnings.append(f"叠加层 {cid} 的 Transform 尚未映射到等价的实际画面变换")
+        if overlay.get("source_audio_enabled"):
+            warnings.append(f"叠加层 {cid} 启用了原声，但 film.html 渲染器尚未映射 source_audio_enabled")
+        if abs(_number(overlay.get("source_audio_volume", 1), "source_audio_volume", 0, 2) - 1) > 1e-6 and overlay.get("source_audio_enabled"):
+            warnings.append(f"叠加层 {cid} 的原声音量尚未映射")
+        if overlay.get("z_index", 0) != 0:
+            warnings.append(f"叠加层 {cid} 的显式 z_index 尚未映射到文档层级顺序")
         tid = _safe_id("track-" + cid, "track")
         tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": kind, "attrs": attrs}))
 
@@ -1119,7 +1232,17 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         cid = "subtitle-page"
         tracks.append(one_clip_track("track-subtitles", "字幕", {"id": cid, "tag": "iframe",
             "attrs": {"id": cid, "src": f"scenes/subtitles.html#t=0,{_fmt(duration)}", "at": "0",
-                      "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px"}}))
+                      "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px",
+                      "data-vd-subtitle-meta": json.dumps(
+                          {key: value for key, value in subtitle.items() if key != "cues"},
+                          ensure_ascii=False, separators=(",", ":"),
+                      ),
+                      "data-vd-subtitle-style": json.dumps(
+                          raw_ir.get("subtitle_style") or {}, ensure_ascii=False, separators=(",", ":")
+                      )}}))
+        subtitle_style = raw_ir.get("subtitle_style") or {}
+        if subtitle_style.get("animation") not in (None, "", "none"):
+            warnings.append(f"字幕动画 {subtitle_style.get('animation')} 尚未由确定性字幕运行时执行")
 
     for idx, audio in enumerate(raw_ir.get("audio") or []):
         uri = asset_uri(audio.get("asset_id"))
@@ -1128,18 +1251,45 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         speed = _number(audio.get("speed", 1), "audio speed", 0.25, 4)
         src_out = _number(audio.get("source_out") if audio.get("source_out") is not None else src_in + d * speed, "audio source_out", src_in + 0.001)
         cid = _safe_id(f"audio-{audio.get('id') or idx + 1}", "clip")
-        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
-                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or "")}
+        lane_id = str(audio.get("track_id") or "")
+        lanes = {str(lane.get("id")): lane for lane in (raw_ir.get("audio_tracks") or []) if isinstance(lane, dict)}
+        lane = lanes.get(lane_id, {})
+        attrs = {
+            "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
+            "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)),
+            "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""),
+            "data-vd-audio-meta": json.dumps(
+                {key: value for key, value in audio.items()
+                 if key not in {"id", "type", "track_id", "asset_id", "start", "duration",
+                                "source_in", "source_out", "speed", "volume", "muted"}},
+                ensure_ascii=False, separators=(",", ":"),
+            ),
+        }
         if abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
-        if audio.get("muted"):
+        if audio.get("muted") or lane.get("muted"):
             attrs["muted"] = ""
-        tid = _safe_id("track-" + cid, "track")
-        tracks.append(one_clip_track(tid, str(audio.get("type") or "音频"), {"id": cid, "tag": "audio", "attrs": attrs}))
+        tid = _safe_id("track-" + (lane_id or cid) + "-" + cid, "track")
+        track_attrs = {
+            "id": tid, "data-label": str(lane.get("name") or audio.get("type") or "音频"),
+            "data-vd-audio-lane-id": lane_id,
+            "data-vd-audio-lane-meta": json.dumps(lane, ensure_ascii=False, separators=(",", ":")),
+        }
+        if lane.get("locked"):
+            track_attrs["locked"] = ""
+        if lane.get("hidden"):
+            track_attrs["hidden"] = ""
+        if audio.get("fadeIn") or audio.get("fadeOut"):
+            warnings.append(f"音频片段 {cid} 的 fadeIn/fadeOut 尚未由 film.html 音频混音器执行")
+        if audio.get("ducking"):
+            warnings.append(f"音频片段 {cid} 的 ducking 尚未由 film.html 音频混音器执行")
+        if audio.get("keyframes"):
+            warnings.append(f"音频片段 {cid} 的音量关键帧尚未由 film.html 音频混音器执行")
+        if audio.get("linked_visual_overlay_id"):
+            warnings.append(f"音频片段 {cid} 与视觉叠加层的同步关系尚未映射")
+        tracks.append(one_clip_track(tid, str(lane.get("name") or audio.get("type") or "音频"),
+                                     {"id": cid, "tag": "audio", "attrs": attrs}, track_attrs=track_attrs))
 
-    watermarks = raw_ir.get("watermarks") or []
-    if watermarks:
-        warnings.append("水印尚未完整迁移；初始化后请检查旧项目的水印")
     for scene in raw_ir.get("scenes") or []:
         transition = (scene.get("transition_out") or {}).get("type", "cut")
         if transition not in {"cut", "none", ""}:
@@ -1149,8 +1299,17 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     if not tracks:
         raise FilmError("NO_SUPPORTED_CLIPS", "当前 Composition 没有可迁移的视频、图片、字幕或音频片段", 422)
     warnings = list(dict.fromkeys(warnings))
-    head = f'<head><meta charset="utf-8"><meta name="viewport" content="width={stage["width"]},height={stage["height"]}"><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:#000}}section{{position:absolute;inset:0}}</style></head>'
-    document = {"stage": stage, "head_html": head, "tracks": tracks}
+    project_meta_attr = html.escape(
+        json.dumps(project_metadata, ensure_ascii=False, separators=(",", ":")), quote=True
+    )
+    head = (
+        f'<head><meta charset="utf-8">'
+        f'<meta name="viewport" content="width={stage["width"]},height={stage["height"]}">'
+        f'<meta name="video-director-project-meta" content="{project_meta_attr}">'
+        '<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}'
+        'section{position:absolute;inset:0}</style></head>'
+    )
+    document = {"stage": stage, "head_html": head, "tracks": tracks, "project_metadata": project_metadata}
     _validate_doc(document)
     return {"document": document, "pages": pages, "warnings": warnings, "duration": duration,
             "track_count": len(tracks), "clip_count": sum(len(t["clips"]) for t in tracks)}
@@ -1214,6 +1373,7 @@ def film_payload(project_id: str, state: dict) -> dict:
         raise FilmError("UNSAFE_FILM_STYLE", "film.html head CSS 含外部资源、动画或可执行 CSS；请先移除后再载入。", 422)
     return {"ok": True, "exists": True, "project_id": project_id, "rev": state["rev"], "stage": doc["stage"],
             "head_html": head_html, "render_css": render_css, "tracks": tracks,
+            "project_metadata": copy.deepcopy(doc.get("project_metadata") or {}),
             "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
 
 

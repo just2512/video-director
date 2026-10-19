@@ -15,7 +15,7 @@ The document is parsed into stage, tracks and clips. Editing supports set, move,
 
 ## Migration behavior
 
-Supported video/image/audio and overlay clips are mapped into tracks. Subtitle cues can be exported to a page-backed track. Fields that are not yet losslessly mapped, including some transforms, keyframes, transitions and watermark types, are reported as migration warnings. The API requires explicit confirmation if warnings exist. The migration manifest stores the source Composition revision and warning list.
+Supported video/image/audio and overlay clips are mapped into tracks. Subtitle cues can be exported to a page-backed track. Scene/layer semantic metadata and project-level lineage are retained in namespaced inert metadata inside film.html. Fields whose behavior is not executed equivalently by the current film runtime—including transforms, keyframes, masks, motion recipes, non-cut transitions, watermarks, camera tracks, timed selections and audio fades/ducking—are reported as concrete migration blockers. The API rejects migration whenever blockers exist; a client cannot bypass the gate by setting accept_warnings. The migration manifest stores the source Composition revision and warning list.
 
 ## Legacy-source isolation
 

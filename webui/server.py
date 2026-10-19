@@ -1054,14 +1054,14 @@ class Handler(BaseHTTPRequestHandler):
                     return True
                 ir = vd_editor.load_composition(pid)
                 plan = fd.build_film_from_composition(pid, ir)
-                if plan["warnings"] and not payload.get("accept_warnings", False):
+                if plan["warnings"]:
                     self._send_json({
-                        "ok": False, "code": "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION",
-                        "error": "旧项目包含暂未无损迁移的字段；确认接受警告后才会写入 film.html",
+                        "ok": False, "code": "MIGRATION_UNSUPPORTED_FIELDS",
+                        "error": "当前项目存在无法无损映射或尚不能等价渲染的字段；迁移已拒绝。accept_warnings 不能绕过数据完整性门槛。请先补齐对应映射后重试。",
                         "warnings": plan["warnings"], "migration_preview": {
                             "duration": plan["duration"], "track_count": plan["track_count"],
                             "clip_count": plan["clip_count"], "source_composition_version": current_version,
-                        }}, 409)
+                        }}, 422)
                     return True
                 result = fd.initialize_project_film(pid, plan["document"], plan["pages"],
                                                      current_version, plan["warnings"])
