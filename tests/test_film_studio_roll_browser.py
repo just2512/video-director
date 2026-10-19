@@ -127,6 +127,62 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert clips["clip-a"]["attrs"]["src"].endswith("#t=2,7")
                 assert clips[right_id]["attrs"]["src"].endswith("#t=7,12")
                 assert float(clips[right_id]["attrs"]["at"]) == 2.5
+
+                # Re-split the rolled right segment, then exercise Slide trim through
+                # the actual clip-body modifier gesture (Alt+Shift drag).
+                page.locator('#fs-timeline .fs-clip[data-clip="' + right_id + '"]').click()
+                page.evaluate("window.filmStudioSeek(4)")
+                page.locator('[data-film-action="split"]').click()
+                page.wait_for_function(
+                    "(id) => [...document.querySelectorAll('#fs-timeline .fs-clip')].some(el => el.dataset.clip.startsWith(id + '-split-'))",
+                    right_id,
+                    timeout=10000,
+                )
+                slide_right_id = page.evaluate("""(id) => {
+                  const item = [...document.querySelectorAll('#fs-timeline .fs-clip')]
+                    .find(el => el.dataset.clip.startsWith(id + '-split-'));
+                  return item && item.dataset.clip;
+                }""", right_id)
+                assert slide_right_id, "second split should create a third source-contiguous segment"
+                middle = page.locator('#fs-timeline .fs-clip[data-clip="' + right_id + '"]')
+                box = middle.bounding_box()
+                assert box and box["width"] >= 36 and box["height"] > 0
+                x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                page.keyboard.down("Alt")
+                page.keyboard.down("Shift")
+                try:
+                    page.mouse.move(x, y)
+                    page.mouse.down()
+                    page.mouse.move(x + 9, y, steps=3)  # +0.25 s at 36 px/s
+                    page.mouse.up()
+                finally:
+                    page.keyboard.up("Shift")
+                    page.keyboard.up("Alt")
+
+                page.wait_for_function("""async (args) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(args.pid));
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
+                  const left = clips.find(clip => clip.id === 'clip-a');
+                  const middle = clips.find(clip => clip.id === args.middleId);
+                  const right = clips.find(clip => clip.id === args.rightId);
+                  return !!left && !!middle && !!right
+                    && String(left.attrs.src).endsWith('#t=2,7.5')
+                    && String(middle.attrs.src).endsWith('#t=7,10')
+                    && Math.abs(Number(middle.attrs.at) - 2.75) < 0.001
+                    && String(right.attrs.src).endsWith('#t=10.5,12')
+                    && Math.abs(Number(right.attrs.at) - 4.25) < 0.001;
+                }""", {"pid": project_id, "middleId": right_id, "rightId": slide_right_id}, timeout=10000)
+
+                persisted = fd.read_project_film(project_id)
+                clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
+                assert clips["clip-a"]["attrs"]["src"].endswith("#t=2,7.5")
+                assert clips[right_id]["attrs"]["src"].endswith("#t=7,10")
+                assert float(clips[right_id]["attrs"]["at"]) == 2.75
+                assert clips[slide_right_id]["attrs"]["src"].endswith("#t=10.5,12")
+                assert float(clips[slide_right_id]["attrs"]["at"]) == 4.25
+                assert fd.clip_end(clips[slide_right_id]) == 5
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:
