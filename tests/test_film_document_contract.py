@@ -220,6 +220,9 @@ def test_api_ui_routes_are_wired():
     assert "baseSnapshot()" in js
     assert "REVISION_CONFLICT" in js
     assert 'payload.get("base_snapshot")' in server
+    assert 'edit_project_film(pid, payload.get("base"), operations)' not in server
+    assert server.count('edit_project_film(pid, payload.get("base"), operations, payload.get("base_snapshot"))') == 2
+    assert "base_snapshot:snapshot" in js
     assert "_clip_rebase_conflicts" in module
     assert "/api/editor/film/revision" in server
     assert "peek_project_revision" in server

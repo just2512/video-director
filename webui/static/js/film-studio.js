@@ -162,10 +162,15 @@
     if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档，且等待当前编辑完成。','error');return;}
     S.busy=true;
     try{
+      var base=S.rev, snapshot=baseSnapshot();
       var response=await apiPost('/api/editor/film/insert-asset',{
-        project_id:S.projectId,base:S.rev,asset_id:assetId,at:S.playhead,still_duration:5
+        project_id:S.projectId,base:base,base_snapshot:snapshot,asset_id:assetId,at:S.playhead,still_duration:5
       });
-      if(!response||!response.ok){showStatus((response&&response.error)||'素材加入时间线失败。','error');return;}
+      if(!response||!response.ok){
+        if(isRevisionConflict(response)){await recoverFilmConflict((response&&response.error)||'影片文档发生并发修改。');}
+        else showStatus((response&&response.error)||'素材加入时间线失败。','error');
+        return;
+      }
       S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
       S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
       showStatus('已在播放头位置新建轨道并添加素材。', 'success');

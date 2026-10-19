@@ -1145,7 +1145,7 @@ class Handler(BaseHTTPRequestHandler):
                                      "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
                                      "rev": state["rev"]})
                     return True
-                result = fd.edit_project_film(pid, payload.get("base"), operations)
+                result = fd.edit_project_film(pid, payload.get("base"), operations, payload.get("base_snapshot"))
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 message = assistant_summary or "已应用影片编辑操作。"
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
