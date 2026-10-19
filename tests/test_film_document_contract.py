@@ -202,6 +202,23 @@ def test_film_timeline_supports_group_selection_drag_and_pointer_anchored_zoom()
     assert ".fs-track.fs-track-drop-target" in styles
 
 
+def test_frame_determinism_audit_accepts_identical_pixels_and_rejects_real_difference():
+    from io import BytesIO
+    from PIL import Image
+    from video_director.film_render import _frame_diff_stats
+
+    def png(color):
+        buffer = BytesIO()
+        Image.new("RGB", (32, 24), color).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    same = _frame_diff_stats(png((30, 50, 70)), png((30, 50, 70)))
+    changed = _frame_diff_stats(png((30, 50, 70)), png((200, 5, 15)))
+    assert same[0] == 0
+    assert changed[0] == 32 * 24
+    assert changed[1:] == (32 * 24, 32, 24)
+
+
 def test_film_studio_is_fullscreen_and_ai_dock_shares_inspector_column():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")

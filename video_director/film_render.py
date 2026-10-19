@@ -7,6 +7,7 @@ from the same stable clip IDs / source ranges.
 from __future__ import annotations
 
 import json
+from io import BytesIO
 import math
 import mimetypes
 import os
@@ -19,6 +20,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
+from PIL import Image, ImageChops
 
 from video_director import config
 from video_director import film_document as fd
@@ -361,6 +363,37 @@ def _mux_audio(ffmpeg: str, silent_video: Path, output: Path, specs: list[dict],
     _run_ffmpeg(command, timeout=max(180, int(duration * 10 + 120)))
 
 
+def _frame_diff_stats(reference_png: bytes, candidate_png: bytes, tolerance: int = 32) -> tuple[int, int, int, int]:
+    """Return (pixels over channel tolerance, total pixels, width, height)."""
+    with Image.open(BytesIO(reference_png)) as reference_image:
+        reference = reference_image.convert("RGB")
+    with Image.open(BytesIO(candidate_png)) as candidate_image:
+        candidate = candidate_image.convert("RGB")
+    if reference.size != candidate.size:
+        width = max(reference.width, candidate.width)
+        height = max(reference.height, candidate.height)
+        return width * height, width * height, width, height
+    red, green, blue = ImageChops.difference(reference, candidate).split()
+    max_channel_diff = ImageChops.lighter(ImageChops.lighter(red, green), blue)
+    mask = max_channel_diff.point(lambda value: 255 if value > tolerance else 0)
+    histogram = mask.histogram()
+    changed = sum(histogram[1:])
+    return changed, reference.width * reference.height, reference.width, reference.height
+
+
+def _assert_frame_deterministic(reference_path: Path, candidate_png: bytes, frame_number: int) -> None:
+    """Fail a render when repeated same-time rendering materially changes pixels."""
+    changed, total, width, height = _frame_diff_stats(reference_path.read_bytes(), candidate_png)
+    allowed = max(16, int(total * 0.0005))
+    if changed > allowed:
+        raise FilmRenderError(
+            "NON_DETERMINISTIC_FRAME",
+            f"第 {frame_number} 帧重复绘制不一致：{changed}/{total} 像素超过通道差 32，"
+            f"允许 {allowed}；画布 {width}×{height}。请检查时钟、随机数、媒体 seek 或动画状态。",
+            422,
+        )
+
+
 def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_DEFAULT) -> dict:
     """Render a pinned film.html revision to MP4; never falls back to CompositionIR."""
     pid = fd.validate_project_id(project_id)
@@ -464,6 +497,28 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
                     path=str(frame_dir / f"{frame_number + 1:08d}.png"),
                     animations="disabled", timeout=20000,
                 )
+            # Revisit representative timestamps in reverse order, like an editor scrubbing.
+            sample_frames = sorted(set([0, frame_count // 2, frame_count - 1]))
+            for sample_frame in reversed(sample_frames):
+                page.evaluate(
+                    "(arg) => {window.__lastFrameReady=null;window.__frameError=null;"
+                    "document.getElementById('runtime').contentWindow.postMessage("
+                    "{type:'film-runtime:render-frame',time:arg.time,frame:arg.frame},location.origin);}",
+                    {"time": sample_frame / fps, "frame": sample_frame},
+                )
+                page.wait_for_function(
+                    "(frame) => window.__lastFrameReady === frame",
+                    arg=sample_frame, timeout=20000,
+                )
+                frame_error = page.evaluate("window.__frameError")
+                if frame_error:
+                    raise FilmRenderError("FRAME_RENDER_FAILED",
+                                          f"确定性抽样第 {sample_frame} 帧失败：{frame_error}", 500)
+                repeated_png = page.locator("#runtime").screenshot(animations="disabled", timeout=20000)
+                _assert_frame_deterministic(
+                    frame_dir / f"{sample_frame + 1:08d}.png", repeated_png, sample_frame
+                )
+            determinism_samples = len(sample_frames)
             browser.close()
             browser = None
 
@@ -490,6 +545,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
             "current": after.get("rev") == revision, "fps": fps,
             "width": width, "height": height, "duration": duration,
             "frame_count": frame_count, "audio_tracks_mixed": len(audio_specs),
+            "determinism_status": "PASS", "determinism_samples": determinism_samples,
             "warnings": [] if after.get("rev") == revision else [
                 "导出期间影片文档已变化；成片对应 rendered_revision，不对应当前最新 revision。"
             ],

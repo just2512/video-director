@@ -179,3 +179,9 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-clip.fs-clip-selected{outline:2px solid #f1f1f1;outline-offset:-2px;box-shadow:0 0 0 1px #45c2b4}
 .fs-track.fs-track-drop-target{background:rgba(69,194,180,.09);box-shadow:inset 0 0 0 1px rgba(69,194,180,.65)}
 .fs-clip.fs-dragging{opacity:.62;border-style:dashed}
+
+.fs-proposal-panel{flex:0 0 auto;border:1px solid #557c77;background:#1b2c2a;border-radius:6px;padding:9px;margin-bottom:8px}
+.fs-proposal-panel[hidden]{display:none!important}
+.fs-proposal-panel strong{display:block;color:#d9fbf5;font-size:12px;line-height:1.5}
+.fs-proposal-panel p{margin:5px 0 8px;color:#b8ceca;font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+.fs-proposal-actions{display:flex;gap:5px;flex-wrap:wrap}

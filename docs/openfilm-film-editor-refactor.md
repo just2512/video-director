@@ -45,6 +45,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Document revision changes and AI planning phases use the repository's existing SSE event bus; file polling remains the fallback for external local-agent writes that do not pass through the server.
 - Model-token streaming is not claimed: the current LLM abstraction exposes a blocking generate call, so this milestone streams lifecycle events, not partial model text.
 
+## Render consistency milestone
+
+- The final browser renderer re-renders representative first/middle/last timestamps in reverse order after the frame sequence. Each repeat is compared with the captured PNG using a per-channel tolerance of 32 and a bounded changed-pixel allowance.
+- A materially different repeated frame fails the render with NON_DETERMINISTIC_FRAME instead of silently exporting. Successful output records determinism_status and the number of sampled timestamps.
+- This is a sampled deterministic audit, not proof that every frame or arbitrary CSS feature is deterministic; the existing iframe/CSS constraints remain in force.
+
 ## Current boundaries
 
 - The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.
