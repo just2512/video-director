@@ -45,11 +45,11 @@
       target.setAttribute('data-source',source);target.src=source;
       if(id==='fs-preview-video'){
         target.onloadedmetadata=function(){
-          try{target.currentTime=Math.max(0,(S.playhead-clip.at)*num(clip.attrs.speed,1));target.playbackRate=num(clip.attrs.speed,1);target.pause();}catch(_){}
+          try{target.currentTime=Math.max(0,num(clip.src_in,0)+(S.playhead-clip.at)*num(clip.attrs.speed,1));target.playbackRate=num(clip.attrs.speed,1);target.pause();}catch(_){}
         };
       }
     }else if(id==='fs-preview-video'&&target.readyState>0){
-      try{target.currentTime=Math.max(0,(S.playhead-clip.at)*num(clip.attrs.speed,1));target.playbackRate=num(clip.attrs.speed,1);target.pause();}catch(_){}
+      try{target.currentTime=Math.max(0,num(clip.src_in,0)+(S.playhead-clip.at)*num(clip.attrs.speed,1));target.playbackRate=num(clip.attrs.speed,1);target.pause();}catch(_){}
     }
   }
   function setPlayheadVisual() {
