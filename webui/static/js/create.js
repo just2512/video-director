@@ -49,7 +49,7 @@ document.addEventListener('click', function(event) {
   // Style cards set the text field programmatically, so mark the choice explicitly too.
   const styleButton = event.target && event.target.closest
     ? event.target.closest('[data-studio-style]') : null;
-  if (styleButton && CF.state === 'editing' && document.getElementById('cf-panel')) {
+  if (styleButton && CF.state === 'editing') {
     CF.explicitFields.add('style');
   }
 });
