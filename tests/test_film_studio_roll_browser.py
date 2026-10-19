@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import subprocess
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
@@ -31,6 +32,19 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
     import webui.server as web_server
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
+
+    # Use a real source file so the server-side Slip duration guard is exercised.
+    asset_root = storage_root / "assets"
+    asset_root.mkdir(parents=True, exist_ok=True)
+    from video_director import renderer
+    generated = subprocess.run(
+        [renderer._ffmpeg(), "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=20",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", "-y",
+         str(asset_root / "a.mp4")],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert generated.returncode == 0, generated.stderr
 
     project_id = "film-studio-roll-browser"
     project_root = storage_root / project_id
@@ -183,6 +197,39 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert clips[slide_right_id]["attrs"]["src"].endswith("#t=10.5,12")
                 assert float(clips[slide_right_id]["attrs"]["at"]) == 4.25
                 assert fd.clip_end(clips[slide_right_id]) == 5
+
+                # Slip the left clip without moving it or changing its timeline
+                # duration. The fixture uses a real 20-second MP4 so the backend's
+                # source-duration preflight is exercised, not mocked.
+                left_element = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                left_box = left_element.bounding_box()
+                assert left_box and left_box["width"] > 40
+                x, y = left_box["x"] + left_box["width"] / 2, left_box["y"] + left_box["height"] / 2
+                page.keyboard.down("Alt")
+                try:
+                    page.mouse.move(x, y)
+                    page.mouse.down()
+                    page.mouse.move(x + 9, y, steps=3)  # +0.25 timeline s × 2× speed = +0.5 source s
+                    page.mouse.up()
+                finally:
+                    page.keyboard.up("Alt")
+
+                page.wait_for_function("""async (pid) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
+                  const left = clips.find(clip => clip.id === 'clip-a');
+                  return !!left && String(left.attrs.src).endsWith('#t=2.5,8')
+                    && Math.abs(Number(left.attrs.at)) < 0.001
+                    && Math.abs((Number(left.attrs.src.match(/#t=[^,]+,([^#]+)/)?.[1]) - Number(left.attrs.src.match(/#t=([^,]+)/)?.[1])) / Number(left.attrs.speed) - 2.75) < 0.001;
+                }""", project_id, timeout=10000)
+
+                persisted = fd.read_project_film(project_id)
+                clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
+                assert clips["clip-a"]["attrs"]["src"].endswith("#t=2.5,8")
+                assert float(clips["clip-a"]["attrs"]["at"]) == 0
+                assert fd.clip_duration(clips["clip-a"]) == 2.75
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:
