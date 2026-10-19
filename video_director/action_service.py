@@ -34,10 +34,7 @@ def execute_film_document_action(project_id: str, action_id: str, params: dict) 
     pid = fd.validate_project_id(project_id)
     state = fd.read_project_film(pid)
     if not state.get("exists"):
-        raise ActionServiceError({
-            "ok": False, "status": "REJECTED", "code": "FILM_NOT_INITIALIZED",
-            "action": action_id, "error": "当前项目没有可编辑的 film.html。",
-        }, 409)
+        raise fd.FilmError("FILM_NOT_INITIALIZED", "当前项目没有可编辑的 film.html。", 409)
     try:
         if spec.command == "film_document_edit":
             operations = params.get("ops")
@@ -54,11 +51,10 @@ def execute_film_document_action(project_id: str, action_id: str, params: dict) 
             state = fd.read_project_film(pid)
             data = fd.film_payload(pid, state)
             data["action"] = mode
-    except fd.FilmError as exc:
-        raise ActionServiceError({
-            "ok": False, "status": "REJECTED", "code": exc.code,
-            "action": action_id, "error": str(exc),
-        }, exc.status) from exc
+    except fd.FilmError:
+        # HTTP film routes translate this into their normal FilmError response;
+        # /api/action/execute wraps it at the Action Service boundary instead.
+        raise
     data.update({"status": "APPLIED", "action": action_id, "message": spec.label})
     return data
 
@@ -118,7 +114,14 @@ def execute_action_request(payload: dict) -> dict:
                     "ok": False, "status": "REJECTED", "code": "TARGET_NOT_ALLOWED",
                     "action": action_id, "error": "Film Document 动作只接受项目目标。",
                 }, 409)
-            return execute_film_document_action(pid, action_id, params)
+            from video_director import film_document as fd
+            try:
+                return execute_film_document_action(pid, action_id, params)
+            except fd.FilmError as exc:
+                raise ActionServiceError({
+                    "ok": False, "status": "REJECTED", "code": exc.code,
+                    "action": action_id, "error": str(exc),
+                }, exc.status) from exc
 
         context = project_context.inspect_project_context(pid, selection)
         availability = actions.action_availability(action_id, pid, context=context)

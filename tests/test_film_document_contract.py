@@ -457,7 +457,9 @@ def test_reverse_mapping_survives_persisted_edit_undo_redo(tmp_path, monkeypatch
     edited = fd.edit_project_film(pid, original["rev"], [
         {"op": "set", "clip": clip["id"], "field": "at", "value": 0.5},
     ])
-    assert fd.composition_from_film(fd.read_project_film(pid)["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
+    after_edit_ir = fd.composition_from_film(fd.read_project_film(pid)["doc"])
+    assert [layer["type"] for layer in after_edit_ir["scenes"][0]["layers"]] == ["gap", "image"]
+    assert after_edit_ir["scenes"][0]["layers"][1]["start"] == 0.5
     undone = fd.undo_redo_project_film(pid, edited["rev"], "undo")
     after_undo = fd.read_project_film(pid)
     assert undone["rev"] == after_undo["rev"]
@@ -465,7 +467,9 @@ def test_reverse_mapping_survives_persisted_edit_undo_redo(tmp_path, monkeypatch
     redone = fd.undo_redo_project_film(pid, undone["rev"], "redo")
     after_redo = fd.read_project_film(pid)
     assert redone["rev"] == after_redo["rev"]
-    assert fd.composition_from_film(after_redo["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
+    after_redo_ir = fd.composition_from_film(after_redo["doc"])
+    assert [layer["type"] for layer in after_redo_ir["scenes"][0]["layers"]] == ["gap", "image"]
+    assert after_redo_ir["scenes"][0]["layers"][1]["start"] == 0.5
 
 
 
@@ -509,7 +513,8 @@ def test_composition_ir_reverse_mapping_tracks_timeline_edits_and_preserves_asse
     clip = next(c for t in loaded["tracks"] for c in t["clips"] if c["attrs"].get("data-vd-scene-id"))
     edited, _ = fd.apply_ops(loaded, [{"op": "set", "clip": clip["id"], "field": "at", "value": 0.5}])
     synced = fd.composition_from_film(fd.parse_film(fd.serialize_film(edited)))
-    assert synced["scenes"][0]["layers"][0]["start"] == 0.5
+    assert [layer["type"] for layer in synced["scenes"][0]["layers"]] == ["gap", "image"]
+    assert synced["scenes"][0]["layers"][1]["start"] == 0.5
     assert synced["scenes"][0]["duration"] == 2.5
     assert synced["project"]["duration"] == 2.5
 
@@ -677,7 +682,9 @@ def test_registered_film_document_actions_share_revisioned_edit_undo_redo(tmp_pa
     })
     assert edited["ok"] is True
     assert edited["ops"]
-    assert fd.composition_from_film(fd.read_project_film(pid)["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
+    after_edit_ir = fd.composition_from_film(fd.read_project_film(pid)["doc"])
+    assert [layer["type"] for layer in after_edit_ir["scenes"][0]["layers"]] == ["gap", "image"]
+    assert after_edit_ir["scenes"][0]["layers"][1]["start"] == 0.5
 
     undone = action_service.execute_action_request({
         "project_id": pid, "action": "film.document.undo", "target": "project",
@@ -691,7 +698,9 @@ def test_registered_film_document_actions_share_revisioned_edit_undo_redo(tmp_pa
         "selection": {"type": "project"}, "params": {"base": undone["rev"]},
     })
     assert redone["ok"] is True
-    assert fd.composition_from_film(fd.read_project_film(pid)["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
+    after_edit_ir = fd.composition_from_film(fd.read_project_film(pid)["doc"])
+    assert [layer["type"] for layer in after_edit_ir["scenes"][0]["layers"]] == ["gap", "image"]
+    assert after_edit_ir["scenes"][0]["layers"][1]["start"] == 0.5
 
 
 def test_trim_start_and_end_preserve_source_time_and_speed():
