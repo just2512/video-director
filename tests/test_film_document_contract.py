@@ -169,6 +169,41 @@ def test_empty_track_removal_is_safe_and_nonempty_track_cannot_be_removed():
     assert all(track["id"] != "empty-extra" for track in edited["tracks"])
 
 
+def test_media_endpoint_cannot_read_another_project_but_can_read_shared_libraries(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage" / "composer"))
+    composer = tmp_path / "storage" / "composer"
+    current = composer / "film-test"
+    other = composer / "other-project"
+    shared = composer / "assets" / "local"
+    audio = composer / "audio_library" / "bgm"
+    for folder in (current / "scenes", other, shared, audio):
+        folder.mkdir(parents=True, exist_ok=True)
+    (current / "scenes" / "subtitles.html").write_text("<html></html>", encoding="utf-8")
+    (other / "secret.txt").write_text("not-for-this-project", encoding="utf-8")
+    (shared / "shared.mp4").write_bytes(b"shared")
+    (audio / "music.mp3").write_bytes(b"music")
+    assert fd.media_path_for_src("film-test", "scenes/subtitles.html").is_file()
+    assert fd.media_path_for_src("film-test", "../assets/local/shared.mp4").is_file()
+    assert fd.media_path_for_src("film-test", "../audio_library/bgm/music.mp3").is_file()
+    with pytest.raises(fd.FilmError, match="不能跨项目读取"):
+        fd.media_path_for_src("film-test", "../other-project/secret.txt")
+
+
+def test_project_symlink_cannot_escape_composer_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    external = tmp_path / "external"
+    external.mkdir()
+    composer = tmp_path / "composer"
+    composer.mkdir()
+    link = composer / "film-escape"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("当前环境不支持创建目录符号链接")
+    with pytest.raises(fd.FilmError, match="超出 composer 存储根目录"):
+        fd.media_path_for_src("film-escape", "secret.txt")
+
+
 def test_ai_planner_contract_includes_trim_and_persisted_revision_guards():
     root = Path(__file__).resolve().parents[1]
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")

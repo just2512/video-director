@@ -507,7 +507,40 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
 
 
 def _project_root(project_id: str) -> Path:
-    return config.project_dir(validate_project_id(project_id)).resolve()
+    pid = validate_project_id(project_id)
+    composer_root = config.composer_storage_root().resolve()
+    root = (composer_root / pid).resolve()
+    try:
+        root.relative_to(composer_root)
+    except ValueError:
+        raise FilmError("PROJECT_PATH_OUTSIDE_STORAGE", "项目目录解析后超出 composer 存储根目录", 403) from None
+    return root
+
+
+def _allowed_media_roots(project_id: str) -> list[Path]:
+    """Read access is restricted to this project and the two shared media libraries."""
+    composer_root = config.composer_storage_root().resolve()
+    project_root = _project_root(project_id)
+    return [
+        project_root,
+        (composer_root / "assets").resolve(),
+        (composer_root / "audio_library").resolve(),
+    ]
+
+
+def _assert_media_path_allowed(project_id: str, media_path: Path) -> Path:
+    resolved = media_path.resolve()
+    for root in _allowed_media_roots(project_id):
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            continue
+    raise FilmError(
+        "MEDIA_PATH_OUTSIDE_ALLOWED_ROOTS",
+        "素材路径必须位于当前项目、共享素材库或音频库中，不能跨项目读取",
+        403,
+    )
 
 
 def _film_path(project_id: str) -> Path:
@@ -621,14 +654,10 @@ def undo_redo_project_film(project_id: str, base: str | None, action: str) -> di
 def media_path_for_src(project_id: str, src: str) -> Path:
     pid = validate_project_id(project_id)
     raw = unquote(str(src or "")).strip().split("#", 1)[0]
-    if not raw or raw.startswith(("/", "\\")) or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", raw):
-        raise FilmError("INVALID_MEDIA_PATH", "影片素材必须是存储目录内的相对文件路径", 403)
-    candidate = (_project_root(pid) / raw).resolve()
-    storage_root = config.composer_storage_root().parent.resolve()
-    try:
-        candidate.relative_to(storage_root)
-    except ValueError:
-        raise FilmError("MEDIA_PATH_OUTSIDE_STORAGE", "素材路径超出系统存储目录", 403) from None
+    if (not raw or raw.startswith(("/", "\\")) or "\\" in raw
+            or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", raw) or raw.startswith("//")):
+        raise FilmError("INVALID_MEDIA_PATH", "影片素材必须是存储范围内的相对文件路径", 403)
+    candidate = _assert_media_path_allowed(pid, _project_root(pid) / raw)
     if not candidate.is_file():
         raise FilmError("MEDIA_NOT_FOUND", f"影片素材文件不存在：{raw}", 404)
     return candidate
@@ -636,19 +665,16 @@ def media_path_for_src(project_id: str, src: str) -> Path:
 
 def _safe_storage_uri(project_id: str, source_file: str | Path) -> str:
     root = _project_root(project_id)
-    storage_root = config.composer_storage_root().parent.resolve()
+    composer_root = config.composer_storage_root().resolve()
     p = Path(source_file)
     if not p.is_absolute():
-        candidates = [(root / p), (storage_root / p)]
+        candidates = [root / p, composer_root / p, composer_root.parent / p]
         p = next((candidate.resolve() for candidate in candidates if candidate.is_file()), candidates[0].resolve())
     else:
         p = p.resolve()
-    try:
-        p.relative_to(storage_root)
-    except ValueError:
-        raise FilmError("ASSET_OUTSIDE_STORAGE", f"素材不在系统存储目录内：{p.name}", 422) from None
+    p = _assert_media_path_allowed(project_id, p)
     if not p.is_file():
-        raise FilmError("ASSET_NOT_FOUND", f"素材文件不存在：{p}", 422)
+        raise FilmError("ASSET_NOT_FOUND", f"素材文件不存在：{p.name}", 422)
     return quote(os.path.relpath(p, root).replace("\\", "/"), safe="/-._~")
 
 
