@@ -805,7 +805,13 @@ def edit_project_film(project_id: str, base: str | None, ops: list[dict], base_s
         current = read_project_film(pid)
         if not current["exists"]:
             raise FilmError("FILM_NOT_INITIALIZED", "当前项目还没有 film.html，请先初始化影片文档", 409)
-        rebased = bool(base and base != current["rev"])
+        if not isinstance(base, str) or not base.strip():
+            raise FilmError(
+                "BASE_REVISION_REQUIRED",
+                "编辑请求必须携带当前影片 revision；请重新载入文档后重试",
+                409,
+            )
+        rebased = base != current["rev"]
         if rebased:
             baseline = _base_snapshot_doc(base_snapshot, base)
             conflicts = _clip_rebase_conflicts(baseline, current["doc"], ops)

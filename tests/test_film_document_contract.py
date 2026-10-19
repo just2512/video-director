@@ -107,6 +107,21 @@ def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     assert redone["rev"]==rebased["rev"]
 
 
+def test_edit_requires_explicit_base_revision(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-test"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    with pytest.raises(fd.FilmError) as raised:
+        fd.edit_project_film(
+            "film-test", None,
+            [{"op": "set", "clip": "clip-b", "field": "volume", "value": 0.4}],
+        )
+    assert raised.value.code == "BASE_REVISION_REQUIRED"
+    assert raised.value.status == 409
+    assert fd.read_project_film("film-test")["rev"]
+
+
 def test_stale_edit_without_base_snapshot_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-test"
@@ -219,6 +234,7 @@ def test_api_ui_routes_are_wired():
     assert "base_snapshot" in js
     assert "baseSnapshot()" in js
     assert "REVISION_CONFLICT" in js
+    assert "BASE_REVISION_REQUIRED" in module
     assert 'payload.get("base_snapshot")' in server
     assert 'edit_project_film(pid, payload.get("base"), operations)' not in server
     assert server.count('edit_project_film(pid, payload.get("base"), operations, payload.get("base_snapshot"))') == 2
