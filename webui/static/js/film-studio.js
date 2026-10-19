@@ -245,21 +245,21 @@
     return out;
   }
   function stylePixels(styles,key,fallback) {
-    var m=String(styles[key]||'').match(/^(-?\\d+(?:\\.\\d+)?)px$/i);
+    var m=String(styles[key]||'').match(/^(-?\d+(?:\.\d+)?)px$/i);
     return m?Number(m[1]):fallback;
   }
   function styleDegrees(styles,key,fallback) {
-    var m=String(styles[key]||'').match(/^(-?\\d+(?:\\.\\d+)?)deg$/i);
+    var m=String(styles[key]||'').match(/^(-?\d+(?:\.\d+)?)deg$/i);
     return m?Number(m[1]):fallback;
   }
   function effectiveClipGeometry(clip) {
     var attrs=clip.attrs||{},styles=inlineStyleMap(attrs.style||'');
     var stage=(S.data&&S.data.stage)||{},sw=Math.max(1,num(stage.width,1920)),sh=Math.max(1,num(stage.height,1080));
     return {
-      left:Object.prototype.hasOwnProperty.call(attrs,'x')?num(attrs.x,0)*sw:stylePixels(styles,'left',0),
-      top:Object.prototype.hasOwnProperty.call(attrs,'y')?num(attrs.y,0)*sh:stylePixels(styles,'top',0),
-      width:Object.prototype.hasOwnProperty.call(attrs,'width')?num(attrs.width,1)*sw:stylePixels(styles,'width',sw),
-      height:Object.prototype.hasOwnProperty.call(attrs,'height')?num(attrs.height,1)*sh:stylePixels(styles,'height',sh),
+      left:Object.prototype.hasOwnProperty.call(attrs,'x')?Math.max(0,Math.min(1,num(attrs.x,0)))*sw:stylePixels(styles,'left',0),
+      top:Object.prototype.hasOwnProperty.call(attrs,'y')?Math.max(0,Math.min(1,num(attrs.y,0)))*sh:stylePixels(styles,'top',0),
+      width:Object.prototype.hasOwnProperty.call(attrs,'width')?Math.max(0.001,Math.min(1,num(attrs.width,1)))*sw:stylePixels(styles,'width',sw),
+      height:Object.prototype.hasOwnProperty.call(attrs,'height')?Math.max(0.001,Math.min(1,num(attrs.height,1)))*sh:stylePixels(styles,'height',sh),
       rotate:Object.prototype.hasOwnProperty.call(attrs,'rotate')?num(attrs.rotate,0):styleDegrees(styles,'rotate',0),
       opacity:Object.prototype.hasOwnProperty.call(attrs,'opacity')?num(attrs.opacity,1):num(styles.opacity,1)
     };

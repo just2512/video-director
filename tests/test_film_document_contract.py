@@ -253,6 +253,7 @@ def test_api_ui_routes_are_wired():
     assert '"ripple_remove"' in module
     assert "fs-field-left" in js
     assert "effectiveClipGeometry" in js
+    assert String.raw`match(/^(-?\\d+(?:\\.\\d+)?)px$/i)` not in js
     assert "画面变换" in js
     assert "SETTABLE_FIELDS" in module
     assert "/static/css/film-studio.css" in index
