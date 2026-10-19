@@ -71,6 +71,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - The backend rejects nonadjacent, different-source, locked-track, faded, or invalid-duration operations. Source ranges are changed together, clip-relative volume curves are cropped/extended, and the edit is one undoable operation.
 - Only same-source continuous cuts are supported in this first pass; rolling between distinct source assets requires media-probe boundary checks.
 
+## Insert edit and sync lock
+
+- Studio's `插入编辑` mode places a selected library asset into the selected clip's track at the playhead. It inserts a gap equal to the new clip's timeline duration rather than overlapping existing clips.
+- The target track always ripples. Other tracks participate only when their `sync-lock` flag is enabled; a locked participating track rejects the whole operation. Clips crossing the insertion point are split at a source-aware boundary, with clip-relative volume envelopes sliced/rebased.
+- Unknown-duration clips that start before the insertion point are rejected because the editor cannot prove whether they cross it. Turning insert mode off preserves the existing behavior of creating a separate new track.
+
 ## Roll-trim browser regression
 
 - Playwright opens a real film.html project in the Studio, uses the Split button, then Ctrl-drags the real trim handle. It verifies both the visible interaction and the persisted source in/out points plus the right segment timeline start. The fixture retains the cut's combined duration.

@@ -24,7 +24,7 @@ CLIP_TAGS = {"iframe", "video", "img", "audio"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 SETTABLE_FIELDS = {"at", "src", "speed", "volume", "volume_envelope", "fade", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
 AI_SETTABLE_FIELDS = {"at", "speed", "volume", "volume_envelope", "fade", "style", "class", "muted", "title"}
-TRACK_FLAGS = {"locked", "hidden", "muted"}
+TRACK_FLAGS = {"locked", "hidden", "muted", "sync-lock"}
 MAX_OPERATIONS = 200
 
 
@@ -713,6 +713,104 @@ def _roll_trim(doc: dict, left_id: str, right_id: str, delta: Any) -> dict:
     return {"clip": left_id, "other_clip": right_id, "delta": _fmt(amount)}
 
 
+def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> dict:
+    """Insert a clip and ripple the target track plus explicitly sync-locked tracks."""
+    target = _find_track(doc, track_id)
+    _ensure_unlocked(target)
+    if not isinstance(raw_clip, dict) or raw_clip.get("tag") not in CLIP_TAGS or not isinstance(raw_clip.get("attrs"), dict):
+        raise FilmError("INVALID_INSERT", "insert_ripple 需要带 tag、id 和 attrs 的 clip 对象", 422)
+    clip_id = str(raw_clip.get("id") or "").strip()
+    if not clip_id or any(clip_id == clip["id"] for track in doc["tracks"] for clip in track["clips"]):
+        raise FilmError("DUPLICATE_CLIP_ID", "插入素材必须使用影片中未占用的片段 ID", 422)
+    attrs = copy.deepcopy(raw_clip["attrs"])
+    attrs["id"] = clip_id
+    attrs["src"] = _validate_src_syntax(attrs.get("src"))
+    at = _number(at_value, "insert at", 0)
+    attrs["at"] = _fmt(at)
+    if raw_clip["tag"] in {"img", "iframe"}:
+        source_in, source_out = _source_range(attrs["src"])
+        if source_out is None or abs(source_in) > 0.001:
+            raise FilmError("INVALID_SOURCE_RANGE", f"{raw_clip['tag']} 必须使用 #t=0,length 指定插入片段时长", 422)
+    if "volume_envelope" in attrs:
+        attrs["volume_envelope"] = _normalize_volume_envelope(attrs["volume_envelope"])
+    new_clip = {"id": clip_id, "tag": raw_clip["tag"], "attrs": attrs}
+    duration = clip_duration(new_clip)
+    if duration is None or not math.isfinite(duration) or duration <= 0.001:
+        raise FilmError("INSERT_DURATION_UNKNOWN", "插入编辑要求新素材具有明确且大于 0.001 秒的时间线时长", 422)
+    if "fade" in attrs:
+        attrs["fade"] = _normalize_fade(attrs["fade"], new_clip)
+
+    affected = [track for track in doc["tracks"]
+                if track["id"] == target["id"] or "sync-lock" in (track.get("attrs") or {})]
+    # Reject the whole transaction before touching any of the candidate tracks.
+    for track in affected:
+        _ensure_unlocked(track)
+
+    used_ids = {clip["id"] for track in doc["tracks"] for clip in track["clips"]}
+    used_ids.add(clip_id)
+    split_ids: dict[str, str] = {}
+    shifted_ids: list[str] = []
+    eps = 1e-7
+    for track in affected:
+        rewritten = []
+        for clip in list(track.get("clips") or []):
+            clip_attrs = clip.get("attrs") or {}
+            start = _number(clip_attrs.get("at", 0), "at", 0)
+            end = clip_end(clip)
+            if end is None:
+                if start >= at - eps:
+                    clip_attrs["at"] = _fmt(start + duration)
+                    shifted_ids.append(clip["id"])
+                    rewritten.append(clip)
+                    continue
+                raise FilmError("INSERT_DURATION_UNKNOWN",
+                                f"轨道 {track['id']} 的片段 {clip['id']} 时长未知，不能判断是否穿过插入点", 422)
+            if end <= at + eps:
+                rewritten.append(clip)
+                continue
+            if start >= at - eps:
+                clip_attrs["at"] = _fmt(start + duration)
+                shifted_ids.append(clip["id"])
+                rewritten.append(clip)
+                continue
+
+            offset, old_duration = at - start, end - start
+            if offset <= 0.001 or old_duration - offset <= 0.001:
+                raise FilmError("INSERT_SPLIT_TOO_CLOSE", f"插入点过于接近片段 {clip['id']} 的边缘，无法安全切分", 422)
+            original_src = str(clip_attrs.get("src") or "")
+            source_in, source_out = _source_range(original_src)
+            if source_out is None:
+                raise FilmError("SOURCE_RANGE_REQUIRED", f"片段 {clip['id']} 缺少明确源区间，不能在插入点切分", 422)
+            speed = _number(clip_attrs.get("speed", 1), "speed", 0.25, 4) if clip["tag"] in {"video", "audio"} else 1.0
+            mid = source_in + offset * speed
+            if mid <= source_in + 0.001 or mid >= source_out - 0.001:
+                raise FilmError("INSERT_SOURCE_SPLIT_INVALID", f"片段 {clip['id']} 的源区间无法在插入点安全切分", 422)
+
+            right = copy.deepcopy(clip)
+            right_id = _safe_id(f"{clip['id']}-insert-{revision_of(f'{at:.6f}:{clip_id}')[:6]}", "clip")
+            base_right_id, suffix = right_id, 2
+            while right_id in used_ids:
+                right_id = _safe_id(f"{base_right_id}-{suffix}", "clip")
+                suffix += 1
+            used_ids.add(right_id)
+            right["id"] = right_id
+            right_attrs = right["attrs"]
+            right_attrs["id"] = right_id
+            right_attrs["src"] = _with_source_range(original_src, mid, source_out)
+            right_attrs["at"] = _fmt(at + duration)
+            clip_attrs["src"] = _with_source_range(original_src, source_in, mid)
+            if "volume_envelope" in clip_attrs:
+                _slice_volume_envelope(clip_attrs, 0.0, offset)
+                _slice_volume_envelope(right_attrs, offset, old_duration)
+            split_ids[clip["id"]] = right_id
+            rewritten.extend((clip, right))
+            shifted_ids.append(right_id)
+        track["clips"] = rewritten
+    target["clips"].append(new_clip)
+    return {"track_id": target["id"], "at": _fmt(at), "duration": _fmt(duration), "clip": new_clip,
+            "split_ids": split_ids, "shifted_ids": shifted_ids, "affected_tracks": [t["id"] for t in affected]}
+
+
 def _join_through_edit(doc: dict, left_id: str, right_id: str) -> dict:
     """Heal a split cut only when source, timing, and clip-level semantics are compatible."""
     left_track, left = _find_clip(doc, left_id)
@@ -889,6 +987,11 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             _ensure_unlocked(track)
             track["clips"].remove(clip)
             normalized.append({"op": "remove", "clip": clip["id"]})
+        elif kind == "insert_ripple":
+            result = _insert_ripple(out, str(op.get("track_id") or ""), op.get("clip"), op.get("at"))
+            normalized.append({"op": "insert_ripple", "track_id": result["track_id"], "at": result["at"],
+                               "clip": result["clip"], "split_ids": result["split_ids"],
+                               "shifted_ids": result["shifted_ids"], "affected_tracks": result["affected_tracks"]})
         elif kind == "insert":
             track = _find_track(out, str(op.get("track_id") or ""))
             _ensure_unlocked(track)

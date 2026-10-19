@@ -1103,18 +1103,29 @@ class Handler(BaseHTTPRequestHandler):
                 clip = fd.library_asset_clip(
                     pid, str(payload.get("asset_id") or ""),
                     payload.get("at", 0), payload.get("still_duration", 5))
-                track_id = "track-added-" + uuid.uuid4().hex[:10]
-                track_label = "新增音轨" if clip["tag"] == "audio" else "新增画面"
-                operations = [
-                    {"op": "track_add", "track_id": track_id, "label": track_label,
-                     "kind": clip["tag"], "index": 0},
-                    {"op": "insert", "track_id": track_id,
-                     "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}},
-                ]
+                placement_mode = str(payload.get("placement_mode") or "new-track")
+                if placement_mode == "ripple":
+                    track_id = str(payload.get("track_id") or "")
+                    if not track_id:
+                        raise fd.FilmError("INSERT_TRACK_REQUIRED", "插入编辑必须明确选择目标轨道", 422)
+                    operations = [{"op": "insert_ripple", "track_id": track_id, "at": payload.get("at", 0),
+                                   "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}}]
+                elif placement_mode == "new-track":
+                    track_id = "track-added-" + uuid.uuid4().hex[:10]
+                    track_label = "新增音轨" if clip["tag"] == "audio" else "新增画面"
+                    operations = [
+                        {"op": "track_add", "track_id": track_id, "label": track_label,
+                         "kind": clip["tag"], "index": 0},
+                        {"op": "insert", "track_id": track_id,
+                         "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}},
+                    ]
+                else:
+                    raise fd.FilmError("INVALID_PLACEMENT_MODE", "素材放置模式只允许 new-track 或 ripple", 422)
                 result = fd.edit_project_film(pid, payload.get("base"), operations)
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
-                             "inserted_clip_id": clip["id"], "inserted_track_id": track_id})
+                             "inserted_clip_id": clip["id"], "inserted_track_id": track_id,
+                             "placement_mode": placement_mode})
                 sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
                                      "source": "asset_insert", "operations": result["ops"]})
                 self._send_json(data)

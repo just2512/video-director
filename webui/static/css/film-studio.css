@@ -223,3 +223,6 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 
 .fs-clip.fs-sliding{outline:1px dashed #8ac7ff;outline-offset:-2px;opacity:.94}
 .fs-clip[data-slide-delta]::after{content:attr(data-slide-delta);position:absolute;left:4px;right:4px;bottom:4px;z-index:9;text-align:center;font-size:10px;background:#101923ed;color:#b9e0ff;border-radius:3px;padding:2px;pointer-events:none}
+
+.fs-track.fs-sync-locked .fs-track-head{box-shadow:inset 2px 0 0 #45c2b4}
+.fs-track-controls [data-track-flag="sync-lock"][aria-pressed="true"]{color:#45c2b4;border-color:#45c2b4}

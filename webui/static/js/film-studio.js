@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -128,16 +128,25 @@
   };
   window.filmStudioAddAsset=async function(assetId){
     if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档，且等待当前编辑完成。','error');return;}
+    var selected=findClip(S.selectedId),request={project_id:S.projectId,base:S.rev,asset_id:assetId,at:S.playhead,still_duration:5};
+    if(S.insertMode){
+      if(!selected){showStatus('插入编辑模式下，请先选择目标轨道上的片段。','error');return;}
+      request.placement_mode='ripple';request.track_id=selected.track_id;
+    }
     S.busy=true;
     try{
-      var response=await apiPost('/api/editor/film/insert-asset',{
-        project_id:S.projectId,base:S.rev,asset_id:assetId,at:S.playhead,still_duration:5
-      });
+      var response=await apiPost('/api/editor/film/insert-asset',request);
       if(!response||!response.ok){showStatus((response&&response.error)||'素材加入时间线失败。','error');return;}
       S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
       S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
-      showStatus('已在播放头位置新建轨道并添加素材。', 'success');
+      showStatus(S.insertMode?'插入编辑已完成：目标轨道及同步锁定轨道已按素材时长推移。':'已在播放头位置新建轨道并添加素材。', 'success');
     }finally{S.busy=false;}
+  };
+  window.filmStudioToggleInsertMode=function(){
+    S.insertMode=!S.insertMode;
+    var button=document.querySelector('[data-film-action="insert-mode"]');
+    if(button){button.textContent='插入编辑：'+(S.insertMode?'开':'关');button.classList.toggle('fs-primary',S.insertMode);button.setAttribute('aria-pressed',S.insertMode?'true':'false');}
+    showStatus(S.insertMode?'插入编辑已开启：选择目标轨道上的片段，再从素材库添加素材。':'插入编辑已关闭。','success');
   };
   function syncClipSelectionVisual(){
     var selected=S.selectedIds||[];
@@ -186,6 +195,7 @@
     ruler+='</div></div>';
     var body=S.data.tracks.map(function(track){
       var attrs=track.attrs||{},locked=Object.prototype.hasOwnProperty.call(attrs,'locked'),
+          syncLocked=Object.prototype.hasOwnProperty.call(attrs,'sync-lock'),
           hidden=Object.prototype.hasOwnProperty.call(attrs,'hidden'),muted=Object.prototype.hasOwnProperty.call(attrs,'muted'),
           label=attrs['data-label']||track.id;
       var lane='<div class="fs-track-body" style="width:'+laneWidth+'px">';
@@ -199,7 +209,7 @@
         lane+='<div class="fs-clip '+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+envelopeHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
       });
       lane+='</div>';
-      return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
+      return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(syncLocked?'fs-sync-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="sync-lock" data-track-key="'+esc(track.id)+'" aria-pressed="'+(syncLocked?'true':'false')+'" title="'+(syncLocked?'取消同步锁定':'启用同步锁定')+'">'+(syncLocked?'⇄':'同步')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
     }).join('');
     $('fs-timeline').innerHTML=ruler+body+'<div class="fs-playhead" id="fs-playhead-line"></div>';
     $('fs-timeline').style.width=(132+laneWidth)+'px';$('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
@@ -1153,6 +1163,7 @@
     remove: () => window.filmStudioRemove(),
     'ripple-delete': () => window.filmStudioRippleDelete(),
     'envelope-mode': () => window.filmStudioToggleEnvelopeMode(),
+    'insert-mode': () => window.filmStudioToggleInsertMode(),
     'add-track': () => window.filmStudioAddTrack(),
     'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),
     'zoom-out': () => window.filmStudioZoom(-1),

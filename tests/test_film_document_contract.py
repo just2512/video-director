@@ -23,6 +23,81 @@ SAMPLE = '''<!doctype html>
 </body></html>'''
 
 
+INSERT_SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+<video id="video-before" src="../assets/a.mp4#t=0,4" at="0"></video>
+<video id="video-later" src="../assets/c.mp4#t=0,2" at="4"></video>
+</section>
+<section id="audio-bed" data-label="BGM" sync-lock>
+<audio id="audio-before" src="../assets/music.wav#t=0,3" at="0"></audio>
+<audio id="audio-later" src="../assets/other.wav#t=0,4" at="3"></audio>
+</section>
+</body></html>'''
+
+
+def test_insert_ripple_splits_crossing_clips_and_shifts_sync_locked_tracks():
+    doc = fd.parse_film(INSERT_SAMPLE)
+    inserted, normalized = fd.apply_ops(doc, [{
+        "op": "insert_ripple", "track_id": "video-main", "at": 2,
+        "clip": {"id": "inserted", "tag": "video", "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "0"}},
+    }])
+    tracks = {track["id"]: track for track in inserted["tracks"]}
+    video = {clip["id"]: clip for clip in tracks["video-main"]["clips"]}
+    audio = {clip["id"]: clip for clip in tracks["audio-bed"]["clips"]}
+    assert video["video-before"]["attrs"]["src"].endswith("#t=0,2")
+    right_video_id = normalized[0]["split_ids"]["video-before"]
+    assert video[right_video_id]["attrs"]["src"].endswith("#t=2,4")
+    assert float(video[right_video_id]["attrs"]["at"]) == pytest.approx(3)
+    assert float(video["inserted"]["attrs"]["at"]) == pytest.approx(2)
+    assert float(video["video-later"]["attrs"]["at"]) == pytest.approx(5)
+    right_audio_id = normalized[0]["split_ids"]["audio-before"]
+    assert audio["audio-before"]["attrs"]["src"].endswith("#t=0,2")
+    assert audio[right_audio_id]["attrs"]["src"].endswith("#t=2,3")
+    assert float(audio[right_audio_id]["attrs"]["at"]) == pytest.approx(3)
+    assert float(audio["audio-later"]["attrs"]["at"]) == pytest.approx(4)
+    assert normalized[0]["affected_tracks"] == ["video-main", "audio-bed"]
+
+
+def test_insert_ripple_rejects_locked_sync_tracks_unknown_crossing_duration_and_bad_new_clip():
+    doc = fd.parse_film(INSERT_SAMPLE)
+    locked = fd.copy.deepcopy(doc)
+    locked["tracks"][1]["attrs"]["locked"] = ""
+    with pytest.raises(fd.FilmError, match="已锁定"):
+        fd.apply_ops(locked, [{
+            "op": "insert_ripple", "track_id": "video-main", "at": 2,
+            "clip": {"id": "new-locked", "tag": "video", "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "0"}},
+        }])
+    unknown = fd.parse_film(INSERT_SAMPLE.replace(
+        '<video id="video-before" src="../assets/a.mp4#t=0,4" at="0"></video>',
+        '<video id="video-before" src="../assets/a.mp4" at="0"></video>'
+    ))
+    with pytest.raises(fd.FilmError, match="时长未知"):
+        fd.apply_ops(unknown, [{
+            "op": "insert_ripple", "track_id": "video-main", "at": 2,
+            "clip": {"id": "new-unknown", "tag": "video", "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "0"}},
+        }])
+    with pytest.raises(fd.FilmError, match="时长"):
+        fd.apply_ops(doc, [{
+            "op": "insert_ripple", "track_id": "video-main", "at": 2,
+            "clip": {"id": "new-bad", "tag": "video", "attrs": {"src": "../assets/new.mp4", "at": "0"}},
+        }])
+
+
+def test_sync_lock_and_insert_mode_are_exposed_in_the_studio_and_api():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert 'data-track-flag="sync-lock"' in script
+    assert 'data-film-action="insert-mode"' in index
+    assert "request.placement_mode='ripple'" in script
+    assert 'elif kind == "insert_ripple"' in module
+    assert 'if placement_mode == "ripple"' in server
+
+
 def test_parse_serialize_preserves_stage_head_and_clip_ids():
     doc = fd.parse_film(SAMPLE)
     assert doc["stage"] == {"width": 1920, "height": 1080}
