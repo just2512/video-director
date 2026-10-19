@@ -380,11 +380,12 @@ def test_composition_layer_and_overlay_order_matches_render_stack(tmp_path, monk
     ]
     composition = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=24, duration=2),
-        scenes=[SceneIR(id="scene-z", start=0, duration=2, text="z",
-                        layers=[
-                            Layer(type=LayerType.image, asset_id="asset-a", duration=2),
-                            Layer(type=LayerType.image, asset_id="asset-b", duration=2),
-                        ])],
+        scenes=[
+            SceneIR(id="scene-a", start=0, duration=1, text="first",
+                    layers=[Layer(type=LayerType.image, asset_id="asset-a", duration=1)]),
+            SceneIR(id="scene-b", start=1, duration=1, text="second",
+                    layers=[Layer(type=LayerType.image, asset_id="asset-b", duration=1)]),
+        ],
         visual_overlays=[
             VisualOverlayClip(id="overlay-a", asset_id="asset-a", start=0, duration=2, x=0.1, y=0.1, width=0.3, height=0.3),
             VisualOverlayClip(id="overlay-b", asset_id="asset-b", start=0, duration=2, x=0.5, y=0.1, width=0.3, height=0.3),
@@ -394,12 +395,14 @@ def test_composition_layer_and_overlay_order_matches_render_stack(tmp_path, monk
     plan = fd.build_film_from_composition("film-z-order", composition)
     assert plan["warnings"] == []
     tracks = plan["document"]["tracks"]
-    assert [t["attrs"].get("data-vd-role") for t in tracks] == ["overlay", "overlay", "scene-layer", "scene-layer"]
-    assert [t["attrs"]["data-vd-overlay-id"] for t in tracks[:2]] == ["overlay-b", "overlay-a"]
-    assert [t["attrs"]["data-vd-layer-index"] for t in tracks[2:]] == ["1", "0"]
+    assert [t["attrs"].get("data-vd-role") for t in tracks] == ["scene-layer", "scene-layer", "overlay", "overlay"]
+    assert [t["attrs"]["data-vd-layer-index"] for t in tracks[:2]] == ["0", "0"]
+    assert [t["attrs"]["data-vd-overlay-id"] for t in tracks[2:]] == ["overlay-a", "overlay-b"]
+    # The runtime assigns a larger z-index to later document tracks, so overlays
+    # must follow all base scene tracks in film.html.
     restored = fd.composition_from_film(fd.parse_film(fd.serialize_film(plan["document"])))
     assert [x["id"] for x in restored["visual_overlays"]] == ["overlay-a", "overlay-b"]
-    assert [x["asset_id"] for x in restored["scenes"][0]["layers"]] == ["asset-a", "asset-b"]
+    assert [scene["layers"][0]["asset_id"] for scene in restored["scenes"]] == ["asset-a", "asset-b"]
 
 
 def test_reverse_mapping_recovers_asset_metadata_from_project_manifest(tmp_path, monkeypatch):
@@ -553,8 +556,8 @@ def test_reverse_mapping_merges_multiple_audio_clips_on_one_muted_lane(tmp_path,
     music.write_bytes(b"test-audio-bytes")
     composition = CompositionIR(
         project=ProjectSpec(width=320, height=180, fps=24, duration=4),
-        scenes=[SceneIR(id="scene-audio-lane", start=0, duration=2, text="scene",
-                        layers=[Layer(type=LayerType.image, asset_id="still-1", duration=2)])],
+        scenes=[SceneIR(id="scene-audio-lane", start=0, duration=4, text="scene",
+                        layers=[Layer(type=LayerType.image, asset_id="still-1", duration=4)])],
         audio=[
             AudioTrack(type=AudioTrackType.bgm, id="music-a", asset_id="music-1", start=0, duration=2, source_out=2),
             AudioTrack(type=AudioTrackType.bgm, id="music-b", asset_id="music-1", start=2, duration=2, source_out=2),

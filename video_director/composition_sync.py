@@ -131,6 +131,7 @@ def composition_from_film(document: dict) -> dict:
         sid=str(row.get("id") or "")
         if not sid or sid in scenes: _fail("COMPOSITION_METADATA_INVALID","scene_inventory 有空 ID 或重复项")
         scenes[sid]={"index":int(row["index"]),"start":float(row["start"]),"duration":float(row["duration"]),
+                     "layer_count":int(row.get("layer_count", 0)),
                      "metadata":copy.deepcopy(row.get("metadata") or {}),"layers":[],"layer_ids":set()}
     if not scenes: _fail("COMPOSITION_METADATA_MISSING","scene_inventory 缺失")
     lanes=copy.deepcopy(meta.get("audio_tracks") or [])
@@ -275,11 +276,38 @@ def composition_from_film(document: dict) -> dict:
     for sid,entry in scenes.items():
         rows=sorted(entry["layers"],key=lambda row:row[0])
         if not rows: _fail("COMPOSITION_SCENE_EMPTY",f"场景 {sid} 已无可映射图层，不能默默丢弃场景语义")
+        expected_layer_ids=set(range(entry["layer_count"]))
+        if entry["layer_ids"] != expected_layer_ids:
+            missing=sorted(expected_layer_ids-entry["layer_ids"])
+            extra=sorted(entry["layer_ids"]-expected_layer_ids)
+            _fail("COMPOSITION_SCENE_LAYER_BINDING_MISSING",
+                  f"场景 {sid} 的原始图层绑定不完整（缺少索引 {missing}，额外索引 {extra}）；"
+                  "删除图层需要显式 IR 删除/重排契约，不能凭空补造素材")
         start=min(entry["start"],min(row[1] for row in rows))
         duration=max(entry["duration"],max(row[2] for row in rows)-start,.001)
         scene=copy.deepcopy(entry["metadata"]); scene.update({"id":sid,"start":start,"duration":duration,"layers":[]})
+        cursor=0.0
         for _,at,_end,layer in rows:
-            layer["start"]=max(0,at-start); scene["layers"].append(layer)
+            layer_start=max(0.0,at-start)
+            if layer_start < cursor - 0.01:
+                _fail("COMPOSITION_SCENE_OVERLAP",
+                      f"场景 {sid} 的图层在影片时间线上相互重叠，当前 CompositionIR 场景模型无法无损表达")
+            if layer_start > cursor + 0.01:
+                gap_duration=layer_start-cursor
+                scene["layers"].append({
+                    "type":"gap","asset_id":None,"start":cursor,"duration":gap_duration,
+                    "speed":1.0,"source_in":0.0,"source_out":None,"fit_mode":"cover",
+                })
+                cursor=layer_start
+            layer["start"]=layer_start
+            scene["layers"].append(layer)
+            cursor=layer_start+float(layer["duration"])
+        if duration > cursor + 0.01:
+            scene["layers"].append({
+                "type":"gap","asset_id":None,"start":cursor,"duration":duration-cursor,
+                "speed":1.0,"source_in":0.0,"source_out":None,"fit_mode":"cover",
+            })
+            cursor=duration
         scene_list.append((entry["index"],scene)); max_end=max(max_end,start+duration)
     project["duration"]=max(fd._number(project.get("duration",.001),"project duration",.001),max_end)
     result={"version":meta.get("version",1),"project":project,"style_id":meta.get("style_id"),
