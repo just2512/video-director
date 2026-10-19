@@ -132,6 +132,8 @@ def composition_from_film(document: dict) -> dict:
         if not sid or sid in scenes: _fail("COMPOSITION_METADATA_INVALID","scene_inventory 有空 ID 或重复项")
         scenes[sid]={"index":int(row["index"]),"start":float(row["start"]),"duration":float(row["duration"]),
                      "layer_count":int(row.get("layer_count", 0)),
+                     "layer_indexes":(set(row["layer_indexes"]) if "layer_indexes" in row
+                                     else set(range(int(row.get("layer_count", 0)))),
                      "metadata":copy.deepcopy(row.get("metadata") or {}),"layers":[],"layer_ids":set()}
     if not scenes: _fail("COMPOSITION_METADATA_MISSING","scene_inventory 缺失")
     lanes=copy.deepcopy(meta.get("audio_tracks") or [])
@@ -275,14 +277,25 @@ def composition_from_film(document: dict) -> dict:
     scene_list=[]
     for sid,entry in scenes.items():
         rows=sorted(entry["layers"],key=lambda row:row[0])
-        if not rows: _fail("COMPOSITION_SCENE_EMPTY",f"场景 {sid} 已无可映射图层，不能默默丢弃场景语义")
-        expected_layer_ids=set(range(entry["layer_count"]))
+        expected_layer_ids=entry["layer_indexes"]
         if entry["layer_ids"] != expected_layer_ids:
             missing=sorted(expected_layer_ids-entry["layer_ids"])
             extra=sorted(entry["layer_ids"]-expected_layer_ids)
             _fail("COMPOSITION_SCENE_LAYER_BINDING_MISSING",
                   f"场景 {sid} 的原始图层绑定不完整（缺少索引 {missing}，额外索引 {extra}）；"
                   "删除图层需要显式 IR 删除/重排契约，不能凭空补造素材")
+        if not rows:
+            # An all-gap scene is only representable when another track keeps the film document alive.
+            start=entry["start"]
+            duration=max(entry["duration"],0.001)
+            scene=copy.deepcopy(entry["metadata"])
+            scene.update({"id":sid,"start":start,"duration":duration,"layers":[{
+                "type":"gap","asset_id":None,"start":0.0,"duration":duration,
+                "speed":1.0,"source_in":0.0,"source_out":None,"fit_mode":"cover",
+            }]})
+            scene_list.append((entry["index"],scene))
+            max_end=max(max_end,start+duration)
+            continue
         start=min(entry["start"],min(row[1] for row in rows))
         duration=max(entry["duration"],max(row[2] for row in rows)-start,.001)
         scene=copy.deepcopy(entry["metadata"]); scene.update({"id":sid,"start":start,"duration":duration,"layers":[]})

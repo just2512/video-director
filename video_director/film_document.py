@@ -1164,6 +1164,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "start": scene.get("start", 0),
             "duration": scene.get("duration", 0),
             "layer_count": len(scene.get("layers") or []),
+            "layer_indexes": [
+                index for index, layer in enumerate(scene.get("layers") or [])
+                if str(layer.get("type") or "") != "gap"
+            ],
             "metadata": {key: value for key, value in scene.items()
                          if key not in {"start", "duration", "layers"}},
         })
@@ -1228,7 +1232,18 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         for idx, layer in enumerate(scene.get("layers") or []):
             kind = str(layer.get("type") or "")
             if kind == "gap":
-                warnings.append(f"场景 {scene.get('id')} 的 gap 图层 {idx} 未有独立可编辑映射")
+                unsupported_gap_fields = [
+                    key for key in ("asset_id", "transform", "keyframes", "mask", "motion",
+                                    "animation", "text", "motion_recipe_id", "motion_instance")
+                    if layer.get(key)
+                ]
+                if unsupported_gap_fields:
+                    warnings.append(
+                        f"场景 {scene.get('id')} 的 gap 图层 {idx} 带有非空语义字段 "
+                        f"{unsupported_gap_fields}，无法无损表示为空白时间段"
+                    )
+                # film.html represents a gap as an unoccupied interval; the reverse mapper
+                # recreates it from the bound clip's absolute time and scene-duration metadata.
                 continue
             if kind not in {"video", "image"}:
                 warnings.append(f"场景 {scene.get('id')} 图层 {idx + 1} 类型 {kind} 尚不能无损迁移")
@@ -1556,7 +1571,12 @@ def film_payload(project_id: str, state: dict) -> dict:
     return {"ok": True, "exists": True, "project_id": project_id, "rev": state["rev"], "stage": doc["stage"],
             "head_html": head_html, "render_css": render_css, "tracks": tracks,
             "project_metadata": copy.deepcopy(doc.get("project_metadata") or {}),
-            "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
+            "duration": max(
+                [c.get("end") or 0 for t in tracks for c in t["clips"]]
+                + [_number((((doc.get("project_metadata") or {}).get("project") or {}).get("duration", 0)),
+                           "project duration", 0)]
+                + [0]
+            ), "migration": migration}
 
 
 def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "", summary_out: dict | None = None) -> list[dict]:

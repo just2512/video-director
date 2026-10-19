@@ -392,7 +392,14 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
     if any(c.get("duration") is None for c in clips):
         ids = [c["id"] for c in clips if c.get("duration") is None]
         raise FilmRenderError("SOURCE_RANGE_REQUIRED", "以下片段缺少明确源区间：" + "、".join(ids[:12]), 422)
-    duration = max(float(c.get("end") or 0) for c in clips)
+    project_duration = (doc.get("project_metadata") or {}).get("project", {}).get("duration", 0)
+    try:
+        project_duration = float(project_duration or 0)
+    except (TypeError, ValueError):
+        raise FilmRenderError("INVALID_PROJECT_DURATION", "film.html 中的项目时长不是有效数字。", 422) from None
+    if not math.isfinite(project_duration) or project_duration < 0:
+        raise FilmRenderError("INVALID_PROJECT_DURATION", "film.html 中的项目时长不是有限非负数字。", 422)
+    duration = max(max(float(c.get("end") or 0) for c in clips), project_duration)
     if not math.isfinite(duration) or duration <= 0 or duration > MAX_RENDER_SECONDS:
         raise FilmRenderError("DURATION_LIMIT", f"影片时长必须大于 0 且不超过 {MAX_RENDER_SECONDS} 秒。", 422)
     frame_count = int(math.ceil(duration * fps - 1e-8))

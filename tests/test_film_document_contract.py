@@ -580,6 +580,49 @@ def test_reverse_mapping_merges_multiple_audio_clips_on_one_muted_lane(tmp_path,
     assert {item["id"] for item in synced["audio"]} == {"music-a", "music-b"}
 
 
+
+def test_gap_layers_roundtrip_as_unoccupied_film_time(tmp_path, monkeypatch):
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-gap-roundtrip"
+    (root / "assets").mkdir(parents=True)
+    source = root / "assets" / "still.png"
+    source.write_bytes(b"test-image-bytes")
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(
+            id="scene-gap", start=0, duration=2, text="gap",
+            layers=[
+                Layer(type=LayerType.gap, start=0, duration=0.5),
+                Layer(type=LayerType.image, asset_id="still-gap", start=0.5, duration=1.0),
+                Layer(type=LayerType.gap, start=1.5, duration=0.5),
+            ],
+        )],
+        assets=[AssetRef(id="still-gap", type="image", file=str(source), duration=2, width=320, height=180)],
+    )
+    plan = fd.build_film_from_composition("film-gap-roundtrip", composition)
+    assert plan["warnings"] == []
+    doc = fd.parse_film(fd.serialize_film(plan["document"]))
+    clip = next(c for t in doc["tracks"] for c in t["clips"] if c["attrs"].get("data-vd-scene-id"))
+    assert clip["attrs"]["at"] == "0.5"
+    fd._write_atomic(fd._film_path("film-gap-roundtrip"), fd.serialize_film(doc))
+    payload = fd.film_payload("film-gap-roundtrip", fd.read_project_film("film-gap-roundtrip"))
+    assert payload["duration"] == 2
+
+    restored = fd.composition_from_film(doc)
+    assert [layer["type"] for layer in restored["scenes"][0]["layers"]] == ["gap", "image", "gap"]
+    assert restored["scenes"][0]["layers"][0]["duration"] == 0.5
+    assert restored["scenes"][0]["layers"][-1]["duration"] == 0.5
+    reparsed = CompositionIR.model_validate(restored)
+    plan_again = fd.build_film_from_composition("film-gap-roundtrip", reparsed)
+    assert plan_again["warnings"] == []
+    second_doc = fd.parse_film(fd.serialize_film(plan_again["document"]))
+    second_clip = next(c for t in second_doc["tracks"] for c in t["clips"] if c["attrs"].get("data-vd-scene-id"))
+    assert second_clip["attrs"]["at"] == "0.5"
+
+
+
 def test_trim_start_and_end_preserve_source_time_and_speed():
     doc = fd.parse_film(SAMPLE)
     edited, ops = fd.apply_ops(doc, [
