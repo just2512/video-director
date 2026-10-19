@@ -481,6 +481,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
     stock_returned_files = False
     generation_attempted = False
     generation_failures: List[str] = []
+    # Which scene candidate actually produced a file; keep the displayed plan honest.
+    generation_candidate_by_scene: Dict[str, str] = {}
     assignments = {}
     policy_decisions: List[dict] = []
     # 逐场景记录分配实际由哪种机制产生（llm/deterministic/sequential/policy）。
@@ -652,6 +654,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     fallback_chain = _GEN_FALLBACK.get(gt)
                     if not fallback_chain:
                         continue
+                    if isinstance(cand, dict) and cand.get("id"):
+                        generation_candidate_by_scene[sid] = str(cand["id"])
                     prompt = str((cand or {}).get("generation_prompt")
                                  or next((s["text"] for s in state["narration_scenes"]
                                           if s.get("id") == sid), ""))
@@ -728,6 +732,18 @@ def _tool_material(spec: dict, state: dict) -> dict:
                             if aid:
                                 assignments[sid] = aid
                                 match_provenance[sid] = "generated"
+                                actual_candidate_id = generation_candidate_by_scene.get(sid, "")
+                                if actual_candidate_id:
+                                    selected_candidate_by_scene[sid] = actual_candidate_id
+                                    for planned_scene in scene_plan_items:
+                                        if str(planned_scene.get("id") or "") == sid:
+                                            planned_scene["selected_candidate_id"] = actual_candidate_id
+                                            for planned_candidate in planned_scene.get("candidates") or []:
+                                                if isinstance(planned_candidate, dict):
+                                                    planned_candidate["selected"] = (
+                                                        str(planned_candidate.get("id") or "") == actual_candidate_id
+                                                    )
+                                            break
                                 warnings.append(f"生成补位（{sid}/{gt}）→ {aid}")
                     # 校验既有 assignments 仍然有效（防止任何路径产生幽灵 id）
                     ghost = [sid for sid, aid in assignments.items() if aid not in all_assets]
@@ -831,8 +847,13 @@ def _tool_material(spec: dict, state: dict) -> dict:
             continue
         sid = str(row.get("id") or "")
         aid = str(assignments.get(sid) or "")
+        actual_generated_candidate = generation_candidate_by_scene.get(sid, "")
         for candidate in row.get("candidates") or []:
-            if candidate.get("approach") == "direct" and aid:
+            candidate_id = str(candidate.get("id") or "")
+            if aid and match_provenance.get(sid) == "generated" and candidate_id == actual_generated_candidate:
+                candidate["asset_id"] = aid
+                candidate["status"] = "READY"
+            elif candidate.get("approach") == "direct" and aid and match_provenance.get(sid) != "generated":
                 candidate["asset_id"] = aid
                 candidate["status"] = "READY"
             elif not candidate.get("status"):

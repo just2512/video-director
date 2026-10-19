@@ -170,3 +170,18 @@ def test_material_generation_fallback_preserves_selected_generation_candidate():
     ]
     selected = _generation_candidate_for_scene(candidates, "video-1")
     assert selected is candidates[2]
+
+
+
+def test_material_fallback_marks_the_candidate_that_actually_generated_the_asset():
+    """Fallback selection is reflected in persisted candidate state, not falsely attributed to direct assets."""
+    from video_director.director_agent import _generation_candidate_for_scene
+
+    candidates = [
+        {"id": "direct-1", "approach": "direct", "source_preference": "user_asset"},
+        {"id": "concept-1", "approach": "concept", "source_preference": "generated",
+         "generation_type": "image"},
+    ]
+    actual = _generation_candidate_for_scene(candidates, "direct-1")
+    assert actual["id"] == "concept-1"
+    assert actual["source_preference"] == "generated"
