@@ -139,6 +139,9 @@
           <div class="fs-monitor-stage" id="fs-monitor-stage">
             <div class="fs-monitor-placeholder">选择项目并初始化影片文档</div>
             <iframe id="fs-preview-composition" title="多轨影片预览" src="/static/film-runtime.html" style="display:none" aria-label="多轨影片预览"></iframe>
+            <div id="fs-transform-overlay" class="fs-transform-overlay" style="display:none" role="group" aria-label="画面变换框" title="拖动移动画面；拖右下角缩放">
+              <button type="button" class="fs-transform-handle" data-transform-mode="resize" aria-label="缩放画面"></button>
+            </div>
           </div>
           <div class="fs-scrub-row">
             <button class="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>

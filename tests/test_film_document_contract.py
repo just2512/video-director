@@ -257,6 +257,13 @@ def test_api_ui_routes_are_wired():
     assert r"match(/^(-?\d+(?:\.\d+)?)px$/i)" in js
     assert r"match(/^(-?\d+(?:\.\d+)?)deg$/i)" in js
     assert "画面变换" in js
+    assert "fs-transform-overlay" in js
+    assert "beginTransformDrag" in js
+    assert "transformOpsForBox" in js
+    assert "film-runtime:preview-transform" in js
+    assert "previewTransform(message)" in runtime
+    assert "fs-transform-overlay" in index
+    assert ".fs-transform-overlay" in css
     assert "SETTABLE_FIELDS" in module
     assert "/static/css/film-studio.css" in index
 

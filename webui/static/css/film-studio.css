@@ -125,3 +125,20 @@
 
 .fs-render-result{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:6px 0;padding:8px 10px;border:1px solid #345e59;background:#172522;border-radius:5px;color:#ddd;font-size:11px}
 .fs-render-result[hidden]{display:none}
+
+
+/* Clip-level transform overlay: edits are preview-only while dragging and commit on pointer release. */
+.fs-transform-overlay{
+  position:absolute;z-index:20;box-sizing:border-box;border:1px solid #0d99ff;
+  background:rgba(13,153,255,.035);transform-origin:center center;cursor:move;
+  touch-action:none;user-select:none;pointer-events:auto;min-width:2px;min-height:2px;
+}
+.fs-transform-overlay:after{
+  content:"";position:absolute;inset:-1px;border:1px solid rgba(13,153,255,.22);pointer-events:none;
+}
+.fs-transform-handle{
+  position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;min-width:10px;min-height:10px;
+  padding:0;border:1px solid #0d99ff;border-radius:2px;background:#fff;cursor:nwse-resize;
+  box-shadow:0 0 0 1px rgba(255,255,255,.7);touch-action:none;
+}
+.fs-transform-handle:hover{background:#d8efff}

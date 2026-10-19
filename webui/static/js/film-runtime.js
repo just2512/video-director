@@ -228,6 +228,21 @@
       post({type:'film-runtime:frame-ready',frame:message.frame,time:state.time,rev:state.rev,error:String(error&&error.message||error)});
     }
   }
+  function previewTransform(message) {
+    if(!state.data||!state.data.stage)return;
+    var entry=byId[String(message.clip_id||'')],t=message.transform||{};
+    if(!entry||!entry.el)return;
+    var sw=Math.max(1,finite(state.data.stage.width,1920)),sh=Math.max(1,finite(state.data.stage.height,1080));
+    var left=finite(t.left,NaN),top=finite(t.top,NaN),width=finite(t.width,NaN),height=finite(t.height,NaN);
+    var rotate=finite(t.rotate,NaN),opacity=finite(t.opacity,NaN);
+    if(![left,top,width,height,rotate,opacity].every(Number.isFinite))return;
+    entry.el.style.left=clamp(left,-sw,sw*2)+'px';
+    entry.el.style.top=clamp(top,-sh,sh*2)+'px';
+    entry.el.style.width=clamp(width,1,sw*2)+'px';
+    entry.el.style.height=clamp(height,1,sh*2)+'px';
+    entry.el.style.rotate=clamp(rotate,-3600,3600)+'deg';
+    entry.el.style.opacity=String(clamp(opacity,0,1));
+  }
   function pause(){
     state.playing=false;if(state.raf)cancelAnimationFrame(state.raf);state.raf=0;
     renderTime(state.time,true);pauseAll();post({type:'film-runtime:paused',time:state.time});
@@ -249,6 +264,7 @@
       state.time=clamp(finite(message.time,0),0,state.duration);
       renderTime(state.time,true);pauseAll();post({type:'film-runtime:paused',time:state.time});
     }
+    else if(message.type==='film-runtime:preview-transform')previewTransform(message);
     else if(message.type==='film-runtime:play')play();
     else if(message.type==='film-runtime:pause')pause();
     else if(message.type==='film-runtime:render-frame')renderFrame(message);

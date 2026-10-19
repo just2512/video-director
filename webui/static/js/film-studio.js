@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, dragRaf:0, poll:null, polling:false, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, dragRaf:0, transformDrag:null, poll:null, polling:false, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -51,7 +51,8 @@
     log.scrollTop=log.scrollHeight;
   }
   function resetPreview() {
-    var frame=$('fs-preview-composition');
+    var frame=$('fs-preview-composition'),transformOverlay=$('fs-transform-overlay');
+    if(transformOverlay)transformOverlay.style.display='none';
     if(frame){try{frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);}catch(_){}frame.style.display='none';}
     var ph=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
@@ -85,6 +86,7 @@
     if(S.runtimeReady&&doc&&doc===S.runtimeDocument)return;
     S.runtimeReady=true;S.runtimeDocument=doc;S.runtimeRev='';
     if(S.data&&S.data.exists)syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
+    renderTransformOverlay();
   }
   var runtimeFrame=$('fs-preview-composition');
   if(runtimeFrame){
@@ -274,6 +276,127 @@
     target.forEach(function(key){if(updates[key]!==null&&updates[key]!==undefined)kept.push(key+':'+updates[key]);});
     return kept.join(';');
   }
+  function transformLayout() {
+    var monitor=$('fs-monitor-stage'),frame=$('fs-preview-composition');
+    if(!monitor||!frame||!S.data||!S.data.stage)return null;
+    var mr=monitor.getBoundingClientRect(),fr=frame.getBoundingClientRect();
+    var stage=(S.data&&S.data.stage)||{},sw=Math.max(1,num(stage.width,1920)),sh=Math.max(1,num(stage.height,1080));
+    var scale=Math.min(frame.clientWidth/sw,frame.clientHeight/sh);
+    if(!Number.isFinite(scale)||scale<=0)return null;
+    return {
+      scale:scale,stageWidth:sw,stageHeight:sh,
+      offsetX:fr.left-mr.left+(frame.clientWidth-sw*scale)/2,
+      offsetY:fr.top-mr.top+(frame.clientHeight-sh*scale)/2
+    };
+  }
+  function previewRuntimeTransform(clipId,box) {
+    var frame=$('fs-preview-composition');
+    if(!frame||!frame.contentWindow||!S.runtimeReady||!box)return;
+    frame.contentWindow.postMessage({
+      type:'film-runtime:preview-transform',clip_id:clipId,
+      transform:{left:box.left,top:box.top,width:box.width,height:box.height,rotate:box.rotate,opacity:box.opacity}
+    },window.location.origin);
+  }
+  function resetRuntimeTransformPreview() {
+    if(!S.data||!S.data.exists)return;
+    S.runtimeRev='';
+    syncRuntime('seek-pause');
+  }
+  function renderTransformOverlay() {
+    var overlay=$('fs-transform-overlay');
+    if(!overlay)return;
+    var clip=findClip(S.selectedId);
+    if(!S.open||!S.data||!S.data.exists||!S.runtimeReady||!clip||clip.tag==='audio'){
+      overlay.style.display='none';return;
+    }
+    var track=(S.data.tracks||[]).find(function(item){return item.id===clip.track_id;});
+    if(!track||Object.prototype.hasOwnProperty.call(track.attrs||{},'hidden')){
+      overlay.style.display='none';return;
+    }
+    var end=clip.end==null?Infinity:clip.end;
+    if(S.playhead<num(clip.at,0)-0.0001||S.playhead>=end-0.0001){
+      overlay.style.display='none';return;
+    }
+    var layout=transformLayout();
+    if(!layout){overlay.style.display='none';return;}
+    var drag=S.transformDrag,box=drag&&drag.clipId===clip.id?drag.previewBox:effectiveClipGeometry(clip);
+    overlay.style.display='block';
+    overlay.style.left=(layout.offsetX+box.left*layout.scale)+'px';
+    overlay.style.top=(layout.offsetY+box.top*layout.scale)+'px';
+    overlay.style.width=Math.max(2,box.width*layout.scale)+'px';
+    overlay.style.height=Math.max(2,box.height*layout.scale)+'px';
+    overlay.style.transform='rotate('+box.rotate+'deg)';
+    overlay.style.opacity=String(Math.max(0,Math.min(1,box.opacity)));
+    overlay.style.cursor=drag&&drag.mode==='resize'?'nwse-resize':'move';
+  }
+  function transformOpsForBox(clip,box) {
+    var current=effectiveClipGeometry(clip),attrs=clip.attrs||{};
+    if(Math.abs(box.left-current.left)<0.01&&Math.abs(box.top-current.top)<0.01&&
+       Math.abs(box.width-current.width)<0.01&&Math.abs(box.height-current.height)<0.01&&
+       Math.abs(box.rotate-current.rotate)<0.01&&Math.abs(box.opacity-current.opacity)<0.001)return [];
+    var style=mergeInlineStyle(attrs.style,{
+      left:box.left+'px',top:box.top+'px',width:box.width+'px',height:box.height+'px',
+      rotate:box.rotate+'deg',opacity:String(box.opacity)
+    });
+    var ops=[{op:'set',clip:clip.id,field:'style',value:style}];
+    ['x','y','width','height','rotate','opacity'].forEach(function(field){
+      if(Object.prototype.hasOwnProperty.call(attrs,field))ops.push({op:'set',clip:clip.id,field:field,value:null});
+    });
+    return ops;
+  }
+  function beginTransformDrag(e) {
+    if(e.button!==0||S.busy||!S.data||!S.data.exists)return;
+    var clip=findClip(S.selectedId),overlay=$('fs-transform-overlay');
+    if(!clip||clip.tag==='audio'||!overlay)return;
+    var track=(S.data.tracks||[]).find(function(item){return item.id===clip.track_id;});
+    if(track&&Object.prototype.hasOwnProperty.call(track.attrs||{},'locked')){
+      showStatus('当前轨道已锁定，不能变换画面。','error');e.preventDefault();return;
+    }
+    var layout=transformLayout();if(!layout)return;
+    var box=effectiveClipGeometry(clip),target=e.target&&e.target.closest?e.target.closest('[data-transform-mode]'):null;
+    S.transformDrag={
+      clipId:clip.id,mode:target?'resize':'move',startX:e.clientX,startY:e.clientY,
+      scale:layout.scale,startBox:box,previewBox:{left:box.left,top:box.top,width:box.width,height:box.height,rotate:box.rotate,opacity:box.opacity},
+      moved:false,stageWidth:layout.stageWidth,stageHeight:layout.stageHeight
+    };
+    try{overlay.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();e.stopPropagation();
+  }
+  function onTransformMove(e) {
+    var d=S.transformDrag;if(!d)return;
+    var dx=(e.clientX-d.startX)/d.scale,dy=(e.clientY-d.startY)/d.scale;
+    if(!d.moved&&Math.sqrt(dx*dx+dy*dy)<2)return;
+    d.moved=true;
+    var box=d.previewBox,origin=d.startBox;
+    if(d.mode==='move'){
+      box.left=Math.max(-d.stageWidth,Math.min(d.stageWidth*2,origin.left+dx));
+      box.top=Math.max(-d.stageHeight,Math.min(d.stageHeight*2,origin.top+dy));
+    }else{
+      var angle=origin.rotate*Math.PI/180;
+      var localX=dx*Math.cos(angle)+dy*Math.sin(angle);
+      var localY=-dx*Math.sin(angle)+dy*Math.cos(angle);
+      box.width=Math.max(1,Math.min(d.stageWidth*2,origin.width+localX));
+      box.height=Math.max(1,Math.min(d.stageHeight*2,origin.height+localY));
+    }
+    renderTransformOverlay();
+    previewRuntimeTransform(d.clipId,box);
+  }
+  async function onTransformUp(e) {
+    var d=S.transformDrag;if(!d)return;
+    S.transformDrag=null;
+    if(!d.moved){renderTransformOverlay();return;}
+    var clip=findClip(d.clipId);
+    if(!clip){resetRuntimeTransformPreview();renderTransformOverlay();return;}
+    var ops=transformOpsForBox(clip,d.previewBox);
+    if(!ops.length){resetRuntimeTransformPreview();renderTransformOverlay();return;}
+    await filmStudioCommit(ops);
+    resetRuntimeTransformPreview();
+    renderTransformOverlay();
+  }
+  function onTransformCancel() {
+    if(!S.transformDrag)return;
+    S.transformDrag=null;resetRuntimeTransformPreview();renderTransformOverlay();
+  }
   function renderInspector() {
     var clip=findClip(S.selectedId);
     if(!clip){$('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';return;}
@@ -302,7 +425,7 @@
     if(!S.data||!S.data.exists){renderMigration();return;}
     $('fs-project-label').textContent=S.projectId+' · rev '+S.rev;S.duration=Math.max(0.001,num(S.data.duration,10));
     if(!findClip(S.selectedId)){var first=clips().filter(function(c){return c.tag!=='audio';})[0];S.selectedId=first?first.id:'';}
-    renderAssets();renderTimeline();renderInspector();setPlayheadVisual();previewCurrent();
+    renderAssets();renderTimeline();renderInspector();setPlayheadVisual();previewCurrent();renderTransformOverlay();
     var warnings=S.data.migration&&S.data.migration.warnings||[];
     if(warnings.length)showStatus('迁移警告：'+warnings.join('；'),'');
     else{var el=$('film-studio-alert');el.className='fs-alert';el.textContent='';}
@@ -444,6 +567,15 @@
     await filmStudioCommit([{op:'move',clip:d.id,track_id:row?row.getAttribute('data-track'):d.trackId,at:Number(at.toFixed(3))}]);
   }
   document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);
+  document.addEventListener('pointermove',onTransformMove);document.addEventListener('pointerup',onTransformUp);
+  document.addEventListener('pointercancel',onTransformCancel);
+  var transformOverlay=$('fs-transform-overlay');
+  if(transformOverlay)transformOverlay.addEventListener('pointerdown',beginTransformDrag);
+  if(window.ResizeObserver){
+    var transformResizeObserver=new ResizeObserver(renderTransformOverlay);
+    var transformMonitor=$('fs-monitor-stage');
+    if(transformMonitor)transformResizeObserver.observe(transformMonitor);
+  }else window.addEventListener('resize',renderTransformOverlay);
   document.addEventListener('pointercancel',function(){
     stopDragAutoScroll();
     if(S.drag){S.drag.element.classList.remove('fs-dragging');S.drag=null;}
@@ -454,7 +586,7 @@
     $('editor-body').style.display='none';$('editor-empty').style.display='none';filmStudioLoad(true);
     if(S.poll)clearInterval(S.poll);
     S.poll=setInterval(async function(){
-      if(!S.open||S.busy||S.drag||S.polling)return;
+      if(!S.open||S.busy||S.drag||S.transformDrag||S.polling)return;
       var projectId=S.projectId;
       S.polling=true;
       try{
@@ -517,7 +649,7 @@
       }
     }else if(message.type==='film-runtime:time'){
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
-      window.filmStudioPlaying=!!message.playing;setPlayheadVisual();
+      window.filmStudioPlaying=!!message.playing;setPlayheadVisual();renderTransformOverlay();
       var button=$('fs-play-toggle');if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
     }else if(message.type==='film-runtime:ended'||message.type==='film-runtime:paused'){
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
@@ -597,18 +729,7 @@
           g.rotate < -3600 || g.rotate > 3600 || g.opacity < 0 || g.opacity > 1){
         showStatus('画面变换超出允许范围（位置需在舞台周围、尺寸至少 1px、不透明度 0–1）。','error');return;
       }
-      if(Math.abs(g.left-current.left)>0.01||Math.abs(g.top-current.top)>0.01||
-          Math.abs(g.width-current.width)>0.01||Math.abs(g.height-current.height)>0.01||
-          Math.abs(g.rotate-current.rotate)>0.01||Math.abs(g.opacity-current.opacity)>0.001){
-        var style=mergeInlineStyle(attrs.style,{
-          left:g.left+'px',top:g.top+'px',width:g.width+'px',height:g.height+'px',
-          rotate:g.rotate+'deg',opacity:String(g.opacity)
-        });
-        ops.push({op:'set',clip:clip.id,field:'style',value:style});
-        ['x','y','width','height','rotate','opacity'].forEach(function(field){
-          if(Object.prototype.hasOwnProperty.call(attrs,field))ops.push({op:'set',clip:clip.id,field:field,value:null});
-        });
-      }
+      ops=ops.concat(transformOpsForBox(clip,g));
     }
     if(!ops.length){showStatus('属性没有变化。');return;}
     await filmStudioCommit(ops);
