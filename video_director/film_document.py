@@ -22,8 +22,8 @@ HISTORY_NAME = ".film-history.json"
 MIGRATION_NAME = "film-migration.json"
 CLIP_TAGS = {"iframe", "video", "img", "audio"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
-SETTABLE_FIELDS = {"at", "src", "speed", "volume", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
-AI_SETTABLE_FIELDS = {"at", "speed", "volume", "style", "class", "muted", "title"}
+SETTABLE_FIELDS = {"at", "src", "speed", "volume", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size", "x", "y", "width", "height", "rotate", "opacity"}
+AI_SETTABLE_FIELDS = {"at", "speed", "volume", "style", "class", "muted", "title", "x", "y", "width", "height", "rotate", "opacity"}
 TRACK_FLAGS = {"locked", "hidden", "muted"}
 MAX_OPERATIONS = 200
 
@@ -358,6 +358,14 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 if clip["tag"] not in {"video", "audio"}:
                     raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持 volume")
                 value = _fmt(_number(value, "volume", 0, 2))
+            elif field in {"x", "y"} and value is not None:
+                value = _fmt(_number(value, field, 0, 1))
+            elif field in {"width", "height"} and value is not None:
+                value = _fmt(_number(value, field, 0.001, 1))
+            elif field == "rotate" and value is not None:
+                value = _fmt(_number(value, "rotate", -3600, 3600))
+            elif field == "opacity" and value is not None:
+                value = _fmt(_number(value, "opacity", 0, 1))
             elif field == "muted":
                 if clip["tag"] not in {"video", "audio"} or not isinstance(value, bool):
                     raise FilmError("INVALID_BOOLEAN", "muted 只接受视频/音频片段的布尔值")
@@ -1244,7 +1252,8 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     prompt = (
         "你是视频时间线编辑规划器。只输出 JSON：{"
         '"operations":[...],"summary":"..."}。'
-        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'muted'|'style'|'class'|'title',value:...}; "
+        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'muted'|'style'|'class'|'title'|'x'|'y'|'width'|'height'|'rotate'|'opacity',value:...}; "
+        "x/y/width/height 是 0–1 的舞台比例；rotate 是角度；opacity 是 0–1。修改样式时不得改变素材路径。"
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "

@@ -235,6 +235,45 @@
     $('fs-ruler-body').querySelectorAll('[data-at]').forEach(function(el){el.addEventListener('click',function(e){window.filmStudioSeek(el.getAttribute('data-at'));});});
     setPlayheadVisual();
   }
+  function inlineStyleMap(styleText) {
+    var out={};
+    String(styleText||'').split(';').forEach(function(part){
+      var colon=part.indexOf(':');if(colon<1)return;
+      var key=part.slice(0,colon).trim().toLowerCase(),value=part.slice(colon+1).trim();
+      if(key&&value)out[key]=value;
+    });
+    return out;
+  }
+  function stylePixels(styles,key,fallback) {
+    var m=String(styles[key]||'').match(/^(-?\\d+(?:\\.\\d+)?)px$/i);
+    return m?Number(m[1]):fallback;
+  }
+  function styleDegrees(styles,key,fallback) {
+    var m=String(styles[key]||'').match(/^(-?\\d+(?:\\.\\d+)?)deg$/i);
+    return m?Number(m[1]):fallback;
+  }
+  function effectiveClipGeometry(clip) {
+    var attrs=clip.attrs||{},styles=inlineStyleMap(attrs.style||'');
+    var stage=(S.data&&S.data.stage)||{},sw=Math.max(1,num(stage.width,1920)),sh=Math.max(1,num(stage.height,1080));
+    return {
+      left:Object.prototype.hasOwnProperty.call(attrs,'x')?num(attrs.x,0)*sw:stylePixels(styles,'left',0),
+      top:Object.prototype.hasOwnProperty.call(attrs,'y')?num(attrs.y,0)*sh:stylePixels(styles,'top',0),
+      width:Object.prototype.hasOwnProperty.call(attrs,'width')?num(attrs.width,1)*sw:stylePixels(styles,'width',sw),
+      height:Object.prototype.hasOwnProperty.call(attrs,'height')?num(attrs.height,1)*sh:stylePixels(styles,'height',sh),
+      rotate:Object.prototype.hasOwnProperty.call(attrs,'rotate')?num(attrs.rotate,0):styleDegrees(styles,'rotate',0),
+      opacity:Object.prototype.hasOwnProperty.call(attrs,'opacity')?num(attrs.opacity,1):num(styles.opacity,1)
+    };
+  }
+  function mergeInlineStyle(styleText,updates) {
+    var target=Object.keys(updates),kept=[];
+    String(styleText||'').split(';').forEach(function(part){
+      var colon=part.indexOf(':');if(colon<1)return;
+      var key=part.slice(0,colon).trim().toLowerCase(),value=part.slice(colon+1).trim();
+      if(key&&value&&target.indexOf(key)<0)kept.push(key+':'+value);
+    });
+    target.forEach(function(key){if(updates[key]!==null&&updates[key]!==undefined)kept.push(key+':'+updates[key]);});
+    return kept.join(';');
+  }
   function renderInspector() {
     var clip=findClip(S.selectedId);
     if(!clip){$('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';return;}
@@ -246,7 +285,17 @@
       fields+='<label class="fs-inspector-field">音量<input id="fs-field-volume" type="number" min="0" max="2" step="0.05" value="'+esc(a.volume==null?1:a.volume)+'"></label>';
       fields+='<label class="fs-inspector-field">静音<select id="fs-field-muted"><option value="false">否</option><option value="true"'+(Object.prototype.hasOwnProperty.call(a,'muted')?' selected':'')+'>是</option></select></label>';
     }
-    fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
+    if(clip.tag!=='audio'){
+      var g=effectiveClipGeometry(clip);
+      fields+='<div class="fs-inspector-section"><strong>画面变换</strong>'+
+        '<label class="fs-inspector-field">左（px）<input id="fs-field-left" type="number" step="1" value="'+esc(g.left)+'"></label>'+
+        '<label class="fs-inspector-field">上（px）<input id="fs-field-top" type="number" step="1" value="'+esc(g.top)+'"></label>'+
+        '<label class="fs-inspector-field">宽（px）<input id="fs-field-width" type="number" min="1" step="1" value="'+esc(g.width)+'"></label>'+
+        '<label class="fs-inspector-field">高（px）<input id="fs-field-height" type="number" min="1" step="1" value="'+esc(g.height)+'"></label>'+
+        '<label class="fs-inspector-field">旋转（度）<input id="fs-field-rotate" type="number" min="-3600" max="3600" step="1" value="'+esc(g.rotate)+'"></label>'+
+        '<label class="fs-inspector-field">不透明度<input id="fs-field-opacity" type="number" min="0" max="1" step="0.05" value="'+esc(g.opacity)+'"></label></div>';
+    }
+    fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">画面变换以舞台像素写回；锁定轨道会拒绝修改。变换、标题和播放参数使用同一可撤销操作批次。</div>';
     $('fs-inspector').innerHTML=fields;
   }
   function render() {
@@ -517,19 +566,52 @@
   };
   window.filmStudioSaveInspector=async function(){
     var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择片段。','error');return;}
-    var attrs=clip.attrs||{},ops=[];
+    var attrs=clip.attrs||{},ops=[],invalid=false;
     [['at','fs-field-at'],['speed','fs-field-speed'],['volume','fs-field-volume'],['title','fs-field-title']].forEach(function(pair){
       var el=$(pair[1]);if(!el)return;
       var value=pair[0]==='title'?el.value:Number(el.value),old=attrs[pair[0]];
       if(pair[0]==='at'||pair[0]==='speed'||pair[0]==='volume'){
-        if(!Number.isFinite(value)){showStatus('属性值必须是有效数字。','error');return;}
+        if(!Number.isFinite(value)){invalid=true;showStatus('属性值必须是有效数字。','error');return;}
+        if(pair[0]==='at'&&value<0||pair[0]==='speed'&&(value<0.25||value>4)||pair[0]==='volume'&&(value<0||value>2)){
+          invalid=true;showStatus('时间位置、速度或音量超出允许范围。','error');return;
+        }
         var defaultValue=pair[0]==='at'?clip.at:1;
         if(Math.abs(num(old,defaultValue)-value)>1e-5)ops.push({op:'set',clip:clip.id,field:pair[0],value:value});
       }else if(String(old||'')!==value)ops.push({op:'set',clip:clip.id,field:pair[0],value:value||null});
     });
+    if(invalid)return;
     var muted=$('fs-field-muted');
     if(muted&&Object.prototype.hasOwnProperty.call(attrs,'muted')!==(muted.value==='true'))ops.push({op:'set',clip:clip.id,field:'muted',value:muted.value==='true'});
-    if(!ops.length){showStatus('属性没有变化。');return;}await filmStudioCommit(ops);
+    if(clip.tag!=='audio'){
+      var current=effectiveClipGeometry(clip),g={},ids=[['left','fs-field-left'],['top','fs-field-top'],['width','fs-field-width'],['height','fs-field-height'],['rotate','fs-field-rotate'],['opacity','fs-field-opacity']];
+      for(var i=0;i<ids.length;i++){
+        var el=$(ids[i][1]);if(!el)continue;
+        var value=Number(el.value);
+        if(!Number.isFinite(value)){invalid=true;showStatus('画面变换参数必须是有效数字。','error');break;}
+        g[ids[i][0]]=value;
+      }
+      if(invalid)return;
+      var stage=(S.data&&S.data.stage)||{},sw=Math.max(1,num(stage.width,1920)),sh=Math.max(1,num(stage.height,1080));
+      if(g.left < -sw || g.left > sw*2 || g.top < -sh || g.top > sh*2 ||
+          g.width < 1 || g.width > sw*2 || g.height < 1 || g.height > sh*2 ||
+          g.rotate < -3600 || g.rotate > 3600 || g.opacity < 0 || g.opacity > 1){
+        showStatus('画面变换超出允许范围（位置需在舞台周围、尺寸至少 1px、不透明度 0–1）。','error');return;
+      }
+      if(Math.abs(g.left-current.left)>0.01||Math.abs(g.top-current.top)>0.01||
+          Math.abs(g.width-current.width)>0.01||Math.abs(g.height-current.height)>0.01||
+          Math.abs(g.rotate-current.rotate)>0.01||Math.abs(g.opacity-current.opacity)>0.001){
+        var style=mergeInlineStyle(attrs.style,{
+          left:g.left+'px',top:g.top+'px',width:g.width+'px',height:g.height+'px',
+          rotate:g.rotate+'deg',opacity:String(g.opacity)
+        });
+        ops.push({op:'set',clip:clip.id,field:'style',value:style});
+        ['x','y','width','height','rotate','opacity'].forEach(function(field){
+          if(Object.prototype.hasOwnProperty.call(attrs,field))ops.push({op:'set',clip:clip.id,field:field,value:null});
+        });
+      }
+    }
+    if(!ops.length){showStatus('属性没有变化。');return;}
+    await filmStudioCommit(ops);
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
   window.filmStudioRemove=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除片段 '+clip.id+'？此操作会保留时间空隙，可撤销。'))return;await filmStudioCommit([{op:'remove',clip:clip.id}]);S.selectedId='';render();};

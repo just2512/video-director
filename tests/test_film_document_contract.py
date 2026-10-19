@@ -251,6 +251,10 @@ def test_api_ui_routes_are_wired():
     assert "ripple_remove" in js
     assert 'data-film-action="ripple-remove"' in index
     assert '"ripple_remove"' in module
+    assert "fs-field-left" in js
+    assert "effectiveClipGeometry" in js
+    assert "画面变换" in js
+    assert "SETTABLE_FIELDS" in module
     assert "/static/css/film-studio.css" in index
 
 
@@ -352,6 +356,31 @@ def test_ai_planner_contract_includes_trim_and_persisted_revision_guards():
 
 
 
+
+
+def test_set_geometry_attributes_are_validated_and_removable():
+    doc = fd.parse_film(SAMPLE)
+    edited, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "x", "value": 0.25},
+        {"op": "set", "clip": "clip-a", "field": "y", "value": 0.1},
+        {"op": "set", "clip": "clip-a", "field": "width", "value": 0.5},
+        {"op": "set", "clip": "clip-a", "field": "height", "value": 0.4},
+        {"op": "set", "clip": "clip-a", "field": "rotate", "value": 30},
+        {"op": "set", "clip": "clip-a", "field": "opacity", "value": 0.7},
+    ])
+    clip = next(c for t in edited["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    assert clip["attrs"]["x"] == "0.25"
+    assert clip["attrs"]["width"] == "0.5"
+    assert clip["attrs"]["rotate"] == "30"
+    assert clip["attrs"]["opacity"] == "0.7"
+    cleared, _ = fd.apply_ops(edited, [
+        {"op": "set", "clip": "clip-a", "field": "x", "value": None},
+        {"op": "set", "clip": "clip-a", "field": "width", "value": None},
+    ])
+    clip2 = next(c for t in cleared["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    assert "x" not in clip2["attrs"] and "width" not in clip2["attrs"]
+    with pytest.raises(fd.FilmError, match="不能大于"):
+        fd.apply_ops(doc, [{"op": "set", "clip": "clip-a", "field": "x", "value": 1.5}])
 
 
 def test_ripple_remove_shifts_only_following_clips_on_same_track():
