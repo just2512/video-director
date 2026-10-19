@@ -22,8 +22,8 @@ HISTORY_NAME = ".film-history.json"
 MIGRATION_NAME = "film-migration.json"
 CLIP_TAGS = {"iframe", "video", "img", "audio"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
-SETTABLE_FIELDS = {"at", "src", "speed", "volume", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
-AI_SETTABLE_FIELDS = {"at", "speed", "volume", "style", "class", "muted", "title"}
+SETTABLE_FIELDS = {"at", "src", "speed", "volume", "volume_envelope", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
+AI_SETTABLE_FIELDS = {"at", "speed", "volume", "volume_envelope", "style", "class", "muted", "title"}
 TRACK_FLAGS = {"locked", "hidden", "muted"}
 MAX_OPERATIONS = 200
 
@@ -99,6 +99,39 @@ def clip_duration(clip: dict) -> float | None:
 def clip_end(clip: dict) -> float | None:
     duration = clip_duration(clip)
     return None if duration is None else _number(clip["attrs"].get("at", 0), "at", 0) + duration
+
+
+def _parse_volume_envelope(value: Any) -> list[dict[str, float]]:
+    """Parse an optional clip-relative gain envelope: [{t: seconds, v: 0..1}, ...]."""
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络不是有效 JSON：{exc.msg}", 422) from None
+    if not isinstance(value, list) or not 2 <= len(value) <= 128:
+        raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络必须是 2–128 个时间点的数组", 422)
+    points: list[dict[str, float]] = []
+    previous_time = -1.0
+    for index, point in enumerate(value):
+        if not isinstance(point, dict) or set(point) != {"t", "v"}:
+            raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络第 {index + 1} 点必须只包含 t、v", 422)
+        timestamp = _number(point.get("t"), f"音量包络时间点 {index + 1}", 0, 600)
+        gain = _number(point.get("v"), f"音量包络值 {index + 1}", 0, 1)
+        if timestamp <= previous_time:
+            raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络时间点必须严格递增且不能重复", 422)
+        points.append({"t": timestamp, "v": gain})
+        previous_time = timestamp
+    return points
+
+
+def _normalize_volume_envelope(value: Any) -> str:
+    points = _parse_volume_envelope(value)
+    if not points:
+        raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络不能为空；清除时请将字段设为 null", 422)
+    canonical = [{"t": float(_fmt(point["t"])), "v": float(_fmt(point["v"]))} for point in points]
+    return json.dumps(canonical, ensure_ascii=False, separators=(",", ":"))
 
 
 def revision_of(text: str) -> str:
@@ -236,6 +269,11 @@ def parse_film(text: str) -> dict:
         last_end = None
         last_id = ""
         for clip in ordered:
+            if "volume_envelope" in clip["attrs"]:
+                try:
+                    _parse_volume_envelope(clip["attrs"]["volume_envelope"])
+                except FilmError as exc:
+                    problems.append(f"片段 {clip['id']} 的音量包络无效：{exc}")
             end = clip_end(clip)
             at = _number(clip["attrs"].get("at", 0), "at", 0)
             if end is not None and last_end is not None and at < last_end - 0.001:
@@ -494,6 +532,11 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 if clip["tag"] not in {"video", "audio"}:
                     raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持 volume")
                 value = _fmt(_number(value, "volume", 0, 2))
+            elif field == "volume_envelope":
+                if clip["tag"] not in {"video", "audio"}:
+                    raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持音量包络")
+                if value is not None:
+                    value = _normalize_volume_envelope(value)
             elif field == "muted":
                 if clip["tag"] not in {"video", "audio"} or not isinstance(value, bool):
                     raise FilmError("INVALID_BOOLEAN", "muted 只接受视频/音频片段的布尔值")
@@ -1549,7 +1592,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
                 "duration": clip_duration(clip), "src": attrs.get("src", ""),
                 "source_in": source_in, "source_out": source_out,
                 "speed": attrs.get("speed", "1"), "volume": attrs.get("volume", "1"),
-                "muted": "muted" in attrs, "style": attrs.get("style", ""),
+                "muted": "muted" in attrs, "volume_envelope": attrs.get("volume_envelope", ""), "style": attrs.get("style", ""),
                 "title": attrs.get("title", ""),
             })
     prompt = (
@@ -1564,7 +1607,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
-        "不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
+        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"
         f"\n用户指令：{message}"

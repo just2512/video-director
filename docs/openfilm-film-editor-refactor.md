@@ -45,6 +45,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Document revision changes and AI planning phases use the repository's existing SSE event bus; file polling remains the fallback for external local-agent writes that do not pass through the server.
 - Model-token streaming is not claimed: the current LLM abstraction exposes a blocking generate call, so this milestone streams lifecycle events, not partial model text.
 
+## Clip-relative volume envelope
+
+- `volume_envelope` is a JSON array in the clip's own timeline seconds: `[{"t":0,"v":1},{"t":2,"v":0.2}]`. Gain `v` is a 0–1 multiplier over the clip volume fader; it is not a decibel value.
+- The Studio draws the envelope over audio/video clips. Clicking inserts a point, dragging a point adjusts its time/value, and Shift/right-click removes an interior point. A completed gesture commits one operation and one undo step.
+- Browser preview evaluates the same piecewise-linear curve against clip-local time; MP4 audio uses FFmpeg's per-frame volume expression. Invalid JSON, duplicate timestamps and out-of-range gain values are rejected before write/render.
+
 ## Global ripple-delete operation
 
 - The unified operation engine supports explicit `ripple_delete`: it removes the selected finite timeline interval and closes the gap across all tracks.

@@ -194,8 +194,9 @@
         var aid=clip.attrs['data-asset-id']||'',thumb=aid&&clip.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
         var thumbHtml=thumb?'<img class="fs-clip-thumb" src="'+esc(thumb)+'" loading="lazy" alt="" onerror="this.remove()">':'';
         var waveformHtml=clip.tag==='audio'?'<canvas class="fs-clip-waveform" data-waveform-clip="'+esc(clip.id)+'" aria-label="音频波形"></canvas>':'';
+        var envelopeHtml=(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null?'<canvas class="fs-clip-envelope" data-envelope-clip="'+esc(clip.id)+'" aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点"></canvas>':'';
         var handles=clip.duration==null?'':'<span class="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点"></span><span class="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点"></span>';
-        lane+='<div class="fs-clip '+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
+        lane+='<div class="fs-clip '+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+envelopeHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
       });
       lane+='</div>';
       return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
@@ -332,6 +333,102 @@
     var timeline=$('fs-timeline');if(!timeline)return;
     timeline.querySelectorAll('[data-waveform-clip]').forEach(function(canvas){drawAudioWaveform(canvas);});
   }
+  function envelopePointsForClip(clip){
+    var raw=clip&&clip.attrs&&clip.attrs.volume_envelope;
+    if(raw){try{return JSON.parse(raw);}catch(_){}}
+    var duration=Math.max(0.04,num(clip&&clip.duration,0.04));
+    return [{t:0,v:1},{t:duration,v:1}];
+  }
+  function drawVolumeEnvelope(canvas,points){
+    if(!canvas.isConnected)return;
+    var clip=findClip(canvas.getAttribute('data-envelope-clip'));
+    if(!clip||clip.duration==null||clip.duration<=0)return;
+    var width=Math.max(24,Math.min(1800,Math.ceil(clip.duration*S.pxPerSec)));
+    var height=Math.max(24,canvas.parentElement?canvas.parentElement.clientHeight-2:40);
+    canvas.width=width;canvas.height=height;
+    var ctx=canvas.getContext('2d');if(!ctx)return;
+    ctx.clearRect(0,0,width,height);
+    function xy(point){return {x:Math.max(0,Math.min(width,point.t/clip.duration*width)),
+      y:height-4-Math.max(0,Math.min(1,point.v))*(height-8)};}
+    var plotted=points.filter(function(p){return p.t>=0&&p.t<=clip.duration;});
+    if(!plotted.length)plotted=[{t:0,v:1},{t:clip.duration,v:1}];
+    var first=plotted[0],last=plotted[plotted.length-1];
+    if(first.t>0)plotted.unshift({t:0,v:first.v});
+    if(last.t<clip.duration)plotted.push({t:clip.duration,v:last.v});
+    ctx.strokeStyle='rgba(255,220,134,.95)';ctx.lineWidth=1.5;ctx.beginPath();
+    plotted.forEach(function(point,index){var p=xy(point);if(index===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);});
+    ctx.stroke();
+    ctx.fillStyle='#fff0b3';ctx.strokeStyle='#4a3620';ctx.lineWidth=1;
+    points.filter(function(p){return p.t>=0&&p.t<=clip.duration;}).forEach(function(point){
+      var p=xy(point);ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill();ctx.stroke();
+    });
+    canvas.title='音量包络倍率 0–1 · '+points.length+' 个关键帧。拖动曲线添加/调整，Shift 或右键删除内部点。';
+  }
+  function volumeEnvelopeAtStudio(points,time){
+    if(!points||!points.length)return 1;
+    if(time<=points[0].t)return points[0].v;
+    for(var i=0;i<points.length-1;i++){
+      var left=points[i],right=points[i+1];
+      if(time<=right.t)return left.v+(right.v-left.v)*Math.max(0,Math.min(1,(time-left.t)/(right.t-left.t)));
+    }
+    return points[points.length-1].v;
+  }
+  function bindVolumeEnvelopeCanvas(canvas){
+    var clip=findClip(canvas.getAttribute('data-envelope-clip'));
+    if(!clip||clip.duration==null||clip.duration<=0)return;
+    canvas.addEventListener('contextmenu',function(e){e.preventDefault();});
+    canvas.addEventListener('pointerdown',function(e){
+      if(e.button!==0&&e.button!==2)return;
+      e.preventDefault();e.stopPropagation();
+      if(S.busy||S.broken){showStatus('当前无法编辑音量包络。','error');return;}
+      var duration=clip.duration,rect=canvas.getBoundingClientRect();
+      if(!rect.width||!rect.height)return;
+      var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
+      var value=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
+      var points=envelopePointsForClip(clip).map(function(p){return {t:Number(p.t),v:Number(p.v)};});
+      var nearest=-1,nearestPx=Infinity;
+      points.forEach(function(p,i){
+        if(p.t<=0.0001||p.t>=duration-0.0001)return;
+        var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
+        if(px<nearestPx){nearestPx=px;nearest=i;}
+      });
+      if((e.button===2||e.shiftKey)&&nearest>=0&&nearestPx<=12){
+        points.splice(nearest,1);
+        if(points.length<2){showStatus('至少需要两个音量关键帧。','error');return;}
+        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}]);
+        return;
+      }
+      if(e.button!==0)return;
+      var index=-1;
+      points.forEach(function(p,i){
+        var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
+        var py=Math.abs((1-p.v)*rect.height-(e.clientY-rect.top));
+        if(px<=10&&py<=10){index=i;nearestPx=px;}
+      });
+      var added=false;
+      if(index<0){
+        value=volumeEnvelopeAtStudio(points,time);
+        // Clicking the envelope canvas inserts a new local keyframe at the clicked
+        // time and value; dragging immediately after insertion edits its gain.
+        value=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
+        index=points.findIndex(function(p){return p.t>time;});
+        if(index<0)index=points.length;
+        points.splice(index,0,{t:time,v:value});added=true;
+      }
+      S.envelopeDrag={clipId:clip.id,canvas:canvas,points:points,index:index,duration:duration,active:added,changed:added};
+      if(canvas.setPointerCapture)try{canvas.setPointerCapture(e.pointerId);}catch(_){}
+      drawVolumeEnvelope(canvas,points);
+    });
+  }
+  function renderVolumeEnvelopes(){
+    var timeline=$('fs-timeline');if(!timeline)return;
+    timeline.querySelectorAll('[data-envelope-clip]').forEach(function(canvas){
+      var clip=findClip(canvas.getAttribute('data-envelope-clip'));
+      if(!clip)return;
+      drawVolumeEnvelope(canvas,envelopePointsForClip(clip));
+      bindVolumeEnvelopeCanvas(canvas);
+    });
+  }
   function renderInspector() {
     var clip=findClip(S.selectedId);
     if(!clip){$('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';return;}
@@ -415,6 +512,18 @@
     }finally{S.busy=false;}
   }
   function onMove(e) {
+    if(S.envelopeDrag){
+      var ed=S.envelopeDrag,rect=ed.canvas.getBoundingClientRect(),point=ed.points[ed.index];
+      if(!point||!rect.width||!rect.height)return;
+      var x=Math.max(0,Math.min(rect.width,(e.clientX-rect.left)));
+      var y=Math.max(0,Math.min(rect.height,(e.clientY-rect.top)));
+      if(ed.index>0&&ed.index<ed.points.length-1){
+        var lower=ed.points[ed.index-1].t+0.01,upper=ed.points[ed.index+1].t-0.01;
+        point.t=Math.max(lower,Math.min(upper,x/rect.width*ed.duration));
+      }
+      point.v=Math.max(0,Math.min(1,1-y/rect.height));
+      ed.active=true;ed.changed=true;drawVolumeEnvelope(ed.canvas,ed.points);e.preventDefault();return;
+    }
     var d=S.drag;if(!d)return;
     var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
     if(e.clientX<rect.left+28)scroll.scrollLeft=Math.max(0,scroll.scrollLeft-18);
@@ -439,6 +548,18 @@
     }
   }
   async function onUp(e) {
+    if(S.envelopeDrag){
+      var envelopeEdit=S.envelopeDrag;S.envelopeDrag=null;
+      if(envelopeEdit.changed){
+        var normalized=envelopeEdit.points.map(function(p){return {t:Number(p.t.toFixed(3)),v:Number(p.v.toFixed(3))};})
+          .sort(function(a,b){return a.t-b.t;});
+        // Coalesce points which became the same time after rounding; preserve the last gesture value.
+        var unique=[];
+        normalized.forEach(function(p){if(unique.length&&Math.abs(unique[unique.length-1].t-p.t)<0.001)unique[unique.length-1]=p;else unique.push(p);});
+        if(unique.length>=2)await filmStudioCommit([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}]);
+      }else if(S.data&&S.data.exists)renderTimeline();
+      return;
+    }
     var d=S.drag;
     if(!d){S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);return;}
     S.drag=null;S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
@@ -476,9 +597,11 @@
   }
   document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);
   document.addEventListener('pointercancel',function(){
-    if(!S.drag)return;
-    var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
-    (drag.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
+    if(S.envelopeDrag)S.envelopeDrag=null;
+    if(S.drag){
+      var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
+      (drag.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
+    }
     if(S.data&&S.data.exists)renderTimeline();
   });
   window.filmStudioSetSideMode=function(mode){

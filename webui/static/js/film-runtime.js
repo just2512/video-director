@@ -32,6 +32,33 @@
     var at=finite(clip.at,0),speed=(clip.tag==='video'||clip.tag==='audio')?clamp(finite(clip.attrs&&clip.attrs.speed,1),0.25,4):1;
     return Math.max(0,finite(clip.src_in,0)+Math.max(0,t-at)*speed);
   }
+  function parseVolumeEnvelope(value){
+    if(!value)return [];
+    try{
+      var points=typeof value==='string'?JSON.parse(value):value;
+      if(!Array.isArray(points)||points.length<2||points.length>128)return [];
+      var last=-1;
+      for(var i=0;i<points.length;i++){
+        if(!points[i]||!Number.isFinite(Number(points[i].t))||!Number.isFinite(Number(points[i].v))
+            ||Number(points[i].t)<0||Number(points[i].t)>600||Number(points[i].v)<0||Number(points[i].v)>1
+            ||Number(points[i].t)<=last)return [];
+        last=Number(points[i].t);
+      }
+      return points.map(function(point){return {t:Number(point.t),v:Number(point.v)};});
+    }catch(_){return [];}
+  }
+  function volumeEnvelopeAt(points,localTime){
+    if(!points||!points.length)return 1;
+    if(localTime<=points[0].t)return points[0].v;
+    for(var i=0;i<points.length-1;i++){
+      var left=points[i],right=points[i+1];
+      if(localTime<=right.t){
+        var ratio=(localTime-left.t)/(right.t-left.t);
+        return left.v+(right.v-left.v)*clamp(ratio,0,1);
+      }
+    }
+    return points[points.length-1].v;
+  }
   function makeClip(track,clip){
     var el;
     if(clip.tag==='video')el=document.createElement('video');
@@ -73,7 +100,7 @@
     if(Number.isFinite(opacity))el.style.opacity=String(clamp(opacity,0,1));
     var src=sourceBase(clip.media_url||'');
     if(src)el.src=src;
-    var entry={track:track,clip:clip,el:el,active:false};
+    var entry={track:track,clip:clip,el:el,active:false,volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope)};
     byId[clip.id]=entry;return entry;
   }
   function pauseAll(){
@@ -129,7 +156,11 @@
     }
     if(tag==='img'){entry.active=true;return;}
     var desired=mediaTime(clip,t),speed=clamp(finite(attrs.speed,1),0.25,4);
-    el.playbackRate=speed;el.volume=clamp(finite(attrs.volume,1),0,1);el.muted=state.renderMode||muted;
+    el.playbackRate=speed;
+    var baseVolume=clamp(finite(attrs.volume,1),0,1);
+    var localTime=Math.max(0,t-finite(clip.at,0));
+    el.volume=clamp(baseVolume*volumeEnvelopeAt(entry.volumeEnvelope,localTime),0,1);
+    el.muted=state.renderMode||muted;
     var drift=Math.abs(finite(el.currentTime,0)-desired);
     if(forceSeek||!entry.active||drift>(state.playing?0.45:0.04)){try{el.currentTime=desired;}catch(_){}}
     if(state.playing){

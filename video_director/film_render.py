@@ -270,6 +270,27 @@ def _validate_source_ranges(project_id: str, doc: dict) -> None:
                 )
 
 
+def _volume_envelope_filter(base_volume: float, points: list[dict]) -> str:
+    """Build a safe FFmpeg volume expression from already-validated numeric points."""
+    base = min(2.0, max(0.0, float(base_volume)))
+    if not points:
+        return "volume=" + _fmt(base)
+    expression = _fmt(points[-1]["v"])
+    for index in range(len(points) - 2, -1, -1):
+        left, right = points[index], points[index + 1]
+        start, end = float(left["t"]), float(right["t"])
+        delta = end - start
+        if delta <= 0:
+            raise FilmRenderError("INVALID_VOLUME_ENVELOPE", "音量包络时间点必须严格递增。", 422)
+        slope = (float(right["v"]) - float(left["v"])) / delta
+        segment = f"({_fmt(float(left['v']))}+({_fmt(slope)})*(t-{_fmt(start)}))"
+        expression = f"if(lt(t,{_fmt(end)}),{segment},{expression})"
+    first = points[0]
+    expression = f"if(lt(t,{_fmt(float(first['t']))}),{_fmt(float(first['v']))},{expression})"
+    # Filtergraph commas are protected by the single-quoted volume expression.
+    return f"volume='{_fmt(base)}*({expression})':eval=frame"
+
+
 def _audio_specs(project_id: str, doc: dict, duration: float) -> list[dict]:
     from video_director import prober
 
@@ -310,6 +331,7 @@ def _audio_specs(project_id: str, doc: dict, duration: float) -> list[dict]:
                 "src_out": src_out, "speed": speed, "start": start,
                 "duration": min((src_out-src_in)/speed, duration-start),
                 "volume": min(2.0, max(0.0, volume)),
+                "volume_envelope": fd._parse_volume_envelope(attrs.get("volume_envelope")),
             })
     return specs
 
@@ -339,7 +361,7 @@ def _mux_audio(ffmpeg: str, silent_video: Path, output: Path, specs: list[dict],
             f"atrim=start={_fmt(spec['src_in'])}:end={_fmt(spec['src_out'])}",
             "asetpts=PTS-STARTPTS",
             *speed_filters,
-            f"volume={_fmt(spec['volume'])}",
+            _volume_envelope_filter(spec["volume"], spec.get("volume_envelope") or []),
         ]
         delay_ms = max(0, int(round(spec["start"] * 1000)))
         if delay_ms:

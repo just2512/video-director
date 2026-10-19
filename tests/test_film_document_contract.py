@@ -370,6 +370,45 @@ def test_frame_determinism_audit_accepts_identical_pixels_and_rejects_real_diffe
     assert changed[1:] == (32 * 24, 32, 24)
 
 
+def test_volume_envelope_contract_drives_ffmpeg_and_preview_consistently():
+    from video_director.film_render import _volume_envelope_filter
+
+    doc = fd.parse_film(SAMPLE)
+    points = [{"t": 0, "v": 1}, {"t": 2.5, "v": 0.2}, {"t": 5, "v": 0.75}]
+    edited, operations = fd.apply_ops(doc, [
+        {"op": "set", "clip": "audio-1", "field": "volume_envelope", "value": points}
+    ])
+    stored = next(c for t in edited["tracks"] for c in t["clips"] if c["id"] == "audio-1")
+    assert json.loads(stored["attrs"]["volume_envelope"]) == points
+    assert operations[0]["field"] == "volume_envelope"
+    serialized = fd.serialize_film(edited)
+    reparsed = fd.parse_film(serialized)
+    audio = next(c for t in reparsed["tracks"] for c in t["clips"] if c["id"] == "audio-1")
+    assert json.loads(audio["attrs"]["volume_envelope"]) == points
+
+    expression = _volume_envelope_filter(0.4, points)
+    assert expression.startswith("volume='0.4*(")
+    assert "eval=frame" in expression
+    assert "if(lt(t,2.5)" in expression
+
+    runtime = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    studio = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "volumeEnvelopeAt(entry.volumeEnvelope,localTime)" in runtime
+    assert 'data-envelope-clip=' in studio
+    assert "field:'volume_envelope'" in studio
+    assert "S.envelopeDrag" in studio
+
+
+def test_volume_envelope_rejects_duplicate_times_and_non_finite_gain(tmp_path, monkeypatch):
+    doc = fd.parse_film(SAMPLE)
+    with pytest.raises(fd.FilmError, match="时间点必须严格递增"):
+        fd.apply_ops(doc, [{"op": "set", "clip": "audio-1", "field": "volume_envelope",
+                           "value": [{"t": 0, "v": 1}, {"t": 0, "v": 0.3}]}])
+    with pytest.raises(fd.FilmError, match="不能大于 1"):
+        fd.apply_ops(doc, [{"op": "set", "clip": "audio-1", "field": "volume_envelope",
+                           "value": [{"t": 0, "v": 1}, {"t": 1, "v": 1.5}]}])
+
+
 def test_ripple_delete_closes_gap_across_tracks_and_replays_identical_split_ids():
     doc = fd.parse_film(SAMPLE)
     updated, operations = fd.apply_ops(doc, [
