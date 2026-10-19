@@ -916,7 +916,7 @@ class Handler(BaseHTTPRequestHandler):
         """OpenFilm-inspired film.html API with explicit migration and revision-safe edits."""
         route = parsed.path
         get_routes = {"/api/editor/film", "/api/editor/film/media"}
-        post_routes = {"/api/editor/film/initialize", "/api/editor/film/edit",
+        post_routes = {"/api/editor/film/initialize", "/api/editor/film/insert-asset", "/api/editor/film/edit",
                        "/api/editor/film/undo", "/api/editor/film/redo",
                        "/api/editor/film/command"}
         if method == "GET" and route not in get_routes:
@@ -1049,6 +1049,28 @@ class Handler(BaseHTTPRequestHandler):
                 state = fd.read_project_film(pid)
                 self._send_json({**fd.film_payload(pid, state), "warnings": result["warnings"],
                                  "migration": result["migration"]}, 201)
+                return True
+
+            if route == "/api/editor/film/insert-asset":
+                state = fd.read_project_film(pid)
+                if not state["exists"]:
+                    raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html", 409)
+                clip = fd.library_asset_clip(
+                    pid, str(payload.get("asset_id") or ""),
+                    payload.get("at", 0), payload.get("still_duration", 5))
+                track_id = "track-added-" + uuid.uuid4().hex[:10]
+                track_label = "新增音轨" if clip["tag"] == "audio" else "新增画面"
+                operations = [
+                    {"op": "track_add", "track_id": track_id, "label": track_label,
+                     "kind": clip["tag"], "index": 0},
+                    {"op": "insert", "track_id": track_id,
+                     "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}},
+                ]
+                result = fd.edit_project_film(pid, payload.get("base"), operations)
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data.update({"ops": result["ops"], "rebased": result["rebased"],
+                             "inserted_clip_id": clip["id"], "inserted_track_id": track_id})
+                self._send_json(data)
                 return True
 
             if route == "/api/editor/film/edit":

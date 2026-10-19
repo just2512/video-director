@@ -124,7 +124,8 @@
       <div class="fs-alert fs-visible" id="fs-render-warning" style="border-left:3px solid #b08b4b">注意：本轮已打通影片文档编辑与保存，但完整合成渲染尚未切换到 film.html。请勿使用旧工作台对迁移后的影片导出最终成片，避免导出旧 Composition。</div>
       <div class="fs-workspace">
         <aside class="fs-pane fs-assets-pane">
-          <div class="fs-pane-title">影片片段 <span id="fs-clip-count">0</span></div>
+          <div class="fs-pane-title">素材 / 片段 <span id="fs-clip-count">0</span></div>
+          <div class="fs-asset-tabs"><button class="fs-asset-tab fs-asset-tab-active" id="fs-mode-clips" type="button" onclick="filmStudioShowAssetMode('clips')">时间线片段</button><button class="fs-asset-tab" id="fs-mode-library" type="button" onclick="filmStudioLoadLibrary()">素材库</button></div>
           <div class="fs-assets-list" id="fs-assets-list"><div class="fs-empty">还没有影片文档。</div></div>
         </aside>
         <section class="fs-pane fs-monitor-pane">

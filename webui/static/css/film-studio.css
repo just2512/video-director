@@ -76,3 +76,10 @@
 .fs-migrate-action p{color:#aaa;line-height:1.6}
 @media(max-width:1080px){.fs-workspace{grid-template-columns:minmax(150px,25%) minmax(280px,1fr)}.fs-inspector-pane{grid-column:1/-1;max-height:none}.fs-inspector-field{grid-template-columns:100px minmax(0,1fr)}}
 @media(max-width:720px){.fs-workspace{grid-template-columns:minmax(0,1fr)}.fs-assets-pane{max-height:200px}.fs-monitor-stage{min-height:180px}.fs-topbar>div:first-child{width:100%}.fs-toolbar{width:100%}.film-studio-launch{align-items:flex-start;flex-direction:column}.fs-timeline-toolbar{align-items:flex-start;flex-direction:column}}
+
+.fs-asset-tabs{display:flex;gap:4px;margin:-1px 0 8px}
+.fs-asset-tab{border:1px solid #343434;background:#202020;color:#aaa;border-radius:4px;padding:5px 7px;font-size:10px;cursor:pointer}
+.fs-asset-tab:hover{border-color:#555;color:#eee}
+.fs-asset-tab.fs-asset-tab-active{background:#223a38;border-color:#39877f;color:#e6fffb}
+.fs-asset-item .fs-asset-name{flex:1}
+.fs-asset-item>.fs-btn{width:auto;margin:0;flex:0 0 auto}

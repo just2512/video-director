@@ -408,6 +408,20 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             right["attrs"]["at"] = _fmt(at)
             track["clips"].insert(track["clips"].index(clip) + 1, right)
             normalized.append({"op": "split", "clip": original_id, "at": _fmt(at), "new_id": right_id})
+        elif kind == "track_add":
+            track_id = str(op.get("track_id") or "").strip()
+            label = str(op.get("label") or "新轨道").strip()[:120]
+            if not track_id or any(track_id == t["id"] for t in out["tracks"]):
+                raise FilmError("DUPLICATE_TRACK_ID", "新轨道必须有未使用的 ID")
+            raw_index = op.get("index", 0)
+            index = int(_number(raw_index, "track index", 0, len(out["tracks"])))
+            if index != raw_index:
+                raise FilmError("INVALID_TRACK_INDEX", "轨道位置必须是整数")
+            attrs = {"id": track_id, "data-label": label or "新轨道"}
+            if str(op.get("kind") or ""):
+                attrs["data-kind"] = str(op.get("kind"))[:24]
+            out["tracks"].insert(index, {"id": track_id, "attrs": attrs, "clips": []})
+            normalized.append({"op": "track_add", "track_id": track_id, "label": attrs["data-label"], "index": index})
         elif kind == "track":
             track = _find_track(out, str(op.get("track_id") or ""))
             field, value = str(op.get("field") or ""), op.get("value")
@@ -568,6 +582,64 @@ def _safe_storage_uri(project_id: str, source_file: str | Path) -> str:
     if not p.is_file():
         raise FilmError("ASSET_NOT_FOUND", f"素材文件不存在：{p}", 422)
     return quote(os.path.relpath(p, root).replace("\\", "/"), safe="/-._~")
+
+
+def library_asset_clip(project_id: str, asset_id: str, at: float, still_duration: float = 5.0) -> dict:
+    """Resolve an approved library/project asset into a safe film clip descriptor."""
+    pid = validate_project_id(project_id)
+    aid = str(asset_id or "").strip()
+    if not aid or len(aid) > 160:
+        raise FilmError("ASSET_ID_REQUIRED", "缺少有效的素材 ID", 400)
+    entry = None
+    try:
+        from video_director import asset_catalog as vd_assets
+        entry = vd_assets.get_asset(aid)
+    except Exception:
+        entry = None
+    if entry is None:
+        root = config.composer_storage_root()
+        if root.is_dir():
+            for folder in root.iterdir():
+                manifest_path = folder / "assets" / "manifest.json"
+                if not folder.is_dir() or not manifest_path.is_file():
+                    continue
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(manifest, list):
+                    continue
+                for item in manifest:
+                    if isinstance(item, dict) and str(item.get("id") or item.get("asset_id") or "") == aid:
+                        entry = dict(item)
+                        entry["asset_id"] = aid
+                        break
+                if entry is not None:
+                    break
+    if not isinstance(entry, dict):
+        raise FilmError("ASSET_NOT_FOUND", f"素材库中不存在素材：{aid}", 404)
+    kind = str(entry.get("type") or "").lower()
+    if kind not in {"video", "image", "audio"}:
+        raise FilmError("ASSET_TYPE_UNSUPPORTED", f"素材类型 {kind or 'unknown'} 暂不支持直接加入时间线", 422)
+    file_value = entry.get("file") or entry.get("path") or ""
+    if not file_value:
+        raise FilmError("ASSET_FILE_MISSING", f"素材 {aid} 没有可用文件路径", 422)
+    src_uri = _safe_storage_uri(pid, file_value)
+    at_value = _fmt(_number(at, "at", 0))
+    if kind == "image":
+        duration = _number(still_duration, "图片片段时长", 0.25, 600)
+        tag = "img"
+    else:
+        duration = _number(entry.get("duration"), "素材时长", 0.001)
+        tag = "audio" if kind == "audio" else "video"
+    clip_id = "clip-" + hashlib.sha1(f"{aid}|{time.time_ns()}".encode("utf-8")).hexdigest()[:16]
+    attrs = {"id": clip_id, "src": f"{src_uri}#t=0,{_fmt(duration)}", "at": at_value,
+             "title": str(entry.get("description") or Path(str(file_value)).name)[:200]}
+    if tag in {"video", "audio"}:
+        attrs["volume"] = "1"
+    if tag == "audio":
+        attrs["data-role"] = str(entry.get("type") or "audio")
+    return {"id": clip_id, "tag": tag, "attrs": attrs, "asset_id": aid, "duration": duration}
 
 
 def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], style: dict | None) -> str:

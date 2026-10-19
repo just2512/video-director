@@ -47,6 +47,20 @@ def test_set_move_split_use_source_time_and_speed():
     assert [item["op"] for item in ops] == ["set","split"]
 
 
+def test_new_track_and_insert_are_one_stable_id_operation_batch():
+    doc = fd.parse_film(SAMPLE)
+    edited, ops = fd.apply_ops(doc, [
+        {"op":"track_add","track_id":"track-overlay","label":"叠加画面","index":0},
+        {"op":"insert","track_id":"track-overlay","clip":{
+            "id":"new-image","tag":"img","attrs":{
+                "src":"../assets/still.png#t=0,4","at":"1","title":"插入图片"
+            }}},
+    ])
+    assert edited["tracks"][0]["id"] == "track-overlay"
+    assert edited["tracks"][0]["clips"][0]["id"] == "new-image"
+    assert [item["op"] for item in ops] == ["track_add","insert"]
+
+
 def test_unknown_id_and_non_whitelisted_field_fail_closed():
     doc=fd.parse_film(SAMPLE)
     with pytest.raises(fd.FilmError,match="不存在或已被删除"):
@@ -98,6 +112,8 @@ def test_api_ui_routes_are_wired():
     assert "/api/editor/film/command" in server
     assert "filmStudioToggle" in index
     assert "filmStudioCommit" in js
+    assert "filmStudioAddAsset" in js
+    assert "/api/editor/film/insert-asset" in server
     assert "base:S.rev" in js
     assert "/static/css/film-studio.css" in index
 

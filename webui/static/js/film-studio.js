@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, drag:null, poll:null, messages:[]};
+  var S = {open:false, projectId:'', rev:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -72,15 +72,57 @@
       $('fs-initialize-button').addEventListener('click',function(){filmStudioInitialize(false);});
     }
   }
+  function renderLibraryAssets() {
+    var supported=S.libraryAssets.filter(function(a){return ['video','image','audio'].indexOf(String(a.type||'').toLowerCase())>=0;});
+    if(!supported.length){$('fs-assets-list').innerHTML='<div class="fs-empty">素材库没有可直接加入时间线的视频或图片。已上传的项目素材和全局素材会在此显示。</div>';return;}
+    $('fs-assets-list').innerHTML=supported.map(function(a){
+      var id=String(a.asset_id||a.id||''),kind=String(a.type||'').toLowerCase(),label=a.description||a.name||a.filename||id;
+      var meta=kind.toUpperCase()+(a.duration?' · '+Number(a.duration).toFixed(2)+'s':'')+(a.source?' · '+String(a.source):'');
+      return '<div class="fs-asset-item"><span class="fs-asset-icon">'+esc(kind.toUpperCase())+'</span><span class="fs-asset-name" title="'+esc(label)+'">'+esc(label)+'<span class="fs-asset-meta">'+esc(meta)+'</span></span><button type="button" class="fs-btn fs-primary" data-add-asset="'+esc(id)+'" title="在播放头位置新建轨道并添加">添加</button></div>';
+    }).join('');
+    $('fs-assets-list').querySelectorAll('[data-add-asset]').forEach(function(el){
+      el.addEventListener('click',function(e){e.stopPropagation();window.filmStudioAddAsset(el.getAttribute('data-add-asset'));});
+    });
+  }
   function renderAssets() {
     var all=clips();$('fs-clip-count').textContent=String(all.length);
-    if(!all.length){$('fs-assets-list').innerHTML='<div class="fs-empty">此影片没有片段。可从内容生产流程重新生成影片。</div>';return;}
+    if(S.assetMode==='library'){renderLibraryAssets();return;}
+    if(!all.length){$('fs-assets-list').innerHTML='<div class="fs-empty">此影片没有片段。可从素材库添加视频或图片。</div>';return;}
     $('fs-assets-list').innerHTML=all.map(function(c){
       var label=c.attrs.title||c.attrs['data-role']||c.id;
       return '<button type="button" class="fs-asset-item '+(c.id===S.selectedId?'fs-selected':'')+'" data-clip="'+esc(c.id)+'"><span class="fs-asset-icon">'+esc(c.tag.toUpperCase())+'</span><span class="fs-asset-name">'+esc(label)+'<span class="fs-asset-meta">'+fmtTime(c.at)+' · '+(c.duration==null?'时长未知':c.duration.toFixed(2)+'s')+'</span></span></button>';
     }).join('');
     $('fs-assets-list').querySelectorAll('[data-clip]').forEach(function(el){el.addEventListener('click',function(){window.filmStudioSelectClip(el.getAttribute('data-clip'));});});
   }
+  window.filmStudioShowAssetMode=function(mode){
+    S.assetMode=mode==='library'?'library':'clips';
+    var clipTab=$('fs-mode-clips'),libTab=$('fs-mode-library');
+    if(clipTab)clipTab.className='fs-asset-tab'+(S.assetMode==='clips'?' fs-asset-tab-active':'');
+    if(libTab)libTab.className='fs-asset-tab'+(S.assetMode==='library'?' fs-asset-tab-active':'');
+    renderAssets();
+  };
+  window.filmStudioLoadLibrary=async function(){
+    window.filmStudioShowAssetMode('library');
+    showStatus('正在读取素材库……');
+    var response=await apiGet('/api/assets_library');
+    if(!Array.isArray(response)){showStatus((response&&response.error)||'素材库读取失败。','error');return;}
+    S.libraryAssets=response;
+    renderAssets();
+    showStatus('已加载 '+response.length+' 条素材目录记录。','success');
+  };
+  window.filmStudioAddAsset=async function(assetId){
+    if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档，且等待当前编辑完成。','error');return;}
+    S.busy=true;
+    try{
+      var response=await apiPost('/api/editor/film/insert-asset',{
+        project_id:S.projectId,base:S.rev,asset_id:assetId,at:S.playhead,still_duration:5
+      });
+      if(!response||!response.ok){showStatus((response&&response.error)||'素材加入时间线失败。','error');return;}
+      S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
+      S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
+      showStatus('已在播放头位置新建轨道并添加素材。', 'success');
+    }finally{S.busy=false;}
+  };
   function renderTimeline() {
     if(!S.data||!S.data.exists)return;
     var laneWidth=Math.max(720,Math.ceil(S.duration*S.pxPerSec)),ticks=Math.min(240,Math.ceil(S.duration/5));
