@@ -116,6 +116,59 @@ def test_attribute_edit_preserves_unrelated_html_text_and_comments(tmp_path, mon
     assert fd.read_project_film("film-preserve")["rev"] == updated["rev"]
 
 
+def test_split_preserves_unrelated_comments_and_clip_markup(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-structure"
+    root.mkdir(parents=True)
+    source = SAMPLE.replace(
+        '<video id="clip-a"',
+        '<!-- retain near split clip -->\n<video id="clip-a"',
+    ).replace(
+        '<video id="clip-b"',
+        '<!-- untouched clip comment -->\n<video  id = "clip-b"',
+    )
+    (root / fd.FILM_NAME).write_text(source, encoding="utf-8")
+    before = fd.read_project_film("film-structure")
+    untouched = '<video  id = "clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>'
+
+    updated = fd.edit_project_film(
+        "film-structure", before["rev"],
+        [{"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"}],
+    )
+    written = (root / fd.FILM_NAME).read_text(encoding="utf-8")
+    assert '<!-- retain near split clip -->' in written
+    assert '<!-- untouched clip comment -->' in written
+    assert untouched in written
+    assert 'id="clip-a-right"' in written
+    assert '<video id="clip-a" src="../assets/a.mp4#t=2,6" at="0" speed="2" volume="1"></video>' in written
+    assert fd.read_project_film("film-structure")["rev"] == updated["rev"]
+
+
+def test_insert_into_existing_track_preserves_other_nodes(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-insert"
+    root.mkdir(parents=True)
+    source = SAMPLE.replace(
+        '<video id="clip-b"',
+        '<!-- keep target clip bytes -->\n<video  id = "clip-b"',
+    )
+    (root / fd.FILM_NAME).write_text(source, encoding="utf-8")
+    before = fd.read_project_film("film-insert")
+    untouched = '<video  id = "clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>'
+    updated = fd.edit_project_film(
+        "film-insert", before["rev"],
+        [{"op": "insert", "track_id": "video-main", "clip": {
+            "id": "inserted-still", "tag": "img",
+            "attrs": {"src": "../assets/still.png#t=0,2", "at": "11", "title": "新增静帧"}
+        }}],
+    )
+    written = (root / fd.FILM_NAME).read_text(encoding="utf-8")
+    assert '<!-- keep target clip bytes -->' in written
+    assert untouched in written
+    assert '<img id="inserted-still"' in written
+    assert fd.read_project_film("film-insert")["rev"] == updated["rev"]
+
+
 def test_proposal_apply_requires_exact_revision_without_breaking_manual_rebase(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-proposal"

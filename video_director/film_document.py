@@ -625,10 +625,11 @@ def _history_write(project_id: str, state: dict):
 
 
 class _FilmSourceLocator(HTMLParser):
-    """Locate opening-tag spans in the original text without normalizing unrelated markup."""
+    """Record exact source spans for tracks and empty media elements."""
 
     def __init__(self, source: str):
         super().__init__(convert_charrefs=False)
+        self.source = source
         self.line_offsets = [0]
         for match in re.finditer("\n", source):
             self.line_offsets.append(match.end())
@@ -636,15 +637,27 @@ class _FilmSourceLocator(HTMLParser):
         self.current_track = -1
         self.tracks: list[dict] = []
         self.clips_by_track: list[list[dict]] = []
+        self.open_clips: list[dict] = []
+        self.body_close_start: int | None = None
+        self.body_close_end: int | None = None
         self.feed(source)
         self.close()
 
-    def _span(self, tag: str) -> dict:
+    def _position(self) -> int:
         line, column = self.getpos()
-        start = self.line_offsets[line - 1] + column
+        return self.line_offsets[line - 1] + column
+
+    def _tag_span(self) -> tuple[int, int, str]:
+        start = self._position()
         token = self.get_starttag_text() or ""
-        return {"tag": tag.lower(), "start": start, "end": start + len(token),
-                "open": token, "attrs": {}}
+        return start, start + len(token), token
+
+    def _closing_span(self) -> tuple[int, int]:
+        start = self._position()
+        end = self.source.find(">", start)
+        if end < 0:
+            raise FilmError("SOURCE_SPAN_INVALID", "无法定位 HTML 结束标签", 422)
+        return start, end + 1
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
@@ -654,37 +667,120 @@ class _FilmSourceLocator(HTMLParser):
             return
         if not self.in_body:
             return
-        item = self._span(tag)
-        item["attrs"] = attr_map
+        start, open_end, token = self._tag_span()
+        item = {"tag": tag, "start": start, "open_end": open_end, "end": open_end,
+                "open": token, "attrs": attr_map}
         if tag == "section":
             self.current_track += 1
+            item["close_start"] = None
+            item["close_end"] = None
             self.tracks.append(item)
             self.clips_by_track.append([])
         elif tag in CLIP_TAGS and self.current_track >= 0:
+            item["track_index"] = self.current_track
+            self.clips_by_track[self.current_track].append(item)
+            if tag not in VOID_TAGS and not token.rstrip().endswith("/>"):
+                self.open_clips.append(item)
+
+    def handle_startendtag(self, tag, attrs):
+        # HTMLParser calls handle_startendtag as one event rather than invoking
+        # handle_starttag + handle_endtag by default.
+        tag = tag.lower()
+        attr_map = {key.lower(): ("" if value is None else value) for key, value in attrs}
+        if tag == "body":
+            self.in_body = True
+            return
+        if not self.in_body:
+            return
+        start, open_end, token = self._tag_span()
+        item = {"tag": tag, "start": start, "open_end": open_end, "end": open_end,
+                "open": token, "attrs": attr_map}
+        if tag == "section":
+            self.current_track += 1
+            item["close_start"] = None
+            item["close_end"] = None
+            self.tracks.append(item)
+            self.clips_by_track.append([])
+        elif tag in CLIP_TAGS and self.current_track >= 0:
+            item["track_index"] = self.current_track
             self.clips_by_track[self.current_track].append(item)
 
     def handle_endtag(self, tag):
-        if tag.lower() == "body":
+        tag = tag.lower()
+        if tag == "body":
+            self.body_close_start, self.body_close_end = self._closing_span()
             self.in_body = False
+            return
+        if not self.in_body:
+            return
+        if tag in CLIP_TAGS:
+            for index in range(len(self.open_clips) - 1, -1, -1):
+                item = self.open_clips[index]
+                if item["tag"] == tag:
+                    _, close_end = self._closing_span()
+                    item["end"] = close_end
+                    self.open_clips.pop(index)
+                    break
+        elif tag == "section" and self.current_track >= 0:
+            close_start, close_end = self._closing_span()
+            item = self.tracks[self.current_track]
+            item["close_start"], item["close_end"], item["end"] = close_start, close_end, close_end
+            self.current_track = -1
+
+
+def _attribute_token_span(open_tag: str, name: str) -> tuple[int, int] | None:
+    """Lex attributes without matching text inside quoted attribute values."""
+    if not open_tag.startswith("<"):
+        return None
+    i = 1
+    length = len(open_tag)
+    while i < length and not open_tag[i].isspace() and open_tag[i] not in "/>":
+        i += 1
+    while i < length:
+        while i < length and (open_tag[i].isspace() or open_tag[i] == "/"):
+            i += 1
+        if i >= length or open_tag[i] == ">":
+            return None
+        token_start = i
+        while i < length and not open_tag[i].isspace() and open_tag[i] not in "=/>":
+            i += 1
+        if i == token_start:
+            i += 1
+            continue
+        attr_name = open_tag[token_start:i]
+        while i < length and open_tag[i].isspace():
+            i += 1
+        if i < length and open_tag[i] == "=":
+            i += 1
+            while i < length and open_tag[i].isspace():
+                i += 1
+            if i < length and open_tag[i] in {"'", '"'}:
+                quote_char = open_tag[i]
+                i += 1
+                while i < length and open_tag[i] != quote_char:
+                    i += 1
+                if i < length:
+                    i += 1
+            else:
+                while i < length and not open_tag[i].isspace() and open_tag[i] not in ">":
+                    i += 1
+        if attr_name.lower() == name.lower():
+            return token_start, i
+    return None
 
 
 def _replace_html_attribute(open_tag: str, name: str, value: Any) -> str:
-    """Replace/remove one attribute in a located opening tag; preserve all other bytes."""
+    """Update one HTML attribute while preserving all other raw attribute bytes."""
     if not re.fullmatch(r"[A-Za-z_:][A-Za-z0-9_.:-]*", name):
         raise FilmError("INVALID_ATTRIBUTE_NAME", f"非法 HTML 属性名：{name}", 422)
-    pattern = re.compile(
-        r"(?<![A-Za-z0-9_:-])" + re.escape(name) +
-        r"(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s/>]+))?",
-        re.I,
-    )
-    match = pattern.search(open_tag)
+    span = _attribute_token_span(open_tag, name)
     if value is None or value is False:
-        if match:
-            return open_tag[:match.start()] + open_tag[match.end():]
+        if span:
+            return open_tag[:span[0]] + open_tag[span[1]:]
         return open_tag
     serialized = f'{name}="{html.escape(str(value), quote=True)}"'
-    if match:
-        return open_tag[:match.start()] + serialized + open_tag[match.end():]
+    if span:
+        return open_tag[:span[0]] + serialized + open_tag[span[1]:]
     close_at = open_tag.rfind(">")
     if close_at < 0:
         raise FilmError("SOURCE_SPAN_INVALID", "无法定位 HTML 开始标签结尾", 422)
@@ -692,63 +788,228 @@ def _replace_html_attribute(open_tag: str, name: str, value: Any) -> str:
     return open_tag[:insert_at] + " " + serialized + open_tag[insert_at:]
 
 
+def _expanded_line_range(source: str, start: int, end: int) -> tuple[int, int]:
+    """Include a node's surrounding line only when it contains no other content."""
+    line_start = source.rfind("\n", 0, start) + 1
+    prefix = source[line_start:start]
+    next_newline = source.find("\n", end)
+    line_end = len(source) if next_newline < 0 else next_newline
+    suffix = source[end:line_end]
+    if not prefix.strip() and not suffix.strip():
+        return line_start, len(source) if next_newline < 0 else next_newline + 1
+    return start, end
+
+
+def _serialize_clip_node(clip: dict) -> str:
+    attrs = dict(clip.get("attrs") or {})
+    attrs["id"] = clip["id"]
+    tag = clip["tag"]
+    opening = f"<{tag}{_serialize_attrs(attrs)}>"
+    return opening if tag == "img" else opening + f"</{tag}>"
+
+
+def _serialize_track_node(track: dict, child_indent: str) -> str:
+    attrs = dict(track.get("attrs") or {})
+    attrs["id"] = track["id"]
+    pieces = [f"<section{_serialize_attrs(attrs)}>"]
+    for clip in sorted(track.get("clips") or [], key=lambda c: _number(c["attrs"].get("at", 0), "at", 0)):
+        pieces.append(child_indent + _serialize_clip_node(clip))
+    pieces.append("</section>")
+    return "\n".join(pieces)
+
+
+def _line_insertion_point(source: str, tag_start: int) -> tuple[int, str]:
+    line_start = source.rfind("\n", 0, tag_start) + 1
+    prefix = source[line_start:tag_start]
+    if not prefix.strip():
+        return line_start, prefix
+    return tag_start, ""
+
+
+def _indent_at(source: str, tag_start: int) -> str:
+    line_start = source.rfind("\n", 0, tag_start) + 1
+    prefix = source[line_start:tag_start]
+    return prefix if not prefix.strip() else ""
+
+
 def _preserve_film_text(original_text: str, old_doc: dict, new_doc: dict) -> str | None:
-    """Patch changed attributes only if the document's track/clip membership is unchanged.
+    """Patch source spans for both attribute and structural edits.
 
-    Comments, whitespace, style blocks and untouched element bytes remain exactly as
-    supplied. Structural edits use the established serializer until a source-aware
-    node insertion/removal path is available.
+    Existing untouched track/clip nodes are retained byte-for-byte. Deleted nodes
+    lose only their own source range; added/moved clips and tracks are inserted as
+    new nodes. Any ambiguous/unlocatable span returns None so the caller can fail
+    closed or use the serializer fallback.
     """
-    old_tracks, new_tracks = old_doc.get("tracks") or [], new_doc.get("tracks") or []
-    if [t["id"] for t in old_tracks] != [t["id"] for t in new_tracks]:
-        return None
-    old_by_track = {t["id"]: t for t in old_tracks}
-    new_by_track = {t["id"]: t for t in new_tracks}
-    for track_id, old_track in old_by_track.items():
-        new_track = new_by_track[track_id]
-        old_clips = {c["id"]: c for c in old_track.get("clips") or []}
-        new_clips = {c["id"]: c for c in new_track.get("clips") or []}
-        if set(old_clips) != set(new_clips):
-            return None
-        if any(old_clips[cid]["tag"] != new_clips[cid]["tag"] for cid in old_clips):
-            return None
-
+    old_tracks = old_doc.get("tracks") or []
+    new_tracks = new_doc.get("tracks") or []
     locator = _FilmSourceLocator(original_text)
-    if len(locator.tracks) != len(old_tracks):
+    if (len(locator.tracks) != len(old_tracks)
+            or any(len(locator.clips_by_track[i]) != len(track.get("clips") or [])
+                   for i, track in enumerate(old_tracks))
+            or locator.body_close_start is None):
         return None
-    for index, old_track in enumerate(old_tracks):
-        if len(locator.clips_by_track[index]) != len(old_track.get("clips") or []):
-            return None
+    if any(track.get("close_start") is None or track.get("end") is None for track in locator.tracks):
+        return None
+    if any(item.get("end") is None for lane in locator.clips_by_track for item in lane):
+        return None
+
+    old_track_by_id = {track["id"]: track for track in old_tracks}
+    new_track_by_id = {track["id"]: track for track in new_tracks}
+    old_clip_by_id, old_owner = {}, {}
+    new_clip_by_id, new_owner = {}, {}
+    source_track_item = {}
+    source_clip_item = {}
+    for index, track in enumerate(old_tracks):
+        source_track_item[track["id"]] = locator.tracks[index]
+        for clip, item in zip(track.get("clips") or [], locator.clips_by_track[index]):
+            old_clip_by_id[clip["id"]] = clip
+            old_owner[clip["id"]] = track["id"]
+            source_clip_item[clip["id"]] = item
+    for track in new_tracks:
+        for clip in track.get("clips") or []:
+            new_clip_by_id[clip["id"]] = clip
+            new_owner[clip["id"]] = track["id"]
 
     patches: dict[tuple[int, int], str] = {}
+    insertions: dict[int, list[tuple[int, int, str]]] = {}
+    removed_track_ids = set(old_track_by_id) - set(new_track_by_id)
+    added_track_ids = set(new_track_by_id) - set(old_track_by_id)
 
-    def plan_patch(item: dict, old_attrs: dict, new_attrs: dict, stable_id: str):
-        keys = set(old_attrs) | set(new_attrs)
-        changed = [key for key in keys if old_attrs.get(key) != new_attrs.get(key)]
-        needs_id = bool(changed) and "id" not in item["attrs"] and bool(stable_id)
-        if not changed and not needs_id:
-            return
-        token = item["open"]
-        for key in sorted(changed):
-            token = _replace_html_attribute(token, key, new_attrs.get(key))
-        if needs_id:
-            token = _replace_html_attribute(token, "id", stable_id)
-        patches[(item["start"], item["end"])] = token
+    def add_patch(start: int, end: int, replacement_text: str) -> None:
+        key = (start, end)
+        if key in patches and patches[key] != replacement_text:
+            raise FilmError("SOURCE_PATCH_CONFLICT", "多个编辑操作覆盖了同一处 HTML 文本", 422)
+        patches[key] = replacement_text
 
-    for index, (old_track, new_track) in enumerate(zip(old_tracks, new_tracks)):
-        plan_patch(locator.tracks[index], old_track.get("attrs") or {},
-                   new_track.get("attrs") or {}, old_track["id"])
-        source_items = locator.clips_by_track[index]
-        # Source elements align with the parser's original clip order; look up the
-        # updated record by stable ID because a same-track move can reorder the model.
-        for old_clip, item in zip(old_track.get("clips") or [], source_items):
-            new_clip = next(c for c in new_track.get("clips") or [] if c["id"] == old_clip["id"])
-            plan_patch(item, old_clip.get("attrs") or {}, new_clip.get("attrs") or {}, old_clip["id"])
+    # Remove complete tracks first. Children inside a deleted parent must not emit
+    # additional overlapping patches.
+    for track_id in removed_track_ids:
+        item = source_track_item[track_id]
+        start, end = _expanded_line_range(original_text, item["start"], item["end"])
+        add_patch(start, end, "")
+
+    # Existing track headers can be updated without reserializing their contents.
+    for track_id in set(old_track_by_id) & set(new_track_by_id):
+        if track_id in removed_track_ids:
+            continue
+        old_track, new_track = old_track_by_id[track_id], new_track_by_id[track_id]
+        item = source_track_item[track_id]
+        old_attrs, new_attrs = old_track.get("attrs") or {}, new_track.get("attrs") or {}
+        changed = [key for key in (set(old_attrs) | set(new_attrs)) if old_attrs.get(key) != new_attrs.get(key)]
+        needs_id = bool(changed) and "id" not in item["attrs"]
+        if changed or needs_id:
+            token = item["open"]
+            for key in sorted(changed):
+                token = _replace_html_attribute(token, key, new_attrs.get(key))
+            if needs_id:
+                token = _replace_html_attribute(token, "id", track_id)
+            add_patch(item["start"], item["open_end"], token)
+
+    # Existing clip nodes: patch their attributes in-place, or remove nodes that
+    # were deleted/moved. If their parent track is deleted, the parent removal wins.
+    for clip_id, old_clip in old_clip_by_id.items():
+        owner = old_owner[clip_id]
+        if owner in removed_track_ids:
+            continue
+        item = source_clip_item[clip_id]
+        if clip_id not in new_clip_by_id or new_owner[clip_id] != owner:
+            start, end = _expanded_line_range(original_text, item["start"], item["end"])
+            add_patch(start, end, "")
+            continue
+        new_clip = new_clip_by_id[clip_id]
+        if old_clip["tag"] != new_clip["tag"]:
+            return None
+        old_attrs, new_attrs = old_clip.get("attrs") or {}, new_clip.get("attrs") or {}
+        changed = [key for key in (set(old_attrs) | set(new_attrs)) if old_attrs.get(key) != new_attrs.get(key)]
+        needs_id = bool(changed) and "id" not in item["attrs"]
+        if changed or needs_id:
+            token = item["open"]
+            for key in sorted(changed):
+                token = _replace_html_attribute(token, key, new_attrs.get(key))
+            if needs_id:
+                token = _replace_html_attribute(token, "id", clip_id)
+            add_patch(item["start"], item["open_end"], token)
+
+    def add_insertion(point: int, at: float, html_node: str, indent: str) -> None:
+        insertions.setdefault(point, []).append((at, len(insertions.get(point, [])), indent + html_node))
+
+    # Added tracks are emitted as a self-contained section, at their requested
+    # document order, without touching the bytes of existing sections.
+    new_track_positions = {track["id"]: i for i, track in enumerate(new_tracks)}
+    for track_id in added_track_ids:
+        track = new_track_by_id[track_id]
+        index = new_track_positions[track_id]
+        following = next((new_tracks[j]["id"] for j in range(index + 1, len(new_tracks))
+                          if new_tracks[j]["id"] in source_track_item
+                          and new_tracks[j]["id"] not in removed_track_ids), None)
+        if following:
+            anchor = source_track_item[following]["start"]
+        else:
+            anchor = locator.body_close_start
+        point, indent = _line_insertion_point(original_text, anchor)
+        existing_clip_indent = next(
+            (_indent_at(original_text, source_clip_item[c["id"]]["start"])
+             for c in track.get("clips") or []
+             if c["id"] in source_clip_item and old_owner.get(c["id"]) == track_id),
+            indent,
+        )
+        block = _serialize_track_node(track, existing_clip_indent or indent)
+        add_insertion(point, float(index), block, indent)
+
+    # Insert new or cross-track moved clips into an existing destination track.
+    for clip_id, clip in new_clip_by_id.items():
+        owner = new_owner[clip_id]
+        if owner in added_track_ids:
+            continue
+        if clip_id in old_clip_by_id and old_owner[clip_id] == owner:
+            continue
+        if owner not in source_track_item or owner in removed_track_ids:
+            return None
+        new_track = new_track_by_id[owner]
+        existing_candidates = []
+        for candidate in new_track.get("clips") or []:
+            candidate_id = candidate["id"]
+            if candidate_id == clip_id or candidate_id not in source_clip_item:
+                continue
+            if old_owner.get(candidate_id) != owner or candidate_id not in new_clip_by_id:
+                continue
+            item = source_clip_item[candidate_id]
+            if candidate.get("tag") != old_clip_by_id[candidate_id].get("tag"):
+                return None
+            candidate_at = _number(candidate.get("attrs", {}).get("at", 0), "at", 0)
+            if candidate_at >= _number(clip.get("attrs", {}).get("at", 0), "at", 0):
+                existing_candidates.append((candidate_at, item["start"], item))
+        if existing_candidates:
+            _, anchor, anchor_item = min(existing_candidates, key=lambda x: (x[0], x[1]))
+            point, indent = _line_insertion_point(original_text, anchor)
+        else:
+            anchor_item = source_track_item[owner]
+            point, indent = _line_insertion_point(original_text, anchor_item["close_start"])
+        child_indent = next(
+            (_indent_at(original_text, source_clip_item[c["id"]]["start"])
+             for c in new_track.get("clips") or []
+             if c["id"] in source_clip_item and old_owner.get(c["id"]) == owner),
+            indent,
+        )
+        add_insertion(point, _number(clip.get("attrs", {}).get("at", 0), "at", 0),
+                      _serialize_clip_node(clip), child_indent)
+
+    # If a track is entirely new, all of its clips are already part of its block.
+    # Group inserts at identical offsets, preserve temporal order, then splice the
+    # original file right-to-left so earlier spans never shift.
+    for point, entries in insertions.items():
+        ordered = sorted(entries, key=lambda entry: (entry[0], entry[1]))
+        block = "\n".join(entry[2] for entry in ordered) + "\n"
+        if point > 0 and original_text[point - 1] != "\n":
+            block = "\n" + block
+        add_patch(point, point, block)
 
     result = original_text
-    for (start, end), token in sorted(patches.items(), reverse=True):
-        result = result[:start] + token + result[end:]
+    for (start, end), replacement_text in sorted(patches.items(), key=lambda item: (item[0][0], item[0][1]), reverse=True):
+        result = result[:start] + replacement_text + result[end:]
     return result
+
+
 
 
 def edit_project_film(project_id: str, base: str | None, ops: list[dict], *, require_base: bool = False) -> dict:

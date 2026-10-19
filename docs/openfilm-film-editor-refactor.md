@@ -33,8 +33,8 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 ## Executed foundation milestone
 
 - The repository contract distinguishes legacy CompositionIR projects from active film.html projects. A migrated project has one authoritative physical timeline; legacy writes and exports remain blocked.
-- Non-structural FilmDocument edits use a source-span patch path when track and clip membership is unchanged. The writer preserves unrelated original HTML bytes, including comments, whitespace and style blocks, then reparses the complete result before committing.
-- Structural changes still use the established serializer in this milestone. Full source-preserving node insertion/removal/reordering remains a separate implementation requirement; this document does not claim it is solved.
+- FilmDocument edits use a source-span patch path for both attribute changes and structural edits. Existing untouched clip/track nodes retain their raw markup; insertions and cross-track moves add only the necessary nodes, while deletion removes only the selected node or track range. The complete result is reparsed before committing.
+- Ambiguous source spans still return to a guarded fallback path; regression tests cover split and insert while preserving unrelated clip bytes and comments.
 - A regression test covers property editing while proving an untouched clip and neighboring comments remain byte-for-byte present.
 
 ## AI proposal/preview/apply milestone
