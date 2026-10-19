@@ -152,6 +152,21 @@ def test_api_ui_routes_are_wired():
     assert "/static/css/film-studio.css" in index
 
 
+def test_film_timeline_supports_group_selection_drag_and_pointer_anchored_zoom():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    styles = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
+
+    assert "selectedIds:[]" in script
+    assert "selectClipWithModifiers" in script
+    assert "operations.push({op:'move',clip:member.id" in script
+    assert "ids.map(function(id){return {op:'remove',clip:id};})" in script
+    assert "scrollLeft+localX-132" in script
+    assert "scroll.addEventListener('wheel'" in script
+    assert "{passive:false}" in script
+    assert ".fs-track.fs-track-drop-target" in styles
+
+
 def test_film_studio_is_fullscreen_and_ai_dock_shares_inspector_column():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
