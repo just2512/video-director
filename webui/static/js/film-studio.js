@@ -219,6 +219,10 @@
     },1600);
   };
   window.filmStudioClose=function(){
+    if(S.data&&S.data.exists){
+      showStatus('当前项目已迁移到 film.html，旧 Composition 尚未实现双向同步。为避免旧时间线覆盖或导出过期内容，不能在本项目切回旧编辑器；请先在上方项目选择器切换到未迁移项目。','error');
+      return;
+    }
     S.open=false;if(S.poll){clearInterval(S.poll);S.poll=null;}
     $('film-studio-panel').style.display='none';$('film-studio-toggle').textContent='打开多轨工作台';
     if(typeof ED!=='undefined'&&ED.pid)$('editor-body').style.display='';else $('editor-empty').style.display='';
