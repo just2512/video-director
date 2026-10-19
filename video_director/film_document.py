@@ -1638,7 +1638,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     prompt = (
         "你是视频时间线编辑规划器。只输出 JSON：{"
         '"operations":[...],"summary":"..."}。'
-        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'muted'|'style'|'class'|'title',value:...}; "
+        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'muted'|'style'|'class'|'title',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "

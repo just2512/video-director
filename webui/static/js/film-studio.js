@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -421,6 +421,20 @@
       drawVolumeEnvelope(canvas,points);
     });
   }
+  window.filmStudioSetEnvelopeMode=function(enabled){
+    S.envelopeMode=!!enabled;
+    var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="envelope-mode"]');
+    if(panel)panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
+    if(button){
+      button.classList.toggle('fs-envelope-mode-active',S.envelopeMode);
+      button.textContent=S.envelopeMode?'音量曲线：开':'音量曲线：关';
+      button.setAttribute('aria-pressed',String(S.envelopeMode));
+    }
+    showStatus(S.envelopeMode
+      ?'音量曲线模式：点击曲线添加关键帧；拖动关键帧调整；Shift 或右键点击内部点删除。切回“音量曲线：关”即可正常移动片段。'
+      :'普通剪辑模式已恢复；片段可直接拖动、修剪和切分。');
+  };
+  window.filmStudioToggleEnvelopeMode=function(){window.filmStudioSetEnvelopeMode(!S.envelopeMode);};
   function renderVolumeEnvelopes(){
     var timeline=$('fs-timeline');if(!timeline)return;
     timeline.querySelectorAll('[data-envelope-clip]').forEach(function(canvas){
@@ -993,6 +1007,7 @@
     split: () => window.filmStudioSplit(),
     remove: () => window.filmStudioRemove(),
     'ripple-delete': () => window.filmStudioRippleDelete(),
+    'envelope-mode': () => window.filmStudioToggleEnvelopeMode(),
     'add-track': () => window.filmStudioAddTrack(),
     'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),
     'zoom-out': () => window.filmStudioZoom(-1),

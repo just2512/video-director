@@ -190,7 +190,10 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-clip[data-kind="audio"] .fs-clip-title,.fs-clip[data-kind="audio"] .fs-clip-subtitle{z-index:2}
 
 .fs-clip-waveform{z-index:1}
-.fs-clip-envelope{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:auto;touch-action:none;cursor:crosshair}
+.fs-clip-envelope{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;touch-action:none;cursor:crosshair}
+.fs-envelope-mode .fs-clip-envelope{pointer-events:auto}
+.fs-btn.fs-envelope-mode-active{background:#695429;border-color:#e8c66c;color:#fff4cf}
+.fs-clip-envelope:active{cursor:grabbing}
 .fs-clip-title,.fs-clip-subtitle{z-index:6}
 .fs-trim-handle{z-index:7}
 .fs-clip-envelope:focus-visible{outline:1px solid #ffe08a;outline-offset:-1px}

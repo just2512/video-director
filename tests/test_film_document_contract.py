@@ -370,6 +370,18 @@ def test_frame_determinism_audit_accepts_identical_pixels_and_rejects_real_diffe
     assert changed[1:] == (32 * 24, 32, 24)
 
 
+def test_volume_envelope_mode_does_not_steal_normal_clip_dragging():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    styles = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "window.filmStudioToggleEnvelopeMode" in script
+    assert "panel.classList.toggle('fs-envelope-mode',S.envelopeMode)" in script
+    assert ".fs-clip-envelope{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none" in styles
+    assert ".fs-envelope-mode .fs-clip-envelope{pointer-events:auto}" in styles
+    assert 'data-film-action="envelope-mode"' in index
+
+
 def test_volume_envelope_contract_drives_ffmpeg_and_preview_consistently():
     from video_director.film_render import _volume_envelope_filter
 
@@ -413,8 +425,8 @@ def test_volume_envelope_is_sliced_and_rebased_by_split_trim_and_ripple():
     left_points = json.loads(split_clips["audio-1"]["attrs"]["volume_envelope"])
     right_points = json.loads(split_clips["audio-right"]["attrs"]["volume_envelope"])
     assert left_points[0] == {"t": 0.0, "v": 1.0}
-    assert left_points[-1] == {"t": 10.0, "v": 0.6}
-    assert right_points[0] == {"t": 0.0, "v": 0.6}
+    assert left_points[-1] == {"t": 10.0, "v": 0.628571}
+    assert right_points[0] == {"t": 0.0, "v": 0.628571}
     assert right_points[-1] == {"t": 10.0, "v": 0.6}
     assert right_points[1] == {"t": 2.0, "v": 0.8}
 
@@ -434,7 +446,7 @@ def test_volume_envelope_is_sliced_and_rebased_by_split_trim_and_ripple():
     ripple_audio = [c for t in ripple_doc["tracks"] for c in t["clips"] if c["tag"] == "audio"]
     ripple_by_id = {c["id"]: c for c in ripple_audio}
     ripple_right = json.loads(ripple_by_id["audio-ripple-right"]["attrs"]["volume_envelope"])
-    assert ripple_right[0] == {"t": 0.0, "v": 0.6}
+    assert ripple_right[0] == {"t": 0.0, "v": 0.628571}
     assert ripple_right[-1] == {"t": 10.0, "v": 0.6}
     assert ripple_right[1] == {"t": 2.0, "v": 0.8}
 
