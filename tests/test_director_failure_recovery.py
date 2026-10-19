@@ -185,3 +185,47 @@ def test_material_fallback_marks_the_candidate_that_actually_generated_the_asset
     actual = _generation_candidate_for_scene(candidates, "direct-1")
     assert actual["id"] == "concept-1"
     assert actual["source_preference"] == "generated"
+
+
+
+def test_subtitle_off_is_a_real_skip_and_passes_composition_verification(isolated_storage):
+    state = {
+        "project_id": "subtitle-off-contract",
+        "subtitle_file": "stale.ass",
+        "subtitle_entries": [{"start": 0, "end": 1, "text": "should be cleared"}],
+    }
+    result = agent._tool_subtitle({"subtitle_mode": "off"}, state)
+    assert result["ok"] is True
+    assert result["status"] == "SKIPPED"
+    assert state["subtitle_file"] is None
+    assert state["subtitle_entries"] == []
+    verify = agent._tool_verify({"subtitle_mode": "off"}, {
+        **state, "composition_path": "", "manifest_path": ""
+    })
+    subtitle_check = next(c for c in verify["verify"]["checks"] if c["id"] == "subtitle_file")
+    assert subtitle_check["ok"] is True
+
+
+def test_bilingual_subtitle_builder_emits_both_languages():
+    from video_director import subtitle
+
+    ass = subtitle.build_ass_bilingual([{
+        "start": 0.0, "end": 1.5, "text": "你好。",
+        "translation": "Hello.",
+    }])
+    assert "你好。\\\\NHello." in ass
+
+
+def test_numeric_zero_is_not_replaced_by_style_defaults():
+    assert agent._spec_float({"bgm_volume": 0}, "bgm_volume", 0.16) == 0.0
+    assert agent._spec_float({"narration_volume": 0}, "narration_volume", 1.0) == 0.0
+    assert agent._spec_float({}, "bgm_volume", 0.16) == 0.16
+
+
+def test_hard_cut_does_not_create_transition_proposals():
+    from video_director.director_agent import _plan_transition_proposals
+
+    assert _plan_transition_proposals(["S1", "S2", "S3"], "cut", 2) == []
+    proposals = _plan_transition_proposals(["S1", "S2", "S3"], "fade", 1)
+    assert len(proposals) == 1
+    assert proposals[0]["type"] == "fade"
