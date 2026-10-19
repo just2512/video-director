@@ -149,7 +149,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page.locator('[data-film-action="split"]').click()
                 page.wait_for_function(
                     "(id) => [...document.querySelectorAll('#fs-timeline .fs-clip')].some(el => el.dataset.clip.startsWith(id + '-split-'))",
-                    right_id,
+                    arg=right_id,
                     timeout=10000,
                 )
                 slide_right_id = page.evaluate("""(id) => {

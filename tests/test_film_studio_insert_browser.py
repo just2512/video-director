@@ -42,7 +42,7 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                       "at": str(at), "volume": "1"},
         }
 
-    monkeypatch.setattr(web_server.fd, "library_asset_clip", fake_library_asset_clip)
+    monkeypatch.setattr(fd, "library_asset_clip", fake_library_asset_clip)
     project_id = "film-studio-insert-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
