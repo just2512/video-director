@@ -572,6 +572,65 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
     }
 
 
+def _roll_trim(doc: dict, left_id: str, right_id: str, delta: Any) -> dict:
+    """Move an existing split cut without changing the two clips' combined duration."""
+    left_track, left = _find_clip(doc, left_id)
+    right_track, right = _find_clip(doc, right_id)
+    if left_track["id"] != right_track["id"]:
+        raise FilmError("ROLL_TRACK_MISMATCH", "滚动修剪要求两个片段在同一轨道", 422)
+    _ensure_unlocked(left_track)
+    if left_id == right_id or left["tag"] != right["tag"]:
+        raise FilmError("ROLL_INCOMPATIBLE_CLIPS", "滚动修剪要求两个不同且类型一致的片段", 422)
+    left_duration, right_duration = clip_duration(left), clip_duration(right)
+    left_end = clip_end(left)
+    right_at = _number(right.get("attrs", {}).get("at", 0), "at", 0)
+    if left_duration is None or right_duration is None or left_end is None:
+        raise FilmError("SOURCE_RANGE_REQUIRED", "滚动修剪要求两个片段都有明确源区间", 422)
+    if abs(left_end - right_at) > 0.001:
+        raise FilmError("ROLL_NOT_ADJACENT", "滚动修剪要求两个片段在时间线上相邻", 422)
+
+    left_attrs, right_attrs = left.get("attrs") or {}, right.get("attrs") or {}
+    if left_attrs.get("fade") or right_attrs.get("fade"):
+        raise FilmError("ROLL_FADE_BOUNDARY", "含淡入淡出属性的切口暂不支持滚动修剪；请先移除淡化", 422)
+    left_src, right_src = str(left_attrs.get("src") or ""), str(right_attrs.get("src") or "")
+    left_in, left_out = _source_range(left_src)
+    right_in, right_out = _source_range(right_src)
+    if left_out is None or right_out is None:
+        raise FilmError("SOURCE_RANGE_REQUIRED", "滚动修剪要求左右片段具有明确源区间", 422)
+    left_base = re.sub(r"#t=[^#]*$", "", left_src)
+    right_base = re.sub(r"#t=[^#]*$", "", right_src)
+    if left_base != right_base or abs(left_out - right_in) > 0.001:
+        raise FilmError("ROLL_SOURCE_DISCONTINUITY", "为避免素材出界，滚动修剪当前只支持同源连续切口", 422)
+
+    amount = _number(delta, "roll delta")
+    if amount <= -left_duration + 0.001 or amount >= right_duration - 0.001:
+        raise FilmError("ROLL_EMPTY_CLIP", "滚动修剪会令左段或右段时长不足 0.001 秒", 422)
+    left_speed = _number(left_attrs.get("speed", 1), "left speed", 0.25, 4) if left["tag"] in {"video", "audio"} else 1.0
+    right_speed = _number(right_attrs.get("speed", 1), "right speed", 0.25, 4) if right["tag"] in {"video", "audio"} else 1.0
+    new_left_out = left_in + (left_duration + amount) * left_speed
+    new_right_in = right_in + amount * right_speed
+    if new_left_out <= left_in + 0.001 or new_right_in < 0 or new_right_in >= right_out - 0.001:
+        raise FilmError("ROLL_SOURCE_RANGE_INVALID", "滚动修剪后的源区间无效", 422)
+    left_attrs["src"] = _with_source_range(left_src, left_in, new_left_out)
+    right_attrs["src"] = _with_source_range(right_src, new_right_in, right_out)
+    right_attrs["at"] = _fmt(right_at + amount)
+
+    if left_attrs.get("volume_envelope"):
+        _slice_volume_envelope(left_attrs, 0.0, left_duration + amount)
+    if right_attrs.get("volume_envelope"):
+        if amount > 0:
+            _slice_volume_envelope(right_attrs, amount, right_duration)
+        elif amount < 0:
+            extension = -amount
+            right_copy = {"volume_envelope": right_attrs["volume_envelope"]}
+            _slice_volume_envelope(right_copy, 0.0, right_duration)
+            points = _parse_volume_envelope(right_copy["volume_envelope"])
+            extended = [{"t": 0.0, "v": points[0]["v"]}]
+            extended.extend({"t": point["t"] + extension, "v": point["v"]} for point in points)
+            right_attrs["volume_envelope"] = _normalize_volume_envelope(extended)
+    return {"clip": left_id, "other_clip": right_id, "delta": _fmt(amount)}
+
+
 def _join_through_edit(doc: dict, left_id: str, right_id: str) -> dict:
     """Heal a split cut only when source, timing, and clip-level semantics are compatible."""
     left_track, left = _find_clip(doc, left_id)
@@ -728,6 +787,9 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             right_id = str(op.get("other_clip") or "")
             result = _join_through_edit(out, left_id, right_id)
             normalized.append({"op": "join", "clip": result["clip"], "other_clip": result["joined_clip"]})
+        elif kind == "roll":
+            result = _roll_trim(out, str(op.get("clip") or ""), str(op.get("other_clip") or ""), op.get("delta"))
+            normalized.append({"op": "roll", "clip": result["clip"], "other_clip": result["other_clip"], "delta": result["delta"]})
         elif kind == "ripple_delete":
             if op.get("scope", "all") != "all":
                 raise FilmError("INVALID_RIPPLE_SCOPE", "当前只支持明确的全轨道波纹删除 scope='all'", 422)
@@ -1773,7 +1835,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'fade'|'muted'|'style'|'class'|'title',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 slip 操作: {op:'slip',clip:准确视频/音频片段ID,delta_source:素材源时间偏移秒}。滑移只改变 #t 入出点，不改变时间线位置和长度；仅在用户明确要求保持时间线位置但更换素材源区间时使用。 "
-        "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; " "可用 join 操作: {op:'join',clip:左片段ID,other_clip:右片段ID}。只在用户明确要求愈合切口/合并同源切开片段时使用；需要同轨相邻、源区间连续、属性一致。"
+        "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; " "可用 join 操作: {op:'join',clip:左片段ID,other_clip:右片段ID}。只在用户明确要求愈合切口/合并同源切开片段时使用；需要同轨相邻、源区间连续、属性一致。" "可用 roll 操作: {op:'roll',clip:左片段ID,other_clip:右片段ID,delta:秒}。只在用户明确要求滚动修剪切口时使用；仅允许同源连续切口；正数延长左段并缩短右段，负数相反，总时长不变。"
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
         "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
         "可用 ripple_delete 操作: {op:'ripple_delete',clip:准确片段ID,scope:'all'}。仅当用户明确要求波纹删除或删除并收拢时间线时使用；会影响全部轨道，并切分跨越删除区间的片段。"
@@ -1808,10 +1870,14 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip", "join"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip", "join", "roll"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
         if op["op"] == "join" and (op.get("clip") not in valid_ids or op.get("other_clip") not in valid_ids):
             raise FilmError("LLM_INVALID_PLAN", "AI 愈合切口操作必须指定两个已存在的片段 ID", 422)
+        if op["op"] == "roll":
+            if (op.get("clip") not in valid_ids or op.get("other_clip") not in valid_ids
+                    or isinstance(op.get("delta"), bool) or not isinstance(op.get("delta"), (int, float))):
+                raise FilmError("LLM_INVALID_PLAN", "AI 滚动修剪操作必须指定左右片段 ID 和数字 delta", 422)
         if op["op"] == "slip":
             if op.get("clip") not in valid_ids or not isinstance(op.get("delta_source"), (int, float)):
                 raise FilmError("LLM_INVALID_PLAN", "AI 滑移操作必须包含有效片段 ID 和数字 delta_source", 422)

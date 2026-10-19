@@ -65,6 +65,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Studio Inspector edits both durations as one atomic field operation. Browser preview applies the same clip-relative multiplier to visual opacity and audio gain; MP4 export uses FFmpeg `afade` after source trim and speed processing.
 - This remains a two-sided linear fade rather than a general opacity keyframe/Bezier transition system.
 
+## Roll trim
+
+- Ctrl-drag a trim handle at an adjacent same-source cut to slide the edit point without changing combined duration.
+- The backend rejects nonadjacent, different-source, locked-track, faded, or invalid-duration operations. Source ranges are changed together, clip-relative volume curves are cropped/extended, and the edit is one undoable operation.
+- Only same-source continuous cuts are supported in this first pass; rolling between distinct source assets requires media-probe boundary checks.
+
 ## Through-edit / join-cut milestone
 
 - A new `join` operation heals a split only if the clips are adjacent on the same unlocked track, use the same source with contiguous source ranges, and agree on speed and all other clip-level attributes.

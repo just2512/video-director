@@ -213,11 +213,12 @@
       el.addEventListener('pointerdown',function(e){
         if(e.button!==0||e.target.closest('button'))return;
         var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
-        var canDrag=selectClipWithModifiers(clip.id,e);
+        var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),canDrag;
+        if(rollGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
+        else{canDrag=selectClipWithModifiers(clip.id,e);}
         if(!canDrag){e.preventDefault();return;}
         S.playhead=clip.at;setPlayheadVisual();previewCurrent();
-        var trim=e.target.closest('[data-trim]');
-        var mode=trim?(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end')
+        var mode=trim?(rollGesture?'roll':(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'))
           :((e.altKey&&(clip.tag==='video'||clip.tag==='audio'))?'slip':'move');
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
         var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
@@ -229,12 +230,29 @@
             trackId:selected.track_id,trackIndex:trackOrder.indexOf(selected.track_id),element:element}:null;
         }).filter(Boolean);
         if(!members.length)return;
-        if(mode!=='move')members=members.filter(function(m){return m.id===clip.id;});
-        S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,originalAt:clip.at,
-          originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
-          originalTrackIndex:trackOrder.indexOf(clip.track_id),trackOrder:trackOrder,
-          startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,members:members,
-          targetTrackId:clip.track_id,targetRow:null};
+        if(mode==='roll'){
+          var trackData=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
+          var ordered=(trackData&&trackData.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
+          var index=ordered.findIndex(function(item){return item.id===clip.id;}),leftClip=null,rightClip=null;
+          var edge=trim.getAttribute('data-trim');
+          if(edge==='end'&&index>=0&&index+1<ordered.length&&clip.end!=null&&Math.abs(clip.end-ordered[index+1].at)<=0.001){leftClip=clip;rightClip=ordered[index+1];}
+          else if(edge==='start'&&index>0&&ordered[index-1].end!=null&&Math.abs(ordered[index-1].end-clip.at)<=0.001){leftClip=ordered[index-1];rightClip=clip;}
+          else{showStatus('Ctrl 拖动切口只支持同轨相邻片段共用的切口。','error');e.preventDefault();return;}
+          var leftElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
+          var rightElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
+          if(!leftElement||!rightElement){showStatus('无法定位切口两侧片段。','error');return;}
+          S.drag={id:clip.id,mode:'roll',startX:e.clientX,startY:e.clientY,leftClipId:leftClip.id,rightClipId:rightClip.id,
+            rightAt:rightClip.at,leftDuration:leftClip.duration,rightDuration:rightClip.duration,pxPerSec:S.pxPerSec,
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,rollElements:[leftElement,rightElement],
+            members:members,targetRow:null};
+        }else{
+          if(mode!=='move')members=members.filter(function(m){return m.id===clip.id;});
+          S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,originalAt:clip.at,
+            originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
+            originalTrackIndex:trackOrder.indexOf(clip.track_id),trackOrder:trackOrder,
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,members:members,
+            targetTrackId:clip.track_id,targetRow:null};
+        }
         members.forEach(function(member){member.element.classList.add('fs-dragging');});
         if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
         e.preventDefault();
@@ -570,7 +588,15 @@
       var nextTrack=row.getAttribute('data-track');
       if(nextTrack!==d.targetTrackId){clearDragTrackTarget(d);d.targetTrackId=nextTrack;d.targetRow=row;row.classList.add('fs-track-drop-target');}
     }
-    if(d.mode==='slip'){
+    if(d.mode==='roll'){
+      var deltaRoll=dx/S.pxPerSec;
+      deltaRoll=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,deltaRoll));
+      d.rollElements[0].style.width=Math.max(3,(d.leftDuration+deltaRoll)*S.pxPerSec)+'px';
+      d.rollElements[1].style.left=Math.max(0,(d.rightAt+deltaRoll)*S.pxPerSec)+'px';
+      d.rollElements[1].style.width=Math.max(3,(d.rightDuration-deltaRoll)*S.pxPerSec)+'px';
+      d.element.setAttribute('data-roll-delta','切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s');
+      d.element.classList.add('fs-rolling');
+    }else if(d.mode==='slip'){
       var slipClip=findClip(d.id),slipSpeed=slipClip?num(slipClip.attrs.speed,1):1;
       var sourceDelta=dx/S.pxPerSec*slipSpeed;
       d.element.setAttribute('data-slip-delta','源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s');
@@ -607,6 +633,13 @@
     if(!d.active){syncClipSelectionVisual();return;}
     var deltaPx=e.clientX-d.startX+($('fs-timeline-scroll').scrollLeft-d.startScrollLeft);
     d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
+    d.element.removeAttribute('data-roll-delta');d.element.classList.remove('fs-rolling');
+    if(d.mode==='roll'){
+      var rollDelta=deltaPx/S.pxPerSec;
+      rollDelta=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,rollDelta));
+      if(Math.abs(rollDelta)<0.001){renderTimeline();return;}
+      await filmStudioCommit([{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:Number(rollDelta.toFixed(3))}]);return;
+    }
     if(d.mode==='slip'){
       var slipClip=findClip(d.id);
       if(!slipClip||slipClip.duration==null){renderTimeline();return;}
@@ -648,8 +681,8 @@
     if(S.drag){
       var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
       (drag.members||[]).forEach(function(member){
-        member.element.classList.remove('fs-dragging','fs-slipping');
-        member.element.removeAttribute('data-slip-delta');
+        member.element.classList.remove('fs-dragging','fs-slipping','fs-rolling');
+        member.element.removeAttribute('data-slip-delta');member.element.removeAttribute('data-roll-delta');
       });
     }
     if(S.data&&S.data.exists)renderTimeline();

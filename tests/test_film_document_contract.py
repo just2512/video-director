@@ -553,6 +553,52 @@ def test_join_through_edit_ui_and_ai_contract_are_wired():
     assert "愈合切口" in module
 
 
+def test_roll_trim_moves_cut_and_preserves_combined_timeline_duration():
+    doc = fd.parse_film(SAMPLE)
+    split, _ = fd.apply_ops(doc, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"}
+    ])
+    rolled, operations = fd.apply_ops(split, [
+        {"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 0.5}
+    ])
+    clips = {clip["id"]: clip for track in rolled["tracks"] for clip in track["clips"]}
+    left, right = clips["clip-a"], clips["clip-a-right"]
+    assert left["attrs"]["src"].endswith("#t=2,7")
+    assert right["attrs"]["src"].endswith("#t=7,12")
+    assert float(right["attrs"]["at"]) == pytest.approx(2.5)
+    assert fd.clip_duration(left) == pytest.approx(2.5)
+    assert fd.clip_duration(right) == pytest.approx(2.5)
+    assert fd.clip_end(left) == pytest.approx(float(right["attrs"]["at"]))
+    assert fd.clip_end(right) == pytest.approx(5)
+    assert operations == [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": "0.5"}]
+
+
+def test_roll_trim_rejects_nonadjacent_different_source_locked_track_and_empty_side():
+    doc = fd.parse_film(SAMPLE)
+    split, _ = fd.apply_ops(doc, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"}
+    ])
+    with pytest.raises(fd.FilmError, match="时间线上相邻"):
+        fd.apply_ops(split, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-b", "delta": 0.2}])
+    with pytest.raises(fd.FilmError, match="时长不足"):
+        fd.apply_ops(split, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 2}])
+    locked = fd.copy.deepcopy(split)
+    locked["tracks"][0]["attrs"]["locked"] = ""
+    with pytest.raises(fd.FilmError, match="已锁定"):
+        fd.apply_ops(locked, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 0.1}])
+
+
+def test_roll_trim_ctrl_drag_and_operation_contract():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert "rollGesture=!!(trim&&e.ctrlKey)" in script
+    assert "data-roll-delta" in script
+    assert 'elif kind == "roll"' in module
+    assert "Ctrl 拖动切口滚动修剪" in index
+
+
 def test_slip_changes_source_range_without_changing_timeline_position_or_duration():
     doc = fd.parse_film(SAMPLE)
     original = next(c for t in doc["tracks"] for c in t["clips"] if c["id"] == "clip-a")
