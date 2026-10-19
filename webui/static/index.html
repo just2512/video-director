@@ -178,7 +178,7 @@
       </div>
       <section class="fs-pane fs-timeline-pane">
         <div class="fs-timeline-toolbar">
-          <div><strong>多轨时间线</strong><span id="fs-timeline-meta" title="Ctrl/⌘ 点击多选，Shift 范围选择；Alt 拖动滑移源区间；Alt+Shift 拖动滑移式修剪；Ctrl 拖动切口滚动修剪；Ctrl/⌘+滚轮缩放">— · 支持多选</span></div>
+          <div><strong>多轨时间线</strong><span id="fs-timeline-meta" title="Ctrl/⌘ 点击多选，Shift 范围选择；Alt 拖动滑移源区间；滑移修剪模式或 Alt+Shift 拖动滑移式修剪；Ctrl 拖动切口滚动修剪；Ctrl/⌘+滚轮缩放">— · 支持多选</span></div>
           <div class="fs-toolbar">
             <button class="fs-btn" type="button" data-film-action="insert-mode" aria-pressed="false" title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：关</button>
             <button class="fs-btn" type="button" data-film-action="split">在播放头切分</button>
@@ -186,6 +186,7 @@
             <button class="fs-btn" type="button" data-film-action="remove">删除片段</button>
             <button class="fs-btn" type="button" data-film-action="ripple-delete" title="删除选中片段对应的时间段，并收拢全部轨道">波纹删除</button>
             <button class="fs-btn" type="button" data-film-action="envelope-mode" aria-pressed="false" title="切换音量关键帧编辑模式；普通模式下可正常拖动片段">音量曲线：关</button>
+            <button class="fs-btn" type="button" data-film-action="slide-mode" aria-pressed="false" title="切换滑移修剪模式；拖动中间视频/音频片段主体，外侧时间线边界保持不变">滑移修剪：关</button>
             <button class="fs-btn" type="button" data-film-action="add-track">＋轨道</button>
             <button class="fs-btn" type="button" data-film-action="remove-empty-track">删空轨</button>
             <button class="fs-btn" type="button" data-film-action="zoom-out">−</button>

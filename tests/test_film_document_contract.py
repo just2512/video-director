@@ -738,6 +738,10 @@ def test_slide_trim_rejects_discontinuous_sources_fades_locks_and_bounds():
 
 
 def test_slide_trim_alt_shift_drag_and_ai_contract_are_wired():
+    assert "window.filmStudioToggleSlideMode" in script
+    assert "slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))" in script
+    assert 'data-film-action="slide-mode"' in index
+    assert ".fs-btn.fs-slide-mode-active" in styles
     root = Path(__file__).resolve().parents[1]
     script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")

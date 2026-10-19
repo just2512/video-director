@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -224,7 +224,7 @@
         if(e.button!==0||e.target.closest('button'))return;
         var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
         var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
-            slideGesture=!!(!trim&&e.altKey&&e.shiftKey&&(clip.tag==='video'||clip.tag==='audio')),canDrag;
+            slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))&&(clip.tag==='video'||clip.tag==='audio')),canDrag;
         if(rollGesture||slideGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
         else{canDrag=selectClipWithModifiers(clip.id,e);}
         if(!canDrag){e.preventDefault();return;}
@@ -476,18 +476,52 @@
   }
   window.filmStudioSetEnvelopeMode=function(enabled){
     S.envelopeMode=!!enabled;
-    var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="envelope-mode"]');
-    if(panel)panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
+    if(S.envelopeMode)S.slideMode=false;
+    var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="envelope-mode"]'),
+        slideButton=document.querySelector('[data-film-action="slide-mode"]');
+    if(panel){
+      panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
+      panel.classList.toggle('fs-slide-mode',S.slideMode);
+    }
     if(button){
       button.classList.toggle('fs-envelope-mode-active',S.envelopeMode);
       button.textContent=S.envelopeMode?'音量曲线：开':'音量曲线：关';
       button.setAttribute('aria-pressed',String(S.envelopeMode));
+    }
+    if(slideButton){
+      slideButton.classList.toggle('fs-slide-mode-active',S.slideMode);
+      slideButton.textContent=S.slideMode?'滑移修剪：开':'滑移修剪：关';
+      slideButton.setAttribute('aria-pressed',String(S.slideMode));
     }
     showStatus(S.envelopeMode
       ?'音量曲线模式：点击曲线添加关键帧；拖动关键帧调整；Shift 或右键点击内部点删除。切回“音量曲线：关”即可正常移动片段。'
       :'普通剪辑模式已恢复；片段可直接拖动、修剪和切分。');
   };
   window.filmStudioToggleEnvelopeMode=function(){window.filmStudioSetEnvelopeMode(!S.envelopeMode);};
+  window.filmStudioSetSlideMode=function(enabled){
+    S.slideMode=!!enabled;
+    if(S.slideMode)S.envelopeMode=false;
+    var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="slide-mode"]'),
+        envelopeButton=document.querySelector('[data-film-action="envelope-mode"]');
+    if(panel){
+      panel.classList.toggle('fs-slide-mode',S.slideMode);
+      panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
+    }
+    if(button){
+      button.classList.toggle('fs-slide-mode-active',S.slideMode);
+      button.textContent=S.slideMode?'滑移修剪：开':'滑移修剪：关';
+      button.setAttribute('aria-pressed',String(S.slideMode));
+    }
+    if(envelopeButton){
+      envelopeButton.classList.toggle('fs-envelope-mode-active',S.envelopeMode);
+      envelopeButton.textContent=S.envelopeMode?'音量曲线：开':'音量曲线：关';
+      envelopeButton.setAttribute('aria-pressed',String(S.envelopeMode));
+    }
+    showStatus(S.slideMode
+      ?'滑移修剪模式已开启：拖动视频/音频片段主体，片段长度不变并联动左右相邻片段。点击按钮关闭；Alt+Shift 拖动也可直接使用。'
+      :'普通剪辑模式已恢复；片段可直接拖动、修剪和切分。');
+  };
+  window.filmStudioToggleSlideMode=function(){window.filmStudioSetSlideMode(!S.slideMode);};
   function renderVolumeEnvelopes(){
     var timeline=$('fs-timeline');if(!timeline)return;
     timeline.querySelectorAll('[data-envelope-clip]').forEach(function(canvas){
@@ -1163,6 +1197,7 @@
     remove: () => window.filmStudioRemove(),
     'ripple-delete': () => window.filmStudioRippleDelete(),
     'envelope-mode': () => window.filmStudioToggleEnvelopeMode(),
+    'slide-mode': () => window.filmStudioToggleSlideMode(),
     'insert-mode': () => window.filmStudioToggleInsertMode(),
     'add-track': () => window.filmStudioAddTrack(),
     'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),

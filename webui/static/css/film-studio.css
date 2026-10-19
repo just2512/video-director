@@ -195,6 +195,9 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-envelope-mode .fs-clip-title,.fs-envelope-mode .fs-clip-subtitle{pointer-events:none}
 
 .fs-btn.fs-envelope-mode-active{background:#695429;border-color:#e8c66c;color:#fff4cf}
+.fs-btn.fs-slide-mode-active{background:#24445a;border-color:#8ac7ff;color:#eaf6ff}
+.fs-slide-mode .fs-clip[data-kind="video"],.fs-slide-mode .fs-clip[data-kind="audio"]{cursor:ew-resize}
+
 .fs-clip-envelope:active{cursor:grabbing}
 .fs-clip-title,.fs-clip-subtitle{z-index:6}
 .fs-trim-handle{z-index:7}

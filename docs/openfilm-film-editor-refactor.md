@@ -87,7 +87,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 ## Slide trim
 
-- Alt+Shift-drag on a middle video/audio clip moves it on the timeline while adjusting the immediate left and right neighbours; the left source out-point changes and the right source in-point changes, but the outside timeline bounds remain fixed.
+- The dedicated slide-mode toggle (or the Alt+Shift-drag shortcut) moves a middle video/audio clip on the timeline while adjusting the immediate left and right neighbours; the left source out-point changes and the right source in-point changes, but the outside timeline bounds remain fixed.
 - The first pass rejects gaps, non-identical sources, discontinuous source ranges, mixed media types, different playback speeds, locked tracks and clips with fades. This is intentionally narrower than a full NLE slide tool because media-handle availability is not yet probed for arbitrary sources.
 - The gesture previews all three clips together and commits one undoable `slide` operation on pointer release. AI planning may request the same validated operation.
 
@@ -120,7 +120,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 ## Current boundaries
 
-- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, Alt-drag source slip, Ctrl-drag same-source roll trim, Alt+Shift-drag slide trim, split/join-cut, delete/ripple-delete, clip fades, clip-relative volume envelopes, speed presets, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/slip/roll/slide/join) and revision polling. Dock separators persist panel widths.
+- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, Alt-drag source slip, Ctrl-drag same-source roll trim, Alt+Shift-drag slide trim, split/join-cut, delete/ripple-delete, clip fades, clip-relative volume envelopes, an explicit slide-trim mode toggle, speed presets, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/slip/roll/slide/join) and revision polling. Dock separators persist panel widths.
 - The MP4 adapter samples the same browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages acknowledge their requested time; arbitrary iframe pages are rejected until they implement the same contract.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.
