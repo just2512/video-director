@@ -140,6 +140,8 @@ def composition_from_film(document: dict) -> dict:
     lane_map={str(x.get("id")):x for x in lanes if isinstance(x,dict) and x.get("id")}
     lane_state={}; lane_name={}; overlays=[]; audio=[]; overlay_ids=set(); overlay_indexes=set(); audio_ids=set()
     max_end=0.0; subtitle_seen=False
+    subtitle_result=copy.deepcopy(meta.get("subtitle_track"))
+    subtitle_style_result=copy.deepcopy(meta.get("subtitle_style"))
 
     def asset_for(a,cid,allowed):
         aid=str(a.get("data-asset-id") or "")
@@ -257,7 +259,7 @@ def composition_from_film(document: dict) -> dict:
             if len(clips)>1: _fail("COMPOSITION_SUBTITLE_BINDING_CONFLICT","字幕轨道只能有一个 iframe")
             if not clips: continue
             clip=clips[0]; a=clip.get("attrs") or {}; cid=str(clip.get("id") or "?")
-            _attrs_allowed(a,{"id","src","at","style","data-vd-subtitle-meta","data-vd-subtitle-style"},cid)
+            _attrs_allowed(a,{"id","src","at","style","data-vd-subtitle-meta","data-vd-subtitle-style","data-vd-subtitle-cues"},cid)
             src=str(a.get("src") or ""); path=unquote(src.split("#",1)[0]); ran=fd._source_range(src)
             if clip.get("tag")!="iframe" or path!="scenes/subtitles.html" or ran[0]!=0 or ran[1] is None:
                 _fail("COMPOSITION_SYNC_UNSUPPORTED","字幕 iframe 的类型、路径或源区间已改变")
@@ -267,7 +269,21 @@ def composition_from_film(document: dict) -> dict:
             sub=meta.get("subtitle_track")
             if not sub: _fail("COMPOSITION_METADATA_MISSING","字幕 iframe 存在但 subtitle_track 快照缺失")
             if _obj(a,"data-vd-subtitle-meta")!={k:v for k,v in sub.items() if k!="cues"}: _fail("COMPOSITION_METADATA_CONFLICT","字幕 track 元数据发生变化")
-            if _obj(a,"data-vd-subtitle-style")!=(meta.get("subtitle_style") or {}): _fail("COMPOSITION_METADATA_CONFLICT","字幕样式元数据发生变化")
+            if "data-vd-subtitle-cues" not in a:
+                _fail("COMPOSITION_SUBTITLE_CUES_UNBOUND","字幕 cue 没有绑定到可编辑的 film.html 字段；拒绝从旧快照猜测当前 cue")
+            try:
+                raw_cues=json.loads(a.get("data-vd-subtitle-cues") or "null")
+            except json.JSONDecodeError:
+                _fail("COMPOSITION_SUBTITLE_CUES_INVALID","字幕 cue 绑定不是有效 JSON")
+            current_cues=fd._validate_subtitle_cues(raw_cues,a)
+            subtitle_model={**{k:v for k,v in sub.items() if k!="cues"},"cues":current_cues}
+            try:
+                from video_director.models import SubtitleTrack, SubtitleStyle
+                subtitle_result=json.loads(SubtitleTrack.model_validate(subtitle_model).model_dump_json())
+                style_raw=_obj(a,"data-vd-subtitle-style")
+                subtitle_style_result=json.loads(SubtitleStyle.model_validate(fd._validate_subtitle_style(style_raw)).model_dump_json())
+            except Exception as exc:
+                _fail("COMPOSITION_SUBTITLE_BINDING_INVALID",f"字幕 cue/style 绑定未通过模型校验：{exc}")
             subtitle_seen=True
             if fd.clip_end(clip) is not None: max_end=max(max_end,fd.clip_end(clip))
 
@@ -326,8 +342,8 @@ def composition_from_film(document: dict) -> dict:
     result={"version":meta.get("version",1),"project":project,"style_id":meta.get("style_id"),
         "scenes":[x[1] for x in sorted(scene_list,key=lambda x:x[0])],"audio":audio,"audio_tracks":lanes,
         "watermarks":copy.deepcopy(meta.get("watermarks") or []),"visual_tracks":copy.deepcopy(meta.get("visual_tracks") or []),
-        "visual_overlays":[value for _index,value in sorted(overlays,key=lambda item:item[0])],"subtitle_style":copy.deepcopy(meta.get("subtitle_style")),
-        "subtitle_track":copy.deepcopy(meta.get("subtitle_track")) if subtitle_seen else None,
+        "visual_overlays":[value for _index,value in sorted(overlays,key=lambda item:item[0])],"subtitle_style":copy.deepcopy(subtitle_style_result),
+        "subtitle_track":copy.deepcopy(subtitle_result) if subtitle_seen else None,
         "origin_template_id":meta.get("origin_template_id"),"origin_template_version":meta.get("origin_template_version"),
         "active_variant_id":meta.get("active_variant_id"),"variants":copy.deepcopy(meta.get("variants") or []),
         "references":copy.deepcopy(meta.get("references")),"style_contract":copy.deepcopy(meta.get("style_contract")),

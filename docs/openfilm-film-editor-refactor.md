@@ -29,7 +29,7 @@ Mapping is loss-aware: fields are either executed by the film runtime, retained 
 | Keyframes, mask, motion, animation, motion recipe, text/gap/custom layer types | No equivalent execution mapping | Hard migration blocker |
 | Visual overlay identity/order, source path/type, timing, speed, fit, rectangle and opacity | Bound overlay tracks + CSS geometry; source-array index retained while physical order is reversed for z-stacking | Static overlays supported; transform, nonzero `z_index`, or embedded source audio blocks migration |
 | Audio clip/lane identity, source interval, timeline timing, speed, volume/mute, lane state | Audio clip attributes and lane metadata | Independent clips supported; follow-source, linked overlay, fades, ducking and keyframes block migration |
-| Subtitle cues/style | Generated subtitle iframe and namespaced metadata | Generated format/style subset supported; animation blocks migration |
+| Subtitle cues/style | Editable cue/style attributes bound to the generated subtitle iframe | Cue/style values reverse-map; edits regenerate the page and undo/redo restore it; independent page edits are rejected; animation blocks migration |
 | Watermarks, camera tracks, style contract, non-cut transitions | Original values can be retained in metadata | Runtime equivalence is not implemented; hard migration blocker |
 | Referenced assets | Sanitized metadata plus root-relative `file_uri` | Recovered from CompositionIR or project manifest; missing metadata/path is a hard blocker |
 

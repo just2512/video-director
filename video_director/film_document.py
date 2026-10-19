@@ -22,8 +22,8 @@ HISTORY_NAME = ".film-history.json"
 MIGRATION_NAME = "film-migration.json"
 CLIP_TAGS = {"iframe", "video", "img", "audio"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
-SETTABLE_FIELDS = {"at", "src", "speed", "volume", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size", "x", "y", "width", "height", "rotate", "opacity"}
-AI_SETTABLE_FIELDS = {"at", "speed", "volume", "style", "class", "muted", "title", "x", "y", "width", "height", "rotate", "opacity"}
+SETTABLE_FIELDS = {"at", "src", "speed", "volume", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size", "x", "y", "width", "height", "rotate", "opacity", "data-vd-subtitle-cues", "data-vd-subtitle-style"}
+AI_SETTABLE_FIELDS = {"at", "speed", "volume", "style", "class", "muted", "title", "x", "y", "width", "height", "rotate", "opacity", "data-vd-subtitle-style"}
 TRACK_FLAGS = {"locked", "hidden", "muted"}
 MAX_OPERATIONS = 200
 
@@ -387,6 +387,14 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 if clip["tag"] not in {"video", "audio"} or not isinstance(value, bool):
                     raise FilmError("INVALID_BOOLEAN", "muted 只接受视频/音频片段的布尔值")
                 value = "" if value else None
+            elif field == "data-vd-subtitle-cues":
+                if clip["tag"] != "iframe" or track["attrs"].get("data-vd-role") != "subtitle" or field not in attrs:
+                    raise FilmError("SUBTITLE_CUES_UNBOUND", "字幕 cue 未绑定到已迁移的字幕轨；请重新迁移该项目后再编辑")
+                value = json.dumps(_validate_subtitle_cues(value, attrs), ensure_ascii=False, separators=(",", ":"))
+            elif field == "data-vd-subtitle-style":
+                if clip["tag"] != "iframe" or track["attrs"].get("data-vd-role") != "subtitle" or "data-vd-subtitle-cues" not in attrs:
+                    raise FilmError("SUBTITLE_STYLE_UNBOUND", "字幕样式没有可验证的 cue 绑定；请重新迁移该项目后再编辑")
+                value = json.dumps(_validate_subtitle_style(value), ensure_ascii=False, separators=(",", ":"))
             elif field in {"class", "title", "alt", "lang", "dir", "size", "style", "overrides"}:
                 if value is not None and not isinstance(value, str):
                     if field == "overrides" and isinstance(value, (list, dict)):
@@ -884,15 +892,16 @@ def edit_project_film(project_id: str, base: str | None, ops: list[dict], base_s
                     409,
                 ) from exc
             raise
+        _sync_subtitle_timeline_duration(doc)
         updated = serialize_film(doc)
-        parse_film(updated)
+        target_doc = parse_film(updated)
         history = _history_read(pid)
         history["past"].append({"before": current["text"], "after": updated,
                                 "before_rev": current["rev"], "after_rev": revision_of(updated),
                                 "ops": normalized})
         history["past"] = history["past"][-200:]
         history["future"] = []
-        _write_atomic(_film_path(pid), updated)
+        _write_document_with_subtitle_page(pid, current["doc"], target_doc, updated)
         _history_write(pid, history)
         return {"ok": True, "project_id": pid, "rev": revision_of(updated), "base": base,
                 "rebased": rebased, "document": doc, "ops": normalized}
@@ -916,12 +925,12 @@ def undo_redo_project_film(project_id: str, base: str | None, action: str) -> di
         if current["rev"] != expected:
             raise FilmError("HISTORY_CONFLICT", "影片已被外部修改；请重新载入以避免覆盖外部编辑", 409)
         text = entry["before"] if action == "undo" else entry["after"]
-        parse_film(text)
+        target_doc = parse_film(text)
         source.pop()
         destination.append(entry)
-        _write_atomic(_film_path(pid), text)
+        _write_document_with_subtitle_page(pid, current["doc"], target_doc, text)
         _history_write(pid, history)
-        return {"ok": True, "project_id": pid, "rev": revision_of(text), "document": parse_film(text), "action": action}
+        return {"ok": True, "project_id": pid, "rev": revision_of(text), "document": target_doc, "action": action}
 
 
 def media_path_for_src(project_id: str, src: str) -> Path:
@@ -1067,6 +1076,185 @@ window.addEventListener('message',function(event){{
   }});}});
 }});
 </script></body></html>'''
+
+
+def _validate_subtitle_cues(value: Any, attrs: dict) -> list[dict]:
+    """Validate editable cue data against the bound subtitle track and source duration."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            raise FilmError("INVALID_SUBTITLE_CUES", "字幕 cue 必须是 JSON 数组", 422) from None
+    if not isinstance(value, list) or len(value) > 5000:
+        raise FilmError("INVALID_SUBTITLE_CUES", "字幕 cue 必须是最多 5000 项的 JSON 数组", 422)
+    try:
+        metadata = json.loads(attrs.get("data-vd-subtitle-meta") or "{}")
+    except json.JSONDecodeError:
+        raise FilmError("SUBTITLE_METADATA_INVALID", "字幕轨绑定元数据不是有效 JSON", 422) from None
+    if not isinstance(metadata, dict):
+        raise FilmError("SUBTITLE_METADATA_INVALID", "字幕轨绑定元数据必须是 JSON 对象", 422)
+    source_start, source_end = _source_range(str(attrs.get("src") or ""))
+    if abs(source_start) > 0.001 or source_end is None:
+        raise FilmError("INVALID_SUBTITLE_RANGE", "字幕轨必须以 #t=0,时长 绑定项目时间", 422)
+    try:
+        from video_director.models import SubtitleTrack
+        track = SubtitleTrack.model_validate({**metadata, "cues": value})
+    except Exception as exc:
+        raise FilmError("INVALID_SUBTITLE_CUES", f"字幕 cue 不符合 SubtitleTrack 契约：{exc}", 422) from exc
+    for cue in track.cues:
+        if cue.start < 0 or cue.end > source_end + 0.01:
+            raise FilmError(
+                "SUBTITLE_CUE_OUT_OF_RANGE",
+                f"字幕 cue {cue.start:.3f}–{cue.end:.3f}s 超出当前项目字幕轨时长 {source_end:.3f}s",
+                422,
+            )
+    return [cue.model_dump(mode="json") for cue in track.cues]
+
+
+def _validate_subtitle_style(value: Any) -> dict:
+    """Validate subtitle style values against the deterministic browser/MP4 renderer."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            raise FilmError("INVALID_SUBTITLE_STYLE", "字幕样式必须是 JSON 对象", 422) from None
+    if not isinstance(value, dict):
+        raise FilmError("INVALID_SUBTITLE_STYLE", "字幕样式必须是 JSON 对象", 422)
+    try:
+        from video_director.models import SubtitleStyle
+        style = SubtitleStyle.model_validate(value)
+    except Exception as exc:
+        raise FilmError("INVALID_SUBTITLE_STYLE", f"字幕样式不符合 SubtitleStyle 契约：{exc}", 422) from exc
+    normalized = style.model_dump(mode="json")
+    if style.animation not in ("", "none"):
+        raise FilmError("SUBTITLE_ANIMATION_UNSUPPORTED", "当前确定性字幕运行时只执行 animation='none'", 422)
+    if style.font and not re.fullmatch(r"""[A-Za-z0-9 _,"'-]{1,100}""", style.font):
+        raise FilmError("INVALID_SUBTITLE_STYLE", "字幕 font 含运行时不接受的字符", 422)
+    for name in ("color", "stroke_color"):
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", str(normalized.get(name) or "")):
+            raise FilmError("INVALID_SUBTITLE_STYLE", f"字幕 {name} 必须是 #RRGGBB", 422)
+    if not (0 <= style.stroke_width <= 12):
+        raise FilmError("INVALID_SUBTITLE_STYLE", "字幕 stroke_width 必须在 0–12 之间", 422)
+    if not (12 <= 54 * style.size <= 160):
+        raise FilmError("INVALID_SUBTITLE_STYLE", "字幕字号缩放必须使最终字体大小在 12–160px 之间", 422)
+    if not (0 <= style.background_opacity <= 1):
+        raise FilmError("INVALID_SUBTITLE_STYLE", "字幕 background_opacity 必须在 0–1 之间", 422)
+    background = str(style.background or "")
+    if background and not re.fullmatch(r"(#[0-9a-fA-F]{6})(?:@([0-9]*(?:\.[0-9]+)?))?", background):
+        raise FilmError("INVALID_SUBTITLE_STYLE", "字幕 background 只支持 #RRGGBB 或 #RRGGBB@opacity", 422)
+    if background and "@" in background:
+        alpha = float(background.rsplit("@", 1)[1])
+        if not 0 <= alpha <= 1:
+            raise FilmError("INVALID_SUBTITLE_STYLE", "字幕 background alpha 必须在 0–1 之间", 422)
+    return normalized
+
+
+def _sync_subtitle_timeline_duration(document: dict) -> None:
+    """Keep a migrated subtitle iframe's duration aligned with the longest visual/audio interval."""
+    project = ((document.get("project_metadata") or {}).get("project") or {})
+    duration = _number(project.get("duration", 0), "project duration", 0)
+    for track in document.get("tracks") or []:
+        if (track.get("attrs") or {}).get("data-vd-role") != "subtitle":
+            continue
+        for clip in track.get("clips") or []:
+            attrs = clip.get("attrs") or {}
+            if clip.get("tag") != "iframe" or "data-vd-subtitle-cues" not in attrs:
+                continue
+            for other_track in document.get("tracks") or []:
+                if (other_track.get("attrs") or {}).get("data-vd-role") == "subtitle":
+                    continue
+                for other_clip in other_track.get("clips") or []:
+                    end = clip_end(other_clip)
+                    if end is not None:
+                        duration = max(duration, end)
+            duration = max(duration, 0.001)
+            attrs["src"] = _with_source_range(str(attrs.get("src") or ""), 0, duration)
+            return
+
+
+def _subtitle_page_projection(document: dict) -> dict | None:
+    """Render the subtitle page from its editable document-bound cue/style fields."""
+    stage = document.get("stage") or {}
+    for track in document.get("tracks") or []:
+        if (track.get("attrs") or {}).get("data-vd-role") != "subtitle":
+            continue
+        clips = track.get("clips") or []
+        if not clips:
+            continue
+        if len(clips) != 1:
+            raise FilmError("COMPOSITION_SUBTITLE_BINDING_CONFLICT", "字幕轨只能包含一个页面绑定", 422)
+        clip = clips[0]
+        attrs = clip.get("attrs") or {}
+        if "data-vd-subtitle-cues" not in attrs:
+            return None
+        src = str(attrs.get("src") or "")
+        path = unquote(src.split("#", 1)[0])
+        src_start, src_end = _source_range(src)
+        if clip.get("tag") != "iframe" or path != "scenes/subtitles.html" or abs(src_start) > 0.001 or src_end is None:
+            raise FilmError("SUBTITLE_BINDING_INVALID", "字幕 cue 绑定必须指向 scenes/subtitles.html#t=0,duration", 422)
+        cues = _validate_subtitle_cues(attrs.get("data-vd-subtitle-cues"), attrs)
+        try:
+            style_raw = json.loads(attrs.get("data-vd-subtitle-style") or "{}")
+        except json.JSONDecodeError:
+            raise FilmError("SUBTITLE_STYLE_INVALID", "字幕样式绑定不是有效 JSON", 422) from None
+        style = _validate_subtitle_style(style_raw)
+        return {
+            "relative_path": "scenes/subtitles.html",
+            "text": _subtitle_page(int(stage.get("width", 1920)), int(stage.get("height", 1080)),
+                                   float(src_end), cues, style),
+        }
+    return None
+
+
+def _write_document_with_subtitle_page(
+    project_id: str, current_doc: dict, target_doc: dict, target_text: str
+) -> None:
+    """Write film.html and its derived subtitle page; reject independent subtitle-page edits."""
+    root = _project_root(project_id)
+    current_page = _subtitle_page_projection(current_doc)
+    target_page = _subtitle_page_projection(target_doc)
+    page_path = root / "scenes" / "subtitles.html"
+    if current_page:
+        try:
+            existing = page_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise FilmError("SUBTITLE_PAGE_MISSING", "字幕页面已缺失；拒绝写入以避免文档与导出分离", 409) from exc
+        if existing != current_page["text"]:
+            raise FilmError(
+                "SUBTITLE_PAGE_REVISION_CONFLICT",
+                "scenes/subtitles.html 已被独立修改；请先将改动同步到 film.html cue/style 绑定，系统不会覆盖。",
+                409,
+            )
+    elif target_page:
+        raise FilmError(
+            "SUBTITLE_BINDING_MISSING",
+            "当前文档没有可校验的字幕页面基线；为避免覆盖外部内容，请重新迁移项目后再编辑字幕。",
+            409,
+        )
+
+    old_page_exists = page_path.is_file()
+    old_page_text = page_path.read_text(encoding="utf-8") if old_page_exists else ""
+    page_changed = bool(target_page and (not old_page_exists or old_page_text != target_page["text"]))
+    if page_changed:
+        _write_atomic(page_path, target_page["text"])
+    try:
+        _write_atomic(_film_path(project_id), target_text)
+    except Exception:
+        if page_changed:
+            try:
+                if old_page_exists:
+                    _write_atomic(page_path, old_page_text)
+                else:
+                    page_path.unlink(missing_ok=True)
+            except OSError as rollback_error:
+                raise FilmError(
+                    "SUBTITLE_PAGE_ROLLBACK_FAILED",
+                    f"film.html 写入失败，字幕页回滚也失败：{rollback_error}",
+                    500,
+                ) from rollback_error
+        raise
+
+
 
 
 def build_film_from_composition(project_id: str, ir) -> dict:
@@ -1395,6 +1583,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                           {key: value for key, value in subtitle.items() if key != "cues"},
                           ensure_ascii=False, separators=(",", ":"),
                       ),
+                      "data-vd-subtitle-cues": json.dumps(cues, ensure_ascii=False, separators=(",", ":")),
                       "data-vd-subtitle-style": json.dumps(
                           raw_ir.get("subtitle_style") or {}, ensure_ascii=False, separators=(",", ":")
                       )}}, track_attrs={"data-vd-role": "subtitle"}))
@@ -1610,11 +1799,13 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
                 "speed": attrs.get("speed", "1"), "volume": attrs.get("volume", "1"),
                 "muted": "muted" in attrs, "style": attrs.get("style", ""),
                 "title": attrs.get("title", ""),
+                "subtitle_style": attrs.get("data-vd-subtitle-style") if (track.get("attrs") or {}).get("data-vd-role") == "subtitle" else None,
             })
     prompt = (
         "你是视频时间线编辑规划器。只输出 JSON：{"
         '"operations":[...],"summary":"..."}。'
-        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'muted'|'style'|'class'|'title'|'x'|'y'|'width'|'height'|'rotate'|'opacity',value:...}; "
+        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'muted'|'style'|'class'|'title'|'x'|'y'|'width'|'height'|'rotate'|'opacity'|'data-vd-subtitle-style',value:...}; "
+        "data-vd-subtitle-style 只接受 SubtitleStyle 字段对象，支持 font/size/color/stroke_color/stroke_width/background/background_opacity/position/alignment/max_width/mode；animation 必须为 none。"
         "x/y/width/height 是 0–1 的舞台比例；rotate 是角度；opacity 是 0–1。修改样式时不得改变素材路径。"
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "

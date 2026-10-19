@@ -710,6 +710,83 @@ def test_registered_film_document_actions_share_revisioned_edit_undo_redo(tmp_pa
     assert after_edit_ir["scenes"][0]["layers"][1]["start"] == 0.5
 
 
+
+def test_subtitle_cues_and_style_roundtrip_edit_undo_redo_and_page_conflict(tmp_path, monkeypatch):
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR, SubtitleCue, SubtitleStyle, SubtitleTrack
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    pid = "film-subtitle-edit"
+    root = tmp_path / "composer" / pid
+    (root / "assets").mkdir(parents=True)
+    source = root / "assets" / "still.png"
+    source.write_bytes(b"test-image-bytes")
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(
+            id="scene-subtitle", start=0, duration=2, text="subtitle scene",
+            layers=[Layer(type=LayerType.image, asset_id="still-subtitle", duration=2)],
+        )],
+        subtitle_track=SubtitleTrack(
+            mode="sentence", source="manual",
+            cues=[SubtitleCue(start=0.1, end=1.0, text="旧字幕")],
+        ),
+        subtitle_style=SubtitleStyle(size=1.0, color="#FFFFFF", stroke_color="#000000", stroke_width=2),
+        assets=[AssetRef(id="still-subtitle", type="image", file=str(source), duration=2, width=320, height=180)],
+    )
+    plan = fd.build_film_from_composition(pid, composition)
+    assert plan["warnings"] == []
+    for relative, page in plan["pages"].items():
+        fd._write_atomic(root / relative, page)
+    fd._write_atomic(fd._film_path(pid), fd.serialize_film(plan["document"]))
+    fd._history_write(pid, {"past": [], "future": []})
+
+    before = fd.read_project_film(pid)
+    subtitle_clip = next(c for t in before["doc"]["tracks"] for c in t["clips"]
+                         if c["attrs"].get("data-vd-subtitle-cues"))
+    new_cues = [{"start": 0.2, "end": 1.2, "text": "更新后的字幕"}]
+    new_style = composition.subtitle_style.model_dump(mode="json")
+    new_style["color"] = "#00FF00"
+    edited = fd.edit_project_film(pid, before["rev"], [
+        {"op": "set", "clip": subtitle_clip["id"], "field": "data-vd-subtitle-cues", "value": new_cues},
+        {"op": "set", "clip": subtitle_clip["id"], "field": "data-vd-subtitle-style", "value": new_style},
+    ], before["doc"])
+    after = fd.read_project_film(pid)
+    reverse = fd.composition_from_film(after["doc"])
+    assert reverse["subtitle_track"]["cues"][0]["text"] == "更新后的字幕"
+    assert reverse["subtitle_track"]["cues"][0]["start"] == 0.2
+    assert reverse["subtitle_style"]["color"] == "#00FF00"
+    page_path = root / "scenes" / "subtitles.html"
+    rendered_page = page_path.read_text(encoding="utf-8")
+    assert "更新后的字幕" in rendered_page
+    assert "color:#00FF00" in rendered_page
+
+    undone = fd.undo_redo_project_film(pid, edited["rev"], "undo")
+    undo_state = fd.read_project_film(pid)
+    undo_ir = fd.composition_from_film(undo_state["doc"])
+    assert undo_ir["subtitle_track"]["cues"][0]["text"] == "旧字幕"
+    assert undo_ir["subtitle_style"]["color"] == "#FFFFFF"
+    assert "旧字幕" in page_path.read_text(encoding="utf-8")
+
+    redone = fd.undo_redo_project_film(pid, undone["rev"], "redo")
+    redo_state = fd.read_project_film(pid)
+    redo_ir = fd.composition_from_film(redo_state["doc"])
+    assert redo_ir["subtitle_track"]["cues"][0]["text"] == "更新后的字幕"
+    assert redo_ir["subtitle_style"]["color"] == "#00FF00"
+    assert "更新后的字幕" in page_path.read_text(encoding="utf-8")
+    assert redone["rev"] == redo_state["rev"]
+
+    # The subtitle page is a generated projection, not an independent write source.
+    page_path.write_text(page_path.read_text(encoding="utf-8") + "\\n<!-- external edit -->", encoding="utf-8")
+    with pytest.raises(fd.FilmError) as raised:
+        fd.edit_project_film(pid, redo_state["rev"], [
+            {"op": "set", "clip": next(c for t in redo_state["doc"]["tracks"] for c in t["clips"]
+                                       if c["attrs"].get("data-vd-scene-id"))["id"],
+             "field": "at", "value": 0.1},
+        ], redo_state["doc"])
+    assert raised.value.code == "SUBTITLE_PAGE_REVISION_CONFLICT"
+
+
+
 def test_trim_start_and_end_preserve_source_time_and_speed():
     doc = fd.parse_film(SAMPLE)
     edited, ops = fd.apply_ops(doc, [
