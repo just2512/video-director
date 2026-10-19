@@ -799,6 +799,24 @@
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
   window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段？此操作可撤销。'))return;await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
+  window.filmStudioJoinThroughEdit=async function(){
+    var clip=findClip(S.selectedId);
+    if(!clip){showStatus('请先选择切分后的左段或右段。','error');return;}
+    var track=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
+    if(!track){showStatus('无法定位所选片段的轨道。','error');return;}
+    var ordered=(track.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
+    var index=ordered.findIndex(function(candidate){return candidate.id===clip.id;});
+    if(index<0){showStatus('所选片段已变化，请重新选择。','error');return;}
+    var current=ordered[index],left=null,right=null;
+    if(index+1<ordered.length&&current.end!=null&&Math.abs(current.end-ordered[index+1].at)<=0.001){
+      left=current;right=ordered[index+1];
+    }else if(index>0&&ordered[index-1].end!=null&&Math.abs(ordered[index-1].end-current.at)<=0.001){
+      left=ordered[index-1];right=current;
+    }else{
+      showStatus('所选片段附近没有时间上相邻的切口。','error');return;
+    }
+    await filmStudioCommit([{op:'join',clip:left.id,other_clip:right.id}]);
+  };
   window.filmStudioRippleDelete=async function(){
     var clip=findClip(S.selectedId);
     if(!clip){showStatus('请选择一个有明确时长的片段作为波纹删除范围。','error');return;}
@@ -1054,6 +1072,7 @@
     'play-toggle': () => window.filmStudioTogglePlayback(),
     'frame-next': () => window.filmStudioNudge(1),
     split: () => window.filmStudioSplit(),
+    'join-cut': () => window.filmStudioJoinThroughEdit(),
     remove: () => window.filmStudioRemove(),
     'ripple-delete': () => window.filmStudioRippleDelete(),
     'envelope-mode': () => window.filmStudioToggleEnvelopeMode(),

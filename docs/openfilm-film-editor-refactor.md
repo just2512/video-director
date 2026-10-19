@@ -65,6 +65,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Studio Inspector edits both durations as one atomic field operation. Browser preview applies the same clip-relative multiplier to visual opacity and audio gain; MP4 export uses FFmpeg `afade` after source trim and speed processing.
 - This remains a two-sided linear fade rather than a general opacity keyframe/Bezier transition system.
 
+## Through-edit / join-cut milestone
+
+- A new `join` operation heals a split only if the clips are adjacent on the same unlocked track, use the same source with contiguous source ranges, and agree on speed and all other clip-level attributes.
+- It keeps the left clip's stable ID, extends its source out-point, removes the right node, and merges clip-relative volume-envelope curves only when gain is continuous at the cut. Fades and incompatible automation are rejected instead of silently flattened.
+- The Studio exposes “愈合切口” beside split; it proposes the adjacent cut, while the backend remains the authority for source/time/attribute checks.
+
 ## Render consistency milestone
 
 - The final browser renderer re-renders representative first/middle/last timestamps in reverse order after the frame sequence. Each repeat is compared with the captured PNG using a per-channel tolerance of 32 and a bounded changed-pixel allowance.

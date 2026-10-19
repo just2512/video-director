@@ -509,6 +509,50 @@ def test_volume_envelope_rejects_duplicate_times_and_non_finite_gain(tmp_path, m
                            "value": [{"t": 0, "v": 1}, {"t": 1, "v": 1.5}]}])
 
 
+def test_join_through_edit_restores_split_source_range_and_preserves_undoable_document():
+    doc = fd.parse_film(SAMPLE)
+    split, _ = fd.apply_ops(doc, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"}
+    ])
+    joined, operations = fd.apply_ops(split, [
+        {"op": "join", "clip": "clip-a", "other_clip": "clip-a-right"}
+    ])
+    clips_by_id = {clip["id"]: clip for track in joined["tracks"] for clip in track["clips"]}
+    assert "clip-a-right" not in clips_by_id
+    assert clips_by_id["clip-a"]["attrs"]["src"].endswith("#t=2,12")
+    assert float(clips_by_id["clip-a"]["attrs"]["at"]) == 0
+    assert fd.clip_duration(clips_by_id["clip-a"]) == pytest.approx(5)
+    assert operations == [{"op": "join", "clip": "clip-a", "other_clip": "clip-a-right"}]
+
+
+def test_join_through_edit_rejects_gaps_mismatched_sources_and_different_attributes():
+    doc = fd.parse_film(SAMPLE)
+    split, _ = fd.apply_ops(doc, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"}
+    ])
+    gap = fd.copy.deepcopy(split)
+    next(c for t in gap["tracks"] for c in t["clips"] if c["id"] == "clip-a-right")["attrs"]["at"] = "2.1"
+    next(c for t in gap["tracks"] for c in t["clips"] if c["id"] == "clip-b")["attrs"]["at"] = "5.2"
+    with pytest.raises(fd.FilmError, match="时间线上不相邻"):
+        fd.apply_ops(gap, [{"op": "join", "clip": "clip-a", "other_clip": "clip-a-right"}])
+
+    different = fd.copy.deepcopy(split)
+    next(c for t in different["tracks"] for c in t["clips"] if c["id"] == "clip-a-right")["attrs"]["volume"] = "0.5"
+    with pytest.raises(fd.FilmError, match="属性 volume 不一致"):
+        fd.apply_ops(different, [{"op": "join", "clip": "clip-a", "other_clip": "clip-a-right"}])
+
+
+def test_join_through_edit_ui_and_ai_contract_are_wired():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert "window.filmStudioJoinThroughEdit" in script
+    assert 'data-film-action="join-cut"' in index
+    assert 'elif kind == "join"' in module
+    assert "愈合切口" in module
+
+
 def test_slip_changes_source_range_without_changing_timeline_position_or_duration():
     doc = fd.parse_film(SAMPLE)
     original = next(c for t in doc["tracks"] for c in t["clips"] if c["id"] == "clip-a")
