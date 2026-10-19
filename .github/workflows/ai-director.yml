@@ -28,6 +28,14 @@ jobs:
       # goes through this interpreter.
       PY311_BIN: /home/actions/miniforge3/envs/py311/bin
     steps:
+      # This self-hosted WSL runner has intermittently lost GitHub TLS streams
+      # during checkout. Force HTTP/1.1 before checkout instead of allowing Git
+      # to negotiate the flaky transport path; this does not alter app/runtime traffic.
+      - name: Configure Git transport for the self-hosted runner
+        shell: bash
+        run: |
+          git config --global http.version HTTP/1.1
+          git config --global --get http.version
       - uses: actions/checkout@v4
       - name: Verify pinned Python 3.11 interpreter
         run: |
