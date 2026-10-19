@@ -58,6 +58,12 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - A materially different repeated frame fails the render with NON_DETERMINISTIC_FRAME instead of silently exporting. Successful output records determinism_status and the number of sampled timestamps.
 - This is a sampled deterministic audit, not proof that every frame or arbitrary CSS feature is deterministic; the existing iframe/CSS constraints remain in force.
 
+## Agent file-watching milestone
+
+- A standard-library watcher registers projects viewed by Studio, debounces file changes for at least 120 ms, validates a stable text snapshot, then emits revision_changed/document_broken events on the existing SSE bus.
+- Invalid Agent writes freeze the editor; a repaired valid revision can be loaded again. The watcher discards inactive project registrations after a bounded idle period.
+- Model-token streaming and simultaneous multi-user editing are not claimed by this local single-user watcher.
+
 ## Current boundaries
 
 - The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.

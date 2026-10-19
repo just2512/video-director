@@ -255,6 +255,60 @@ def test_film_timeline_supports_group_selection_drag_and_pointer_anchored_zoom()
     assert ".fs-track.fs-track-drop-target" in styles
 
 
+def test_external_film_revision_watcher_debounces_and_reports_broken_documents(tmp_path):
+    from video_director.film_watch import FilmRevisionWatcher
+
+    project_root = tmp_path / "film-watch"
+    project_root.mkdir()
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    events = []
+    watcher = FilmRevisionWatcher(
+        lambda name, payload: events.append((name, payload)),
+        path_for_project=lambda _pid: film_path,
+        settle_seconds=0.12,
+        interval_seconds=1.0,
+    )
+    watcher.watch("film-watch", fd.revision_of(SAMPLE))
+
+    changed = SAMPLE.replace('speed="2"', 'speed="2.1"')
+    film_path.write_text(changed, encoding="utf-8")
+    watcher.poll_once(now=100.0)
+    watcher.poll_once(now=100.05)
+    assert events == []
+    watcher.poll_once(now=100.13)
+    assert len(events) == 1
+    assert events[0][0] == "film"
+    assert events[0][1]["phase"] == "revision_changed"
+    assert events[0][1]["revision"] == fd.revision_of(changed)
+
+    broken = "<html><body>partial write</body></html>"
+    film_path.write_text(broken, encoding="utf-8")
+    watcher.poll_once(now=200.0)
+    watcher.poll_once(now=200.13)
+    assert len(events) == 2
+    assert events[-1][1]["phase"] == "document_broken"
+    assert "error" in events[-1][1]
+
+    repaired = SAMPLE.replace('speed="2"', 'speed="2.5"')
+    film_path.write_text(repaired, encoding="utf-8")
+    watcher.poll_once(now=300.0)
+    watcher.poll_once(now=300.13)
+    assert len(events) == 3
+    assert events[-1][1]["phase"] == "revision_changed"
+    assert events[-1][1]["revision"] == fd.revision_of(repaired)
+
+
+def test_server_registers_external_film_watcher_for_open_projects():
+    root = Path(__file__).resolve().parents[1]
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    watcher = (root / "video_director" / "film_watch.py").read_text(encoding="utf-8")
+    assert "_FILM_REVISION_WATCHER = get_film_watcher(sse_publish)" in server
+    assert '_FILM_REVISION_WATCHER.watch(pid, state.get("rev"))' in server
+    assert "settle_seconds" in watcher
+    assert '"phase": phase' in watcher
+
+
 def test_frame_determinism_audit_accepts_identical_pixels_and_rejects_real_difference():
     from io import BytesIO
     from PIL import Image

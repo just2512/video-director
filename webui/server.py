@@ -85,6 +85,12 @@ def sse_unsubscribe(q) -> None:
             _SSE_SUBSCRIBERS.remove(q)
 
 
+from video_director.film_watch import get_film_watcher
+
+# Watch only projects actively opened in Studio; publish validated changes on the existing SSE bus.
+_FILM_REVISION_WATCHER = get_film_watcher(sse_publish)
+
+
 # §三十四：通用 Registry 类别（shots/motions/templates/provenance 之外的 8 类）。
 # route → kind（registry item kind 字段值）；kind → 子目录名（LayeredRegistryLoader）。
 GENERIC_REGISTRY_KINDS = {
@@ -994,6 +1000,7 @@ class Handler(BaseHTTPRequestHandler):
                     return True
 
                 state = fd.read_project_film(pid)
+                _FILM_REVISION_WATCHER.watch(pid, state.get("rev"))
                 if state["exists"]:
                     self._send_json(fd.film_payload(pid, state))
                     return True
