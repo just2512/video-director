@@ -174,7 +174,7 @@ def composition_from_film(document: dict) -> dict:
             if tag=="img" and "speed" in a: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"图片片段 {cid} 不支持 speed")
             dur=fd.clip_duration(clip)
             if dur is None or dur<=0: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"片段 {cid} 没有有效时长")
-            fit=_style(a.get("style",""),cid).get("object-fit","cover")
+            fit=_style(a,cid).get("object-fit","cover")
             if fit not in {"cover","contain"}: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"片段 {cid} 的 object-fit 无法映射")
             layer.update({"type":"video" if tag=="video" else "image","asset_id":aid,
                 "start":max(0.0,fd._number(a.get("at",0),"at",0)-ent["start"]),"duration":dur,
@@ -199,7 +199,7 @@ def composition_from_film(document: dict) -> dict:
                 if tag=="img" and "speed" in a: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"图片叠加片段 {cid} 不支持 speed")
                 dur=fd.clip_duration(clip)
                 if dur is None or dur<=0: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"叠加片段 {cid} 没有有效时长")
-                css=_style(a.get("style",""),cid); fit=css.get("object-fit","cover")
+                css=_style(a,cid); fit=css.get("object-fit","cover")
                 if fit not in {"cover","contain"}: _fail("COMPOSITION_SYNC_UNSUPPORTED",f"叠加片段 {cid} 的 fit_mode 不受支持")
                 w,h=float(stage["width"]),float(stage["height"]); ov=copy.deepcopy(ometa)
                 ov.update({"id":oid,"asset_id":aid,"start":fd._number(a.get("at",0),"at",0),"duration":dur,

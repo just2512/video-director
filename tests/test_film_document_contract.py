@@ -324,7 +324,7 @@ def test_migration_preserves_scene_layer_and_project_semantics_through_film_roun
     # fit_mode is mapped to executable CSS, not duplicated in opaque metadata.
     assert "fit_mode" not in layer_meta
     assert "object-fit:contain" in clip["attrs"].get("style", "")
-    invalid_fit = fd.CompositionIR.model_validate_json(composition.model_dump_json())
+    invalid_fit = CompositionIR.model_validate_json(composition.model_dump_json())
     invalid_fit.scenes[0].layers[0].fit_mode = "scale-down"
     invalid_plan = fd.build_film_from_composition("film-metadata-roundtrip", invalid_fit)
     assert any("fit_mode=\'scale-down\'" in warning for warning in invalid_plan["warnings"])
