@@ -588,6 +588,18 @@ def test_roll_trim_rejects_nonadjacent_different_source_locked_track_and_empty_s
         fd.apply_ops(locked, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 0.1}])
 
 
+def test_roll_trim_rejects_different_playback_speeds():
+    doc = fd.parse_film(SAMPLE)
+    split, _ = fd.apply_ops(doc, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"}
+    ])
+    right = next(c for t in split["tracks"] for c in t["clips"] if c["id"] == "clip-a-right")
+    right["attrs"]["speed"] = "1"
+    next(c for t in split["tracks"] for c in t["clips"] if c["id"] == "clip-b")["attrs"]["at"] = "8"
+    with pytest.raises(fd.FilmError, match="左右片段速度一致"):
+        fd.apply_ops(split, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 0.1}])
+
+
 def test_roll_trim_ctrl_drag_and_operation_contract():
     root = Path(__file__).resolve().parents[1]
     script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")

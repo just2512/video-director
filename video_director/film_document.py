@@ -607,6 +607,8 @@ def _roll_trim(doc: dict, left_id: str, right_id: str, delta: Any) -> dict:
         raise FilmError("ROLL_EMPTY_CLIP", "滚动修剪会令左段或右段时长不足 0.001 秒", 422)
     left_speed = _number(left_attrs.get("speed", 1), "left speed", 0.25, 4) if left["tag"] in {"video", "audio"} else 1.0
     right_speed = _number(right_attrs.get("speed", 1), "right speed", 0.25, 4) if right["tag"] in {"video", "audio"} else 1.0
+    if abs(left_speed - right_speed) > 1e-7:
+        raise FilmError("ROLL_SPEED_MISMATCH", "为保持同源连续，滚动修剪要求左右片段速度一致", 422)
     new_left_out = left_in + (left_duration + amount) * left_speed
     new_right_in = right_in + amount * right_speed
     if new_left_out <= left_in + 0.001 or new_right_in < 0 or new_right_in >= right_out - 0.001:
