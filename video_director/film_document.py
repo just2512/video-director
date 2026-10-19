@@ -950,25 +950,50 @@ def film_payload(project_id: str, state: dict) -> dict:
             "tracks": tracks, "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
 
 
-def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "") -> list[dict]:
+def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "", summary_out: dict | None = None) -> list[dict]:
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         raise FilmError("INVALID_MESSAGE", "指令不能为空且不能超过 4000 个字符")
     if not state.get("exists") or not state.get("doc"):
         raise FilmError("FILM_NOT_INITIALIZED", "影片文档尚未初始化", 409)
     doc = state["doc"]
-    clips = [{"id": c["id"], "tag": c["tag"], "track_id": t["id"], "at": c["attrs"].get("at", "0"),
-              "src": c["attrs"].get("src", ""), "speed": c["attrs"].get("speed", "1"),
-              "volume": c["attrs"].get("volume", "1"), "title": c["attrs"].get("title", "")}
-             for t in doc["tracks"] for c in t["clips"]]
+    track_order = {track["id"]: index for index, track in enumerate(doc["tracks"])}
+    timeline_clips = [(track, clip) for track in doc["tracks"] for clip in track["clips"]]
+    visual_clips = sorted(
+        [(track, clip) for track, clip in timeline_clips if clip["tag"] != "audio"],
+        key=lambda item: (_number(item[1]["attrs"].get("at", 0), "at", 0),
+                          track_order[item[0]["id"]], item[1]["id"]),
+    )
+    visual_index = {clip["id"]: index + 1 for index, (_track, clip) in enumerate(visual_clips)}
+    clips = []
+    for track in doc["tracks"]:
+        label = str((track.get("attrs") or {}).get("data-label") or track["id"])
+        ordered = sorted(track["clips"], key=lambda clip: _number(clip["attrs"].get("at", 0), "at", 0))
+        for clip_index, clip in enumerate(ordered, 1):
+            attrs = clip["attrs"]
+            source_in, source_out = _source_range(str(attrs.get("src") or ""))
+            clips.append({
+                "id": clip["id"], "tag": clip["tag"], "track_id": track["id"],
+                "track_label": label, "track_index": track_order[track["id"]] + 1,
+                "clip_index": clip_index, "visual_index": visual_index.get(clip["id"]),
+                "at": _number(attrs.get("at", 0), "at", 0), "end": clip_end(clip),
+                "duration": clip_duration(clip), "src": attrs.get("src", ""),
+                "source_in": source_in, "source_out": source_out,
+                "speed": attrs.get("speed", "1"), "volume": attrs.get("volume", "1"),
+                "muted": "muted" in attrs, "style": attrs.get("style", ""),
+                "title": attrs.get("title", ""),
+            })
     prompt = (
         "你是视频时间线编辑规划器。只输出 JSON：{"
         '"operations":[...],"summary":"..."}。'
         "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'muted'|'style'|'class'|'title',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; "
-        "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}。"
-        "不要编造 ID；修剪只能缩短当前源区间，且必须保留正时长。目标不明确时返回空 operations，并在 summary 提出一个简短澄清问题。"
-        "删除、插入素材、付费动作及源码修改不在范围内。"
+        "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
+        "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
+        "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
+        "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
+        "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
+        "不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"
         f"\n用户指令：{message}"
@@ -987,18 +1012,23 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         raise FilmError("LLM_INVALID_PLAN", f"AI 没有返回有效 JSON（{exc.msg}）", 502) from exc
     if not isinstance(result, dict) or not isinstance(result.get("operations", []), list):
         raise FilmError("LLM_INVALID_PLAN", "AI 返回的计划缺少 operations 数组", 502)
+    assistant_summary = str(result.get("summary") or "").strip()
+    if summary_out is not None:
+        summary_out["summary"] = assistant_summary[:500]
     operations = result.get("operations") or []
     if len(operations) > 40:
         raise FilmError("LLM_INVALID_PLAN", "AI 计划超过 40 项操作上限", 422)
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
         if op["op"] == "trim" and (op.get("edge") not in {"start", "end"} or
                                    (op.get("edge") == "start" and "at" not in op) or
                                    (op.get("edge") == "end" and "end" not in op)):
             raise FilmError("LLM_INVALID_PLAN", "AI 修剪操作缺少有效 edge/时间值", 422)
+        if op["op"] == "set" and op.get("field") not in SETTABLE_FIELDS:
+            raise FilmError("LLM_INVALID_PLAN", f"AI 使用了不允许的片段字段：{op.get('field')}", 422)
         if op.get("clip") not in valid_ids:
             raise FilmError("LLM_INVALID_PLAN", f"AI 使用了未知片段 ID：{op.get('clip')}", 422)
         if op["op"] == "move" and op.get("track_id") not in valid_tracks:

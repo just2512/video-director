@@ -1095,17 +1095,21 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "code": "LLM_UNAVAILABLE",
                                      "error": "当前未配置可用文本模型；影片文档的手动编辑仍可使用"}, 503)
                     return True
-                operations = fd.plan_film_command(llm, state, str(payload.get("message") or ""),
-                                                  str(payload.get("selected_clip_id") or ""))
+                plan_summary = {}
+                operations = fd.plan_film_command(
+                    llm, state, str(payload.get("message") or ""),
+                    str(payload.get("selected_clip_id") or ""), summary_out=plan_summary)
+                assistant_summary = str(plan_summary.get("summary") or "").strip()
                 if not operations:
                     self._send_json({"ok": True, "no_op": True,
-                                     "message": "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
+                                     "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
                                      "rev": state["rev"]})
                     return True
                 result = fd.edit_project_film(pid, payload.get("base"), operations)
                 data = fd.film_payload(pid, fd.read_project_film(pid))
+                message = assistant_summary or "已应用影片编辑操作。"
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
-                             "message": f"已提交 {len(result['ops'])} 项编辑操作；结果已从影片文档重新读取。"})
+                             "message": f"{message}（已提交 {len(result['ops'])} 项编辑操作，并重新读取文档确认。）"})
                 self._send_json(data)
                 return True
         except fd.FilmError as exc:

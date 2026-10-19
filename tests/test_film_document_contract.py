@@ -214,6 +214,39 @@ def test_ai_planner_contract_includes_trim_and_persisted_revision_guards():
     assert "fs-pane-divider" in ui
 
 
+
+
+def test_ai_planner_gets_stable_timeline_ordinals_can_remove_and_preserves_summary():
+    class FakeLLM:
+        def __init__(self):
+            self.prompt = ""
+
+        def generate(self, prompt):
+            self.prompt = prompt
+            return '{"operations":[{"op":"remove","clip":"clip-b"}],"summary":"删除第二个视觉片段"}'
+
+    llm = FakeLLM()
+    state = {"exists": True, "doc": fd.parse_film(SAMPLE), "rev": "test-revision"}
+    summary = {}
+    operations = fd.plan_film_command(llm, state, "删除第 2 段", summary_out=summary)
+    assert operations == [{"op": "remove", "clip": "clip-b"}]
+    assert '"visual_index":2' in llm.prompt
+    assert '"track_index":1' in llm.prompt
+    assert summary["summary"] == "删除第二个视觉片段"
+
+
+def test_ai_no_op_can_return_a_clarifying_question_for_the_chat():
+    class FakeLLM:
+        def generate(self, prompt):
+            return '{"operations":[],"summary":"你说的第二段是主画面，还是叠加画面？"}'
+
+    state = {"exists": True, "doc": fd.parse_film(SAMPLE), "rev": "test-revision"}
+    summary = {}
+    operations = fd.plan_film_command(FakeLLM(), state, "调整第二段", summary_out=summary)
+    assert operations == []
+    assert summary["summary"] == "你说的第二段是主画面，还是叠加画面？"
+
+
 def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track_messages():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
