@@ -130,6 +130,15 @@ def _build_manifest() -> List[Capability]:
         "物理片段编辑：移动/裁剪/切分/删除画面片段与音频片段、插入音频素材",
         input_schema="ClipRequest", outputs=("Composition",),
         examples=("把这段音效挪到 5 秒", "裁掉画面片段右侧 2 秒")))
+    # film.html-backed edits use a shared revision-aware document service for UI and agents.
+    caps.append(_cap("film.document.edit", "edit",
+        "对当前 film.html 提交一个 revision-checked 编辑操作批次",
+        input_schema="FilmDocumentEditRequest", outputs=("FilmDocument",),
+        examples=("移动所选片段", "修改影片属性")))
+    caps.append(_cap("film.document.history", "edit",
+        "撤销或重做 film.html 的原子编辑 revision",
+        input_schema="FilmDocumentHistoryRequest", outputs=("FilmDocument",),
+        examples=("撤销影片编辑", "重做影片编辑")))
     caps.append(_cap("timeline.replace", "edit",
         "替换镜头配方（Shot Picker）", input_schema="RecipeReplaceRequest",
         outputs=("Composition",), examples=("换成产品近景",)))

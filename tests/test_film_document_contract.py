@@ -241,7 +241,14 @@ def test_api_ui_routes_are_wired():
     assert "BASE_REVISION_REQUIRED" in module
     assert 'payload.get("base_snapshot")' in server
     assert 'edit_project_film(pid, payload.get("base"), operations)' not in server
-    assert server.count('edit_project_film(pid, payload.get("base"), operations, payload.get("base_snapshot"))') == 2
+    # GUI and AI edits share the revision-aware Action Registry executor.
+    assert server.count('execute_film_document_action(pid, "film.document.edit"') == 2
+    service = (root/"video_director"/"action_service.py").read_text(encoding="utf-8")
+    registry = (root/"video_director"/"action_registry.py").read_text(encoding="utf-8")
+    assert "def execute_film_document_action" in service
+    assert 'ActionSpec("film.document.edit"' in registry
+    assert 'ActionSpec("film.document.undo"' in registry
+    assert 'ActionSpec("film.document.redo"' in registry
     assert "base_snapshot:snapshot" in js
     assert "_clip_rebase_conflicts" in module
     assert "/api/editor/film/revision" in server
