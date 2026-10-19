@@ -248,14 +248,14 @@ def parse_film(text: str) -> dict:
     stage = {"width": int(viewport.group(1)), "height": int(viewport.group(2))} if viewport else {"width": 1920, "height": 1080}
     project_metadata = {}
     meta_tag = re.search(
-        r'<meta\\b(?=[^>]*\\bname\\s*=\\s*["\\']video-director-project-meta["\\'])[^>]*>',
+        r'<meta\b[^>]*\bname="video-director-project-meta"[^>]*>',
         head, re.I | re.S,
     )
     if meta_tag:
-        content_match = re.search(r'\\bcontent\\s*=\\s*(["\\'])(.*?)\\1', meta_tag.group(0), re.I | re.S)
+        content_match = re.search(r'\bcontent="([^"]*)"', meta_tag.group(0), re.I | re.S)
         if content_match:
             try:
-                decoded = json.loads(html.unescape(content_match.group(2)))
+                decoded = json.loads(html.unescape(content_match.group(1)))
                 if not isinstance(decoded, dict) or decoded.get("schema") != "video-director-composition-metadata/1":
                     raise ValueError("未知 metadata schema")
                 project_metadata = decoded
@@ -1012,17 +1012,49 @@ def library_asset_clip(project_id: str, asset_id: str, at: float, still_duration
 def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], style: dict | None) -> str:
     data = json.dumps(cues, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     opts = style or {}
-    font_size = int(max(12, min(160, _number(opts.get("font_size", opts.get("fontSize", 54)), "subtitle font size", 12, 160))))
-    bottom = int(max(0, min(height - 10, height * 0.1)))
+    raw_size = opts.get("font_size", opts.get("fontSize", 54 * _number(opts.get("size", 1.0), "subtitle size", 0.1, 3)))
+    font_size = int(max(12, min(160, _number(raw_size, "subtitle font size", 12, 160))))
     color = str(opts.get("color") or "#ffffff")
+    stroke_color = str(opts.get("stroke_color") or "#000000")
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
         color = "#ffffff"
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", stroke_color):
+        stroke_color = "#000000"
+    stroke_width = int(max(0, min(12, _number(opts.get("stroke_width", 2), "subtitle stroke width", 0, 12))))
+    font = str(opts.get("font") or 'Arial,"Microsoft YaHei",sans-serif')
+    if not re.fullmatch(r"""[A-Za-z0-9 _,"'-]{1,100}""", font):
+        font = 'Arial,"Microsoft YaHei",sans-serif'
+    max_width = _number(opts.get("max_width", 0.9), "subtitle max width", 0.3, 1.0)
+    left = (1.0 - max_width) * 50
+    alignment = str(opts.get("alignment") or "center")
+    if alignment not in {"left", "center", "right"}:
+        alignment = "center"
+    position = str(opts.get("position") or "bottom")
+    if position == "top":
+        vertical_css = "top:5%;bottom:auto"
+    elif position == "center":
+        vertical_css = "top:50%;bottom:auto;transform:translateY(-50%)"
+    else:
+        vertical_css = "top:auto;bottom:5%"
+    background = str(opts.get("background") or "")
+    background_css = "background:transparent;padding:0"
+    background_match = re.fullmatch(r"(#[0-9a-fA-F]{6})(?:@([0-9]*\\.?[0-9]+))?", background)
+    if background_match:
+        rgb = background_match.group(1).lstrip("#")
+        red, green, blue = (int(rgb[i:i + 2], 16) for i in (0, 2, 4))
+        opacity = _number(
+            background_match.group(2) if background_match.group(2) is not None
+            else opts.get("background_opacity", 0.5),
+            "subtitle background opacity", 0, 1,
+        )
+        background_css = f"background:rgba({red},{green},{blue},{opacity});padding:0.12em 0.25em"
+    outline_css = f"-webkit-text-stroke:{stroke_width}px {stroke_color}" if stroke_width else "-webkit-text-stroke:0 transparent"
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width={width},height={height}"><style>
 html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}}#stage{{position:relative;width:{width}px;height:{height}px;pointer-events:none}}
-#caption{{position:absolute;left:5%;right:5%;bottom:{bottom}px;text-align:center;font-family:Arial,"Microsoft YaHei",sans-serif;font-size:{font_size}px;font-weight:700;color:{color};text-shadow:0 2px 4px #000,2px 0 2px #000,-2px 0 2px #000;white-space:pre-wrap;line-height:1.25}}
+#caption{{position:absolute;left:{left:.4f}%;width:{max_width*100:.4f}%;{vertical_css};text-align:{alignment};font-family:{font};font-size:{font_size}px;font-weight:700;color:{color};{outline_css};text-shadow:0 2px 4px #000;white-space:pre-wrap;line-height:1.25;box-sizing:border-box;{background_css}}}
 </style></head><body><div id="stage"><div id="caption"></div></div><script>
 const cues={data};const caption=document.getElementById('caption');
-window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));caption.textContent=active.map(c=>String(c.text||'')).join('\\n');caption.style.display=active.length?'block':'none';}}}};
+window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));caption.textContent=active.map(c=>String(c.text||'')).join('\\\\n');caption.style.display=active.length?'block':'none';}}}};
 window.film.frame(0);
 window.addEventListener('message',function(event){{
   if(event.source!==parent||!event.data||event.data.type!=='film-time')return;
@@ -1125,6 +1157,18 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 warnings.append(f"场景 {scene_id} 的 {key} 尚未接入可验证的时间线重映射")
     if raw_ir.get("style_contract"):
         warnings.append("CompositionIR.style_contract 尚未与 film.html 的运行时样式执行器建立等价映射")
+    subtitle_style = raw_ir.get("subtitle_style") or {}
+    subtitle_font = str(subtitle_style.get("font") or "")
+    if subtitle_font and not re.fullmatch(r"""[A-Za-z0-9 _,"'-]{1,100}""", subtitle_font):
+        warnings.append("SubtitleStyle.font 含运行时不接受的字体字符，无法无损映射")
+    for color_field in ("color", "stroke_color"):
+        color_value = subtitle_style.get(color_field)
+        if color_value and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(color_value)):
+            warnings.append(f"SubtitleStyle.{color_field} 必须是 #RRGGBB 才能无损映射")
+    if subtitle_style.get("background") and not re.fullmatch(
+        r"(#[0-9a-fA-F]{6})(?:@([0-9]*\\.?[0-9]+))?", str(subtitle_style.get("background"))
+    ):
+        warnings.append("SubtitleStyle.background 格式不受支持，无法无损映射")
     for scene in raw_ir.get("scenes") or []:
         scene_start = _number(scene.get("start", 0), "scene start", 0)
         for idx, layer in enumerate(scene.get("layers") or []):

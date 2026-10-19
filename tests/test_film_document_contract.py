@@ -1,8 +1,9 @@
 """Contracts for the OpenFilm-inspired film document editor."""
 from __future__ import annotations
 
+import html
 import json
-
+import re
 from pathlib import Path
 
 import pytest
@@ -311,12 +312,12 @@ def test_migration_preserves_scene_layer_and_project_semantics_through_film_roun
     scene_meta = json.loads(clip["attrs"]["data-vd-scene-meta"])
     layer_meta = json.loads(clip["attrs"]["data-vd-layer-meta"])
     project_meta_tag = re.search(
-        r'<meta\\b(?=[^>]*\\bname\\s*=\\s*["\\']video-director-project-meta["\\'])[^>]*>',
+        r'<meta\b[^>]*\bname="video-director-project-meta"[^>]*>',
         roundtrip["head_html"], re.I | re.S,
     )
     assert project_meta_tag
-    content = re.search(r'\\bcontent\\s*=\\s*(["\\'])(.*?)\\1', project_meta_tag.group(0), re.I | re.S)
-    project_meta = json.loads(html.unescape(content.group(2)))
+    content = re.search(r'\bcontent="([^"]*)"', project_meta_tag.group(0), re.I | re.S)
+    project_meta = json.loads(html.unescape(content.group(1)))
     assert scene_meta["intent"] == "表达核心观点"
     assert scene_meta["visual_intent"] == "固定机位展示产品"
     assert scene_meta["semantic_role"] == "hook"
