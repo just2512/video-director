@@ -920,6 +920,16 @@ def test_ripple_delete_rejects_locked_affected_track_without_mutating_original()
     assert fd.serialize_film(doc) == before
 
 
+def test_split_hotkey_is_global_only_outside_text_entry():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey&&!e.repeat&&String(e.key).toLowerCase()==='s'" in script
+    assert "e.preventDefault();window.filmStudioSplit();" in script
+    assert "target.matches('input,textarea,select,[contenteditable=\"true\"]')" in script
+    assert 'title="在播放头切分（S）"' in index
+
+
 def test_film_studio_is_fullscreen_and_ai_dock_shares_inspector_column():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")

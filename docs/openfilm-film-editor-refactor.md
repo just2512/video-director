@@ -81,6 +81,11 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - The target track always ripples. Other tracks participate only when their `sync-lock` flag is enabled; a locked participating track rejects the whole operation. Clips crossing the insertion point are split at a source-aware boundary, with clip-relative volume envelopes sliced/rebased.
 - Unknown-duration clips that start before the insertion point are rejected because the editor cannot prove whether they cross it. Turning insert mode off preserves the existing behavior of creating a separate new track.
 
+## Keyboard split shortcut
+
+- Press `S` in the Studio to split the selected clip at the playhead. The shortcut is ignored while typing in input, textarea, select, or contenteditable controls, and key-repeat is suppressed to avoid accidental repeated cuts.
+- The toolbar names the same shortcut; Playwright exercises both button-driven split and keyboard-driven split in the real Studio workflow.
+
 ## Roll/Slide/Slip browser regression
 
 - Playwright opens a real film.html project in the Studio, uses the Split button, then Ctrl-drags the real trim handle. It verifies both the visible interaction and the persisted source in/out points plus the right segment timeline start. The fixture retains the cut's combined duration.

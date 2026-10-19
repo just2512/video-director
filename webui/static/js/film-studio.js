@@ -1071,6 +1071,8 @@
       if(e.shiftKey)window.filmStudioRedo();else window.filmStudioUndo();
     }else if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='y'){
       e.preventDefault();window.filmStudioRedo();
+    }else if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey&&!e.repeat&&String(e.key).toLowerCase()==='s'){
+      e.preventDefault();window.filmStudioSplit();
     }else if(e.key==='Delete'||e.key==='Backspace'){
       e.preventDefault();window.filmStudioRemove();
     }else if(e.code==='Space'){

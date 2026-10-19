@@ -146,7 +146,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 # the actual clip-body modifier gesture (Alt+Shift drag).
                 page.locator('#fs-timeline .fs-clip[data-clip="' + right_id + '"]').click()
                 page.evaluate("window.filmStudioSeek(4)")
-                page.locator('[data-film-action="split"]').click()
+                page.keyboard.press("s")
                 page.wait_for_function(
                     "(id) => [...document.querySelectorAll('#fs-timeline .fs-clip')].some(el => el.dataset.clip.startsWith(id + '-split-'))",
                     arg=right_id,
