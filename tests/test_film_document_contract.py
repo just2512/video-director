@@ -223,6 +223,9 @@ def test_api_ui_routes_are_wired():
     server=(root/"webui"/"server.py").read_text(encoding="utf-8")
     index=(root/"webui"/"static"/"index.html").read_text(encoding="utf-8")
     js=(root/"webui"/"static"/"js"/"film-studio.js").read_text(encoding="utf-8")
+    module=(root/"video_director"/"film_document.py").read_text(encoding="utf-8")
+    runtime=(root/"webui"/"static"/"js"/"film-runtime.js").read_text(encoding="utf-8")
+    css=(root/"webui"/"static"/"css"/"film-studio.css").read_text(encoding="utf-8")
     assert "/api/editor/film/initialize" in server
     assert "/api/editor/film/edit" in server
     assert "/api/editor/film/command" in server

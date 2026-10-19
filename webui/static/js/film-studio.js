@@ -326,7 +326,7 @@
     overlay.style.width=Math.max(2,box.width*layout.scale)+'px';
     overlay.style.height=Math.max(2,box.height*layout.scale)+'px';
     overlay.style.transform='rotate('+box.rotate+'deg)';
-    overlay.style.opacity=String(Math.max(0,Math.min(1,box.opacity)));
+    overlay.style.opacity='1';
     overlay.style.cursor=drag&&drag.mode==='resize'?'nwse-resize':'move';
   }
   function transformOpsForBox(clip,box) {
