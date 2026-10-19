@@ -142,3 +142,31 @@ def test_failed_project_actions_expose_view_and_retry():
     assert "pmShowFailure(" in src
     assert "apiPost('/api/director/retry'" in src
     assert "onclick=\"pmShowFailure(" in src
+
+
+
+def test_material_generation_fallback_uses_concept_candidate_if_direct_is_selected():
+    from video_director.director_agent import _generation_candidate_for_scene
+
+    candidates = [
+        {"id": "direct-1", "approach": "direct", "source_preference": "user_asset"},
+        {"id": "broll-1", "approach": "broll", "source_preference": "stock"},
+        {"id": "concept-1", "approach": "concept", "source_preference": "generated",
+         "generation_type": "image", "generation_prompt": "概念画面"},
+    ]
+    selected = _generation_candidate_for_scene(candidates, "direct-1")
+    assert selected is candidates[2]
+
+
+def test_material_generation_fallback_preserves_selected_generation_candidate():
+    from video_director.director_agent import _generation_candidate_for_scene
+
+    candidates = [
+        {"id": "direct-1", "approach": "direct", "source_preference": "user_asset"},
+        {"id": "concept-1", "approach": "concept", "source_preference": "generated",
+         "generation_type": "image"},
+        {"id": "video-1", "approach": "concept", "source_preference": "generated",
+         "generation_type": "video"},
+    ]
+    selected = _generation_candidate_for_scene(candidates, "video-1")
+    assert selected is candidates[2]

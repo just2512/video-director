@@ -398,6 +398,32 @@ def _tool_narration(spec: dict, state: dict) -> dict:
     }
 
 
+_GENERATION_FALLBACK_CHAINS = {
+    "video": ("video", "image", "graphic"),
+    "image": ("image", "graphic"),
+    "graphic": ("graphic",),
+    "motion": ("motion", "graphic"),
+}
+
+
+def _generation_candidate_for_scene(candidates, selected_id=""):
+    """Use the selected generation route when valid; otherwise choose the generated concept fallback.
+
+    Rule-based plans default to the direct/user-asset candidate. That preference must not disable generation
+    when user and stock assets are unavailable.
+    """
+    rows = [c for c in (candidates or []) if isinstance(c, dict)]
+    selected = next((c for c in rows if str(c.get("id") or "") == str(selected_id or "")), None)
+    if selected and str(selected.get("generation_type") or "") in _GENERATION_FALLBACK_CHAINS:
+        return selected
+    return next((
+        c for c in rows
+        if str(c.get("generation_type") or "") in _GENERATION_FALLBACK_CHAINS
+        and (str(c.get("approach") or "") == "concept"
+             or str(c.get("source_preference") or "") == "generated")
+    ), None)
+
+
 def _tool_material(spec: dict, state: dict) -> dict:
     pid = state["project_id"]
     # 2026-10-17 生产事故：依赖图曾漏声明 narration（material_match 硬读
@@ -446,6 +472,15 @@ def _tool_material(spec: dict, state: dict) -> dict:
     order = vo + io
 
     visual_source = state.get("constraints", {}).get("visual_source") or "auto"
+    constraints = state.get("constraints") or {}
+    input_constraints = (spec.get("director_inputs") or {}).get("constraints") or {}
+    allow_generation = bool(constraints.get(
+        "allow_generation", input_constraints.get("allow_generation", spec.get("allow_generation", True))
+    ))
+    stock_attempted = False
+    stock_returned_files = False
+    generation_attempted = False
+    generation_failures: List[str] = []
     assignments = {}
     policy_decisions: List[dict] = []
     # 逐场景记录分配实际由哪种机制产生（llm/deterministic/sequential/policy）。
@@ -541,6 +576,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
     allow_stock = bool(state.get("constraints", {}).get("allow_stock", True))
 
     if missing and allow_stock and not local_only:
+        stock_attempted = True
         try:
             from video_director import stock
             ratio = str(spec.get("width") or config.DEFAULT_RESOLUTION[0]) + "x" + str(
@@ -561,8 +597,11 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 ],
             )
             stock_files = list(sr.get("files") or [])
+            stock_returned_files = bool(stock_files)
             metadata.update(sr.get("metadata") or {})
             warnings.extend(sr.get("warnings") or [])
+            if not stock_files:
+                warnings.append("网络图库请求已完成，但未返回可用素材")
             if visual_source == "online":
                 videos = list(stock_files)
                 images = []
@@ -581,20 +620,19 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 if match_enabled and visual_source != "online" else {}
             )
         except Exception as exc:
-            warnings.append("网络素材补足失败：" + str(exc))
+            message = f"{type(exc).__name__}: {str(exc)[:180]}"
+            warnings.append("网络素材补足失败：" + message)
 
+    # 本地/图库素材不足时，不要求 LLM 必须事先选中 generated：
+    # 规则降级计划默认选 direct/user_asset，生成候选则是合法的兜底路径。
     # 差距 1 + 2（仓库审计）：stock 补足后仍 missing 的场景，若分镜选中了
     # generated 候选（generation_type ∈ image/video/graphic/motion），按兜底链
     # 逐级尝试生成画面补位——复用现有生成链，不新建 Agent。
     # 差距 2：首选路线失败按顺序降级（视频→图片运动→代码画面）；全失败标记
     # NEEDS_HUMAN（诚实，不伪装成功、不静默整片失败）。
-    _GEN_FALLBACK = {
-        "video": ("video", "image", "graphic"),
-        "image": ("image", "graphic"),
-        "graphic": ("graphic",),
-        "motion": ("motion", "graphic"),
-    }
-    if missing and match_enabled:
+    _GEN_FALLBACK = _GENERATION_FALLBACK_CHAINS
+    if missing and match_enabled and allow_generation:
+        generation_attempted = True
         _gen_missing = [m for m in missing if m not in assignments]
         if _gen_missing:
             try:
@@ -604,10 +642,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 generated_files = []
                 for sid in _gen_missing:
                     sel_id = selected_candidate_by_scene.get(sid, "")
-                    cand = next(
-                        (c for c in (candidate_sets_by_scene.get(sid) or [])
-                         if isinstance(c, dict) and c.get("id") == sel_id),
-                        None,
+                    cand = _generation_candidate_for_scene(
+                        candidate_sets_by_scene.get(sid) or [], sel_id
                     )
                     gt = (cand or {}).get("generation_type") or ""
                     # 变量名不得用 order：外层 order 是 asset_order（List[str]），
@@ -628,18 +664,24 @@ def _tool_material(spec: dict, state: dict) -> dict:
                                 width=gen_rw, height=gen_rh, variant="A",
                             )
                         except Exception as exc:
-                            warnings.append(f"生成路线 {try_gt} 失败（{sid}）：{exc}")
+                            failure = f"{sid}/{try_gt}: {type(exc).__name__}: {str(exc)[:160]}"
+                            generation_failures.append(failure)
+                            warnings.append("生成路线失败：" + failure)
                             continue
                         res = results[0] if results else None
                         fpath = getattr(res, "file", "",) if res else ""
                         if fpath and Path(fpath).is_file():
                             used_gt = try_gt
                             break
-                        warnings.append(f"生成路线 {try_gt} 无产物（{sid}）")
+                        failure = f"{sid}/{try_gt}: 调用结束但未生成可读取文件"
+                        generation_failures.append(failure)
+                        warnings.append("生成路线无产物：" + failure)
                     if not used_gt:
                         # 兜底链走尽仍失败 → NEEDS_HUMAN（诚实暴露缺项，不伪装成功）
                         if isinstance(cand, dict):
                             cand["status"] = "NEEDS_HUMAN"
+                        failure = f"{sid}: 所有支持的生成路线均未产出文件"
+                        generation_failures.append(failure)
                         warnings.append(f"镜头 {sid} 所有生产路线均失败，标记 NEEDS_HUMAN")
                         continue
                     if used_gt in ("video", "motion"):
@@ -734,21 +776,38 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     except Exception as exc:
                         warnings.append(f"视觉审核链路异常（不阻塞生成）: {str(exc)[:120]}")
             except Exception as exc:
-                warnings.append("生成补位链路失败：" + str(exc))
+                failure = f"{type(exc).__name__}: {str(exc)[:180]}"
+                generation_failures.append(failure)
+                warnings.append("生成补位链路失败：" + failure)
 
+    if not allow_generation and missing:
+        warnings.append("当前输入约束关闭了画面生成")
     if not all_assets:
-        # 2026-10-18 诚实降级：不再笼统报「没有可用视觉素材」，而是把三条失败
+        # 诚实报告每条素材路径实际发生的情况，而不是把图库/生成未产出误写成 matcher 故障。
         # 路径哪条真的失败了浓缩进 error——用户能看到「本地无素材 + 网络素材
         # 失败 + 生成未触发」的根因，而不是猜。
         reasons = []
         if not videos and not images:
-            reasons.append("未提供本地素材")
-        if any("网络素材补足失败" in w for w in warnings):
-            reasons.append("网络素材搜补失败（pexels/pixabay 不可用）")
-        if any("生成补位" in w and "失败" in w for w in warnings):
-            reasons.append("画面生成补位失败")
+            reasons.append("未提供本地视觉素材")
+        if stock_attempted:
+            stock_errors = [w for w in warnings if "网络素材补足失败" in w]
+            if stock_errors:
+                reasons.append("网络图库搜索/下载失败：" + stock_errors[-1].split("：", 1)[-1][:160])
+            elif not stock_returned_files:
+                reasons.append("网络图库未返回可用素材（检查 Pexels/Pixabay provider 与凭据）")
+        if generation_attempted:
+            if generation_failures:
+                reasons.append("画面生成未产出：" + "；".join(generation_failures[:2]))
+            else:
+                reasons.append("画面生成未形成可登记素材")
+        elif missing and match_enabled and allow_generation:
+            reasons.append("分镜没有可用生成候选，生成兜底未能启动")
+        elif not allow_generation:
+            reasons.append("当前输入约束关闭了画面生成")
+        if llm_call:
+            reasons.append("素材池为空时未执行 LLM 语义匹配；文本模型配置不能替代图库/生图素材来源")
         if not reasons:
-            reasons.append("素材池为空")
+            reasons.append("素材池为空；本地、图库及生成路径均未产生可用视觉文件")
         error = "没有可用视觉素材（" + "；".join(reasons[:3]) + "）"
         return {
             "ok": False, "tool": "material.match", "status": "MISSING_REQUIREMENT",

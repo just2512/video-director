@@ -97,6 +97,28 @@ class TestClosedLoop:
         assert "music.volume" in tools
         assert out["verify_ok"] is True
 
+    def test_rule_plan_splits_conjunctions_without_splitting_list_targets(self):
+        """并列自然语言指令转成多个动作；列表顿号留在同一语义片段。"""
+        plan = vd_director._rule_plan(
+            "保留原声，同时加右下角水印，然后把音乐调小",
+            {"type": "project", "id": ""},
+        )
+        assert plan is not None
+        actions = [step["action"] for step in plan["steps"]]
+        assert "audio.preserve" in actions
+        assert "watermark.add" in actions
+        assert "music.volume" in actions
+
+        listed = vd_director._rule_plan("只保留第 2、4、7 段原声", {"type": "project", "id": ""})
+        assert listed is not None
+        assert any(step["action"] == "audio.preserve" for step in listed["steps"])
+
+    def test_rule_plan_keeps_watermark_opacity_from_following_clause(self):
+        plan = vd_director._rule_plan("右下角加我的水印，透明度 70%", {"type": "project", "id": ""})
+        assert plan is not None
+        watermark = next(step for step in plan["steps"] if step["action"] == "watermark.add")
+        assert watermark["params"]["opacity"] == 0.7
+
     def test_unknown_intent_honest(self, pid, monkeypatch):
         """不编造：无法解析的动作给 MISSING_TARGET 而非瞎执行。"""
         _no_llm(monkeypatch)

@@ -122,6 +122,118 @@ def test_create_director_run_builds_the_same_bundle_and_workflow(monkeypatch):
     assert captured["prompt"] == "制作一条短视频"
 
 
+def test_brief_intent_overrides_untouched_ui_defaults_but_not_manual_choices(monkeypatch):
+    from video_director import director_inputs, director_intent, workflow_run
+
+    parsed_intent = {
+        "resolution": "1920x1080",
+        "duration": "40+",
+        "voice": "zh-CN-YunjianNeural",
+        "voice_mode": "auto",
+        "voice_rate": "-15%",
+        "style": "cinematic-story",
+        "bgm": "off",
+        "bgm_volume": "0.4",
+        "narration_volume": "0.8",
+        "subtitle_mode": "off",
+        "clip_duration": "3",
+        "clip_speed": "0.9",
+        "transition_mode": "fade",
+        "watermark": "逆时钟认知",
+        "_unresolved": "",
+    }
+    monkeypatch.setattr(director_intent, "resolve_director_intents", lambda _brief: dict(parsed_intent))
+    captured = {}
+
+    def fake_bundle(merged):
+        captured.setdefault("merged", []).append(merged)
+        di = merged.get("director_inputs") or {}
+        return {
+            "brief": merged.get("brief", ""),
+            "script": di.get("script", {}),
+            "assets": {"asset_refs": []},
+            "constraints": di.get("constraints") or {},
+            "platform": di.get("platform", ""),
+            "duration": di.get("duration", ""),
+            "style": di.get("style", ""),
+        }
+
+    def fake_plan(bundle, prompt):
+        return {"prompt": prompt, "bundle_style": bundle.get("style")}
+
+    def fake_start(spec, plan=None):
+        captured["spec"] = spec
+        captured["plan"] = plan
+        return "run-intent-regression"
+
+    monkeypatch.setattr(director_inputs, "build_bundle", fake_bundle)
+    monkeypatch.setattr(director_inputs, "build_plan", fake_plan)
+    monkeypatch.setattr(workflow_run, "run_director_create_async", fake_start)
+
+    def request(explicit_fields):
+        return create_director_run({
+            "brief": "横屏 16:9，40 秒以上，放慢配音，每个镜头 3 秒，加水印，不要背景音乐和字幕",
+            "script": "",
+            "resolution": "1080x1920",  # UI default, not user-chosen in this case
+            "width": 1080,
+            "height": 1920,
+            "platform": "",
+            "duration": "",
+            "style": "",
+            "voice": "zh-CN-XiaoxiaoNeural",
+            "voice_mode": "auto",
+            "voice_rate": "1.0",
+            "bgm": "auto",
+            "bgm_volume": 0.3,
+            "narration_volume": 1.0,
+            "sfx": "auto",
+            "subtitle_mode": "plain",
+            "fit_mode": "cover",
+            "clip_duration": 5,
+            "clip_speed": None,
+            "transition_mode": "cut",
+            "watermark": "",
+            "confirm_mode": "preview",
+            "_explicit_fields": explicit_fields,
+            "director_inputs": {
+                "brief": "横屏 16:9，40 秒以上，放慢配音，每个镜头 3 秒，加水印，不要背景音乐和字幕",
+                "script": {"text": "", "source": "director", "authority": "generated"},
+                "assets": {"asset_refs": [], "policy": "user_first", "required": False},
+                "references": [],
+                "articles": [],
+                "software_project": {},
+                "constraints": {"allow_generation": True, "allow_stock": True},
+                "platform": "",
+                "duration": "",
+                "style": "",
+            },
+        })
+
+    assert request([])["ok"] is True
+    automatic = captured["spec"]
+    assert (automatic["width"], automatic["height"]) == (1920, 1080)
+    assert automatic["voice"] == "zh-CN-YunjianNeural"
+    assert automatic["voice_rate"] == "-15%"
+    assert automatic["duration"] == "40+"
+    assert automatic["_intent_duration_s"] == "40+"
+    assert automatic["clip_duration"] == 3.0
+    assert automatic["clip_speed"] == 0.9
+    assert automatic["bgm"] == "off"
+    assert automatic["bgm_volume"] == 0.4
+    assert automatic["narration_volume"] == 0.8
+    assert automatic["subtitle_mode"] == "off"
+    assert automatic["transition_mode"] == "fade"
+    assert automatic["watermark"] == "逆时钟认知"
+    assert automatic["style_intent"] == "cinematic-story"
+
+    assert request(["resolution", "voice_rate"])["ok"] is True
+    manually_chosen = captured["spec"]
+    assert (manually_chosen["width"], manually_chosen["height"]) == (1080, 1920)
+    assert manually_chosen["voice_rate"] == "1.0"
+    assert manually_chosen["bgm"] == "off"
+    assert manually_chosen["watermark"] == "逆时钟认知"
+
+
 @pytest.mark.parametrize("value", ["1920", "1080x1920x30", "0x1080", "1080x0"])
 def test_invalid_resolution_is_rejected(value, monkeypatch):
     from video_director import director_inputs

@@ -291,6 +291,8 @@ def _llm_plan(instruction: str, contexts: dict) -> Optional[dict]:
     actions = contexts["actions"]["actions"]
     system = (
         "你是视频创作系统的 Director 控制中枢。把用户的剪辑要求转成动作计划。\n"
+        "必须覆盖用户指令中所有互相兼容的并列修改；一条指令包含多个动作时，不能只返回第一个。\n"
+        "按原文顺序输出每个可执行动作；互相冲突或能力不可用的要求要明确指出，不要静默省略。\n"
         "只输出 JSON 对象（不要解释、不要代码块标记）：\n"
         '{"goal": "一句话目标", "steps": ['
         '{"action": "<动作id>", "target": "current_selection|project|<场景id>", '
@@ -430,7 +432,10 @@ def _rule_plan(instruction: str, selection: Optional[dict]) -> Optional[dict]:
     多意图指令（「保留原声，加右上角水印，把 BGM 调小」）按标点分段
     逐段 resolve，每段一个 step——一条用户指令可以出多个步骤。
     """
-    segments = [s.strip() for s in re.split(r"[，,。；;、\n]", instruction) if s.strip()]
+    # 只按句间标点/连接词拆分，不把「第 2、4、7 段」中的顿号误当作动作边界。
+    segments = [s.strip() for s in re.split(
+        r"[，,。；;\n]+|(?:然后|接着|另外|同时|并且|以及)", instruction
+    ) if s.strip()]
     if not segments:
         segments = [instruction.strip()]
     steps: List[dict] = []
@@ -495,6 +500,13 @@ def _rule_plan(instruction: str, selection: Optional[dict]) -> Optional[dict]:
             if s["action"] in ("audio.original_volume", "audio.preserve",
                                "music.volume", "audio.volume") and "volume" not in s["params"]:
                 s["params"]["volume"] = whole_vol
+                break
+    # 数值/样式常单独成句（如「加水印，透明度 70%」）；归并到对应动作，不静默丢弃。
+    whole_opacity = _extract_opacity(instruction)
+    if whole_opacity is not None:
+        for s in steps:
+            if s["action"] in ("watermark.add", "watermark.update") and "opacity" not in s["params"]:
+                s["params"]["opacity"] = whole_opacity
                 break
     return {"goal": "、".join(action_registry.get_action(s["action"]).label
                               for s in steps if action_registry.get_action(s["action"])),
