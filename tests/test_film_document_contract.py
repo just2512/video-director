@@ -321,7 +321,13 @@ def test_migration_preserves_scene_layer_and_project_semantics_through_film_roun
     assert scene_meta["intent"] == "表达核心观点"
     assert scene_meta["visual_intent"] == "固定机位展示产品"
     assert scene_meta["semantic_role"] == "hook"
-    assert layer_meta["fit_mode"] == "contain" or "fit_mode" not in layer_meta
+    # fit_mode is mapped to executable CSS, not duplicated in opaque metadata.
+    assert "fit_mode" not in layer_meta
+    assert "object-fit:contain" in clip["attrs"].get("style", "")
+    invalid_fit = fd.CompositionIR.model_validate_json(composition.model_dump_json())
+    invalid_fit.scenes[0].layers[0].fit_mode = "scale-down"
+    invalid_plan = fd.build_film_from_composition("film-metadata-roundtrip", invalid_fit)
+    assert any("fit_mode=\'scale-down\'" in warning for warning in invalid_plan["warnings"])
     assert project_meta["schema"] == "video-director-composition-metadata/1"
     assert project_meta["fps"] == 24
     assert project_meta["style_id"] == "brand-style"
@@ -340,7 +346,9 @@ def test_migration_warns_and_never_overwrites_existing_film():
     route_end = server.index('if route == "/api/editor/film/render":', route_start)
     migration_route = server[route_start:route_end]
     assert 'if plan["warnings"]:' in migration_route
-    assert "accept_warnings" not in migration_route
+    # The option is mentioned in the rejection message, but is never read as an override.
+    assert not re.search(r'\b(?:data|body|payload)\.get\(\s*["\']accept_warnings["\']', migration_route)
+    assert "accept_warnings 不能绕过数据完整性门槛" in migration_route
     assert "FILM_ALREADY_INITIALIZED" in module
     assert "document_revision" in module
     assert "data-vd-scene-meta" in module

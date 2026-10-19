@@ -1202,7 +1202,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             }
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
-            fit = "contain" if layer.get("fit_mode") == "contain" else "cover"
+            raw_fit_mode = str(layer.get("fit_mode") or "cover")
+            if raw_fit_mode not in {"contain", "cover"}:
+                warnings.append(f"片段 {cid} 的 fit_mode={raw_fit_mode!r} 不受支持，无法无损映射")
+            fit = "contain" if raw_fit_mode == "contain" else "cover"
             attrs["style"] = f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;object-fit:{fit}"
             if layer.get("transform"):
                 warnings.append(f"片段 {cid} 的 Transform（位置/缩放/锚点/旋转/透明度）尚未映射到等价的实际画面变换")
@@ -1248,7 +1251,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         y = _number(overlay.get("y", 0), "overlay y", 0, 1) * stage["height"]
         w = _number(overlay.get("width", 1), "overlay width", 0.001, 1) * stage["width"]
         h = _number(overlay.get("height", 1), "overlay height", 0.001, 1) * stage["height"]
-        fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
+        raw_fit_mode = str(overlay.get("fit_mode") or "cover")
+        if raw_fit_mode not in {"contain", "cover"}:
+            warnings.append(f"叠加层 {overlay.get('id')} 的 fit_mode={raw_fit_mode!r} 不受支持，无法无损映射")
+        fit = "contain" if raw_fit_mode == "contain" else "cover"
         style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(_number(overlay.get('opacity',1),'opacity',0,1))};object-fit:{fit}"
         attrs = {
             "id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
