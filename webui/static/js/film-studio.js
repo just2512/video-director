@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -20,22 +20,45 @@
     if(frame){try{frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);}catch(_){}frame.style.display='none';}
     var ph=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
-    S.runtimeRev='';window.filmStudioPlaying=false;
+    S.runtimeRev='';S.runtimeCommand='';window.filmStudioPlaying=false;
     var button=$('fs-play-toggle');if(button)button.textContent='播放';
   }
   function syncRuntime(type) {
     var frame=$('fs-preview-composition');
-    if(!frame||!frame.contentWindow||!S.data||!S.data.exists)return;
+    if(type)S.runtimeCommand=type;
+    else if(!S.runtimeCommand)S.runtimeCommand=window.filmStudioPlaying?'play':'seek';
+    if(!frame||!frame.contentWindow||!S.runtimeReady||!S.data||!S.data.exists)return;
     frame.style.display='block';
     var ph=$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');if(ph)ph.style.display='none';
     if(S.runtimeRev!==S.rev){
       frame.contentWindow.postMessage({type:'film-runtime:load',data:S.data,rev:S.rev},window.location.origin);
       S.runtimeRev=S.rev;
-    }else if(type==='play')frame.contentWindow.postMessage({type:'film-runtime:play'},window.location.origin);
-    else if(type==='pause')frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);
-    else if(type==='seek-pause')frame.contentWindow.postMessage({type:'film-runtime:seek-pause',time:S.playhead},window.location.origin);
+    }
+    var command=S.runtimeCommand||'seek';
+    if(command==='play')frame.contentWindow.postMessage({type:'film-runtime:play'},window.location.origin);
+    else if(command==='pause')frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);
+    else if(command==='seek-pause')frame.contentWindow.postMessage({type:'film-runtime:seek-pause',time:S.playhead},window.location.origin);
     else frame.contentWindow.postMessage({type:'film-runtime:seek',time:S.playhead},window.location.origin);
+    S.runtimeCommand='';
     var button=$('fs-play-toggle');if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
+  }
+  function filmStudioRuntimeFrameLoaded() {
+    var frame=$('fs-preview-composition');
+    if(!frame)return;
+    var doc=null;
+    try{doc=frame.contentDocument;}catch(_){}
+    if(S.runtimeReady&&doc&&doc===S.runtimeDocument)return;
+    S.runtimeReady=true;S.runtimeDocument=doc;S.runtimeRev='';
+    if(S.data&&S.data.exists)syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
+  }
+  var runtimeFrame=$('fs-preview-composition');
+  if(runtimeFrame){
+    runtimeFrame.addEventListener('load',filmStudioRuntimeFrameLoaded);
+    try{
+      if(runtimeFrame.contentDocument&&runtimeFrame.contentDocument.readyState==='complete'){
+        filmStudioRuntimeFrameLoaded();
+      }
+    }catch(_){}
   }
   function previewCurrent() {
     if(!S.data||!S.data.exists){resetPreview();return;}
@@ -201,7 +224,7 @@
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return;}
     if(S.busy)return;
     var changed=nextId!==S.projectId;
-    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.migration=null;S.selectedId='';window.filmStudioPlaying=false;}
+    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;S.selectedId='';window.filmStudioPlaying=false;}
     S.projectId=nextId;
     var requestProjectId=nextId;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
@@ -319,7 +342,12 @@
     if(!frame||event.source!==frame.contentWindow||event.origin!==window.location.origin)return;
     var message=event.data||{};
     if(message.type==='film-runtime:ready'){
-      if(S.data&&S.data.exists&&S.runtimeRev!==S.rev)syncRuntime();
+      if(message.rev&&S.data&&S.data.exists&&message.rev!==S.rev){
+        S.runtimeRev='';
+        syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
+      }else if(message.rev&&S.data&&S.data.exists&&message.rev===S.rev){
+        S.runtimeRev=S.rev;
+      }
     }else if(message.type==='film-runtime:time'){
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
       window.filmStudioPlaying=!!message.playing;setPlayheadVisual();

@@ -278,6 +278,17 @@ def test_real_asset_thumbnails_are_wired_from_clip_asset_lineage():
     assert ".fs-clip-thumb" in css
 
 
+def test_film_runtime_buffers_commands_until_iframe_load_and_acknowledges_revision():
+    root = Path(__file__).resolve().parents[1]
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "runtimeReady:false" in studio
+    assert "runtimeCommand:''" in studio
+    assert "function filmStudioRuntimeFrameLoaded()" in studio
+    assert "runtimeFrame.addEventListener('load',filmStudioRuntimeFrameLoaded)" in studio
+    assert "S.runtimeCommand=type" in studio
+    assert "message.rev!==S.rev" in studio
+
+
 def test_browser_runtime_is_wired_to_authoritative_film_revision_and_multi_track_messages():
     root = Path(__file__).resolve().parents[1]
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
