@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, polling:false, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, dragRaf:0, poll:null, polling:false, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -209,9 +209,9 @@
         el.classList.add('fs-clip-selected');renderAssets();renderInspector();setPlayheadVisual();previewCurrent();
         var trim=e.target.closest('[data-trim]'),mode=trim?(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'):'move';
         if(mode!=='move'&&clip.duration==null)return;
-        S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,originalAt:clip.at,
+        S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,pointerX:e.clientX,pointerY:e.clientY,originalAt:clip.at,
           originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
-          startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el};
+          startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,lastAutoScrollTime:0};
         if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
         e.preventDefault();
       });
@@ -310,14 +310,13 @@
       S.data=r;S.rev=r.rev;render();showStatus(action==='undo'?'已撤销。':'已重做。','success');
     }finally{S.busy=false;}
   }
-  function onMove(e) {
-    var d=S.drag;if(!d)return;
-    var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
-    if(e.clientX<rect.left+28)scroll.scrollLeft=Math.max(0,scroll.scrollLeft-18);
-    else if(e.clientX>rect.right-28)scroll.scrollLeft=Math.min(scroll.scrollWidth,scroll.scrollLeft+18);
-    var dx=e.clientX-d.startX+(scroll.scrollLeft-d.startScrollLeft),dy=e.clientY-d.startY;
-    if(!d.active&&Math.sqrt(dx*dx+dy*dy)<5)return;
-    d.active=true;d.element.classList.add('fs-dragging');
+  function stopDragAutoScroll() {
+    if(S.dragRaf){cancelAnimationFrame(S.dragRaf);S.dragRaf=0;}
+  }
+  function updateDragVisual(d) {
+    if(!d||!d.active)return;
+    var scroll=$('fs-timeline-scroll');
+    var dx=d.pointerX-d.startX+(scroll.scrollLeft-d.startScrollLeft);
     if(d.mode==='trim-start'){
       var newStart=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,d.originalAt+dx/S.pxPerSec));
       d.element.style.left=(newStart*S.pxPerSec)+'px';
@@ -327,8 +326,57 @@
       d.element.style.width=Math.max(3,(newEnd-d.originalAt)*S.pxPerSec)+'px';
     }else d.element.style.left=Math.max(0,d.originalAt*S.pxPerSec+dx)+'px';
   }
+  function dragEdgeVelocity(d,rect) {
+    var edge=40,x=d.pointerX;
+    if(x<rect.left+edge){
+      var leftDepth=Math.min(1,Math.max(0,(rect.left+edge-x)/edge));
+      return -(3+15*leftDepth);
+    }
+    if(x>rect.right-edge){
+      var rightDepth=Math.min(1,Math.max(0,(x-(rect.right-edge))/edge));
+      return 3+15*rightDepth;
+    }
+    return 0;
+  }
+  function dragAutoScrollTick() {
+    S.dragRaf=0;
+    var d=S.drag;if(!d||!d.active)return;
+    var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
+    var velocity=dragEdgeVelocity(d,rect);
+    if(!velocity)return;
+    var now=performance.now(),elapsed=Math.max(0,Math.min(32,now-(d.lastAutoScrollTime||now)));
+    d.lastAutoScrollTime=now;
+    var maxScroll=Math.max(0,scroll.scrollWidth-scroll.clientWidth);
+    var next=Math.max(0,Math.min(maxScroll,scroll.scrollLeft+velocity*elapsed/16));
+    if(Math.abs(next-scroll.scrollLeft)<0.01)return;
+    scroll.scrollLeft=next;
+    updateDragVisual(d);
+    S.dragRaf=requestAnimationFrame(dragAutoScrollTick);
+  }
+  function scheduleDragAutoScroll() {
+    var d=S.drag;if(!d||!d.active)return;
+    var scroll=$('fs-timeline-scroll');
+    if(!dragEdgeVelocity(d,scroll.getBoundingClientRect()))return;
+    if(!S.dragRaf){
+      d.lastAutoScrollTime=performance.now();
+      S.dragRaf=requestAnimationFrame(dragAutoScrollTick);
+    }
+  }
+  function onMove(e) {
+    var d=S.drag;if(!d)return;
+    d.pointerX=e.clientX;d.pointerY=e.clientY;
+    var scroll=$('fs-timeline-scroll');
+    var dx=e.clientX-d.startX+(scroll.scrollLeft-d.startScrollLeft),dy=e.clientY-d.startY;
+    if(!d.active&&Math.sqrt(dx*dx+dy*dy)<5)return;
+    d.active=true;d.element.classList.add('fs-dragging');
+    updateDragVisual(d);
+    scheduleDragAutoScroll();
+  }
   async function onUp(e) {
-    var d=S.drag;if(!d)return;S.drag=null;d.element.classList.remove('fs-dragging');
+    var d=S.drag;if(!d)return;
+    stopDragAutoScroll();
+    d.pointerX=e.clientX;d.pointerY=e.clientY;
+    S.drag=null;d.element.classList.remove('fs-dragging');
     if(!d.active)return;
     var deltaPx=e.clientX-d.startX+($('fs-timeline-scroll').scrollLeft-d.startScrollLeft);
     if(d.mode==='trim-start'){
@@ -347,7 +395,10 @@
     await filmStudioCommit([{op:'move',clip:d.id,track_id:row?row.getAttribute('data-track'):d.trackId,at:Number(at.toFixed(3))}]);
   }
   document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);
-  document.addEventListener('pointercancel',function(){if(S.drag){S.drag.element.classList.remove('fs-dragging');S.drag=null;}});
+  document.addEventListener('pointercancel',function(){
+    stopDragAutoScroll();
+    if(S.drag){S.drag.element.classList.remove('fs-dragging');S.drag=null;}
+  });
   window.filmStudioToggle=function(){
     if(S.open){window.filmStudioClose();return;}
     S.open=true;$('film-studio-panel').style.display='block';$('film-studio-toggle').textContent='关闭多轨工作台';
@@ -425,7 +476,30 @@
       var button=$('fs-play-toggle');if(button)button.textContent='播放';
     }
   });
-  window.filmStudioZoom=function(direction){S.pxPerSec=Math.max(12,Math.min(120,S.pxPerSec*(direction>0?1.25:0.8)));if(S.data&&S.data.exists)renderTimeline();};
+  window.filmStudioZoom=function(direction){
+    var scroll=$('fs-timeline-scroll'),rect=scroll&&scroll.getBoundingClientRect();
+    var anchorPx=scroll&&rect?Math.max(0,effectivePointerContentX(rect,scroll,rect.left+rect.width/2)-132):132;
+    var anchorTime=anchorPx/S.pxPerSec,old=S.pxPerSec;
+    S.pxPerSec=Math.max(12,Math.min(120,S.pxPerSec*(direction>0?1.25:0.8)));
+    if(S.data&&S.data.exists)renderTimeline();
+    if(scroll&&rect&&S.pxPerSec!==old)scroll.scrollLeft=Math.max(0,132+anchorTime*S.pxPerSec-rect.width/2);
+  };
+  function effectivePointerContentX(rect,scroll,clientX){return clientX-rect.left+scroll.scrollLeft;}
+  function onTimelineWheel(e){
+    if(!e.ctrlKey&&!e.metaKey)return;
+    var scroll=e.currentTarget,rect=scroll.getBoundingClientRect(),localX=e.clientX-rect.left;
+    // Keep the sticky track-header column out of the time-scale anchor.
+    if(localX<132)return;
+    e.preventDefault();
+    var old=S.pxPerSec,anchorTime=Math.max(0,(localX+scroll.scrollLeft-132)/old);
+    var next=Math.max(12,Math.min(120,old*Math.exp(-e.deltaY/360)));
+    if(Math.abs(next-old)<0.01)return;
+    S.pxPerSec=next;
+    if(S.data&&S.data.exists)renderTimeline();
+    scroll.scrollLeft=Math.max(0,132+anchorTime*next-localX);
+  }
+  var timelineScroll=$('fs-timeline-scroll');
+  if(timelineScroll)timelineScroll.addEventListener('wheel',onTimelineWheel,{passive:false});
   window.filmStudioAddTrack=async function(){
     if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档。','error');return;}
     var label=window.prompt('新轨道名称','画面轨道');if(label==null)return;label=label.trim();

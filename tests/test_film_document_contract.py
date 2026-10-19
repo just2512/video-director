@@ -227,6 +227,11 @@ def test_api_ui_routes_are_wired():
     assert "/api/editor/film/revision" in server
     assert "peek_project_revision" in server
     assert "film/revision" in js
+    assert "addEventListener('wheel',onTimelineWheel,{passive:false})" in js
+    assert "Math.exp(-e.deltaY/360)" in js
+    assert "function dragAutoScrollTick()" in js
+    assert "requestAnimationFrame(dragAutoScrollTick)" in js
+    assert "stopDragAutoScroll()" in js
     assert "/static/css/film-studio.css" in index
 
 
