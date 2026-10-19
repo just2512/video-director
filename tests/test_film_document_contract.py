@@ -581,7 +581,7 @@ def test_roll_trim_rejects_nonadjacent_different_source_locked_track_and_empty_s
     with pytest.raises(fd.FilmError, match="时间线上相邻"):
         fd.apply_ops(split, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-b", "delta": 0.2}])
     with pytest.raises(fd.FilmError, match="时长不足"):
-        fd.apply_ops(split, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 2}])
+        fd.apply_ops(split, [{"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 3}])
     locked = fd.copy.deepcopy(split)
     locked["tracks"][0]["attrs"]["locked"] = ""
     with pytest.raises(fd.FilmError, match="已锁定"):
