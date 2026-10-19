@@ -382,6 +382,7 @@
       e.preventDefault();e.stopPropagation();
       if(S.busy||S.broken){showStatus('当前无法编辑音量包络。','error');return;}
       var duration=clip.duration,rect=canvas.getBoundingClientRect();
+      if(duration<=0.02){showStatus('片段短于 0.02 秒，无法安全添加内部音量关键帧。','error');return;}
       if(!rect.width||!rect.height)return;
       var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
       var value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
@@ -402,7 +403,8 @@
       var index=-1;
       points.forEach(function(p,i){
         var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
-        var py=Math.abs((1-p.v)*rect.height-(e.clientY-rect.top));
+        var renderedY=rect.height-4-p.v*(rect.height-8);
+        var py=Math.abs(renderedY-(e.clientY-rect.top));
         if(px<=10&&py<=10){index=i;nearestPx=px;}
       });
       var added=false;

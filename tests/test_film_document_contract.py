@@ -370,6 +370,25 @@ def test_frame_determinism_audit_accepts_identical_pixels_and_rejects_real_diffe
     assert changed[1:] == (32 * 24, 32, 24)
 
 
+def test_volume_envelope_filtergraph_executes_in_real_ffmpeg():
+    import subprocess
+    from video_director import renderer
+    from video_director.film_render import _volume_envelope_filter
+
+    ffmpeg = renderer._ffmpeg()
+    expression = _volume_envelope_filter(0.4, [
+        {"t": 0.0, "v": 1.0},
+        {"t": 0.075, "v": 0.2},
+        {"t": 0.15, "v": 0.8},
+    ])
+    result = subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+         "sine=frequency=440:duration=0.15", "-af", expression, "-f", "null", "-"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_volume_envelope_mode_does_not_steal_normal_clip_dragging():
     root = Path(__file__).resolve().parents[1]
     script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
