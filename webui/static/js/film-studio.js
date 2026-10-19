@@ -516,7 +516,7 @@
     S.busy=true;
     try{
       var base=S.rev, snapshot=baseSnapshot();
-      var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:base,base_snapshot:snapshot,ops:ops});
+      var r=await apiPost('/api/action/execute',{project_id:S.projectId,action:'film.document.edit',target:'project',selection:{type:'project'},params:{base:base,base_snapshot:snapshot,ops:ops}});
       if(!r||!r.ok){
         if(isRevisionConflict(r)){await recoverFilmConflict((r&&r.error)||'影片文档发生并发修改。');}
         else showStatus((r&&r.error)||'编辑提交失败。','error');
@@ -529,7 +529,7 @@
   async function filmStudioHistory(action) {
     if(!S.data||S.busy)return;S.busy=true;
     try{
-      var r=await apiPost('/api/editor/film/'+action,{project_id:S.projectId,base:S.rev});
+      var r=await apiPost('/api/action/execute',{project_id:S.projectId,action:'film.document.'+action,target:'project',selection:{type:'project'},params:{base:S.rev}});
       if(!r||!r.ok){showStatus((r&&r.error)||'历史操作失败。','error');return;}
       S.data=r;S.rev=r.rev;render();showStatus(action==='undo'?'已撤销。':'已重做。','success');
     }finally{S.busy=false;}

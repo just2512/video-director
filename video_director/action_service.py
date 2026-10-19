@@ -18,6 +18,51 @@ class ActionServiceError(ValueError):
         super().__init__(str(body.get("error") or body.get("reason") or self.code))
 
 
+def execute_film_document_action(project_id: str, action_id: str, params: dict) -> dict:
+    """Execute a registered Film Document Action through the single revisioned file service."""
+    from video_director import action_registry as actions
+    from video_director import film_document as fd
+
+    spec = actions.get_action(action_id)
+    if spec is None or spec.command not in {
+        "film_document_edit", "film_document_undo", "film_document_redo",
+    }:
+        raise ActionServiceError({
+            "ok": False, "status": "REJECTED", "code": "ACTION_NOT_SUPPORTED",
+            "action": action_id, "error": "该动作不是注册的 Film Document 操作。",
+        }, 400)
+    pid = fd.validate_project_id(project_id)
+    state = fd.read_project_film(pid)
+    if not state.get("exists"):
+        raise ActionServiceError({
+            "ok": False, "status": "REJECTED", "code": "FILM_NOT_INITIALIZED",
+            "action": action_id, "error": "当前项目没有可编辑的 film.html。",
+        }, 409)
+    try:
+        if spec.command == "film_document_edit":
+            operations = params.get("ops")
+            if not isinstance(operations, list) or not operations:
+                raise fd.FilmError("INVALID_OPERATIONS", "影片编辑必须包含非空 ops 列表", 400)
+            result = fd.edit_project_film(
+                pid, params.get("base"), operations, params.get("base_snapshot"))
+            state = fd.read_project_film(pid)
+            data = fd.film_payload(pid, state)
+            data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"]})
+        else:
+            mode = "undo" if spec.command == "film_document_undo" else "redo"
+            fd.undo_redo_project_film(pid, params.get("base"), mode)
+            state = fd.read_project_film(pid)
+            data = fd.film_payload(pid, state)
+            data["action"] = mode
+    except fd.FilmError as exc:
+        raise ActionServiceError({
+            "ok": False, "status": "REJECTED", "code": exc.code,
+            "action": action_id, "error": str(exc),
+        }, exc.status) from exc
+    data.update({"status": "APPLIED", "action": action_id, "message": spec.label})
+    return data
+
+
 def execute_action_request(payload: dict) -> dict:
     """Execute one registered user-level action against the selected project."""
     if not isinstance(payload, dict):
@@ -63,6 +108,17 @@ def execute_action_request(payload: dict) -> dict:
         from video_director import action_registry as actions
         from video_director import project_context
         from video_director import tool_executor
+
+        registered = actions.get_action(action_id)
+        if registered and registered.command in {
+            "film_document_edit", "film_document_undo", "film_document_redo",
+        }:
+            if target not in ("project", "current_selection"):
+                raise ActionServiceError({
+                    "ok": False, "status": "REJECTED", "code": "TARGET_NOT_ALLOWED",
+                    "action": action_id, "error": "Film Document 动作只接受项目目标。",
+                }, 409)
+            return execute_film_document_action(pid, action_id, params)
 
         context = project_context.inspect_project_context(pid, selection)
         availability = actions.action_availability(action_id, pid, context=context)

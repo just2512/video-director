@@ -637,6 +637,63 @@ def test_studio_prompts_restore_selected_clip_after_external_deletion():
     assert "], !!allowBusyRecovery)" in studio
 
 
+
+def test_registered_film_document_actions_share_revisioned_edit_undo_redo(tmp_path, monkeypatch):
+    from video_director import action_registry, action_service
+    from video_director.models import AssetRef, CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    pid = "registered-film-document"
+    root = tmp_path / "composer" / pid
+    (root / "assets").mkdir(parents=True)
+    source = root / "assets" / "still.png"
+    source.write_bytes(b"test-image-bytes")
+    composition = CompositionIR(
+        project=ProjectSpec(width=320, height=180, fps=24, duration=2),
+        scenes=[SceneIR(
+            id="scene-registered", start=0, duration=2, text="registered action",
+            layers=[Layer(type=LayerType.image, asset_id="still-registered", duration=2)],
+        )],
+        assets=[AssetRef(id="still-registered", type="image", file=str(source), duration=2, width=320, height=180)],
+    )
+    plan = fd.build_film_from_composition(pid, composition)
+    assert plan["warnings"] == []
+    fd._write_atomic(fd._film_path(pid), fd.serialize_film(plan["document"]))
+    fd._history_write(pid, {"past": [], "future": []})
+    state = fd.read_project_film(pid)
+    clip = next(c for track in state["doc"]["tracks"] for c in track["clips"]
+                if c["attrs"].get("data-vd-scene-id"))
+
+    for action_id in ("film.document.edit", "film.document.undo", "film.document.redo"):
+        assert action_registry.get_action(action_id) is not None
+
+    edited = action_service.execute_action_request({
+        "project_id": pid, "action": "film.document.edit", "target": "project",
+        "selection": {"type": "project"},
+        "params": {
+            "base": state["rev"], "base_snapshot": state["doc"],
+            "ops": [{"op": "set", "clip": clip["id"], "field": "at", "value": 0.5}],
+        },
+    })
+    assert edited["ok"] is True
+    assert edited["ops"]
+    assert fd.composition_from_film(fd.read_project_film(pid)["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
+
+    undone = action_service.execute_action_request({
+        "project_id": pid, "action": "film.document.undo", "target": "project",
+        "selection": {"type": "project"}, "params": {"base": edited["rev"]},
+    })
+    assert undone["ok"] is True
+    assert fd.composition_from_film(fd.read_project_film(pid)["doc"])["scenes"][0]["layers"][0]["start"] == 0
+
+    redone = action_service.execute_action_request({
+        "project_id": pid, "action": "film.document.redo", "target": "project",
+        "selection": {"type": "project"}, "params": {"base": undone["rev"]},
+    })
+    assert redone["ok"] is True
+    assert fd.composition_from_film(fd.read_project_film(pid)["doc"])["scenes"][0]["layers"][0]["start"] == 0.5
+
+
 def test_trim_start_and_end_preserve_source_time_and_speed():
     doc = fd.parse_film(SAMPLE)
     edited, ops = fd.apply_ops(doc, [

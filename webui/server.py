@@ -1125,9 +1125,11 @@ class Handler(BaseHTTPRequestHandler):
                 return True
 
             if route == "/api/editor/film/edit":
-                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"), payload.get("base_snapshot"))
-                data = fd.film_payload(pid, fd.read_project_film(pid))
-                data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"]})
+                from video_director.action_service import execute_film_document_action
+                data = execute_film_document_action(pid, "film.document.edit", {
+                    "base": payload.get("base"), "base_snapshot": payload.get("base_snapshot"),
+                    "ops": payload.get("ops"),
+                })
                 self._send_json(data)
                 return True
 
@@ -1156,11 +1158,13 @@ class Handler(BaseHTTPRequestHandler):
                                      "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
                                      "rev": state["rev"]})
                     return True
-                result = fd.edit_project_film(pid, payload.get("base"), operations, payload.get("base_snapshot"))
-                data = fd.film_payload(pid, fd.read_project_film(pid))
+                from video_director.action_service import execute_film_document_action
+                data = execute_film_document_action(pid, "film.document.edit", {
+                    "base": payload.get("base"), "base_snapshot": payload.get("base_snapshot"),
+                    "ops": operations,
+                })
                 message = assistant_summary or "已应用影片编辑操作。"
-                data.update({"ops": result["ops"], "rebased": result["rebased"],
-                             "message": f"{message}（已提交 {len(result['ops'])} 项编辑操作，并重新读取文档确认。）"})
+                data["message"] = f"{message}（已提交 {len(data.get('ops') or [])} 项编辑操作，并重新读取文档确认。）"
                 self._send_json(data)
                 return True
         except fd.FilmError as exc:

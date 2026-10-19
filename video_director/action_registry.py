@@ -72,6 +72,14 @@ class ActionSpec:
 
 #: §13 Action 表（id ↔ §五十七 用户命令逐一对应；capability ↔ manifest 现有 id）
 _ACTIONS: List[ActionSpec] = [
+    # Film-document actions are the canonical editor surface after migration.
+    # UI, AI, MCP and CLI submit the same revisioned operation batch here.
+    ActionSpec("film.document.edit", "提交影片编辑", "film.document.edit", "film_document_edit",
+               targets=["project"], aliases=["film edit batch"]),
+    ActionSpec("film.document.undo", "撤销影片编辑", "film.document.history", "film_document_undo",
+               targets=["project"]),
+    ActionSpec("film.document.redo", "重做影片编辑", "film.document.history", "film_document_redo",
+               targets=["project"]),
     # ---- 声音（§五「保留原声」族 / §37 Audio Bus）----
     ActionSpec("audio.preserve", "保留原声", "audio.original.preserve", "set_original_audio",
                targets=["project", "scene", "layer", "multi_layer"],
