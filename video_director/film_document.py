@@ -118,6 +118,65 @@ def _parse_fade(value: Any) -> tuple[float, float]:
     return fade_in, fade_out
 
 
+def _store_fade(attrs: dict, value: str | None) -> None:
+    if value is None:
+        attrs.pop("fade", None)
+    else:
+        attrs["fade"] = value
+
+
+def _split_fade(value: Any, duration: float, offset: float) -> tuple[str | None, str | None]:
+    """Partition one linear fade pair across a cut without changing the retained outer fades."""
+    fade_in, fade_out = _parse_fade(value)
+    if fade_in <= 0 and fade_out <= 0:
+        return None, None
+    if not math.isfinite(duration) or not math.isfinite(offset) or offset <= 0 or offset >= duration:
+        raise FilmError("FADE_EDIT_BOUNDARY", "淡化切点必须位于片段内部", 422)
+    # A single in/out pair cannot represent a partial fade inherited at a new
+    # segment start. Only cut in the fully visible middle interval.
+    if offset < fade_in - 0.001 or offset > duration - fade_out + 0.001:
+        raise FilmError(
+            "FADE_EDIT_BOUNDARY",
+            "切点落在淡入或淡出区间；为避免预览和导出效果变化，请先移除淡化或调整切点",
+            422,
+        )
+    left_value = f"{_fmt(fade_in)},0" if fade_in > 0 else None
+    right_value = f"0,{_fmt(fade_out)}" if fade_out > 0 else None
+    return left_value, right_value
+
+
+def _trim_fade(value: Any, duration: float, offset: float, edge: str) -> str | None:
+    """Keep the original fade only when a trim can represent it exactly."""
+    fade_in, fade_out = _parse_fade(value)
+    if fade_in <= 0 and fade_out <= 0:
+        return None
+    if not math.isfinite(duration) or not math.isfinite(offset) or offset <= 0 or offset >= duration:
+        raise FilmError("FADE_EDIT_BOUNDARY", "淡化修剪点必须位于片段内部", 422)
+    if edge == "start":
+        if offset < fade_in - 0.001 or offset > duration - fade_out + 0.001:
+            raise FilmError(
+                "FADE_EDIT_BOUNDARY",
+                "起点修剪切入了淡入或淡出区间；请先移除淡化或调整切点",
+                422,
+            )
+        return f"0,{_fmt(fade_out)}" if fade_out > 0 else None
+    if edge == "end":
+        if offset < fade_in - 0.001:
+            raise FilmError(
+                "FADE_EDIT_BOUNDARY",
+                "终点修剪截断了淡入区间；请先移除淡化或调整切点",
+                422,
+            )
+        if offset < duration - 0.001 and offset > duration - fade_out + 0.001:
+            raise FilmError(
+                "FADE_EDIT_BOUNDARY",
+                "终点修剪切入了淡出区间；请先移除淡化或调整切点",
+                422,
+            )
+        return f"{_fmt(fade_in)},0" if fade_in > 0 else None
+    raise FilmError("INVALID_TRIM_EDGE", "trim edge 只能是 start 或 end", 422)
+
+
 def _normalize_fade(value: Any, clip: dict) -> str | None:
     fade_in, fade_out = _parse_fade(value)
     duration = clip_duration(clip)
@@ -523,6 +582,14 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
                 removed_ids.append(cid)
                 continue
 
+            original_duration = end - at
+            left_fade = None
+            right_fade = None
+            if left_duration > eps:
+                left_fade, _ = _split_fade(attrs.get("fade"), original_duration, cut_start - at)
+            if right_duration > eps:
+                _, right_fade = _split_fade(attrs.get("fade"), original_duration, cut_end - at)
+
             if left_duration > eps:
                 left = copy.deepcopy(clip)
                 left_source_out = min(source_out, source_in + left_duration * speed)
@@ -530,6 +597,7 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
                     raise FilmError("RIPPLE_RANGE_INVALID", f"片段 {cid} 的左侧源区间无效", 422)
                 left["attrs"]["src"] = _with_source_range(str(left["attrs"]["src"]), source_in, left_source_out)
                 _slice_volume_envelope(left["attrs"], 0.0, left_duration)
+                _store_fade(left["attrs"], left_fade)
                 rewritten.append(left)
 
             if right_duration > eps:
@@ -540,6 +608,7 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
                 right["attrs"]["src"] = _with_source_range(str(right["attrs"]["src"]), right_source_in, source_out)
                 right["attrs"]["at"] = _fmt(cut_start)
                 _slice_volume_envelope(right["attrs"], cut_end - at, clip_duration(clip))
+                _store_fade(right["attrs"], right_fade)
                 if left_duration > eps:
                     new_id = requested_split_ids.get(cid, "")
                     if not new_id:
@@ -777,6 +846,7 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
             offset, old_duration = at - start, end - start
             if offset <= 0.001 or old_duration - offset <= 0.001:
                 raise FilmError("INSERT_SPLIT_TOO_CLOSE", f"插入点过于接近片段 {clip['id']} 的边缘，无法安全切分", 422)
+            left_fade, right_fade = _split_fade(clip_attrs.get("fade"), old_duration, offset)
             original_src = str(clip_attrs.get("src") or "")
             source_in, source_out = _source_range(original_src)
             if source_out is None:
@@ -802,6 +872,8 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
             if "volume_envelope" in clip_attrs:
                 _slice_volume_envelope(clip_attrs, 0.0, offset)
                 _slice_volume_envelope(right_attrs, offset, old_duration)
+            _store_fade(clip_attrs, left_fade)
+            _store_fade(right_attrs, right_fade)
             split_ids[clip["id"]] = right_id
             rewritten.extend((clip, right))
             shifted_ids.append(right_id)
@@ -1028,10 +1100,13 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 raise FilmError("DUPLICATE_CLIP_ID", f"切分后 ID 已存在：{right_id}")
             original_id = clip["id"]
             original_envelope = attrs.get("volume_envelope")
+            original_fade = attrs.get("fade")
             split_offset = at - start
+            left_fade, right_fade = _split_fade(original_fade, duration, split_offset)
             clip["attrs"]["src"] = _with_source_range(attrs["src"], src_in, mid)
             if original_envelope is not None:
                 _slice_volume_envelope(clip["attrs"], 0.0, split_offset)
+            _store_fade(clip["attrs"], left_fade)
             right = copy.deepcopy(clip)
             right["id"], right["attrs"]["id"] = right_id, right_id
             right["attrs"]["src"] = _with_source_range(attrs["src"], mid, src_out)
@@ -1039,6 +1114,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             if original_envelope is not None:
                 right["attrs"]["volume_envelope"] = original_envelope
                 _slice_volume_envelope(right["attrs"], split_offset, duration)
+            _store_fade(right["attrs"], right_fade)
             track["clips"].insert(track["clips"].index(clip) + 1, right)
             normalized.append({"op": "split", "clip": original_id, "at": _fmt(at), "new_id": right_id})
         elif kind == "trim":
@@ -1056,6 +1132,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             if edge == "start":
                 new_start = _number(op.get("at"), "trim start", start + 0.001, old_end - 0.001)
                 delta = new_start - start
+                trimmed_fade = _trim_fade(attrs.get("fade"), duration, delta, "start")
                 if clip["tag"] in {"img", "iframe"}:
                     new_src_in, new_src_out = src_in, src_out - delta
                 else:
@@ -1065,14 +1142,17 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 attrs["src"] = _with_source_range(attrs["src"], new_src_in, new_src_out)
                 attrs["at"] = _fmt(new_start)
                 _slice_volume_envelope(attrs, delta, duration)
+                _store_fade(attrs, trimmed_fade)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "start", "at": _fmt(new_start)})
             elif edge == "end":
                 new_end = _number(op.get("end"), "trim end", start + 0.001, old_end - 0.001)
+                trimmed_fade = _trim_fade(attrs.get("fade"), duration, new_end - start, "end")
                 new_src_out = src_in + (new_end - start) * speed
                 if new_src_out <= src_in + 0.001:
                     raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
                 attrs["src"] = _with_source_range(attrs["src"], src_in, min(src_out, new_src_out))
                 _slice_volume_envelope(attrs, 0.0, new_end - start)
+                _store_fade(attrs, trimmed_fade)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "end", "end": _fmt(new_end)})
             else:
                 raise FilmError("INVALID_TRIM_EDGE", "trim edge 只能是 start 或 end")
@@ -1105,7 +1185,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             track = _find_track(out, str(op.get("track_id") or ""))
             field, value = str(op.get("field") or ""), op.get("value")
             if field not in TRACK_FLAGS or not isinstance(value, bool):
-                raise FilmError("INVALID_TRACK_FLAG", "轨道属性只允许 locked/hidden/muted 布尔值")
+                raise FilmError("INVALID_TRACK_FLAG", "轨道属性只允许 locked/hidden/muted/sync-lock 布尔值")
             if value:
                 track["attrs"][field] = ""
             else:

@@ -485,6 +485,60 @@ def test_clip_fade_contract_applies_to_runtime_and_ffmpeg():
     assert "淡入（秒）" in studio and "淡出（秒）" in studio
 
 
+def test_split_partitions_fades_without_restarting_them():
+    source = SAMPLE.replace('speed="2" volume="1"', 'speed="2" volume="1" fade="0.5,0.75"')
+    doc = fd.parse_film(source)
+    changed, _ = fd.apply_ops(doc, [{"op": "split", "clip": "clip-a", "at": 1.0, "new_id": "clip-a-right"}])
+    clips = {clip["id"]: clip for track in changed["tracks"] for clip in track["clips"]}
+    assert clips["clip-a"]["attrs"]["fade"] == "0.5,0"
+    assert clips["clip-a-right"]["attrs"]["fade"] == "0,0.75"
+    for unsafe_at in (0.2, 4.5):
+        with pytest.raises(fd.FilmError, match="切点落在淡入或淡出区间"):
+            fd.apply_ops(doc, [{"op": "split", "clip": "clip-a", "at": unsafe_at, "new_id": "unsafe-right"}])
+
+
+def test_trim_preserves_only_outer_fade_and_rejects_cutting_through_fade():
+    source = SAMPLE.replace('speed="2" volume="1"', 'speed="2" volume="1" fade="0.5,0.75"')
+    doc = fd.parse_film(source)
+    trimmed_start, _ = fd.apply_ops(doc, [{"op": "trim", "clip": "clip-a", "edge": "start", "at": 1.0}])
+    clip = next(c for t in trimmed_start["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    assert clip["attrs"]["fade"] == "0,0.75"
+    trimmed_end, _ = fd.apply_ops(doc, [{"op": "trim", "clip": "clip-a", "edge": "end", "end": 3.0}])
+    clip = next(c for t in trimmed_end["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+    assert clip["attrs"]["fade"] == "0.5,0"
+    with pytest.raises(fd.FilmError, match="切入了淡入"):
+        fd.apply_ops(doc, [{"op": "trim", "clip": "clip-a", "edge": "start", "at": 0.2}])
+    with pytest.raises(fd.FilmError, match="切入了淡出"):
+        fd.apply_ops(doc, [{"op": "trim", "clip": "clip-a", "edge": "end", "end": 4.5}])
+
+
+def test_insert_ripple_and_ripple_delete_partition_fades_on_retained_edges():
+    inserted_source = INSERT_SAMPLE.replace(
+        'src="../assets/a.mp4#t=0,4" at="0"',
+        'src="../assets/a.mp4#t=0,4" at="0" fade="0.5,0.5"',
+    )
+    inserted_doc = fd.parse_film(inserted_source)
+    inserted, normalized = fd.apply_ops(inserted_doc, [{
+        "op": "insert_ripple", "track_id": "video-main", "at": 2,
+        "clip": {"id": "new-fade-insert", "tag": "video", "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "0"}},
+    }])
+    video = {clip["id"]: clip for track in inserted["tracks"] if track["id"] == "video-main" for clip in track["clips"]}
+    right_id = normalized[0]["split_ids"]["video-before"]
+    assert video["video-before"]["attrs"]["fade"] == "0.5,0"
+    assert video[right_id]["attrs"]["fade"] == "0,0.5"
+
+    ripple_source = SAMPLE.replace(
+        '<audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio>',
+        '<audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2" fade="0.5,0.5"></audio>',
+    )
+    ripple_doc = fd.parse_film(ripple_source)
+    ripple, normalized = fd.apply_ops(ripple_doc, [{"op": "ripple_delete", "clip": "clip-b", "scope": "all"}])
+    audio = {clip["id"]: clip for track in ripple["tracks"] if track["id"] == "audio-bed" for clip in track["clips"]}
+    right_id = normalized[0]["split_ids"]["audio-1"]
+    assert audio["audio-1"]["attrs"]["fade"] == "0.5,0"
+    assert audio[right_id]["attrs"]["fade"] == "0,0.5"
+
+
 def test_clip_fade_rejects_invalid_or_overlong_fades():
     doc = fd.parse_film(SAMPLE)
     with pytest.raises(fd.FilmError, match="超过片段时长"):

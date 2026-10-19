@@ -57,11 +57,11 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - The unified operation engine supports explicit `ripple_delete`: it removes the selected finite timeline interval and closes the gap across all tracks.
 - Clips crossing the cut retain their remaining source ranges; a crossing clip is split into source-contiguous left/right segments. The normalized operation records generated right-side clip IDs so proposal preview and confirmed apply produce the same document.
 - Affected locked tracks and ambiguous unknown-duration clips reject the whole transaction. The edit remains revisioned and undoable through the same FilmDocument history.
-- Roll and Slip are implemented as separate validated operations with pointer gestures. Roll is currently restricted to same-source continuous cuts with equal playback speeds; Slide trim, which must adjust both neighboring source handles, remains unimplemented.
+- Roll, Slip and Slide are implemented as separate validated operations with pointer gestures. Roll is restricted to same-source continuous cuts with equal playback speeds; Slide is restricted to a same-source, equal-speed three-clip run.
 
 ## Clip fade in/out
 
-- The clip attribute `fade="in_seconds,out_seconds"` is validated by FilmDocument, restricted to supported media elements, and rejected when total fade duration exceeds clip duration.
+- The clip attribute `fade="in_seconds,out_seconds"` is validated by FilmDocument, restricted to supported media elements, and rejected when total fade duration exceeds clip duration. Split, trim, insert-ripple and ripple-delete preserve only the retained outer fade; any cut inside an active fade interval is rejected to avoid changing the visible/audio curve silently.
 - Studio Inspector edits both durations as one atomic field operation. Browser preview applies the same clip-relative multiplier to visual opacity and audio gain; MP4 export uses FFmpeg `afade` after source trim and speed processing.
 - This remains a two-sided linear fade rather than a general opacity keyframe/Bezier transition system.
 
