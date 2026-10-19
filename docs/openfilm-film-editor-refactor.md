@@ -37,6 +37,14 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - Structural changes still use the established serializer in this milestone. Full source-preserving node insertion/removal/reordering remains a separate implementation requirement; this document does not claim it is solved.
 - A regression test covers property editing while proving an untouched clip and neighboring comments remain byte-for-byte present.
 
+## AI proposal/preview/apply milestone
+
+- The Studio AI command endpoint now returns a validated candidate proposal and candidate preview payload without writing film.html.
+- Applying a proposal requires an exact matching base revision inside the document write lock; stale proposals are rejected rather than rebased.
+- The Studio can preview, accept, or reject a proposal. Rejection changes neither the document nor its revision. Editing manually or receiving a newer external revision invalidates the pending proposal.
+- Document revision changes and AI planning phases use the repository's existing SSE event bus; file polling remains the fallback for external local-agent writes that do not pass through the server.
+- Model-token streaming is not claimed: the current LLM abstraction exposes a blocking generate call, so this milestone streams lifecycle events, not partial model text.
+
 ## Current boundaries
 
 - The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, split/delete, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim) and revision polling. Dock separators persist panel widths.

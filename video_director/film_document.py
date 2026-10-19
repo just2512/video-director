@@ -751,12 +751,14 @@ def _preserve_film_text(original_text: str, old_doc: dict, new_doc: dict) -> str
     return result
 
 
-def edit_project_film(project_id: str, base: str | None, ops: list[dict]) -> dict:
+def edit_project_film(project_id: str, base: str | None, ops: list[dict], *, require_base: bool = False) -> dict:
     pid = validate_project_id(project_id)
     with project_lock(pid):
         current = read_project_film(pid)
         if not current["exists"]:
             raise FilmError("FILM_NOT_INITIALIZED", "当前项目还没有 film.html，请先初始化影片文档", 409)
+        if require_base and base != current["rev"]:
+            raise FilmError("REVISION_CONFLICT", "影片文档已变化；该 AI 提案已过期，请重新生成提案。", 409)
         original_doc = current["doc"]
         doc, normalized = apply_ops(original_doc, ops)
         updated = _preserve_film_text(current["text"], original_doc, doc)

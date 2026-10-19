@@ -116,6 +116,41 @@ def test_attribute_edit_preserves_unrelated_html_text_and_comments(tmp_path, mon
     assert fd.read_project_film("film-preserve")["rev"] == updated["rev"]
 
 
+def test_proposal_apply_requires_exact_revision_without_breaking_manual_rebase(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-proposal"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film("film-proposal")
+    fd.edit_project_film(
+        "film-proposal", original["rev"],
+        [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.25}],
+    )
+    current = fd.read_project_film("film-proposal")
+    with pytest.raises(fd.FilmError, match="提案已过期"):
+        fd.edit_project_film(
+            "film-proposal", original["rev"],
+            [{"op": "set", "clip": "clip-b", "field": "volume", "value": 0.5}],
+            require_base=True,
+        )
+    assert fd.read_project_film("film-proposal")["rev"] == current["rev"]
+
+
+def test_ai_command_has_explicit_apply_proposal_route_and_sse():
+    root = Path(__file__).resolve().parents[1]
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    assert '"/api/editor/film/apply-proposal"' in server
+    assert "candidate_doc, normalized = fd.apply_ops" in server
+    assert "require_base=True" in server
+    assert 'sse_publish("film"' in server
+    assert "filmStudioPreviewProposal" in script
+    assert "filmStudioApplyProposal" in script
+    assert "filmStudioRejectProposal" in script
+    assert 'id="fs-proposal-panel"' in index
+
+
 def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT",str(tmp_path/"composer"))
     root=tmp_path/"composer"/"film-test";root.mkdir(parents=True)

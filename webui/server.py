@@ -933,7 +933,7 @@ class Handler(BaseHTTPRequestHandler):
         get_routes = {"/api/editor/film", "/api/editor/film/media"}
         post_routes = {"/api/editor/film/initialize", "/api/editor/film/insert-asset", "/api/editor/film/edit",
                        "/api/editor/film/undo", "/api/editor/film/redo",
-                       "/api/editor/film/command", "/api/editor/film/render"}
+                       "/api/editor/film/command", "/api/editor/film/apply-proposal", "/api/editor/film/render"}
         if method == "GET" and route not in get_routes:
             return False
         if method == "POST" and route not in post_routes:
@@ -1106,6 +1106,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
                              "inserted_clip_id": clip["id"], "inserted_track_id": track_id})
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
+                                     "source": "asset_insert", "operations": result["ops"]})
                 self._send_json(data)
                 return True
 
@@ -1113,6 +1115,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"))
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"]})
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
+                                     "source": "manual_edit", "operations": result["ops"]})
                 self._send_json(data)
                 return True
 
@@ -1121,16 +1125,28 @@ class Handler(BaseHTTPRequestHandler):
                 fd.undo_redo_project_film(pid, payload.get("base"), action)
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data["action"] = action
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
+                                     "source": action})
                 self._send_json(data)
                 return True
 
             if route == "/api/editor/film/command":
+                # AI edits are proposals, never direct writes. The candidate is validated
+                # against a snapshot and remains in memory until explicit user approval.
                 state = fd.read_project_film(pid)
+                if not state.get("exists"):
+                    raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html。", 409)
+                requested_base = payload.get("base")
+                if not isinstance(requested_base, str) or requested_base != state["rev"]:
+                    self._send_json({"ok": False, "code": "REVISION_CONFLICT",
+                                     "error": "影片已变化；请重新载入后再提出 AI 编辑。", "current_revision": state["rev"]}, 409)
+                    return True
                 llm = vd_llm.get_llm()
                 if llm is None:
                     self._send_json({"ok": False, "code": "LLM_UNAVAILABLE",
                                      "error": "当前未配置可用文本模型；影片文档的手动编辑仍可使用"}, 503)
                     return True
+                sse_publish("film_ai", {"phase": "planning", "project_id": pid, "base_revision": state["rev"]})
                 plan_summary = {}
                 operations = fd.plan_film_command(
                     llm, state, str(payload.get("message") or ""),
@@ -1140,12 +1156,41 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": True, "no_op": True,
                                      "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
                                      "rev": state["rev"]})
+                    sse_publish("film_ai", {"phase": "no_op", "project_id": pid, "base_revision": state["rev"]})
                     return True
-                result = fd.edit_project_film(pid, payload.get("base"), operations)
+                candidate_doc, normalized = fd.apply_ops(state["doc"], operations)
+                candidate_text = fd.serialize_film(candidate_doc)
+                fd.parse_film(candidate_text)
+                candidate_state = {"exists": True, "project_id": pid, "text": candidate_text,
+                                   "rev": fd.revision_of(candidate_text), "doc": candidate_doc}
+                candidate = fd.film_payload(pid, candidate_state)
+                proposal = {
+                    "id": uuid.uuid4().hex,
+                    "project_id": pid,
+                    "base_revision": state["rev"],
+                    "operations": normalized,
+                    "summary": assistant_summary or "AI 生成了一组待确认的影片编辑操作。",
+                    "candidate": candidate,
+                    "affected_clip_ids": sorted({str(op.get("clip")) for op in normalized if op.get("clip")}),
+                }
+                sse_publish("film_ai", {"phase": "proposed", "project_id": pid,
+                                        "base_revision": state["rev"], "proposal_id": proposal["id"],
+                                        "operation_count": len(normalized)})
+                self._send_json({"ok": True, "proposal": proposal,
+                                 "message": "已生成并验证候选修改；尚未写入正式影片文档。"})
+                return True
+
+            if route == "/api/editor/film/apply-proposal":
+                base_revision = payload.get("base_revision")
+                operations = payload.get("ops")
+                result = fd.edit_project_film(pid, base_revision, operations, require_base=True)
                 data = fd.film_payload(pid, fd.read_project_film(pid))
-                message = assistant_summary or "已应用影片编辑操作。"
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
-                             "message": f"{message}（已提交 {len(result['ops'])} 项编辑操作，并重新读取文档确认。）"})
+                             "base": base_revision, "applied_proposal": payload.get("proposal_id")})
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid,
+                                     "revision": data["rev"], "source": "ai_proposal",
+                                     "proposal_id": payload.get("proposal_id"),
+                                     "operations": result["ops"]})
                 self._send_json(data)
                 return True
         except fd.FilmError as exc:

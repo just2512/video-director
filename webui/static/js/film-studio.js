@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, events:null, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[]};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -310,6 +310,7 @@
   }
   async function filmStudioCommit(ops) {
     if(!S.projectId||!S.data||!S.data.exists||S.busy)return;
+    if(S.proposal){S.proposal=null;renderProposalPanel();S.runtimeRev='';}
     S.busy=true;
     try{
       var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
@@ -319,7 +320,9 @@
     }finally{S.busy=false;}
   }
   async function filmStudioHistory(action) {
-    if(!S.data||S.busy)return;S.busy=true;
+    if(!S.data||S.busy)return;
+    if(S.proposal){S.proposal=null;renderProposalPanel();S.runtimeRev='';}
+    S.busy=true;
     try{
       var r=await apiPost('/api/editor/film/'+action,{project_id:S.projectId,base:S.rev});
       if(!r||!r.ok){showStatus((r&&r.error)||'历史操作失败。','error');return;}
@@ -413,7 +416,10 @@
     S.poll=setInterval(async function(){
       if(!S.open||S.busy||S.drag)return;
       var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(S.projectId));
-      if(r&&r.ok&&r.exists&&r.rev!==S.rev){S.data=r;S.rev=r.rev;render();showStatus('检测到外部 Agent/文件修改，已按新 revision 刷新。');}
+      if(r&&r.ok&&r.exists&&r.rev!==S.rev){
+        if(S.proposal){appendMessage('影片已被外部修改，旧 AI 提案已作废。','assistant');S.proposal=null;renderProposalPanel();}
+        S.data=r;S.rev=r.rev;S.runtimeRev='';render();showStatus('检测到外部 Agent/文件修改，已按新 revision 刷新。');
+      }
       else if(r&&!r.ok&&r.code==='INVALID_FILM')showStatus('film.html 当前无法解析。已冻结编辑；修复文件后重新载入。','error');
     },1600);
   };
@@ -566,15 +572,68 @@
       showStatus('MP4 导出请求失败：'+String(error&&error.message||error),'error');
     }
   };
+  function renderProposalPanel(){
+    var panel=$('fs-proposal-panel'),proposal=S.proposal;
+    if(!panel)return;
+    panel.hidden=!proposal;
+    if(!proposal)return;
+    var summary=$('fs-proposal-summary'),detail=$('fs-proposal-detail');
+    if(summary)summary.textContent=proposal.summary||'AI 候选修改';
+    if(detail)detail.textContent=(proposal.operations||[]).length+' 项操作 · 基于 revision '+proposal.base_revision+' · 尚未写入正式文档';
+  }
+  window.filmStudioPreviewProposal=function(){
+    var proposal=S.proposal,frame=$('fs-preview-composition');
+    if(!proposal||!frame||!frame.contentWindow){showStatus('没有可预览的 AI 提案。','error');return;}
+    window.filmStudioSetSideMode('ai');
+    S.runtimeRev='';
+    frame.style.display='block';
+    var ph=$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');if(ph)ph.style.display='none';
+    frame.contentWindow.postMessage({type:'film-runtime:load',data:proposal.candidate,rev:proposal.candidate.rev},window.location.origin);
+    frame.contentWindow.postMessage({type:'film-runtime:seek-pause',time:S.playhead},window.location.origin);
+    showStatus('正在预览 AI 候选版本；正式 film.html 尚未更改。');
+  };
+  window.filmStudioRejectProposal=function(){
+    if(!S.proposal)return;
+    appendMessage('已拒绝本次 AI 提案。正式影片文档与 revision 未改变。','assistant');
+    S.proposal=null;renderProposalPanel();S.runtimeRev='';
+    syncRuntime('seek-pause');
+    showStatus('已拒绝提案；未修改正式影片。','success');
+  };
+  window.filmStudioApplyProposal=async function(){
+    var proposal=S.proposal;if(!proposal||S.busy)return;
+    if(proposal.project_id!==S.projectId){showStatus('提案所属项目已变化，不能应用。','error');return;}
+    S.busy=true;
+    try{
+      var result=await apiPost('/api/editor/film/apply-proposal',{
+        project_id:S.projectId,proposal_id:proposal.id,base_revision:proposal.base_revision,ops:proposal.operations
+      });
+      if(!result||!result.ok){
+        appendMessage((result&&result.error)||'提案应用失败。','assistant');
+        showStatus((result&&result.error)||'提案应用失败。','error');
+        if(result&&result.code==='REVISION_CONFLICT'){
+          S.proposal=null;renderProposalPanel();S.runtimeRev='';
+          S.busy=false;await filmStudioLoad(true);
+        }
+        return;
+      }
+      S.proposal=null;renderProposalPanel();S.data=result;S.rev=result.rev;S.runtimeRev='';
+      appendMessage('已确认并应用提案，提交 '+(result.ops||[]).length+' 项操作。','assistant');
+      render();showStatus('AI 提案已应用并写入 revision '+S.rev+'。','success');
+    }finally{S.busy=false;}
+  };
   window.filmStudioAsk=async function(){
     var input=$('fs-chat-input'),message=(input.value||'').trim();if(!message||S.busy)return;
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
+    if(S.proposal){window.filmStudioRejectProposal();}
     appendMessage(message,'user');input.value='';S.busy=true;
     try{
       var r=await apiPost('/api/editor/film/command',{project_id:S.projectId,base:S.rev,message:message,selected_clip_id:S.selectedId});
-      if(!r||!r.ok){appendMessage((r&&r.error)||'AI 编辑失败。','assistant');showStatus((r&&r.error)||'AI 编辑失败。','error');return;}
-      if(r.no_op){appendMessage(r.message||'AI 没有执行编辑，请补充目标。','assistant');showStatus(r.message||'没有产生编辑操作。');return;}
-      S.data=r;S.rev=r.rev;appendMessage(r.message||('已执行 '+(r.ops||[]).length+' 项操作。'),'assistant');render();
+      if(!r||!r.ok){appendMessage((r&&r.error)||'AI 提案生成失败。','assistant');showStatus((r&&r.error)||'AI 提案生成失败。','error');return;}
+      if(r.no_op){appendMessage(r.message||'AI 没有生成可安全应用的操作，请补充目标。','assistant');showStatus(r.message||'没有产生候选操作。');return;}
+      if(!r.proposal){appendMessage('服务器没有返回结构化提案，未修改正式影片。','assistant');showStatus('AI 响应缺少提案对象。','error');return;}
+      S.proposal=r.proposal;renderProposalPanel();
+      appendMessage((r.proposal.summary||'AI 已生成候选编辑。')+'（'+r.proposal.operations.length+' 项，尚未应用）','assistant');
+      window.filmStudioPreviewProposal();
     }finally{S.busy=false;}
   };
   document.addEventListener('keydown',function(e){
@@ -602,6 +661,27 @@
       e.preventDefault();window.filmStudioSeek(S.duration);
     }
   });
+  function connectFilmStudioEvents(){
+    if(S.events||typeof EventSource==='undefined')return;
+    try{
+      S.events=new EventSource('/api/events');
+      S.events.onmessage=function(event){
+        var packet;try{packet=JSON.parse(event.data||'{}');}catch(_){return;}
+        var data=packet.data||{};
+        if(data.project_id&&S.projectId&&data.project_id!==S.projectId)return;
+        if(packet.event==='film'&&data.phase==='revision_changed'&&S.open&&data.revision&&data.revision!==S.rev&&!S.busy&&!S.drag){
+          if(S.proposal){appendMessage('影片 revision 已变化，待确认提案已作废。','assistant');S.proposal=null;renderProposalPanel();}
+          filmStudioLoad(true);
+        }else if(packet.event==='film_ai'&&S.open&&data.project_id===S.projectId&&data.phase==='planning'){
+          showStatus('AI 正在分析影片与编辑约束……');
+        }else if(packet.event==='film_ai'&&S.open&&data.project_id===S.projectId&&data.phase==='proposed'){
+          showStatus('AI 提案已通过服务端编辑规则验证，等待预览与确认。');
+        }
+      };
+      S.events.onerror=function(){/* EventSource reconnects automatically; document polling remains a fallback. */};
+    }catch(_){S.events=null;}
+  }
+  connectFilmStudioEvents();
   var dock=$('fs-workspace-dock')||document.querySelector('.fs-workspace');
   function restoreDock(){
     try{
@@ -691,6 +771,9 @@
     'show-ai': () => window.filmStudioSetSideMode('ai'),
     render: () => window.filmStudioRender(),
     ask: () => window.filmStudioAsk(),
+    'preview-proposal': () => window.filmStudioPreviewProposal(),
+    'apply-proposal': () => window.filmStudioApplyProposal(),
+    'reject-proposal': () => window.filmStudioRejectProposal(),
   };
   document.addEventListener('click', function(event) {
     var button = event.target && event.target.closest ? event.target.closest('[data-film-action]') : null;
