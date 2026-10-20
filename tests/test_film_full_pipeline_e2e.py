@@ -134,7 +134,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     validation_json = json.loads(validation.stdout)
     assert validation_json["ok"] is True
     assert validation_json["revision"] == reloaded["rev"]
-    assert validation_json["assets_checked"] == 7
+    assert validation_json["assets_checked"] == 8
 
     look = film_render.look_project_film(project_id, expected_revision=reloaded["rev"], times=[0.0, 0.5])
     assert look["determinism_status"] == "PASS"
