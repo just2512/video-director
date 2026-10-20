@@ -248,8 +248,12 @@ async function _loadMptSceneContext(sceneId){
         INTENT_ONLY: '方案已生成，待执行',
         APPLIED: '已采用',
         FAILED: '执行失败',
+        NEEDS_HUMAN: '需人工处理（所有自动生产路线失败，请在生成面板手动补位或换素材）',
+        FALLBACK_USED: '已用替代路线（首选路线未执行，见原因说明）',
       }[candidate.status] || candidate.status || '待执行';
-      const executeHtml = candidate.source_preference === 'stock'
+      // 镜头锁定（差距6 人工介入）：锁定后 AI 自动重算不碰该镜头
+      const lockHtml = '<button class="btn-secondary btn-sm" data-action="scene.lock" data-target="scene" data-params=\'{"locked": true}\' title="锁定后 AI 自动重算不改动该镜头">锁定镜头</button>';
+      const executeHtml = lockHtml + (candidate.source_preference === 'stock'
         ? '<button class="btn-secondary btn-sm" data-action="asset.search_stock" data-target="scene" data-params=\'' +
           JSON.stringify({query: (candidate.search_terms || [])[0] || ''}).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>找素材</button>'
         : candidate.source_preference === 'generated'

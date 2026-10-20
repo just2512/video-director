@@ -210,6 +210,10 @@ def _build_manifest() -> List[Capability]:
         "采用当前场景的创作候选方案；持久化 Scene visual_intent 与候选选择状态",
         input_schema="CreativeCandidateSelectRequest", outputs=("Composition", "CreativeCandidateSelection"),
         examples=("采用这个创作方案", "用第二个方案")))
+    caps.append(_cap("scene.lock", "edit",
+        "锁定/解锁镜头（Scene.human_locked）：锁定后 AI 自动重算/重规划跳过该镜头",
+        input_schema="SceneLockRequest", outputs=("Composition",),
+        examples=("锁定这个镜头", "不要动这个镜头")))
     caps.append(_cap("stock.search", "asset",
         "搜索 Stock 素材（Pexels/Pixabay/Coverr）", input_schema="StockSearchRequest",
         outputs=("StockAsset",), side_effect="", provider_required=True,

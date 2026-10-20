@@ -173,6 +173,11 @@ _ACTIONS: List[ActionSpec] = [
                targets=["scene"],
                aliases=["采用这个方案", "用这个创作方案", "采用候选方案"],
                preconditions=["has_selection"]),
+    # ---- 镜头锁定（差距6：人工介入不被自动重算覆盖）----
+    ActionSpec("scene.lock", "锁定镜头", "scene.lock", "set_scene_locked",
+               targets=["scene"],
+               aliases=["锁定这个镜头", "锁定镜头", "不要动这个镜头"],
+               preconditions=["has_selection"]),
     ActionSpec("asset.replace", "换素材", "asset.replace", "replace_source",
                targets=["scene", "layer"],
                aliases=["换画面", "换个素材", "换镜头画面"],

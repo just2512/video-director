@@ -486,6 +486,27 @@ def _tool_material(spec: dict, state: dict) -> dict:
     match_provenance: Dict[str, str] = {}
     match_enabled = bool(spec.get("match_materials_to_script", True))
 
+    # 镜头锁定（Scene.human_locked）：锁定场景沿用 IR 中已确认的素材绑定，
+    # 本轮自动重算（LLM/确定性/顺序匹配 + stock 补足 + 生成补位）不再触碰。
+    locked_scenes: set = set()
+    locked_assignments: Dict[str, str] = {}
+    try:
+        from video_director import editor as _vd_editor
+        _ir_locked = _vd_editor.load_composition(pid)
+        for _sc in _ir_locked.scenes:
+            if getattr(_sc, "human_locked", False):
+                locked_scenes.add(_sc.id)
+                for _lay in _sc.layers:
+                    if _lay.type.value == "video" and _lay.asset_id:
+                        locked_assignments[_sc.id] = _lay.asset_id
+                        break
+    except Exception as _exc:  # noqa: BLE001 无 composition.json（首轮创作）→ 无锁定可读
+        logger.debug(f"material_match: 锁定场景读取跳过（无 IR 或读取失败）: {_exc}")
+    if locked_scenes:
+        warnings.append(
+            f"{len(locked_scenes)} 个镜头已锁定（{', '.join(sorted(locked_scenes))}），"
+            "本轮自动匹配不改动这些镜头")
+
     # MPT 语义：搜索词属于 Scene 的中间决策，不再由 Stock 层临时从一句文案猜一次。
     scene_plan_items = state.get("scene_plan", {}).get("scenes") or []
     candidate_sets_by_scene = {
@@ -555,8 +576,12 @@ def _tool_material(spec: dict, state: dict) -> dict:
     )
     if visual_source != "online" and match_enabled and all_assets and state.get("narration_scenes"):
         try:
+            # 锁定场景从自动匹配集中剔除（沿用 IR 已确认绑定），不被 LLM/顺序
+            # 匹配改动——用户锁定的镜头 AI 不许碰（差距6：人工介入不被覆盖）。
+            match_scenes = [s for s in state["narration_scenes"]
+                            if s["id"] not in locked_scenes]
             assignments = matcher.match_assets(
-                state["narration_scenes"], all_assets, llm_call,
+                match_scenes, all_assets, llm_call,
                 policy_by_scene=source_policy_by_scene,
                 policy_decisions_out=policy_decisions,
                 provenance_out=match_provenance,
@@ -566,9 +591,14 @@ def _tool_material(spec: dict, state: dict) -> dict:
     elif all_assets and state.get("narration_scenes"):
         warnings.append("用户关闭脚本语义匹配：按素材顺序规划")
 
+    # 锁定场景回填既有绑定（provenance 如实标 locked，不是语义匹配）
+    for sid, aid in locked_assignments.items():
+        assignments[sid] = aid
+        match_provenance[sid] = "locked"
+
     missing = [
         s["id"] for s in state.get("narration_scenes") or []
-        if s["id"] not in assignments
+        if s["id"] not in assignments and s["id"] not in locked_scenes
     ]
     local_only = visual_source == "local"
     allow_stock = bool(state.get("constraints", {}).get("allow_stock", True))
@@ -604,9 +634,13 @@ def _tool_material(spec: dict, state: dict) -> dict:
             vv, vo = assets_mod.build_manifest(videos, [], asset_metadata=metadata) if videos else ({}, [])
             ii, io = assets_mod.build_manifest([], images, asset_metadata=metadata) if images else ({}, [])
             all_assets, order = {**vv, **ii}, vo + io
+            # 锁定剔除（第二处：stock 补足后的重匹配同样不许碰锁定镜头，
+            # 否则网络素材把用户锁定的绑定顶掉——2026-10-20 对抗复现实锚）
+            _match_scenes2 = [s for s in state["narration_scenes"]
+                              if s["id"] not in locked_scenes]
             assignments = (
                 matcher.match_assets(
-                    state["narration_scenes"], all_assets, llm_call,
+                    _match_scenes2, all_assets, llm_call,
                     policy_by_scene=source_policy_by_scene,
                     policy_decisions_out=policy_decisions,
                     provenance_out=match_provenance,
@@ -727,6 +761,13 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         match_provenance.pop(sid, None)
                         warnings.append(f"镜头 {sid} 的素材引用失效，已清除待重匹配")
 
+                    # 锁定场景统一回填（stock/生成补位都可能重建 assignments——
+                    # 幂等重放保证用户锁定的绑定永远在最后生效，2026-10-20）
+                    for sid, aid in locked_assignments.items():
+                        if aid in all_assets:
+                            assignments[sid] = aid
+                            match_provenance[sid] = "locked"
+
                     # 差距 4：生成补位产物过独立视觉审核（provider 分层：
                     # Twelve Labs → frame-vision（vision 角色，Jerry 已配）→ 跳过）。
                     # CONFLICT = 画面与场景核心意思冲突——审核拒收，标记 NEEDS_HUMAN，
@@ -773,6 +814,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
         # 2026-10-18 诚实降级：不再笼统报「没有可用视觉素材」，而是把三条失败
         # 路径哪条真的失败了浓缩进 error——用户能看到「本地无素材 + 网络素材
         # 失败 + 生成未触发」的根因，而不是猜。
+        # 锁定场景语义：其绑定持久化在 IR（human_locked 场景的 layer.asset_id
+        # 不动），素材池空不破坏它——无需在此回填 assignments（幽灵引用防护）。
         reasons = []
         if not videos and not images:
             reasons.append("未提供本地素材")
@@ -915,6 +958,45 @@ def _tool_material(spec: dict, state: dict) -> dict:
     }
 
 
+def _translate_scenes(state: dict) -> dict:
+    """一次批量 LLM 调用把全部场景中文 → 英文，返回 {scene_id: english}。
+
+    provider 不可用 / 调用失败 / 解析失败 → {}（调用方诚实降级单语并警告），
+    与 scene_plan 节点的降级纪律一致：临时故障不是假成功。
+    """
+    scenes = state.get("narration_scenes") or []
+    texts = {
+        str(s.get("id") or i): mpt_semantics.remove_pause_markup(str(s.get("text", "")))
+        for i, s in enumerate(scenes) if str(s.get("text", "")).strip()
+    }
+    if not texts:
+        return {}
+    from video_director import llm_provider
+    try:
+        provider = llm_provider.get_llm()
+    except Exception:
+        provider = None
+    if provider is None:
+        return {}
+    try:
+        raw = _strip_code_fence(provider.generate(
+            "把下列视频旁白逐条翻译成地道英文，保持每条编号不变。"
+            '只输出 JSON 对象：{"编号": "英文翻译"}，不要输出其他内容。\n'
+            + json.dumps(texts, ensure_ascii=False, indent=2),
+            system="你是专业字幕翻译。只输出合法 JSON。",
+        ))
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b <= a:
+            return {}
+        data = json.loads(raw[a:b + 1])
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items() if str(v or "").strip()}
+    except Exception as exc:
+        logger.warning(f"bilingual 翻译调用失败，将降级单语字幕: {exc}")
+        return {}
+
+
 def _tool_subtitle(spec: dict, state: dict) -> dict:
     width = int(spec.get("width") or config.DEFAULT_RESOLUTION[0])
     height = int(spec.get("height") or config.DEFAULT_RESOLUTION[1])
@@ -923,8 +1005,17 @@ def _tool_subtitle(spec: dict, state: dict) -> dict:
     mode = spec.get("subtitle_mode") or "plain"
     # 2026-10-19 意图链修复（审计：off 死分支）：off = 用户明确不要字幕，
     # 必须真的不生成/不烧录——此前照常生成 plain 字幕且 verify 全绿，
-    # 「不要字幕」得到满屏字幕。bilingual 尚无构造器能力：如实降级 plain 并警告。
+    # 「不要字幕」得到满屏字幕。
+    # 2026-10-20 意图链修复：bilingual 升级为真双语（LLM 批量翻译 + 主/次行样式），
+    # 翻译不可用时诚实降级 plain 并警告（不再是假「能力尚未实现」警告）。
     warnings = []
+    translations: dict = {}
+    if mode == "bilingual":
+        translations = _translate_scenes(state)
+        if not translations:
+            warnings.append(
+                "双语字幕翻译不可用（文本大模型未配置或调用失败），已按单语字幕生成")
+            mode = "plain"
     if mode == "off":
         state["subtitle_file"] = ""
         state["subtitle_entries"] = []
@@ -935,12 +1026,14 @@ def _tool_subtitle(spec: dict, state: dict) -> dict:
             "verify": {"ok": True, "checks": [
                 {"id": "subtitle_off", "ok": True}]},
         }
-    if mode == "bilingual":
-        warnings.append("双语字幕能力尚未实现，已按单语字幕生成")
-        mode = "plain"
     if mode == "karaoke":
         body = subtitle_mod.build_ass_karaoke(
             state["narration_scenes"], state["word_timeline"],
+            width=width, height=height, font_size=font_size)
+    elif mode == "bilingual":
+        # 真双语：中文主行（句级）+ 英文次行（约 70% 字号，主行下方）
+        body = subtitle_mod.build_ass_bilingual(
+            state["narration_scenes"], translations,
             width=width, height=height, font_size=font_size)
     else:
         body = subtitle_mod.build_ass_plain(
@@ -992,6 +1085,37 @@ def _tool_music(spec: dict, state: dict) -> dict:
     return {"ok": True, "tool": "music.select", "status": "APPLIED",
             "result": {"asset_id": aid, "volume": state["bgm_volume"]},
             "verify": {"ok": True, "checks": [{"id": "bgm_source", "ok": True}]}}
+
+
+def _apply_sfx_policy(spec: dict, state: dict) -> None:
+    """2026-10-20 sfx 执行点（审计：Director 链上 spec.sfx 零消费）。
+
+    开关决策层（音效具体生成在 composition 的既有 sfx_plan 消费链）：
+    - 'off'：用户明确不要音效 → 清空 sfx_plan、关掉自动搜索，杜绝任何音效轨
+    - 'auto'/缺省：按 StyleContract.sfx_density 决定（0 = 该风格不要音效）
+    - 自由文本：按文本意图查音效库选一个（查不到如实降级 auto 决策，不假成功）
+    """
+    sfx = str(spec.get("sfx") or "auto").strip().lower() or "auto"
+    # sfx_density 是语义档位字符串（sparse|medium|dense），不是数值
+    density_raw = str(getattr(state.get("style_contract"), "sfx_density", "sparse") or "sparse")
+    density_on = density_raw in ("medium", "dense")  # sparse=该风格不要音效
+    if sfx == "off":
+        state["sfx_plan_override"] = []
+        state["sfx_auto_search"] = False
+        logger.info("sfx=off：用户明确不要音效，本轮零音效轨")
+        return
+    if sfx not in ("auto", ""):
+        lib = audio.scan_library()
+        aid = audio.resolve_action_sfx(
+            {"action": sfx, "at": 0.5}, lib, auto_search_openverse=False)
+        if aid:
+            state["sfx_plan_override"] = [{
+                "asset_id": aid, "at": 0.5, "duration": 0.7, "volume": 1.0}]
+            logger.info(f"sfx 文本意图「{sfx}」命中音效 {aid}")
+            return
+        logger.warning(f"sfx 文本意图「{sfx}」未命中音效库，按 auto 风格决策处理")
+    # auto：sparse 风格静默无音效是风格正确，不警告
+    state["sfx_auto_search"] = bool(spec.get("auto_sfx_search", False)) and density_on
 
 
 def _tool_composition(spec: dict, state: dict) -> dict:
@@ -1110,12 +1234,18 @@ def _tool_composition(spec: dict, state: dict) -> dict:
             tracks.append(audio.build_bgm_track(
                 aid, duration, state.get("bgm_volume") or config.BGM_DEFAULT_VOLUME
             ))
-    if spec.get("sfx_plan"):
+    # sfx 消费：state["sfx_plan_override"]（_apply_sfx_policy 的决策）优先于
+    # spec.sfx_plan（payload 显式）；off 时 override=[] 真关闭（2026-10-20）。
+    sfx_plan_effective = spec.get("sfx_plan")
+    if state.get("sfx_plan_override") is not None:
+        sfx_plan_effective = state["sfx_plan_override"]
+    if sfx_plan_effective:
         lib = audio.scan_library()
-        for ev in audio.normalize_sfx_events(spec.get("sfx_plan") or []):
+        for ev in audio.normalize_sfx_events(sfx_plan_effective):
             aid = ev.get("asset_id") or audio.resolve_action_sfx(
                 ev, lib,
-                auto_search_openverse=bool(spec.get("auto_sfx_search", False)),
+                auto_search_openverse=bool(
+                    state.get("sfx_auto_search", spec.get("auto_sfx_search", False))),
             )
             if not aid:
                 continue
@@ -1658,6 +1788,13 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
             )
             state["style_contract"] = style_contract
             state["style_warnings"] = style_warnings
+        # sfx 开关决策（spec.sfx 消费点，2026-10-20 审计修复）：music 节点
+        # 完成后、composition 消费 sfx_plan 前落决策。
+        if node_id == "music":
+            try:
+                _apply_sfx_policy(spec, state)
+            except Exception as exc:
+                logger.warning(f"sfx 开关决策失败（composition 按显式 sfx_plan 处理）: {exc}")
 
         # Watermark changes composition through Command Bus; reload the actual IR for all later nodes.
         if node_id == "watermark":

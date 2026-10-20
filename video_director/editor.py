@@ -475,6 +475,7 @@ SUPPORTED_COMMANDS = (
 "set_transition_out",         # 转场确认（Scene.transition_out）
     "set_transition",             # 别名（#8 契约名，映射到 set_transition_out）
     "set_scene_intent",            # 采用创作候选后的 Scene 视觉意图
+    "set_scene_locked",           # 镜头锁定（Scene.human_locked）：AI 重算跳过
     "undo",
     "redo",
 )
@@ -831,6 +832,8 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             changed, stale = _cmd_set_transition_out(ir, target_id, payload)
         elif cmd_name == "set_scene_intent":
             changed, stale = _cmd_set_scene_intent(ir, target_id, payload, project_id)
+        elif cmd_name == "set_scene_locked":
+            changed, stale = _cmd_set_scene_locked(ir, target_id, payload)
     except EditorError as exc:
         return CommandResult(status="REJECTED", composition_version=current, errors=[{
             "code": exc.code, "message": str(exc), "recoverable": exc.recoverable,
@@ -957,6 +960,24 @@ def _cmd_set_scene_intent(
         "creative_candidates",
         "material_intents",
     ]
+
+def _cmd_set_scene_locked(
+    ir: CompositionIR, target_id: str, payload: dict
+) -> Tuple[List[str], List[str]]:
+    """镜头锁定（Scene.human_locked）：锁定场景在 AI 自动重算/重规划时被跳过。
+
+    payload = {"locked": true/false}（缺省 true）。锁定/解锁不产生视觉变化，
+    只改场景元数据——stale 保持空（不触发重渲染）。
+    """
+    _, scene = _find_scene(ir, target_id)
+    locked = payload.get("locked", True)
+    if not isinstance(locked, bool):
+        if isinstance(locked, (int, float)) and not isinstance(locked, bool) and locked in (0, 1):
+            locked = bool(locked)
+        else:
+            raise EditorError("INVALID_PAYLOAD", "payload.locked 必须是布尔值")
+    scene.human_locked = locked
+    return [scene.id], []
 
 def _cmd_replace_motion(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """Motion Gallery 应用：Layer.motion_recipe_id 替换（CMP-002 复用）。"""
