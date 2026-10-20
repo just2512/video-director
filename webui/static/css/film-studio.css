@@ -263,3 +263,9 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-inspector-element{border:1px solid #244e70;border-radius:5px;padding:8px;margin:8px 0;background:#17212a}
 .fs-inspector-element h4{font-size:11px;margin:0 0 6px;color:#d8ecfa}
 .fs-inspector-element .fs-inspector-field{grid-template-columns:78px minmax(0,1fr)}
+.fs-inspector-field textarea{
+  box-sizing:border-box;background:#101010;color:#eee;border:1px solid #3c3c3c;border-radius:4px;
+  padding:6px 7px;min-width:0;width:100%;font-size:11px;line-height:1.45;resize:vertical;
+}
+.fs-inspector-field textarea:disabled{opacity:.55;cursor:not-allowed}
+.fs-inspector-element .fs-btn{margin-top:8px;width:100%}
