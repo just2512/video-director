@@ -2721,6 +2721,127 @@ def _film_mask_clip_path(raw_mask: dict | None, allow_empty_path: bool = False) 
 
 
 
+
+
+
+def _film_camera_channels(raw_tracks: list, clip_start: float, clip_duration: float) -> tuple[list[dict], list[str]]:
+    """Map only an explicitly supported, top-down orthographic CameraTrack to frame-driven 2D channels.
+
+    Perspective projection, follow targets, constraints, non-linear easing and camera rotation
+    require semantics that the current 2D Runtime cannot reproduce. They remain in the source
+    snapshot and produce a warning instead of being silently approximated.
+    """
+    if not raw_tracks:
+        return [], []
+    if not isinstance(raw_tracks, list):
+        return [], ["camera_tracks 格式无效"]
+    if len(raw_tracks) != 1:
+        return [], [f"camera_tracks 有 {len(raw_tracks)} 条 CameraTrack，未提供活动轨道标识，无法安全合并"]
+    track = raw_tracks[0]
+    if not isinstance(track, dict):
+        return [], ["camera_tracks 中存在无效 CameraTrack"]
+    track_id = str(track.get("id") or "unknown")
+    projection = str(track.get("projection") or "perspective").lower()
+    if projection != "orthographic":
+        return [], [f"camera_tracks {track_id} 的 projection={projection}；透视投影不能由 2D FilmRuntime 无损表达"]
+    if track.get("follow_target") or track.get("constraints"):
+        return [], [f"camera_tracks {track_id} 含 follow_target/constraints，不能转换为独立 2D 摄影机运动"]
+
+    raw_keyframes = track.get("keyframes") or []
+    if not isinstance(raw_keyframes, list) or not raw_keyframes:
+        return [], [f"camera_tracks {track_id} 没有可迁移的摄影机关键帧"]
+
+    keyframes, fixed_direction = [], None
+    for frame in raw_keyframes:
+        if not isinstance(frame, dict):
+            return [], [f"camera_tracks {track_id} 含无效关键帧"]
+        try:
+            at = _number(frame.get("at"), f"camera_tracks {track_id}.at", 0)
+            position, target = frame.get("position"), frame.get("target")
+            if not isinstance(position, list) or not isinstance(target, list) or len(position) != 3 or len(target) != 3:
+                raise FilmError("INVALID_CAMERA_KEYFRAME", "position/target 必须是三个坐标")
+            position = [float(value) for value in position]
+            target = [float(value) for value in target]
+            if not all(math.isfinite(value) for value in position + target):
+                raise FilmError("INVALID_CAMERA_KEYFRAME", "position/target 必须是有限数值")
+        except (TypeError, ValueError, FilmError) as exc:
+            return [], [f"camera_tracks {track_id} 含无效 position/target：{exc}"]
+
+        if not all(0.0 <= value <= 1.0 for value in position[:2] + target[:2]):
+            return [], [f"camera_tracks {track_id} 的 x/y 不是 [0,1] 归一坐标，未猜测坐标单位"]
+        direction = tuple(round(position[index] - target[index], 8) for index in range(3))
+        # Only fixed top-down direction can be represented as a 2D pan without faking rotation.
+        if abs(direction[0]) > 1e-6 or abs(direction[1]) > 1e-6 or abs(direction[2]) <= 1e-6:
+            return [], [f"camera_tracks {track_id} 不是固定俯视方向；摄像机旋转/3D 语义尚不能无损转换"]
+        if fixed_direction is None:
+            fixed_direction = direction
+        elif any(abs(direction[i] - fixed_direction[i]) > 1e-6 for i in range(3)):
+            return [], [f"camera_tracks {track_id} 的 position-target 方向变化，需要 3D 摄影机求解"]
+
+        easing = frame.get("easing", "linear")
+        easing = str(getattr(easing, "value", easing))
+        if easing != "linear":
+            return [], [f"camera_tracks {track_id} 使用 {easing} 缓动；当前摄像机迁移仅支持 linear"]
+
+        keyframes.append({"at": at, "x": target[0], "y": target[1]})
+    keyframes.sort(key=lambda item: item["at"])
+    for left, right in zip(keyframes, keyframes[1:]):
+        if right["at"] <= left["at"]:
+            return [], [f"camera_tracks {track_id} 含重复或逆序关键帧时间"]
+
+    clip_start = _number(clip_start, "camera clip start", 0)
+    clip_duration = _number(clip_duration, "camera clip duration", 0.001)
+    clip_end = clip_start + clip_duration
+    if clip_end < keyframes[0]["at"] - 1e-6:
+        return [], []
+
+    def sample(global_time: float, axis: str) -> float:
+        if global_time < keyframes[0]["at"]:
+            return 0.5
+        if global_time >= keyframes[-1]["at"]:
+            return float(keyframes[-1][axis])
+        for left, right in zip(keyframes, keyframes[1:]):
+            if left["at"] <= global_time <= right["at"]:
+                span = right["at"] - left["at"]
+                ratio = 1.0 if span <= 0 else (global_time - left["at"]) / span
+                return float(left[axis]) + (float(right[axis]) - float(left[axis])) * ratio
+        return float(keyframes[-1][axis])
+
+    camera_x, camera_y = [], []
+    if clip_start >= keyframes[0]["at"] - 1e-6:
+        camera_x.append({"at": 0.0, "value": sample(clip_start, "x"), "easing": "linear"})
+        camera_y.append({"at": 0.0, "value": sample(clip_start, "y"), "easing": "linear"})
+
+    for frame in keyframes:
+        if frame["at"] < clip_start - 1e-6 or frame["at"] > clip_end + 1e-6:
+            continue
+        local_at = max(0.0, frame["at"] - clip_start)
+        point_x = {"at": local_at, "value": frame["x"], "easing": "linear"}
+        point_y = {"at": local_at, "value": frame["y"], "easing": "linear"}
+        if not camera_x or abs(camera_x[-1]["at"] - local_at) > 1e-6:
+            camera_x.append(point_x)
+        if not camera_y or abs(camera_y[-1]["at"] - local_at) > 1e-6:
+            camera_y.append(point_y)
+
+    # Preserve the original linear curve when a clip starts/ends between camera keys.
+    if clip_end >= keyframes[0]["at"] - 1e-6 and clip_end < keyframes[-1]["at"] - 1e-6:
+        if not camera_x or abs(camera_x[-1]["at"] - clip_duration) > 1e-6:
+            camera_x.append({"at": clip_duration, "value": sample(clip_end, "x"), "easing": "linear"})
+        if not camera_y or abs(camera_y[-1]["at"] - clip_duration) > 1e-6:
+            camera_y.append({"at": clip_duration, "value": sample(clip_end, "y"), "easing": "linear"})
+
+    if not camera_x and clip_start > keyframes[-1]["at"]:
+        camera_x = [{"at": 0.0, "value": keyframes[-1]["x"], "easing": "linear"}]
+        camera_y = [{"at": 0.0, "value": keyframes[-1]["y"], "easing": "linear"}]
+
+    channels = []
+    if camera_x:
+        channels.append({"property": "camera_x", "keyframes": camera_x})
+    if camera_y:
+        channels.append({"property": "camera_y", "keyframes": camera_y})
+    return channels, []
+
+
 def build_film_from_composition(project_id: str, ir) -> dict:
     """Convert supported video/image/audio/subtitle content; report non-lossless fields."""
     pid = validate_project_id(project_id)
@@ -2828,8 +2949,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         warnings.append("旧项目模板来源 lineage 未写入 film.html")
     if raw_ir.get("active_variant_id") and not raw_ir.get("variants"):
         warnings.append("旧项目 active_variant_id 未映射到 film.html")
-    if raw_ir.get("camera_tracks"):
-        warnings.append("旧项目 camera_tracks 未转换为 film.html 镜头运动")
     if raw_ir.get("continuity_links"):
         warnings.append("旧项目 continuity_links 仅属创作 lineage，未映射到 film.html")
     references = raw_ir.get("references") or {}
@@ -2955,7 +3074,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             src_in = _number(layer.get("source_in", 0), "source_in", 0) if kind == "video" else 0
             src_out = _number(layer.get("source_out") if kind == "video" and layer.get("source_out") is not None else src_in + d * speed, "source_out", src_in + 0.001)
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
-            attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
+            layer_timeline_start = scene_start + _number(layer.get("start", 0), "layer start", 0)
+            attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(layer_timeline_start), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
             unsupported_layer_fields = []
@@ -3026,6 +3146,19 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     layer.get("motion_instance") or {},
                     ensure_ascii=False, separators=(",", ":")
                 )
+            camera_channels, camera_warnings = _film_camera_channels(
+                raw_ir.get("camera_tracks") or [], layer_timeline_start, d
+            )
+            unsupported_layer_fields.extend(camera_warnings)
+            for camera_channel in camera_channels:
+                camera_property = str(camera_channel.get("property") or "")
+                if camera_property in current_channel_properties:
+                    unsupported_layer_fields.append(
+                        f"camera_tracks {camera_property} 与图层显式关键帧冲突；保留图层关键帧"
+                    )
+                    continue
+                channels.append(camera_channel)
+                current_channel_properties.add(camera_property)
             fit_mode = str(layer.get("fit_mode") or "cover")
             if fit_mode not in {"cover", "contain", "fill", "none", "scale-down"}:
                 unsupported_layer_fields.append(f"fit_mode:{fit_mode}")
@@ -3149,6 +3282,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             continue
         uri = asset_uri(overlay.get("asset_id"))
         at, d = _number(overlay.get("start", 0), "overlay start", 0), _number(overlay.get("duration"), "overlay duration", 0.001)
+        camera_channels, camera_warnings = _film_camera_channels(raw_ir.get("camera_tracks") or [], at, d)
+        warnings.extend(camera_warnings)
         speed = _number(overlay.get("speed", 1), "overlay speed", 0.25, 4)
         src_in = _number(overlay.get("source_in", 0), "overlay source_in", 0)
         src_out = src_in + d * (speed if kind == "video" else 1)
@@ -3180,7 +3315,14 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 raw_overlay_transform, stage["width"], stage["height"], w, h
             )
             overlay_transform["opacity"] = float(overlay_transform["opacity"]) * opacity
-            _apply_film_transform(attrs, overlay_transform, [], fit)
+            _apply_film_transform(attrs, overlay_transform, camera_channels, fit)
+        elif camera_channels:
+            overlay_transform = _film_transform_metadata({
+                "x": (x + w / 2) / stage["width"],
+                "y": (y + h / 2) / stage["height"],
+                "scale": 1, "rotation": 0, "opacity": opacity, "anchor": "center",
+            }, stage["width"], stage["height"], w, h)
+            _apply_film_transform(attrs, overlay_transform, camera_channels, fit)
         else:
             style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(opacity)};object-fit:{fit}"
             attrs["style"] = style
