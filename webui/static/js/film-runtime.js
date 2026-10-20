@@ -92,7 +92,11 @@
     if(clip.tag==='iframe'){
       el.addEventListener('load',function(){
         iframeLoaded=true;if(entry)entry.iframeLoaded=true;
-        // The Studio may enable Inspect before this scene's bridge script is ready.
+        // Only enable pointer hit-testing for HTML scenes while Inspect mode is on.
+        // The normal preview deliberately uses pointer-events:none to keep the
+        // monitor from stealing timeline/editor gestures.
+        el.style.pointerEvents=state.inspectMode?'auto':'none';
+        el.style.cursor=state.inspectMode?'crosshair':'';
         // Replay the current mode on load so a one-time postMessage cannot be lost.
         if(state.inspectMode&&el.contentWindow){
           try{el.contentWindow.postMessage({type:'film-inspect',enabled:true},'*');}catch(_){}
@@ -561,7 +565,12 @@
   function sendInspectMode(enabled){
     state.tracks.forEach(function(track){
       track.clips.forEach(function(entry){
-        if(entry.clip.tag==='iframe'&&entry.el.contentWindow){
+        if(entry.clip.tag!=='iframe')return;
+        // HTML scenes must be hit-testable in Inspect mode or browser pointer
+        // events never reach the injected child-page selection bridge.
+        entry.el.style.pointerEvents=enabled?'auto':'none';
+        entry.el.style.cursor=enabled?'crosshair':'';
+        if(entry.el.contentWindow){
           try{entry.el.contentWindow.postMessage({type:'film-inspect',enabled:!!enabled},'*');}catch(_){}
         }
       });

@@ -180,6 +180,10 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
                     timeout=10000,
                 )
+                pointer_mode = page.frame_locator("#fs-preview-composition").locator("#scene-clip").evaluate(
+                    "(frame) => getComputedStyle(frame).pointerEvents"
+                )
+                assert pointer_mode == "auto", f"Inspect mode did not enable iframe hit-testing: {pointer_mode}"
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
