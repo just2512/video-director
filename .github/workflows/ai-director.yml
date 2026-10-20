@@ -6,13 +6,13 @@ on:
   push:
     branches: [main, "feat/unified-director-agent-loop"]
 
-# Do not interrupt a running full regression. A newer push may replace the
-# single pending run, but an active browser/render suite must finish and report.
+# Isolate runs so later pushes neither interrupt an active regression nor replace
+# the only pending run; each tested SHA retains its own test result.
 permissions:
   contents: write
 
 concurrency:
-  group: ai-director-${{ github.event.pull_request.number || github.ref }}
+  group: ai-director-${{ github.event.pull_request.number || github.ref }}-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:

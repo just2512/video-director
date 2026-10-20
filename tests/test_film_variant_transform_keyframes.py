@@ -71,6 +71,14 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
         }],
         "active_variant_id": "active-cut",
     })
+    raw_archive = json.loads(ir.model_dump_json())
+    raw_archive["future_renderer_contract"] = {"version": 4, "projection": "custom"}
+    raw_archive["variants"][0]["future_transition_plugin"] = {"type": "wipe", "duration": 0.15}
+    raw_archive["variants"][0]["scenes"][0]["future_timing_semantics"] = {"mode": "beat"}
+    raw_path = project_root / "plans" / "composition.json"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text(json.dumps(raw_archive, ensure_ascii=False, indent=2), encoding="utf-8")
+
     result = fd.build_film_from_composition(project_id, ir)
     assert result["duration"] == 1
     assert result["selected_variant_id"] == "active-cut"
@@ -94,6 +102,13 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert source_snapshot["variants"][0]["metadata"]["author"] == "legacy-agent"
     assert source_snapshot["variants"][0]["scenes"][0]["transition_out"]["type"] == "dissolve"
     assert source_snapshot["scenes"][0]["id"] == "base-scene"
+    assert source_snapshot["future_renderer_contract"] == {"version": 4, "projection": "custom"}
+    assert source_snapshot["variants"][0]["future_transition_plugin"]["type"] == "wipe"
+    assert source_snapshot["variants"][0]["scenes"][0]["future_timing_semantics"]["mode"] == "beat"
+    migration_warnings = "\n".join(result["warnings"])
+    assert "CompositionIR.future_renderer_contract" in migration_warnings
+    assert "CompositionIR.variants[0].future_transition_plugin" in migration_warnings
+    assert "CompositionIR.variants[0].scenes[0].future_timing_semantics" in migration_warnings
     assert any("active-cut" in warning for warning in result["warnings"])
     warnings_text = "\n".join(result["warnings"])
     assert "metadata 字段未映射" in warnings_text

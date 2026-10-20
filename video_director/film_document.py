@@ -2842,10 +2842,66 @@ def _film_camera_channels(raw_tracks: list, clip_start: float, clip_duration: fl
     return channels, []
 
 
+def _collect_unmodeled_source_fields(source: Any, model: Any, prefix: str = "CompositionIR") -> list[str]:
+    """Locate future/unknown keys before Pydantic's default extra-field filtering hides them."""
+    if not isinstance(source, dict):
+        return []
+    fields = getattr(type(model), "model_fields", None)
+    if not isinstance(fields, dict):
+        return []
+    unknown = [f"{prefix}.{key}" for key in sorted(source) if key not in fields]
+    for key, raw_value in source.items():
+        if key not in fields:
+            continue
+        child_model = getattr(model, key, None)
+        child_fields = getattr(type(child_model), "model_fields", None)
+        child_prefix = f"{prefix}.{key}"
+        if isinstance(raw_value, dict) and isinstance(child_fields, dict):
+            unknown.extend(_collect_unmodeled_source_fields(raw_value, child_model, child_prefix))
+        elif isinstance(raw_value, list) and isinstance(child_model, list):
+            for index, (raw_child, model_child) in enumerate(zip(raw_value, child_model)):
+                if isinstance(raw_child, dict) and isinstance(getattr(type(model_child), "model_fields", None), dict):
+                    unknown.extend(_collect_unmodeled_source_fields(raw_child, model_child, f"{child_prefix}[{index}]"))
+    return unknown
+
+
+def _source_composition_archive(project_id: str, ir: Any, typed_ir: dict) -> tuple[dict, list[str]]:
+    """Archive the exact persisted JSON while proving its typed fields match the converted IR."""
+    source_path = config.project_dir(project_id) / "plans" / "composition.json"
+    if not source_path.is_file():
+        return typed_ir, []
+    try:
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        normalized = type(ir).model_validate(source).model_dump(mode="json")
+        current = ir.model_dump(mode="json")
+    except Exception as exc:
+        raise FilmError(
+            "COMPOSITION_SOURCE_CHANGED",
+            f"无法确认磁盘 composition.json 与当前迁移对象一致；请重新载入迁移预览：{exc}",
+            409,
+        ) from exc
+    if normalized != current:
+        raise FilmError(
+            "COMPOSITION_SOURCE_CHANGED",
+            "磁盘 composition.json 已与当前迁移对象不同；为避免归档和成片来自不同版本，请重新载入。",
+            409,
+        )
+    unmodeled = _collect_unmodeled_source_fields(source, ir)
+    diagnostics = []
+    if unmodeled:
+        shown = ", ".join(unmodeled[:20])
+        suffix = f" 等另外 {len(unmodeled) - 20} 项" if len(unmodeled) > 20 else ""
+        diagnostics.append(
+            f"旧 composition.json 含 {len(unmodeled)} 个当前 schema 未建模字段（{shown}{suffix}）；"
+            "完整原始值已归档，但这些字段不会被猜测为可执行的 film.html 语义。"
+        )
+    return source, diagnostics
+
 def build_film_from_composition(project_id: str, ir) -> dict:
     """Convert supported video/image/audio/subtitle content; report non-lossless fields."""
     pid = validate_project_id(project_id)
     raw_ir = json.loads(ir.model_dump_json())
+    source_archive_ir, source_archive_warnings = _source_composition_archive(pid, ir, raw_ir)
     root = _project_root(pid)
     project_spec = raw_ir.get("project") or {}
     stage = {"width": int(project_spec.get("width", 1080)),
@@ -2917,6 +2973,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
 
     clips, tracks, pages, warnings = [], [], {}, []
     warnings.extend(variant_warnings)
+    warnings.extend(source_archive_warnings)
     if variants:
         if selected_variant:
             alternatives = [str(item.get("id")) for item in variants
@@ -3541,7 +3598,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     # It is an archive, not a claim that unsupported semantics were rendered.
     source_snapshot_path = "migration/source-composition.json"
     pages[source_snapshot_path] = json.dumps(
-        raw_ir, ensure_ascii=False, indent=2, sort_keys=True
+        source_archive_ir, ensure_ascii=False, indent=2, sort_keys=True
     ) + "\n"
     source_snapshot_sha256 = hashlib.sha256(
         pages[source_snapshot_path].encode("utf-8")
