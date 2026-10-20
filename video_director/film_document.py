@@ -3161,6 +3161,29 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             ] if isinstance(raw_layer_keyframes, list) else raw_layer_keyframes
             channels, unsupported_keyframes = _film_keyframes(visual_keyframes, d)
             unsupported_layer_fields.extend(f"keyframes:{field}" for field in unsupported_keyframes)
+
+            # CameraTrack is global to the Composition, so apply its supported
+            # orthographic 2D projection to every scene layer, not only PiP
+            # overlays. The same frame(t) contract then drives both preview
+            # and offline rendering. Existing explicit camera channels win.
+            camera_channels, camera_warnings = _film_camera_channels(
+                raw_ir.get("camera_tracks") or [], layer_timeline_start, d
+            )
+            unsupported_layer_fields.extend(camera_warnings)
+            current_properties = {
+                str(channel.get("property") or "")
+                for channel in channels if isinstance(channel, dict)
+            }
+            for camera_channel in camera_channels:
+                camera_property = str(camera_channel.get("property") or "")
+                if camera_property in current_properties:
+                    unsupported_layer_fields.append(
+                        f"CameraTrack 的 {camera_property} 与图层显式关键帧冲突；保留显式关键帧"
+                    )
+                    continue
+                channels.append(camera_channel)
+                current_properties.add(camera_property)
+
             if volume_tracks:
                 if kind == "video":
                     volume_envelope, volume_warnings = _film_volume_envelope(volume_tracks, d)

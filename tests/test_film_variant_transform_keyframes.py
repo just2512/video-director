@@ -189,3 +189,44 @@ def test_migration_rejects_disk_composition_that_differs_from_loaded_ir(tmp_path
 
     with pytest.raises(fd.FilmError, match="磁盘 composition.json 已与当前迁移对象不同"):
         fd.build_film_from_composition(project_id, ir)
+def test_orthographic_camera_track_is_migrated_to_main_scene_layers(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "orthographic-camera-main-layer"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "scene.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-scene", "file": "assets/scene.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "assets": [{"id": "asset-scene", "file": "assets/scene.png", "type": "image"}],
+        "camera_tracks": [{
+            "id": "camera-main",
+            "projection": "orthographic",
+            "keyframes": [
+                {"at": 0, "position": [0.5, 0.5, 1], "target": [0.5, 0.5, 0]},
+                {"at": 1, "position": [0.3, 0.4, 1], "target": [0.3, 0.4, 0]},
+            ],
+        }],
+        "scenes": [{
+            "id": "camera-scene", "start": 0, "duration": 1, "text": "camera",
+            "layers": [{
+                "type": "image", "asset_id": "asset-scene", "start": 0, "duration": 1,
+            }],
+        }],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    main_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    clip = main_track["clips"][0]
+    assert "data-film-transform" in clip["attrs"]
+    channels = json.loads(clip["attrs"]["data-film-keyframes"])
+    camera_x = next(channel for channel in channels if channel["property"] == "camera_x")
+    camera_y = next(channel for channel in channels if channel["property"] == "camera_y")
+    assert camera_x["keyframes"][0]["value"] == 0.5
+    assert camera_x["keyframes"][-1]["value"] == 0.3
+    assert camera_y["keyframes"][0]["value"] == 0.5
+    assert camera_y["keyframes"][-1]["value"] == 0.4
+    assert not any("projection=orthographic" in warning for warning in result["warnings"])
