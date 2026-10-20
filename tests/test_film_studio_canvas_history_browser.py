@@ -243,8 +243,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.locator("#fs-field-at").fill("0.25")
                 page.locator("#fs-field-title").fill("React title")
                 page.locator("#fs-apply-clip-inspector").click()
+                # Wait for the write transaction itself, not a transient toast whose
+                # text may be replaced by the SSE refresh/render cycle.
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已保存')",
+                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') === 'true'",
+                    timeout=5000,
+                )
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') === 'false'",
                     timeout=15000,
                 )
                 persisted_clip = _clip(project_id)

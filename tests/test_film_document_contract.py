@@ -477,12 +477,13 @@ def test_clip_fade_contract_applies_to_runtime_and_ffmpeg():
     filters = _audio_fade_filters(0.5, 0.75, 5.0)
     assert filters == ["afade=t=in:st=0:d=0.5", "afade=t=out:st=4.25:d=0.75"]
 
-    runtime = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
-    studio = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+    runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    react_inspector = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     assert "clipFadeAt(entry,t)" in runtime
     assert "baseVolume*volumeEnvelopeAt(entry.volumeEnvelope,localTime)*fadeFactor" in runtime
-    assert "field:'fade'" in studio
-    assert "淡入（秒）" in studio and "淡出（秒）" in studio
+    assert 'field:"fade"' in react_inspector
+    assert "淡入（秒）" in react_inspector and "淡出（秒）" in react_inspector
 
 
 def test_split_partitions_fades_without_restarting_them():
