@@ -172,20 +172,27 @@ class FrameVisionProvider(VisionProvider):
             },
             method="POST",
         )
-        # 限次重试（方案§五：网络抖动限次重试，不无限等待）+ 超时放宽到 120s
-        # （生产日志显示该视觉服务调用经常在 70~90s 边缘超时，90s 过紧）。
+        # 2026-10-20 用户裁决统一策略：LLM 调用失败 10 次重试、单次超时
+        # ≥3 分钟（此前 2 次/120s 生产显示经常边缘超时）。
         data = None
         last_exc: Optional[Exception] = None
-        for attempt in (1, 2):
+        max_attempts = 10
+        for attempt in range(1, max_attempts + 1):
             try:
-                with urllib.request.urlopen(req, timeout=120) as resp:
+                with urllib.request.urlopen(req, timeout=180) as resp:
                     data = json.loads(resp.read().decode())
                 break
             except Exception as exc:
                 last_exc = exc
-                logger.warning(f"视觉 LLM 调用第 {attempt}/2 次失败: {exc}")
+                if attempt < max_attempts:
+                    import time as _time
+                    _wait = min(10.0 * attempt, 60.0)
+                    logger.warning(
+                        f"视觉 LLM 调用第 {attempt}/{max_attempts} 次失败"
+                        f"（{_wait:.0f}s 后重试）: {exc}")
+                    _time.sleep(_wait)
         if data is None:
-            raise VisionError(f"视觉 LLM 调用失败（重试后）: {last_exc}") from last_exc
+            raise VisionError(f"视觉 LLM 调用失败（重试 {max_attempts} 次后）: {last_exc}") from last_exc
         # 防三连：choices 空（网关错误体）→ IndexError；content 为 None（安全
         # 过滤/截断）→ NoneType.find；花括号切片非 JSON → 裸 json.loads 崩。
         # 全部换成带原始响应摘要的诚实报错，调用方仍按 provider 失败降级。

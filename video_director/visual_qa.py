@@ -456,8 +456,29 @@ def frame_vision_visual_qa(scene_id: str, scene_text: str, asset_id: str,
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            data = json.loads(resp.read().decode())
+        # 2026-10-20 统一策略：10 次重试+单次 180s（此前 90s 无重试，独立
+        # HTTP 调用曾直接超时失败——与 vision.py FrameVisionProvider 同策略）
+        data = None
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, 11):
+            try:
+                with urllib.request.urlopen(req, timeout=180) as resp:
+                    data = json.loads(resp.read().decode())
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 10:
+                    import time as _time
+                    _wait = min(10.0 * attempt, 60.0)
+                    logger.warning(
+                        f"视觉 QA 调用第 {attempt}/10 次失败（{_wait:.0f}s 后重试）: {exc}")
+                    _time.sleep(_wait)
+        if data is None:
+            raise VisualAnalysisError(
+                "PROVIDER_FETCH_FAILED",
+                f"视觉 QA 调用失败（重试 10 次后）: {last_exc}") from last_exc
+    except VisualAnalysisError:
+        raise
     except Exception as exc:
         raise VisualAnalysisError("PROVIDER_FETCH_FAILED", f"视觉 QA 调用失败: {exc}") from exc
     raw = str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "")

@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import List, Optional, Protocol, runtime_checkable
 
 from loguru import logger
@@ -37,6 +38,12 @@ ENV_MODEL = "VD_LLM_MODEL"
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4o-mini"
+
+# 2026-10-20 用户裁决：LLM 调用失败给 10 次重试机会；每次重试超时预留
+# 不能少于 3 分钟。长文案/长分镜的真实生成耗时在 60~150s 量级，此前 openai
+# 默认 read timeout（600s）虽够但无重试，一次网络抖动即整链降级。
+LLM_MAX_RETRIES = 10
+LLM_ATTEMPT_TIMEOUT_S = 180  # 单次尝试超时（≥180s = 3 分钟）
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +111,10 @@ class OpenAICompatibleProvider:
         self._client = OpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
+            # 单次调用超时（read/write/connect）——2026-10-20 用户裁决：
+            # 每次重试超时预留不能少于 3 分钟。openai 库 timeout 参数同时
+            # 作用于连接与读取（秒）。
+            timeout=LLM_ATTEMPT_TIMEOUT_S,
         )
 
     @property
@@ -117,26 +128,47 @@ class OpenAICompatibleProvider:
     def generate(self, prompt: str, system: Optional[str] = None) -> str:
         """调用 chat.completions 生成文本。
 
-        失败抛 RuntimeError（调用方降级到规则路径）。
+        2026-10-20 用户裁决：失败给 10 次重试机会，每次单次超时预留不少于
+        3 分钟（LLM_ATTEMPT_TIMEOUT_S）。重试覆盖网络抖动/超时/5xx/429
+        （限流等待后重试）；4xx 参数类错误不重试（重试也无用，快速失败）。
+        全部失败抛 RuntimeError（调用方降级到规则路径）。
         """
         self._ensure_client()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        try:
-            resp = self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-            )
-        except Exception as exc:
-            logger.warning(f"LLM generate 失败 (model={self._model}): {exc}")
-            raise RuntimeError(f"LLM generate 失败: {exc}") from exc
-        # openai 2.x: resp.choices[0].message.content
-        try:
-            return resp.choices[0].message.content or ""
-        except (AttributeError, IndexError) as exc:
-            raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, LLM_MAX_RETRIES + 1):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                )
+                # openai 2.x: resp.choices[0].message.content
+                try:
+                    return resp.choices[0].message.content or ""
+                except (AttributeError, IndexError) as exc:
+                    # 结构异常不是网络问题，重试无意义——直接失败
+                    raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
+            except RuntimeError:
+                raise  # 结构异常类，不重试
+            except Exception as exc:
+                last_exc = exc
+                status = getattr(exc, "status_code", None)
+                # 4xx（除 429 限流）是参数/鉴权类错误，重试无意义
+                if status is not None and 400 <= status < 500 and status != 429:
+                    logger.warning(
+                        f"LLM generate 客户端错误 {status}，不重试: {str(exc)[:160]}")
+                    raise RuntimeError(f"LLM generate 失败: {exc}") from exc
+                if attempt < LLM_MAX_RETRIES:
+                    wait = min(15.0 * attempt, 60.0)
+                    logger.warning(
+                        f"LLM generate 第 {attempt}/{LLM_MAX_RETRIES} 次失败"
+                        f"（{wait:.0f}s 后重试）: {str(exc)[:160]}")
+                    time.sleep(wait)
+        raise RuntimeError(
+            f"LLM generate 失败（重试 {LLM_MAX_RETRIES} 次后）: {last_exc}") from last_exc
 
 
 # ---------------------------------------------------------------------------
