@@ -1143,6 +1143,21 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         clip_speed=spec.get("clip_speed"),
         concat_mode=spec.get("concat_mode") or "sequential",
     )
+    # 镜头锁定继承（对抗探针实锚）：composition 重规划全新构建 IR 会丢掉
+    # 旧 IR 的 human_locked 标记——从已落盘 IR 把锁定状态搬回来（retry/
+    # checkpoint 续跑后用户锁定的镜头不被静默解锁）。
+    try:
+        from video_director.editor import load_composition as _load_ir
+        _prev_ir = _load_ir(pid)
+        _locked_prev = {sc.id: sc.human_locked
+                        for sc in _prev_ir.scenes if getattr(sc, "human_locked", False)}
+        for sc in ir.scenes:
+            if _locked_prev.get(sc.id):
+                sc.human_locked = True
+        if _locked_prev:
+            logger.info(f"composition 重规划继承锁定镜头: {sorted(_locked_prev)}")
+    except Exception:
+        pass  # 无旧 IR（首轮创作）无可继承
     style_mod.apply_to_ir(ir, state["style_contract"], config)
     # 转场两层语义（2026-10-19 意图链修复，审计：提案从不应用）：
     # ①用户明确指定 fade/crossfade → 用户指令直接执行写 IR（提案确认门是给
