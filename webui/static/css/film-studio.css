@@ -245,3 +245,21 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 @media(max-height:520px){
   .film-studio-panel.fs-studio-expanded .fs-timeline-pane{min-height:160px}
 }
+
+/* Canvas element pick overlay. It is visual-only so pointer events reach the scene iframe. */
+.fs-element-selection{
+  position:absolute;z-index:30;box-sizing:border-box;border:1px solid #0d99ff;
+  background:rgba(13,153,255,.07);box-shadow:0 0 0 1px rgba(0,0,0,.4);
+  pointer-events:none;min-width:2px;min-height:2px;
+}
+.fs-element-selection[hidden]{display:none}
+.fs-element-selection:before,.fs-element-selection:after{
+  content:"";position:absolute;width:7px;height:7px;box-sizing:border-box;
+  background:#fff;border:1px solid #0d99ff;border-radius:1px;
+}
+.fs-element-selection:before{left:-4px;top:-4px}
+.fs-element-selection:after{right:-4px;bottom:-4px}
+#fs-element-inspect-toggle[aria-pressed="true"]{background:#0d6f9f;border-color:#31a7ef;color:#fff}
+.fs-inspector-element{border:1px solid #244e70;border-radius:5px;padding:8px;margin:8px 0;background:#17212a}
+.fs-inspector-element h4{font-size:11px;margin:0 0 6px;color:#d8ecfa}
+.fs-inspector-element .fs-inspector-field{grid-template-columns:78px minmax(0,1fr)}
