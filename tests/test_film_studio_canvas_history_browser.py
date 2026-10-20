@@ -314,12 +314,30 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     state="attached", timeout=15000
                 )
                 page.locator("#fs-element-inspect-toggle").click()
-                scene_title = page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title")
                 page.wait_for_function(
-                    "() => document.querySelector('#fs-preview-composition')?.contentWindow != null",
-                    timeout=15000,
+                    "() => document.querySelector('#fs-element-inspect-toggle')?.getAttribute('aria-pressed') === 'true'",
+                    timeout=5000,
                 )
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
+                    timeout=10000,
+                )
+                pointer_mode_after_reload = page.frame_locator("#fs-preview-composition").locator("#scene-clip").evaluate(
+                    "(frame) => getComputedStyle(frame).pointerEvents"
+                )
+                assert pointer_mode_after_reload == "auto", (
+                    f"Reloaded preview did not enable iframe hit-testing: {pointer_mode_after_reload}"
+                )
+                scene_title = page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title")
                 scene_title.click()
+                try:
+                    page.wait_for_function(
+                        "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
+                        timeout=15000,
+                    )
+                except Exception as exc:
+                    trace = page.evaluate("() => ({trace:window.__vdCanvasTrace||[], alert:document.querySelector('#film-studio-alert')?.textContent, iframePointerEvents:getComputedStyle(document.querySelector('#fs-preview-composition')?.contentDocument?.querySelector('#scene-clip')).pointerEvents})")
+                    raise AssertionError("Canvas picker after reload did not reach Studio: " + json.dumps(trace, ensure_ascii=False)) from exc
                 page.locator("#fs-element-text").wait_for(state="visible")
                 assert page.locator("#fs-element-text").input_value() == "Saved title"
                 assert page.locator("#fs-element-left").input_value() == "64.0"
