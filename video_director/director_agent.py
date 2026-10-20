@@ -171,6 +171,11 @@ def _choose_next(plan: dict, current: str, result: dict, retries: int) -> Tuple[
                 if choice == "retry" and retries < 2:
                     return "retry", reason or "重试当前节点"
                 if choice == "STOP":
+                    # 2026-10-20 生产实锚：确定性构建失败（如 composition 区间
+                    # 重叠）本可由 retry 重算成功，LLM 调度器看到一次失败就提前
+                    # STOP 判死刑——重试预算没花完时不允许 LLM 放弃。
+                    if not result.get("ok", True) and retries < 2:
+                        return "retry", "失败可重试（未达重试上限，不由 LLM 提前放弃）"
                     return "STOP", reason or "Director 停止"
         except Exception as exc:
             logger.warning(f"Director next-node decision failed: {exc}")
