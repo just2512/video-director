@@ -559,7 +559,8 @@
         width:finite(rect.width,0)*scaleX,height:finite(rect.height,0)*scaleY
       },
       // Keep preview-space rect for the selection overlay, but preserve the child document's CSS design-space box for inspector round-tripping.
-      localRect:message.localRect||rect,enabled:message.enabled===true
+      localRect:message.localRect||rect,enabled:message.enabled===true,
+      error:typeof message.error==='string'?message.error.slice(0,1000):''
     });
     return true;
   }

@@ -278,3 +278,12 @@ def test_preview_seeks_are_coalesced_and_exact_frame_requests_are_serialized():
         assert draws[-1]["time"] == 9
         browser.close()
 
+def test_inspect_ready_errors_are_forwarded_to_the_studio():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "error:typeof message.error==='string'?message.error.slice(0,1000):''" in runtime
+    assert "message.enabled===false" in studio
+    assert "绘制队列未能完成" in studio
