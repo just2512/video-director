@@ -27,9 +27,10 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
             "layers": [{"type": "image", "asset_id": "asset-base", "start": 0, "duration": 1}],
         }],
         "variants": [{
-            "id": "active-cut", "version": 2,
+            "id": "active-cut", "version": 2, "metadata": {"author": "legacy-agent"},
             "scenes": [{
                 "id": "active-scene", "start": 0, "duration": 1, "text": "active",
+                "transition_out": {"type": "dissolve", "duration": 0.25},
                 "layers": [{
                     "type": "image", "asset_id": "asset-variant", "start": 0, "duration": 1,
                     "fit_mode": "contain",
@@ -68,6 +69,7 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     main_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
     clip = main_track["clips"][0]
     assert clip["attrs"]["data-asset-id"] == "asset-variant"
+    assert clip["attrs"]["data-source-variant-version"] == "2"
     assert clip["attrs"]["data-source-variant-id"] == "active-cut"
     transform = json.loads(clip["attrs"]["data-film-transform"])
     assert transform["x"] == 0.4 and transform["y"] == 0.6
@@ -79,6 +81,9 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
         "x", "opacity", "camera_x", "camera_y", "camera_scale",
     }
     assert any("active-cut" in warning for warning in result["warnings"])
+    warnings_text = "\n".join(result["warnings"])
+    assert "metadata 字段未映射" in warnings_text
+    assert "转场 type=dissolve" in warnings_text
     assert not any(
         f"keyframes:{name}" in warning
         for warning in result["warnings"]

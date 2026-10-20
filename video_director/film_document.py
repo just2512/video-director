@@ -2927,6 +2927,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             )
             if selected_variant.get("style"):
                 warnings.append(f"变体 {selected_variant.get('id')} 的 variant.style 未映射到 film.html")
+            if selected_variant.get("metadata"):
+                warnings.append(
+                    f"变体 {selected_variant.get('id')} 的 metadata 字段未映射到 film.html；"
+                    "完整内容保留于 migration/source-composition.json"
+                )
             if not selected_variant.get("scenes"):
                 warnings.append(f"变体 {selected_variant.get('id')} 没有独立 scenes，当前使用顶层 scenes")
             if not selected_variant.get("tracks"):
@@ -3076,6 +3081,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(layer_timeline_start), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
             if selected_variant:
                 attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
+                attrs["data-source-variant-version"] = str(selected_variant.get("version", 1))
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
             unsupported_layer_fields = []
@@ -3301,6 +3307,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
                  "data-asset-id": str(overlay.get("asset_id") or ""), "data-source-id": str(overlay.get("id") or ""), "opacity": _fmt(opacity)}
+        if selected_variant:
+            attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
+            attrs["data-source-variant-version"] = str(selected_variant.get("version", 1))
         source_lane_id = str(overlay.get("track_id") or "")
         source_lane = visual_lanes_by_id.get(source_lane_id, {})
         if source_lane_id:
@@ -3388,6 +3397,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                  "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio.get("id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
         if selected_variant:
             attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
+            attrs["data-source-variant-version"] = str(selected_variant.get("version", 1))
         if abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
         if audio.get("muted") or lane.get("muted"):
@@ -3489,9 +3499,16 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "尾部空白/gap 未变成显式片段，film.html 导出时长会缩短"
         )
     for scene in source_scenes:
-        transition = (scene.get("transition_out") or {}).get("type", "cut")
-        if transition not in {"cut", "none", ""}:
-            warnings.append(f"场景 {scene.get('id')} 转场 {transition} 尚未完整映射")
+        transition_spec = scene.get("transition_out") or {}
+        transition = str(transition_spec.get("type") or "cut")
+        transition_duration = _number(
+            transition_spec.get("duration", 0), f"scene {scene.get('id')} transition duration", 0
+        )
+        if transition not in {"cut", "none", ""} or transition_duration > 0.001:
+            warnings.append(
+                f"场景 {scene.get('id')} 转场 type={transition}, duration={transition_duration:.3f}s "
+                "尚未完整映射；原始设置保留于迁移源副本"
+            )
     if clips:
         tracks.append({"id": "track-main",
                        "attrs": {"id": "track-main", "data-label": "主画面",

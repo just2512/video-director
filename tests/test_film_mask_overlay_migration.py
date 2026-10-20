@@ -83,6 +83,10 @@ def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_pat
                 "mask": mask,
             }],
         }],
+        "visual_tracks": [{
+            "id": "overlay-main", "name": "画面叠加", "order": 0,
+            "locked": True, "hidden": True,
+        }],
         "visual_overlays": [{
             "id": "full-screen-card", "asset_id": "asset-image", "start": 0, "duration": 1,
             "presentation_mode": "full_frame", "fit_mode": "contain", "z_index": 8, "opacity": 0.7,
@@ -93,6 +97,8 @@ def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_pat
     assert expected in base["clips"][0]["attrs"]["style"]
     overlay = next(track for track in result["document"]["tracks"] if track["id"] == "track-overlay-full-screen-card")
     assert overlay["attrs"]["data-render-z-index"] == "100009"
+    assert "locked" in overlay["attrs"]
+    assert overlay["attrs"]["data-source-track-hidden"] == "true"
     assert overlay["attrs"]["style"] == "z-index:100009"
     base_index = next(i for i, track in enumerate(result["document"]["tracks"]) if track["id"] == "track-main")
     overlay_index = next(i for i, track in enumerate(result["document"]["tracks"]) if track["id"] == "track-overlay-full-screen-card")
