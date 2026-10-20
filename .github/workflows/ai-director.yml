@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: ai-director-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   ai-director:
@@ -329,7 +329,3 @@ jobs:
           path: |
             junit.xml
             pytest-output.log
-            test-results/**
-            webui/static/js/film-studio-react.js
-            playwright-report/**
-            artifacts/**

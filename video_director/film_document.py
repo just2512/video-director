@@ -464,9 +464,11 @@ def _find_track(doc: dict, track_id: str) -> dict:
     raise FilmError("TRACK_NOT_FOUND", f"轨道不存在：{track_id}", 409)
 
 
-def _ensure_unlocked(track: dict):
+def _ensure_unlocked(track: dict, clip: dict | None = None):
     if "locked" in (track.get("attrs") or {}):
         raise FilmError("TRACK_LOCKED", f"轨道 {track['id']} 已锁定，不能编辑", 409)
+    if clip is not None and "data-clip-locked" in (clip.get("attrs") or {}):
+        raise FilmError("CLIP_LOCKED", f"片段 {clip['id']} 已锁定，不能编辑", 409)
 
 
 def _validate_doc(doc: dict):
@@ -496,7 +498,7 @@ def _validate_doc(doc: dict):
 def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = None) -> dict:
     """Delete the selected clip's timeline interval and ripple every unlocked track."""
     target_track, target_clip = _find_clip(doc, clip_id)
-    _ensure_unlocked(target_track)
+    _ensure_unlocked(target_track, target_clip)
     cut_start = _number(target_clip.get("attrs", {}).get("at", 0), "at", 0)
     cut_end = clip_end(target_clip)
     if cut_end is None or not math.isfinite(cut_end) or cut_end <= cut_start:
@@ -515,24 +517,23 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
     removed_ids: list[str] = []
     shifted_ids: list[str] = []
 
-    # Reject the whole edit rather than silently modifying a locked track.
+    # Reject the whole transaction before mutation when ripple would touch any
+    # locked track or locked clip, including clips that would be shifted/split.
     for track in doc["tracks"]:
-        if "locked" not in (track.get("attrs") or {}):
-            continue
+        track_locked = "locked" in (track.get("attrs") or {})
         for clip in track.get("clips") or []:
-            at = _number(clip.get("attrs", {}).get("at", 0), "at", 0)
+            attrs = clip.get("attrs") or {}
+            at = _number(attrs.get("at", 0), "at", 0)
             end = clip_end(clip)
             affected = (
                 clip["id"] == clip_id
-                or (end is None and (at >= cut_start - eps or at < cut_start - eps))
+                or (end is None and at >= cut_start - eps)
                 or (end is not None and (at >= cut_end - eps or end > cut_start + eps))
             )
-            if affected:
-                raise FilmError(
-                    "TRACK_LOCKED",
-                    f"波纹删除会影响锁定轨道 {track['id']}；整笔操作已拒绝",
-                    409,
-                )
+            if affected and (track_locked or "data-clip-locked" in attrs):
+                code = "TRACK_LOCKED" if track_locked else "CLIP_LOCKED"
+                target = track["id"] if track_locked else clip["id"]
+                raise FilmError(code, f"波纹删除会影响已锁定对象 {target}；整笔操作已拒绝", 409)
 
     for track in doc["tracks"]:
         rewritten: list[dict] = []
@@ -644,7 +645,7 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
 def _slide_trim(doc: dict, clip_id: str, delta: Any) -> dict:
     """Move one clip within a same-source three-clip run while keeping outer timeline bounds fixed."""
     track, middle = _find_clip(doc, clip_id)
-    _ensure_unlocked(track)
+    _ensure_unlocked(track, middle)
     if middle["tag"] not in {"video", "audio"}:
         raise FilmError("SLIDE_MEDIA_UNSUPPORTED", "滑移式修剪只支持视频/音频片段", 422)
 
@@ -653,6 +654,8 @@ def _slide_trim(doc: dict, clip_id: str, delta: Any) -> dict:
     if index <= 0 or index >= len(ordered) - 1:
         raise FilmError("SLIDE_NEIGHBOURS_REQUIRED", "滑移式修剪要求所选片段左右都有相邻片段", 422)
     left, right = ordered[index - 1], ordered[index + 1]
+    _ensure_unlocked(track, left)
+    _ensure_unlocked(track, right)
     if left["tag"] != middle["tag"] or right["tag"] != middle["tag"]:
         raise FilmError("SLIDE_MEDIA_MISMATCH", "滑移式修剪要求三段使用相同的视频/音频类型", 422)
     left_duration, middle_duration, right_duration = map(clip_duration, (left, middle, right))
@@ -727,7 +730,8 @@ def _roll_trim(doc: dict, left_id: str, right_id: str, delta: Any) -> dict:
     right_track, right = _find_clip(doc, right_id)
     if left_track["id"] != right_track["id"]:
         raise FilmError("ROLL_TRACK_MISMATCH", "滚动修剪要求两个片段在同一轨道", 422)
-    _ensure_unlocked(left_track)
+    _ensure_unlocked(left_track, left)
+    _ensure_unlocked(right_track, right)
     if left_id == right_id or left["tag"] != right["tag"]:
         raise FilmError("ROLL_INCOMPATIBLE_CLIPS", "滚动修剪要求两个不同且类型一致的片段", 422)
     left_duration, right_duration = clip_duration(left), clip_duration(right)
@@ -814,6 +818,21 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
     # Reject the whole transaction before touching any of the candidate tracks.
     for track in affected:
         _ensure_unlocked(track)
+        for existing in track.get("clips") or []:
+            if "data-clip-locked" not in (existing.get("attrs") or {}):
+                continue
+            existing_at = _number(existing.get("attrs", {}).get("at", 0), "at", 0)
+            existing_end = clip_end(existing)
+            will_change = (
+                existing_at >= at - eps if existing_end is None
+                else existing_end > at + eps
+            )
+            if will_change:
+                raise FilmError(
+                    "CLIP_LOCKED",
+                    f"插入编辑会移动或切分已锁定片段 {existing['id']}；整笔操作已拒绝",
+                    409,
+                )
 
     used_ids = {clip["id"] for track in doc["tracks"] for clip in track["clips"]}
     used_ids.add(clip_id)
@@ -889,7 +908,8 @@ def _join_through_edit(doc: dict, left_id: str, right_id: str) -> dict:
     right_track, right = _find_clip(doc, right_id)
     if left_track["id"] != right_track["id"]:
         raise FilmError("JOIN_TRACK_MISMATCH", "愈合切口要求两个片段位于同一轨道", 422)
-    _ensure_unlocked(left_track)
+    _ensure_unlocked(left_track, left)
+    _ensure_unlocked(right_track, right)
     if left_id == right_id or left["tag"] != right["tag"]:
         raise FilmError("JOIN_INCOMPATIBLE_CLIPS", "愈合切口要求两个不同且类型相同的片段", 422)
     left_duration, right_duration = clip_duration(left), clip_duration(right)
@@ -1031,7 +1051,7 @@ def _normalize_element_override(selector: Any, text_value: Any = None,
 
 def _apply_element_set(doc: dict, op: dict) -> dict:
     track, clip = _find_clip(doc, str(op.get("clip") or ""))
-    _ensure_unlocked(track)
+    _ensure_unlocked(track, clip)
     if clip.get("tag") != "iframe":
         raise FilmError("ELEMENT_EDIT_REQUIRES_HTML", "画布元素修改只支持 HTML 镜头 iframe 片段", 422)
     text_supplied = "text" in op
@@ -1080,7 +1100,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             normalized.append(_apply_element_set(out, op))
         elif kind == "set":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
-            _ensure_unlocked(track)
+            _ensure_unlocked(track, clip)
             field = str(op.get("field") or "")
             if field not in SETTABLE_FIELDS:
                 raise FilmError("FIELD_NOT_ALLOWED", f"Studio 不允许修改字段：{field}")
@@ -1132,7 +1152,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             normalized.append({"op": "set", "clip": clip["id"], "field": field, "value": value})
         elif kind == "move":
             old_track, clip = _find_clip(out, str(op.get("clip") or ""))
-            _ensure_unlocked(old_track)
+            _ensure_unlocked(old_track, clip)
             track_id = str(op.get("track_id") or old_track["id"])
             new_track = _find_track(out, track_id)
             _ensure_unlocked(new_track)
@@ -1146,7 +1166,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             normalized.append({"op": "slide", "clip": result["clip"], "delta": result["delta"]})
         elif kind == "slip":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
-            _ensure_unlocked(track)
+            _ensure_unlocked(track, clip)
             if clip["tag"] not in {"video", "audio"}:
                 raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持源区间滑移", 422)
             source_in, source_out = _source_range(str(clip["attrs"].get("src") or ""))
@@ -1177,7 +1197,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             })
         elif kind == "remove":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
-            _ensure_unlocked(track)
+            _ensure_unlocked(track, clip)
             track["clips"].remove(clip)
             normalized.append({"op": "remove", "clip": clip["id"]})
         elif kind == "insert_ripple":
@@ -1205,7 +1225,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             normalized.append({"op": "insert", "track_id": track["id"], "clip": clip})
         elif kind == "split":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
-            _ensure_unlocked(track)
+            _ensure_unlocked(track, clip)
             attrs = clip["attrs"]
             at = _number(op.get("at"), "split at", 0)
             start, duration = _number(attrs.get("at", 0), "at", 0), clip_duration(clip)
@@ -1240,7 +1260,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             normalized.append({"op": "split", "clip": original_id, "at": _fmt(at), "new_id": right_id})
         elif kind == "trim":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
-            _ensure_unlocked(track)
+            _ensure_unlocked(track, clip)
             attrs = clip["attrs"]
             edge = str(op.get("edge") or "")
             start = _number(attrs.get("at", 0), "at", 0)
@@ -2759,7 +2779,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 pass
         return _safe_storage_uri(pid, file_value)
 
-    clips, locked_clips, tracks, pages, warnings = [], [], [], {}, []
+    clips, tracks, pages, warnings = [], [], {}, []
     warnings.extend(variant_warnings)
     if variants:
         if selected_variant:
@@ -3054,9 +3074,35 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 else:
                     attrs["style"] += ";clip-path:" + mask_clip_path
             if layer.get("locked"):
-                locked_clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
+                attrs["data-clip-locked"] = ""
+            clip_record = {"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs}
+            clip_at = _number(attrs.get("at", 0), "clip at", 0)
+            clip_end_at = clip_end(clip_record)
+            can_share_main_track = not clips or (
+                idx == 0 and clip_end_at is not None and all(
+                    clip_end(existing) is not None
+                    and (
+                        clip_end(existing) <= clip_at + 0.001
+                        or _number(existing["attrs"].get("at", 0), "existing clip at", 0) >= clip_end_at - 0.001
+                    )
+                    for existing in clips
+                )
+            )
+            if can_share_main_track:
+                clips.append(clip_record)
             else:
-                clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
+                layer_track_id = _safe_id("track-layer-" + cid, "track")
+                layer_track = {
+                    "id": layer_track_id,
+                    "attrs": {
+                        "id": layer_track_id,
+                        "data-label": f"图层 {scene_id}/{idx + 1}",
+                        "data-render-z-index": str(max(0, idx)),
+                        "style": f"z-index:{max(0, idx)}",
+                    },
+                    "clips": [clip_record],
+                }
+                tracks.append(layer_track)
             if kind == "image" and (
                 abs(_number(layer.get("speed", 1), "image speed", 0.001) - 1) > 1e-6
                 or _number(layer.get("source_in", 0), "image source_in", 0) > 0
@@ -3070,14 +3116,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     # Put each overlapping overlay/audio item on its own physical section; OpenFilm tracks may not overlap internally.
     def one_clip_track(track_id, label, clip):
         return {"id": track_id, "attrs": {"id": track_id, "data-label": label}, "clips": [clip]}
-
-    for locked_clip in locked_clips:
-        locked_track_id = _safe_id("track-locked-" + locked_clip["id"], "track")
-        locked_track = one_clip_track(locked_track_id, "锁定片段 " + locked_clip["id"], locked_clip)
-        locked_track["attrs"]["locked"] = ""
-        locked_track["attrs"]["data-render-z-index"] = "0"
-        locked_track["attrs"]["style"] = "z-index:0"
-        tracks.append(locked_track)
 
     visual_overlay_items = list(raw_ir.get("visual_overlays") or [])
     visual_overlay_items.sort(key=lambda overlay: (

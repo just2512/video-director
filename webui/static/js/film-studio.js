@@ -333,7 +333,8 @@
                 atLabel:fmtTime(clip.at),durationLabel:clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s',
                 selected:(S.selectedIds||[]).indexOf(clip.id)>=0,thumbnail:thumbnail,
                 waveform:clip.tag==='audio',envelope:(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null,
-                trimHandles:clip.duration!=null
+                locked:Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked'),
+                trimHandles:clip.duration!=null&&!Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked')
               };
             })
           };
@@ -351,13 +352,14 @@
             label=attrs['data-label']||track.id;
         var lane='<div class="fs-track-body" style="width:'+laneWidth+'px">';
         (track.clips||[]).forEach(function(clip){
-          var width=Math.max(24,(clip.duration==null?2:clip.duration)*S.pxPerSec),left=Math.max(0,clip.at*S.pxPerSec),title=clip.attrs.title||clip.id;
+          var clipLocked=Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked');
+          var width=Math.max(24,(clip.duration==null?2:clip.duration)*S.pxPerSec),left=Math.max(0,clip.at*S.pxPerSec),title=(clipLocked?'🔒 ':'')+(clip.attrs.title||clip.id);
           var aid=clip.attrs['data-asset-id']||'',thumb=aid&&clip.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
           var thumbHtml=thumb?'<img class="fs-clip-thumb" src="'+esc(thumb)+'" loading="lazy" alt="" onerror="this.remove()">':'';
           var waveformHtml=clip.tag==='audio'?'<canvas class="fs-clip-waveform" data-waveform-clip="'+esc(clip.id)+'" aria-label="音频波形"></canvas>':'';
           var envelopeHtml=(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null?'<canvas class="fs-clip-envelope" data-envelope-clip="'+esc(clip.id)+'" aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点"></canvas>':'';
-          var handles=clip.duration==null?'':'<span class="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点"></span><span class="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点"></span>';
-          lane+='<div class="fs-clip '+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+envelopeHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
+          var handles=clip.duration==null||clipLocked?'':'<span class="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点"></span><span class="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点"></span>';
+          lane+='<div class="fs-clip '+(clipLocked?'fs-clip-locked ':'')+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+envelopeHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
         });
         lane+='</div>';
         return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(syncLocked?'fs-sync-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="sync-lock" data-track-key="'+esc(track.id)+'" aria-pressed="'+(syncLocked?'true':'false')+'" title="'+(syncLocked?'取消同步锁定':'启用同步锁定')+'">'+(syncLocked?'⇄':'同步')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
@@ -376,6 +378,9 @@
         if(e.button!==0||e.target.closest('button'))return;
         if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
         var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
+        if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
+          e.preventDefault();showStatus('该片段已锁定，不能移动、修剪、滑移或滚动修剪。','error');return;
+        }
         var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
             slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))&&(clip.tag==='video'||clip.tag==='audio')),canDrag;
         if(rollGesture||slideGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
@@ -714,6 +719,11 @@
       return;
     }
     $('fs-inspector').innerHTML=fields;
+    if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
+      $('fs-inspector').querySelectorAll('input,select,button').forEach(function(control){control.disabled=true;});
+      var lockMessage=document.createElement('div');lockMessage.className='fs-alert fs-visible fs-error';lockMessage.textContent='该片段来自已锁定图层，只读保留其原始时间线位置与画面。';
+      $('fs-inspector').appendChild(lockMessage);
+    }
     renderElementInspector(element);
     $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(button){
       button.addEventListener('click',function(e){

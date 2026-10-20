@@ -84,9 +84,10 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert "rgba(16,16,16,0.5)" in subtitle_html and "width:70%" in subtitle_html
     assert 'const animation="fade"' in subtitle_html
 
-    visual_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-locked-main-scene-opening-1")
-    assert "locked" in visual_track["attrs"]
-    image_clip = visual_track["clips"][0]
+    visual_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    image_clip = next(clip for clip in visual_track["clips"] if clip["id"] == "main-scene-opening-1")
+    assert "locked" not in visual_track["attrs"]
+    assert "data-clip-locked" in image_clip["attrs"]
     assert image_clip["attrs"]["data-source-id"] == "legacy-layer-opening-01"
     assert image_clip["attrs"]["data-source-scene-id"] == "scene-opening"
     assert image_clip["attrs"]["data-source-track-id"] == "legacy-visual-track"

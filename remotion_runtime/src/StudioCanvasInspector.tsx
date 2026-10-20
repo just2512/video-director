@@ -65,7 +65,7 @@ interface FilmStudioReactAssetsBridge {
 type FilmTimelineSurfaceClip = {
   id: string; trackId: string; tag: string; title: string;
   left: number; width: number; atLabel: string; durationLabel: string;
-  selected: boolean; thumbnail: string; waveform: boolean; envelope: boolean; trimHandles: boolean;
+  selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; envelope: boolean; trimHandles: boolean;
 };
 type FilmTimelineSurfaceTrack = {
   id: string; label: string; locked: boolean; syncLocked: boolean; hidden: boolean; muted: boolean;
@@ -147,6 +147,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
     return <div className="fs-empty" data-react-clip-inspector-empty="true">{emptyMessage || "选择时间线片段后编辑属性。"}</div>;
   }
   const attrs = clip.attrs || {};
+  const clipLocked = Object.prototype.hasOwnProperty.call(attrs, "data-clip-locked");
   const speed = Number(form.speed || 1);
   const hasMediaControls = clip.tag === "video" || clip.tag === "audio";
   return (
@@ -157,14 +158,14 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       <div className="fs-inspector-section">
         <label className="fs-inspector-field">
           时间位置（秒）
-          <input id="fs-field-at" type="number" min={0} step={0.033333} value={form.at}
+          <input id="fs-field-at" type="number" min={0} step={0.033333} value={form.at} disabled={clipLocked}
             onChange={(event) => update("at", event.currentTarget.value)} />
         </label>
         {hasMediaControls && (
           <>
             <label className="fs-inspector-field">
               速度
-              <input id="fs-field-speed" type="number" min={0.25} max={4} step={0.05} value={form.speed}
+              <input id="fs-field-speed" type="number" min={0.25} max={4} step={0.05} value={form.speed} disabled={clipLocked}
                 onChange={(event) => update("speed", event.currentTarget.value)} />
             </label>
             <div className="fs-speed-presets">
@@ -172,19 +173,19 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
               <div>{[0.5, 1, 1.5, 2, 4].map((value) => (
                 <button type="button" key={value}
                   className={"fs-speed-chip" + (Math.abs(speed - value) < 0.001 ? " fs-speed-chip-active" : "")}
-                  data-speed-preset={value} title={"设置速度为 " + value + " 倍"}
+                  data-speed-preset={value} title={"设置速度为 " + value + " 倍"} disabled={clipLocked}
                   onClick={() => update("speed", String(value))}
                 >{value}×</button>
               ))}</div>
             </div>
             <label className="fs-inspector-field">
               音量
-              <input id="fs-field-volume" type="number" min={0} max={2} step={0.05} value={form.volume}
+              <input id="fs-field-volume" type="number" min={0} max={2} step={0.05} value={form.volume} disabled={clipLocked}
                 onChange={(event) => update("volume", event.currentTarget.value)} />
             </label>
             <label className="fs-inspector-field">
               静音
-              <select id="fs-field-muted" value={form.muted}
+              <select id="fs-field-muted" value={form.muted} disabled={clipLocked}
                 onChange={(event) => update("muted", event.currentTarget.value === "true" ? "true" : "false")}>
                 <option value="false">否</option><option value="true">是</option>
               </select>
@@ -195,26 +196,27 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
           <>
             <label className="fs-inspector-field">
               淡入（秒）
-              <input id="fs-field-fade-in" type="number" min={0} max={60} step={0.05} value={form.fadeIn}
+              <input id="fs-field-fade-in" type="number" min={0} max={60} step={0.05} value={form.fadeIn} disabled={clipLocked}
                 onChange={(event) => update("fadeIn", event.currentTarget.value)} />
             </label>
             <label className="fs-inspector-field">
               淡出（秒）
-              <input id="fs-field-fade-out" type="number" min={0} max={60} step={0.05} value={form.fadeOut}
+              <input id="fs-field-fade-out" type="number" min={0} max={60} step={0.05} value={form.fadeOut} disabled={clipLocked}
                 onChange={(event) => update("fadeOut", event.currentTarget.value)} />
             </label>
           </>
         )}
         <label className="fs-inspector-field">
           片段标题
-          <input id="fs-field-title" type="text" maxLength={200} value={form.title}
+          <input id="fs-field-title" type="text" maxLength={200} value={form.title} disabled={clipLocked}
             onChange={(event) => update("title", event.currentTarget.value)} />
         </label>
       </div>
       <div className="fs-inspector-description fs-inspector-section">
         更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
       </div>
-      <button type="button" id="fs-apply-clip-inspector" className="fs-btn fs-primary"
+      {clipLocked ? <div className="fs-alert fs-visible fs-error" role="status">该片段来自已锁定图层，只读保留其原始时间线位置与画面。</div> : null}
+      <button type="button" id="fs-apply-clip-inspector" className="fs-btn fs-primary" disabled={clipLocked}
         onClick={() => { void window.filmStudioSaveInspector?.({...form}); }}
       >应用片段属性</button>
     </div>
@@ -302,8 +304,9 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         <div className="fs-track-body" style={{width:model.laneWidth}}>
           {track.clips.map((clip) => (
             <div
-              className={"fs-clip" + (clip.selected ? " fs-clip-selected" : "")}
+              className={"fs-clip" + (clip.selected ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "")}
               data-clip={clip.id}
+              data-clip-locked={clip.locked ? "true" : "false"}
               data-track={clip.trackId}
               data-kind={clip.tag}
               data-react-timeline-clip={clip.id}
@@ -314,6 +317,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
               {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}
               {clip.envelope ? <canvas className="fs-clip-envelope" data-envelope-clip={clip.id} aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点" /> : null}
+              {clip.locked ? <span className="fs-clip-lock-mark" aria-label="片段已锁定">🔒</span> : null}
               {clip.trimHandles ? <>
                 <span className="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点" />
                 <span className="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点" />
