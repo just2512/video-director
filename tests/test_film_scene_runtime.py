@@ -183,3 +183,41 @@ def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
         assert snapshot["frameTime"] == "2.5"
         browser.close()
 
+
+def test_scene_bridge_rejects_unbounded_request_animation_frame_loops():
+    from playwright.sync_api import sync_playwright
+
+    scene = inject_scene_runtime(
+        """<!doctype html><html><head></head><body><script>
+        window.film = { frame: function (t) {
+          function tick() { requestAnimationFrame(tick); }
+          requestAnimationFrame(tick);
+        }};
+        </script></body></html>""",
+        "film-test",
+        "scenes/loop.html",
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+        page = browser.new_page()
+        page.set_content("""<!doctype html><html><body>
+          <iframe id="scene" sandbox="allow-scripts"></iframe>
+          <script>
+            window.__reply = null;
+            var frame = document.getElementById('scene');
+            window.addEventListener('message', function (event) {
+              if (event.source === frame.contentWindow && event.data
+                  && event.data.type === 'film-frame:ready') window.__reply = event.data;
+            });
+            frame.addEventListener('load', function () {
+              frame.contentWindow.postMessage({type:'film-frame',time:1,frame:3}, '*');
+            });
+          </script>
+        </body></html>""")
+        page.locator("#scene").evaluate("(frame, source) => { frame.srcdoc = source; }", scene)
+        page.wait_for_function("window.__reply !== null", timeout=10000)
+        reply = page.evaluate("window.__reply")
+        assert reply["supported"] is True
+        assert "超过 8 轮" in reply["error"]
+        browser.close()
+
