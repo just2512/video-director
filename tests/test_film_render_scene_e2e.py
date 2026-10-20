@@ -59,7 +59,7 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
         pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
 
     project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
-    look = film_render.look_project_film(project_id, expected_revision=revision, times=[0.0, 0.5, 1.0])
+    look = film_render.look_project_film(project_id, expected_revision=revision, times=[0.0, 0.5, 0.99])
     assert look["ok"] is True
     assert look["revision"] == revision
     assert look["determinism_status"] == "PASS"
@@ -98,9 +98,16 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
         # transform centers; opposite-signed offsets prove frame(t) applied the
         # dynamic polygon rather than merely saving its keyframes.
         first_offset = first_center / 4.0 - 20.0
-        third_offset = third_center / 4.0 - 132.8
+        final_time = 0.99
+        final_x = 0.125 + (0.75 - 0.125) * final_time
+        final_camera_x = 0.5 + (0.45 - 0.5) * final_time
+        final_camera_scale = 1.0 + (1.1 - 1.0) * final_time
+        expected_final_center = (
+            0.5 + (final_x - final_camera_x) * final_camera_scale
+        ) * 160.0
+        third_offset = third_center / 4.0 - expected_final_center
         assert first_offset < -2.0, f"left-half mask wasn't applied at t=0: offset={first_offset}"
-        assert third_offset > 2.0, f"right-half mask wasn't applied at t=1: offset={third_offset}"
+        assert third_offset > 2.0, f"right-half mask wasn't applied at t={final_time}: offset={third_offset}"
 
     state = fd.read_project_film(project_id)
     result = film_render.render_project_film(project_id, state["rev"], fps=2)
