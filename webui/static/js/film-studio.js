@@ -259,6 +259,7 @@
       });
       el.addEventListener('pointerdown',function(e){
         if(e.button!==0||e.target.closest('button'))return;
+        if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
         var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
         var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
             slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))&&(clip.tag==='video'||clip.tag==='audio')),canDrag;
@@ -673,10 +674,14 @@
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();
   }
   async function filmStudioCommit(ops) {
-    if(!S.projectId||!S.data||!S.data.exists||S.busy)return;
+    if(!S.projectId||!S.data||!S.data.exists)return;
+    if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return;}
     if(S.broken){showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     S.busy=true;
+    var studioPanel=$('film-studio-panel'),busyTimeline=$('fs-timeline');
+    if(studioPanel)studioPanel.setAttribute('data-busy','true');
+    if(busyTimeline)busyTimeline.style.pointerEvents='none';
     try{
       var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
       if(!r||!r.ok){showStatus((r&&r.error)||'编辑提交失败。','error');if(S.data&&S.data.exists)render();return;}
@@ -689,7 +694,11 @@
     }catch(error){
       showStatus('编辑提交失败：'+String(error&&error.message||error),'error');
       if(S.data&&S.data.exists)render();
-    }finally{S.busy=false;}
+    }finally{
+      S.busy=false;
+      if(studioPanel)studioPanel.setAttribute('data-busy','false');
+      if(busyTimeline)busyTimeline.style.pointerEvents='';
+    }
   }
   async function filmStudioHistory(action) {
     if(!S.data||S.busy)return;

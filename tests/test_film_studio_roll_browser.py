@@ -213,6 +213,10 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert clips[slide_right_id]["attrs"]["src"].endswith("#t=10.5,12")
                 assert float(clips[slide_right_id]["attrs"]["at"]) == 4.25
                 assert fd.clip_end(clips[slide_right_id]) == 5
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') !== 'true'",
+                    timeout=15000,
+                )
 
                 # Slip the left clip without moving it or changing its timeline
                 # duration. The fixture uses a real 20-second MP4 so the backend's
@@ -240,6 +244,10 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     && Math.abs(Number(left.attrs.at)) < 0.001
                     && Math.abs((Number(left.attrs.src.match(/#t=[^,]+,([^#]+)/)?.[1]) - Number(left.attrs.src.match(/#t=([^,]+)/)?.[1])) / Number(left.attrs.speed) - 2.75) < 0.001;
                 }""", arg=project_id, timeout=10000)
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') === 'false'",
+                    timeout=15000,
+                )
 
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}

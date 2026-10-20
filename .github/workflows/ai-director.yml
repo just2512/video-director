@@ -73,6 +73,12 @@ jobs:
       # runner image. Browser-only download keeps this step unprivileged.
       - run: '"$PY311_BIN/python3.11" -m playwright install chromium'
       - run: '"$PY311_BIN/python3.11" -m compileall video_director webui'
+      - name: Typecheck React 19 / TypeScript render and timeline contracts
+        if: always()
+        working-directory: remotion_runtime
+        run: |
+          npm install --no-package-lock
+          npm run typecheck
       - name: Run test suite and retain JUnit report
         run: '"$PY311_BIN/python3.11" -m pytest -q --junitxml=junit.xml'
       - name: Check JavaScript syntax (run even when tests fail)
