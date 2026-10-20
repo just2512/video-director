@@ -589,8 +589,8 @@ def _write_qc_report(project_id: str, report: dict) -> Path:
     return report_path
 
 
-def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_DEFAULT) -> dict:
-    """Render a pinned film.html revision to MP4; never falls back to CompositionIR."""
+def render_project_film(project_id: str, expected_revision: str, fps: int | None = None) -> dict:
+    """Render a pinned film.html revision to MP4; inherit its saved FPS unless overridden."""
     pid = fd.validate_project_id(project_id)
     state = fd.read_project_film(pid)
     if not state.get("exists"):
@@ -602,10 +602,12 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
             f"影片文档已变化：提交版本 {expected_revision}，当前版本 {revision}；请重新载入后导出。",
             409,
         )
-    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
-        raise FilmRenderError("INVALID_FPS", "导出帧率必须是 1–60 的整数。", 422)
 
     doc = state["doc"]
+    if fps is None:
+        fps = int(doc.get("fps", FPS_DEFAULT))
+    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
+        raise FilmRenderError("INVALID_FPS", "导出帧率必须是 1–60 的整数。", 422)
     width, height = int(doc["stage"]["width"]), int(doc["stage"]["height"])
     if not 16 <= width <= MAX_STAGE_EDGE or not 16 <= height <= MAX_STAGE_EDGE:
         raise FilmRenderError(
