@@ -178,7 +178,11 @@
     if(tag!=='audio')el.style.opacity=String(entry.baseOpacity*fadeFactor);
     if(tag==='iframe'){
       var localTime=mediaTime(clip,t);
-      try{if(el.contentWindow)el.contentWindow.postMessage({type:'film-time',time:localTime},'*');}catch(_){}
+      // During offline frame capture, prepareFrameEntry sends the strict frame(t)
+      // request and waits for its acknowledgement; avoid a duplicate legacy seek.
+      if(!state.renderMode){
+        try{if(el.contentWindow)el.contentWindow.postMessage({type:'film-time',time:localTime},'*');}catch(_){}
+      }
       entry.active=true;return;
     }
     if(tag==='img'){entry.active=true;return;}
@@ -230,7 +234,7 @@
     });
   }
   function nextFrame(){return new Promise(function(resolve){requestAnimationFrame(function(){resolve();});});}
-  async function prepareFrameEntry(entry,t){
+  async function prepareFrameEntry(entry,t,frameNumber){
     var clip=entry.clip,el=entry.el,tag=clip.tag;
     var at=finite(clip.at,0),end=clip.end;
     if(!(at<=t&&(end==null||t<end||Math.abs(t-end)<0.0001)))return;
@@ -254,10 +258,10 @@
       if(typeof el.decode==='function')try{await el.decode();}catch(_){}
     }else if(tag==='iframe'){
       var localTime=mediaTime(clip,t);
-      try{
-        if(el.contentWindow)el.contentWindow.postMessage({type:'film-time',time:localTime},'*');
-      }catch(_){}
-      if(String(clip.attrs&&clip.attrs.src||'').split('#',1)[0].replace(/\\/g,'/').endsWith('scenes/subtitles.html')){
+      var sceneSrc=String(clip.attrs&&clip.attrs.src||'').split('#',1)[0].replace(/\\/g,'/');
+      if(sceneSrc.endsWith('scenes/subtitles.html')){
+        // Generated subtitle pages retain their backward-compatible exact-time
+        // acknowledgement; authored scenes use the explicit frame(t) contract.
         await new Promise(function(resolve,reject){
           var timer=setTimeout(function(){window.removeEventListener('message',onMessage);reject(new Error('字幕页未确认指定帧：'+clip.id));},6000);
           function onMessage(event){
@@ -267,6 +271,29 @@
           }
           window.addEventListener('message',onMessage);
           el.contentWindow.postMessage({type:'film-time',time:localTime},'*');
+        });
+      }else{
+        await new Promise(function(resolve,reject){
+          var timer=setTimeout(function(){
+            window.removeEventListener('message',onMessage);
+            reject(new Error('HTML 镜头 '+clip.id+' 未在规定时间内响应 window.film.frame(t)'));
+          },15000);
+          function onMessage(event){
+            var reply=event.data;
+            if(event.source!==el.contentWindow||!reply||reply.type!=='film-frame:ready')return;
+            if(Number(reply.frame)!==Number(frameNumber)||Math.abs(Number(reply.time)-localTime)>0.0001)return;
+            clearTimeout(timer);window.removeEventListener('message',onMessage);
+            if(!reply.supported)reject(new Error(String(reply.error||('HTML 镜头 '+clip.id+' 未实现 window.film.frame(t)'))));
+            else if(reply.error)reject(new Error(String(reply.error)));
+            else resolve();
+          }
+          window.addEventListener('message',onMessage);
+          try{
+            if(!el.contentWindow)throw new Error('镜头 iframe 尚未创建');
+            el.contentWindow.postMessage({type:'film-frame',time:localTime,frame:frameNumber},'*');
+          }catch(error){
+            clearTimeout(timer);window.removeEventListener('message',onMessage);reject(error);
+          }
         });
       }
     }
@@ -278,7 +305,7 @@
     renderTime(state.time,true);
     try{
       var jobs=[];
-      state.tracks.forEach(function(track){track.clips.forEach(function(entry){jobs.push(prepareFrameEntry(entry,state.time));});});
+      state.tracks.forEach(function(track){track.clips.forEach(function(entry){jobs.push(prepareFrameEntry(entry,state.time,message.frame));});});
       await Promise.all(jobs);
       await nextFrame();await nextFrame();
       post({type:'film-runtime:frame-ready',frame:message.frame,time:state.time,rev:state.rev});
