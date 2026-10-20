@@ -156,19 +156,26 @@ _SCENE_BRIDGE = r"""
   }
   function flushRaf(t) {
     clock.active = true;
-    var rounds = 0;
+    var rounds = 0, callbackError = null;
     while (clock.queue.length && rounds < 8) {
       rounds += 1;
       var current = clock.queue.splice(0);
       current.forEach(function (item) {
         if (clock.cancelled[item.id]) return;
         try { item.callback(t * 1000); } catch (error) {
-          setTimeout(function () { throw error; }, 0);
+          if (!callbackError) callbackError = error;
         }
       });
     }
+    var pending = clock.queue.length;
     clock.queue.length = 0;
     clock.cancelled = Object.create(null);
+    if (callbackError) throw callbackError;
+    if (pending) {
+      throw new Error(
+        '受控 requestAnimationFrame 连续调度超过 8 轮；请让 frame(t) 在给定时间直接绘制完整画面，避免依赖持续运行的动画循环'
+      );
+    }
   }
   var inspectMode = false;
   var currentOverrides = [];
