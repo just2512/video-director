@@ -27,7 +27,9 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 - The Studio Export MP4 button submits the current film revision to a background WorkflowRun; a revision mismatch returns HTTP 409 before rendering starts.
 - The renderer serves project/shared media through a loopback-only HTTP server, renders each requested timestamp through the same browser runtime, and uses FFmpeg to encode screenshots and mix available video/audio source streams. Source ranges, media duration, deterministic subtitle-page timing, video stream and duration are validated.
-- Dynamic arbitrary iframe HTML is rejected unless it participates in the generated subtitle page's frame-time contract. CSS imports, external URLs, URL functions, animations and transitions are rejected for repeatable offline frame export.
+- Project-local `.html/.htm` iframe scenes are served through an injected bridge that executes `window.film.frame(t)`, awaits `window.film.ready`, pins the page clock/random source, advances queued animation-frame callbacks at the requested timestamp, and returns an exact `film-frame:ready` acknowledgement. A page without the contract fails the actual frame request with the clip ID; it is not silently rendered as a static screenshot.
+- Relative `src`, `href`, `poster`, and CSS `url(...)` references in a scene are rewritten to the project-scoped media endpoint. External URLs remain external and are not accepted as a reliable offline asset dependency. UTF-8 is required for HTML/CSS scene files.
+- The generated subtitle page retains its legacy `film-time:ready` contract. The bridge is a compatibility boundary, not a promise that arbitrary async frameworks, remote data, WebGL state, or third-party animations are automatically deterministic; unsupported pages must be converted to the explicit frame contract or rejected during render.
 - Single export is limited to 600 seconds, 18,000 frames and stage edges up to 3840 px. This is a constrained local export adapter, not full feature parity with OpenFilm's injected deterministic runtime or every CSS/transition feature.
 
 ## Executed foundation milestone
@@ -108,6 +110,15 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - A materially different repeated frame fails the render with NON_DETERMINISTIC_FRAME instead of silently exporting. Successful output records determinism_status and the number of sampled timestamps.
 - This is a sampled deterministic audit, not proof that every frame or arbitrary CSS feature is deterministic; the existing iframe/CSS constraints remain in force.
 
+## Agent-facing CLI and frame-driven scene contract
+
+- `python -m video_director film status --project-id ID` emits the current revision, stage size, duration, tracks and clip IDs as JSON.
+- `python -m video_director film validate --project-id ID` runs the strict document parser and checks that every clip's local media reference resolves to an existing file. It does not claim that an HTML scene is renderable merely because the document parses; `film look` and `film render` exercise that contract in a real browser.
+- `python -m video_director film diff --project-id ID [--from-revision REV]` prints a unified text diff against a retained history snapshot. Without an explicit revision it compares the last edit's before-snapshot with the current document.
+- `python -m video_director film look --project-id ID [--times 0,1.5,4]` renders a contact sheet from the same browser runtime as export, visits samples in reverse order, and writes the PNG under `.film/cache/look/`. A materially different repeat fails with `NON_DETERMINISTIC_FRAME`.
+- `python -m video_director film render --project-id ID [--fps 30]` pins the current revision before rendering and records the revision associated with the resulting MP4.
+- Real Chromium regression exercises the injected frame bridge with a sandboxed iframe and verifies exact local time, frame identity, support acknowledgement, and an actual call to the authored `frame(t)` implementation.
+
 ## Agent file-watching browser regression
 
 - Playwright opens the real Studio, observes its SSE connection, externally changes a valid clip speed and verifies the Inspector hot reloads. It then writes a broken partial document and verifies the broken-state alert, followed by a repaired document that must clear the error and hot reload again.
@@ -125,7 +136,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 
 ## Current boundaries
 
-- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, Alt-drag source slip, Ctrl-drag same-source roll trim, Alt+Shift-drag slide trim, split/join-cut, delete/ripple-delete, clip fades, clip-relative volume envelopes, an explicit slide-trim mode toggle, speed presets, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/slip/roll/slide/join) and revision polling. Dock separators persist panel widths.
-- The MP4 adapter samples the same browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages acknowledge their requested time; arbitrary iframe pages are rejected until they implement the same contract.
+- The Studio provides a browser-rendered multi-track monitor, multi-track timeline, drag/move, source-aware in/out trimming, Alt-drag source slip, Ctrl-drag same-source roll trim, Alt+Shift-drag slide trim, split/join-cut, delete/ripple-delete, clip fades, clip-relative volume envelopes, an explicit slide-trim mode toggle, speed presets, track create/empty-track removal, lock/hide/mute flags, undo/redo, AI operation planning (set/move/split/trim/slip/roll/slide/join), and revision polling. Left/right panel widths and timeline height persist in localStorage; the horizontal timeline seam supports pointer dragging and ArrowUp/ArrowDown keyboard resizing.
+- The MP4 adapter samples the shared browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages use their legacy acknowledgement; local HTML scenes must implement `window.film.frame(t)` and return a successful frame acknowledgement. Unsupported scenes fail explicitly rather than exporting an unverified static frame.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.
