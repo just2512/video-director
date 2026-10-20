@@ -91,3 +91,34 @@ def test_ripple_delete_refuses_to_shift_a_locked_clip_and_keeps_input_unchanged(
     with pytest.raises(fd.FilmError, match="CLIP_LOCKED"):
         fd.apply_ops(document, [{"op": "ripple_delete", "clip": "target", "scope": "all"}])
     assert json.dumps(document, sort_keys=True) == before
+
+
+
+def test_clip_lock_can_be_explicitly_removed_then_normal_edits_resume(tmp_path, monkeypatch):
+    _, result = _migrated_locked_document(tmp_path, monkeypatch)
+    unlocked, normalized = fd.apply_ops(result["document"], [
+        {"op": "clip_lock", "clip": "main-opening-2", "locked": False},
+        {"op": "set", "clip": "main-opening-2", "field": "at", "value": 0.5},
+    ])
+    clip = next(clip for track in unlocked["tracks"] for clip in track["clips"]
+                if clip["id"] == "main-opening-2")
+    assert "data-clip-locked" not in clip["attrs"]
+    assert clip["attrs"]["at"] == "0.5"
+    assert normalized[0] == {"op": "clip_lock", "clip": "main-opening-2", "locked": False}
+
+
+def test_clip_lock_requires_explicit_boolean_and_does_not_bypass_track_lock():
+    document = {
+        "stage": {"width": 320, "height": 180},
+        "head_html": "<head></head>",
+        "tracks": [{
+            "id": "track-main", "attrs": {"id": "track-main", "locked": ""},
+            "clips": [{"id": "clip-a", "tag": "img",
+                       "attrs": {"id": "clip-a", "src": "/media/a.png#t=0,1", "at": "0",
+                                 "data-clip-locked": ""}}],
+        }],
+    }
+    with pytest.raises(fd.FilmError, match="必须是布尔值"):
+        fd.apply_ops(document, [{"op": "clip_lock", "clip": "clip-a", "locked": "false"}])
+    with pytest.raises(fd.FilmError, match="轨道 track-main 已锁定"):
+        fd.apply_ops(document, [{"op": "clip_lock", "clip": "clip-a", "locked": False}])

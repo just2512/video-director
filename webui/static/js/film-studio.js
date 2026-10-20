@@ -379,7 +379,9 @@
         if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
         var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
         if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
-          e.preventDefault();showStatus('该片段已锁定，不能移动、修剪、滑移或滚动修剪。','error');return;
+          selectClipWithModifiers(clip.id,e);
+          S.playhead=clip.at;setPlayheadVisual();previewCurrent();renderInspector();renderAssets();
+          e.preventDefault();showStatus('该片段已锁定，只能查看属性；如需编辑，请在属性栏显式解锁。');return;
         }
         var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
             slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))&&(clip.tag==='video'||clip.tag==='audio')),canDrag;
@@ -719,11 +721,17 @@
       return;
     }
     $('fs-inspector').innerHTML=fields;
-    if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
+    var clipIsLocked=Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked');
+    if(clipIsLocked){
       $('fs-inspector').querySelectorAll('input,select,button').forEach(function(control){control.disabled=true;});
       var lockMessage=document.createElement('div');lockMessage.className='fs-alert fs-visible fs-error';lockMessage.textContent='该片段来自已锁定图层，只读保留其原始时间线位置与画面。';
       $('fs-inspector').appendChild(lockMessage);
     }
+    var clipLockButton=document.createElement('button');
+    clipLockButton.type='button';clipLockButton.id='fs-toggle-clip-lock';clipLockButton.className='fs-btn';
+    clipLockButton.textContent=clipIsLocked?'解锁片段':'锁定片段';
+    clipLockButton.addEventListener('click',function(){void window.filmStudioSetClipLock(clip.id,!clipIsLocked);});
+    $('fs-inspector').appendChild(clipLockButton);
     renderElementInspector(element);
     $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(button){
       button.addEventListener('click',function(e){
@@ -1185,6 +1193,12 @@
     var track=empty[0];
     if(!window.confirm('删除空轨道「'+((track.attrs||{})['data-label']||track.id)+'」？'))return;
     await filmStudioCommit([{op:'track_remove',track_id:track.id}]);
+  };
+  window.filmStudioSetClipLock=async function(clipId,locked){
+    var clip=findClip(clipId||S.selectedId);
+    if(!clip){showStatus('请先选择片段。','error');return;}
+    if(typeof locked!=='boolean'){showStatus('锁定状态必须是明确的布尔值。','error');return;}
+    await filmStudioCommit([{op:'clip_lock',clip:clip.id,locked:locked}]);
   };
   window.filmStudioSaveInspector=async function(form){
     var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择片段。','error');return;}

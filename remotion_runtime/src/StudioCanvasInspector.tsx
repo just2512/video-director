@@ -92,6 +92,7 @@ declare global {
     filmStudioReactToolbar?: FilmStudioReactToolbarBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
     filmStudioSaveInspector?: (values?: FilmClipInspectorValues) => Promise<void> | void;
+    filmStudioSetClipLock?: (clipId: string, locked: boolean) => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
     filmStudioReactTimeline?: FilmStudioReactTimelineBridge;
@@ -219,6 +220,9 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       <button type="button" id="fs-apply-clip-inspector" className="fs-btn fs-primary" disabled={clipLocked}
         onClick={() => { void window.filmStudioSaveInspector?.({...form}); }}
       >应用片段属性</button>
+      <button type="button" id="fs-toggle-clip-lock" className="fs-btn"
+        onClick={() => { void window.filmStudioSetClipLock?.(clip.id, !clipLocked); }}
+      >{clipLocked ? "解锁片段" : "锁定片段"}</button>
     </div>
   );
 };

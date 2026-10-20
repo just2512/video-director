@@ -15,6 +15,10 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert 'id="fs-field-volume"' in component
     assert 'id="fs-field-fade-in"' in component
     assert 'id="fs-field-title"' in component
+    assert 'id="fs-toggle-clip-lock"' in component
+    assert 'window.filmStudioSetClipLock?.(clip.id, !clipLocked)' in component
+    assert 'window.filmStudioSetClipLock=async function(clipId,locked)' in studio
+    assert 'kind == "clip_lock"' in (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert "filmStudioSaveInspector?: (values?: FilmClipInspectorValues) => Promise<void> | void" in component
     assert "const [form, setForm] = useState<FilmClipInspectorValues>" in component
     assert "const update = <K extends keyof FilmClipInspectorValues>" in component
