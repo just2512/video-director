@@ -93,3 +93,63 @@ def test_frame_protocol_executes_scene_at_the_requested_local_time():
         assert drew == {"type": "scene-drew", "time": 1.25}
         browser.close()
 
+
+def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
+    from playwright.sync_api import sync_playwright
+
+    scene = inject_scene_runtime(
+        """<!doctype html><html><head><style>body{margin:0}</style></head>
+        <body><h1 id="title" style="position:absolute;left:12px;top:15px">Original title</h1>
+        <script>window.film={ready:Promise.resolve(),frame:function(t){
+          document.body.dataset.frameTime=String(t);
+          document.getElementById('title').textContent='Frame '+t;
+        }};</script></body></html>""",
+        "film-test",
+        "scenes/title.html",
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+        page = browser.new_page()
+        page.set_content("""<!doctype html><html><body>
+          <iframe id="scene" sandbox="allow-scripts"></iframe>
+          <script>
+            window.__selection = null;
+            var frame = document.getElementById('scene');
+            window.addEventListener('message', function (event) {
+              if (event.source === frame.contentWindow && event.data
+                  && event.data.type === 'film-element-selected') window.__selection = event.data;
+            });
+            frame.addEventListener('load', function () {
+              frame.contentWindow.postMessage({type:'film-inspect', enabled:true}, '*');
+              frame.contentWindow.postMessage({type:'film-frame', time:2.5, frame:4}, '*');
+            });
+          </script>
+        </body></html>""")
+        page.locator("#scene").evaluate("(frame, source) => { frame.srcdoc = source; }", scene)
+        page.wait_for_function("document.getElementById('scene').contentDocument.readyState === 'complete'", timeout=10000)
+        page.frame_locator("#scene").locator("#title").click()
+        page.wait_for_function("window.__selection !== null", timeout=10000)
+        selection = page.evaluate("window.__selection")
+        assert selection["selector"] == "#title"
+        assert selection["textEditable"] is True
+        assert selection["tag"] == "h1"
+        assert selection["rect"]["width"] > 0
+
+        page.evaluate("""() => document.getElementById('scene').contentWindow.postMessage({
+          type:'film-overrides',
+          overrides:[{selector:'#title',text:'Edited title',style:{
+            color:'#ff0000',position:'absolute',left:'40px',top:'30px',width:'250px',height:'44px',fontSize:'32px'
+          }}]
+        }, '*')""")
+        page.wait_for_function("""() => {
+          const frame = document.getElementById('scene');
+          try {
+            const title = frame.contentDocument.querySelector('#title');
+            return title && title.textContent === 'Edited title'
+              && getComputedStyle(title).color === 'rgb(255, 0, 0)'
+              && getComputedStyle(title).left === '40px'
+              && getComputedStyle(title).fontSize === '32px';
+          } catch (_) { return false; }
+        }""", timeout=10000)
+        browser.close()
+
