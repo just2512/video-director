@@ -221,3 +221,60 @@ def test_scene_bridge_rejects_unbounded_request_animation_frame_loops():
         assert "超过 8 轮" in reply["error"]
         browser.close()
 
+
+def test_preview_seeks_are_coalesced_and_exact_frame_requests_are_serialized():
+    from playwright.sync_api import sync_playwright
+
+    scene = inject_scene_runtime(
+        """<!doctype html><html><head></head><body><script>
+        window.__drawing = false;
+        window.__overlap = false;
+        window.film = {frame: async function(t) {
+          if (window.__drawing) window.__overlap = true;
+          window.__drawing = true;
+          await new Promise(function(resolve) { setTimeout(resolve, 30); });
+          document.body.dataset.lastFrame = String(t);
+          window.__drawing = false;
+          parent.postMessage({type:'scene-drew',time:t,overlap:window.__overlap}, '*');
+        }};
+        </script></body></html>""",
+        "film-test",
+        "scenes/async.html",
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+        page = browser.new_page()
+        page.set_content("""<!doctype html><html><body>
+          <iframe id="scene" sandbox="allow-scripts"></iframe>
+          <script>
+            window.__draws = [];
+            window.__acks = [];
+            var frame = document.getElementById('scene');
+            window.addEventListener('message', function(event) {
+              if (event.source !== frame.contentWindow || !event.data) return;
+              if (event.data.type === 'scene-drew') window.__draws.push(event.data);
+              if (event.data.type === 'film-frame:ready') window.__acks.push(event.data);
+            });
+            frame.addEventListener('load', function() {
+              frame.contentWindow.postMessage({type:'film-time',time:1}, '*');
+              setTimeout(function() {
+                frame.contentWindow.postMessage({type:'film-time',time:2}, '*');
+                frame.contentWindow.postMessage({type:'film-time',time:3}, '*');
+                frame.contentWindow.postMessage({type:'film-frame',time:9,frame:17}, '*');
+              }, 1);
+            });
+          </script>
+        </body></html>""")
+        page.locator("#scene").evaluate("(frame, source) => { frame.srcdoc = source; }", scene)
+        page.wait_for_function("window.__acks.some(item => item.frame === 17)", timeout=15000)
+        draws = page.evaluate("window.__draws")
+        acknowledgements = page.evaluate("window.__acks")
+        exact = next(item for item in acknowledgements if item["frame"] == 17)
+        assert exact["time"] == 9
+        assert exact["supported"] is True
+        assert exact["error"] is None
+        assert draws
+        assert all(item["overlap"] is False for item in draws)
+        assert draws[-1]["time"] == 9
+        browser.close()
+
