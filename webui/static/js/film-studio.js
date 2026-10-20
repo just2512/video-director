@@ -1116,7 +1116,9 @@
         if(S.elementInspect)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:true},window.location.origin);
       }
     }else if(message.type==='film-runtime:inspect-ready'){
-      if(S.elementInspect&&message.enabled)showStatus('预览中的 HTML 镜头已进入元素选取模式。','success');
+      // A late ready acknowledgement must not overwrite the more specific
+      // "element selected" state after a pointer event has already arrived.
+      if(S.elementInspect&&message.enabled&&!S.selectedElement)showStatus('预览中的 HTML 镜头已进入元素选取模式。','success');
     }else if(['film-runtime:element-selected','film-runtime:element-hover',
                 'film-runtime:element-preview','film-runtime:element-drag-end'].indexOf(message.type)>=0){
       var element={
