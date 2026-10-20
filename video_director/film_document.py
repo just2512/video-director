@@ -413,7 +413,16 @@ def parse_film(text: str) -> dict:
         raise FilmError("INVALID_FILM", "film.html 校验失败：\n- " + "\n- ".join(problems), 422)
     viewport = re.search(r'<meta\b[^>]*\bname\s*=\s*["\']?viewport["\']?[^>]*\bcontent\s*=\s*["\']width\s*=\s*(\d+)\s*,?\s*height\s*=\s*(\d+)', head, re.I)
     stage = {"width": int(viewport.group(1)), "height": int(viewport.group(2))} if viewport else {"width": 1920, "height": 1080}
-    return {"stage": stage, "head_html": head, "tracks": parser.tracks}
+    fps_tag = re.search(r'<meta\b(?=[^>]*\bname\s*=\s*["\']?film-fps["\']?)[^>]*>', head, re.I)
+    fps = config.DEFAULT_FPS
+    if fps_tag:
+        fps_match = re.search(r'\bcontent\s*=\s*["\']?(\d+)["\']?', fps_tag.group(0), re.I)
+        if not fps_match:
+            raise FilmError("INVALID_FPS", "film.html 的 film-fps 元数据必须是 1–60 的整数。", 422)
+        fps = int(fps_match.group(1))
+        if not 1 <= fps <= 60:
+            raise FilmError("INVALID_FPS", f"film.html 的 film-fps={fps} 超出 1–60 范围。", 422)
+    return {"stage": stage, "fps": fps, "head_html": head, "tracks": parser.tracks}
 
 
 def _serialize_attrs(attrs: dict[str, Any]) -> str:
@@ -428,11 +437,20 @@ def _serialize_attrs(attrs: dict[str, Any]) -> str:
 def serialize_film(doc: dict) -> str:
     stage = doc.get("stage") or {"width": 1920, "height": 1080}
     head = doc.get("head_html") or '<head><meta charset="utf-8"></head>'
+    fps = doc.get("fps", config.DEFAULT_FPS)
+    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
+        raise FilmError("INVALID_FPS", "film.html 帧率必须是 1–60 的整数。", 422)
     viewport = f'<meta name="viewport" content="width={int(stage["width"])},height={int(stage["height"])}">'
     if re.search(r"<meta\b[^>]*\bname\s*=\s*['\"]?viewport", head, re.I):
         head = re.sub(r"<meta\b[^>]*\bname\s*=\s*['\"]?viewport['\"]?[^>]*>", viewport, head, count=1, flags=re.I)
     else:
         head = head.replace("</head>", viewport + "</head>", 1)
+    fps_meta = f'<meta name="film-fps" content="{fps}">'
+    fps_pattern = r"<meta\b(?=[^>]*\bname\s*=\s*['\"]?film-fps['\"]?)[^>]*>"
+    if re.search(fps_pattern, head, re.I):
+        head = re.sub(fps_pattern, fps_meta, head, count=1, flags=re.I)
+    else:
+        head = head.replace("</head>", fps_meta + "</head>", 1)
     rows = []
     for track in doc.get("tracks") or []:
         attrs = dict(track.get("attrs") or {})
@@ -472,6 +490,9 @@ def _ensure_unlocked(track: dict, clip: dict | None = None):
 
 
 def _validate_doc(doc: dict):
+    fps = doc.get("fps", config.DEFAULT_FPS)
+    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
+        raise FilmError("INVALID_FPS", "影片帧率必须是 1–60 的整数。", 422)
     track_ids = [t["id"] for t in doc["tracks"]]
     clip_ids = [c["id"] for t in doc["tracks"] for c in t["clips"]]
     if len(track_ids) != len(set(track_ids)) or len(clip_ids) != len(set(clip_ids)):
@@ -2998,11 +3019,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 f"Composition 有 {len(variants)} 个 variants 但没有有效 active_variant_id；"
                 "按顶层 scenes/audio 迁移，未隐式合并候选变体"
             )
-    if int(project_spec.get("fps", config.DEFAULT_FPS)) != config.DEFAULT_FPS:
-        warnings.append(
-            f"旧项目帧率为 {project_spec.get('fps')} FPS；film.html 未保存此设置，"
-            f"导出默认帧率为 {config.DEFAULT_FPS} FPS，需显式选择目标帧率"
-        )
+    source_fps = project_spec.get("fps", config.DEFAULT_FPS)
+    if isinstance(source_fps, bool) or not isinstance(source_fps, int) or not 1 <= source_fps <= 60:
+        raise FilmError("INVALID_FPS", f"旧项目帧率 {source_fps!r} 不在支持的 1–60 范围内，拒绝静默限制。", 422)
     if raw_ir.get("style_id"):
         warnings.append("旧项目 style_id 未映射到 film.html 的可执行样式；需检查成片样式")
     if raw_ir.get("style_contract"):
@@ -3712,7 +3731,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         pages[source_snapshot_path].encode("utf-8")
     ).hexdigest()
     head = f'<head><meta charset="utf-8"><meta name="viewport" content="width={stage["width"]},height={stage["height"]}"><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:#000}}section{{position:absolute;inset:0}}</style></head>'
-    document = {"stage": stage, "head_html": head, "tracks": tracks}
+    document = {"stage": stage, "fps": source_fps, "head_html": head, "tracks": tracks}
     _validate_doc(document)
     return {"document": document, "pages": pages, "warnings": warnings, "duration": duration,
             "track_count": len(tracks), "clip_count": sum(len(t["clips"]) for t in tracks),
@@ -3781,6 +3800,7 @@ def film_payload(project_id: str, state: dict) -> dict:
     if re.search(r"@import\b|@keyframes\b|\banimation(?:-name)?\s*:|\btransition\s*:|url\s*\(|https?://|file:|javascript:|expression\s*\(|-moz-binding", render_css, re.I):
         raise FilmError("UNSAFE_FILM_STYLE", "film.html head CSS 含外部资源、动画或可执行 CSS；请先移除后再载入。", 422)
     return {"ok": True, "exists": True, "project_id": project_id, "rev": state["rev"], "stage": doc["stage"],
+            "fps": doc.get("fps", config.DEFAULT_FPS),
             "head_html": head_html, "render_css": render_css, "tracks": tracks,
             "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
 
