@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -72,6 +72,26 @@
     var val=$('fs-playhead-value');if(val)val.textContent=fmtTime(S.playhead);
     var monitor=$('fs-monitor-time');if(monitor)monitor.textContent=fmtTime(S.playhead);
     var line=$('fs-playhead-line');if(line)line.style.left=(132+S.playhead*S.pxPerSec)+'px';
+  }
+  function renderElementSelection(element) {
+    var box=$('fs-element-selection'),monitor=$('fs-monitor-stage');
+    if(!box||!monitor||!element||!element.rect||!S.data||!S.data.stage){if(box)box.hidden=true;return;}
+    var stageWidth=num(S.data.stage.width,1920),stageHeight=num(S.data.stage.height,1080);
+    var monitorRect=monitor.getBoundingClientRect(),scale=Math.min(monitorRect.width/stageWidth,monitorRect.height/stageHeight);
+    var offsetX=(monitorRect.width-stageWidth*scale)/2,offsetY=(monitorRect.height-stageHeight*scale)/2;
+    var r=element.rect;
+    box.style.left=(offsetX+num(r.x,0)*scale)+'px';
+    box.style.top=(offsetY+num(r.y,0)*scale)+'px';
+    box.style.width=Math.max(2,num(r.width,2)*scale)+'px';
+    box.style.height=Math.max(2,num(r.height,2)*scale)+'px';
+    box.hidden=false;
+  }
+  function hexColor(value) {
+    var text=String(value||'').trim(),match=text.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if(match)return '#'+[match[1],match[2],match[3]].map(function(v){return Math.max(0,Math.min(255,Number(v))).toString(16).padStart(2,'0');}).join('');
+    if(/^#[0-9a-f]{6}$/i.test(text))return text;
+    if(/^#[0-9a-f]{3}$/i.test(text))return '#'+text.slice(1).split('').map(function(v){return v+v;}).join('');
+    return '#ffffff';
   }
   function renderMigration() {
     var data=S.migration||{}, preview=data.migration_preview||{}, warnings=preview.warnings||[];
