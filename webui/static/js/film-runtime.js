@@ -217,8 +217,8 @@
   }
   function polygonFromVertices(vertices){
     return 'polygon('+vertices.map(function(pair){
-      return (Number(pair[0])*100).toFixed(6).replace(/0+$/,'').replace(/\\.$/,'')+'% '+
-        (Number(pair[1])*100).toFixed(6).replace(/0+$/,'').replace(/\\.$/,'')+'%';
+      return (Number(pair[0])*100).toFixed(6).replace(/0+$/,'').replace(/\.$/,'')+'% '+
+        (Number(pair[1])*100).toFixed(6).replace(/0+$/,'').replace(/\.$/,'')+'%';
     }).join(', ')+')';
   }
   function applyFilmMaskKeyframes(entry,t){
