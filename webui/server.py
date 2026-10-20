@@ -960,7 +960,43 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 pid = fd.validate_project_id(pid)
                 if route == "/api/editor/film/media":
-                    media_path = fd.media_path_for_src(pid, qs.get("src", [""])[0])
+                    media_src = qs.get("src", [""])[0]
+                    media_path = fd.media_path_for_src(pid, media_src)
+                    # HTML scenes are served with a small frame(t) bridge injected
+                    # before authored scripts; relative resources stay inside the
+                    # same project-scoped media endpoint.
+                    if media_path.suffix.lower() in {".html", ".htm"}:
+                        from video_director.film_scene_runtime import inject_scene_runtime
+                        try:
+                            scene_text = media_path.read_text(encoding="utf-8")
+                        except UnicodeDecodeError as exc:
+                            raise fd.FilmError("SCENE_ENCODING_UNSUPPORTED", "HTML 镜头必须使用 UTF-8 编码。", 422) from exc
+                        rendered = inject_scene_runtime(
+                            scene_text, pid, media_src, "/api/editor/film/media"
+                        ).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(rendered)))
+                        self.send_header("Cache-Control", "no-cache")
+                        self.end_headers()
+                        self.wfile.write(rendered)
+                        return True
+                    if media_path.suffix.lower() == ".css":
+                        from video_director.film_scene_runtime import inject_scene_css
+                        try:
+                            css_text = media_path.read_text(encoding="utf-8")
+                        except UnicodeDecodeError as exc:
+                            raise fd.FilmError("SCENE_ENCODING_UNSUPPORTED", "CSS 镜头资源必须使用 UTF-8 编码。", 422) from exc
+                        rendered = inject_scene_css(
+                            css_text, pid, media_src, "/api/editor/film/media"
+                        ).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/css; charset=utf-8")
+                        self.send_header("Content-Length", str(len(rendered)))
+                        self.send_header("Cache-Control", "no-cache")
+                        self.end_headers()
+                        self.wfile.write(rendered)
+                        return True
                     total = media_path.stat().st_size
                     start, end, status = 0, max(0, total - 1), 200
                     range_header = self.headers.get("Range", "")
