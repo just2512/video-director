@@ -243,14 +243,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.locator("#fs-field-at").fill("0.25")
                 page.locator("#fs-field-title").fill("React title")
                 page.locator("#fs-apply-clip-inspector").click()
-                # Wait for the write transaction itself, not a transient toast whose
-                # text may be replaced by the SSE refresh/render cycle.
+                # The commit may finish before the browser receives the click result.
+                # Wait on the authoritative revision displayed by the persisted FilmDocument.
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') === 'true'",
-                    timeout=5000,
-                )
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') === 'false'",
+                    """(oldRevision) => {
+                      const label=document.querySelector('#fs-project-label');
+                      return !!label && !label.textContent.includes('rev '+oldRevision);
+                    }""",
+                    arg=original_revision,
                     timeout=15000,
                 )
                 persisted_clip = _clip(project_id)

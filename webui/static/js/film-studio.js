@@ -811,16 +811,25 @@
     if(busyTimeline)busyTimeline.style.pointerEvents='none';
     try{
       var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
-      if(!r||!r.ok){showStatus((r&&r.error)||'编辑提交失败。','error');if(S.data&&S.data.exists)render();return;}
+      if(!r||!r.ok){
+        var failureMessage=(r&&r.error)||'编辑提交失败。';
+        if(S.data&&S.data.exists)render();
+        showStatus(failureMessage,'error');
+        return;
+      }
       S.data=r;S.rev=r.rev;
       if(r.rebased){
         S.selectedElement=null;S.hoveredElement=null;
         var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
       }else if(S.selectedElement)S.selectedElement.baseRevision=S.rev;
-      showStatus(r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。',r.rebased?'':'success');render();
+      var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。';
+      render();
+      var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
+      showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,r.rebased?'':'success');
     }catch(error){
-      showStatus('编辑提交失败：'+String(error&&error.message||error),'error');
+      var editFailure='编辑提交失败：'+String(error&&error.message||error);
       if(S.data&&S.data.exists)render();
+      showStatus(editFailure,'error');
     }finally{
       S.busy=false;
       if(studioPanel)studioPanel.setAttribute('data-busy','false');
