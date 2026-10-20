@@ -3052,7 +3052,19 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     subtitle_style = raw_ir.get("subtitle_style") or {}
     unsupported_subtitle_style = []
     if subtitle_style.get("font"):
-        unsupported_subtitle_style.append("font")
+        font_name = str(subtitle_style.get("font"))
+        if re.fullmatch(r"[A-Za-z0-9 _-]{1,80}", font_name):
+            # _subtitle_page writes this font-family reference into the generated
+            # HTML. The font file itself is not bundled, so remote machines may
+            # fall back to the next family; report availability, not mapping loss.
+            warnings.append(
+                f"字幕 font-family={font_name!r} 已映射到字幕 HTML；"
+                "字体文件未随迁移打包，目标系统未安装时会回退到后备字体"
+            )
+        else:
+            unsupported_subtitle_style.append(
+                "font（不符合 CSS 字体名白名单，已回退为系统后备字体）"
+            )
     rendered_size = float(subtitle_style.get("size", 1.0) or 1.0) * 54
     if rendered_size < 12 or rendered_size > 160:
         unsupported_subtitle_style.append("size（换算后的字号超出 12–160px，将被限制）")

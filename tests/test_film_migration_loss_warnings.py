@@ -70,14 +70,16 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert "camera_tracks" in warnings
     assert "水印" in warnings
     assert "ducking" in warnings
-    assert "字幕样式字段 font" in warnings
+    assert "字幕 font-family='Brand Subtitle Font' 已映射到字幕 HTML" in warnings
+    assert "字幕样式字段 font" not in warnings
     assert "模板来源 lineage" in warnings
     assert "字幕样式字段 size" not in warnings
     assert "字幕样式字段 stroke" not in warnings
     subtitle_html = fd._subtitle_page(320, 180, 1.0, [{"start": 0, "end": 1, "text": "字幕"}], {
-        "size": 1.4, "position": "top", "animation": "fade", "stroke_color": "#333333",
-        "background": "#101010@0.5", "alignment": "right", "max_width": 0.7,
+        "font": "Brand Subtitle Font", "size": 1.4, "position": "top", "animation": "fade",
+        "stroke_color": "#333333", "background": "#101010@0.5", "alignment": "right", "max_width": 0.7,
     })
+    assert 'font-family:"Brand Subtitle Font","WenQuanYi Micro Hei",sans-serif' in subtitle_html
     assert "font-size:75px" in subtitle_html
     assert "top:18px" in subtitle_html and "text-align:right" in subtitle_html
     assert "-webkit-text-stroke:2px #333333" in subtitle_html
