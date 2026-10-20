@@ -1202,52 +1202,8 @@
     if(typeof locked!=='boolean'){showStatus('锁定状态必须是明确的布尔值。','error');return;}
     await filmStudioCommit([{op:'clip_lock',clip:clip.id,locked:locked}]);
   };
-  window.filmStudioSaveInspector=async function(form){
-    var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择片段。','error');return;}
-    var attrs=clip.attrs||{},ops=[],invalid=false;
-    function read(key,id){
-      if(form&&Object.prototype.hasOwnProperty.call(form,key))return form[key];
-      var el=$(id);return el?el.value:null;
-    }
-    function addNumber(field,key,id,defaultValue){
-      var raw=read(key,id);if(raw==null)return;
-      var value=Number(raw),old=attrs[field];
-      if(!Number.isFinite(value)){showStatus('属性值必须是有效数字。','error');invalid=true;return;}
-      if(Math.abs(num(old,defaultValue)-value)>1e-5)ops.push({op:'set',clip:clip.id,field:field,value:value});
-    }
-    addNumber('at','at','fs-field-at',clip.at);
-    if(clip.tag==='video'||clip.tag==='audio'){
-      addNumber('speed','speed','fs-field-speed',1);
-      addNumber('volume','volume','fs-field-volume',1);
-    }
-    var title=read('title','fs-field-title');
-    if(title!=null&&String(attrs.title||'')!==String(title)){
-      ops.push({op:'set',clip:clip.id,field:'title',value:String(title)||null});
-    }
-    if(clip.duration!=null){
-      var fadeInRaw=read('fadeIn','fs-field-fade-in'),fadeOutRaw=read('fadeOut','fs-field-fade-out');
-      if(fadeInRaw!=null&&fadeOutRaw!=null){
-        var fadeIn=Number(fadeInRaw),fadeOut=Number(fadeOutRaw);
-        if(!Number.isFinite(fadeIn)||!Number.isFinite(fadeOut)||fadeIn<0||fadeOut<0||fadeIn>60||fadeOut>60){
-          showStatus('淡入/淡出必须是 0–60 秒的有效数字。','error');return;
-        }
-        if(fadeIn+fadeOut>clip.duration+0.001){
-          showStatus('淡入与淡出时长之和不能超过片段时长。','error');return;
-        }
-        var currentFade=String(attrs.fade||'0,0').split(',');
-        if(Math.abs(Number(currentFade[0]||0)-fadeIn)>0.001||Math.abs(Number(currentFade[1]||0)-fadeOut)>0.001){
-          ops.push({op:'set',clip:clip.id,field:'fade',value:(fadeIn>0||fadeOut>0)?fadeIn.toFixed(3)+','+fadeOut.toFixed(3):null});
-        }
-      }
-    }
-    if(clip.tag==='video'||clip.tag==='audio'){
-      var mutedValue=read('muted','fs-field-muted');
-      if(mutedValue!=null&&Object.prototype.hasOwnProperty.call(attrs,'muted')!==(mutedValue==='true')){
-        ops.push({op:'set',clip:clip.id,field:'muted',value:mutedValue==='true'});
-      }
-    }
-    if(invalid)return;
-    if(!ops.length){showStatus('属性没有变化。');return;}
+  window.filmStudioCommitInspectorOperations=async function(ops){
+    if(!Array.isArray(ops)||!ops.length)return;
     await filmStudioCommit(ops);
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};

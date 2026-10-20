@@ -232,6 +232,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.locator("#fs-apply-clip-inspector").wait_for(state="visible", timeout=10000)
 
                 # React controlled inputs submit a typed payload through the same edit transaction.
+                original_revision = fd.read_project_film(project_id)["rev"]
+                page.locator("#fs-field-fade-in").fill("9")
+                page.locator("#fs-apply-clip-inspector").click()
+                page.locator("#fs-clip-inspector-feedback").wait_for(state="visible", timeout=5000)
+                assert "不能超过片段时长" in page.locator("#fs-clip-inspector-feedback").inner_text()
+                assert fd.read_project_film(project_id)["rev"] == original_revision
+                page.locator("#fs-field-fade-in").fill("0")
+
                 page.locator("#fs-field-at").fill("0.25")
                 page.locator("#fs-field-title").fill("React title")
                 page.locator("#fs-apply-clip-inspector").click()

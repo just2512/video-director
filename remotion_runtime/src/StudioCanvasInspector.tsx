@@ -1,4 +1,5 @@
 import React, {useState} from "react";
+import type {FilmOperation} from "./film-timeline-contract";
 import {flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
@@ -91,7 +92,7 @@ declare global {
     filmStudioReactInspector?: CanvasInspectorBridge;
     filmStudioReactToolbar?: FilmStudioReactToolbarBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
-    filmStudioSaveInspector?: (values?: FilmClipInspectorValues) => Promise<void> | void;
+    filmStudioCommitInspectorOperations?: (ops: FilmOperation[]) => Promise<void> | void;
     filmStudioSetClipLock?: (clipId: string, locked: boolean) => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
@@ -108,6 +109,88 @@ const asNumber = (value: unknown, fallback: number): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+
+type ClipInspectorBuildResult =
+  | {ok: true; ops: FilmOperation[]}
+  | {ok: false; message: string};
+
+/** Typed intent builder; persistence remains in Studio's revision-checked commit path. */
+export const buildClipInspectorOperations = (
+  clip: FilmClipInspectorModel,
+  form: FilmClipInspectorValues,
+): ClipInspectorBuildResult => {
+  const attrs = clip.attrs || {};
+  const ops: FilmOperation[] = [];
+  if (Object.prototype.hasOwnProperty.call(attrs, "data-clip-locked")) {
+    return {ok: false, message: "该片段已锁定；请先解锁再修改属性。"};
+  }
+  const appendNumber = (
+    field: "at" | "speed" | "volume",
+    raw: string,
+    minimum: number,
+    maximum: number | null,
+    fallback: number,
+    label: string,
+  ): string | null => {
+    if (!raw.trim()) return label + "必须填写有效数字。";
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < minimum || (maximum !== null && value > maximum)) {
+      return label + "超出允许范围。";
+    }
+    const previousRaw = attrs[field];
+    const previousValue = previousRaw == null ? fallback : Number(previousRaw);
+    const previous = Number.isFinite(previousValue) ? previousValue : fallback;
+    if (Math.abs(previous - value) > 1e-5) {
+      ops.push({op:"set", clip:clip.id, field, value});
+    }
+    return null;
+  };
+
+  let error = appendNumber("at", form.at, 0, null, clip.at, "时间位置");
+  if (error) return {ok:false, message:error};
+  const mediaControls = clip.tag === "video" || clip.tag === "audio";
+  if (mediaControls) {
+    error = appendNumber("speed", form.speed, 0.25, 4, 1, "速度");
+    if (error) return {ok:false, message:error};
+    error = appendNumber("volume", form.volume, 0, 2, 1, "音量");
+    if (error) return {ok:false, message:error};
+  }
+
+  const title = String(form.title || "");
+  if (String(attrs.title || "") !== title) {
+    ops.push({op:"set", clip:clip.id, field:"title", value:title || null});
+  }
+
+  if (clip.duration != null) {
+    if (!form.fadeIn.trim() || !form.fadeOut.trim()) {
+      return {ok:false, message:"淡入/淡出必须填写有效数字。"};
+    }
+    const fadeIn = Number(form.fadeIn), fadeOut = Number(form.fadeOut);
+    if (!Number.isFinite(fadeIn) || !Number.isFinite(fadeOut)
+      || fadeIn < 0 || fadeOut < 0 || fadeIn > 60 || fadeOut > 60) {
+      return {ok:false, message:"淡入/淡出必须是 0–60 秒的有效数字。"};
+    }
+    if (fadeIn + fadeOut > clip.duration + 0.001) {
+      return {ok:false, message:"淡入与淡出时长之和不能超过片段时长。"};
+    }
+    const previousFade = String(attrs.fade || "0,0").split(",");
+    if (Math.abs(Number(previousFade[0] || 0) - fadeIn) > 0.001
+      || Math.abs(Number(previousFade[1] || 0) - fadeOut) > 0.001) {
+      ops.push({
+        op:"set", clip:clip.id, field:"fade",
+        value:(fadeIn > 0 || fadeOut > 0) ? fadeIn.toFixed(3) + "," + fadeOut.toFixed(3) : null,
+      });
+    }
+  }
+
+  if (mediaControls) {
+    const currentlyMuted = Object.prototype.hasOwnProperty.call(attrs, "muted");
+    const muted = form.muted === "true";
+    if (currentlyMuted !== muted) ops.push({op:"set", clip:clip.id, field:"muted", value:muted});
+  }
+  return {ok:true, ops};
+};
+
 
 const toHexColor = (value: string): string => {
   const text = String(value || "").trim();
@@ -128,6 +211,7 @@ const rotateDegrees = (styles: Record<string, string>): number => {
 };
 
 const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage?: string}> = ({clip, emptyMessage}) => {
+  const [feedback, setFeedback] = useState("");
   const [form, setForm] = useState<FilmClipInspectorValues>(() => {
     const attrs = clip?.attrs || {};
     const fade = String(attrs.fade || "0,0").split(",");
@@ -217,8 +301,19 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
         更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
       </div>
       {clipLocked ? <div className="fs-alert fs-visible fs-error" role="status">该片段来自已锁定图层，只读保留其原始时间线位置与画面。</div> : null}
+      {feedback ? <div id="fs-clip-inspector-feedback" className="fs-alert fs-visible fs-error" role="status">{feedback}</div> : null}
       <button type="button" id="fs-apply-clip-inspector" className="fs-btn fs-primary" disabled={clipLocked}
-        onClick={() => { void window.filmStudioSaveInspector?.({...form}); }}
+        onClick={() => {
+          const result = buildClipInspectorOperations(clip, {...form});
+          if (!result.ok) { setFeedback(result.message); return; }
+          if (!result.ops.length) { setFeedback("属性没有变化。"); return; }
+          const commit = window.filmStudioCommitInspectorOperations;
+          if (!commit) { setFeedback("Studio 编辑提交接口不可用。"); return; }
+          setFeedback("");
+          void Promise.resolve(commit(result.ops)).catch((error: unknown) => {
+            setFeedback("属性提交失败：" + String(error instanceof Error ? error.message : error));
+          });
+        }}
       >应用片段属性</button>
       <button type="button" id="fs-toggle-clip-lock" className="fs-btn"
         onClick={() => { void window.filmStudioSetClipLock?.(clip.id, !clipLocked); }}

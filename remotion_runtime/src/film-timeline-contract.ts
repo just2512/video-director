@@ -37,6 +37,8 @@ export interface FilmDocumentPayload {
 }
 export type FilmOperation =
   | { op: "set"; clip: string; field: "at" | "speed" | "volume"; value: number }
+  | { op: "set"; clip: string; field: "title" | "fade"; value: string | null }
+  | { op: "set"; clip: string; field: "muted"; value: boolean }
   | { op: "move"; clip: string; at: number; track_id?: string }
   | { op: "trim"; clip: string; edge: "start"; at: number }
   | { op: "trim"; clip: string; edge: "end"; end: number }
