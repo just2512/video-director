@@ -288,8 +288,10 @@ _SCENE_BRIDGE = r"""
     // localRect is the CSS layout box: Inspector edits must round-trip these design
     // coordinates, not the smaller screen-space rectangle produced by iframe scaling.
     function cssPixel(value, fallback) {
-      var match = String(value || '').trim().match(/^(-?(?:\\d+(?:\\.\\d+)?|\\.\\d+))px$/);
-      return match ? Number(match[1]) : fallback;
+      var text = String(value || '').trim();
+      if (!/px$/i.test(text)) return fallback;
+      var parsed = Number.parseFloat(text.slice(0, -2));
+      return Number.isFinite(parsed) ? parsed : fallback;
     }
     var localRect = {
       x: cssPixel(style.left, rect.x),
