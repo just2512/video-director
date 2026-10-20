@@ -162,15 +162,28 @@ jobs:
         if: steps.ensure_checkout.outcome == 'success'
         run: '"$PY311_BIN/python3.11" -m compileall -q tests'
       - name: Typecheck React 19 / TypeScript render and timeline contracts
+        id: react_typecheck
         if: always() && steps.ensure_checkout.outcome == 'success'
         working-directory: remotion_runtime
         run: |
           npm install --no-package-lock
           npm run typecheck
       - name: Build the React 19 Studio canvas inspector
+        id: react_build
         if: always() && steps.ensure_checkout.outcome == 'success'
         working-directory: remotion_runtime
         run: npm run build:studio
+      - name: Run React Studio integration smoke tests
+        id: react_smoke
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success'
+        run: |
+          "$PY311_BIN/python3.11" -m pytest -q \
+            tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_react_clip_inspector.py \
+            tests/test_film_studio_react_fallback.py \
+            tests/test_film_studio_inspector_renderer.py \
+            tests/test_film_mask_overlay_migration.py \
+            tests/test_film_variant_transform_keyframes.py
       - name: Run test suite and retain JUnit report
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
@@ -222,6 +235,7 @@ jobs:
           fi
           exit "$test_exit"
       - name: Check JavaScript syntax (run even when tests fail)
+        id: js_syntax
         if: always() && steps.ensure_checkout.outcome == 'success'
         run: |
           for f in webui/static/js/*.js; do
@@ -234,10 +248,11 @@ jobs:
 
 
       # The browser serves the checked-in bundle, not an ephemeral build directory.
-      # Publish only if all checks succeeded and main has not advanced since checkout.
+      # Publish only after typecheck, bundle build, focused React/migration browser smoke tests and JS syntax pass.
+      # The full suite still reports independently; unrelated full-suite failures must not leave main serving a placeholder bundle.
       # A GitHub-token push intentionally does not fan out another workflow run.
       - name: Publish verified React Studio bundle to main
-        if: success() && steps.ensure_checkout.outcome == 'success'
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
