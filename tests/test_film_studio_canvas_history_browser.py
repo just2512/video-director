@@ -99,7 +99,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 _open_studio(page, server.server_port, project_id)
                 page.wait_for_function("""() => {
                   const preview=document.querySelector('#fs-preview-composition');
-                  const scene=preview&&preview.contentDocument&&preview.contentDocument.querySelector('#scene-clip');
+                  const runtime=preview&&preview.contentDocument&&preview.contentDocument.querySelector('#runtime');
+                  const scene=runtime&&runtime.contentDocument&&runtime.contentDocument.querySelector('#scene-clip');
                   return !!(scene&&scene.contentDocument&&scene.contentDocument.querySelector('#title'));
                 }""", timeout=15000)
                 page.locator("#fs-element-inspect-toggle").click()
@@ -169,7 +170,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.locator('#fs-timeline .fs-clip[data-clip="scene-clip"]').wait_for(state="visible")
                 page.wait_for_function("""() => {
                   const preview=document.querySelector('#fs-preview-composition');
-                  const scene=preview&&preview.contentDocument&&preview.contentDocument.querySelector('#scene-clip');
+                  const runtime=preview&&preview.contentDocument&&preview.contentDocument.querySelector('#runtime');
+                  const scene=runtime&&runtime.contentDocument&&runtime.contentDocument.querySelector('#scene-clip');
                   return !!(scene&&scene.contentDocument&&scene.contentDocument.querySelector('#title'));
                 }""", timeout=15000)
                 page.locator("#fs-element-inspect-toggle").click()

@@ -5,7 +5,8 @@
   "description": "Isolated Remotion renderer for Video Director",
   "scripts": {
     "render:smoke": "node render.mjs --smoke",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:studio": "esbuild src/StudioCanvasInspector.tsx --bundle --format=iife --platform=browser --target=es2022 --jsx=automatic --outfile=../webui/static/js/film-studio-react.js"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.536",
@@ -17,6 +18,7 @@
   "devDependencies": {
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "esbuild": "0.25.5"
   }
 }

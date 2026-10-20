@@ -79,6 +79,10 @@ jobs:
         run: |
           npm install --no-package-lock
           npm run typecheck
+      - name: Build the React 19 Studio canvas inspector
+        if: always()
+        working-directory: remotion_runtime
+        run: npm run build:studio
       - name: Run test suite and retain JUnit report
         if: always()
         run: '"$PY311_BIN/python3.11" -m pytest -q --junitxml=junit.xml'
@@ -103,5 +107,6 @@ jobs:
           path: |
             junit.xml
             test-results/**
+            webui/static/js/film-studio-react.js
             playwright-report/**
             artifacts/**

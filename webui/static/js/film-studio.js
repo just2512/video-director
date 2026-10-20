@@ -98,17 +98,9 @@
   }
   function syncElementInspectorFields(element) {
     if(!element)return;
-    var rect=element.localRect||{},styles=element.styles||{},rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
-    var text=$('fs-element-text'),left=$('fs-element-left'),top=$('fs-element-top'),width=$('fs-element-width'),
-        height=$('fs-element-height'),color=$('fs-element-color'),font=$('fs-element-font-size'),rotate=$('fs-element-rotate');
-    if(text&&!text.disabled)text.value=String(element.text||'');
-    if(left)left.value=num(rect.x,0).toFixed(1);
-    if(top)top.value=num(rect.y,0).toFixed(1);
-    if(width)width.value=num(rect.width,1).toFixed(1);
-    if(height)height.value=num(rect.height,1).toFixed(1);
-    if(color)color.value=hexColor(styles.color||'#ffffff');
-    if(font)font.value=num(parseFloat(styles.fontSize),24);
-    if(rotate)rotate.value=rotateMatch?Number(rotateMatch[0]):0;
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.sync==='function'){
+      window.filmStudioReactInspector.sync(element);
+    }
   }
   function renderMigration() {
     var data=S.migration||{}, preview=data.migration_preview||{}, warnings=preview.warnings||[];
@@ -571,7 +563,11 @@
   }
   function renderInspector() {
     var clip=findClip(S.selectedId);
-    if(!clip){$('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';return;}
+    if(!clip){
+      $('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';
+      if(window.filmStudioReactInspector)window.filmStudioReactInspector.render(null);
+      return;
+    }
     var a=clip.attrs||{};
     var fields='<div class="fs-inspector-description"><strong>'+esc(clip.id)+'</strong><br>'+esc(clip.tag)+'<br>'+esc(a.src||'')+'</div><div class="fs-inspector-section">'+
       '<label class="fs-inspector-field">时间位置（秒）<input id="fs-field-at" type="number" min="0" step="0.033333" value="'+esc(a.at||clip.at||0)+'"></label>';
@@ -588,24 +584,8 @@
     }
     fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     var element=S.selectedElement&&S.selectedElement.clipId===clip.id?S.selectedElement:null;
-    if(element){
-      var rect=element.localRect||element.rect||{},styles=element.styles||{};
-      var rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
-      var color=hexColor(styles.color||'#ffffff');
-      fields+='<div class="fs-inspector-element"><h4>画布元素 · '+esc(element.tag)+' · '+esc(element.selector)+'</h4>'+
-        '<label class="fs-inspector-field">文本<textarea id="fs-element-text" rows="2" '+(element.textEditable===false?'disabled title="该元素包含子元素，为避免破坏内部结构，暂不允许整体替换文本"':'')+'>'+esc(element.text||'')+'</textarea></label>'+
-        '<label class="fs-inspector-field">左坐标<input id="fs-element-left" type="number" step="1" value="'+esc(num(rect.x,0).toFixed(1))+'"></label>'+
-        '<label class="fs-inspector-field">上坐标<input id="fs-element-top" type="number" step="1" value="'+esc(num(rect.y,0).toFixed(1))+'"></label>'+
-        '<label class="fs-inspector-field">宽度<input id="fs-element-width" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.width,1).toFixed(1))+'"></label>'+
-        '<label class="fs-inspector-field">高度<input id="fs-element-height" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.height,1).toFixed(1))+'"></label>'+
-        '<label class="fs-inspector-field">文字颜色<input id="fs-element-color" type="color" value="'+esc(color)+'"></label>'+
-        '<label class="fs-inspector-field">字号（px）<input id="fs-element-font-size" type="number" min="1" max="1000" step="1" value="'+esc(num(parseFloat(styles.fontSize),24))+'"></label>'+
-        '<label class="fs-inspector-field">旋转（度）<input id="fs-element-rotate" type="number" min="-3600" max="3600" step="1" value="'+esc(rotateMatch?Number(rotateMatch[0]):0)+'"></label>'+
-        '<button type="button" class="fs-btn fs-primary" id="fs-apply-element">应用画布修改</button></div>';
-    }
     $('fs-inspector').innerHTML=fields;
-    var applyElement=$('fs-apply-element');
-    if(applyElement)applyElement.addEventListener('click',function(){window.filmStudioSaveSelectedElement();});
+    if(window.filmStudioReactInspector)window.filmStudioReactInspector.render(element);
     $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(button){
       button.addEventListener('click',function(e){
         e.preventDefault();e.stopPropagation();
