@@ -75,12 +75,16 @@
     return points[points.length-1].v;
   }
   function makeClip(track,clip){
-    var el;
+    var el,iframeLoaded=false,iframeLoadError=false,entry=null;
     if(clip.tag==='video')el=document.createElement('video');
     else if(clip.tag==='audio')el=document.createElement('audio');
     else if(clip.tag==='img')el=document.createElement('img');
     else if(clip.tag==='iframe')el=document.createElement('iframe');
     else return null;
+    if(clip.tag==='iframe'){
+      el.addEventListener('load',function(){iframeLoaded=true;if(entry)entry.iframeLoaded=true;});
+      el.addEventListener('error',function(){iframeLoadError=true;if(entry)entry.iframeLoadError=true;});
+    }
     el.className='fs-runtime-media';el.id=String(clip.id||'');el.setAttribute('data-clip-id',clip.id);
     var clipClasses=String(clip.attrs&&clip.attrs.class||'').split(/\s+/).filter(function(name){return /^[A-Za-z_][A-Za-z0-9_-]{0,79}$/.test(name);});
     if(clipClasses.length)el.classList.add.apply(el.classList,clipClasses);
@@ -115,7 +119,8 @@
     if(Number.isFinite(opacity))el.style.opacity=String(clamp(opacity,0,1));
     var src=sourceBase(clip.media_url||'');
     if(src)el.src=src;
-    var entry={track:track,clip:clip,el:el,active:false,volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope),
+    entry={track:track,clip:clip,el:el,active:false,iframeLoaded:iframeLoaded,iframeLoadError:iframeLoadError,
+      volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope),
       fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1)};
     byId[clip.id]=entry;return entry;
   }
@@ -262,6 +267,17 @@
       if(typeof el.decode==='function')try{await el.decode();}catch(_){}
     }else if(tag==='iframe'){
       var localTime=mediaTime(clip,t);
+      if(entry.iframeLoadError)throw new Error('HTML 镜头加载失败：'+clip.id);
+      if(!entry.iframeLoaded){
+        await new Promise(function(resolve,reject){
+          var timer=setTimeout(function(){cleanup();reject(new Error('HTML 镜头加载超时：'+clip.id));},15000);
+          function cleanup(){clearTimeout(timer);el.removeEventListener('load',loaded);el.removeEventListener('error',failed);}
+          function loaded(){cleanup();entry.iframeLoaded=true;resolve();}
+          function failed(){cleanup();entry.iframeLoadError=true;reject(new Error('HTML 镜头加载失败：'+clip.id));}
+          el.addEventListener('load',loaded,{once:true});el.addEventListener('error',failed,{once:true});
+          if(entry.iframeLoaded){cleanup();resolve();}
+        });
+      }
       var sceneSrc=String(clip.attrs&&clip.attrs.src||'').split('#',1)[0].replace(/\\/g,'/');
       if(sceneSrc.endsWith('scenes/subtitles.html')){
         // Generated subtitle pages retain their backward-compatible exact-time
