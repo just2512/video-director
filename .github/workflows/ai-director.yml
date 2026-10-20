@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ai-director-${{ github.event.pull_request.number || github.ref }}-${{ github.run_id }}
+  group: ai-director-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
