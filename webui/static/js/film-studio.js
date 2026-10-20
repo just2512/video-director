@@ -96,6 +96,20 @@
     if(/^#[0-9a-f]{3}$/i.test(text))return '#'+text.slice(1).split('').map(function(v){return v+v;}).join('');
     return '#ffffff';
   }
+  function syncElementInspectorFields(element) {
+    if(!element)return;
+    var rect=element.localRect||{},styles=element.styles||{},rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
+    var text=$('fs-element-text'),left=$('fs-element-left'),top=$('fs-element-top'),width=$('fs-element-width'),
+        height=$('fs-element-height'),color=$('fs-element-color'),font=$('fs-element-font-size'),rotate=$('fs-element-rotate');
+    if(text&&!text.disabled)text.value=String(element.text||'');
+    if(left)left.value=num(rect.x,0).toFixed(1);
+    if(top)top.value=num(rect.y,0).toFixed(1);
+    if(width)width.value=num(rect.width,1).toFixed(1);
+    if(height)height.value=num(rect.height,1).toFixed(1);
+    if(color)color.value=hexColor(styles.color||'#ffffff');
+    if(font)font.value=num(parseFloat(styles.fontSize),24);
+    if(rotate)rotate.value=rotateMatch?Number(rotateMatch[0]):0;
+  }
   function renderMigration() {
     var data=S.migration||{}, preview=data.migration_preview||{}, warnings=preview.warnings||[];
     $('fs-project-label').textContent=S.projectId;$('fs-clip-count').textContent='—';$('fs-timeline-meta').textContent='迁移预览';
@@ -888,7 +902,10 @@
     if(!S.data||!S.data.exists){showStatus('请先初始化 film.html 后再选取画面元素。','error');return;}
     S.elementInspect=!S.elementInspect;
     var frame=$('fs-preview-composition'),button=$('fs-element-inspect-toggle');
-    if(button){button.setAttribute('aria-pressed',String(S.elementInspect));button.textContent=S.elementInspect?'点选画面元素中…':'选择画面元素';}
+    if(S.elementInspect&&window.filmStudioPlaying){
+      window.filmStudioPlaying=false;syncRuntime('pause');
+    }
+    if(button){button.setAttribute('aria-pressed',String(S.elementInspect));button.textContent=S.elementInspect?'点选/拖动画面元素…':'选择画面元素';}
     if(frame&&frame.contentWindow)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:S.elementInspect},window.location.origin);
     if(S.elementInspect){
       window.filmStudioSetSideMode('inspector');
@@ -923,7 +940,7 @@
     if(!item){item={selector:selected.selector};overrides.push(item);}
     if(textInput&&!textInput.disabled&&textInput.value!==null)item.text=textInput.value;
     item.style=Object.assign({},item.style||{},{
-      position:'absolute',
+      position:'fixed',
       left:Number(leftInput.value).toFixed(2)+'px',
       top:Number(topInput.value).toFixed(2)+'px',
       width:Number(widthInput.value).toFixed(2)+'px',
@@ -951,22 +968,39 @@
         S.runtimeRev=expectedRuntimeRev;
         if(S.elementInspect)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:true},window.location.origin);
       }
-    }else if(message.type==='film-runtime:element-selected'||message.type==='film-runtime:element-hover'){
+    }else if(['film-runtime:element-selected','film-runtime:element-hover',
+                'film-runtime:element-preview','film-runtime:element-drag-end'].indexOf(message.type)>=0){
       var element={
         clipId:String(message.clipId||''),selector:String(message.selector||''),tag:String(message.tag||''),
         text:String(message.text||''),textEditable:message.textEditable!==false,
-        styles:message.styles||{},rect:message.rect||{},localRect:message.localRect||{}
+        styles:message.styles||{},rect:message.rect||{},localRect:message.localRect||{},
+        baseRevision:S.rev
       };
       if(message.type==='film-runtime:element-selected'){
         if(!findClip(element.clipId)){showStatus('所选画面元素对应的片段已不存在。','error');return;}
-        element.baseRevision=S.rev;
         S.selectedElement=element;S.selectedId=element.clipId;S.selectedIds=[element.clipId];S.selectionAnchor=element.clipId;
         window.filmStudioSetSideMode('inspector');
         syncClipSelectionVisual();renderInspector();renderAssets();renderElementSelection(element);
-        showStatus('已选中 '+element.tag+' 元素：'+element.selector,'success');
-      }else{
+        showStatus('已选中 '+element.tag+' 元素：'+element.selector+'；拖动元素可移动，拖动边缘可缩放。','success');
+      }else if(message.type==='film-runtime:element-hover'){
         S.hoveredElement=element;
         if(S.elementInspect)renderElementSelection(S.selectedElement||element);
+      }else if(message.type==='film-runtime:element-preview'){
+        if(S.selectedElement&&S.selectedElement.clipId===element.clipId&&S.selectedElement.selector===element.selector){
+          S.selectedElement.rect=element.rect;S.selectedElement.localRect=element.localRect;
+          S.selectedElement.styles=element.styles;S.selectedElement.baseRevision=S.rev;
+          renderElementSelection(S.selectedElement);syncElementInspectorFields(S.selectedElement);
+        }
+      }else if(message.type==='film-runtime:element-drag-end'){
+        if(S.selectedElement&&S.selectedElement.clipId===element.clipId&&S.selectedElement.selector===element.selector){
+          S.selectedElement.rect=element.rect;S.selectedElement.localRect=element.localRect;
+          S.selectedElement.styles=element.styles;S.selectedElement.text=element.text;
+          S.selectedElement.baseRevision=S.rev;
+        }else{
+          S.selectedElement=element;S.selectedId=element.clipId;S.selectedIds=[element.clipId];
+        }
+        renderElementSelection(S.selectedElement);syncElementInspectorFields(S.selectedElement);
+        window.filmStudioSaveSelectedElement();
       }
     }else if(message.type==='film-runtime:time'){
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
