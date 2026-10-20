@@ -2104,6 +2104,64 @@ window.addEventListener('message',function(event){{
 
 
 
+def _watermark_page(width: int, height: int, duration: float, watermark: dict,
+                    image_src: str | None = None) -> str:
+    anchor = str(watermark.get("anchor") or "bottom_right")
+    if anchor not in _FILM_ANCHORS:
+        raise FilmError("INVALID_WATERMARK_ANCHOR", f"水印 anchor 不支持：{anchor}", 422)
+    anchor_x, anchor_y = _FILM_ANCHORS[anchor]
+    safe_area = _number(watermark.get("safe_area", 32), "watermark safe_area", 0, 200)
+    offset_x = _number(watermark.get("offset_x", 0), "watermark offset_x")
+    offset_y = _number(watermark.get("offset_y", 0), "watermark offset_y")
+    opacity = _number(watermark.get("opacity", 0.75), "watermark opacity", 0, 1)
+    scale = _number(watermark.get("scale", 1), "watermark scale", 0.000001)
+    if anchor_x == 0:
+        horizontal = f"left:{_fmt(safe_area + offset_x)}px;right:auto;"
+    elif anchor_x == 1:
+        horizontal = f"right:{_fmt(safe_area - offset_x)}px;left:auto;"
+    else:
+        horizontal = "left:50%;right:auto;"
+    if anchor_y == 0:
+        vertical = f"top:{_fmt(safe_area + offset_y)}px;bottom:auto;"
+    elif anchor_y == 1:
+        vertical = f"bottom:{_fmt(safe_area - offset_y)}px;top:auto;"
+    else:
+        vertical = "top:50%;bottom:auto;"
+    translates = []
+    if anchor_x == 0.5:
+        translates.append("translateX(-50%)")
+    if anchor_y == 0.5:
+        translates.append("translateY(-50%)")
+    transforms = translates + [f"scale({_fmt(scale)})"]
+    transform = " ".join(transforms)
+    transform_origin = f"{int(anchor_x * 100)}% {int(anchor_y * 100)}%"
+    if image_src:
+        body = f'<img id="watermark" alt="" src="{html.escape(image_src, quote=True)}">'
+        content_css = (
+            f"width:auto;height:auto;max-width:none;max-height:none;object-fit:contain;"
+            f"transform:{transform};transform-origin:{transform_origin};"
+        )
+    else:
+        text = html.escape(str(watermark.get("text") or ""), quote=False)
+        # CompositionIR has a scale multiplier, but no absolute text size; 24px is
+        # the explicit migration baseline and is surfaced as a warning by the caller.
+        font_size = _number(scale * 24, "watermark text font size", 0.1, 240)
+        body = f'<div id="watermark">{text}</div>'
+        content_css = (
+            f"font-family:Arial,'WenQuanYi Micro Hei',sans-serif;font-size:{_fmt(font_size)}px;"
+            f"font-weight:700;color:#ffffff;text-shadow:0 1px 3px rgba(0,0,0,.9);"
+            f"white-space:pre-wrap;transform:{transform};transform-origin:{transform_origin};"
+        )
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width={width},height={height}"><style>
+html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}}#stage{{position:relative;width:{width}px;height:{height}px;pointer-events:none}}
+#watermark{{position:absolute;{horizontal}{vertical}opacity:{_fmt(opacity)};{content_css}}}
+</style></head><body><div id="stage">{body}</div><script>
+window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame:function(_t){{}}}};
+</script></body></html>'''
+
+
+
+
 
 _FILM_ANCHORS = {
     "top_left": (0.0, 0.0), "top_center": (0.5, 0.0), "top_right": (1.0, 0.0),
@@ -2712,8 +2770,62 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         tracks.append(audio_timeline_track)
 
     watermarks = raw_ir.get("watermarks") or []
-    if watermarks:
-        warnings.append("水印尚未完整迁移；初始化后请检查旧项目的水印")
+    for idx, watermark in enumerate(watermarks):
+        watermark_id = str(watermark.get("id") or f"wm-{idx + 1}")
+        watermark_clip_id = _safe_id(f"watermark-{watermark_id}-{idx + 1}", "clip")
+        anchor = str(watermark.get("anchor") or "bottom_right")
+        if anchor not in _FILM_ANCHORS:
+            warnings.append(f"水印 {watermark_id} 的 anchor {anchor} 不支持，水印未迁移")
+            continue
+        start = _number(watermark.get("start", 0), f"水印 {watermark_id} start", 0)
+        if start >= duration:
+            warnings.append(f"水印 {watermark_id} 的 start 超出影片时长，水印未迁移")
+            continue
+        raw_duration = watermark.get("duration")
+        requested_duration = duration - start if raw_duration is None else _number(
+            raw_duration, f"水印 {watermark_id} duration", 0.001
+        )
+        watermark_duration = min(requested_duration, duration - start)
+        if requested_duration > watermark_duration + 0.001:
+            warnings.append(f"水印 {watermark_id} 的显示区间超出影片时长，已截短到片尾")
+        scale = _number(watermark.get("scale", 1), f"水印 {watermark_id} scale", 0.000001)
+        if scale > 10:
+            warnings.append(f"水印 {watermark_id} 的 scale 超出可稳定显示范围，已限制为 10")
+            watermark["scale"] = 10
+        kind = str(watermark.get("kind") or "text")
+        media_src = None
+        if kind in {"image", "logo", "svg"}:
+            if not watermark.get("asset_id"):
+                warnings.append(f"图片水印 {watermark_id} 缺少 asset_id，水印未迁移")
+                continue
+            source_uri = asset_uri(watermark.get("asset_id"))
+            media_src = (
+                "/api/editor/film/media?project_id=" + quote(pid, safe="")
+                + "&src=" + quote(unquote(source_uri), safe="")
+            )
+        elif kind != "text":
+            warnings.append(f"水印 {watermark_id} 的类型 {kind} 暂不支持，水印未迁移")
+            continue
+        page_name = f"scenes/{watermark_clip_id}.html"
+        pages[page_name] = _watermark_page(stage["width"], stage["height"], watermark_duration, watermark, media_src)
+        watermark_attrs = {
+            "id": watermark_clip_id,
+            "src": f"{page_name}#t=0,{_fmt(watermark_duration)}",
+            "at": _fmt(start),
+            "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;pointer-events:none",
+        }
+        watermark_track = {
+            "id": _safe_id("track-" + watermark_clip_id, "track"),
+            "attrs": {"id": _safe_id("track-" + watermark_clip_id, "track"),
+                      "data-label": "水印 " + watermark_id,
+                      "style": "z-index:100000;pointer-events:none"},
+            "clips": [{"id": watermark_clip_id, "tag": "iframe", "attrs": watermark_attrs}],
+        }
+        tracks.append(watermark_track)
+        if kind == "text":
+            warnings.append(
+                f"文本水印 {watermark_id} 的 scale 采用 24px 基准字号迁移；旧字段未提供绝对字号，需复核视觉尺寸"
+            )
     declared_duration = duration
     mapped_end = max(
         [float(clip["attrs"].get("at", 0)) + (clip_duration(clip) or 0.0)
