@@ -650,3 +650,175 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
             shutil.rmtree(temp_root, ignore_errors=True)
         except Exception:
             pass
+
+
+def look_project_film(project_id: str, expected_revision: str | None = None,
+                      times: list[float] | None = None) -> dict:
+    """Render a visual contact sheet and re-check sample timestamps in reverse order.
+
+    This is the agent-facing fast feedback loop. It renders the authoritative
+    film.html through the same browser runtime as MP4 export, but does not encode
+    a complete video or touch CompositionIR.
+    """
+    pid = fd.validate_project_id(project_id)
+    state = fd.read_project_film(pid)
+    if not state.get("exists"):
+        raise FilmRenderError("FILM_NOT_INITIALIZED", "当前项目尚未初始化 film.html。", 409)
+    revision = state["rev"]
+    if expected_revision and expected_revision != revision:
+        raise FilmRenderError(
+            "REVISION_CONFLICT",
+            f"影片文档已变化：提交版本 {expected_revision}，当前版本 {revision}；请重新载入后再 look。",
+            409,
+        )
+    doc = state["doc"]
+    width, height = int(doc["stage"]["width"]), int(doc["stage"]["height"])
+    if not 16 <= width <= MAX_STAGE_EDGE or not 16 <= height <= MAX_STAGE_EDGE:
+        raise FilmRenderError("INVALID_STAGE_SIZE", f"画布尺寸 {width}×{height} 不在可检查范围内。", 422)
+    payload = fd.film_payload(pid, state)
+    clips = [clip for track in payload["tracks"] for clip in track["clips"]]
+    if not clips:
+        raise FilmRenderError("EMPTY_FILM", "影片文档没有片段，无法生成 look 接触表。", 422)
+    if any(clip.get("duration") is None for clip in clips):
+        missing = [clip["id"] for clip in clips if clip.get("duration") is None]
+        raise FilmRenderError("SOURCE_RANGE_REQUIRED", "以下片段缺少明确源区间：" + "、".join(missing[:12]), 422)
+    duration = max(float(clip.get("end") or 0) for clip in clips)
+    if not math.isfinite(duration) or duration <= 0 or duration > MAX_RENDER_SECONDS:
+        raise FilmRenderError("DURATION_LIMIT", f"影片时长必须大于 0 且不超过 {MAX_RENDER_SECONDS} 秒。", 422)
+    _validate_source_ranges(pid, doc)
+    for track in doc["tracks"]:
+        for clip in track["clips"]:
+            if clip["tag"] == "iframe":
+                src = str(clip["attrs"].get("src") or "").split("#", 1)[0].replace("\\", "/")
+                if not src.lower().endswith((".html", ".htm")):
+                    raise FilmRenderError(
+                        "UNSUPPORTED_IFRAME_SOURCE",
+                        f"iframe 片段 {clip['id']} 必须引用工程内的 .html/.htm 镜头页面。",
+                        422,
+                    )
+
+    if times is None:
+        candidates = [0.0, duration * 0.25, duration * 0.5, duration * 0.75, max(0.0, duration - 1 / FPS_DEFAULT)]
+    else:
+        candidates = [float(value) for value in times]
+    samples = sorted(set(round(value, 6) for value in candidates))
+    if not samples or len(samples) > 24:
+        raise FilmRenderError("INVALID_LOOK_TIMES", "look 至少需要 1 个、至多 24 个检查时刻。", 422)
+    if any(not math.isfinite(value) or value < 0 or value >= duration for value in samples):
+        raise FilmRenderError("INVALID_LOOK_TIMES", f"look 检查时刻必须位于 [0, {duration:.3f}) 秒内。", 422)
+
+    media_server = None
+    browser = None
+    try:
+        media_server = _RenderHTTPServer(("127.0.0.1", 0), pid)
+        server_thread = threading.Thread(target=media_server.serve_forever, name="film-look-media", daemon=True)
+        server_thread.start()
+        base_url = f"http://127.0.0.1:{media_server.server_address[1]}"
+        runtime_payload = _runtime_payload(pid, state, base_url)
+        runtime_payload["render_css"] = _style_blocks(doc.get("head_html", ""))
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
+            page.goto(base_url + "/host", wait_until="load", timeout=30000)
+            page.wait_for_function("window.__runtimeReady === true", timeout=30000)
+            page.evaluate(
+                "(arg) => document.getElementById('runtime').contentWindow.postMessage("
+                "{type:'film-runtime:load',data:arg.data,rev:arg.rev},location.origin)",
+                {"data": runtime_payload, "rev": revision},
+            )
+            page.wait_for_function("arg => window.__runtimeRev === arg", arg=revision, timeout=30000)
+            frame_pngs = {}
+            for frame_number, timestamp in enumerate(samples):
+                page.evaluate(
+                    "(arg) => {window.__lastFrameReady=null;window.__frameError=null;"
+                    "document.getElementById('runtime').contentWindow.postMessage("
+                    "{type:'film-runtime:render-frame',time:arg.time,frame:arg.frame},location.origin);}",
+                    {"time": timestamp, "frame": frame_number},
+                )
+                page.wait_for_function("(frame) => window.__lastFrameReady === frame",
+                                       arg=frame_number, timeout=20000)
+                frame_error = page.evaluate("window.__frameError")
+                if frame_error:
+                    raise FilmRenderError("FRAME_RENDER_FAILED", f"时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)
+                frame_pngs[timestamp] = page.locator("#runtime").screenshot(
+                    animations="disabled", timeout=20000
+                )
+
+            # A contact sheet is not accepted as deterministic evidence until the
+            # same timestamps are visited in a different order and compared.
+            for frame_number, timestamp in enumerate(reversed(samples), start=len(samples)):
+                page.evaluate(
+                    "(arg) => {window.__lastFrameReady=null;window.__frameError=null;"
+                    "document.getElementById('runtime').contentWindow.postMessage("
+                    "{type:'film-runtime:render-frame',time:arg.time,frame:arg.frame},location.origin);}",
+                    {"time": timestamp, "frame": frame_number},
+                )
+                page.wait_for_function("(frame) => window.__lastFrameReady === frame",
+                                       arg=frame_number, timeout=20000)
+                frame_error = page.evaluate("window.__frameError")
+                if frame_error:
+                    raise FilmRenderError("FRAME_RENDER_FAILED",
+                                          f"反序检查时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)
+                repeated = page.locator("#runtime").screenshot(animations="disabled", timeout=20000)
+                changed, total, frame_width, frame_height = _frame_diff_stats(frame_pngs[timestamp], repeated)
+                allowed = max(16, int(total * 0.0005))
+                if changed > allowed:
+                    raise FilmRenderError(
+                        "NON_DETERMINISTIC_FRAME",
+                        f"look 时刻 {timestamp:.3f}s 重复绘制不一致：{changed}/{total} 像素超过通道差 32，"
+                        f"允许 {allowed}；画布 {frame_width}×{frame_height}。",
+                        422,
+                    )
+            browser.close()
+            browser = None
+
+        from PIL import ImageDraw
+        from PIL import ImageOps
+        cache_dir = config.project_dir(pid) / ".film" / "cache" / "look"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        output = cache_dir / f"contact-{revision}.png"
+        cell_width, image_height, label_height = 640, 360, 28
+        columns = 2
+        rows = int(math.ceil(len(samples) / columns))
+        sheet = Image.new("RGB", (columns * cell_width, rows * (image_height + label_height)), (24, 24, 24))
+        draw = ImageDraw.Draw(sheet)
+        for index, timestamp in enumerate(samples):
+            with Image.open(BytesIO(frame_pngs[timestamp])) as source:
+                thumbnail = ImageOps.contain(source.convert("RGB"), (cell_width, image_height))
+            x = (index % columns) * cell_width
+            y = (index // columns) * (image_height + label_height)
+            sheet.paste(thumbnail, (x + (cell_width - thumbnail.width) // 2,
+                                    y + (image_height - thumbnail.height) // 2))
+            draw.text((x + 8, y + image_height + 6),
+                      f"t={timestamp:.3f}s  revision={revision[:12]}", fill=(235, 235, 235))
+        temp_output = output.with_suffix(".tmp.png")
+        sheet.save(temp_output, format="PNG")
+        os.replace(temp_output, output)
+        return {
+            "ok": True,
+            "project_id": pid,
+            "revision": revision,
+            "duration": duration,
+            "sample_times": samples,
+            "image_path": str(output),
+            "determinism_status": "PASS",
+            "determinism_samples": len(samples),
+        }
+    except FilmRenderError:
+        raise
+    except Exception as exc:
+        raise FilmRenderError("FILM_LOOK_FAILED", f"look 检查失败：{exc}", 500) from exc
+    finally:
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+        if media_server is not None:
+            try:
+                media_server.shutdown()
+                media_server.server_close()
+            except Exception:
+                pass
+
