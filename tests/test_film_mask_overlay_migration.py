@@ -106,3 +106,16 @@ def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_pat
     assert not any("mask:蒙版形状" in warning for warning in result["warnings"])
     if shape == "path":
         assert any("path 蒙版按 IR 中保存的归一顶点" in warning for warning in result["warnings"])
+
+
+def test_mask_keyframes_with_different_vertex_counts_are_rejected_explicitly():
+    tracks = [{
+        "property": "mask_path",
+        "keyframes": [
+            {"at": 0, "value": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+            {"at": 1, "value": [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]]},
+        ],
+    }]
+    mapped, warnings = fd._film_mask_keyframes(tracks, 1.0)
+    assert mapped == []
+    assert any("顶点数量不同" in warning for warning in warnings)
