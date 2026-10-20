@@ -22,6 +22,8 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "renderSurface(model)" in component
     assert "window.filmStudioReactTimeline.renderSurface(renderModel);" in studio
     assert 'data-react-timeline-clip={clip.id}' in component
+    assert '<TimelineSurface key={model.renderKey} model={model} />' in component
+    assert "S.timelineRenderSequence=(S.timelineRenderSequence||0)+1;" in studio
     assert "window.filmStudioReactAssets.render({" in studio
     assert 'data-react-asset-list="true"' in component
     assert 'id="fs-assets-list"' in html

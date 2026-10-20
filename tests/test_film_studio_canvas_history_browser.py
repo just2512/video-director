@@ -173,7 +173,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 assert target["style"]["rotate"] == "12.00deg"
                 saved_revision = fd.read_project_film(project_id)["rev"]
 
-                page.locator('[data-film-action="undo"]').click()
+                undo_selector = '#fs-react-toolbar [data-film-action="undo"]' if has_react_toolbar else '#fs-static-toolbar [data-film-action="undo"]'
+                page.locator(undo_selector).click()
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('已撤销')",
                     timeout=15000,
@@ -181,7 +182,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 assert not any(item.get("selector") == "#title" for item in _overrides(project_id))
                 assert fd.read_project_film(project_id)["rev"] != saved_revision
 
-                page.locator('[data-film-action="redo"]').click()
+                redo_selector = '#fs-react-toolbar [data-film-action="redo"]' if has_react_toolbar else '#fs-static-toolbar [data-film-action="redo"]'
+                page.locator(redo_selector).click()
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('已重做')",
                     timeout=15000,
