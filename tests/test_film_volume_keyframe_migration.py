@@ -1,0 +1,45 @@
+"""Layer volume keyframes are converted to the deterministic media volume envelope."""
+from __future__ import annotations
+
+import json
+
+from video_director import config, film_document as fd
+from video_director.models import CompositionIR
+
+
+def test_video_layer_volume_keyframes_migrate_to_runtime_envelope(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "video-layer-volume-keyframes"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "shot.mp4").write_bytes(b"migration does not decode media")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-shot", "file": "assets/shot.mp4", "type": "video"},
+    ]), encoding="utf-8")
+
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "scenes": [{
+            "id": "shot-scene", "start": 0, "duration": 2, "text": "原声",
+            "layers": [{
+                "type": "video", "asset_id": "asset-shot", "start": 0,
+                "duration": 2, "source_in": 0, "source_out": 2,
+                "keyframes": [{
+                    "property": "volume", "keyframes": [
+                        {"at": 0, "value": 0.2, "easing": "linear"},
+                        {"at": 1, "value": 0.8, "easing": "ease_in_out"},
+                        {"at": 2, "value": 0.4, "easing": "linear"},
+                    ],
+                }],
+            }],
+        }],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    clip = track["clips"][0]
+    envelope = json.loads(clip["attrs"]["volume_envelope"])
+    assert envelope == [{"t": 0.0, "v": 0.2}, {"t": 1.0, "v": 0.8}, {"t": 2.0, "v": 0.4}]
+    assert "data-film-keyframes" not in clip["attrs"]
+    assert not any("keyframes:volume" in warning for warning in result["warnings"])

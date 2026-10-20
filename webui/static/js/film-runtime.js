@@ -59,7 +59,7 @@
     if(!value)return [];
     try{
       var points=typeof value==='string'?JSON.parse(value):value;
-      if(!Array.isArray(points)||points.length<2||points.length>128)return [];
+      if(!Array.isArray(points)||points.length<1||points.length>128)return [];
       var last=-1;
       for(var i=0;i<points.length;i++){
         if(!points[i]||!Number.isFinite(Number(points[i].t))||!Number.isFinite(Number(points[i].v))

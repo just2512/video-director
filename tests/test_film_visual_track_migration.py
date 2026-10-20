@@ -47,3 +47,4 @@ def test_visual_source_track_order_identity_and_lock_are_preserved(tmp_path, mon
     assert "hidden" in second["attrs"]
     assert second["clips"][0]["attrs"]["data-source-track-order"] == "1"
     assert not any("Film Studio 当前仍会显示这些轨道" in warning for warning in result["warnings"])
+    assert not any("组联动编辑尚未迁移" in warning for warning in result["warnings"])

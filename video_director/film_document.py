@@ -2258,6 +2258,60 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
     return channels, list(dict.fromkeys(unsupported))
 
 
+
+
+def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict], list[str]]:
+    """Convert volume keyframes into the bounded envelope consumed by Film Runtime."""
+    if not isinstance(raw_tracks, list):
+        return [], ["volume keyframes 格式无效"]
+    mapped: list[dict] = []
+    warnings: list[str] = []
+    found = False
+    for track in raw_tracks:
+        if not isinstance(track, dict):
+            warnings.append("volume keyframes 项格式无效")
+            continue
+        prop = str(track.get("property") or "")
+        if prop != "volume":
+            warnings.append(f"非 volume 关键帧属性 {prop or 'unknown'} 不适用于音量包络")
+            continue
+        found = True
+        points = track.get("keyframes") or []
+        if not isinstance(points, list):
+            warnings.append("volume keyframes 列表格式无效")
+            continue
+        for point in points:
+            try:
+                at = _number(point.get("at"), "volume keyframe.at", 0)
+                value = _number(point.get("value"), "volume keyframe.value", 0, 1)
+            except (AttributeError, FilmError):
+                warnings.append("volume 关键帧含非数值或越界值（允许范围 0–1）")
+                continue
+            if at > duration + 0.001:
+                warnings.append(f"volume@{_fmt(at)}s 超出片段时长")
+                continue
+            if at > 600:
+                warnings.append(f"volume@{_fmt(at)}s 超出 Runtime 音量包络 600s 的限制")
+                continue
+            mapped.append({"t": at, "v": value})
+    if not found:
+        return [], list(dict.fromkeys(warnings))
+    mapped.sort(key=lambda point: point["t"])
+    normalized: list[dict] = []
+    for point in mapped:
+        if normalized and abs(normalized[-1]["t"] - point["t"]) <= 1e-9:
+            normalized[-1] = point
+            warnings.append(f"volume 在 {_fmt(point['t'])}s 有重复关键帧；迁移保留最后一个")
+        else:
+            normalized.append(point)
+    if len(normalized) > 128:
+        warnings.append(f"volume 关键帧数量 {len(normalized)} 超出 Runtime 的 128 个限制；音量包络未写入")
+        return [], list(dict.fromkeys(warnings))
+    if not normalized:
+        warnings.append("volume 关键帧没有可迁移的有效点")
+    return normalized, list(dict.fromkeys(warnings))
+
+
 def _motion_keyframes(motion: str | None, duration: float, transform: dict,
                       channels: list[dict]) -> tuple[list[dict], str | None]:
     """Map supported legacy zoom/pan presets into the frame(t) keyframe contract."""
@@ -2530,8 +2584,21 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         str(lane.get("id")): lane for lane in visual_tracks
         if isinstance(lane, dict) and lane.get("id")
     }
-    if raw_ir.get("visual_overlays") and len(visual_tracks) > 1:
-        warnings.append("旧视觉轨道的多片段分组联动编辑尚未恢复；各叠加片段会迁移为独立 Film 轨道")
+    overlay_lane_counts: dict[str, int] = {}
+    for overlay in raw_ir.get("visual_overlays") or []:
+        if not isinstance(overlay, dict):
+            continue
+        lane_id = str(overlay.get("track_id") or "overlay-main")
+        overlay_lane_counts[lane_id] = overlay_lane_counts.get(lane_id, 0) + 1
+    grouped_lanes = [
+        lane_id for lane_id, count in overlay_lane_counts.items() if count > 1
+    ]
+    if grouped_lanes:
+        warnings.append(
+            "旧视觉轨道包含多片段分组 " + ", ".join(sorted(grouped_lanes))
+            + "；FilmDocument 为允许不同片段重叠而拆成独立物理轨道，"
+              "来源分组 ID/顺序保存在 data-source-track-*，组联动编辑尚未迁移"
+        )
 
     for scene in source_scenes:
         scene_id = str(scene.get("id") or "unknown")
@@ -2573,8 +2640,27 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             base_transform = _film_transform_metadata(
                 raw_transform, stage["width"], stage["height"], stage["width"], stage["height"]
             )
-            channels, unsupported_keyframes = _film_keyframes(layer.get("keyframes") or [], d)
+            raw_layer_keyframes = layer.get("keyframes") or []
+            volume_tracks = [
+                track for track in raw_layer_keyframes
+                if isinstance(track, dict) and str(track.get("property") or "") == "volume"
+            ] if isinstance(raw_layer_keyframes, list) else []
+            visual_keyframes = [
+                track for track in raw_layer_keyframes
+                if not isinstance(track, dict) or str(track.get("property") or "") != "volume"
+            ] if isinstance(raw_layer_keyframes, list) else raw_layer_keyframes
+            channels, unsupported_keyframes = _film_keyframes(visual_keyframes, d)
             unsupported_layer_fields.extend(f"keyframes:{field}" for field in unsupported_keyframes)
+            if volume_tracks:
+                if kind == "video":
+                    volume_envelope, volume_warnings = _film_volume_envelope(volume_tracks, d)
+                    if volume_envelope:
+                        attrs["volume_envelope"] = json.dumps(
+                            volume_envelope, ensure_ascii=False, separators=(",", ":")
+                        )
+                    unsupported_layer_fields.extend(f"keyframes:volume:{warning}" for warning in volume_warnings)
+                else:
+                    unsupported_layer_fields.append("图片层的 volume 关键帧无对应音轨，未迁移")
             channels, motion_warning = _motion_keyframes(layer.get("motion"), d, base_transform, channels)
             if motion_warning:
                 unsupported_layer_fields.append(motion_warning)
@@ -2767,31 +2853,13 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if audio.get("ducking"):
             warnings.append(f"音频片段 {cid} 的 ducking 自动压低未迁移")
         if audio.get("keyframes"):
-            mapped_volume = []
-            unsupported_audio_keyframes = []
-            for channel in audio.get("keyframes") or []:
-                prop = str(channel.get("property") or "") if isinstance(channel, dict) else ""
-                if prop != "volume":
-                    unsupported_audio_keyframes.append(prop or "unknown")
-                    continue
-                for point in channel.get("keyframes") or []:
-                    try:
-                        point_at = _number(point.get("at"), "audio keyframe.at", 0)
-                        point_value = _number(point.get("value"), "audio keyframe.value", 0, 2)
-                        if point_at > d + 0.001:
-                            unsupported_audio_keyframes.append(f"volume@{_fmt(point_at)}s 超出片段时长")
-                            continue
-                    except (AttributeError, FilmError):
-                        unsupported_audio_keyframes.append("volume 含非数值关键帧")
-                        continue
-                    mapped_volume.append({"t": point_at, "v": point_value})
+            mapped_volume, volume_warnings = _film_volume_envelope(audio.get("keyframes") or [], d)
             if mapped_volume:
-                mapped_volume.sort(key=lambda item: item["t"])
-                attrs["volume_envelope"] = json.dumps(mapped_volume, ensure_ascii=False, separators=(",", ":"))
-            if unsupported_audio_keyframes:
-                warnings.append(
-                    f"音频片段 {cid} 的 keyframes 未完全映射：" + ", ".join(dict.fromkeys(unsupported_audio_keyframes))
+                attrs["volume_envelope"] = json.dumps(
+                    mapped_volume, ensure_ascii=False, separators=(",", ":")
                 )
+            if volume_warnings:
+                warnings.append(f"音频片段 {cid} 的 keyframes 未完全映射：" + ", ".join(volume_warnings))
         if audio.get("linked_visual_overlay_id") or audio.get("follows_scene_video") is False:
             warnings.append(f"音频片段 {cid} 的原声关联/跟随视频关系未迁移")
         tid = _safe_id("track-" + cid, "track")
