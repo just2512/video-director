@@ -262,7 +262,7 @@ async function _loadMptSceneContext(sceneId){
               prompt: candidate.generation_prompt || candidate.visual_intent || '',
               type: candidate.generation_type || 'image'
             }).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>准备生成</button>'
-          : '<button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">选我的素材</button>';
+          : '<button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">选我的素材</button>');
       return '<div style="border:1px solid ' + (selected ? 'var(--accent)' : 'var(--border)') +
         ';border-radius:6px;padding:8px;margin:6px 0;background:var(--panel)">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
