@@ -2526,16 +2526,14 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         warnings.append("旧字幕 mode 元数据未写入 film.html；仅保留 cue 时间与文本")
 
     visual_tracks = raw_ir.get("visual_tracks") or []
-    if len(visual_tracks) > 1 or any(
-        track.get("id") != "overlay-main" or track.get("name") != "画面叠加"
-        or track.get("order", 0) != 0 or track.get("locked") or track.get("hidden")
-        for track in visual_tracks if isinstance(track, dict)
-    ):
-        warnings.append("旧视觉轨道的分组/顺序/锁定/隐藏属性未完整映射")
-    if raw_ir.get("visual_overlays"):
-        warnings.append(
-            "旧 visual_overlays 会转成单片段 Film 轨道；z_index/track_id 分组语义不会原样保留"
-        )
+    visual_lanes_by_id = {
+        str(lane.get("id")): lane for lane in visual_tracks
+        if isinstance(lane, dict) and lane.get("id")
+    }
+    if any(lane.get("hidden") for lane in visual_tracks if isinstance(lane, dict)):
+        warnings.append("旧视觉轨道 hidden 已记为来源元数据；Film Studio 当前仍会显示这些轨道")
+    if raw_ir.get("visual_overlays") and len(visual_tracks) > 1:
+        warnings.append("旧视觉轨道的多片段分组联动编辑尚未恢复；各叠加片段会迁移为独立 Film 轨道")
 
     for scene in source_scenes:
         scene_id = str(scene.get("id") or "unknown")
@@ -2643,7 +2641,13 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         locked_track["attrs"]["locked"] = ""
         tracks.append(locked_track)
 
-    for idx, overlay in enumerate(raw_ir.get("visual_overlays") or []):
+    visual_overlay_items = list(raw_ir.get("visual_overlays") or [])
+    visual_overlay_items.sort(key=lambda overlay: (
+        int(visual_lanes_by_id.get(str(overlay.get("track_id") or ""), {}).get("order", 999)),
+        _number(overlay.get("start", 0), "overlay start", 0),
+        str(overlay.get("id") or ""),
+    ))
+    for idx, overlay in enumerate(visual_overlay_items):
         asset_item = by_id.get(str(overlay.get("asset_id") or ""), {})
         asset_file = str(asset_item.get("file") or "")
         suffix = Path(asset_file).suffix.lower()
@@ -2671,6 +2675,14 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
                  "data-asset-id": str(overlay.get("asset_id") or ""), "opacity": _fmt(opacity)}
+        source_lane_id = str(overlay.get("track_id") or "")
+        source_lane = visual_lanes_by_id.get(source_lane_id, {})
+        if source_lane_id:
+            attrs["data-source-track-id"] = source_lane_id
+            attrs["data-source-track-order"] = str(int(source_lane.get("order", 0)))
+            attrs["data-source-track-name"] = str(source_lane.get("name") or source_lane_id)
+        if source_lane.get("hidden"):
+            attrs["data-source-track-hidden"] = "true"
         raw_overlay_transform = overlay.get("transform")
         if raw_overlay_transform:
             overlay_transform = _film_transform_metadata(
@@ -2694,7 +2706,16 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         elif source_audio_enabled or abs(source_audio_volume - 1) > 1e-6:
             warnings.append(f"叠加层 {cid} 是静态图片，source_audio_enabled/source_audio_volume 无适用音轨")
         tid = _safe_id("track-" + cid, "track")
-        tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": kind, "attrs": attrs}))
+        source_label = str(source_lane.get("name") or "叠加画面")
+        overlay_track = one_clip_track(tid, source_label, {"id": cid, "tag": kind, "attrs": attrs})
+        if source_lane.get("locked"):
+            overlay_track["attrs"]["locked"] = ""
+        if source_lane.get("hidden"):
+            overlay_track["attrs"]["data-source-track-hidden"] = "true"
+        if source_lane_id:
+            overlay_track["attrs"]["data-source-track-id"] = source_lane_id
+            overlay_track["attrs"]["data-source-track-order"] = str(int(source_lane.get("order", 0)))
+        tracks.append(overlay_track)
 
     subtitle = subtitle_track
     cues = subtitle.get("cues") or []
