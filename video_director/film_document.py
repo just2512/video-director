@@ -416,10 +416,15 @@ def parse_film(text: str) -> dict:
     fps_tag = re.search(r'<meta\b(?=[^>]*\bname\s*=\s*["\']?film-fps["\']?)[^>]*>', head, re.I)
     fps = config.DEFAULT_FPS
     if fps_tag:
-        fps_match = re.search(r'\bcontent\s*=\s*["\']?(\d+)["\']?', fps_tag.group(0), re.I)
-        if not fps_match:
+        fps_attr = re.search(r'\bcontent\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', fps_tag.group(0), re.I)
+        raw_fps = None
+        if fps_attr:
+            raw_fps = fps_attr.group(1).strip()
+            if len(raw_fps) >= 2 and raw_fps[0] == raw_fps[-1] and raw_fps[0] in {"'", '"'}:
+                raw_fps = raw_fps[1:-1]
+        if raw_fps is None or not re.fullmatch(r"\d+", raw_fps):
             raise FilmError("INVALID_FPS", "film.html 的 film-fps 元数据必须是 1–60 的整数。", 422)
-        fps = int(fps_match.group(1))
+        fps = int(raw_fps)
         if not 1 <= fps <= 60:
             raise FilmError("INVALID_FPS", f"film.html 的 film-fps={fps} 超出 1–60 范围。", 422)
     return {"stage": stage, "fps": fps, "head_html": head, "tracks": parser.tracks}

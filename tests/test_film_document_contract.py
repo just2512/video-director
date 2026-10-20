@@ -1363,3 +1363,11 @@ def test_film_fps_metadata_round_trip_and_range_validation():
     malformed = serialized.replace('content="24"', 'content="0"')
     with pytest.raises(fd.FilmError, match="film-fps=0 超出 1–60 范围"):
         fd.parse_film(malformed)
+
+    decimal_fps = serialized.replace('content="24"', 'content="24.5"')
+    with pytest.raises(fd.FilmError, match="film-fps 元数据必须是 1–60 的整数"):
+        fd.parse_film(decimal_fps)
+
+    text_fps = serialized.replace('content="24"', 'content="24fps"')
+    with pytest.raises(fd.FilmError, match="film-fps 元数据必须是 1–60 的整数"):
+        fd.parse_film(text_fps)
