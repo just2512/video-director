@@ -638,7 +638,12 @@
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return;}
     if(S.busy)return;
     var changed=nextId!==S.projectId;
-    if(changed){S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.proposal=null;S.previewProposalActive=false;S.broken=false;window.filmStudioPlaying=false;}
+    if(changed){
+      S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
+      S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;S.hoveredElement=null;
+      var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
+      S.proposal=null;S.previewProposalActive=false;S.broken=false;window.filmStudioPlaying=false;
+    }
     S.projectId=nextId;
     var requestProjectId=nextId;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
@@ -676,7 +681,10 @@
       var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
       if(!r||!r.ok){showStatus((r&&r.error)||'编辑提交失败。','error');if(S.data&&S.data.exists)render();return;}
       S.data=r;S.rev=r.rev;
-      if(S.selectedElement)S.selectedElement.baseRevision=S.rev;
+      if(r.rebased){
+        S.selectedElement=null;S.hoveredElement=null;
+        var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
+      }else if(S.selectedElement)S.selectedElement.baseRevision=S.rev;
       showStatus(r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。',r.rebased?'':'success');render();
     }catch(error){
       showStatus('编辑提交失败：'+String(error&&error.message||error),'error');
@@ -899,6 +907,7 @@
     syncRuntime(window.filmStudioPlaying?'play':'pause');
   };
   window.filmStudioToggleElementInspect=function(){
+    if(S.busy){showStatus('当前影片正在保存或生成提案，请完成后再操作画布。','error');return;}
     if(!S.data||!S.data.exists){showStatus('请先初始化 film.html 后再选取画面元素。','error');return;}
     S.elementInspect=!S.elementInspect;
     var frame=$('fs-preview-composition'),button=$('fs-element-inspect-toggle');
@@ -916,6 +925,7 @@
     }
   };
   window.filmStudioSaveSelectedElement=async function(){
+    if(S.busy){showStatus('当前影片正在保存；请等待完成后再提交画布修改。','error');return;}
     var selected=S.selectedElement;
     if(!selected){showStatus('请先在预览画布中选中一个 HTML 元素。','error');return;}
     var clip=findClip(selected.clipId);
