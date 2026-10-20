@@ -84,8 +84,8 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                 page.locator('#fs-timeline .fs-clip[data-clip="video-before"]').wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="video-before"]').click()
                 page.evaluate("window.filmStudioSeek(2)")
-                page.locator('[data-film-action="insert-mode"]').click()
-                assert page.locator('[data-film-action="insert-mode"]').get_attribute("aria-pressed") == "true"
+                page.locator('[data-film-action="insert-mode"]:visible').click()
+                assert page.locator('[data-film-action="insert-mode"]:visible').get_attribute("aria-pressed") == "true"
                 page.evaluate("window.filmStudioLoadLibrary()")
                 page.locator('[data-add-asset="fixture-asset"]').wait_for(state="visible")
                 page.locator('[data-add-asset="fixture-asset"]').click()

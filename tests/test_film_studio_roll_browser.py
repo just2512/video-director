@@ -114,7 +114,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
                 page.evaluate("window.filmStudioSeek(2)")
-                page.locator('[data-film-action="split"]').click()
+                page.locator('[data-film-action="split"]:visible').click()
                 page.wait_for_function(
                     "() => [...document.querySelectorAll('#fs-timeline .fs-clip')].some(el => el.dataset.clip.startsWith('clip-a-split-'))",
                     timeout=10000,
@@ -180,8 +180,8 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 box = middle.bounding_box()
                 assert box and box["width"] >= 36 and box["height"] > 0
                 x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                page.locator('[data-film-action="slide-mode"]').click()
-                assert page.locator('[data-film-action="slide-mode"]').get_attribute("aria-pressed") == "true"
+                page.locator('[data-film-action="slide-mode"]:visible').click()
+                assert page.locator('[data-film-action="slide-mode"]:visible').get_attribute("aria-pressed") == "true"
                 page.mouse.move(x, y)
                 page.mouse.down()
                 page.mouse.move(x + 9, y, steps=3)  # +0.25 s at 36 px/s
@@ -203,8 +203,8 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     && Math.abs(Number(right.attrs.at) - 4.25) < 0.001;
                 }""", arg={"pid": project_id, "middleId": right_id, "rightId": slide_right_id}, timeout=10000)
 
-                page.locator('[data-film-action="slide-mode"]').click()
-                assert page.locator('[data-film-action="slide-mode"]').get_attribute("aria-pressed") == "false"
+                page.locator('[data-film-action="slide-mode"]:visible').click()
+                assert page.locator('[data-film-action="slide-mode"]:visible').get_attribute("aria-pressed") == "false"
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
                 assert clips["clip-a"]["attrs"]["src"].endswith("#t=2,7.5")
