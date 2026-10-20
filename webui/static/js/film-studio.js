@@ -21,6 +21,9 @@
     var ph=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
     S.runtimeRev='';S.runtimeCommand='';S.previewProposalActive=false;window.filmStudioPlaying=false;
+    S.elementInspect=false;S.selectedElement=null;S.hoveredElement=null;
+    var selection=$('fs-element-selection');if(selection)selection.hidden=true;
+    var inspectButton=$('fs-element-inspect-toggle');if(inspectButton){inspectButton.setAttribute('aria-pressed','false');inspectButton.textContent='选择画面元素';}
     var button=$('fs-play-toggle');if(button)button.textContent='播放';
   }
   function syncRuntime(type) {
@@ -852,6 +855,59 @@
     window.filmStudioPlaying=!window.filmStudioPlaying;
     syncRuntime(window.filmStudioPlaying?'play':'pause');
   };
+  window.filmStudioToggleElementInspect=function(){
+    if(!S.data||!S.data.exists){showStatus('请先初始化 film.html 后再选取画面元素。','error');return;}
+    S.elementInspect=!S.elementInspect;
+    var frame=$('fs-preview-composition'),button=$('fs-element-inspect-toggle');
+    if(button){button.setAttribute('aria-pressed',String(S.elementInspect));button.textContent=S.elementInspect?'点选画面元素中…':'选择画面元素';}
+    if(frame&&frame.contentWindow)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:S.elementInspect},window.location.origin);
+    if(S.elementInspect){
+      window.filmStudioSetSideMode('inspector');
+      showStatus('已开启画面元素选取：在预览中点击标题、文字或其他 HTML 图层。','success');
+    }else{
+      showStatus('已退出画面元素选取。');
+      renderElementSelection(S.selectedElement);
+    }
+  };
+  window.filmStudioSaveSelectedElement=async function(){
+    var selected=S.selectedElement;
+    if(!selected){showStatus('请先在预览画布中选中一个 HTML 元素。','error');return;}
+    var clip=findClip(selected.clipId);
+    if(!clip){showStatus('所选元素所属片段已不存在，请重新选择。','error');return;}
+    var textInput=$('fs-element-text'),leftInput=$('fs-element-left'),topInput=$('fs-element-top'),
+        widthInput=$('fs-element-width'),heightInput=$('fs-element-height'),colorInput=$('fs-element-color'),
+        fontInput=$('fs-element-font-size'),rotateInput=$('fs-element-rotate');
+    var values=[leftInput,topInput,widthInput,heightInput,fontInput,rotateInput].filter(Boolean).map(function(el){return Number(el.value);});
+    if(values.some(function(value){return !Number.isFinite(value);})
+      ||!widthInput||!heightInput||Number(widthInput.value)<=0||Number(heightInput.value)<=0
+      ||Number(fontInput.value)<=0||Number(widthInput.value)>10000||Number(heightInput.value)>10000
+      ||Number(fontInput.value)>1000||Math.abs(Number(rotateInput.value))>3600){
+      showStatus('画布坐标、尺寸、字号或旋转角度超出有效范围。','error');return;
+    }
+    var attrs=clip.attrs||{},overrides=[];
+    try{
+      var current=attrs.overrides;
+      if(typeof current==='string'&&current.trim())current=JSON.parse(current);
+      if(Array.isArray(current))overrides=current.map(function(item){return Object.assign({},item);});
+    }catch(_){showStatus('当前片段的 overrides 不是有效 JSON；为防止覆盖，请先修复后再编辑画布。','error');return;}
+    var item=overrides.find(function(candidate){return candidate&&candidate.selector===selected.selector;});
+    if(!item){item={selector:selected.selector};overrides.push(item);}
+    if(textInput&&textInput.value!==null)item.text=textInput.value;
+    item.style=Object.assign({},item.style||{},{
+      position:'absolute',
+      left:Number(leftInput.value).toFixed(2)+'px',
+      top:Number(topInput.value).toFixed(2)+'px',
+      width:Number(widthInput.value).toFixed(2)+'px',
+      height:Number(heightInput.value).toFixed(2)+'px',
+      color:colorInput.value,
+      fontSize:Number(fontInput.value).toFixed(2)+'px',
+      rotate:Number(rotateInput.value).toFixed(2)+'deg'
+    });
+    await filmStudioCommit([{op:'set',clip:clip.id,field:'overrides',value:JSON.stringify(overrides)}]);
+    // The commit triggers a full, revision-bound reload. Keep selection context
+    // visible, but the user can reselect when CSS/structure changes the selector.
+    if(S.data&&S.data.exists){S.selectedElement=selected;renderInspector();renderElementSelection(selected);}
+  };
   window.addEventListener('message',function(event){
     var frame=$('fs-preview-composition');
     if(!frame||event.source!==frame.contentWindow||event.origin!==window.location.origin)return;
@@ -864,6 +920,22 @@
         syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
       }else if(message.rev&&hasRuntimeData&&message.rev===expectedRuntimeRev){
         S.runtimeRev=expectedRuntimeRev;
+        if(S.elementInspect)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:true},window.location.origin);
+      }
+    }else if(message.type==='film-runtime:element-selected'||message.type==='film-runtime:element-hover'){
+      var element={
+        clipId:String(message.clipId||''),selector:String(message.selector||''),tag:String(message.tag||''),
+        text:String(message.text||''),styles:message.styles||{},rect:message.rect||{},localRect:message.localRect||{}
+      };
+      if(message.type==='film-runtime:element-selected'){
+        if(!findClip(element.clipId)){showStatus('所选画面元素对应的片段已不存在。','error');return;}
+        S.selectedElement=element;S.selectedId=element.clipId;S.selectedIds=[element.clipId];S.selectionAnchor=element.clipId;
+        window.filmStudioSetSideMode('inspector');
+        renderInspector();renderAssets();renderElementSelection(element);
+        showStatus('已选中 '+element.tag+' 元素：'+element.selector,'success');
+      }else{
+        S.hoveredElement=element;
+        if(S.elementInspect)renderElementSelection(S.selectedElement||element);
       }
     }else if(message.type==='film-runtime:time'){
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
@@ -1264,6 +1336,7 @@
     'frame-prev': () => window.filmStudioNudge(-1),
     'play-toggle': () => window.filmStudioTogglePlayback(),
     'frame-next': () => window.filmStudioNudge(1),
+    'canvas-inspect': () => window.filmStudioToggleElementInspect(),
     split: () => window.filmStudioSplit(),
     'join-cut': () => window.filmStudioJoinThroughEdit(),
     remove: () => window.filmStudioRemove(),
