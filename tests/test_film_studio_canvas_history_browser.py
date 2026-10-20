@@ -97,12 +97,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 tracing = True
                 _open_studio(page, server.server_port, project_id)
-                page.wait_for_function("""() => {
-                  const preview=document.querySelector('#fs-preview-composition');
-                  const runtime=preview&&preview.contentDocument&&preview.contentDocument.querySelector('#runtime');
-                  const scene=runtime&&runtime.contentDocument&&runtime.contentDocument.querySelector('#scene-clip');
-                  return !!(scene&&scene.contentDocument&&scene.contentDocument.querySelector('#title'));
-                }""", timeout=15000)
+                page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
+                    state="attached", timeout=15000
+                )
                 page.locator("#fs-element-inspect-toggle").click()
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
                 page.wait_for_function(
@@ -168,12 +165,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.evaluate("window.filmStudioToggle()")
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="scene-clip"]').wait_for(state="visible")
-                page.wait_for_function("""() => {
-                  const preview=document.querySelector('#fs-preview-composition');
-                  const runtime=preview&&preview.contentDocument&&preview.contentDocument.querySelector('#runtime');
-                  const scene=runtime&&runtime.contentDocument&&runtime.contentDocument.querySelector('#scene-clip');
-                  return !!(scene&&scene.contentDocument&&scene.contentDocument.querySelector('#title'));
-                }""", timeout=15000)
+                page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
+                    state="attached", timeout=15000
+                )
                 page.locator("#fs-element-inspect-toggle").click()
                 scene_title = page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title")
                 page.wait_for_function(
