@@ -572,7 +572,25 @@
       fields+='<label class="fs-inspector-field">淡出（秒）<input id="fs-field-fade-out" type="number" min="0" max="60" step="0.05" value="'+esc(fadeValues[1]||0)+'"></label>';
     }
     fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
+    var element=S.selectedElement&&S.selectedElement.clipId===clip.id?S.selectedElement:null;
+    if(element){
+      var rect=element.localRect||element.rect||{},styles=element.styles||{};
+      var rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
+      var color=hexColor(styles.color||'#ffffff');
+      fields+='<div class="fs-inspector-element"><h4>画布元素 · '+esc(element.tag)+' · '+esc(element.selector)+'</h4>'+
+        '<label class="fs-inspector-field">文本<textarea id="fs-element-text" rows="2" '+(element.textEditable===false?'disabled title="该元素包含子元素，为避免破坏内部结构，暂不允许整体替换文本"':'')+'>'+esc(element.text||'')+'</textarea></label>'+
+        '<label class="fs-inspector-field">左坐标<input id="fs-element-left" type="number" step="1" value="'+esc(num(rect.x,0).toFixed(1))+'"></label>'+
+        '<label class="fs-inspector-field">上坐标<input id="fs-element-top" type="number" step="1" value="'+esc(num(rect.y,0).toFixed(1))+'"></label>'+
+        '<label class="fs-inspector-field">宽度<input id="fs-element-width" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.width,1).toFixed(1))+'"></label>'+
+        '<label class="fs-inspector-field">高度<input id="fs-element-height" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.height,1).toFixed(1))+'"></label>'+
+        '<label class="fs-inspector-field">文字颜色<input id="fs-element-color" type="color" value="'+esc(color)+'"></label>'+
+        '<label class="fs-inspector-field">字号（px）<input id="fs-element-font-size" type="number" min="1" max="1000" step="1" value="'+esc(num(parseFloat(styles.fontSize),24))+'"></label>'+
+        '<label class="fs-inspector-field">旋转（度）<input id="fs-element-rotate" type="number" min="-3600" max="3600" step="1" value="'+esc(rotateMatch?Number(rotateMatch[0]):0)+'"></label>'+
+        '<button type="button" class="fs-btn fs-primary" id="fs-apply-element">应用画布修改</button></div>';
+    }
     $('fs-inspector').innerHTML=fields;
+    var applyElement=$('fs-apply-element');
+    if(applyElement)applyElement.addEventListener('click',function(){window.filmStudioSaveSelectedElement();});
     $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(button){
       button.addEventListener('click',function(e){
         e.preventDefault();e.stopPropagation();
@@ -892,7 +910,7 @@
     }catch(_){showStatus('当前片段的 overrides 不是有效 JSON；为防止覆盖，请先修复后再编辑画布。','error');return;}
     var item=overrides.find(function(candidate){return candidate&&candidate.selector===selected.selector;});
     if(!item){item={selector:selected.selector};overrides.push(item);}
-    if(textInput&&textInput.value!==null)item.text=textInput.value;
+    if(textInput&&!textInput.disabled&&textInput.value!==null)item.text=textInput.value;
     item.style=Object.assign({},item.style||{},{
       position:'absolute',
       left:Number(leftInput.value).toFixed(2)+'px',
@@ -925,7 +943,8 @@
     }else if(message.type==='film-runtime:element-selected'||message.type==='film-runtime:element-hover'){
       var element={
         clipId:String(message.clipId||''),selector:String(message.selector||''),tag:String(message.tag||''),
-        text:String(message.text||''),styles:message.styles||{},rect:message.rect||{},localRect:message.localRect||{}
+        text:String(message.text||''),textEditable:message.textEditable!==false,
+        styles:message.styles||{},rect:message.rect||{},localRect:message.localRect||{}
       };
       if(message.type==='film-runtime:element-selected'){
         if(!findClip(element.clipId)){showStatus('所选画面元素对应的片段已不存在。','error');return;}
