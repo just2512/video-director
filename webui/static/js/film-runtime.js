@@ -558,7 +558,8 @@
         x:left+finite(rect.x,0)*scaleX,y:top+finite(rect.y,0)*scaleY,
         width:finite(rect.width,0)*scaleX,height:finite(rect.height,0)*scaleY
       },
-      localRect:rect,enabled:message.enabled===true
+      // Keep preview-space rect for the selection overlay, but preserve the child document's CSS design-space box for inspector round-tripping.
+      localRect:message.localRect||rect,enabled:message.enabled===true
     });
     return true;
   }
