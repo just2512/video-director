@@ -3271,6 +3271,15 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 )
             )
             mask_geometry_conflict = channels_affect_geometry or transform_affects_geometry or known_motion
+            if mask_geometry_conflict and mask_keyframes:
+                # A polygon expressed in stage coordinates cannot be attached to a
+                # transformed local clip without changing its meaning. Do not emit a
+                # plausible-looking but semantically wrong animation; the complete mask
+                # remains in migration/source-composition.json for a future faithful mapper.
+                unsupported_layer_fields.append(
+                    "动态蒙版与图层 Transform/位置动效坐标系冲突；未写入近似关键帧，原始值保留于源副本"
+                )
+                mask_keyframes = []
             if mask_keyframes:
                 attrs["data-film-mask-keyframes"] = json.dumps(
                     mask_keyframes, ensure_ascii=False, separators=(",", ":")

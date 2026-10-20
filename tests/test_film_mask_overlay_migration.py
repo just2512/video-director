@@ -167,3 +167,53 @@ def test_inverted_animated_mask_is_not_silently_applied_as_positive_polygon(tmp_
     archived = json.loads(result["pages"]["migration/source-composition.json"])
     assert archived["scenes"][0]["layers"][0]["mask"]["inverted"] is True
     assert archived["scenes"][0]["layers"][0]["mask"]["keyframes"]
+
+
+def test_animated_mask_is_not_approximated_when_layer_transform_changes_its_coordinate_space(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "mask-transform-coordinate-conflict"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    source_mask = {
+        "id": "mask-coordinate-conflict",
+        "shape": "polygon",
+        "x": 0.5, "y": 0.5, "width": 0.5, "height": 0.5,
+        "animated": True,
+        "geometry": [[0.1, 0.1], [0.5, 0.1], [0.5, 0.9], [0.1, 0.9]],
+        "keyframes": [{
+            "property": "mask_path",
+            "keyframes": [
+                {"at": 0, "value": [[0.1, 0.1], [0.5, 0.1], [0.5, 0.9], [0.1, 0.9]]},
+                {"at": 1, "value": [[0.2, 0.1], [0.6, 0.1], [0.6, 0.9], [0.2, 0.9]]},
+            ],
+        }],
+    }
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "assets": [{"id": "asset-image", "type": "image", "file": "assets/still.png"}],
+        "scenes": [{
+            "id": "masked-scene", "start": 0, "duration": 1, "text": "mask",
+            "layers": [{
+                "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
+                "transform": {"x": 0.25, "y": 0.5, "scale": 1, "rotation": 0, "opacity": 1},
+                "mask": source_mask,
+            }],
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    attrs = track["clips"][0]["attrs"]
+    assert "data-film-mask-keyframes" not in attrs
+    assert "clip-path:" not in attrs.get("style", "")
+    assert any("坐标系冲突；未写入近似关键帧" in warning for warning in result["warnings"])
+    archived = json.loads(result["pages"]["migration/source-composition.json"])
+    archived_mask = archived["scenes"][0]["layers"][0]["mask"]
+    assert archived_mask["keyframes"] == source_mask["keyframes"]
+    assert archived_mask["geometry"] == source_mask["geometry"]
