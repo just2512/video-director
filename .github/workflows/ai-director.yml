@@ -41,6 +41,7 @@ jobs:
       - name: Checkout source revision
         id: checkout
         continue-on-error: true
+        timeout-minutes: 2
         uses: actions/checkout@v4
       - name: Verify and recover exact source revision
         id: ensure_checkout
@@ -59,7 +60,7 @@ jobs:
             recovered=false
             for attempt in 1 2 3 4 5; do
               echo "Recovering exact workflow revision (attempt $attempt/5)."
-              if git -c http.version=HTTP/1.1 fetch --no-tags --depth=1 \
+              if timeout 45s git -c http.version=HTTP/1.1 fetch --no-tags --depth=1 \
                 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$expected"; then
                 git checkout --force --detach FETCH_HEAD
                 recovered=true
