@@ -2013,17 +2013,81 @@ def library_asset_clip(project_id: str, asset_id: str, at: float, still_duration
 def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], style: dict | None) -> str:
     data = json.dumps(cues, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     opts = style or {}
-    font_size = int(max(12, min(160, _number(opts.get("font_size", opts.get("fontSize", 54)), "subtitle font size", 12, 160))))
-    bottom = int(max(0, min(height - 10, height * 0.1)))
-    color = str(opts.get("color") or "#ffffff")
+    absolute_size = opts.get("font_size", opts.get("fontSize"))
+    if absolute_size is None:
+        relative_size = _number(opts.get("size", 1.0), "subtitle style size", 0.01, 20)
+        requested_size = 54 * relative_size
+    else:
+        requested_size = _number(absolute_size, "subtitle font size", 1, 1000)
+    font_size = int(max(12, min(160, requested_size)))
+
+    color = str(opts.get("color") or "#FFFFFF")
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
-        color = "#ffffff"
+        color = "#FFFFFF"
+    stroke_color = str(opts.get("stroke_color") or "#000000")
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", stroke_color):
+        stroke_color = "#000000"
+    stroke_width = int(max(0, min(12, _number(opts.get("stroke_width", 2), "subtitle stroke width", 0, 12))))
+
+    background_css = ""
+    background = str(opts.get("background") or "")
+    background_match = re.fullmatch(r"#([0-9a-fA-F]{6})(?:@([0-9]*\.?[0-9]+))?", background)
+    if background_match:
+        raw_hex = background_match.group(1)
+        alpha = _number(
+            background_match.group(2) if background_match.group(2) is not None else opts.get("background_opacity", 0.5),
+            "subtitle background opacity", 0, 1,
+        )
+        red, green, blue = (int(raw_hex[i:i + 2], 16) for i in (0, 2, 4))
+        background_css = f"background-color:rgba({red},{green},{blue},{_fmt(alpha)});padding:0.12em 0.24em;border-radius:0.12em;"
+
+    max_width = _number(opts.get("max_width", 0.9), "subtitle max_width", 0.3, 1.0) * 100
+    alignment = str(opts.get("alignment") or "center")
+    if alignment not in {"left", "center", "right"}:
+        alignment = "center"
+    position = str(opts.get("position") or "bottom")
+    margin = int(max(0, min(height - 10, height * 0.1)))
+    if position == "top":
+        position_css, base_transform = f"top:{margin}px;bottom:auto;", "translateX(-50%)"
+    elif position == "center":
+        position_css, base_transform = "top:50%;bottom:auto;", "translate(-50%,-50%)"
+    else:
+        position_css, base_transform = f"bottom:{margin}px;top:auto;", "translateX(-50%)"
+
+    font_name = str(opts.get("font") or "")
+    if re.fullmatch(r"[A-Za-z0-9 _-]{1,80}", font_name):
+        font_family = f'"{font_name}","WenQuanYi Micro Hei",sans-serif'
+    else:
+        font_family = 'Arial,"WenQuanYi Micro Hei",sans-serif'
+    animation = str(opts.get("animation") or "none")
+    if animation not in {"none", "fade", "pop_spring"}:
+        animation = "none"
+
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width={width},height={height}"><style>
 html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}}#stage{{position:relative;width:{width}px;height:{height}px;pointer-events:none}}
-#caption{{position:absolute;left:5%;right:5%;bottom:{bottom}px;text-align:center;font-family:Arial,"Microsoft YaHei",sans-serif;font-size:{font_size}px;font-weight:700;color:{color};text-shadow:0 2px 4px #000,2px 0 2px #000,-2px 0 2px #000;white-space:pre-wrap;line-height:1.25}}
+#caption{{position:absolute;left:50%;width:{_fmt(max_width)}%;max-width:{_fmt(max_width)}%;box-sizing:border-box;{position_css}transform:{base_transform};text-align:{alignment};font-family:{font_family};font-size:{font_size}px;font-weight:700;color:{color};-webkit-text-stroke:{stroke_width}px {stroke_color};text-shadow:0 2px 4px rgba(0,0,0,.9);{background_css}white-space:pre-wrap;line-height:1.25}}
 </style></head><body><div id="stage"><div id="caption"></div></div><script>
 const cues={data};const caption=document.getElementById('caption');
-window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));caption.textContent=active.map(c=>String(c.text||'')).join('\\n');caption.style.display=active.length?'block':'none';}}}};
+const baseTransform="{base_transform}";const animation="{animation}";
+window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{
+  const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));
+  caption.textContent=active.map(c=>String(c.text||'')).join('\\\\n');
+  caption.style.display=active.length?'block':'none';
+  let alpha=1;let transform=baseTransform;
+  if(active.length){{
+    const start=Math.min(...active.map(c=>Number(c.start)||0));
+    if(animation==='fade'){{
+      const trackStart=Math.min(...cues.map(c=>Number(c.start)||0));
+      const trackEnd=Math.max(...cues.map(c=>Number(c.end)||0));
+      const edge=Math.min(0.2,Math.max(0.04,(trackEnd-trackStart)/2));
+      alpha=Math.min(1,Math.max(0,(t-trackStart)/edge),Math.max(0,(trackEnd-t)/edge));
+    }}else if(animation==='pop_spring'){{
+      const p=Math.max(0,Math.min(1,(t-start)/0.28));const eased=1-Math.pow(1-p,3);
+      transform=baseTransform+' scale('+(0.82+0.18*eased)+')';
+    }}
+  }}
+  caption.style.opacity=String(alpha);caption.style.transform=transform;
+}}}};
 window.film.frame(0);
 window.addEventListener('message',function(event){{
   if(event.source!==parent||!event.data||event.data.type!=='film-time')return;
@@ -2036,6 +2100,8 @@ window.addEventListener('message',function(event){{
   }});}});
 }});
 </script></body></html>'''
+
+
 
 
 
@@ -2378,20 +2444,15 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     unsupported_subtitle_style = []
     if subtitle_style.get("font"):
         unsupported_subtitle_style.append("font")
-    if abs(float(subtitle_style.get("size", 1.0) or 1.0) - 1.0) > 1e-6:
-        unsupported_subtitle_style.append("size")
-    if subtitle_style.get("stroke_color", "#000000") != "#000000" or subtitle_style.get("stroke_width", 2) != 2:
-        unsupported_subtitle_style.append("stroke")
-    if subtitle_style.get("background"):
-        unsupported_subtitle_style.append("background")
-    if subtitle_style.get("position", "bottom") != "bottom":
-        unsupported_subtitle_style.append("position")
-    if subtitle_style.get("alignment", "center") != "center":
-        unsupported_subtitle_style.append("alignment")
-    if abs(float(subtitle_style.get("max_width", 0.9) or 0.9) - 0.9) > 1e-6:
-        unsupported_subtitle_style.append("max_width")
-    if subtitle_style.get("animation", "none") != "none":
-        unsupported_subtitle_style.append("animation")
+    if float(subtitle_style.get("size", 1.0) or 1.0) * 54 > 160:
+        unsupported_subtitle_style.append("size（大于 160px 的字号将被限制）")
+    for field_name in ("color", "stroke_color"):
+        field_value = str(subtitle_style.get(field_name) or ("#FFFFFF" if field_name == "color" else "#000000"))
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", field_value):
+            unsupported_subtitle_style.append(field_name + "（不是 #RRGGBB 颜色，已回退为默认色）")
+    background = str(subtitle_style.get("background") or "")
+    if background and not re.fullmatch(r"#[0-9a-fA-F]{6}(?:@[0-9]*.?[0-9]+)?", background):
+        unsupported_subtitle_style.append("background（格式无效，已回退为透明）")
     if unsupported_subtitle_style:
         warnings.append(
             "旧字幕样式字段 " + ", ".join(unsupported_subtitle_style)
@@ -2564,8 +2625,15 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         attrs["style"] += f";z-index:{z_index}"
         if kind == "video" and abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
-        if overlay.get("source_audio_enabled") or abs(_number(overlay.get("source_audio_volume", 1), "overlay source audio volume", 0, 2) - 1) > 1e-6:
-            warnings.append(f"叠加层 {cid} 的 source_audio_enabled/source_audio_volume 未映射")
+        source_audio_enabled = bool(overlay.get("source_audio_enabled"))
+        source_audio_volume = _number(overlay.get("source_audio_volume", 1), "overlay source audio volume", 0, 2)
+        if kind == "video":
+            if source_audio_enabled:
+                attrs["volume"] = _fmt(source_audio_volume)
+            else:
+                attrs["muted"] = ""
+        elif source_audio_enabled or abs(source_audio_volume - 1) > 1e-6:
+            warnings.append(f"叠加层 {cid} 是静态图片，source_audio_enabled/source_audio_volume 无适用音轨")
         tid = _safe_id("track-" + cid, "track")
         tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": kind, "attrs": attrs}))
 
