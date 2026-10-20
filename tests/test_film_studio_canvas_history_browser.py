@@ -346,7 +346,10 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 )
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
-                    timeout=10000,
+                    timeout=15000,
+                )
+                page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").evaluate(
+                    "element => { const s=element.style; if(s.left!=='64px'||s.top!=='75px'||s.width!=='280px'||s.height!=='80px') throw new Error('saved overrides not applied before inspector-ready: '+JSON.stringify({left:s.left,top:s.top,width:s.width,height:s.height})); }"
                 )
                 pointer_mode_after_reload = page.frame_locator("#fs-preview-composition").locator("#scene-clip").evaluate(
                     "(frame) => JSON.stringify({pointerEvents:getComputedStyle(frame).pointerEvents,display:getComputedStyle(frame).display,playhead:document.querySelector('#fs-playhead')?.value})"

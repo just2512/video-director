@@ -501,9 +501,18 @@ _SCENE_BRIDGE = r"""
       currentOverrides = parseOverrides(message.overrides);
       applyOverrides();
     } else if (message.type === 'film-inspect') {
-      inspectMode = !!message.enabled;
-      if (!inspectMode) window.__vdHoveredElement = null;
-      else parent.postMessage({type:'film-inspect-ready',enabled:true}, '*');
+      // Inspection-ready is a rendering barrier, not just a pointer toggle.
+      // A preceding film-time can still be applying persisted overrides. Queue
+      // the acknowledgement after that draw so a fast post-reload click cannot
+      // inspect stale pre-override coordinates.
+      var inspectEnabled = !!message.enabled;
+      drawChain = drawChain.then(function () {
+        inspectMode = inspectEnabled;
+        if (!inspectMode) window.__vdHoveredElement = null;
+        else parent.postMessage({type:'film-inspect-ready',enabled:true}, '*');
+      }).catch(function (error) {
+        parent.postMessage({type:'film-inspect-ready',enabled:false,error:String(error && error.message || error)}, '*');
+      });
     } else if (message.type === 'film-element-edit') {
       var incoming = message.override;
       if (!incoming || typeof incoming.selector !== 'string') return;
