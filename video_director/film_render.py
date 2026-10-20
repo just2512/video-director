@@ -42,6 +42,39 @@ def _fmt(value: float) -> str:
     return f"{value:.6f}".rstrip("0").rstrip(".") or "0"
 
 
+def _install_offline_network_policy(page, base_url: str) -> list[str]:
+    """Block and report every request escaping the project-scoped render server."""
+    base = urlparse(base_url)
+    blocked: list[str] = []
+
+    def guard(route):
+        requested = urlparse(route.request.url)
+        if requested.scheme in {"data", "blob", "about"}:
+            route.continue_()
+            return
+        if (requested.scheme == base.scheme and requested.hostname == base.hostname
+                and requested.port == base.port):
+            route.continue_()
+            return
+        blocked.append(route.request.url[:1000])
+        route.abort()
+
+    page.route("**/*", guard)
+    return blocked
+
+
+def _raise_for_external_scene_resources(blocked: list[str]) -> None:
+    if blocked:
+        examples = "\n".join("- " + url for url in blocked[:8])
+        extra = "" if len(blocked) <= 8 else f"\n另有 {len(blocked) - 8} 个外部请求。"
+        raise FilmRenderError(
+            "EXTERNAL_SCENE_RESOURCE",
+            "离线逐帧渲染拒绝访问工程以外的网络资源；请将字体、图片、脚本和样式放入工程并使用相对路径：\n"
+            + examples + extra,
+            422,
+        )
+
+
 def _style_blocks(head_html: str) -> str:
     """Keep only local, passive CSS from the film document head.
 
@@ -550,6 +583,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
+            blocked_external = _install_offline_network_policy(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
             page.wait_for_function("window.__runtimeReady === true", timeout=30000)
             page.evaluate(
@@ -573,6 +607,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
                 frame_error = page.evaluate("window.__frameError")
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED", f"第 {frame_number} 帧失败：{frame_error}", 500)
+                _raise_for_external_scene_resources(blocked_external)
                 page.locator("#runtime").screenshot(
                     path=str(frame_dir / f"{frame_number + 1:08d}.png"),
                     animations="disabled", timeout=20000,
@@ -741,6 +776,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 frame_error = page.evaluate("window.__frameError")
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED", f"时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)
+                _raise_for_external_scene_resources(blocked_external)
                 frame_pngs[timestamp] = page.locator("#runtime").screenshot(
                     animations="disabled", timeout=20000
                 )
@@ -760,6 +796,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED",
                                           f"反序检查时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)
+                _raise_for_external_scene_resources(blocked_external)
                 repeated = page.locator("#runtime").screenshot(animations="disabled", timeout=20000)
                 changed, total, frame_width, frame_height = _frame_diff_stats(frame_pngs[timestamp], repeated)
                 allowed = max(16, int(total * 0.0005))
