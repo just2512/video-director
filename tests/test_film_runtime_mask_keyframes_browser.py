@@ -1,6 +1,7 @@
 """Real browser coverage for deterministic, seek-based animated mask rendering."""
 from __future__ import annotations
 
+import json
 import threading
 from http.server import ThreadingHTTPServer
 
@@ -41,6 +42,18 @@ def test_film_runtime_interpolates_mask_keyframes_on_forward_and_backward_seek()
                         '{"at":1,"easing":"linear","value":'
                         '[[0.5,0],[1,0],[1,1],[0.5,1]]}]'
                     ),
+                    "data-film-transform": json.dumps({
+                        "x": 0.25, "y": 0.5, "scale": 1, "rotation": 0, "opacity": 1,
+                        "anchor": "center", "stage_width": 100, "stage_height": 100,
+                        "base_width": 20, "base_height": 20,
+                    }, separators=(",", ":")),
+                    "data-film-keyframes": json.dumps([{
+                        "property": "x",
+                        "keyframes": [
+                            {"at": 0, "value": 0.25, "easing": "linear"},
+                            {"at": 1, "value": 0.75, "easing": "linear"},
+                        ],
+                    }], separators=(",", ":")),
                 },
                 "src_in": 0,
                 "src_out": 1,
@@ -84,7 +97,7 @@ def test_film_runtime_interpolates_mask_keyframes_on_forward_and_backward_seek()
                     timeout=10000,
                 )
 
-                def seek_and_read(time_value: float) -> list[float]:
+                def seek_and_read(time_value: float) -> dict:
                     page.evaluate(
                         """time => {
                           window.__filmRuntimeMessages = [];
@@ -104,8 +117,12 @@ def test_film_runtime_interpolates_mask_keyframes_on_forward_and_backward_seek()
                     )
                     return page.eval_on_selector(
                         "#mask-clip",
-                        """el => (el.style.clipPath.match(/\d+(?:\.\d+)?%/g) || [])
-                          .map(value => Number.parseFloat(value))""",
+                        """el => ({
+                          mask: (el.style.clipPath.match(/\d+(?:\.\d+)?%/g) || [])
+                            .map(value => Number.parseFloat(value)),
+                          left: Number.parseFloat(el.style.left),
+                          width: Number.parseFloat(el.style.width)
+                        })""",
                     )
 
                 at_zero = seek_and_read(0)
@@ -113,10 +130,14 @@ def test_film_runtime_interpolates_mask_keyframes_on_forward_and_backward_seek()
                 at_half = seek_and_read(0.5)
                 at_zero_again = seek_and_read(0)
 
-                assert at_zero == [0, 0, 50, 0, 50, 100, 0, 100], at_zero
-                assert at_one == [50, 0, 100, 0, 100, 100, 50, 100], at_one
-                assert at_half == [25, 0, 75, 0, 75, 100, 25, 100], at_half
+                assert at_zero["mask"] == [0, 0, 50, 0, 50, 100, 0, 100], at_zero
+                assert at_one["mask"] == [50, 0, 100, 0, 100, 100, 50, 100], at_one
+                assert at_half["mask"] == [25, 0, 75, 0, 75, 100, 25, 100], at_half
                 assert at_zero_again == at_zero, "backward seek did not restore the exact earlier mask"
+                assert at_zero["left"] == pytest.approx(15)
+                assert at_half["left"] == pytest.approx(40)
+                assert at_one["left"] == pytest.approx(65)
+                assert at_zero["width"] == at_half["width"] == at_one["width"] == 20
                 assert not errors, f"runtime JavaScript errors: {errors}"
             finally:
                 browser.close()
