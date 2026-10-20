@@ -318,9 +318,14 @@ _SCENE_BRIDGE = r"""
     var nearRight = Math.abs(event.clientX - rect.right) <= 10;
     var nearTop = Math.abs(event.clientY - rect.top) <= 10;
     var nearBottom = Math.abs(event.clientY - rect.bottom) <= 10;
+    var computed = window.getComputedStyle(element);
+    var styleLeft = parseFloat(computed.left), styleTop = parseFloat(computed.top);
+    // Use editable CSS position rather than painted bounds, which include H1 margins.
     elementDrag = {
       element: element, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
-      rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+      rect: {x: Number.isFinite(styleLeft) ? styleLeft : rect.x,
+        y: Number.isFinite(styleTop) ? styleTop : rect.y,
+        width: rect.width, height: rect.height},
       edgeX: nearLeft ? 'left' : (nearRight ? 'right' : ''),
       edgeY: nearTop ? 'top' : (nearBottom ? 'bottom' : ''),
       moved: false,

@@ -916,6 +916,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
+            blocked_external = _install_offline_network_policy(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
             page.wait_for_function("window.__runtimeReady === true", timeout=30000)
             page.evaluate(

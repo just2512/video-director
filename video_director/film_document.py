@@ -2038,14 +2038,177 @@ window.addEventListener('message',function(event){{
 </script></body></html>'''
 
 
+
+_FILM_ANCHORS = {
+    "top_left": (0.0, 0.0), "top_center": (0.5, 0.0), "top_right": (1.0, 0.0),
+    "center_left": (0.0, 0.5), "center": (0.5, 0.5), "center_right": (1.0, 0.5),
+    "bottom_left": (0.0, 1.0), "bottom_center": (0.5, 1.0), "bottom_right": (1.0, 1.0),
+}
+_FILM_KEYFRAME_PROPERTIES = {"x", "y", "scale", "rotation", "opacity", "blur"}
+
+
+def _film_transform_metadata(transform: dict | None, stage_width: int, stage_height: int,
+                             base_width: float, base_height: float) -> dict:
+    """Normalize Transform into the deterministic 2D contract consumed by FilmRuntime."""
+    raw = transform or {}
+    anchor = str(raw.get("anchor") or "center")
+    if anchor not in _FILM_ANCHORS:
+        raise FilmError("INVALID_TRANSFORM_ANCHOR", f"不支持的 Transform anchor：{anchor}", 422)
+    return {
+        "x": _number(raw.get("x", 0.5), "transform.x", 0, 1),
+        "y": _number(raw.get("y", 0.5), "transform.y", 0, 1),
+        "scale": _number(raw.get("scale", 1), "transform.scale", 0.1, 5),
+        "rotation": _number(raw.get("rotation", 0), "transform.rotation", -3600, 3600),
+        "opacity": _number(raw.get("opacity", 1), "transform.opacity", 0, 1),
+        "anchor": anchor,
+        "stage_width": int(stage_width),
+        "stage_height": int(stage_height),
+        "base_width": _number(base_width, "transform base width", 1),
+        "base_height": _number(base_height, "transform base height", 1),
+    }
+
+
+def _film_transform_css(transform: dict, fit_mode: str | None = None) -> str:
+    anchor_x, anchor_y = _FILM_ANCHORS[transform["anchor"]]
+    scale = float(transform["scale"])
+    width = float(transform["base_width"]) * scale
+    height = float(transform["base_height"]) * scale
+    left = float(transform["x"]) * int(transform["stage_width"]) - anchor_x * width
+    top = float(transform["y"]) * int(transform["stage_height"]) - anchor_y * height
+    origin = f"{int(anchor_x * 100)}% {int(anchor_y * 100)}%"
+    parts = [
+        f"left:{_fmt(left)}px", f"top:{_fmt(top)}px",
+        f"width:{_fmt(width)}px", f"height:{_fmt(height)}px",
+        f"opacity:{_fmt(float(transform['opacity']))}",
+        f"rotate:{_fmt(float(transform['rotation']))}deg",
+        f"transform-origin:{origin}",
+    ]
+    if fit_mode in {"cover", "contain", "fill", "none", "scale-down"}:
+        parts.append(f"object-fit:{fit_mode}")
+    return ";".join(parts)
+
+
+def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list[str]]:
+    """Convert the supported 2D properties and return explicit warnings for others."""
+    channels, unsupported = [], []
+    if not isinstance(raw_tracks, list):
+        return [], ["keyframes 格式无效"]
+    for track in raw_tracks:
+        if not isinstance(track, dict):
+            unsupported.append("keyframes 项格式无效")
+            continue
+        prop = str(track.get("property") or "")
+        points = track.get("keyframes") or []
+        if prop not in _FILM_KEYFRAME_PROPERTIES:
+            unsupported.append(prop or "unknown")
+            continue
+        mapped, invalid = [], False
+        for point in points:
+            try:
+                at = _number(point.get("at"), f"keyframe {prop}.at", 0)
+                value = _number(point.get("value"), f"keyframe {prop}.value")
+            except (AttributeError, FilmError):
+                invalid = True
+                break
+            if at > duration + 0.001:
+                unsupported.append(f"{prop}@{_fmt(at)}s 超出片段时长")
+                continue
+            limits = {
+                "x": (0.0, 1.0), "y": (0.0, 1.0), "scale": (0.1, 5.0),
+                "rotation": (-3600.0, 3600.0), "opacity": (0.0, 1.0), "blur": (0.0, 100.0),
+            }[prop]
+            if not limits[0] <= value <= limits[1]:
+                invalid = True
+                break
+            easing = str(point.get("easing") or "linear")
+            if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                unsupported.append(f"{prop} 缓动 {easing}")
+                easing = "linear"
+            mapped.append({"at": at, "value": value, "easing": easing})
+        if invalid:
+            unsupported.append(f"{prop} 含非数值或越界关键帧")
+            continue
+        if mapped:
+            mapped.sort(key=lambda item: item["at"])
+            channels.append({"property": prop, "keyframes": mapped})
+    return channels, list(dict.fromkeys(unsupported))
+
+
+def _motion_keyframes(motion: str | None, duration: float, transform: dict,
+                      channels: list[dict]) -> tuple[list[dict], str | None]:
+    """Map supported legacy zoom/pan presets into the frame(t) keyframe contract."""
+    if not motion:
+        return channels, None
+    existing = {channel.get("property") for channel in channels}
+    x, scale = float(transform["x"]), float(transform["scale"])
+    if motion == "slow_zoom_in":
+        prop = "scale"
+        points = [{"at": 0.0, "value": scale, "easing": "linear"},
+                  {"at": duration, "value": min(5.0, scale * 1.08), "easing": "ease_in_out"}]
+    elif motion == "slow_zoom_out":
+        prop = "scale"
+        points = [{"at": 0.0, "value": min(5.0, scale * 1.08), "easing": "ease_in_out"},
+                  {"at": duration, "value": scale, "easing": "linear"}]
+    elif motion == "pan_left":
+        prop = "x"
+        points = [{"at": 0.0, "value": min(1.0, x + 0.02), "easing": "linear"},
+                  {"at": duration, "value": max(0.0, x - 0.02), "easing": "ease_in_out"}]
+    elif motion == "pan_right":
+        prop = "x"
+        points = [{"at": 0.0, "value": max(0.0, x - 0.02), "easing": "linear"},
+                  {"at": duration, "value": min(1.0, x + 0.02), "easing": "ease_in_out"}]
+    else:
+        return channels, f"motion {motion} 尚不支持 2D 映射"
+    if prop in existing:
+        return channels, f"motion {motion} 与显式 {prop} 关键帧冲突；保留显式关键帧"
+    channels.append({"property": prop, "keyframes": points})
+    return channels, None
+
+
+def _apply_film_transform(attrs: dict, transform: dict, channels: list[dict],
+                          fit_mode: str | None = None) -> None:
+    attrs["data-film-transform"] = json.dumps(transform, ensure_ascii=False, separators=(",", ":"))
+    attrs["style"] = _film_transform_css(transform, fit_mode)
+    if channels:
+        attrs["data-film-keyframes"] = json.dumps(channels, ensure_ascii=False, separators=(",", ":"))
+
+
+
 def build_film_from_composition(project_id: str, ir) -> dict:
     """Convert supported video/image/audio/subtitle content; report non-lossless fields."""
     pid = validate_project_id(project_id)
     raw_ir = json.loads(ir.model_dump_json())
     root = _project_root(pid)
-    stage = {"width": int(raw_ir.get("project", {}).get("width", 1080)),
-             "height": int(raw_ir.get("project", {}).get("height", 1920))}
-    duration = _number(raw_ir.get("project", {}).get("duration", 1), "project duration", 0.001)
+    project_spec = raw_ir.get("project") or {}
+    stage = {"width": int(project_spec.get("width", 1080)),
+             "height": int(project_spec.get("height", 1920))}
+    declared_duration = _number(project_spec.get("duration", 1), "project duration", 0.001)
+    duration = declared_duration
+    variants = raw_ir.get("variants") or []
+    selected_variant = None
+    requested_variant = raw_ir.get("active_variant_id")
+    if requested_variant:
+        selected_variant = next((variant for variant in variants
+                                 if str(variant.get("id")) == str(requested_variant)), None)
+        if selected_variant is None:
+            raise FilmError("ACTIVE_VARIANT_NOT_FOUND",
+                            f"active_variant_id {requested_variant!r} 未匹配到 Composition 变体，拒绝静默回退", 422)
+    elif len(variants) == 1:
+        selected_variant = variants[0]
+    source_scenes = list((selected_variant or {}).get("scenes") or raw_ir.get("scenes") or [])
+    source_audio = list((selected_variant or {}).get("tracks") or raw_ir.get("audio") or [])
+    variant_duration = max(
+        (float(scene.get("start", 0)) + float(scene.get("duration", 0)) for scene in source_scenes),
+        default=0.0,
+    )
+    variant_warnings = []
+    if selected_variant and source_scenes and variant_duration > 0:
+        if abs(variant_duration - declared_duration) > 0.05:
+            variant_warnings.append(
+                f"所选变体 {selected_variant.get('id')} 时长为 {variant_duration:.3f}s，"
+                f"与旧 project.duration {declared_duration:.3f}s 不同；迁移按所选变体实际场景时长处理"
+            )
+        duration = variant_duration
     manifest_path = root / "assets" / "manifest.json"
     manifest = []
     if manifest_path.is_file():
@@ -2079,7 +2242,26 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         return _safe_storage_uri(pid, file_value)
 
     clips, tracks, pages, warnings = [], [], {}, []
-    project_spec = raw_ir.get("project") or {}
+    warnings.extend(variant_warnings)
+    if variants:
+        if selected_variant:
+            alternatives = [str(item.get("id")) for item in variants
+                           if str(item.get("id")) != str(selected_variant.get("id"))]
+            warnings.append(
+                f"本次迁移选择变体 {selected_variant.get('id')}；film.html 是单条最终时间线，"
+                f"其它 variants {alternatives or '无'} 不会被并入成片"
+            )
+            if selected_variant.get("style"):
+                warnings.append(f"变体 {selected_variant.get('id')} 的 variant.style 未映射到 film.html")
+            if not selected_variant.get("scenes"):
+                warnings.append(f"变体 {selected_variant.get('id')} 没有独立 scenes，当前使用顶层 scenes")
+            if not selected_variant.get("tracks"):
+                warnings.append(f"变体 {selected_variant.get('id')} 没有独立 tracks，当前使用顶层 audio")
+        else:
+            warnings.append(
+                f"Composition 有 {len(variants)} 个 variants 但没有有效 active_variant_id；"
+                "按顶层 scenes/audio 迁移，未隐式合并候选变体"
+            )
     if int(project_spec.get("fps", config.DEFAULT_FPS)) != config.DEFAULT_FPS:
         warnings.append(
             f"旧项目帧率为 {project_spec.get('fps')} FPS；film.html 未保存此设置，"
@@ -2091,11 +2273,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         warnings.append("旧项目 style_contract 尚未转换为 film.html 样式，语义样式信息会丢失")
     if raw_ir.get("origin_template_id") or raw_ir.get("origin_template_version"):
         warnings.append("旧项目模板来源 lineage 未写入 film.html")
-    if raw_ir.get("variants"):
-        warnings.append(
-            f"旧项目包含 {len(raw_ir.get('variants') or [])} 个 variants；迁移仅处理顶层 scenes/audio，"
-            "不会合并或自动选择 variant 内容"
-        )
     if raw_ir.get("active_variant_id") and not raw_ir.get("variants"):
         warnings.append("旧项目 active_variant_id 未映射到 film.html")
     if raw_ir.get("camera_tracks"):
@@ -2124,7 +2301,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if isinstance(lane, dict) and lane.get("id")
     }
     audio_lane_usage = {}
-    for audio_item in (raw_ir.get("audio") or []):
+    for audio_item in source_audio:
         lane_id = str(audio_item.get("track_id") or "")
         if lane_id:
             audio_lane_usage[lane_id] = audio_lane_usage.get(lane_id, 0) + 1
@@ -2182,7 +2359,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "旧 visual_overlays 会转成单片段 Film 轨道；z_index/track_id 分组语义不会原样保留"
         )
 
-    for scene in raw_ir.get("scenes") or []:
+    for scene in source_scenes:
         scene_id = str(scene.get("id") or "unknown")
         if scene.get("selections"):
             warnings.append(f"场景 {scene_id} 的 selections 语义锚点未映射到 film.html")
@@ -2218,22 +2395,34 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
             unsupported_layer_fields = []
-            if layer.get("transform"):
-                unsupported_layer_fields.append("transform")
-            if layer.get("keyframes"):
-                unsupported_layer_fields.append("keyframes")
-            if layer.get("motion"):
-                unsupported_layer_fields.append("motion")
+            raw_transform = layer.get("transform") or {}
+            base_transform = _film_transform_metadata(
+                raw_transform, stage["width"], stage["height"], stage["width"], stage["height"]
+            )
+            channels, unsupported_keyframes = _film_keyframes(layer.get("keyframes") or [], d)
+            unsupported_layer_fields.extend(f"keyframes:{field}" for field in unsupported_keyframes)
+            channels, motion_warning = _motion_keyframes(layer.get("motion"), d, base_transform, channels)
+            if motion_warning:
+                unsupported_layer_fields.append(motion_warning)
+            fit_mode = str(layer.get("fit_mode") or "cover")
+            if fit_mode not in {"cover", "contain", "fill", "none", "scale-down"}:
+                unsupported_layer_fields.append(f"fit_mode:{fit_mode}")
+                fit_mode = "cover"
+            known_motion = layer.get("motion") in {"slow_zoom_in", "slow_zoom_out", "pan_left", "pan_right"}
+            if raw_transform or channels or known_motion:
+                _apply_film_transform(attrs, base_transform, channels, fit_mode)
+            else:
+                attrs["style"] = f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;object-fit:{fit_mode}"
             if layer.get("animation"):
                 unsupported_layer_fields.append("animation")
             if layer.get("motion_recipe_id") or layer.get("motion_version") or layer.get("motion_instance"):
                 unsupported_layer_fields.append("motion_recipe/instance")
             if layer.get("mask"):
-                unsupported_layer_fields.append("mask")
+                unsupported_layer_fields.append("mask（几何遮罩尚未映射）")
             if layer.get("locked"):
-                unsupported_layer_fields.append("locked")
-            if layer.get("fit_mode", "cover") != "cover":
-                unsupported_layer_fields.append("fit_mode")
+                unsupported_layer_fields.append("locked（片段锁定状态尚未映射）")
+            if layer.get("motion_recipe_id") or layer.get("motion_version") or layer.get("motion_instance"):
+                unsupported_layer_fields.append("motion_recipe/instance lineage")
             if kind == "image" and (
                 abs(_number(layer.get("speed", 1), "image speed", 0.001) - 1) > 1e-6
                 or _number(layer.get("source_in", 0), "image source_in", 0) > 0
@@ -2266,12 +2455,18 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         w = _number(overlay.get("width", 1), "overlay width", 0.001, 1) * stage["width"]
         h = _number(overlay.get("height", 1), "overlay height", 0.001, 1) * stage["height"]
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
-        style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(_number(overlay.get('opacity',1),'opacity',0,1))};object-fit:{fit}"
-        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at), "style": style, "data-asset-id": str(overlay.get("asset_id") or "")}
+        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at), "data-asset-id": str(overlay.get("asset_id") or "")}
+        raw_overlay_transform = overlay.get("transform")
+        if raw_overlay_transform:
+            overlay_transform = _film_transform_metadata(
+                raw_overlay_transform, stage["width"], stage["height"], w, h
+            )
+            _apply_film_transform(attrs, overlay_transform, [], fit)
+        else:
+            style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(_number(overlay.get('opacity',1),'opacity',0,1))};object-fit:{fit}"
+            attrs["style"] = style
         if kind == "video" and abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
-        if overlay.get("transform"):
-            warnings.append(f"叠加层 {cid} 的 transform 未映射到标准 CSS box")
         if overlay.get("source_audio_enabled") or abs(_number(overlay.get("source_audio_volume", 1), "overlay source audio volume", 0, 2) - 1) > 1e-6:
             warnings.append(f"叠加层 {cid} 的 source_audio_enabled/source_audio_volume 未映射")
         if overlay.get("presentation_mode", "picture_in_picture") != "picture_in_picture":
@@ -2288,7 +2483,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "attrs": {"id": cid, "src": f"scenes/subtitles.html#t=0,{_fmt(duration)}", "at": "0",
                       "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px"}}))
 
-    audio_items = list(raw_ir.get("audio") or [])
+    audio_items = list(source_audio)
     audio_items.sort(key=lambda item: (
         int(audio_lanes_by_id.get(str(item.get("track_id") or ""), {}).get("order", 999)),
         _number(item.get("start", 0), "audio start", 0),
@@ -2318,7 +2513,28 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if audio.get("ducking"):
             warnings.append(f"音频片段 {cid} 的 ducking 自动压低未迁移")
         if audio.get("keyframes"):
-            warnings.append(f"音频片段 {cid} 的 keyframes 未迁移")
+            mapped_volume = []
+            unsupported_audio_keyframes = []
+            for channel in audio.get("keyframes") or []:
+                prop = str(channel.get("property") or "") if isinstance(channel, dict) else ""
+                if prop != "volume":
+                    unsupported_audio_keyframes.append(prop or "unknown")
+                    continue
+                for point in channel.get("keyframes") or []:
+                    try:
+                        point_at = _number(point.get("at"), "audio keyframe.at", 0)
+                        point_value = _number(point.get("value"), "audio keyframe.value", 0, 2)
+                    except (AttributeError, FilmError):
+                        unsupported_audio_keyframes.append("volume 含非数值关键帧")
+                        continue
+                    mapped_volume.append({"t": point_at, "v": point_value})
+            if mapped_volume:
+                mapped_volume.sort(key=lambda item: item["t"])
+                attrs["volume_envelope"] = json.dumps(mapped_volume, ensure_ascii=False, separators=(",", ":"))
+            if unsupported_audio_keyframes:
+                warnings.append(
+                    f"音频片段 {cid} 的 keyframes 未完全映射：" + ", ".join(dict.fromkeys(unsupported_audio_keyframes))
+                )
         if audio.get("linked_visual_overlay_id") or audio.get("follows_scene_video") is False:
             warnings.append(f"音频片段 {cid} 的原声关联/跟随视频关系未迁移")
         tid = _safe_id("track-" + cid, "track")
@@ -2339,7 +2555,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             f"旧项目总时长为 {declared_duration:.3f}s，但可迁移片段仅到 {mapped_end:.3f}s；"
             "尾部空白/gap 未变成显式片段，film.html 导出时长会缩短"
         )
-    for scene in raw_ir.get("scenes") or []:
+    for scene in source_scenes:
         transition = (scene.get("transition_out") or {}).get("type", "cut")
         if transition not in {"cut", "none", ""}:
             warnings.append(f"场景 {scene.get('id')} 转场 {transition} 尚未完整映射")

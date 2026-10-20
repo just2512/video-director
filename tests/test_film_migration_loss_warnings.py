@@ -60,11 +60,19 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert "variants" in warnings
     assert "camera_tracks" in warnings
     assert "水印" in warnings
-    assert "motion" in warnings
     assert "locked" in warnings
     assert "ducking" in warnings
     assert "字幕样式字段" in warnings
     assert "模板来源 lineage" in warnings
+
+    visual_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    image_clip = visual_track["clips"][0]
+    transform = json.loads(image_clip["attrs"]["data-film-transform"])
+    channels = json.loads(image_clip["attrs"]["data-film-keyframes"])
+    assert transform["anchor"] == "center"
+    assert transform["base_width"] == 320 and transform["base_height"] == 180
+    assert any(channel["property"] == "scale" for channel in channels)
+    assert "object-fit:cover" in image_clip["attrs"]["style"]
 
     audio_track = next(track for track in result["document"]["tracks"]
                        if track["id"] == "track-audio-music-bed")

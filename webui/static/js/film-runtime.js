@@ -17,7 +17,7 @@
     stage.style.transform='translate(-50%,-50%) scale('+scale+')';
   }
   function safeStyle(styleText,el){
-    var allowed={left:1,top:1,width:1,height:1,opacity:1,'object-fit':1,'border-radius':1,rotate:1};
+    var allowed={left:1,top:1,width:1,height:1,opacity:1,'object-fit':1,'border-radius':1,rotate:1,'transform-origin':1};
     String(styleText||'').split(';').forEach(function(part){
       var colon=part.indexOf(':');if(colon<1)return;
       var key=part.slice(0,colon).trim().toLowerCase(),value=part.slice(colon+1).trim();
@@ -25,6 +25,7 @@
       if(['left','top','width','height'].indexOf(key)>=0&&!/^-?[0-9]+(?:\.[0-9]+)?px$/.test(value))return;
       if(key==='opacity'&&(!Number.isFinite(Number(value))||Number(value)<0||Number(value)>1))return;
       if(key==='object-fit'&&['cover','contain','fill','none','scale-down'].indexOf(value)<0)return;
+      if(key==='transform-origin'&&!/^(0|50|100)%\s+(0|50|100)%$/.test(value))return;
       el.style.setProperty(key,value);
     });
   }
@@ -119,8 +120,14 @@
     if(Number.isFinite(opacity))el.style.opacity=String(clamp(opacity,0,1));
     var src=sourceBase(clip.media_url||'');
     if(src)el.src=src;
+    var filmTransform=null,filmKeyframes=[];
+    try{filmTransform=JSON.parse(String(clip.attrs&&clip.attrs['data-film-transform']||'null'));}catch(_){}
+    try{filmKeyframes=JSON.parse(String(clip.attrs&&clip.attrs['data-film-keyframes']||'[]'));}catch(_){}
+    if(!Array.isArray(filmKeyframes))filmKeyframes=[];
     entry={track:track,clip:clip,el:el,active:false,iframeLoaded:iframeLoaded,iframeLoadError:iframeLoadError,
       volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope),
+      filmTransform:filmTransform&&typeof filmTransform==='object'?filmTransform:null,
+      filmKeyframes:filmKeyframes,
       fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1)};
     byId[clip.id]=entry;return entry;
   }
@@ -170,6 +177,59 @@
     if(playing){state.originTime=state.time;state.originClock=performance.now();}
     post({type:'film-runtime:loaded',rev:state.rev});
   }
+  function filmEase(value,mode){
+    var x=clamp(value,0,1);
+    if(mode==='ease_in')return x*x;
+    if(mode==='ease_out')return 1-(1-x)*(1-x);
+    if(mode==='ease_in_out')return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+    return x;
+  }
+  function filmKeyframeValue(channels,property,time,fallback){
+    var channel=(channels||[]).find(function(item){return item&&item.property===property;});
+    var points=channel&&Array.isArray(channel.keyframes)?channel.keyframes:[];
+    if(!points.length)return fallback;
+    if(time<finite(points[0].at,0))return fallback;
+    if(time===finite(points[0].at,0))return finite(points[0].value,fallback);
+    for(var i=1;i<points.length;i++){
+      var right=points[i],left=points[i-1],rightAt=finite(right.at,0),leftAt=finite(left.at,0);
+      if(time<=rightAt){
+        var span=rightAt-leftAt;
+        if(span<=0)return finite(right.value,fallback);
+        var ratio=filmEase((time-leftAt)/span,right.easing);
+        return finite(left.value,fallback)+(finite(right.value,fallback)-finite(left.value,fallback))*ratio;
+      }
+    }
+    return finite(points[points.length-1].value,fallback);
+  }
+  function applyFilmTransform(entry,t){
+    var cfg=entry.filmTransform;
+    if(!cfg)return entry.baseOpacity;
+    var channels=entry.filmKeyframes||[],local=Math.max(0,t-finite(entry.clip.at,0));
+    var x=clamp(filmKeyframeValue(channels,'x',local,finite(cfg.x,0.5)),0,1);
+    var y=clamp(filmKeyframeValue(channels,'y',local,finite(cfg.y,0.5)),0,1);
+    var scale=clamp(filmKeyframeValue(channels,'scale',local,finite(cfg.scale,1)),0.1,5);
+    var rotation=clamp(filmKeyframeValue(channels,'rotation',local,finite(cfg.rotation,0)),-3600,3600);
+    var opacity=clamp(filmKeyframeValue(channels,'opacity',local,finite(cfg.opacity,1)),0,1);
+    var blur=clamp(filmKeyframeValue(channels,'blur',local,0),0,100);
+    var stageW=Math.max(1,finite(cfg.stage_width,state.data.stage.width));
+    var stageH=Math.max(1,finite(cfg.stage_height,state.data.stage.height));
+    var baseW=Math.max(1,finite(cfg.base_width,stageW));
+    var baseH=Math.max(1,finite(cfg.base_height,stageH));
+    var anchors={
+      top_left:[0,0],top_center:[0.5,0],top_right:[1,0],
+      center_left:[0,0.5],center:[0.5,0.5],center_right:[1,0.5],
+      bottom_left:[0,1],bottom_center:[0.5,1],bottom_right:[1,1]
+    };
+    var anchor=anchors[cfg.anchor]||anchors.center;
+    var width=baseW*scale,height=baseH*scale;
+    entry.el.style.left=(x*stageW-anchor[0]*width)+'px';
+    entry.el.style.top=(y*stageH-anchor[1]*height)+'px';
+    entry.el.style.width=width+'px';entry.el.style.height=height+'px';
+    entry.el.style.transformOrigin=(anchor[0]*100)+'% '+(anchor[1]*100)+'%';
+    entry.el.style.rotate=rotation+'deg';
+    entry.el.style.filter=blur>0?'blur('+blur+'px)':'none';
+    return opacity;
+  }
   function syncMedia(entry,t,active,forceSeek){
     var clip=entry.clip,track=entry.track,el=entry.el,tag=clip.tag,attrs=clip.attrs||{};
     var muted=has(track.attrs,'hidden')||has(track.attrs,'muted')||has(attrs,'muted');
@@ -180,7 +240,8 @@
     }
     el.style.display='block';
     var fadeFactor=clipFadeAt(entry,t);
-    if(tag!=='audio')el.style.opacity=String(entry.baseOpacity*fadeFactor);
+    var transformOpacity=applyFilmTransform(entry,t);
+    if(tag!=='audio')el.style.opacity=String(clamp(transformOpacity*fadeFactor,0,1));
     if(tag==='iframe'){
       var localTime=mediaTime(clip,t);
       // During offline frame capture, prepareFrameEntry sends the strict frame(t)
