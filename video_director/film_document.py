@@ -981,8 +981,24 @@ def _normalize_element_override(selector: Any, text_value: Any = None,
         if not value or re.search(r"[{};]", value) or re.search(r"url\s*\(|expression\s*\(|javascript:|@import", value, re.I):
             raise FilmError("UNSAFE_ELEMENT_STYLE", f"画布 CSS 属性 {key} 包含不允许的值", 422)
         if key in {"left", "top", "width", "height", "fontSize", "letterSpacing", "lineHeight", "borderRadius"}:
-            if not re.fullmatch(r"-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%|em|rem|vh|vw)?", value):
+            length_match = re.fullmatch(
+                r"(-?(?:\d+(?:\.\d+)?|\.\d+))(px|%|em|rem|vh|vw)?", value
+            )
+            if not length_match:
                 raise FilmError("INVALID_ELEMENT_STYLE", f"画布 CSS 属性 {key} 需要有效长度值", 422)
+            magnitude = float(length_match.group(1))
+            if not math.isfinite(magnitude):
+                raise FilmError("INVALID_ELEMENT_STYLE", f"画布 CSS 属性 {key} 必须是有限数字", 422)
+            if key in {"width", "height"} and not 0 < magnitude <= 10000:
+                raise FilmError("INVALID_ELEMENT_STYLE", f"画布 CSS 属性 {key} 必须在 0 到 10000 之间", 422)
+            if key == "fontSize" and not 0 < magnitude <= 1000:
+                raise FilmError("INVALID_ELEMENT_STYLE", "画布字号必须在 0 到 1000 之间", 422)
+            if key in {"left", "top"} and abs(magnitude) > 100000:
+                raise FilmError("INVALID_ELEMENT_STYLE", f"画布 CSS 属性 {key} 超出可编辑范围", 422)
+            if key == "letterSpacing" and abs(magnitude) > 1000:
+                raise FilmError("INVALID_ELEMENT_STYLE", "字间距超出可编辑范围", 422)
+            if key == "lineHeight" and magnitude <= 0:
+                raise FilmError("INVALID_ELEMENT_STYLE", "行高必须大于 0", 422)
         elif key == "opacity":
             number = _number(value, "opacity", 0, 1)
             value = _fmt(number)
