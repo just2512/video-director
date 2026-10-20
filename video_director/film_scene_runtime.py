@@ -279,6 +279,10 @@ _SCENE_BRIDGE = r"""
     if (target.closest && target.closest('[data-vd-film-bridge]')) return null;
     return target;
   }
+  var elementDrag = null;
+  function pointerDistance(a, b) {
+    return Math.sqrt(Math.pow(a.clientX - b.startX, 2) + Math.pow(a.clientY - b.startY, 2));
+  }
   document.addEventListener('pointerdown', function (event) {
     if (!inspectMode) return;
     var element = elementFromEvent(event);
@@ -287,16 +291,75 @@ _SCENE_BRIDGE = r"""
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     reportElement('film-element-selected', element);
+    var rect = element.getBoundingClientRect();
+    var nearLeft = Math.abs(event.clientX - rect.left) <= 10;
+    var nearRight = Math.abs(event.clientX - rect.right) <= 10;
+    var nearTop = Math.abs(event.clientY - rect.top) <= 10;
+    var nearBottom = Math.abs(event.clientY - rect.bottom) <= 10;
+    elementDrag = {
+      element: element, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+      rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+      edgeX: nearLeft ? 'left' : (nearRight ? 'right' : ''),
+      edgeY: nearTop ? 'top' : (nearBottom ? 'bottom' : ''),
+      moved: false,
+      original: {position: element.style.position, left: element.style.left, top: element.style.top,
+        width: element.style.width, height: element.style.height}
+    };
+    try { element.setPointerCapture(event.pointerId); } catch (_) {}
   }, true);
   document.addEventListener('pointermove', function (event) {
     if (!inspectMode) return;
+    if (elementDrag && event.pointerId === elementDrag.pointerId) {
+      var drag = elementDrag;
+      if (!drag.moved && pointerDistance(event, drag) < 3) return;
+      drag.moved = true;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+      var dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+      var next = {
+        x: drag.rect.x, y: drag.rect.y,
+        width: drag.rect.width, height: drag.rect.height
+      };
+      if (drag.edgeX === 'left') { next.x += dx; next.width -= dx; }
+      else if (drag.edgeX === 'right') next.width += dx;
+      else next.x += dx;
+      if (drag.edgeY === 'top') { next.y += dy; next.height -= dy; }
+      else if (drag.edgeY === 'bottom') next.height += dy;
+      else next.y += dy;
+      next.width = Math.max(1, next.width);
+      next.height = Math.max(1, next.height);
+      var element = drag.element;
+      // Position fixed is intentionally used for the first-class canvas editing
+      // contract: left/top and the selection box share the scene viewport space.
+      element.style.position = 'fixed';
+      element.style.left = next.x + 'px';
+      element.style.top = next.y + 'px';
+      element.style.width = next.width + 'px';
+      element.style.height = next.height + 'px';
+      window.__vdHoveredElement = element;
+      reportElement('film-element-preview', element);
+      return;
+    }
     var element = elementFromEvent(event);
     if (!element) return;
-    if (element.__vdLastHover === true) return;
-    // Mark only the current target; don't emit a message on every pointer event.
     if (window.__vdHoveredElement === element) return;
     window.__vdHoveredElement = element;
     reportElement('film-element-hover', element);
+  }, true);
+  document.addEventListener('pointerup', function (event) {
+    if (!elementDrag || event.pointerId !== elementDrag.pointerId) return;
+    var drag = elementDrag;
+    elementDrag = null;
+    if (drag.moved) reportElement('film-element-drag-end', drag.element);
+  }, true);
+  document.addEventListener('pointercancel', function (event) {
+    if (!elementDrag || event.pointerId !== elementDrag.pointerId) return;
+    var drag = elementDrag;
+    elementDrag = null;
+    var element = drag.element;
+    Object.keys(drag.original).forEach(function (key) { element.style[key] = drag.original[key]; });
+    applyOverrides();
   }, true);
 
   function sendFrameReady(message, supported, error) {
