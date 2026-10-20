@@ -28,7 +28,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - The Studio Export MP4 button submits the current film revision to a background WorkflowRun; a revision mismatch returns HTTP 409 before rendering starts.
 - The renderer serves project/shared media through a loopback-only HTTP server, renders each requested timestamp through the same browser runtime, and uses FFmpeg to encode screenshots and mix available video/audio source streams. Source ranges, media duration, deterministic subtitle-page timing, video stream and duration are validated.
 - Project-local `.html/.htm` iframe scenes are served through an injected bridge that executes `window.film.frame(t)`, awaits `window.film.ready`, pins the page clock/random source, advances queued animation-frame callbacks at the requested timestamp, and returns an exact `film-frame:ready` acknowledgement. A page without the contract fails the actual frame request with the clip ID; it is not silently rendered as a static screenshot.
-- Relative `src`, `href`, `poster`, and CSS `url(...)` references in a scene are rewritten to the project-scoped media endpoint. External URLs remain external and are not accepted as a reliable offline asset dependency. UTF-8 is required for HTML/CSS scene files.
+- Relative `src`, `href`, `poster`, and CSS `url(...)` references in a scene are rewritten to the project-scoped media endpoint. External URLs remain unchanged in preview, but the offline render/look request guard blocks them and returns `EXTERNAL_SCENE_RESOURCE`; move required resources into project storage and reference them locally. UTF-8 is required for HTML/CSS scene files.
 - The generated subtitle page retains its legacy `film-time:ready` contract. The bridge is a compatibility boundary, not a promise that arbitrary async frameworks, remote data, WebGL state, or third-party animations are automatically deterministic; unsupported pages must be converted to the explicit frame contract or rejected during render.
 - Single export is limited to 600 seconds, 18,000 frames and stage edges up to 3840 px. This is a constrained local export adapter, not full feature parity with OpenFilm's injected deterministic runtime or every CSS/transition feature.
 
@@ -118,6 +118,21 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - `python -m video_director film look --project-id ID [--times 0,1.5,4]` renders a contact sheet from the same browser runtime as export, visits samples in reverse order, and writes the PNG under `.film/cache/look/`. A materially different repeat fails with `NON_DETERMINISTIC_FRAME`.
 - `python -m video_director film render --project-id ID [--fps 30]` pins the current revision before rendering and records the revision associated with the resulting MP4.
 - Real Chromium regression exercises the injected frame bridge with a sandboxed iframe and verifies exact local time, frame identity, support acknowledgement, and an actual call to the authored `frame(t)` implementation.
+
+## Direct HTML canvas editing and Agent context
+
+- The Studio canvas picker can select an element inside the active HTML iframe. The scene bridge reports a bounded CSS selector, local viewport rectangle, supported computed styles, and whether replacing the element's whole text is safe.
+- The user can move an element or drag its edges to resize it directly in the preview. The gesture is previewed in the scene, then committed to the clip's selector-based `overrides` as one validated FilmDocument operation; the Inspector exposes text, position, dimensions, colour, font size and rotation.
+- The server accepts `element_set` only for an unlocked iframe clip and validates the selector, text length, and restricted style properties/values. Existing override entries are merged by selector, while unrelated legacy entries are preserved. Nested elements are prevented from whole-node text replacement.
+- When the user directs AI while an element is selected, the Studio includes that element's clip ID, selector and bounded context together with the exact base revision. The planner may propose `element_set` only for that selected clip and selector. A stale revision or mismatched target is rejected.
+- This is selector-based editing, not a general-purpose browser DOM inspector: arbitrary script execution, stylesheet imports, external CSS URLs and unsupported style properties are not enabled by the element override contract.
+
+## Agent authoring contract and offline resource boundary
+
+- `AGENTS.md` routes coding agents to `docs/FILM_AGENT_MANUAL.md`; the manual documents the single-timeline authority rule, the project format, `window.film.frame(t)`, resource readiness, CLI workflow, ID/revision handling and honest failure reporting.
+- `film validate` checks the strict document plus referenced local file existence; it explicitly does not certify frame determinism. `film look` uses the real browser runtime, generates a contact sheet, repeats sample times in reverse order and fails with `NON_DETERMINISTIC_FRAME` when samples materially differ.
+- The actual Playwright render/look page blocks requests outside its loopback project server (while allowing `data:`, `blob:` and `about:`). Any blocked network dependency becomes `EXTERNAL_SCENE_RESOURCE` with the affected URLs rather than silently rendering incomplete content.
+- The Studio's horizontal timeline dock separator supports pointer and keyboard resizing. Panel widths and timeline height are persisted locally; dock resizing is covered by a real-browser interaction test.
 
 ## Agent file-watching browser regression
 
