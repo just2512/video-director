@@ -107,6 +107,133 @@ _SCENE_BRIDGE = r"""
     clock.queue.length = 0;
     clock.cancelled = Object.create(null);
   }
+  var inspectMode = false;
+  var currentOverrides = [];
+
+  var overrideStyleMap = {
+    color: 'color', backgroundColor: 'background-color', fontSize: 'font-size',
+    fontWeight: 'font-weight', textAlign: 'text-align', lineHeight: 'line-height',
+    letterSpacing: 'letter-spacing', left: 'left', top: 'top', width: 'width',
+    height: 'height', position: 'position', opacity: 'opacity', transform: 'transform',
+    borderRadius: 'border-radius', rotate: 'rotate'
+  };
+  function parseOverrides(value) {
+    if (typeof value === 'string') {
+      try { value = JSON.parse(value); } catch (_) { return []; }
+    }
+    if (!Array.isArray(value)) return [];
+    return value.filter(function (item) {
+      return item && typeof item === 'object' && typeof item.selector === 'string'
+        && item.selector.length > 0 && item.selector.length <= 500;
+    }).slice(0, 500);
+  }
+  function styleValueAllowed(key, value) {
+    if (typeof value !== 'string' || value.length > 120
+        || /[{};]/.test(value) || /url\s*\(|expression\s*\(|javascript:|@import/i.test(value)) return false;
+    if (['left','top','width','height','fontSize','letterSpacing','lineHeight','borderRadius'].indexOf(key)>=0) {
+      return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%|em|rem|vh|vw)?$/.test(value.trim());
+    }
+    if (key === 'opacity') return Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1;
+    if (key === 'position') return ['static','relative','absolute','fixed','sticky'].indexOf(value) >= 0;
+    if (key === 'fontWeight') return /^(normal|bold|bolder|lighter|[1-9]00)$/.test(value);
+    if (key === 'textAlign') return ['left','right','center','justify','start','end'].indexOf(value) >= 0;
+    if (key === 'rotate') return /^-?(?:\d+(?:\.\d+)?|\.\d+)(deg|rad|turn)$/.test(value);
+    if (key === 'transform') return /^(none|translate(?:X|Y)?\([-+\d.%a-zA-Z, ]+\)|scale(?:X|Y)?\([\d., -]+\)|rotate\([-+\d.]+deg\))$/.test(value);
+    if (key === 'color' || key === 'backgroundColor') {
+      return /^(#[0-9a-fA-F]{3,8}|rgba?\([\d.,%\s]+\)|hsla?\([\d.,%\s]+\)|[a-zA-Z]{1,24})$/.test(value);
+    }
+    return false;
+  }
+  function applyOverrides() {
+    currentOverrides.forEach(function (item) {
+      var elements = [];
+      try { elements = document.querySelectorAll(item.selector); } catch (_) { return; }
+      elements.forEach(function (element) {
+        if (Object.prototype.hasOwnProperty.call(item, 'text') && typeof item.text === 'string') {
+          element.textContent = item.text;
+        }
+        var style = item.style && typeof item.style === 'object' ? item.style : {};
+        Object.keys(style).forEach(function (key) {
+          var cssName = overrideStyleMap[key], value = style[key];
+          if (cssName && styleValueAllowed(key, value)) element.style.setProperty(cssName, value);
+        });
+      });
+    });
+  }
+  function safeSelectorPart(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, function (char) {
+      return '\\' + char.codePointAt(0).toString(16) + ' ';
+    });
+  }
+  function selectorFor(element) {
+    if (!element || element.nodeType !== 1) return '';
+    if (element.id) return '#' + safeSelectorPart(element.id);
+    var parts = [], node = element;
+    while (node && node.nodeType === 1 && node !== document.documentElement) {
+      var part = node.tagName.toLowerCase();
+      if (node.id) {
+        parts.unshift('#' + safeSelectorPart(node.id));
+        break;
+      }
+      var sibling = node, index = 1;
+      while ((sibling = sibling.previousElementSibling)) {
+        if (sibling.tagName === node.tagName) index += 1;
+      }
+      if (node.parentElement && node.parentElement.children.length > 1) part += ':nth-of-type(' + index + ')';
+      parts.unshift(part);
+      node = node.parentElement;
+      if (node === document.body) {
+        parts.unshift('body');
+        break;
+      }
+    }
+    return parts.join(' > ').slice(0, 500);
+  }
+  function reportElement(type, element) {
+    if (!element || element === document.body || element === document.documentElement) return;
+    var rect = element.getBoundingClientRect(), style = window.getComputedStyle(element);
+    var properties = ['color','backgroundColor','fontSize','fontWeight','textAlign','lineHeight',
+      'letterSpacing','left','top','width','height','position','opacity','borderRadius','rotate'];
+    var styleData = {};
+    properties.forEach(function (key) {
+      styleData[key] = String(style[key] || '');
+    });
+    parent.postMessage({
+      type: type,
+      selector: selectorFor(element),
+      tag: element.tagName.toLowerCase(),
+      text: (element.innerText || element.textContent || '').slice(0, 4000),
+      styles: styleData,
+      rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height}
+    }, '*');
+  }
+  function elementFromEvent(event) {
+    var target = event.target;
+    if (!target || target.nodeType !== 1) return null;
+    if (target.closest && target.closest('[data-vd-film-bridge]')) return null;
+    return target;
+  }
+  document.addEventListener('pointerdown', function (event) {
+    if (!inspectMode) return;
+    var element = elementFromEvent(event);
+    if (!element) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    reportElement('film-element-selected', element);
+  }, true);
+  document.addEventListener('pointermove', function (event) {
+    if (!inspectMode) return;
+    var element = elementFromEvent(event);
+    if (!element) return;
+    if (element.__vdLastHover === true) return;
+    // Mark only the current target; don't emit a message on every pointer event.
+    if (window.__vdHoveredElement === element) return;
+    window.__vdHoveredElement = element;
+    reportElement('film-element-hover', element);
+  }, true);
+
   function sendFrameReady(message, supported, error) {
     try {
       parent.postMessage({
@@ -131,6 +258,7 @@ _SCENE_BRIDGE = r"""
         return;
       }
       clock.time = t;
+      currentOverrides = parseOverrides(message.overrides);
       seed(t);
       clock.queue.length = 0;
       clock.cancelled = Object.create(null);
@@ -144,6 +272,7 @@ _SCENE_BRIDGE = r"""
       if (result && typeof result.then === 'function') await result;
       syncAnimations(t);
       flushRaf(t);
+      applyOverrides();
       await waitNativeFrame();
       await waitNativeFrame();
       sendFrameReady(message, true, null);
@@ -160,7 +289,22 @@ _SCENE_BRIDGE = r"""
     var message = event.data;
     if (message.type === 'film-frame') draw(message);
     else if (message.type === 'film-time' && window.film && typeof window.film.frame === 'function') {
-      draw({ type: 'film-frame', time: message.time, frame: -1 });
+      draw({ type: 'film-frame', time: message.time, frame: -1, overrides: message.overrides });
+    } else if (message.type === 'film-overrides') {
+      currentOverrides = parseOverrides(message.overrides);
+      applyOverrides();
+    } else if (message.type === 'film-inspect') {
+      inspectMode = !!message.enabled;
+      if (!inspectMode) window.__vdHoveredElement = null;
+    } else if (message.type === 'film-element-edit') {
+      var incoming = message.override;
+      if (!incoming || typeof incoming.selector !== 'string') return;
+      var found = currentOverrides.find(function (item) { return item.selector === incoming.selector; });
+      if (found) {
+        if (Object.prototype.hasOwnProperty.call(incoming, 'text')) found.text = incoming.text;
+        found.style = Object.assign({}, found.style || {}, incoming.style || {});
+      } else currentOverrides.push(incoming);
+      applyOverrides();
     }
   });
 })();
