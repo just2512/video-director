@@ -20,9 +20,10 @@ def test_video_overlay_source_audio_disabled_is_muted_and_enabled_preserves_volu
     ]), encoding="utf-8")
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "assets": [{"id": "asset-video", "type": "video", "file": "assets/intro.mp4"}],
         "scenes": [{
             "id": "base", "start": 0, "duration": 2, "text": "base",
-            "layers": [{"type": "video", "asset_id": "asset-video", "start": 0, "duration": 2}],
+            "layers": [{"type": "video", "asset_id": "asset-video", "start": 0, "duration": 2, "source_in": 0, "source_out": 2}],
         }],
         "visual_overlays": [
             {"id": "silent", "asset_id": "asset-video", "start": 0, "duration": 1,

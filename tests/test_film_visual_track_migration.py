@@ -20,9 +20,10 @@ def test_visual_source_track_order_identity_and_lock_are_preserved(tmp_path, mon
     ]), encoding="utf-8")
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "assets": [{"id": "asset-overlay", "type": "video", "file": "assets/overlay.mp4"}],
         "scenes": [{
             "id": "base", "start": 0, "duration": 2, "text": "base",
-            "layers": [{"type": "image", "asset_id": "asset-overlay", "start": 0, "duration": 2}],
+            "layers": [{"type": "video", "asset_id": "asset-overlay", "start": 0, "duration": 2, "source_in": 0, "source_out": 2}],
         }],
         "visual_tracks": [
             {"id": "top", "name": "Top video", "order": 0, "locked": True},
@@ -63,6 +64,7 @@ def test_source_visual_grouping_warning_depends_on_actual_same_lane_membership(t
     ]), encoding="utf-8")
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "assets": [{"id": "asset-overlay", "type": "video", "file": "assets/overlay.mp4"}],
         "scenes": [{
             "id": "base", "start": 0, "duration": 2, "text": "base",
             "layers": [{"type": "image", "asset_id": "asset-overlay", "start": 0, "duration": 2}],

@@ -1356,7 +1356,8 @@
     }finally{S.busy=false;}
   };
   window.filmStudioAsk=async function(){
-    var input=$('fs-chat-input'),message=(input.value||'').trim();if(!message||S.busy)return;
+    var input=$('fs-chat-input')||$('fs-static-chat-input');if(!input)return;
+    var message=(input.value||'').trim();if(!message||S.busy)return;
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
     if(S.broken){showStatus('影片文件无效，已暂停 AI 编辑；修复后重新载入。','error');return;}
     if(S.proposal){window.filmStudioRejectProposal();}

@@ -8,19 +8,6 @@ from video_director import config, film_document as fd
 from video_director.models import CompositionIR
 
 
-@pytest.mark.parametrize(("shape", "mask", "expected"), [
-    ("ellipse", {"id": "shape", "shape": "ellipse", "x": 0.5, "y": 0.5,
-                 "width": 0.4, "height": 0.6}, "clip-path:ellipse(20% 30% at 50% 50%)"),
-    ("polygon", {"id": "shape", "shape": "polygon", "geometry": [
-        [0.1, 0.2], [0.9, 0.2], [0.7, 0.8], [0.2, 0.9],
-    ]}, "clip-path:polygon(10% 20%, 90% 20%, 70% 80%, 20% 90%)"),
-    ("rectangle", {"id": "shape", "shape": "rectangle", "x": 0.5, "y": 0.5,
-                   "width": 0.6, "height": 0.4}, "clip-path:inset(30% 20% 30% 20%)"),
-    ("path", {"id": "shape", "shape": "path", "geometry": [
-        [0.1, 0.1], [0.9, 0.15], [0.75, 0.8], [0.25, 0.9],
-    ]}, "clip-path:polygon(10% 10%, 90% 15%, 75% 80%, 25% 90%)"),
-])
-
 def test_animated_mask_path_keyframes_migrate_to_film_runtime_contract(tmp_path, monkeypatch):
     storage = tmp_path / "composer"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
@@ -34,6 +21,7 @@ def test_animated_mask_path_keyframes_migrate_to_film_runtime_contract(tmp_path,
     ]), encoding="utf-8")
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "assets": [{"id": "asset-image", "type": "image", "file": "assets/still.png"}],
         "scenes": [{
             "id": "animated-mask-scene", "start": 0, "duration": 1, "text": "mask",
             "layers": [{
@@ -62,6 +50,18 @@ def test_animated_mask_path_keyframes_migrate_to_film_runtime_contract(tmp_path,
     assert "Bezier/开放路径语义" not in warnings
 
 
+@pytest.mark.parametrize(("shape", "mask", "expected"), [
+    ("ellipse", {"id": "shape", "shape": "ellipse", "x": 0.5, "y": 0.5,
+                 "width": 0.4, "height": 0.6}, "clip-path:ellipse(20% 30% at 50% 50%)"),
+    ("polygon", {"id": "shape", "shape": "polygon", "geometry": [
+        [0.1, 0.2], [0.9, 0.2], [0.7, 0.8], [0.2, 0.9],
+    ]}, "clip-path:polygon(10% 20%, 90% 20%, 70% 80%, 20% 90%)"),
+    ("rectangle", {"id": "shape", "shape": "rectangle", "x": 0.5, "y": 0.5,
+                   "width": 0.6, "height": 0.4}, "clip-path:inset(30% 20% 30% 20%)"),
+    ("path", {"id": "shape", "shape": "path", "geometry": [
+        [0.1, 0.1], [0.9, 0.15], [0.75, 0.8], [0.25, 0.9],
+    ]}, "clip-path:polygon(10% 10%, 90% 15%, 75% 80%, 25% 90%)"),
+])
 def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_path, monkeypatch, shape, mask, expected):
     storage = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
@@ -75,6 +75,7 @@ def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_pat
     ]), encoding="utf-8")
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "assets": [{"id": "asset-image", "type": "image", "file": "assets/still.png"}],
         "scenes": [{
             "id": "masked-opening", "start": 0, "duration": 1, "text": "masked",
             "layers": [{

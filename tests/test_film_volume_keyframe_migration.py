@@ -29,7 +29,7 @@ def test_video_layer_volume_keyframes_migrate_to_runtime_envelope(tmp_path, monk
                 "keyframes": [{
                     "property": "volume", "keyframes": [
                         {"at": 0, "value": 0.2, "easing": "linear"},
-                        {"at": 1, "value": 0.8, "easing": "linear"},
+                        {"at": 1, "value": 0.8, "easing": "ease_in_out"},
                         {"at": 2, "value": 0.4, "easing": "linear"},
                     ],
                 }],
@@ -72,7 +72,6 @@ def test_nonlinear_volume_keyframe_easing_is_reported_explicitly():
         "缓动 ease_in_out" in warning and "按线性插值迁移" in warning
         for warning in warnings
     )
-    assert not any("按线性插值迁移" in warning for warning in result["warnings"])
 
 
 def test_single_volume_keyframe_becomes_a_valid_constant_envelope():

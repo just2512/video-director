@@ -21,6 +21,8 @@ def _write_html_film_project(tmp_path: Path, monkeypatch) -> tuple[str, str]:
 <body><section id="visual" data-label="网页镜头">
 <iframe id="scene-opening" src="scenes/opening.html#t=0,1" at="0"
  style="left:0px;top:0px;width:160px;height:90px"></iframe>
+</section>
+<section id="moving-red-track" data-label="红色动态蒙版层">
 <img id="moving-red" src="assets/moving-red.png#t=0,1" at="0"
  data-film-transform='{"x":0.125,"y":0.5,"scale":1,"rotation":0,"opacity":1,"anchor":"center","stage_width":160,"stage_height":90,"base_width":20,"base_height":20}'
  data-film-keyframes='[{"property":"x","keyframes":[{"at":0,"value":0.125,"easing":"linear"},{"at":1,"value":0.75,"easing":"linear"}]},{"property":"camera_x","keyframes":[{"at":0,"value":0.5,"easing":"linear"},{"at":1,"value":0.45,"easing":"linear"}]},{"property":"camera_scale","keyframes":[{"at":0,"value":1,"easing":"linear"},{"at":1,"value":1.1,"easing":"linear"}]}]'
