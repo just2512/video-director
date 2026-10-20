@@ -317,15 +317,3 @@ jobs:
           })
           print(f"Published verified React Studio bundle: {updated['object']['sha']}")
           PY
-
-      - name: Upload test reports and browser traces
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        timeout-minutes: 5
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-director-test-artifacts
-          if-no-files-found: warn
-          retention-days: 14
-          path: |
-            junit.xml
-            pytest-output.log
