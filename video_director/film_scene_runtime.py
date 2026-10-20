@@ -91,6 +91,69 @@ _SCENE_BRIDGE = r"""
       await window.film.ready;
     }
   }
+  async function waitForVisualResources() {
+    var waits = [];
+    if (document.fonts && document.fonts.ready) {
+      waits.push(Promise.race([
+        document.fonts.ready,
+        new Promise(function (_, reject) {
+          setTimeout(function () { reject(new Error('字体资源等待超过 12 秒')); }, 12000);
+        })
+      ]));
+    }
+    Array.prototype.forEach.call(document.images || [], function (image) {
+      if (image.complete && image.naturalWidth > 0) {
+        if (typeof image.decode === 'function') waits.push(image.decode());
+        return;
+      }
+      if (image.complete && image.naturalWidth === 0) {
+        waits.push(Promise.reject(new Error('图片资源加载失败：' + (image.currentSrc || image.src || '<unknown>'))));
+        return;
+      }
+      waits.push(new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () {
+          cleanup();
+          reject(new Error('图片资源等待超过 12 秒：' + (image.currentSrc || image.src || '<unknown>')));
+        }, 12000);
+        function cleanup() {
+          clearTimeout(timer);
+          image.removeEventListener('load', loaded);
+          image.removeEventListener('error', failed);
+        }
+        function loaded() { cleanup(); resolve(); }
+        function failed() {
+          cleanup();
+          reject(new Error('图片资源加载失败：' + (image.currentSrc || image.src || '<unknown>')));
+        }
+        image.addEventListener('load', loaded, { once: true });
+        image.addEventListener('error', failed, { once: true });
+      }));
+    });
+    await Promise.all(waits);
+  }
+  async function settleFrameResult(result, t) {
+    if (!result || typeof result.then !== 'function') {
+      flushRaf(t);
+      return;
+    }
+    var settled = false, failure = null;
+    Promise.resolve(result).then(function () { settled = true; }, function (error) {
+      failure = error; settled = true;
+    });
+    // The frame promise may itself await requestAnimationFrame. Drive the
+    // virtual queue while allowing microtasks and ordinary async resource work
+    // to settle; native RAF is used only as a scheduler, never as film time.
+    for (var attempt = 0; attempt < 300 && !settled; attempt++) {
+      flushRaf(t);
+      await Promise.resolve();
+      if (!settled) {
+        await new Promise(function (resolve) { nativeRaf(function () { resolve(); }); });
+      }
+    }
+    if (!settled) throw new Error('frame(t) Promise 未在受控帧调度窗口内完成；请确保异步动画使用受控 RAF 或 ready 协议');
+    if (failure) throw failure;
+    flushRaf(t);
+  }
   function flushRaf(t) {
     clock.active = true;
     var rounds = 0;
@@ -267,14 +330,11 @@ _SCENE_BRIDGE = r"""
       clock.active = true;
       syncAnimations(t);
       var result = window.film.frame(t);
-      // Flush callbacks requested synchronously by frame(t) before awaiting its
-      // Promise, so a frame implementation may enqueue one draw callback without
-      // waiting forever for a native wall-clock animation frame.
-      flushRaf(t);
-      if (result && typeof result.then === 'function') await result;
+      await settleFrameResult(result, t);
       syncAnimations(t);
       flushRaf(t);
       applyOverrides();
+      await waitForVisualResources();
       await waitNativeFrame();
       await waitNativeFrame();
       sendFrameReady(message, true, null);
