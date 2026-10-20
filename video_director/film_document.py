@@ -2168,7 +2168,7 @@ _FILM_ANCHORS = {
     "center_left": (0.0, 0.5), "center": (0.5, 0.5), "center_right": (1.0, 0.5),
     "bottom_left": (0.0, 1.0), "bottom_center": (0.5, 1.0), "bottom_right": (1.0, 1.0),
 }
-_FILM_KEYFRAME_PROPERTIES = {"x", "y", "scale", "rotation", "opacity", "blur", "camera_x", "camera_y", "camera_scale"}
+_FILM_KEYFRAME_PROPERTIES = {"x", "y", "scale", "rotation", "opacity", "blur", "camera_x", "camera_y", "camera_scale", "offset_x", "offset_y"}
 
 
 def _film_transform_metadata(transform: dict | None, stage_width: int, stage_height: int,
@@ -2243,6 +2243,7 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
                 # Camera keyframes are 2D Composition-space view controls. FilmRuntime
                 # applies them around the frame center to each clip in the active scene.
                 "camera_x": (0.0, 1.0), "camera_y": (0.0, 1.0), "camera_scale": (0.1, 5.0),
+                "offset_x": (-10000.0, 10000.0), "offset_y": (-10000.0, 10000.0),
             }[prop]
             if not limits[0] <= value <= limits[1]:
                 invalid = True
@@ -2261,6 +2262,170 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
     return channels, list(dict.fromkeys(unsupported))
 
 
+
+
+def _film_motion_recipe_keyframes(layer: dict, clip_duration: float) -> tuple[list[dict], list[str]]:
+    """Resolve a version-pinned MotionRecipe into deterministic frame(t) keyframes.
+
+    Recipe x/y channels are pixel offsets, while Layer.keyframes x/y are normalized
+    composition coordinates. They intentionally use separate FilmRuntime properties.
+    """
+    recipe_id = str(layer.get("motion_recipe_id") or "")
+    if not recipe_id:
+        return [], []
+    version = str(layer.get("motion_version") or "") or None
+    warnings: list[str] = []
+    instance = layer.get("motion_instance") or {}
+    if not isinstance(instance, dict):
+        return [], [f"motion_instance for {recipe_id} 必须是对象"]
+
+    try:
+        from video_director.registries.recipes import MotionRegistry
+        recipe = MotionRegistry().get(recipe_id, version)
+    except Exception as exc:
+        return [], [
+            f"动效配方 {recipe_id}@{version or 'latest'} 无法解析，关键帧未迁移："
+            f"{type(exc).__name__}: {str(exc)[:160]}"
+        ]
+
+    recommended = float(recipe.duration_recommended)
+    raw_duration = instance.get("duration", recommended)
+    try:
+        motion_duration = _number(
+            raw_duration, f"{recipe_id}.duration",
+            float(recipe.duration_min), float(recipe.duration_max)
+        )
+    except FilmError as exc:
+        motion_duration = recommended
+        warnings.append(
+            f"动效 {recipe_id} 实例时长 {raw_duration!r} 不在 "
+            f"{recipe.duration_min:g}–{recipe.duration_max:g}s 范围，"
+            f"按推荐时长 {recommended:g}s 迁移：{exc}"
+        )
+    try:
+        start_offset = _number(
+            instance.get("start_offset", 0), f"{recipe_id}.start_offset", 0, 600
+        )
+    except FilmError as exc:
+        return [], warnings + [f"动效 {recipe_id} 的 start_offset 无效，关键帧未迁移：{exc}"]
+
+    raw_parameters = instance.get("parameters") or {}
+    if not isinstance(raw_parameters, dict):
+        warnings.append(f"动效 {recipe_id} 的 parameters 不是对象；按配方默认参数处理")
+        raw_parameters = {}
+    parameter_defs = {
+        str(item.get("name")): item
+        for item in recipe.parameters
+        if isinstance(item, dict) and item.get("name")
+    }
+    parameters: dict[str, float] = {}
+    for name, spec in parameter_defs.items():
+        default = spec.get("default", 0)
+        try:
+            parameters[name] = _number(
+                raw_parameters.get(name, default),
+                f"{recipe_id}.parameters.{name}",
+                float(spec.get("min", -1e9)),
+                float(spec.get("max", 1e9))
+            )
+        except FilmError as exc:
+            parameters[name] = float(default)
+            warnings.append(
+                f"动效 {recipe_id} 参数 {name}={raw_parameters.get(name)!r} 无效，"
+                f"按默认值 {default!r} 迁移：{exc}"
+            )
+
+    property_map = {
+        "opacity": "opacity",
+        "scale": "scale",
+        "rotation": "rotation",
+        "blur": "blur",
+        "x": "offset_x",
+        "y": "offset_y",
+    }
+    mapped_channels: list[dict] = []
+    for source_channel in recipe.channels:
+        source_property = str(source_channel.property)
+        target_property = property_map.get(source_property)
+        if target_property is None:
+            warnings.append(
+                f"动效 {recipe_id} 的 channel {source_property} 当前 FilmRuntime 无对应属性，未迁移"
+            )
+            continue
+
+        points: list[dict] = []
+        bad_channel = False
+        for keyframe in source_channel.keyframes:
+            try:
+                value = _number(keyframe.value, f"{recipe_id}.{source_property}.value")
+            except FilmError:
+                warnings.append(
+                    f"动效 {recipe_id} 的 {source_property} 含非数值关键帧，channel 未迁移"
+                )
+                bad_channel = True
+                break
+
+            if source_property in {"x", "y"} and "offsetPx" in parameters:
+                default_offset = float(parameter_defs["offsetPx"].get("default", 0) or 0)
+                if abs(default_offset) > 1e-9:
+                    value *= parameters["offsetPx"] / default_offset
+            if source_property == "scale" and len(points) == 0 and "fromScale" in parameters:
+                value = parameters["fromScale"]
+
+            easing = keyframe.easing or {"type": "linear", "mode": "in"}
+            if isinstance(easing, dict):
+                easing = dict(easing)
+                easing_type = str(easing.get("type") or "linear")
+                easing_mode = str(easing.get("mode") or "in").lower().replace("_", "")
+                if easing_type not in {
+                    "linear", "quad", "cubic", "quart", "quint", "sine",
+                    "expo", "circ", "back", "elastic"
+                } or easing_mode not in {"in", "out", "inout"}:
+                    warnings.append(
+                        f"动效 {recipe_id} 的缓动 {easing_type}/{easing_mode} 不支持，改用线性"
+                    )
+                    easing = "linear"
+                elif easing_type == "back" and "overshoot" in parameters:
+                    easing["parameters"] = dict(easing.get("parameters") or {})
+                    easing["parameters"]["overshoot"] = parameters["overshoot"]
+            elif easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                warnings.append(f"动效 {recipe_id} 的 easing 格式无效，改用线性")
+                easing = "linear"
+
+            at = start_offset + float(keyframe.at) * motion_duration
+            points.append({"at": round(at, 6), "value": value, "easing": easing})
+
+        if bad_channel or not points:
+            continue
+        points.sort(key=lambda item: item["at"])
+        if start_offset > 0:
+            # Hold the initial value before a delayed entrance starts.
+            initial = dict(points[0])
+            initial["at"] = 0.0
+            points.insert(0, initial)
+        mapped_channels.append({"property": target_property, "keyframes": points})
+
+    if start_offset + motion_duration > clip_duration + 0.001:
+        warnings.append(
+            f"动效 {recipe_id} 结束于 {start_offset + motion_duration:.3f}s，"
+            f"超过片段时长 {clip_duration:.3f}s；超出部分不会显示"
+        )
+    ignored_parameters = {
+        name for name, value in parameters.items()
+        if abs(value - float(parameter_defs[name].get("default", value))) > 1e-9
+        and name not in {"offsetPx", "fromScale", "overshoot"}
+    }
+    if ignored_parameters:
+        warnings.append(
+            f"动效 {recipe_id} 的参数 {sorted(ignored_parameters)} 未影响已映射关键帧；"
+            "原始参数仍保存在 data-motion-instance"
+        )
+    if recipe.motion_type == "kinetic_text":
+        warnings.append(
+            f"动效 {recipe_id} 属于 kinetic_text；逐词/级联语义不能作用于单个媒体片段，"
+            "本次只迁移可表示的整体属性关键帧"
+        )
+    return mapped_channels, list(dict.fromkeys(warnings))
 
 
 def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict], list[str]]:
@@ -2788,9 +2953,44 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     unsupported_layer_fields.extend(f"音量包络迁移提示：{warning}" for warning in volume_warnings)
                 else:
                     unsupported_layer_fields.append("图片层的 volume 关键帧无对应音轨，未迁移")
+            explicit_channel_properties = {
+                str(channel.get("property") or "") for channel in channels
+                if isinstance(channel, dict)
+            }
             channels, motion_warning = _motion_keyframes(layer.get("motion"), d, base_transform, channels)
             if motion_warning:
                 unsupported_layer_fields.append(motion_warning)
+            recipe_channels, recipe_warnings = _film_motion_recipe_keyframes(layer, d)
+            current_channel_properties = {
+                str(channel.get("property") or "") for channel in channels
+                if isinstance(channel, dict)
+            }
+            for recipe_channel in recipe_channels:
+                prop = str(recipe_channel.get("property") or "")
+                if prop in explicit_channel_properties:
+                    unsupported_layer_fields.append(
+                        f"motion_recipe {layer.get('motion_recipe_id')} 的 {prop} 与显式关键帧冲突；保留显式关键帧"
+                    )
+                    continue
+                # A pinned MotionRecipe takes precedence over the deprecated
+                # shorthand motion preset when both write the same channel.
+                if prop in current_channel_properties:
+                    channels = [
+                        channel for channel in channels
+                        if channel.get("property") != prop
+                    ]
+                channels.append(recipe_channel)
+                current_channel_properties.add(prop)
+            unsupported_layer_fields.extend(
+                f"motion recipe: {warning}" for warning in recipe_warnings
+            )
+            if layer.get("motion_recipe_id"):
+                attrs["data-motion-recipe-id"] = str(layer.get("motion_recipe_id"))
+                attrs["data-motion-recipe-version"] = str(layer.get("motion_version") or "")
+                attrs["data-motion-instance"] = json.dumps(
+                    layer.get("motion_instance") or {},
+                    ensure_ascii=False, separators=(",", ":")
+                )
             fit_mode = str(layer.get("fit_mode") or "cover")
             if fit_mode not in {"cover", "contain", "fill", "none", "scale-down"}:
                 unsupported_layer_fields.append(f"fit_mode:{fit_mode}")
@@ -2857,8 +3057,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 locked_clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
             else:
                 clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
-            if layer.get("motion_recipe_id") or layer.get("motion_version") or layer.get("motion_instance"):
-                unsupported_layer_fields.append("motion_recipe/instance lineage")
             if kind == "image" and (
                 abs(_number(layer.get("speed", 1), "image speed", 0.001) - 1) > 1e-6
                 or _number(layer.get("source_in", 0), "image source_in", 0) > 0

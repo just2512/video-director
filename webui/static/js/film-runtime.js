@@ -253,10 +253,41 @@
   }
   function filmEase(value,mode){
     var x=clamp(value,0,1);
-    if(mode==='ease_in')return x*x;
-    if(mode==='ease_out')return 1-(1-x)*(1-x);
-    if(mode==='ease_in_out')return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
-    return x;
+    if(typeof mode==='string'){
+      if(mode==='ease_in')return x*x;
+      if(mode==='ease_out')return 1-(1-x)*(1-x);
+      if(mode==='ease_in_out')return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+      return x;
+    }
+    if(!mode||typeof mode!=='object')return x;
+    var type=String(mode.type||'linear');
+    var direction=String(mode.mode||'in').toLowerCase().replace(/_/g,'');
+    var params=mode.parameters||{};
+    function easeIn(t){
+      if(type==='quad')return t*t;
+      if(type==='cubic')return t*t*t;
+      if(type==='quart')return t*t*t*t;
+      if(type==='quint')return t*t*t*t*t;
+      if(type==='sine')return 1-Math.cos(t*Math.PI/2);
+      if(type==='expo')return t===0?0:Math.pow(2,10*t-10);
+      if(type==='circ')return 1-Math.sqrt(Math.max(0,1-t*t));
+      if(type==='back'){
+        var overshoot=Number.isFinite(Number(params.overshoot))?Number(params.overshoot):1.70158;
+        return (overshoot+1)*t*t*t-overshoot*t*t;
+      }
+      if(type==='elastic'){
+        if(t===0||t===1)return t;
+        var amplitude=Number.isFinite(Number(params.amplitude))?Math.max(1,Number(params.amplitude)):1;
+        var period=Number.isFinite(Number(params.period))?Math.max(0.01,Number(params.period)):0.3;
+        var shift=period/(2*Math.PI)*Math.asin(1/amplitude);
+        return -amplitude*Math.pow(2,10*t-10)*Math.sin((t*10-10-shift*10)*2*Math.PI/period);
+      }
+      return t;
+    }
+    if(type==='linear')return x;
+    if(direction==='out')return 1-easeIn(1-x);
+    if(direction==='inout')return x<0.5?easeIn(x*2)/2:1-easeIn((1-x)*2)/2;
+    return easeIn(x);
   }
   function filmKeyframeValue(channels,property,time,fallback){
     var channel=(channels||[]).find(function(item){return item&&item.property===property;});
@@ -296,6 +327,8 @@
     var rotation=clamp(filmKeyframeValue(channels,'rotation',local,finite(cfg.rotation,0)),-3600,3600);
     var opacity=clamp(filmKeyframeValue(channels,'opacity',local,finite(cfg.opacity,1)),0,1);
     var blur=clamp(filmKeyframeValue(channels,'blur',local,0),0,100);
+    var offsetX=clamp(filmKeyframeValue(channels,'offset_x',local,0),-10000,10000);
+    var offsetY=clamp(filmKeyframeValue(channels,'offset_y',local,0),-10000,10000);
     var stageW=Math.max(1,finite(cfg.stage_width,state.data.stage.width));
     var stageH=Math.max(1,finite(cfg.stage_height,state.data.stage.height));
     var baseW=Math.max(1,finite(cfg.base_width,stageW));
@@ -312,6 +345,7 @@
     entry.el.style.width=width+'px';entry.el.style.height=height+'px';
     entry.el.style.transformOrigin=(anchor[0]*100)+'% '+(anchor[1]*100)+'%';
     entry.el.style.rotate=rotation+'deg';
+    entry.el.style.translate=offsetX+'px '+offsetY+'px';
     entry.el.style.filter=blur>0?'blur('+blur+'px)':'none';
     return opacity;
   }
