@@ -605,9 +605,9 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
                     arg=frame_number, timeout=20000,
                 )
                 frame_error = page.evaluate("window.__frameError")
+                _raise_for_external_scene_resources(blocked_external)
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED", f"第 {frame_number} 帧失败：{frame_error}", 500)
-                _raise_for_external_scene_resources(blocked_external)
                 page.locator("#runtime").screenshot(
                     path=str(frame_dir / f"{frame_number + 1:08d}.png"),
                     animations="disabled", timeout=20000,
@@ -774,9 +774,9 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 page.wait_for_function("(frame) => window.__lastFrameReady === frame",
                                        arg=frame_number, timeout=20000)
                 frame_error = page.evaluate("window.__frameError")
+                _raise_for_external_scene_resources(blocked_external)
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED", f"时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)
-                _raise_for_external_scene_resources(blocked_external)
                 frame_pngs[timestamp] = page.locator("#runtime").screenshot(
                     animations="disabled", timeout=20000
                 )
@@ -793,10 +793,10 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 page.wait_for_function("(frame) => window.__lastFrameReady === frame",
                                        arg=frame_number, timeout=20000)
                 frame_error = page.evaluate("window.__frameError")
+                _raise_for_external_scene_resources(blocked_external)
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED",
                                           f"反序检查时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)
-                _raise_for_external_scene_resources(blocked_external)
                 repeated = page.locator("#runtime").screenshot(animations="disabled", timeout=20000)
                 changed, total, frame_width, frame_height = _frame_diff_stats(frame_pngs[timestamp], repeated)
                 allowed = max(16, int(total * 0.0005))
