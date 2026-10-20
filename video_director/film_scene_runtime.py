@@ -284,6 +284,19 @@ _SCENE_BRIDGE = r"""
     properties.forEach(function (key) {
       styleData[key] = String(style[key] || '');
     });
+    // rect is the painted viewport box and may be scaled/rotated by the preview.
+    // localRect is the CSS layout box: Inspector edits must round-trip these design
+    // coordinates, not the smaller screen-space rectangle produced by iframe scaling.
+    function cssPixel(value, fallback) {
+      var match = String(value || '').trim().match(/^(-?(?:\\d+(?:\\.\\d+)?|\\.\\d+))px$/);
+      return match ? Number(match[1]) : fallback;
+    }
+    var localRect = {
+      x: cssPixel(style.left, rect.x),
+      y: cssPixel(style.top, rect.y),
+      width: cssPixel(style.width, rect.width),
+      height: cssPixel(style.height, rect.height)
+    };
     parent.postMessage({
       type: type,
       selector: selectorFor(element),
@@ -292,6 +305,7 @@ _SCENE_BRIDGE = r"""
       textEditable: element.children.length === 0,
       styles: styleData,
       rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+      localRect: localRect,
       viewport: {width: window.innerWidth, height: window.innerHeight}
     }, '*');
   }
