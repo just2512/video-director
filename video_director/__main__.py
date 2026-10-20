@@ -119,8 +119,7 @@ def main(argv=None):
 
         def emit(payload, exit_code=0):
             print(json.dumps(payload, ensure_ascii=False, indent=2))
-            if exit_code:
-                sys.exit(exit_code)
+            sys.exit(exit_code)
 
         try:
             pid = fd.validate_project_id(a.project_id)
