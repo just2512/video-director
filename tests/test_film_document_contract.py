@@ -1204,3 +1204,108 @@ def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
     assert '_reject_legacy_composition_access(pid, "导出旧时间线成片")' in server
 
 
+
+HTML_SCENE_SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head>
+<body>
+<section id="scene-track" data-label="网页镜头">
+<iframe id="scene" src="scenes/title.html#t=0,4" at="0"></iframe>
+</section>
+</body></html>'''
+
+
+def test_element_set_merges_selector_override_without_erasing_existing_entries():
+    doc = fd.parse_film(HTML_SCENE_SAMPLE)
+    doc["tracks"][0]["clips"][0]["attrs"]["overrides"] = json.dumps([
+        {"selector": "#title", "text": "旧标题", "style": {"color": "#ffffff", "fontSize": "24px"}},
+        {"selector": ".badge", "text": "保留"},
+    ], ensure_ascii=False)
+    updated, normalized = fd.apply_ops(doc, [{
+        "op": "element_set", "clip": "scene", "selector": "#title",
+        "text": "新标题", "style": {"color": "#ff0000", "left": "30px", "rotate": "12deg"},
+    }])
+    clip = updated["tracks"][0]["clips"][0]
+    overrides = json.loads(clip["attrs"]["overrides"])
+    title = next(item for item in overrides if item.get("selector") == "#title")
+    assert title["text"] == "新标题"
+    assert title["style"] == {"color": "#ff0000", "fontSize": "24px", "left": "30px", "rotate": "12deg"}
+    assert any(item.get("selector") == ".badge" for item in overrides)
+    assert normalized[0]["op"] == "element_set"
+    assert normalized[0]["clip"] == "scene"
+
+
+def test_element_set_rejects_non_html_target_and_unsafe_style_values():
+    doc = fd.parse_film(SAMPLE)
+    with pytest.raises(fd.FilmError, match="HTML 镜头"):
+        fd.apply_ops(doc, [{
+            "op": "element_set", "clip": "clip-a", "selector": "#title",
+            "style": {"color": "#ff0000"},
+        }])
+    doc = fd.parse_film(HTML_SCENE_SAMPLE)
+    with pytest.raises(fd.FilmError, match="不允许|unsafe|UNSAFE"):
+        fd.apply_ops(doc, [{
+            "op": "element_set", "clip": "scene", "selector": "#title",
+            "style": {"backgroundColor": "url(javascript:alert(1))"},
+        }])
+    with pytest.raises(fd.FilmError, match="CSS selector"):
+        fd.apply_ops(doc, [{
+            "op": "element_set", "clip": "scene", "selector": "  ",
+            "style": {"color": "#ff0000"},
+        }])
+
+
+def test_ai_planner_can_only_modify_the_explicitly_selected_html_element():
+    class FakeLLM:
+        def __init__(self, output):
+            self.output = output
+            self.prompt = ""
+
+        def generate(self, prompt):
+            self.prompt = prompt
+            return self.output
+
+    state = {"exists": True, "doc": fd.parse_film(HTML_SCENE_SAMPLE)}
+    selected = {
+        "clip_id": "scene", "selector": "#title", "tag": "h1",
+        "text": "Original", "textEditable": True,
+        "styles": {"color": "rgb(255, 255, 255)"},
+        "rect": {"x": 10, "y": 20, "width": 300, "height": 60},
+    }
+    llm = FakeLLM(json.dumps({
+        "operations": [{
+            "op": "element_set", "clip": "scene", "selector": "#title",
+            "text": "Updated", "style": {"color": "#ff0000", "fontSize": "32px"},
+        }],
+        "summary": "修改当前标题",
+    }, ensure_ascii=False))
+    operations = fd.plan_film_command(
+        llm, state, "把这个标题改成红色并增大字号", "scene",
+        selected_element=selected,
+    )
+    assert operations[0]["op"] == "element_set"
+    assert '"selector":"#title"' in llm.prompt
+    assert "不得使用 element_set" not in llm.prompt
+
+    wrong_target = FakeLLM(json.dumps({
+        "operations": [{"op": "element_set", "clip": "scene", "selector": ".other",
+                        "style": {"color": "#ff0000"}}],
+        "summary": "wrong selector",
+    }))
+    with pytest.raises(fd.FilmError, match="当前选中的 HTML 镜头"):
+        fd.plan_film_command(wrong_target, state, "改颜色", "scene", selected_element=selected)
+
+
+def test_ai_planner_refuses_whole_text_replacement_for_nested_selected_element():
+    class FakeLLM:
+        def generate(self, _prompt):
+            return json.dumps({
+                "operations": [{"op": "element_set", "clip": "scene", "selector": "#title",
+                                "text": "replace", "style": {"color": "#ff0000"}}],
+                "summary": "nested",
+            })
+
+    state = {"exists": True, "doc": fd.parse_film(HTML_SCENE_SAMPLE)}
+    selected = {"clip_id": "scene", "selector": "#title", "textEditable": False}
+    with pytest.raises(fd.FilmError, match="包含子元素"):
+        fd.plan_film_command(FakeLLM(), state, "改标题", "scene", selected_element=selected)
+
