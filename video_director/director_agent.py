@@ -1535,6 +1535,40 @@ _TOOLS = {
 }
 
 
+def _ensure_reference_reports(pid: str, bundle: dict, state: dict) -> None:
+    """参考视频报告确定性补齐（审计差距 3 残余）。
+
+    bundle references 有 video 路径但无 analysis 报告（或报告缺
+    video_fingerprint，即旧版产物）→ reference_analyzer(use_llm=False) 重析；
+    成功写回该 reference 并 persist_bundle；失败 warning 进 style_warnings，
+    不阻塞主链。本函数自身只做判定，外层 execute() 已 try-except 包裹。
+    """
+    from video_director import reference as reference_mod
+
+    touched = False
+    for ref in bundle.get("references") or []:
+        video_path = str(ref.get("video") or "").strip()
+        if not video_path or not Path(video_path).is_file():
+            continue
+        report = ref.get("analysis") or {}
+        if report.get("report_path") and report.get("video_fingerprint"):
+            continue  # 已有完整新版报告
+        try:
+            new_report = reference_mod.reference_analyzer(
+                video_path, str(config.project_dir(pid)), use_llm=False)
+        except Exception as exc:  # noqa: BLE001 单个参考失败不阻塞
+            warning = f"参考视频自动分析失败（不阻塞）: {Path(video_path).name}: {exc}"
+            logger.warning(warning)
+            state.setdefault("style_warnings", []).append(warning)
+            continue
+        ref["report_path"] = str(new_report.get("report_path") or "")
+        ref["analysis"] = new_report
+        touched = True
+    if touched:
+        from video_director import director_inputs as di
+        di.persist_bundle(pid, bundle)
+
+
 def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     """Adaptive creation loop: every node has a Tool Call, Result, Verify and next-node decision."""
     from video_director import director_inputs as di
@@ -1633,6 +1667,15 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
             state["scene_plan"] = plan_data
         except (OSError, json.JSONDecodeError):
             logger.warning("Director candidate state restore failed; keeping checkpoint state")
+
+    # 审计差距 3 残余（参考视频自动分析进导演依赖链）：bundle references 里
+    # 有 video 路径但无报告/报告缺 video_fingerprint → 确定性重析（use_llm=False，
+    # 不依赖 LLM 层）。成功写回 bundle 并 persist_bundle；失败 warning 不阻塞主链。
+    try:
+        _ensure_reference_reports(pid, bundle, state)
+    except Exception as exc:  # noqa: BLE001 参考分析失败绝不炸主链
+        logger.warning(f"Director 参考视频自动分析失败（不阻塞主链）: {exc}")
+
     bundle["materialized"] = {
         "reference_files": refs,
         "software_evidence_files": repo_files,

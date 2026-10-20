@@ -66,6 +66,119 @@ def _image_size(width: int, height: int) -> str:
     return "1792x1024"      # 横屏 16:9
 
 
+# ---------------------------------------------------------------------------
+# 视频异步任务持久化（仓库审计差距 2 残余：纯内存轮询 → 进程中断后外部任务
+# 失联 → 重复付费。落盘 generation_jobs.json，提交即记 provider_task_id，
+# 轮询更新，recover_pending_video_jobs 接管恢复）
+# ---------------------------------------------------------------------------
+
+def _jobs_path(project_id: str) -> Path:
+    return config.project_dir(project_id) / "generation_jobs.json"
+
+
+def _load_jobs(project_id: str) -> dict:
+    p = _jobs_path(project_id)
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_jobs(project_id: str, jobs: dict) -> None:
+    path = _jobs_path(project_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _update_job(project_id: str, job_id: str, fields: dict) -> dict:
+    """增量更新一条 job 记录并落盘（读-改-写，单进程内够用）。"""
+    jobs = _load_jobs(project_id)
+    job = jobs.get(job_id) or {}
+    job.update(fields)
+    job["job_id"] = job_id
+    job["updated_at"] = fields.get("updated_at", time.time())
+    jobs[job_id] = job
+    _save_jobs(project_id, jobs)
+    return job
+
+
+def _prompt_fingerprint(prompt: str, gen_type: str) -> str:
+    return hashlib.sha256((prompt + "|" + gen_type).encode("utf-8")).hexdigest()
+
+
+def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
+    """同 fingerprint+variant 且仍在跑的外部任务 → 复用轮询，不重复提交付费。"""
+    for job in _load_jobs(project_id).values():
+        if (job.get("input_fingerprint") == input_fp
+                and job.get("variant") == variant
+                and job.get("status") in ("pending", "running")
+                and job.get("provider_task_id")):
+            return job
+    return None
+
+
+def _video_client(cfg: dict):
+    """OpenAI 兼容 client 构造（集中一处，测试可 monkeypatch 隔离）。"""
+    try:
+        from openai import OpenAI
+        return OpenAI(api_key=cfg["api_key"], base_url=cfg.get("base_url") or "")
+    except Exception as exc:
+        raise GenerationError("VIDEO_PROVIDER_UNAVAILABLE", f"openai 库不可用: {exc}") from exc
+
+
+def recover_pending_video_jobs(project_id: str) -> List[dict]:
+    """进程中断后的视频任务恢复（审计差距 2）。
+
+    读 generation_jobs.json，对 status=running 且有 provider_task_id 的任务
+    重新查询外部状态：完成 → 继续下载到 output_file 并标 done；失败 → 标
+    failed；查询/下载失败 → 保持 running（下次再试）。幂等：done/failed 不动。
+    返回本次发生状态迁移的 job 列表（含最新状态）。
+    """
+    jobs = _load_jobs(project_id)
+    pending = [j for j in jobs.values()
+               if j.get("status") == "running" and j.get("provider_task_id")
+               and j.get("gen_type") == "video"]
+    if not pending:
+        return []
+    try:
+        client = _video_client(_role_cfg("video"))
+    except Exception as exc:
+        logger.warning(f"generation: 视频任务恢复跳过（provider 不可用，保持 running）: {exc}")
+        return []
+    recovered: List[dict] = []
+    for job in pending:
+        job_id = job["job_id"]
+        try:
+            status, url, _raw = _query_video_status(client, job["provider_task_id"])
+        except Exception as exc:
+            logger.warning(
+                f"generation: 任务 {job_id} 外部查询失败（保持 running）: {exc}")
+            continue
+        if status == "failed":
+            _update_job(project_id, job_id, {"status": "failed"})
+            recovered.append({**job, "status": "failed"})
+            continue
+        if status != "done":
+            _update_job(project_id, job_id, {"status": "running"})
+            continue
+        out_file = job.get("output_file") or ""
+        if out_file and url:
+            try:
+                Path(out_file).write_bytes(_download_bytes(url))
+            except Exception as exc:
+                logger.warning(
+                    f"generation: 任务 {job_id} 产物下载失败（保持 running 下次重试）: {exc}")
+                continue
+        _update_job(project_id, job_id, {"status": "done", "output_file": out_file})
+        recovered.append({**job, "status": "done"})
+    return recovered
+
+
 def generate_image_variants(
     prompt: str,
     width: int,
@@ -289,6 +402,16 @@ def generate(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=model)
     elif gen_type == "video":
+        # 审计差距 2：视频分支入口先恢复历史 running 任务（幂等；失败不阻塞
+        # 本次生成——恢复失败只记警告，job 留待下次）。
+        try:
+            recovered = recover_pending_video_jobs(project_id)
+            if recovered:
+                logger.info(
+                    f"generation: 恢复 {len(recovered)} 个历史视频任务: "
+                    f"{[(j['job_id'][:16], j['status']) for j in recovered]}")
+        except Exception as exc:  # noqa: BLE001 恢复失败不阻塞新生成
+            logger.warning(f"generation: 视频任务恢复失败（不阻塞）: {exc}")
         # §29：首末帧先问 Provider Capability Matrix，不再由生成器自己猜协议。
         if first_frame or last_frame:
             try:
@@ -459,7 +582,12 @@ def _generate_image_or_fallback(project_id, prompt, width, height, variants,
 
 def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                     input_fp, manifest, model=None):
-    """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。"""
+    """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。
+
+    外部任务持久化（审计差距 2）：提交成功即落盘 provider_task_id 到
+    generation_jobs.json；同 input_fingerprint+variant 的 running 任务直接
+    复用轮询，不重复提交（防重复付费）。
+    """
     cfg = _role_cfg("video")
     try:
         from video_director import provider_matrix
@@ -482,18 +610,16 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
             "VIDEO_PROVIDER_UNAVAILABLE",
             "生视频 model/base_url 未配置完整（供应商特定：Veo/Kling/Wan 兼容端点）",
         )
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=cfg["api_key"], base_url=base_url)
-    except Exception as exc:
-        raise GenerationError("VIDEO_PROVIDER_UNAVAILABLE", f"openai 库不可用: {exc}") from exc
+    client = _video_client(cfg)
 
     results: List[GenerationResult] = []
     for v in variants:
         asset_id = f"gen-{uuid.uuid4().hex[:8]}"
         out_file = assets_dir / f"{asset_id}.mp4"
         try:
-            url = _create_and_poll_video(client, model, prompt, width, height)
+            url = _create_poll_and_persist_video(
+                client, project_id, model, prompt, width, height,
+                input_fp, v, str(out_file))
         except Exception as exc:
             raise GenerationError(
                 "VIDEO_GENERATION_FAILED",
@@ -505,60 +631,110 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
     return results
 
 
-def _create_and_poll_video(client, model, prompt, width, height, timeout: float = 600.0):
-    """OpenAI 兼容视频生成：POST video/generations → 轮询 → 返回 mp4 url。
+def _create_poll_and_persist_video(
+    client, project_id, model, prompt, width, height,
+    input_fp: str, variant: str, out_file: str, timeout: float = 600.0,
+) -> str:
+    """提交 →（持久化）→ 轮询（每轮更新 jobs）→ 返回 mp4 url。
 
-    供应商协议可能不同（任务 id 字段/状态字段/轮询端点），失败向上抛诚实错误。
+    提交前先查可复用的 running 任务（同 fingerprint+variant）；命中则跳过
+    重新提交，直接接管轮询（防重复付费）。行为与原 _create_and_poll_video
+    一致，仅叠加持久化。
     """
     import time as _time
-    size = _image_size(width, height)
-    try:
-        create = client.post(
-            "/video/generations",
-            json={"model": model, "prompt": prompt, "size": size},
-        )
-    except Exception:
-        # 部分供应商用 /videos 单例端点
-        create = client.post(
-            "/videos",
-            json={"model": model, "prompt": prompt, "size": size},
-        )
-    data = create.json() if hasattr(create, "json") else create
-    if isinstance(data, dict) and "data" in data:
-        data = data["data"]
-    job_id = None
-    if isinstance(data, dict):
-        job_id = data.get("id")
-    elif isinstance(data, list) and data:
-        job_id = data[0].get("id")
-    if not job_id:
-        raise GenerationError(
-            "VIDEO_GENERATION_FAILED", f"生视频任务无 id：{str(data)[:200]}")
+    reusable = _find_reusable_job(project_id, input_fp, variant)
+    if reusable:
+        job_id = reusable["job_id"]
+        task_id = reusable["provider_task_id"]
+        logger.info(f"generation: 复用 running 视频任务 {job_id}"
+                    f"（fingerprint={input_fp[:12]}，不重复提交）")
+    else:
+        size = _image_size(width, height)
+        try:
+            create = client.post(
+                "/video/generations",
+                json={"model": model, "prompt": prompt, "size": size},
+            )
+        except Exception:
+            # 部分供应商用 /videos 单例端点
+            create = client.post(
+                "/videos",
+                json={"model": model, "prompt": prompt, "size": size},
+            )
+        data = create.json() if hasattr(create, "json") else create
+        if isinstance(data, dict) and "data" in data:
+            data = data["data"]
+        task_id = None
+        if isinstance(data, dict):
+            task_id = data.get("id")
+        elif isinstance(data, list) and data:
+            task_id = data[0].get("id")
+        if not task_id:
+            raise GenerationError(
+                "VIDEO_GENERATION_FAILED", f"生视频任务无 id：{str(data)[:200]}")
+        job_id = f"genjob-{uuid.uuid4().hex[:12]}"
+        # 提交成功 → 立即落盘 provider_task_id（进程中断后可恢复，防重复付费）
+        _update_job(project_id, job_id, {
+            "provider": model or "video-llm",
+            "provider_task_id": task_id,
+            "gen_type": "video",
+            "prompt_fingerprint": _prompt_fingerprint(prompt, "video"),
+            "input_fingerprint": input_fp,
+            "variant": variant,
+            "status": "running",
+            "output_file": out_file,
+        })
 
     deadline = _time.time() + timeout
     while _time.time() < deadline:
-        job = client.get(f"/video/generations/{job_id}")
-        js = job.json() if hasattr(job, "json") else job
-        if isinstance(js, dict) and "data" in js:
-            js = js["data"]
-        if isinstance(js, list) and js:
-            js = js[0]
-        status = (js.get("status") if isinstance(js, dict) else None)
-        if status in ("completed", "succeeded", "done"):
-            url = None
-            if isinstance(js, dict):
-                url = js.get("url") or js.get("output") or js.get("video_url")
-            if isinstance(url, dict):
-                url = url.get("url")
+        status, url, _raw = _query_video_status(client, task_id)
+        if status == "done":
             if not url:
                 raise GenerationError(
-                    "VIDEO_GENERATION_FAILED", f"生视频任务完成但无 url：{str(js)[:200]}")
+                    "VIDEO_GENERATION_FAILED", "生视频任务完成但无 url")
+            _update_job(project_id, job_id,
+                        {"status": "done", "output_file": out_file})
             return url
-        if status in ("failed", "error", "cancelled"):
-            raise GenerationError("VIDEO_GENERATION_FAILED", f"生视频任务失败：{str(js)[:200]}")
+        if status == "failed":
+            _update_job(project_id, job_id, {"status": "failed"})
+            raise GenerationError("VIDEO_GENERATION_FAILED",
+                                  f"生视频任务失败：{str(_raw)[:200]}")
+        _update_job(project_id, job_id, {"status": "running"})
         _time.sleep(5.0)
+    _update_job(project_id, job_id, {"status": "failed"})
     raise GenerationError("VIDEO_GENERATION_FAILED",
                           f"生视频任务超时（>{int(timeout)}s）")
+
+
+def _query_video_status(client, task_id: str) -> tuple:
+    """查一次外部视频任务状态（纯函数，提交/轮询/恢复共用同一协议视图）。
+
+    Returns:
+        (status, url, raw)：status ∈ {"running", "done", "failed"}；
+        url 仅 done 时可能有值；raw 为原始响应 dict（诊断用）。
+        终态失败不在此抛异常（恢复路径需区分「外部失败」与「查询失败」），
+        由调用方决定 raise 还是落盘。
+    """
+    job = client.get(f"/video/generations/{task_id}")
+    js = job.json() if hasattr(job, "json") else job
+    if isinstance(js, dict) and "data" in js:
+        js = js["data"]
+    if isinstance(js, list) and js:
+        js = js[0]
+    status = (js.get("status") if isinstance(js, dict) else None)
+    if status in ("completed", "succeeded", "done"):
+        url = None
+        if isinstance(js, dict):
+            url = js.get("url") or js.get("output") or js.get("video_url")
+        if isinstance(url, dict):
+            url = url.get("url")
+        if not url:
+            raise GenerationError(
+                "VIDEO_GENERATION_FAILED", f"生视频任务完成但无 url：{str(js)[:200]}")
+        return "done", url, js
+    if status in ("failed", "error", "cancelled"):
+        return "failed", None, js
+    return "running", None, js
 
 
 def add_to_timeline(project_id: str, scene_id: str, asset_id: str) -> dict:
