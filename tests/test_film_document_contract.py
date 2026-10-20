@@ -1252,6 +1252,16 @@ def test_element_set_rejects_non_html_target_and_unsafe_style_values():
             "op": "element_set", "clip": "scene", "selector": "  ",
             "style": {"color": "#ff0000"},
         }])
+    with pytest.raises(fd.FilmError, match="宽度必须在 0 到 10000"):
+        fd.apply_ops(doc, [{
+            "op": "element_set", "clip": "scene", "selector": "#title",
+            "style": {"width": "-12px"},
+        }])
+    with pytest.raises(fd.FilmError, match="画布字号必须在 0 到 1000"):
+        fd.apply_ops(doc, [{
+            "op": "element_set", "clip": "scene", "selector": "#title",
+            "style": {"fontSize": "1001px"},
+        }])
 
 
 def test_ai_planner_can_only_modify_the_explicitly_selected_html_element():
