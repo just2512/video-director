@@ -359,7 +359,7 @@
     post({
       type:message.type==='film-element-selected'?'film-runtime:element-selected':'film-runtime:element-hover',
       rev:state.rev,clipId:entry.clip.id,selector:message.selector,tag:message.tag,text:message.text,
-      styles:message.styles||{},
+      textEditable:message.textEditable!==false,styles:message.styles||{},
       rect:{
         x:left+finite(rect.x,0)*scaleX,y:top+finite(rect.y,0)*scaleY,
         width:finite(rect.width,0)*scaleX,height:finite(rect.height,0)*scaleY
