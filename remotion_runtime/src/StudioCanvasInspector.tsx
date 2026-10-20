@@ -1,4 +1,4 @@
-import React from "react";
+import React, {useState} from "react";
 import {flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
@@ -14,6 +14,15 @@ export interface CanvasElementSelection {
   localRect: Rect;
   baseRevision: string;
 }
+type FilmClipInspectorValues = {
+  at: string;
+  speed: string;
+  volume: string;
+  muted: "true" | "false";
+  fadeIn: string;
+  fadeOut: string;
+  title: string;
+};
 export interface FilmClipInspectorModel {
   id: string;
   tag: string;
@@ -82,7 +91,7 @@ declare global {
     filmStudioReactInspector?: CanvasInspectorBridge;
     filmStudioReactToolbar?: FilmStudioReactToolbarBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
-    filmStudioSaveInspector?: () => Promise<void> | void;
+    filmStudioSaveInspector?: (values?: FilmClipInspectorValues) => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
     filmStudioReactTimeline?: FilmStudioReactTimelineBridge;
@@ -118,13 +127,28 @@ const rotateDegrees = (styles: Record<string, string>): number => {
 };
 
 const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage?: string}> = ({clip, emptyMessage}) => {
+  const [form, setForm] = useState<FilmClipInspectorValues>(() => {
+    const attrs = clip?.attrs || {};
+    const fade = String(attrs.fade || "0,0").split(",");
+    return {
+      at: String(attrs.at ?? clip?.at ?? 0),
+      speed: String(attrs.speed || 1),
+      volume: String(attrs.volume == null ? 1 : attrs.volume),
+      muted: Object.prototype.hasOwnProperty.call(attrs, "muted") ? "true" : "false",
+      fadeIn: fade[0] || "0",
+      fadeOut: fade[1] || "0",
+      title: String(attrs.title || ""),
+    };
+  });
+  const update = (field: keyof FilmClipInspectorValues, value: string) => {
+    setForm((current) => ({...current, [field]: value}));
+  };
   if (!clip) {
     return <div className="fs-empty" data-react-clip-inspector-empty="true">{emptyMessage || "选择时间线片段后编辑属性。"}</div>;
   }
   const attrs = clip.attrs || {};
-  const speed = Number(attrs.speed || 1);
-  const fade = String(attrs.fade || "0,0").split(",");
-  const muted = Object.prototype.hasOwnProperty.call(attrs, "muted");
+  const speed = Number(form.speed || 1);
+  const hasMediaControls = clip.tag === "video" || clip.tag === "audio";
   return (
     <div data-react-clip-inspector="true">
       <div className="fs-inspector-description">
@@ -133,33 +157,35 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       <div className="fs-inspector-section">
         <label className="fs-inspector-field">
           时间位置（秒）
-          <input id="fs-field-at" type="number" min={0} step={0.033333} defaultValue={String(attrs.at || clip.at || 0)} />
+          <input id="fs-field-at" type="number" min={0} step={0.033333} value={form.at}
+            onChange={(event) => update("at", event.currentTarget.value)} />
         </label>
-        {(clip.tag === "video" || clip.tag === "audio") && (
+        {hasMediaControls && (
           <>
             <label className="fs-inspector-field">
               速度
-              <input id="fs-field-speed" type="number" min={0.25} max={4} step={0.05} defaultValue={String(attrs.speed || 1)} />
+              <input id="fs-field-speed" type="number" min={0.25} max={4} step={0.05} value={form.speed}
+                onChange={(event) => update("speed", event.currentTarget.value)} />
             </label>
             <div className="fs-speed-presets">
               <span>预设倍率</span>
               <div>{[0.5, 1, 1.5, 2, 4].map((value) => (
-                <button
-                  type="button"
-                  key={value}
+                <button type="button" key={value}
                   className={"fs-speed-chip" + (Math.abs(speed - value) < 0.001 ? " fs-speed-chip-active" : "")}
-                  data-speed-preset={value}
-                  title={"设置速度为 " + value + " 倍"}
+                  data-speed-preset={value} title={"设置速度为 " + value + " 倍"}
+                  onClick={() => update("speed", String(value))}
                 >{value}×</button>
               ))}</div>
             </div>
             <label className="fs-inspector-field">
               音量
-              <input id="fs-field-volume" type="number" min={0} max={2} step={0.05} defaultValue={String(attrs.volume == null ? 1 : attrs.volume)} />
+              <input id="fs-field-volume" type="number" min={0} max={2} step={0.05} value={form.volume}
+                onChange={(event) => update("volume", event.currentTarget.value)} />
             </label>
             <label className="fs-inspector-field">
               静音
-              <select id="fs-field-muted" defaultValue={muted ? "true" : "false"}>
+              <select id="fs-field-muted" value={form.muted}
+                onChange={(event) => update("muted", event.currentTarget.value === "true" ? "true" : "false")}>
                 <option value="false">否</option><option value="true">是</option>
               </select>
             </label>
@@ -169,27 +195,27 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
           <>
             <label className="fs-inspector-field">
               淡入（秒）
-              <input id="fs-field-fade-in" type="number" min={0} max={60} step={0.05} defaultValue={fade[0] || "0"} />
+              <input id="fs-field-fade-in" type="number" min={0} max={60} step={0.05} value={form.fadeIn}
+                onChange={(event) => update("fadeIn", event.currentTarget.value)} />
             </label>
             <label className="fs-inspector-field">
               淡出（秒）
-              <input id="fs-field-fade-out" type="number" min={0} max={60} step={0.05} defaultValue={fade[1] || "0"} />
+              <input id="fs-field-fade-out" type="number" min={0} max={60} step={0.05} value={form.fadeOut}
+                onChange={(event) => update("fadeOut", event.currentTarget.value)} />
             </label>
           </>
         )}
         <label className="fs-inspector-field">
           片段标题
-          <input id="fs-field-title" type="text" maxLength={200} defaultValue={attrs.title || ""} />
+          <input id="fs-field-title" type="text" maxLength={200} value={form.title}
+            onChange={(event) => update("title", event.currentTarget.value)} />
         </label>
       </div>
       <div className="fs-inspector-description fs-inspector-section">
         更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
       </div>
-      <button
-        type="button"
-        id="fs-apply-clip-inspector"
-        className="fs-btn fs-primary"
-        onClick={() => { void window.filmStudioSaveInspector?.(); }}
+      <button type="button" id="fs-apply-clip-inspector" className="fs-btn fs-primary"
+        onClick={() => { void window.filmStudioSaveInspector?.({...form}); }}
       >应用片段属性</button>
     </div>
   );

@@ -15,6 +15,12 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert 'id="fs-field-volume"' in component
     assert 'id="fs-field-fade-in"' in component
     assert 'id="fs-field-title"' in component
-    assert "filmStudioSaveInspector?: () => Promise<void> | void" in component
+    assert "filmStudioSaveInspector?: (values?: FilmClipInspectorValues) => Promise<void> | void" in component
+    assert "const [form, setForm] = useState<FilmClipInspectorValues>" in component
+    assert 'value={form.at}' in component
+    assert 'onChange={(event) => update("at", event.currentTarget.value)}' in component
     assert 'id="fs-apply-clip-inspector"' in component
-    assert "window.filmStudioSaveInspector?.()" in component
+    assert "window.filmStudioSaveInspector?.({...form})" in component
+    assert "window.filmStudioSaveInspector=async function(form)" in studio
+    assert "function read(key,id)" in studio
+    assert "await filmStudioCommit(ops)" in studio
