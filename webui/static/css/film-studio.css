@@ -229,3 +229,19 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 
 .fs-track.fs-sync-locked .fs-track-head{box-shadow:inset 2px 0 0 #45c2b4}
 .fs-track-controls [data-track-flag="sync-lock"][aria-pressed="true"]{color:#45c2b4;border-color:#45c2b4}
+
+/* Resizable horizontal dock seam: keeps timeline height separate from panel width. */
+.fs-timeline-divider{display:none;flex:0 0 6px;height:6px;min-height:6px;position:relative;cursor:row-resize;touch-action:none;user-select:none;border-radius:4px;background:transparent}
+.fs-timeline-divider:before{content:"";position:absolute;inset:2px 0;background:#303030;border-radius:4px}
+.fs-timeline-divider:hover:before,.fs-timeline-divider:focus-visible:before,.fs-timeline-divider.fs-divider-dragging:before{background:#45c2b4}
+.fs-timeline-divider:after{content:"";position:absolute;inset:-4px 0;z-index:12;background:transparent}
+.film-studio-panel.fs-studio-expanded .fs-timeline-divider{display:block}
+.film-studio-panel.fs-studio-expanded .fs-timeline-pane{
+  flex:0 0 var(--fs-timeline-height,min(35vh,420px));
+  min-height:160px;
+  max-height:45vh;
+}
+.film-studio-panel.fs-studio-expanded .fs-timeline-scroll{min-height:0}
+@media(max-height:520px){
+  .film-studio-panel.fs-studio-expanded .fs-timeline-pane{min-height:120px}
+}
