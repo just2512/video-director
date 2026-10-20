@@ -770,6 +770,10 @@ window.filmStudioReactInspector = {
         element ? <CanvasInspector key={element.clipId + "::" + element.selector} element={element} /> : null
       );
     });
+    // Inputs use defaultValue for a simple uncontrolled form. A repeated selection
+    // of the same clip/selector does not remount React, so refresh the input values
+    // from the new element payload after each selection message.
+    if (element) this.sync(element);
   },
   sync(element) {
     const rect = element.localRect || element.rect || {};

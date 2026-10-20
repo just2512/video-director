@@ -16,6 +16,10 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert 'id="fs-field-volume"' in component
     assert 'id="fs-field-fade-in"' in component
     assert 'id="fs-field-title"' in component
+
+    source = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    render_end = source[source.index('  render(element) {'):source.index('  sync(element) {')]
+    assert "if (element) this.sync(element);" in render_end
     assert "export const buildCanvasElementOperation =" in component
     assert "window.filmStudioReactInspector.saveSelected()" in studio
     assert "window.filmStudioCommitCanvasElement=async function(operation)" in studio
