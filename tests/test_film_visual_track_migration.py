@@ -44,7 +44,40 @@ def test_visual_source_track_order_identity_and_lock_are_preserved(tmp_path, mon
     assert first["clips"][0]["attrs"]["style"].endswith("z-index:2")
     assert second["attrs"]["data-label"] == "Lower video"
     assert second["attrs"]["data-source-track-hidden"] == "true"
-    assert "hidden" in second["attrs"]
+    assert "hidden" not in second["attrs"]  # source hidden means timeline folded, not render-suppressed
     assert second["clips"][0]["attrs"]["data-source-track-order"] == "1"
-    assert not any("Film Studio 当前仍会显示这些轨道" in warning for warning in result["warnings"])
+    assert any("时间线折叠而不是画面隐藏" in warning for warning in result["warnings"])
     assert not any("组联动编辑尚未迁移" in warning for warning in result["warnings"])
+
+
+def test_source_visual_grouping_warning_depends_on_actual_same_lane_membership(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "visual-track-group-warning"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "overlay.mp4").write_bytes(b"migration does not decode media")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-overlay", "file": "assets/overlay.mp4", "type": "video"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "scenes": [{
+            "id": "base", "start": 0, "duration": 2, "text": "base",
+            "layers": [{"type": "image", "asset_id": "asset-overlay", "start": 0, "duration": 2}],
+        }],
+        "visual_tracks": [{"id": "top", "name": "Top video", "order": 0}],
+        "visual_overlays": [
+            {"id": "one", "asset_id": "asset-overlay", "track_id": "top", "start": 0, "duration": 1},
+            {"id": "two", "asset_id": "asset-overlay", "track_id": "top", "start": 1, "duration": 1},
+        ],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    overlay_tracks = [
+        track for track in result["document"]["tracks"]
+        if track["id"] in {"track-overlay-one", "track-overlay-two"}
+    ]
+    assert len(overlay_tracks) == 2
+    assert all(track["attrs"]["data-source-track-id"] == "top" for track in overlay_tracks)
+    assert any("组联动编辑尚未迁移" in warning for warning in result["warnings"])
