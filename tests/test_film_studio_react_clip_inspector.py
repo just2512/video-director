@@ -35,3 +35,10 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "await filmStudioCommit(ops)" in studio
     assert 'field: "title" | "fade"; value: string | null' in contract
     assert 'field: "muted"; value: boolean' in contract
+    assert "c.trackLocked = Object.prototype.hasOwnProperty.call(t.attrs || {}, 'locked')" in studio
+    assert "trackLocked?: boolean" in component
+    assert "if (clip.trackLocked)" in component
+    assert "const trackLocked = Boolean(clip.trackLocked)" in component
+    assert "disabled={readOnly}" in component
+    assert "所在轨道已锁定；解锁轨道后才能编辑该片段。" in component
+    assert 'id="fs-toggle-clip-lock" className="fs-btn" disabled={trackLocked}' in component

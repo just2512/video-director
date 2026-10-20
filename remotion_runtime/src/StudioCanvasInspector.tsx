@@ -30,6 +30,7 @@ export interface FilmClipInspectorModel {
   at: number;
   duration: number | null;
   attrs: Record<string, string>;
+  trackLocked?: boolean;
 }
 interface CanvasInspectorBridge {
   render(element: CanvasElementSelection | null): void;
@@ -169,6 +170,9 @@ export const buildClipInspectorOperations = (
 ): ClipInspectorBuildResult => {
   const attrs = clip.attrs || {};
   const ops: FilmOperation[] = [];
+  if (clip.trackLocked) {
+    return {ok: false, message: "所在轨道已锁定；请先解锁轨道再修改片段属性。"};
+  }
   if (Object.prototype.hasOwnProperty.call(attrs, "data-clip-locked")) {
     return {ok: false, message: "该片段已锁定；请先解锁再修改属性。"};
   }
@@ -281,6 +285,8 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
   }
   const attrs = clip.attrs || {};
   const clipLocked = Object.prototype.hasOwnProperty.call(attrs, "data-clip-locked");
+  const trackLocked = Boolean(clip.trackLocked);
+  const readOnly = clipLocked || trackLocked;
   const speed = Number(form.speed || 1);
   const hasMediaControls = clip.tag === "video" || clip.tag === "audio";
   return (
@@ -291,14 +297,14 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       <div className="fs-inspector-section">
         <label className="fs-inspector-field">
           时间位置（秒）
-          <input id="fs-field-at" type="number" min={0} step={0.033333} value={form.at} disabled={clipLocked}
+          <input id="fs-field-at" type="number" min={0} step={0.033333} value={form.at} disabled={readOnly}
             onChange={(event) => update("at", event.currentTarget.value)} />
         </label>
         {hasMediaControls && (
           <>
             <label className="fs-inspector-field">
               速度
-              <input id="fs-field-speed" type="number" min={0.25} max={4} step={0.05} value={form.speed} disabled={clipLocked}
+              <input id="fs-field-speed" type="number" min={0.25} max={4} step={0.05} value={form.speed} disabled={readOnly}
                 onChange={(event) => update("speed", event.currentTarget.value)} />
             </label>
             <div className="fs-speed-presets">
@@ -306,19 +312,19 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
               <div>{[0.5, 1, 1.5, 2, 4].map((value) => (
                 <button type="button" key={value}
                   className={"fs-speed-chip" + (Math.abs(speed - value) < 0.001 ? " fs-speed-chip-active" : "")}
-                  data-speed-preset={value} title={"设置速度为 " + value + " 倍"} disabled={clipLocked}
+                  data-speed-preset={value} title={"设置速度为 " + value + " 倍"} disabled={readOnly}
                   onClick={() => update("speed", String(value))}
                 >{value}×</button>
               ))}</div>
             </div>
             <label className="fs-inspector-field">
               音量
-              <input id="fs-field-volume" type="number" min={0} max={2} step={0.05} value={form.volume} disabled={clipLocked}
+              <input id="fs-field-volume" type="number" min={0} max={2} step={0.05} value={form.volume} disabled={readOnly}
                 onChange={(event) => update("volume", event.currentTarget.value)} />
             </label>
             <label className="fs-inspector-field">
               静音
-              <select id="fs-field-muted" value={form.muted} disabled={clipLocked}
+              <select id="fs-field-muted" value={form.muted} disabled={readOnly}
                 onChange={(event) => update("muted", event.currentTarget.value === "true" ? "true" : "false")}>
                 <option value="false">否</option><option value="true">是</option>
               </select>
@@ -329,28 +335,28 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
           <>
             <label className="fs-inspector-field">
               淡入（秒）
-              <input id="fs-field-fade-in" type="number" min={0} max={60} step={0.05} value={form.fadeIn} disabled={clipLocked}
+              <input id="fs-field-fade-in" type="number" min={0} max={60} step={0.05} value={form.fadeIn} disabled={readOnly}
                 onChange={(event) => update("fadeIn", event.currentTarget.value)} />
             </label>
             <label className="fs-inspector-field">
               淡出（秒）
-              <input id="fs-field-fade-out" type="number" min={0} max={60} step={0.05} value={form.fadeOut} disabled={clipLocked}
+              <input id="fs-field-fade-out" type="number" min={0} max={60} step={0.05} value={form.fadeOut} disabled={readOnly}
                 onChange={(event) => update("fadeOut", event.currentTarget.value)} />
             </label>
           </>
         )}
         <label className="fs-inspector-field">
           片段标题
-          <input id="fs-field-title" type="text" maxLength={200} value={form.title} disabled={clipLocked}
+          <input id="fs-field-title" type="text" maxLength={200} value={form.title} disabled={readOnly}
             onChange={(event) => update("title", event.currentTarget.value)} />
         </label>
       </div>
       <div className="fs-inspector-description fs-inspector-section">
         更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
       </div>
-      {clipLocked ? <div className="fs-alert fs-visible fs-error" role="status">该片段来自已锁定图层，只读保留其原始时间线位置与画面。</div> : null}
+      {trackLocked ? <div className="fs-alert fs-visible fs-error" role="status">所在轨道已锁定；解锁轨道后才能编辑该片段。</div> : clipLocked ? <div className="fs-alert fs-visible fs-error" role="status">该片段来自已锁定图层，只读保留其原始时间线位置与画面。</div> : null}
       {feedback ? <div id="fs-clip-inspector-feedback" className="fs-alert fs-visible fs-error" role="status">{feedback}</div> : null}
-      <button type="button" id="fs-apply-clip-inspector" className="fs-btn fs-primary" disabled={clipLocked}
+      <button type="button" id="fs-apply-clip-inspector" className="fs-btn fs-primary" disabled={readOnly}
         onClick={() => {
           const result = buildClipInspectorOperations(clip, {...form});
           if (!result.ok) { setFeedback(result.message); return; }
@@ -363,7 +369,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
           });
         }}
       >应用片段属性</button>
-      <button type="button" id="fs-toggle-clip-lock" className="fs-btn"
+      <button type="button" id="fs-toggle-clip-lock" className="fs-btn" disabled={trackLocked}
         onClick={() => { void window.filmStudioSetClipLock?.(clip.id, !clipLocked); }}
       >{clipLocked ? "解锁片段" : "锁定片段"}</button>
     </div>

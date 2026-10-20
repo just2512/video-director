@@ -6,7 +6,7 @@
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
   function fmtTime(v) { var n = Math.max(0, Number(v) || 0), m = Math.floor(n / 60), s = n - m * 60; return String(m).padStart(2,'0') + ':' + s.toFixed(3).padStart(6,'0'); }
-  function clips() { return (S.data && S.data.tracks || []).reduce(function (a,t) { return a.concat((t.clips || []).map(function (c) { c.track_id = t.id; return c; })); }, []); }
+  function clips() { return (S.data && S.data.tracks || []).reduce(function (a,t) { return a.concat((t.clips || []).map(function (c) { c.track_id = t.id; c.trackLocked = Object.prototype.hasOwnProperty.call(t.attrs || {}, 'locked'); return c; })); }, []); }
   function findClip(id) { return clips().find(function (c) { return c.id === id; }) || null; }
   function showStatus(message, kind) { var el=$('film-studio-alert'); if(!el)return; el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':''); el.textContent=message||''; }
   function renderAiDirector() {
