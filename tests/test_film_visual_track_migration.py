@@ -44,4 +44,6 @@ def test_visual_source_track_order_identity_and_lock_are_preserved(tmp_path, mon
     assert first["clips"][0]["attrs"]["style"].endswith("z-index:2")
     assert second["attrs"]["data-label"] == "Lower video"
     assert second["attrs"]["data-source-track-hidden"] == "true"
+    assert "hidden" in second["attrs"]
     assert second["clips"][0]["attrs"]["data-source-track-order"] == "1"
+    assert not any("Film Studio 当前仍会显示这些轨道" in warning for warning in result["warnings"])

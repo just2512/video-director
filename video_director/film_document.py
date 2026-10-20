@@ -2530,8 +2530,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         str(lane.get("id")): lane for lane in visual_tracks
         if isinstance(lane, dict) and lane.get("id")
     }
-    if any(lane.get("hidden") for lane in visual_tracks if isinstance(lane, dict)):
-        warnings.append("旧视觉轨道 hidden 已记为来源元数据；Film Studio 当前仍会显示这些轨道")
     if raw_ir.get("visual_overlays") and len(visual_tracks) > 1:
         warnings.append("旧视觉轨道的多片段分组联动编辑尚未恢复；各叠加片段会迁移为独立 Film 轨道")
 
@@ -2718,6 +2716,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if source_lane.get("locked"):
             overlay_track["attrs"]["locked"] = ""
         if source_lane.get("hidden"):
+            # Preserve the actual render/editor state, not only migration metadata.
+            # Film Runtime already honors track.attrs.hidden and the Studio can unhide it.
+            overlay_track["attrs"]["hidden"] = ""
             overlay_track["attrs"]["data-source-track-hidden"] = "true"
         if source_lane_id:
             overlay_track["attrs"]["data-source-track-id"] = source_lane_id
