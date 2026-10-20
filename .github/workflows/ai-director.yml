@@ -11,7 +11,7 @@ on:
 # compete with the head commit's browser/render checks.
 concurrency:
   group: ai-director-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   ai-director:

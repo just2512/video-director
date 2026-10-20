@@ -22,6 +22,7 @@
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
     S.runtimeRev='';S.runtimeCommand='';S.previewProposalActive=false;window.filmStudioPlaying=false;
     S.elementInspect=false;S.selectedElement=null;S.hoveredElement=null;
+    renderElementInspector(null);
     var selection=$('fs-element-selection');if(selection)selection.hidden=true;
     var inspectButton=$('fs-element-inspect-toggle');if(inspectButton){inspectButton.setAttribute('aria-pressed','false');inspectButton.textContent='选择画面元素';}
     var button=$('fs-play-toggle');if(button)button.textContent='播放';
