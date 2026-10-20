@@ -2973,8 +2973,8 @@ class Handler(BaseHTTPRequestHandler):
                         "style": draft.get("style", ""),
                         "scene_count": draft.get("scene_count", 0),
                         "total_duration": round(
-                            float(final.narration_duration or 0), 2),
-                        "final_path": str(final.final_path),
+                            float(final.narration_duration if hasattr(final, "narration_duration") else 0), 2),
+                        "final_path": str(final.final_path if hasattr(final, "final_path") else final),
                     }
                     case = CreationCase(
                         case_id=pid,
@@ -2998,13 +2998,43 @@ class Handler(BaseHTTPRequestHandler):
                         "project_id": pid, "final_path": str(final.final_path)})
                 except Exception:  # noqa: BLE001 run 收尾失败不阻塞响应
                     pass
+                # finalize_after_review 两种返回：pipeline 路径=FinalizeResult
+                # 对象；编辑器导出路径（无 edits）=str 路径。str 时从落盘产物
+                # 读 QC/时长兜底，不再 AttributeError 500（成片其实已渲染成功，
+                # 2026-10-20 生产实测：QC 全 PASS 后 500 在响应组装）。
+                if hasattr(final, "final_path"):
+                    final_payload = {
+                        "final_path": final.final_path,
+                        "narration_duration": final.narration_duration,
+                        "qc": final.qc_report,
+                        "warnings": final.warnings,
+                    }
+                else:
+                    final_path = str(final)
+                    qc_data = {}
+                    try:
+                        qc_file = vd_config.project_dir(pid) / "qc" / "deterministic.json"
+                        if qc_file.is_file():
+                            qc_data = json.loads(qc_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                    narr_dur = 0.0
+                    try:
+                        from video_director import prober as _pb
+                        pr = _pb.probe_media(final_path)
+                        narr_dur = float(pr.duration or 0)
+                    except Exception:
+                        pass
+                    final_payload = {
+                        "final_path": final_path,
+                        "narration_duration": narr_dur,
+                        "qc": qc_data,
+                        "warnings": [],
+                    }
                 self._send_json({
                     "ok": True,
                     "case_id": case_id,
-                    "final_path": final.final_path,
-                    "narration_duration": final.narration_duration,
-                    "qc": final.qc_report,
-                    "warnings": final.warnings,
+                    **final_payload,
                 })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
