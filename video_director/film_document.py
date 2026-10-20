@@ -2444,19 +2444,20 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     unsupported_subtitle_style = []
     if subtitle_style.get("font"):
         unsupported_subtitle_style.append("font")
-    if float(subtitle_style.get("size", 1.0) or 1.0) * 54 > 160:
-        unsupported_subtitle_style.append("size（大于 160px 的字号将被限制）")
+    rendered_size = float(subtitle_style.get("size", 1.0) or 1.0) * 54
+    if rendered_size < 12 or rendered_size > 160:
+        unsupported_subtitle_style.append("size（换算后的字号超出 12–160px，将被限制）")
     for field_name in ("color", "stroke_color"):
         field_value = str(subtitle_style.get(field_name) or ("#FFFFFF" if field_name == "color" else "#000000"))
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", field_value):
             unsupported_subtitle_style.append(field_name + "（不是 #RRGGBB 颜色，已回退为默认色）")
     background = str(subtitle_style.get("background") or "")
-    if background and not re.fullmatch(r"#[0-9a-fA-F]{6}(?:@[0-9]*.?[0-9]+)?", background):
+    if background and not re.fullmatch(r"#[0-9a-fA-F]{6}(?:@[0-9]*\.?[0-9]+)?", background):
         unsupported_subtitle_style.append("background（格式无效，已回退为透明）")
     if unsupported_subtitle_style:
         warnings.append(
             "旧字幕样式字段 " + ", ".join(unsupported_subtitle_style)
-            + " 尚未映射到生成的字幕 HTML"
+            + " 含未映射或尚未验证的字段"
         )
     subtitle_track = raw_ir.get("subtitle_track") or {}
     if subtitle_track.get("style_id"):

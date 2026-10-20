@@ -44,8 +44,9 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
         }],
         "watermarks": [{"id": "brand-mark", "kind": "text", "text": "测试水印"}],
         "subtitle_style": {
-            "size": 1.4, "position": "top", "animation": "fade",
-            "stroke_color": "#333333",
+            "font": "Brand Subtitle Font", "size": 1.4, "position": "top", "animation": "fade",
+            "stroke_color": "#333333", "background": "#101010@0.5",
+            "alignment": "right", "max_width": 0.7,
         },
         "variants": [{"id": "alternative"}],
         "active_variant_id": "alternative",
