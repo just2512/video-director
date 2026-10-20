@@ -35,7 +35,16 @@ python run_webui.py
 
 # CLI
 python -m video_director auto --script 文案.txt --videos 素材目录/
+
+# film.html 智能体工作流（项目已初始化影片文档后）
+python -m video_director film status --project-id <project_id>
+python -m video_director film validate --project-id <project_id>
+python -m video_director film look --project-id <project_id>
+python -m video_director film diff --project-id <project_id>
+python -m video_director film render --project-id <project_id>
 ```
+
+外部编程智能体可以直接读取和修改项目内的 `film.html`、`scenes/*.html` 与 `assets/*`；Studio 通过文件监视实时刷新。HTML 镜头如需参与逐帧导出，应实现 `window.film.frame(t)`，并可通过 `window.film.ready` 暴露异步资源就绪状态。执行 `film look` 会生成真实浏览器接触表并反序检查重复时刻的一致性。
 
 ## 三个关键能力现在就能用（无需 key）
 
