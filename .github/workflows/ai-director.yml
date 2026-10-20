@@ -152,6 +152,9 @@ jobs:
         if: steps.ensure_checkout.outcome == 'success'
       - run: '"$PY311_BIN/python3.11" -m compileall video_director webui'
         if: steps.ensure_checkout.outcome == 'success'
+      - name: Compile all test modules before pytest collection
+        if: steps.ensure_checkout.outcome == 'success'
+        run: '"$PY311_BIN/python3.11" -m compileall -q tests'
       - name: Typecheck React 19 / TypeScript render and timeline contracts
         if: always() && steps.ensure_checkout.outcome == 'success'
         working-directory: remotion_runtime
