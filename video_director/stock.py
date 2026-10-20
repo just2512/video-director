@@ -165,12 +165,23 @@ def _api_key(provider: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def _http_json(url: str, headers: Optional[dict] = None, timeout: int = 15) -> dict:
-    req = urllib.request.Request(url, headers=headers or {})
+    # Pexels 等 API 前面挂了 Cloudflare：Python urllib 默认 UA（Python-urllib/3.x）
+    # 会被 Browser Integrity Check 拦下（HTTP 403 + body "error code: 1010"，
+    # 2026-10-20 生产实锚）。显式 UA 即解——curl UA 实测 200。
+    final_headers = {"User-Agent": "curl/8.0.1"}
+    final_headers.update(headers or {})
+    req = urllib.request.Request(url, headers=final_headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise StockError("STOCK_HTTP_ERROR", f"HTTP {exc.code}: {url}") from exc
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")[:120]
+        except Exception:
+            pass
+        raise StockError("STOCK_HTTP_ERROR", f"HTTP {exc.code}: {url}"
+                         + (f"（{body}）" if body else "")) from exc
     except urllib.error.URLError as exc:
         raise StockError("STOCK_NETWORK_ERROR", f"网络错误: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
