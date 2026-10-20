@@ -2880,6 +2880,16 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     if not tracks:
         raise FilmError("NO_SUPPORTED_CLIPS", "当前 Composition 没有可迁移的视频、图片、字幕或音频片段", 422)
     warnings = list(dict.fromkeys(warnings))
+    # Keep the complete validated source IR next to the migration record. This
+    # preserves non-rendered variants/lineage/references for later recovery and audit.
+    # It is an archive, not a claim that unsupported semantics were rendered.
+    source_snapshot_path = "migration/source-composition.json"
+    pages[source_snapshot_path] = json.dumps(
+        raw_ir, ensure_ascii=False, indent=2, sort_keys=True
+    ) + "\n"
+    source_snapshot_sha256 = hashlib.sha256(
+        pages[source_snapshot_path].encode("utf-8")
+    ).hexdigest()
     head = f'<head><meta charset="utf-8"><meta name="viewport" content="width={stage["width"]},height={stage["height"]}"><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:#000}}section{{position:absolute;inset:0}}</style></head>'
     document = {"stage": stage, "head_html": head, "tracks": tracks}
     _validate_doc(document)
@@ -2906,8 +2916,12 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
             except ValueError:
                 raise FilmError("INVALID_PAGE_PATH", f"生成页面路径非法：{relative}", 422) from None
             _write_atomic(dest, page)
+        source_snapshot = pages.get("migration/source-composition.json")
         migration = {"format": "video-director-film-migration/1", "source_composition_version": int(source_version),
                      "warnings": list(warnings), "document_revision": revision_of(text)}
+        if isinstance(source_snapshot, str):
+            migration["source_snapshot_path"] = "migration/source-composition.json"
+            migration["source_snapshot_sha256"] = hashlib.sha256(source_snapshot.encode("utf-8")).hexdigest()
         _write_atomic(root / MIGRATION_NAME, json.dumps(migration, ensure_ascii=False, indent=2))
         _write_atomic(path, text)
         _history_write(pid, {"past": [], "future": []})

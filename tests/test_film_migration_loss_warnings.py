@@ -55,6 +55,12 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     })
 
     result = fd.build_film_from_composition(project_id, ir)
+    snapshot_text = result["pages"]["migration/source-composition.json"]
+    snapshot = json.loads(snapshot_text)
+    assert snapshot["active_variant_id"] == "alternative"
+    assert snapshot["variants"][0]["id"] == "alternative"
+    assert snapshot["watermarks"][0]["text"] == "测试水印"
+    assert snapshot["subtitle_style"]["font"] == "Brand Subtitle Font"
     warnings = "\n".join(result["warnings"])
     assert "24 FPS" in warnings
     assert "style_id" in warnings
@@ -92,3 +98,19 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert audio_track["attrs"]["data-label"] == "自定义 BGM"
     assert audio_clip["attrs"]["muted"] == ""
     assert audio_clip["attrs"]["fade"] == "0.2,0.3"
+
+    # Initialization persists the archive and a digest that can be rechecked later.
+    from video_director import editor as vd_editor
+    monkeypatch.setattr(vd_editor, "composition_version", lambda _pid: 1)
+    initialized = fd.initialize_project_film(
+        project_id, result["document"], result["pages"], 1, result["warnings"]
+    )
+    assert initialized["migration"]["source_snapshot_path"] == "migration/source-composition.json"
+    archive_file = config.project_dir(project_id) / "migration" / "source-composition.json"
+    manifest_file = config.project_dir(project_id) / fd.MIGRATION_NAME
+    persisted_snapshot = archive_file.read_text(encoding="utf-8")
+    persisted_manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    assert persisted_snapshot == snapshot_text
+    assert persisted_manifest["source_snapshot_sha256"] == __import__("hashlib").sha256(
+        persisted_snapshot.encode("utf-8")
+    ).hexdigest()
