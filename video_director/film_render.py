@@ -155,6 +155,46 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
         except Exception:
             self._send_error(400, "invalid media source")
             return
+        # Serve frame-driven HTML scenes through the same local asset boundary as
+        # Studio preview. Inject the deterministic frame(t) bridge before authored
+        # scripts and resolve scene-relative resources to this project-scoped route.
+        if media_path.suffix.lower() in {".html", ".htm"}:
+            from video_director.film_scene_runtime import inject_scene_runtime
+            try:
+                source = media_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError as exc:
+                self._send_error(422, "HTML 镜头必须使用 UTF-8 编码。")
+                return
+            body = inject_scene_runtime(source, project_id, src, "/media").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except OSError:
+                pass
+            return
+        if media_path.suffix.lower() == ".css":
+            from video_director.film_scene_runtime import inject_scene_css
+            try:
+                source = media_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                self._send_error(422, "CSS 镜头资源必须使用 UTF-8 编码。")
+                return
+            body = inject_scene_css(source, project_id, src, "/media").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/css; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except OSError:
+                pass
+            return
+
         try:
             total = media_path.stat().st_size
             start, end, status = 0, max(0, total - 1), 200
@@ -473,16 +513,17 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
 
     style_css = _style_blocks(doc.get("head_html", ""))
     _validate_source_ranges(pid, doc)
-    # Arbitrary external iframe HTML does not promise time seeking. The generated
-    # subtitle page is frame-driven and participates in the per-frame acknowledgement.
+    # Iframe pages are checked when a frame is requested: generated subtitle
+    # pages use the legacy film-time acknowledgement; authored HTML scenes must
+    # implement window.film.frame(t), otherwise the renderer reports the exact clip.
     for track in doc["tracks"]:
         for clip in track["clips"]:
             if clip["tag"] == "iframe":
                 src = str(clip["attrs"].get("src") or "").split("#", 1)[0].replace("\\", "/")
-                if not src.endswith("scenes/subtitles.html"):
+                if not src.lower().endswith((".html", ".htm")):
                     raise FilmRenderError(
-                        "UNSUPPORTED_DETERMINISTIC_IFRAME",
-                        f"iframe 片段 {clip['id']} 不是系统生成的逐帧字幕页。请把动态内容转成视频，或添加 film-time 帧驱动协议后再导出。",
+                        "UNSUPPORTED_IFRAME_SOURCE",
+                        f"iframe 片段 {clip['id']} 必须引用工程内的 .html/.htm 镜头页面。",
                         422,
                     )
 
