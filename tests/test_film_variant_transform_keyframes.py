@@ -64,9 +64,11 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     })
     result = fd.build_film_from_composition(project_id, ir)
     assert result["duration"] == 1
+    assert result["selected_variant_id"] == "active-cut"
     main_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
     clip = main_track["clips"][0]
     assert clip["attrs"]["data-asset-id"] == "asset-variant"
+    assert clip["attrs"]["data-source-variant-id"] == "active-cut"
     transform = json.loads(clip["attrs"]["data-film-transform"])
     assert transform["x"] == 0.4 and transform["y"] == 0.6
     assert transform["scale"] == 1.25 and transform["rotation"] == 12
@@ -82,6 +84,14 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
         for warning in result["warnings"]
         for name in ("x", "opacity", "camera_x", "camera_y", "camera_scale")
     )
+
+    from video_director import editor as vd_editor
+    monkeypatch.setattr(vd_editor, "composition_version", lambda _project_id: 7)
+    initialized = fd.initialize_project_film(
+        project_id, result["document"], result["pages"], 7, result["warnings"],
+        selected_variant_id=result["selected_variant_id"],
+    )
+    assert initialized["migration"]["selected_variant_id"] == "active-cut"
 
 
 def test_active_variant_duration_includes_audio_extending_past_final_scene(tmp_path, monkeypatch):

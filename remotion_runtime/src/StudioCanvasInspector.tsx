@@ -34,6 +34,7 @@ export interface FilmClipInspectorModel {
 interface CanvasInspectorBridge {
   render(element: CanvasElementSelection | null): void;
   renderClip(clip: FilmClipInspectorModel | null, emptyMessage?: string): void;
+  saveSelected(): Promise<void> | void;
   sync(element: CanvasElementSelection): void;
 }
 interface FilmStudioReactToolbarBridge {
@@ -92,6 +93,8 @@ declare global {
     filmStudioReactInspector?: CanvasInspectorBridge;
     filmStudioReactToolbar?: FilmStudioReactToolbarBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
+    filmStudioCommitCanvasElement?: (operation: Extract<FilmOperation, {op:"element_set"}>) => Promise<void> | void;
+    filmStudioShowInspectorError?: (message: string) => void;
     filmStudioCommitInspectorOperations?: (ops: FilmOperation[]) => Promise<void> | void;
     filmStudioSetClipLock?: (clipId: string, locked: boolean) => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
@@ -113,6 +116,51 @@ const asNumber = (value: unknown, fallback: number): number => {
 type ClipInspectorBuildResult =
   | {ok: true; ops: FilmOperation[]}
   | {ok: false; message: string};
+
+type CanvasElementFormValues = {
+  text: string; left: string; top: string; width: string; height: string;
+  color: string; fontSize: string; rotate: string;
+};
+type CanvasElementBuildResult =
+  | {ok:true; operation:Extract<FilmOperation,{op:"element_set"}>}
+  | {ok:false; message:string};
+
+/** Validate and build a single element_set intent before the revision-checked JS commit bridge. */
+export const buildCanvasElementOperation = (
+  element: CanvasElementSelection,
+  form: CanvasElementFormValues,
+): CanvasElementBuildResult => {
+  if (!element.clipId || !element.selector.trim()) return {ok:false,message:"画布元素缺少片段 ID 或 selector；请重新选择元素。"};
+  const ranges:Array<[string,string,number,number]>=[
+    ["左坐标",form.left,-100000,100000],["上坐标",form.top,-100000,100000],
+    ["宽度",form.width,1,10000],["高度",form.height,1,10000],
+    ["字号",form.fontSize,1,1000],["旋转角度",form.rotate,-3600,3600],
+  ];
+  const values:Record<string,number>={};
+  for(const [label,raw,min,max] of ranges){
+    if(!raw.trim())return {ok:false,message:label+"必须填写有效数字。"};
+    const value=Number(raw);
+    if(!Number.isFinite(value)||value<min||value>max)return {ok:false,message:label+"必须在 "+min+" 到 "+max+" 之间。"};
+    values[label]=value;
+  }
+  if(!/^#[0-9a-f]{6}$/i.test(form.color))return {ok:false,message:"颜色必须是有效的 RGB 颜色。"};
+  if(element.textEditable&&form.text.length>4000)return {ok:false,message:"画布元素文本不能超过 4000 个字符。"};
+  const style:Record<string,string>={
+    position:"fixed",left:values["左坐标"].toFixed(2)+"px",top:values["上坐标"].toFixed(2)+"px",
+    width:values["宽度"].toFixed(2)+"px",height:values["高度"].toFixed(2)+"px",color:form.color,
+    fontSize:values["字号"].toFixed(2)+"px",rotate:values["旋转角度"].toFixed(2)+"deg",
+  };
+  const operation:Extract<FilmOperation,{op:"element_set"}>={op:"element_set",clip:element.clipId,selector:element.selector,style};
+  if(element.textEditable)operation.text=form.text;
+  return {ok:true,operation};
+};
+const readCanvasElementForm=():CanvasElementFormValues|null=>{
+  const ids=["fs-element-text","fs-element-left","fs-element-top","fs-element-width","fs-element-height","fs-element-color","fs-element-font-size","fs-element-rotate"];
+  const fields=ids.map(id=>document.getElementById(id) as HTMLInputElement|HTMLTextAreaElement|null);
+  if(fields.some(field=>!field))return null;
+  const [text,left,top,width,height,color,fontSize,rotate]=fields as Array<HTMLInputElement|HTMLTextAreaElement>;
+  return {text:text.value,left:left.value,top:top.value,width:width.value,height:height.value,color:color.value,fontSize:fontSize.value,rotate:rotate.value};
+};
 
 /** Typed intent builder; persistence remains in Studio's revision-checked commit path. */
 export const buildClipInspectorOperations = (
@@ -672,12 +720,25 @@ window.filmStudioReactAi = {
   },
 };
 
+let activeCanvasSelection: CanvasElementSelection | null = null;
 let activeRoot: Root | null = null;
 let activeMount: HTMLElement | null = null;
 let clipRoot: Root | null = null;
 let clipMount: HTMLElement | null = null;
 
 window.filmStudioReactInspector = {
+  saveSelected() {
+    const element=activeCanvasSelection;
+    if(!element){window.filmStudioShowInspectorError?.("请先在预览画布中选中一个 HTML 元素。");return;}
+    const form=readCanvasElementForm();
+    if(!form){window.filmStudioShowInspectorError?.("画布检查器尚未挂载完成，请重新选择元素。");return;}
+    const result=buildCanvasElementOperation(element,form);
+    if(!result.ok){window.filmStudioShowInspectorError?.(result.message);return;}
+    if(!window.filmStudioCommitCanvasElement){
+      window.filmStudioShowInspectorError?.("画布编辑提交桥尚未就绪；本次没有写入 film.html。");return;
+    }
+    return window.filmStudioCommitCanvasElement(result.operation);
+  },
   renderClip(clip, emptyMessage) {
     const mount = document.getElementById("fs-inspector");
     if (!mount) return;
@@ -691,6 +752,7 @@ window.filmStudioReactInspector = {
     });
   },
   render(element) {
+    activeCanvasSelection=element;
     const mount = document.getElementById("fs-react-canvas-inspector");
     if (!mount) return;
     if (!activeRoot || activeMount !== mount) {

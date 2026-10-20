@@ -2947,8 +2947,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         warnings.append("旧项目 style_contract 尚未转换为 film.html 样式，语义样式信息会丢失")
     if raw_ir.get("origin_template_id") or raw_ir.get("origin_template_version"):
         warnings.append("旧项目模板来源 lineage 未写入 film.html")
-    if raw_ir.get("active_variant_id") and not raw_ir.get("variants"):
-        warnings.append("旧项目 active_variant_id 未映射到 film.html")
     if raw_ir.get("continuity_links"):
         warnings.append("旧项目 continuity_links 仅属创作 lineage，未映射到 film.html")
     references = raw_ir.get("references") or {}
@@ -3076,6 +3074,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
             layer_timeline_start = scene_start + _number(layer.get("start", 0), "layer start", 0)
             attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(layer_timeline_start), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
+            if selected_variant:
+                attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
             unsupported_layer_fields = []
@@ -3386,6 +3386,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         lane = audio_lanes_by_id.get(str(audio.get("track_id") or ""), {})
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
                  "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio.get("id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
+        if selected_variant:
+            attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
         if abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
         if audio.get("muted") or lane.get("muted"):
@@ -3531,10 +3533,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     document = {"stage": stage, "head_html": head, "tracks": tracks}
     _validate_doc(document)
     return {"document": document, "pages": pages, "warnings": warnings, "duration": duration,
-            "track_count": len(tracks), "clip_count": sum(len(t["clips"]) for t in tracks)}
+            "track_count": len(tracks), "clip_count": sum(len(t["clips"]) for t in tracks),
+            "selected_variant_id": str(selected_variant.get("id")) if selected_variant else None}
 
 
-def initialize_project_film(project_id: str, document: dict, pages: dict[str, str], source_version: int, warnings: list[str]) -> dict:
+def initialize_project_film(project_id: str, document: dict, pages: dict[str, str], source_version: int, warnings: list[str], selected_variant_id: str | None = None) -> dict:
     pid = validate_project_id(project_id)
     text = serialize_film(document)
     parse_film(text)
@@ -3555,6 +3558,7 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
             _write_atomic(dest, page)
         source_snapshot = pages.get("migration/source-composition.json")
         migration = {"format": "video-director-film-migration/1", "source_composition_version": int(source_version),
+                     "selected_variant_id": selected_variant_id,
                      "warnings": list(warnings), "document_revision": revision_of(text)}
         if isinstance(source_snapshot, str):
             migration["source_snapshot_path"] = "migration/source-composition.json"

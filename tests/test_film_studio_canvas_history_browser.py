@@ -335,11 +335,17 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     timeout=10000,
                 )
                 pointer_mode_after_reload = page.frame_locator("#fs-preview-composition").locator("#scene-clip").evaluate(
-                    "(frame) => getComputedStyle(frame).pointerEvents"
+                    "(frame) => JSON.stringify({pointerEvents:getComputedStyle(frame).pointerEvents,display:getComputedStyle(frame).display,playhead:document.querySelector('#fs-playhead')?.value})"
                 )
-                assert pointer_mode_after_reload == "auto", (
+                assert json.loads(pointer_mode_after_reload)["pointerEvents"] == "auto", (
                     f"Reloaded preview did not enable iframe hit-testing: {pointer_mode_after_reload}"
                 )
+                page.wait_for_function("""() => {
+                  const outer=document.querySelector('#fs-preview-composition');
+                  const scene=outer&&outer.contentDocument&&outer.contentDocument.querySelector('#scene-clip');
+                  return !!outer&&getComputedStyle(outer).display!=='none'
+                    &&!!scene&&getComputedStyle(scene).display!=='none';
+                }""", timeout=10000)
                 scene_title = page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title")
                 scene_title.click()
                 try:

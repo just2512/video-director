@@ -1065,6 +1065,29 @@
       // iframe can be present in the DOM while its outer monitor is still hidden.
       // Sync first (reveals the monitor and loads the exact current revision),
       // then send inspect; the runtime replays inspect again after its ready ack.
+      // Inspection only works while an HTML clip is active on the timeline.
+      // After reload the playhead may be before a moved/trimmed HTML clip; the
+      // Runtime correctly hides inactive media. Align to the selected HTML clip,
+      // or the first active/upcoming HTML clip, before enabling pointer hit-testing.
+      var htmlClips=clips().filter(function(clip){
+        return clip.tag==='iframe'&&clip.duration!=null&&Number.isFinite(Number(clip.at));
+      });
+      var targetClip=S.selectedId?findClip(S.selectedId):null;
+      if(!targetClip||targetClip.tag!=='iframe')targetClip=null;
+      if(!targetClip){
+        targetClip=htmlClips.find(function(clip){
+          return S.playhead>=num(clip.at,0)-0.001&&(clip.end==null||S.playhead<num(clip.end,0)-0.001);
+        })||htmlClips[0]||null;
+      }
+      if(targetClip){
+        var targetStart=Math.max(0,num(targetClip.at,0));
+        var targetEnd=targetClip.end==null?targetStart+Math.max(0.1,num(targetClip.duration,1)):num(targetClip.end,targetStart+1);
+        var epsilon=Math.min(0.01,Math.max(0.001,(targetEnd-targetStart)/2));
+        if(S.playhead<targetStart-0.001||S.playhead>=targetEnd-0.001){
+          S.playhead=Math.max(0,Math.min(targetEnd-epsilon,targetStart+epsilon));
+          setPlayheadVisual();
+        }
+      }
       if(frame){
         frame.style.display='block';
         var monitorPlaceholder=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
@@ -1080,7 +1103,31 @@
       renderElementSelection(S.selectedElement);
     }
   };
+  window.filmStudioShowInspectorError=function(message){showStatus(String(message||''),'error');};
+  window.filmStudioCommitCanvasElement=async function(operation){
+    if(S.busy){showStatus('当前影片正在保存；请等待完成后再提交画布修改。','error');return;}
+    var selected=S.selectedElement;
+    if(!selected){showStatus('画布选择已经失效，请重新选取元素。','error');return;}
+    if(selected.baseRevision!==S.rev){
+      showStatus('影片 revision 已变化；为防止覆盖旧画布状态，请重新选择元素。','error');
+      S.selectedElement=null;renderInspector();return;
+    }
+    if(!operation||operation.op!=='element_set'||operation.clip!==selected.clipId||operation.selector!==selected.selector){
+      showStatus('画布编辑目标与当前选择不一致；本次没有写入。','error');return;
+    }
+    var previousRevision=S.rev;
+    await filmStudioCommit([operation]);
+    if(!S.data||!S.data.exists||S.rev===previousRevision)return;
+    S.selectedElement=null;S.hoveredElement=null;
+    var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
+    renderInspector();renderAssets();
+    showStatus('画布修改已保存到 film.html。若需继续编辑或让 AI 修改该元素，请在当前画面中重新选择。','success');
+  };
   window.filmStudioSaveSelectedElement=async function(){
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.saveSelected==='function'){
+      await window.filmStudioReactInspector.saveSelected();
+      return;
+    }
     if(S.busy){showStatus('当前影片正在保存；请等待完成后再提交画布修改。','error');return;}
     var selected=S.selectedElement;
     if(!selected){showStatus('请先在预览画布中选中一个 HTML 元素。','error');return;}

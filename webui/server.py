@@ -1054,6 +1054,7 @@ class Handler(BaseHTTPRequestHandler):
                         "migration_preview": {
                             "duration": plan["duration"], "track_count": plan["track_count"],
                             "clip_count": plan["clip_count"], "warnings": plan["warnings"],
+                            "selected_variant_id": plan.get("selected_variant_id"),
                         },
                     }
                 except Exception as exc:
@@ -1104,8 +1105,10 @@ class Handler(BaseHTTPRequestHandler):
                             "clip_count": plan["clip_count"], "source_composition_version": current_version,
                         }}, 409)
                     return True
-                result = fd.initialize_project_film(pid, plan["document"], plan["pages"],
-                                                     current_version, plan["warnings"])
+                result = fd.initialize_project_film(
+                    pid, plan["document"], plan["pages"], current_version, plan["warnings"],
+                    selected_variant_id=plan.get("selected_variant_id"),
+                )
                 state = fd.read_project_film(pid)
                 self._send_json({**fd.film_payload(pid, state), "warnings": result["warnings"],
                                  "migration": result["migration"]}, 201)
