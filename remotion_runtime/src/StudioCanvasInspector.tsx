@@ -29,6 +29,7 @@ interface CanvasInspectorBridge {
 interface FilmStudioReactToolbarBridge {
   render(): void;
   renderTimeline(): void;
+  renderScrub(): void;
 }
 
 declare global {
@@ -37,6 +38,7 @@ declare global {
     filmStudioReactToolbar?: FilmStudioReactToolbarBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
     filmStudioSaveInspector?: () => Promise<void> | void;
+    filmStudioSeek?: (value: string | number) => void;
   }
 }
 
@@ -151,6 +153,26 @@ const StudioToolbar: React.FC = () => (
   </>
 );
 
+const StudioScrubRow: React.FC = () => (
+  <>
+    <button className="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>
+    <button className="fs-btn" type="button" id="fs-play-toggle" data-film-action="play-toggle">播放</button>
+    <input
+      id="fs-playhead"
+      type="range"
+      min={0}
+      max={10}
+      step={0.033333}
+      defaultValue={0}
+      onInput={(event) => window.filmStudioSeek?.(event.currentTarget.value)}
+      aria-label="播放头"
+    />
+    <button className="fs-btn" type="button" data-film-action="frame-next">下一帧</button>
+    <button className="fs-btn" id="fs-element-inspect-toggle" type="button" data-film-action="canvas-inspect" aria-pressed="false" title="在节目监视器中点选 HTML 镜头里的文字或图层">选择画面元素</button>
+    <span id="fs-playhead-value">00:00.000</span>
+  </>
+);
+
 const StudioTimelineToolbar: React.FC = () => (
   <>
     <button className="fs-btn" type="button" data-film-action="insert-mode" aria-pressed="false" title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：关</button>
@@ -228,6 +250,8 @@ let toolbarRoot: Root | null = null;
 let toolbarMount: HTMLElement | null = null;
 let timelineToolbarRoot: Root | null = null;
 let timelineToolbarMount: HTMLElement | null = null;
+let scrubRoot: Root | null = null;
+let scrubMount: HTMLElement | null = null;
 window.filmStudioReactToolbar = {
   render() {
     const mount = document.getElementById("fs-react-toolbar");
@@ -249,6 +273,17 @@ window.filmStudioReactToolbar = {
     }
     flushSync(() => {
       timelineToolbarRoot?.render(<StudioTimelineToolbar />);
+    });
+  },
+  renderScrub() {
+    const mount = document.getElementById("fs-react-scrub-row");
+    if (!mount) return;
+    if (!scrubRoot || scrubMount !== mount) {
+      scrubRoot = createRoot(mount);
+      scrubMount = mount;
+    }
+    flushSync(() => {
+      scrubRoot?.render(<StudioScrubRow />);
     });
   },
 };

@@ -1499,21 +1499,34 @@
 
   function mountReactToolbar(){
     var reactMount=$('fs-react-toolbar'),legacy=$('fs-static-toolbar'),
-        reactTimeline=$('fs-react-timeline-toolbar'),legacyTimeline=$('fs-static-timeline-toolbar');
-    if(window.filmStudioReactToolbar&&typeof window.filmStudioReactToolbar.render==='function'
-        &&typeof window.filmStudioReactToolbar.renderTimeline==='function'&&reactMount&&reactTimeline){
-      window.filmStudioReactToolbar.render();
-      window.filmStudioReactToolbar.renderTimeline();
-      reactMount.style.display='flex';
-      reactTimeline.style.display='flex';
-      if(legacy)legacy.style.display='none';
-      if(legacyTimeline)legacyTimeline.style.display='none';
-      return;
+        reactTimeline=$('fs-react-timeline-toolbar'),legacyTimeline=$('fs-static-timeline-toolbar'),
+        reactScrub=$('fs-react-scrub-row'),legacyScrub=$('fs-static-scrub-row');
+    var bridge=window.filmStudioReactToolbar;
+    if(bridge&&typeof bridge.render==='function'&&typeof bridge.renderTimeline==='function'
+        &&typeof bridge.renderScrub==='function'&&reactMount&&reactTimeline&&reactScrub){
+      try{
+        bridge.render();
+        bridge.renderTimeline();
+        bridge.renderScrub();
+        reactMount.style.display='flex';
+        reactTimeline.style.display='flex';
+        reactScrub.style.display='flex';
+        if(legacy)legacy.style.display='none';
+        if(legacyTimeline)legacyTimeline.style.display='none';
+        // Remove the legacy row once React has rendered successfully: both
+        // versions contain stable IDs consumed by the playback runtime.
+        if(legacyScrub)legacyScrub.remove();
+        return;
+      }catch(error){
+        console.error('React Studio toolbar mount failed; using static fallback.',error);
+      }
     }
     if(reactMount)reactMount.style.display='none';
     if(reactTimeline)reactTimeline.style.display='none';
+    if(reactScrub)reactScrub.style.display='none';
     if(legacy)legacy.style.display='';
     if(legacyTimeline)legacyTimeline.style.display='';
+    if(legacyScrub)legacyScrub.style.display='';
   }
   mountReactToolbar();
 

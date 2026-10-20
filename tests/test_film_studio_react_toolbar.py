@@ -15,3 +15,8 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "mountReactToolbar();" in studio
     assert "if(legacy)legacy.style.display='none';" in studio
     assert "if(legacy)legacy.style.display='';" in studio
+    assert 'id="fs-react-scrub-row"' in html
+    assert 'id="fs-static-scrub-row"' in html
+    assert "const StudioScrubRow: React.FC" in component
+    assert "renderScrub(): void" in component
+    assert "bridge.renderScrub();" in studio
