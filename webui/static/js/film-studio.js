@@ -173,6 +173,27 @@
   }
   function renderAssets() {
     var all=clips();$('fs-clip-count').textContent=String(all.length);
+    if(window.filmStudioReactAssets&&typeof window.filmStudioReactAssets.render==='function'){
+      var assetClips=all.map(function(c){
+        var attrs=c.attrs||{},aid=attrs['data-asset-id']||'',label=attrs.title||attrs['data-role']||c.id;
+        var thumbnail=aid&&c.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
+        return {
+          id:c.id,tag:c.tag,title:String(label),
+          meta:fmtTime(c.at)+' · '+(c.duration==null?'时长未知':c.duration.toFixed(2)+'s'),
+          thumbnail:thumbnail,selected:c.id===S.selectedId
+        };
+      });
+      var libraryAssets=S.libraryAssets.filter(function(a){return ['video','image','audio'].indexOf(String(a.type||'').toLowerCase())>=0;})
+        .map(function(a){
+          var id=String(a.asset_id||a.id||''),kind=String(a.type||'').toLowerCase(),label=String(a.description||a.name||a.filename||id);
+          return {id:id,kind:kind,label:label,meta:kind.toUpperCase()+(a.duration?' · '+Number(a.duration).toFixed(2)+'s':'')+(a.source?' · '+String(a.source):'')};
+        });
+      window.filmStudioReactAssets.render({
+        mode:S.assetMode==='library'?'library':'clips',
+        clips:assetClips,libraryAssets:libraryAssets
+      });
+      return;
+    }
     if(S.assetMode==='library'){renderLibraryAssets();return;}
     if(!all.length){$('fs-assets-list').innerHTML='<div class="fs-empty">此影片没有片段。可从素材库添加视频或图片。</div>';return;}
     $('fs-assets-list').innerHTML=all.map(function(c){

@@ -97,6 +97,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 tracing = True
                 _open_studio(page, server.server_port, project_id)
+                has_react_assets = page.evaluate(
+                    "() => typeof window.filmStudioReactAssets?.render === 'function'"
+                )
+                if has_react_assets:
+                    page.locator("#fs-assets-list [data-react-asset-list]").wait_for(state="attached", timeout=10000)
+                    assert page.locator("#fs-assets-list [data-react-asset-clip]").count() == 1
+                else:
+                    assert page.locator("#fs-assets-list [data-react-asset-list]").count() == 0
                 page.locator("#fs-static-toolbar").wait_for(state="attached", timeout=10000)
                 has_react_toolbar = page.evaluate(
                     "() => typeof window.filmStudioReactToolbar?.render === 'function' && typeof window.filmStudioReactToolbar?.renderScrub === 'function'"

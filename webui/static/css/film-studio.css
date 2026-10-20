@@ -269,3 +269,5 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 }
 .fs-inspector-field textarea:disabled{opacity:.55;cursor:not-allowed}
 .fs-inspector-element .fs-btn{margin-top:8px;width:100%}
+.fs-react-asset-items{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fs-react-asset-items>.fs-empty{width:100%}

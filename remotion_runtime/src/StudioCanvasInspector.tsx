@@ -31,6 +31,28 @@ interface FilmStudioReactToolbarBridge {
   renderTimeline(): void;
   renderScrub(): void;
 }
+type FilmStudioAssetClip = {
+  id: string;
+  tag: string;
+  title: string;
+  meta: string;
+  thumbnail: string;
+  selected: boolean;
+};
+type FilmStudioLibraryAsset = {
+  id: string;
+  kind: string;
+  label: string;
+  meta: string;
+};
+type FilmStudioAssetsModel = {
+  mode: "clips" | "library";
+  clips: FilmStudioAssetClip[];
+  libraryAssets: FilmStudioLibraryAsset[];
+};
+interface FilmStudioReactAssetsBridge {
+  render(model: FilmStudioAssetsModel): void;
+}
 
 declare global {
   interface Window {
@@ -39,6 +61,10 @@ declare global {
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
     filmStudioSaveInspector?: () => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
+    filmStudioReactAssets?: FilmStudioReactAssetsBridge;
+    filmStudioSelectClip?: (clipId: string) => void;
+    filmStudioShowAssetMode?: (mode: string) => void;
+    filmStudioAddAsset?: (assetId: string) => Promise<void> | void;
   }
 }
 
@@ -153,6 +179,63 @@ const StudioToolbar: React.FC = () => (
   </>
 );
 
+const StudioAssets: React.FC<{model: FilmStudioAssetsModel}> = ({model}) => {
+  if (model.mode === "library") {
+    if (!model.libraryAssets.length) {
+      return <div className="fs-react-asset-items" data-react-asset-list="true">
+        <div className="fs-empty">素材库没有可直接加入时间线的视频或图片。已上传的项目素材和全局素材会在此显示。</div>
+      </div>;
+    }
+    return <div className="fs-react-asset-items" data-react-asset-list="true">
+      {model.libraryAssets.map((asset) => (
+        <div className="fs-asset-item" data-react-library-asset={asset.id} key={asset.id}>
+          <span className="fs-asset-icon">{asset.kind.toUpperCase()}</span>
+          <span className="fs-asset-name" title={asset.label}>
+            {asset.label}<span className="fs-asset-meta">{asset.meta}</span>
+          </span>
+          <button
+            type="button"
+            className="fs-btn fs-primary"
+            data-add-asset={asset.id}
+            title="在播放头位置新建轨道并添加"
+            onClick={(event) => {
+              event.stopPropagation();
+              void window.filmStudioAddAsset?.(asset.id);
+            }}
+          >添加</button>
+        </div>
+      ))}
+    </div>;
+  }
+  if (!model.clips.length) {
+    return <div className="fs-react-asset-items" data-react-asset-list="true">
+      <div className="fs-empty">此影片没有片段。可从素材库添加视频或图片。</div>
+    </div>;
+  }
+  return <div className="fs-react-asset-items" data-react-asset-list="true">
+    {model.clips.map((clip) => (
+      <button
+        type="button"
+        key={clip.id}
+        className={"fs-asset-item" + (clip.selected ? " fs-selected" : "")}
+        data-clip={clip.id}
+        data-react-asset-clip={clip.id}
+        title={clip.title}
+        onClick={() => window.filmStudioSelectClip?.(clip.id)}
+      >
+        <span className="fs-asset-icon">
+          {clip.thumbnail
+            ? <img className="fs-asset-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+            : clip.tag.toUpperCase()}
+        </span>
+        <span className="fs-asset-name">
+          {clip.title}<span className="fs-asset-meta">{clip.meta}</span>
+        </span>
+      </button>
+    ))}
+  </div>;
+};
+
 const StudioScrubRow: React.FC = () => (
   <>
     <button className="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>
@@ -244,6 +327,22 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
       </button>
     </section>
   );
+};
+
+let assetsRoot: Root | null = null;
+let assetsMount: HTMLElement | null = null;
+window.filmStudioReactAssets = {
+  render(model) {
+    const mount = document.getElementById("fs-assets-list");
+    if (!mount) return;
+    if (!assetsRoot || assetsMount !== mount) {
+      assetsRoot = createRoot(mount);
+      assetsMount = mount;
+    }
+    flushSync(() => {
+      assetsRoot?.render(<StudioAssets model={model} />);
+    });
+  },
 };
 
 let toolbarRoot: Root | null = null;
