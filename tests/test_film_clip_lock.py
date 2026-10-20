@@ -105,6 +105,10 @@ def test_clip_lock_can_be_explicitly_removed_then_normal_edits_resume(tmp_path, 
     assert "data-clip-locked" not in clip["attrs"]
     assert clip["attrs"]["at"] == "0.5"
     assert normalized[0] == {"op": "clip_lock", "clip": "main-opening-2", "locked": False}
+    round_trip = fd.parse_film(fd.serialize_film(unlocked))
+    round_trip_clip = next(item for track in round_trip["tracks"] for item in track["clips"]
+                           if item["id"] == "main-opening-2")
+    assert "data-clip-locked" not in round_trip_clip["attrs"]
 
 
 def test_clip_lock_requires_explicit_boolean_and_does_not_bypass_track_lock():
@@ -112,7 +116,7 @@ def test_clip_lock_requires_explicit_boolean_and_does_not_bypass_track_lock():
         "stage": {"width": 320, "height": 180},
         "head_html": "<head></head>",
         "tracks": [{
-            "id": "track-main", "attrs": {"id": "track-main", "locked": ""},
+            "id": "track-main", "attrs": {"id": "track-main"},
             "clips": [{"id": "clip-a", "tag": "img",
                        "attrs": {"id": "clip-a", "src": "/media/a.png#t=0,1", "at": "0",
                                  "data-clip-locked": ""}}],
@@ -120,5 +124,7 @@ def test_clip_lock_requires_explicit_boolean_and_does_not_bypass_track_lock():
     }
     with pytest.raises(fd.FilmError, match="必须是布尔值"):
         fd.apply_ops(document, [{"op": "clip_lock", "clip": "clip-a", "locked": "false"}])
+
+    document["tracks"][0]["attrs"]["locked"] = ""
     with pytest.raises(fd.FilmError, match="轨道 track-main 已锁定"):
         fd.apply_ops(document, [{"op": "clip_lock", "clip": "clip-a", "locked": False}])
