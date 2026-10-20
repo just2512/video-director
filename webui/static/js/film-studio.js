@@ -1117,11 +1117,16 @@
   }
   connectFilmStudioEvents();
   var dock=$('fs-workspace-dock')||document.querySelector('.fs-workspace');
+  var studioPanel=$('film-studio-panel');
   function restoreDock(){
     try{
       var left=localStorage.getItem('film-studio-left-pane'),right=localStorage.getItem('film-studio-right-pane');
-      if(left)dock.style.setProperty('--fs-left',left+'%');
-      if(right)dock.style.setProperty('--fs-right',right+'%');
+      if(left&&Number.isFinite(Number(left)))dock.style.setProperty('--fs-left',Math.max(15,Math.min(38,Number(left)))+'%');
+      if(right&&Number.isFinite(Number(right)))dock.style.setProperty('--fs-right',Math.max(18,Math.min(38,Number(right)))+'%');
+      var timelineHeight=Number(localStorage.getItem('film-studio-timeline-height'));
+      if(studioPanel&&Number.isFinite(timelineHeight)&&timelineHeight>=120){
+        studioPanel.style.setProperty('--fs-timeline-height',Math.max(120,Math.min(window.innerHeight*0.45,timelineHeight))+'px');
+      }
     }catch(_){}
   }
   function beginDivider(e){
@@ -1133,9 +1138,31 @@
     try{divider.setPointerCapture(e.pointerId);}catch(_){}
     e.preventDefault();
   }
+  function beginTimelineDivider(e){
+    if(e.button!==0||!studioPanel)return;
+    var timeline=$('fs-timeline-divider'),pane=document.querySelector('.fs-timeline-pane');
+    if(!timeline||!pane)return;
+    S.paneDrag={
+      side:'timeline',divider:timeline,startY:e.clientY,
+      startHeight:pane.getBoundingClientRect().height,
+      panelHeight:studioPanel.getBoundingClientRect().height
+    };
+    timeline.classList.add('fs-divider-dragging');
+    try{timeline.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();
+  }
   function moveDivider(e){
     if(!S.paneDrag)return;
-    var d=S.paneDrag,rect=d.rect,w=rect.width;
+    var d=S.paneDrag;
+    if(d.side==='timeline'){
+      var panelHeight=studioPanel?studioPanel.getBoundingClientRect().height:d.panelHeight;
+      var maxHeight=Math.max(160,Math.min(window.innerHeight*0.45,panelHeight*0.45));
+      var height=Math.max(120,Math.min(maxHeight,d.startHeight+d.startY-e.clientY));
+      if(studioPanel)studioPanel.style.setProperty('--fs-timeline-height',height.toFixed(0)+'px');
+      try{localStorage.setItem('film-studio-timeline-height',height.toFixed(0));}catch(_){}
+      return;
+    }
+    var rect=d.rect,w=rect.width;
     if(!w)return;
     if(d.side==='left'){
       var left=Math.max(15,Math.min(38,(e.clientX-rect.left)/w*100));
@@ -1148,23 +1175,46 @@
     }
   }
   function endDivider(){
-    if(!S.paneDrag)return;S.paneDrag.divider.classList.remove('fs-divider-dragging');S.paneDrag=null;
+    if(!S.paneDrag)return;
+    if(S.paneDrag.divider)S.paneDrag.divider.classList.remove('fs-divider-dragging');
+    S.paneDrag=null;
   }
   document.querySelectorAll('.fs-pane-divider').forEach(function(el){
     el.addEventListener('pointerdown',beginDivider);
     el.addEventListener('pointermove',moveDivider);
     el.addEventListener('pointerup',endDivider);
     el.addEventListener('pointercancel',endDivider);
+    el.addEventListener('lostpointercapture',endDivider);
     el.addEventListener('keydown',function(e){
       if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
       e.preventDefault();
       var side=el.getAttribute('data-divider'),delta=(e.key==='ArrowLeft'?-1:1)*(e.shiftKey?4:1);
       var current=parseFloat(getComputedStyle(dock).getPropertyValue(side==='left'?'--fs-left':'--fs-right'))||24;
-      var next=Math.max(side==='left'?15:18,Math.min(side==='left'?38:38,current+(side==='left'?delta:-delta)));
+      var next=Math.max(side==='left'?15:18,Math.min(38,current+(side==='left'?delta:-delta)));
       dock.style.setProperty(side==='left'?'--fs-left':'--fs-right',next+'%');
       try{localStorage.setItem(side==='left'?'film-studio-left-pane':'film-studio-right-pane',String(next));}catch(_){}
     });
   });
+  var timelineDivider=$('fs-timeline-divider');
+  if(timelineDivider){
+    timelineDivider.addEventListener('pointerdown',beginTimelineDivider);
+    timelineDivider.addEventListener('pointermove',moveDivider);
+    timelineDivider.addEventListener('pointerup',endDivider);
+    timelineDivider.addEventListener('pointercancel',endDivider);
+    timelineDivider.addEventListener('lostpointercapture',endDivider);
+    timelineDivider.addEventListener('keydown',function(e){
+      if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+      e.preventDefault();
+      var pane=document.querySelector('.fs-timeline-pane');
+      if(!pane||!studioPanel)return;
+      var current=pane.getBoundingClientRect().height;
+      var delta=(e.key==='ArrowUp'?1:-1)*(e.shiftKey?48:16);
+      var maxHeight=Math.max(160,Math.min(window.innerHeight*0.45,studioPanel.getBoundingClientRect().height*0.45));
+      var height=Math.max(120,Math.min(maxHeight,current+delta));
+      studioPanel.style.setProperty('--fs-timeline-height',height.toFixed(0)+'px');
+      try{localStorage.setItem('film-studio-timeline-height',height.toFixed(0));}catch(_){}
+    });
+  }
   restoreDock();
   var projectSelect=$('editor-project');if(projectSelect)projectSelect.addEventListener('change',function(){if(S.open)setTimeout(function(){filmStudioLoad(true);},50);});
   var legacyEditorLoad=window.editorLoad;
