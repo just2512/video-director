@@ -6,9 +6,11 @@ on:
   push:
     branches: [main, "feat/unified-director-agent-loop"]
 
-# Keep only the latest full regression run for a given PR/ref. Each run installs
-# Chromium and executes the full pytest suite, so superseded commits should not
-# compete with the head commit's browser/render checks.
+# Do not interrupt a running full regression. A newer push may replace the
+# single pending run, but an active browser/render suite must finish and report.
+permissions:
+  contents: write
+
 concurrency:
   group: ai-director-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
@@ -110,3 +112,25 @@ jobs:
             webui/static/js/film-studio-react.js
             playwright-report/**
             artifacts/**
+
+      # The browser serves the checked-in bundle, not an ephemeral build directory.
+      # Publish only if all checks succeeded and main has not advanced since checkout.
+      # A GitHub-token push intentionally does not fan out another workflow run.
+      - name: Publish verified React Studio bundle to main
+        if: success()
+        shell: bash
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "::warning::main advanced during verification; bundle was retained in the workflow artifact and not pushed over newer code."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add webui/static/js/film-studio-react.js
+          if git diff --cached --quiet; then
+            echo "React Studio bundle unchanged."
+            exit 0
+          fi
+          git commit -m "build: publish verified React 19 Studio bundle"
+          git push origin HEAD:main
