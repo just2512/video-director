@@ -93,6 +93,38 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
             page = context.new_page()
             page_errors: list[str] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
+            # Emit pointer and postMessage traces from every frame into the top page.
+            # The migrated scene iframe is sandboxed, so the parent cannot inspect
+            # its DOM directly; this test-only trace makes the boundary observable.
+            page.add_init_script("""(() => {
+              const isTop = window === window.top;
+              if (isTop) window.__vdCanvasTrace = [];
+              const emit = (record) => {
+                try { window.top.postMessage({type:'vd-canvas-test-trace', record}, '*'); } catch (_) {}
+              };
+              window.addEventListener('message', (event) => {
+                const message = event.data || {};
+                if (typeof message.type === 'string' && message.type.indexOf('film-') === 0) {
+                  emit({event:'message', context:location.href, type:message.type,
+                    origin:event.origin, sourceIsParent:event.source===window.parent,
+                    enabled:message.enabled, clipId:message.clipId, selector:message.selector});
+                }
+              });
+              document.addEventListener('pointerdown', (event) => {
+                const target=event.target;
+                emit({event:'pointerdown', context:location.href,
+                  targetTag:target&&target.tagName, targetId:target&&target.id,
+                  targetClass:target&&String(target.className||''),
+                  pointerEvents:target&&getComputedStyle(target).pointerEvents,
+                  x:event.clientX,y:event.clientY});
+              }, true);
+              if (isTop) window.addEventListener('message', (event) => {
+                if (event.data&&event.data.type==='vd-canvas-test-trace'&&Array.isArray(window.__vdCanvasTrace)) {
+                  window.__vdCanvasTrace.push(event.data.record);
+                  if (window.__vdCanvasTrace.length>300) window.__vdCanvasTrace.shift();
+                }
+              });
+            })();""")
             try:
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 tracing = True
@@ -185,10 +217,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 )
                 assert pointer_mode == "auto", f"Inspect mode did not enable iframe hit-testing: {pointer_mode}"
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
-                    timeout=15000,
-                )
+                try:
+                    page.wait_for_function(
+                        "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
+                        timeout=15000,
+                    )
+                except Exception as exc:
+                    trace = page.evaluate("() => ({trace:window.__vdCanvasTrace||[], alert:document.querySelector('#film-studio-alert')?.textContent, iframePointerEvents:getComputedStyle(document.querySelector('#fs-preview-composition')?.contentDocument?.querySelector('#scene-clip')).pointerEvents})")
+                    raise AssertionError("Canvas picker message chain did not reach Studio: " + json.dumps(trace, ensure_ascii=False)) from exc
                 page.locator("#fs-element-text").wait_for(state="visible")
                 page.locator("#fs-inspector [data-react-clip-inspector]").wait_for(state="attached", timeout=10000)
                 assert page.locator("#fs-inspector #fs-field-at").count() == 1
