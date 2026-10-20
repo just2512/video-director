@@ -3117,10 +3117,48 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if scene_metadata:
             warnings.append(f"场景 {scene_id} 的创作 lineage 字段未映射：" + ", ".join(scene_metadata))
         if any(scene.get(name) for name in (
-            "entrance_state", "exit_state", "continuity_in", "continuity_out", "camera"
+            "entrance_state", "exit_state", "continuity_in", "continuity_out"
         )):
-            warnings.append(f"场景 {scene_id} 的 camera/continuity/state 信息未迁移")
+            warnings.append(f"场景 {scene_id} 的 continuity/state 信息未迁移")
         scene_start = _number(scene.get("start", 0), "scene start", 0)
+
+        # SceneIR.camera is scoped to the scene; unlike the composition-wide
+        # camera_tracks collection, its keyframe times are scene-local.
+        scene_camera_tracks = raw_ir.get("camera_tracks") or []
+        scene_camera_failed = False
+        raw_scene_camera = scene.get("camera")
+        if raw_scene_camera:
+            if not isinstance(raw_scene_camera, dict):
+                warnings.append(f"场景 {scene_id} 的 scene.camera 格式无效，摄影机运动未迁移")
+                scene_camera_tracks = []
+                scene_camera_failed = True
+            else:
+                shifted_camera = dict(raw_scene_camera)
+                shifted_frames = []
+                try:
+                    raw_frames = raw_scene_camera.get("keyframes") or []
+                    if not isinstance(raw_frames, list):
+                        raise FilmError("INVALID_SCENE_CAMERA", "keyframes 必须是数组")
+                    for frame in raw_frames:
+                        if not isinstance(frame, dict):
+                            raise FilmError("INVALID_SCENE_CAMERA", "keyframe 必须是对象")
+                        local_at = _number(
+                            frame.get("at"), f"scene {scene_id}.camera.at", 0
+                        )
+                        shifted_frames.append({**frame, "at": scene_start + local_at})
+                    shifted_camera["keyframes"] = shifted_frames
+                    scene_camera_tracks = [shifted_camera]
+                    if raw_ir.get("camera_tracks"):
+                        warnings.append(
+                            f"场景 {scene_id} 同时含 scene.camera 与全局 camera_tracks；"
+                            "场景内图层优先使用 scene.camera，避免重复叠加摄影机变换"
+                        )
+                except FilmError as exc:
+                    warnings.append(f"场景 {scene_id} 的 scene.camera 未迁移：{exc}")
+                    scene_camera_tracks = []
+                    scene_camera_failed = True
+        elif raw_ir.get("camera_tracks"):
+            scene_camera_tracks = raw_ir.get("camera_tracks") or []
         for idx, layer in enumerate(scene.get("layers") or []):
             kind = str(layer.get("type") or "")
             if kind == "gap":
@@ -3167,7 +3205,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             # overlays. The same frame(t) contract then drives both preview
             # and offline rendering. Existing explicit camera channels win.
             camera_channels, camera_warnings = _film_camera_channels(
-                raw_ir.get("camera_tracks") or [], layer_timeline_start, d
+                scene_camera_tracks if not scene_camera_failed else [],
+                layer_timeline_start, d
             )
             unsupported_layer_fields.extend(camera_warnings)
             current_properties = {

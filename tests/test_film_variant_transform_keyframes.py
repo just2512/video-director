@@ -230,3 +230,42 @@ def test_orthographic_camera_track_is_migrated_to_main_scene_layers(tmp_path, mo
     assert camera_y["keyframes"][0]["value"] == 0.5
     assert camera_y["keyframes"][-1]["value"] == 0.4
     assert not any("projection=orthographic" in warning for warning in result["warnings"])
+def test_scene_local_camera_track_is_shifted_to_global_timeline_before_migration(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "scene-local-camera-track"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "scene.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-scene", "file": "assets/scene.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 5},
+        "assets": [{"id": "asset-scene", "file": "assets/scene.png", "type": "image"}],
+        "scenes": [{
+            "id": "late-scene", "start": 4, "duration": 1, "text": "late",
+            "camera": {
+                "id": "scene-camera",
+                "projection": "orthographic",
+                "keyframes": [
+                    {"at": 0, "position": [0.5, 0.5, 1], "target": [0.5, 0.5, 0]},
+                    {"at": 1, "position": [0.2, 0.7, 1], "target": [0.2, 0.7, 0]},
+                ],
+            },
+            "layers": [{
+                "type": "image", "asset_id": "asset-scene", "start": 0, "duration": 1,
+            }],
+        }],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    main_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    clip = main_track["clips"][0]
+    assert clip["attrs"]["at"] == "4"
+    channels = json.loads(clip["attrs"]["data-film-keyframes"])
+    camera_x = next(channel for channel in channels if channel["property"] == "camera_x")
+    camera_y = next(channel for channel in channels if channel["property"] == "camera_y")
+    assert [(point["at"], point["value"]) for point in camera_x["keyframes"]] == [(0.0, 0.5), (1.0, 0.2)]
+    assert [(point["at"], point["value"]) for point in camera_y["keyframes"]] == [(0.0, 0.5), (1.0, 0.7)]
+    assert not any("scene.camera 的 camera/continuity/state" in warning for warning in result["warnings"])
