@@ -125,6 +125,17 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     repo_root = Path(__file__).resolve().parents[1]
     environment = os.environ.copy()
     environment["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(tmp_path / "composer")
+    status = subprocess.run(
+        [sys.executable, "-m", "video_director", "film", "status",
+         "--project-id", project_id], cwd=repo_root, env=environment,
+        capture_output=True, text=True, timeout=60
+    )
+    assert status.returncode == 0, status.stdout + status.stderr
+    status_json = json.loads(status.stdout)
+    assert status_json["revision"] == reloaded["rev"]
+    assert status_json["clip_count"] == 8
+    assert status_json["track_count"] == 7
+
     validation = subprocess.run(
         [sys.executable, "-m", "video_director", "film", "validate",
          "--project-id", project_id], cwd=repo_root, env=environment,
@@ -136,11 +147,32 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     assert validation_json["revision"] == reloaded["rev"]
     assert validation_json["assets_checked"] == 8
 
-    look = film_render.look_project_film(project_id, expected_revision=reloaded["rev"], times=[0.0, 0.5])
-    assert look["determinism_status"] == "PASS"
-    assert Path(look["image_path"]).is_file()
+    diff = subprocess.run(
+        [sys.executable, "-m", "video_director", "film", "diff",
+         "--project-id", project_id, "--from-revision", initial["rev"]],
+        cwd=repo_root, env=environment, capture_output=True, text=True, timeout=60
+    )
+    assert diff.returncode == 0, diff.stdout + diff.stderr
+    assert "footage-right" in diff.stdout
 
-    rendered = film_render.render_project_film(project_id, reloaded["rev"], fps=2)
+    look = subprocess.run(
+        [sys.executable, "-m", "video_director", "film", "look",
+         "--project-id", project_id, "--revision", reloaded["rev"],
+         "--times", "0,0.5"],
+        cwd=repo_root, env=environment, capture_output=True, text=True, timeout=180
+    )
+    assert look.returncode == 0, look.stdout + look.stderr
+    look_json = json.loads(look.stdout)
+    assert look_json["determinism_status"] == "PASS"
+    assert Path(look_json["image_path"]).is_file()
+
+    render = subprocess.run(
+        [sys.executable, "-m", "video_director", "film", "render",
+         "--project-id", project_id, "--fps", "2"],
+        cwd=repo_root, env=environment, capture_output=True, text=True, timeout=240
+    )
+    assert render.returncode == 0, render.stdout + render.stderr
+    rendered = json.loads(render.stdout)
     output = Path(rendered["mp4_path"])
     assert rendered["ok"] and rendered["current"]
     assert rendered["rendered_revision"] == reloaded["rev"]
