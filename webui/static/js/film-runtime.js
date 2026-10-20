@@ -348,7 +348,13 @@
     return null;
   }
   function forwardSceneElementEvent(event,message){
-    if(!message||['film-element-selected','film-element-hover'].indexOf(message.type)<0)return false;
+    var mappedType={
+      'film-element-selected':'film-runtime:element-selected',
+      'film-element-hover':'film-runtime:element-hover',
+      'film-element-preview':'film-runtime:element-preview',
+      'film-element-drag-end':'film-runtime:element-drag-end'
+    };
+    if(!message||!mappedType[message.type])return false;
     var entry=findEntryForFrame(event.source);
     if(!entry)return false;
     var rect=message.rect||{},viewportSize=message.viewport||{};
@@ -357,7 +363,7 @@
     var scaleX=entry.el.clientWidth/localWidth,scaleY=entry.el.clientHeight/localHeight;
     var left=entry.el.offsetLeft,top=entry.el.offsetTop;
     post({
-      type:message.type==='film-element-selected'?'film-runtime:element-selected':'film-runtime:element-hover',
+      type:mappedType[message.type],
       rev:state.rev,clipId:entry.clip.id,selector:message.selector,tag:message.tag,text:message.text,
       textEditable:message.textEditable!==false,styles:message.styles||{},
       rect:{
