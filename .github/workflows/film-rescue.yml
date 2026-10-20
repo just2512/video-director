@@ -16,7 +16,7 @@ permissions:
 
 # Separate from the stalled self-hosted job so this bounded rescue run can execute.
 concurrency:
-  group: film-rescue-\${{ github.ref }}
+  group: film-rescue-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      VIDEO_DIRECTOR_TEST_RESULTS: \${{ github.workspace }}/test-results
+      VIDEO_DIRECTOR_TEST_RESULTS: ${{ github.workspace }}/test-results
     steps:
       - name: Checkout exact main revision
         uses: actions/checkout@v4
