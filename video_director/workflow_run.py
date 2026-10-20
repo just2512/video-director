@@ -438,6 +438,16 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
         logger.warning(f"director retry rejected: {project_id} has no persisted bundle")
         return None
 
+    # 2026-10-20 意图链修复：retry 重建 spec 必须重跑意图解析——否则 brief 里的
+    # 自然语言要求（水印/时长/字幕开关）在「重试」入口被丢（生产实锚：
+    # web-cf64b359 三次 retry 后 watermark 丢失、_intent_duration_s=None）。
+    try:
+        from video_director import director_intent
+        _intent = director_intent.resolve_director_intents(
+            bundle.get("brief") or params.get("creative_brief") or "")
+    except Exception:
+        _intent = {}
+
     try:
         params = json.loads(proj.get("params_json") or "{}")
         if not isinstance(params, dict):
@@ -451,14 +461,21 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
                  or proj.get("script") or "",
         "brief": (bundle.get("brief") or params.get("creative_brief") or ""),
         "director_inputs": bundle,
-        "voice": params.get("voice") or "zh-CN-XiaoxiaoNeural",
-        "voice_rate": params.get("voice_rate") or "+0%",
+        "voice": params.get("voice") or _intent.get("voice") or "zh-CN-XiaoxiaoNeural",
+        "voice_rate": params.get("voice_rate") or _intent.get("voice_rate") or "+0%",
         "width": params.get("width"), "height": params.get("height"),
         "fps": params.get("fps"),
-        "bgm": params.get("bgm") or "auto",
-        "subtitle_mode": params.get("subtitle_mode") or "plain",
+        "bgm": params.get("bgm") or _intent.get("bgm") or "auto",
+        "subtitle_mode": params.get("subtitle_mode") or _intent.get("subtitle_mode") or "plain",
+        "watermark": params.get("watermark") or _intent.get("watermark") or "",
+        "title": params.get("title") or _intent.get("title") or "",
+        "transition_mode": params.get("transition_mode") or _intent.get("transition_mode") or "cut",
+        "clip_duration": params.get("clip_duration") or _intent.get("clip_duration"),
+        "clip_speed": params.get("clip_speed") or _intent.get("clip_speed"),
         "match_materials_to_script": params.get("match_materials_to_script", True),
     }
+    if _intent.get("duration"):
+        spec["_intent_duration_s"] = _intent["duration"]
     try:
         store.set_stage(project_id, store.Stage.CREATED)
     except Exception as exc:
