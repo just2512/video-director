@@ -46,6 +46,8 @@ python -m video_director film render --project-id <project_id>
 
 外部编程智能体可以直接读取和修改项目内的 `film.html`、`scenes/*.html` 与 `assets/*`；Studio 通过文件监视实时刷新。HTML 镜头如需参与逐帧导出，应实现 `window.film.frame(t)`，并可通过 `window.film.ready` 暴露异步资源就绪状态。执行 `film look` 会生成真实浏览器接触表并反序检查重复时刻的一致性。
 
+编程智能体的完整文件协议、`frame(t)` 约定、冲突规则、离线资源边界与验收步骤见 [Film Agent Manual](docs/FILM_AGENT_MANUAL.md)。仓库根目录的 [AGENTS.md](AGENTS.md) 要求 Claude Code、Codex 等 Agent 在修改影片前读取同一份手册。
+
 ## 三个关键能力现在就能用（无需 key）
 
 - **文件名语义匹配**：素材命名 `战场出征.mp4`、`送葬队伍.mp4` → 自动对应文案相关场景
