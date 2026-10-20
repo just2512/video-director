@@ -26,10 +26,14 @@ interface CanvasInspectorBridge {
   renderClip(clip: FilmClipInspectorModel | null, emptyMessage?: string): void;
   sync(element: CanvasElementSelection): void;
 }
+interface FilmStudioReactToolbarBridge {
+  render(): void;
+}
 
 declare global {
   interface Window {
     filmStudioReactInspector?: CanvasInspectorBridge;
+    filmStudioReactToolbar?: FilmStudioReactToolbarBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
     filmStudioSaveInspector?: () => Promise<void> | void;
   }
@@ -136,6 +140,16 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
   );
 };
 
+const StudioToolbar: React.FC = () => (
+  <>
+    <button className="fs-btn" type="button" data-film-action="undo">撤销</button>
+    <button className="fs-btn" type="button" data-film-action="redo">重做</button>
+    <button className="fs-btn" type="button" data-film-action="reload">重新载入</button>
+    <button className="fs-btn fs-primary" type="button" data-film-action="render">导出 MP4</button>
+    <button className="fs-btn" type="button" data-film-action="close" title="退出全屏 Studio，不切回旧编辑状态">退出 Studio</button>
+  </>
+);
+
 const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element}) => {
   const rect = element.localRect || element.rect || {};
   const styles = element.styles || {};
@@ -190,6 +204,22 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
       </button>
     </section>
   );
+};
+
+let toolbarRoot: Root | null = null;
+let toolbarMount: HTMLElement | null = null;
+window.filmStudioReactToolbar = {
+  render() {
+    const mount = document.getElementById("fs-react-toolbar");
+    if (!mount) return;
+    if (!toolbarRoot || toolbarMount !== mount) {
+      toolbarRoot = createRoot(mount);
+      toolbarMount = mount;
+    }
+    flushSync(() => {
+      toolbarRoot?.render(<StudioToolbar />);
+    });
+  },
 };
 
 let activeRoot: Root | null = null;

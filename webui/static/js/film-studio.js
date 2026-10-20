@@ -1497,4 +1497,17 @@
     handler();
   });
 
+  function mountReactToolbar(){
+    var reactMount=$('fs-react-toolbar'),legacy=$('fs-static-toolbar');
+    if(window.filmStudioReactToolbar&&typeof window.filmStudioReactToolbar.render==='function'&&reactMount){
+      window.filmStudioReactToolbar.render();
+      reactMount.style.display='flex';
+      if(legacy)legacy.style.display='none';
+      return;
+    }
+    if(reactMount)reactMount.style.display='none';
+    if(legacy)legacy.style.display='';
+  }
+  mountReactToolbar();
+
 })();

@@ -97,6 +97,16 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 tracing = True
                 _open_studio(page, server.server_port, project_id)
+                page.locator("#fs-static-toolbar").wait_for(state="attached", timeout=10000)
+                has_react_toolbar = page.evaluate(
+                    "() => typeof window.filmStudioReactToolbar?.render === 'function'"
+                )
+                if has_react_toolbar:
+                    page.locator('#fs-react-toolbar [data-film-action="undo"]').wait_for(state="visible", timeout=10000)
+                    assert not page.locator("#fs-static-toolbar").is_visible()
+                else:
+                    assert page.locator("#fs-static-toolbar").is_visible()
+                    assert not page.locator("#fs-react-toolbar").is_visible()
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
                     state="attached", timeout=15000
                 )

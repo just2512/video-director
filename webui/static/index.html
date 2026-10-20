@@ -113,7 +113,8 @@
     <section id="film-studio-panel" class="film-studio-panel" style="display:none" aria-label="OpenFilm 多轨影片工作台">
       <header class="fs-topbar">
         <div><strong>影片 Studio</strong><span class="fs-project-label" id="fs-project-label">尚未载入项目</span></div>
-        <div class="fs-toolbar">
+        <div id="fs-react-toolbar" class="fs-toolbar" style="display:none" aria-label="React Studio 工具栏"></div>
+        <div id="fs-static-toolbar" class="fs-toolbar" aria-label="兼容工具栏">
           <button class="fs-btn" type="button" data-film-action="undo">撤销</button>
           <button class="fs-btn" type="button" data-film-action="redo">重做</button>
           <button class="fs-btn" type="button" data-film-action="reload">重新载入</button>

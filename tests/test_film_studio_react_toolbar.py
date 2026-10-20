@@ -1,0 +1,17 @@
+"""React 19 owns the primary Studio header toolbar when its verified bundle is present."""
+from pathlib import Path
+
+
+def test_react_studio_toolbar_has_a_compatibility_fallback():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    assert 'id="fs-react-toolbar"' in html
+    assert 'id="fs-static-toolbar"' in html
+    assert "const StudioToolbar: React.FC" in component
+    assert "filmStudioReactToolbar?: FilmStudioReactToolbarBridge" in component
+    assert "window.filmStudioReactToolbar = {" in component
+    assert "mountReactToolbar();" in studio
+    assert "if(legacy)legacy.style.display='none';" in studio
+    assert "if(legacy)legacy.style.display='';" in studio
