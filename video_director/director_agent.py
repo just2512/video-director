@@ -1292,7 +1292,12 @@ def _tool_verify(spec: dict, state: dict) -> dict:
         checks.append({"id": "composition_readable", "ok": False, "detail": str(exc)})
     checks.extend([
         {"id": "composition_file", "ok": _file_ok(state.get("composition_path", ""))},
-        {"id": "subtitle_file", "ok": _file_ok(state.get("subtitle_file", ""))},
+        # subtitle_mode=off 时字幕文件「不存在」是正确状态（用户不要字幕），
+        # 不能当缺失校验失败——此前 off 分支修复漏了这处 verify 回归
+        # （2026-10-20 生产 run 实锚：off → verify FAILED → 调度停止）。
+        {"id": "subtitle_file",
+         "ok": (spec.get("subtitle_mode") == "off"
+                or _file_ok(state.get("subtitle_file", "")))},
         {"id": "manifest", "ok": _file_ok(state.get("manifest_path", ""))},
     ])
     if state.get("draft_path"):
