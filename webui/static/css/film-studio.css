@@ -243,5 +243,5 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 }
 .film-studio-panel.fs-studio-expanded .fs-timeline-scroll{min-height:0}
 @media(max-height:520px){
-  .film-studio-panel.fs-studio-expanded .fs-timeline-pane{min-height:120px}
+  .film-studio-panel.fs-studio-expanded .fs-timeline-pane{min-height:160px}
 }
