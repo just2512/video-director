@@ -940,16 +940,7 @@
       ||Number(fontInput.value)>1000||Math.abs(Number(rotateInput.value))>3600){
       showStatus('画布坐标、尺寸、字号或旋转角度超出有效范围。','error');return;
     }
-    var attrs=clip.attrs||{},overrides=[];
-    try{
-      var current=attrs.overrides;
-      if(typeof current==='string'&&current.trim())current=JSON.parse(current);
-      if(Array.isArray(current))overrides=current.map(function(item){return Object.assign({},item);});
-    }catch(_){showStatus('当前片段的 overrides 不是有效 JSON；为防止覆盖，请先修复后再编辑画布。','error');return;}
-    var item=overrides.find(function(candidate){return candidate&&candidate.selector===selected.selector;});
-    if(!item){item={selector:selected.selector};overrides.push(item);}
-    if(textInput&&!textInput.disabled&&textInput.value!==null)item.text=textInput.value;
-    item.style=Object.assign({},item.style||{},{
+    var elementStyle={
       position:'fixed',
       left:Number(leftInput.value).toFixed(2)+'px',
       top:Number(topInput.value).toFixed(2)+'px',
@@ -958,8 +949,10 @@
       color:colorInput.value,
       fontSize:Number(fontInput.value).toFixed(2)+'px',
       rotate:Number(rotateInput.value).toFixed(2)+'deg'
-    });
-    await filmStudioCommit([{op:'set',clip:clip.id,field:'overrides',value:JSON.stringify(overrides)}]);
+    };
+    var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle};
+    if(textInput&&!textInput.disabled&&textInput.value!==null)elementOp.text=textInput.value;
+    await filmStudioCommit([elementOp]);
     // The commit triggers a full, revision-bound reload. Keep selection context
     // visible, but the user can reselect when CSS/structure changes the selector.
     if(S.data&&S.data.exists){selected.baseRevision=S.rev;S.selectedElement=selected;renderInspector();renderElementSelection(selected);}
