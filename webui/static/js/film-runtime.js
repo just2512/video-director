@@ -17,7 +17,7 @@
     stage.style.transform='translate(-50%,-50%) scale('+scale+')';
   }
   function safeStyle(styleText,el){
-    var allowed={left:1,top:1,width:1,height:1,opacity:1,'object-fit':1,'border-radius':1,rotate:1,'transform-origin':1};
+    var allowed={left:1,top:1,width:1,height:1,opacity:1,'object-fit':1,'border-radius':1,rotate:1,'transform-origin':1,'clip-path':1,'z-index':1};
     String(styleText||'').split(';').forEach(function(part){
       var colon=part.indexOf(':');if(colon<1)return;
       var key=part.slice(0,colon).trim().toLowerCase(),value=part.slice(colon+1).trim();
@@ -26,6 +26,13 @@
       if(key==='opacity'&&(!Number.isFinite(Number(value))||Number(value)<0||Number(value)>1))return;
       if(key==='object-fit'&&['cover','contain','fill','none','scale-down'].indexOf(value)<0)return;
       if(key==='transform-origin'&&!/^(0|50|100)%\s+(0|50|100)%$/.test(value))return;
+      if(key==='z-index'&&(!/^-?\d{1,6}$/.test(value)||Math.abs(Number(value))>100000))return;
+      if(key==='clip-path'){
+        var inset=/^inset\(\s*-?(?:\d+(?:\.\d+)?|\.\d+)%(?:\s+-?(?:\d+(?:\.\d+)?|\.\d+)%){0,3}\s*\)$/;
+        var ellipse=/^ellipse\(\s*\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%\s+at\s+\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%\s*\)$/;
+        var polygon=/^polygon\(\s*\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%(?:\s*,\s*\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%){2,}\s*\)$/;
+        if(!inset.test(value)&&!ellipse.test(value)&&!polygon.test(value))return;
+      }
       el.style.setProperty(key,value);
     });
   }

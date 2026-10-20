@@ -1,0 +1,55 @@
+"""Static masks, locked timeline state and overlay presentation migrate into the film contract."""
+from __future__ import annotations
+
+import json
+import pytest
+
+from video_director import config, film_document as fd
+from video_director.models import CompositionIR
+
+
+@pytest.mark.parametrize(("shape", "mask", "expected"), [
+    ("ellipse", {"id": "shape", "shape": "ellipse", "x": 0.5, "y": 0.5,
+                 "width": 0.4, "height": 0.6}, "clip-path:ellipse(20% 30% at 50% 50%)"),
+    ("polygon", {"id": "shape", "shape": "polygon", "geometry": [
+        [0.1, 0.2], [0.9, 0.2], [0.7, 0.8], [0.2, 0.9],
+    ]}, "clip-path:polygon(10% 20%, 90% 20%, 70% 80%, 20% 90%)"),
+    ("rectangle", {"id": "shape", "shape": "rectangle", "x": 0.5, "y": 0.5,
+                   "width": 0.6, "height": 0.4}, "clip-path:inset(30% 20% 30% 20%)"),
+])
+def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_path, monkeypatch, shape, mask, expected):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "mask-overlay-" + shape
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "scenes": [{
+            "id": "masked-opening", "start": 0, "duration": 1, "text": "masked",
+            "layers": [{
+                "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
+                "mask": mask,
+            }],
+        }],
+        "visual_overlays": [{
+            "id": "full-screen-card", "asset_id": "asset-image", "start": 0, "duration": 1,
+            "presentation_mode": "full_frame", "fit_mode": "contain", "z_index": 8, "opacity": 0.7,
+        }],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    base = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    assert expected in base["clips"][0]["attrs"]["style"]
+    overlay = next(track for track in result["document"]["tracks"] if track["id"] == "track-overlay-full-screen-card")
+    attrs = overlay["clips"][0]["attrs"]
+    assert "left:0px" in attrs["style"] and "top:0px" in attrs["style"]
+    assert "width:320px" in attrs["style"] and "height:180px" in attrs["style"]
+    assert "z-index:8" in attrs["style"]
+    assert attrs["opacity"] == "0.7"
+    assert not any("presentation_mode" in warning for warning in result["warnings"])
+    assert not any("mask:蒙版形状" in warning for warning in result["warnings"])

@@ -2174,6 +2174,66 @@ def _apply_film_transform(attrs: dict, transform: dict, channels: list[dict],
 
 
 
+
+def _film_mask_clip_path(raw_mask: dict | None) -> tuple[str | None, list[str]]:
+    """Convert only CSS-representable mask geometry; report alpha/feather/inversion loss."""
+    if not isinstance(raw_mask, dict):
+        return None, ["蒙版格式无效"]
+    warnings: list[str] = []
+    shape = str(raw_mask.get("shape") or "rectangle")
+    try:
+        x = _number(raw_mask.get("x", 0.5), "mask.x", 0, 1)
+        y = _number(raw_mask.get("y", 0.5), "mask.y", 0, 1)
+        width = _number(raw_mask.get("width", 0.5), "mask.width", 0, 1)
+        height = _number(raw_mask.get("height", 0.5), "mask.height", 0, 1)
+        feather = _number(raw_mask.get("feather", 0), "mask.feather", 0)
+        opacity = _number(raw_mask.get("opacity", 1), "mask.opacity", 0, 1)
+    except FilmError as exc:
+        return None, [f"蒙版几何参数无效：{exc}"]
+
+    if raw_mask.get("inverted"):
+        warnings.append("inverted 反向蒙版不能用 CSS clip-path 无损表达")
+        return None, warnings
+    if feather > 0:
+        warnings.append("feather 羽化未映射（CSS clip-path 不支持该羽化语义）")
+    if opacity < 1:
+        warnings.append("蒙版独立 opacity 未映射；片段本身的 opacity 不变")
+    if raw_mask.get("animated") or raw_mask.get("keyframes"):
+        warnings.append("动态蒙版关键帧尚未迁移；仅能表达静态几何")
+    if shape == "rectangle":
+        top = (y - height / 2) * 100
+        right = (1 - x - width / 2) * 100
+        bottom = (1 - y - height / 2) * 100
+        left = (x - width / 2) * 100
+        return f"inset({_fmt(top)}% {_fmt(right)}% {_fmt(bottom)}% {_fmt(left)}%)", warnings
+    if shape == "ellipse":
+        return (
+            f"ellipse({_fmt(width * 50)}% {_fmt(height * 50)}% at {_fmt(x * 100)}% {_fmt(y * 100)}%)",
+            warnings,
+        )
+    if shape == "polygon":
+        points = raw_mask.get("geometry") or []
+        if not isinstance(points, list) or len(points) < 3:
+            return None, warnings + ["polygon geometry 少于三个顶点，不能迁移"]
+        mapped_points = []
+        try:
+            for point in points:
+                if not isinstance(point, (list, tuple)) or len(point) != 2:
+                    raise FilmError("INVALID_MASK_GEOMETRY", "polygon 顶点必须是 [x,y]")
+                px = _number(point[0], "mask.geometry.x", 0, 1)
+                py = _number(point[1], "mask.geometry.y", 0, 1)
+                mapped_points.append(f"{_fmt(px * 100)}% {_fmt(py * 100)}%")
+        except FilmError as exc:
+            return None, warnings + [f"polygon 顶点无效：{exc}"]
+        return "polygon(" + ", ".join(mapped_points) + ")", warnings
+    if shape == "rounded_rect":
+        return None, warnings + ["rounded_rect 未提供明确圆角半径，不能无损映射"]
+    if shape == "path":
+        return None, warnings + ["path 蒙版的路径数据不是 CSS polygon，可编辑路径尚未迁移"]
+    return None, warnings + [f"蒙版形状 {shape} 尚未映射"]
+
+
+
 def build_film_from_composition(project_id: str, ir) -> dict:
     """Convert supported video/image/audio/subtitle content; report non-lossless fields."""
     pid = validate_project_id(project_id)
@@ -2241,7 +2301,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 pass
         return _safe_storage_uri(pid, file_value)
 
-    clips, tracks, pages, warnings = [], [], {}, []
+    clips, locked_clips, tracks, pages, warnings = [], [], [], {}, []
     warnings.extend(variant_warnings)
     if variants:
         if selected_variant:
@@ -2306,8 +2366,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if lane_id:
             audio_lane_usage[lane_id] = audio_lane_usage.get(lane_id, 0) + 1
     for lane_id, lane in audio_lanes_by_id.items():
-        if lane.get("locked"):
-            warnings.append(f"旧音轨 {lane.get('name') or lane_id} 的锁定状态未迁移")
         if lane.get("hidden"):
             warnings.append(f"旧音轨 {lane.get('name') or lane_id} 的隐藏状态未迁移")
         if audio_lane_usage.get(lane_id, 0) > 1:
@@ -2415,10 +2473,34 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 attrs["style"] = f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;object-fit:{fit_mode}"
             if layer.get("animation"):
                 unsupported_layer_fields.append("animation")
-            if layer.get("mask"):
-                unsupported_layer_fields.append("mask（几何遮罩尚未映射）")
+            raw_mask = layer.get("mask")
+            if raw_mask:
+                mask_clip_path, mask_warnings = _film_mask_clip_path(raw_mask)
+                unsupported_layer_fields.extend(f"mask:{warning}" for warning in mask_warnings)
+                channels_affect_geometry = any(
+                    channel.get("property") in {"x", "y", "scale", "rotation"}
+                    for channel in channels
+                )
+                transform_affects_geometry = bool(
+                    raw_transform
+                    and (
+                        abs(float(base_transform["x"]) - 0.5) > 1e-6
+                        or abs(float(base_transform["y"]) - 0.5) > 1e-6
+                        or abs(float(base_transform["scale"]) - 1.0) > 1e-6
+                        or abs(float(base_transform["rotation"])) > 1e-6
+                    )
+                )
+                if mask_clip_path:
+                    if channels_affect_geometry or transform_affects_geometry or known_motion:
+                        unsupported_layer_fields.append(
+                            "蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
+                        )
+                    else:
+                        attrs["style"] += ";clip-path:" + mask_clip_path
             if layer.get("locked"):
-                unsupported_layer_fields.append("locked（片段锁定状态尚未映射）")
+                locked_clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
+            else:
+                clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
             if layer.get("motion_recipe_id") or layer.get("motion_version") or layer.get("motion_instance"):
                 unsupported_layer_fields.append("motion_recipe/instance lineage")
             if kind == "image" and (
@@ -2437,8 +2519,18 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     def one_clip_track(track_id, label, clip):
         return {"id": track_id, "attrs": {"id": track_id, "data-label": label}, "clips": [clip]}
 
+    for locked_clip in locked_clips:
+        locked_track_id = _safe_id("track-locked-" + locked_clip["id"], "track")
+        locked_track = one_clip_track(locked_track_id, "锁定片段 " + locked_clip["id"], locked_clip)
+        locked_track["attrs"]["locked"] = ""
+        tracks.append(locked_track)
+
     for idx, overlay in enumerate(raw_ir.get("visual_overlays") or []):
-        kind = str(overlay.get("type") or overlay.get("kind") or "video")
+        asset_item = by_id.get(str(overlay.get("asset_id") or ""), {})
+        asset_file = str(asset_item.get("file") or "")
+        suffix = Path(asset_file).suffix.lower()
+        inferred_kind = "image" if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"} else "video"
+        kind = str(overlay.get("type") or overlay.get("kind") or asset_item.get("type") or inferred_kind).lower()
         if kind not in {"video", "image"}:
             warnings.append(f"叠加层 {overlay.get('id')} 类型 {kind} 尚不能无损迁移")
             continue
@@ -2448,27 +2540,34 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         src_in = _number(overlay.get("source_in", 0), "overlay source_in", 0)
         src_out = src_in + d * (speed if kind == "video" else 1)
         cid = _safe_id(f"overlay-{overlay.get('id') or idx + 1}", "clip")
-        x = _number(overlay.get("x", 0), "overlay x", 0, 1) * stage["width"]
-        y = _number(overlay.get("y", 0), "overlay y", 0, 1) * stage["height"]
-        w = _number(overlay.get("width", 1), "overlay width", 0.001, 1) * stage["width"]
-        h = _number(overlay.get("height", 1), "overlay height", 0.001, 1) * stage["height"]
+        presentation = str(overlay.get("presentation_mode") or "picture_in_picture")
+        opacity = _number(overlay.get("opacity", 1), f"overlay {cid} opacity", 0, 1)
+        z_index = int(_number(overlay.get("z_index", 0), f"overlay {cid} z_index", -100000, 100000))
+        if presentation == "full_frame":
+            x, y, w, h = 0.0, 0.0, float(stage["width"]), float(stage["height"])
+        else:
+            x = _number(overlay.get("x", 0.65), "overlay x", 0, 1) * stage["width"]
+            y = _number(overlay.get("y", 0.1), "overlay y", 0, 1) * stage["height"]
+            w = _number(overlay.get("width", 0.3), "overlay width", 0.001, 1) * stage["width"]
+            h = _number(overlay.get("height", 0.3), "overlay height", 0.001, 1) * stage["height"]
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
-        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at), "data-asset-id": str(overlay.get("asset_id") or "")}
+        attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
+                 "data-asset-id": str(overlay.get("asset_id") or ""), "opacity": _fmt(opacity)}
         raw_overlay_transform = overlay.get("transform")
         if raw_overlay_transform:
             overlay_transform = _film_transform_metadata(
                 raw_overlay_transform, stage["width"], stage["height"], w, h
             )
+            overlay_transform["opacity"] = _fmt(float(overlay_transform["opacity"]) * opacity)
             _apply_film_transform(attrs, overlay_transform, [], fit)
         else:
-            style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(_number(overlay.get('opacity',1),'opacity',0,1))};object-fit:{fit}"
+            style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(opacity)};object-fit:{fit}"
             attrs["style"] = style
+        attrs["style"] += f";z-index:{z_index}"
         if kind == "video" and abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
         if overlay.get("source_audio_enabled") or abs(_number(overlay.get("source_audio_volume", 1), "overlay source audio volume", 0, 2) - 1) > 1e-6:
             warnings.append(f"叠加层 {cid} 的 source_audio_enabled/source_audio_volume 未映射")
-        if overlay.get("presentation_mode", "picture_in_picture") != "picture_in_picture":
-            warnings.append(f"叠加层 {cid} 的 presentation_mode 未显式映射")
         tid = _safe_id("track-" + cid, "track")
         tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": kind, "attrs": attrs}))
 
@@ -2540,7 +2639,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             warnings.append(f"音频片段 {cid} 的原声关联/跟随视频关系未迁移")
         tid = _safe_id("track-" + cid, "track")
         label = str(lane.get("name") or audio.get("type") or "音频")
-        tracks.append(one_clip_track(tid, label, {"id": cid, "tag": "audio", "attrs": attrs}))
+        audio_timeline_track = one_clip_track(tid, label, {"id": cid, "tag": "audio", "attrs": attrs})
+        if lane.get("locked"):
+            audio_timeline_track["attrs"]["locked"] = ""
+        tracks.append(audio_timeline_track)
 
     watermarks = raw_ir.get("watermarks") or []
     if watermarks:
