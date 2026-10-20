@@ -10,7 +10,7 @@ import {renderMedia, selectComposition} from "@remotion/renderer";
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 const sourceDir = path.join(runtimeDir, "src");
 const cacheDir = path.join(runtimeDir, ".cache");
-const remotionVersion = "4.0.534";
+const remotionVersion = "4.0.536";
 
 const parseArgs = (args) => {
   const out = {};

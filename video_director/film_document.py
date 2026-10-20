@@ -2415,8 +2415,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 attrs["style"] = f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;object-fit:{fit_mode}"
             if layer.get("animation"):
                 unsupported_layer_fields.append("animation")
-            if layer.get("motion_recipe_id") or layer.get("motion_version") or layer.get("motion_instance"):
-                unsupported_layer_fields.append("motion_recipe/instance")
             if layer.get("mask"):
                 unsupported_layer_fields.append("mask（几何遮罩尚未映射）")
             if layer.get("locked"):
@@ -2524,6 +2522,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     try:
                         point_at = _number(point.get("at"), "audio keyframe.at", 0)
                         point_value = _number(point.get("value"), "audio keyframe.value", 0, 2)
+                        if point_at > d + 0.001:
+                            unsupported_audio_keyframes.append(f"volume@{_fmt(point_at)}s 超出片段时长")
+                            continue
                     except (AttributeError, FilmError):
                         unsupported_audio_keyframes.append("volume 含非数值关键帧")
                         continue

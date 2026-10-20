@@ -80,6 +80,7 @@ jobs:
           npm install --no-package-lock
           npm run typecheck
       - name: Run test suite and retain JUnit report
+        if: always()
         run: '"$PY311_BIN/python3.11" -m pytest -q --junitxml=junit.xml'
       - name: Check JavaScript syntax (run even when tests fail)
         if: always()
