@@ -761,13 +761,6 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         match_provenance.pop(sid, None)
                         warnings.append(f"镜头 {sid} 的素材引用失效，已清除待重匹配")
 
-                    # 锁定场景统一回填（stock/生成补位都可能重建 assignments——
-                    # 幂等重放保证用户锁定的绑定永远在最后生效，2026-10-20）
-                    for sid, aid in locked_assignments.items():
-                        if aid in all_assets:
-                            assignments[sid] = aid
-                            match_provenance[sid] = "locked"
-
                     # 差距 4：生成补位产物过独立视觉审核（provider 分层：
                     # Twelve Labs → frame-vision（vision 角色，Jerry 已配）→ 跳过）。
                     # CONFLICT = 画面与场景核心意思冲突——审核拒收，标记 NEEDS_HUMAN，
@@ -880,6 +873,14 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     and aid and candidate.get("status") not in ("NEEDS_HUMAN",)):
                 candidate["status"] = "FALLBACK_USED"
                 candidate["fallback_reason"] = "已有素材匹配成功，生成路线未触发（配额保护）"
+    # 锁定场景统一回填（顶级，R2 修复）：stock 补足/生成补位都可能整体重建
+    # assignments——此前回填嵌在 `if generated_files:` 块内，stock 成功补足时
+    # 块不执行，锁定绑定静默丢失 → coverage FAIL → 整链 retry 后终止。
+    # 此处放在所有重建路径之后幂等重放，锁定绑定永远最后生效。
+    for sid, aid in locked_assignments.items():
+        if aid in all_assets:
+            assignments[sid] = aid
+            match_provenance[sid] = "locked"
     # 匹配来源必须诚实：顺序兜底不是语义匹配。把 match_assets 逐场景记录的
     # 实际机制翻译成用户可读、且不会误导的说明；再叠加政策调整的说明。
     _REASON_BY_SOURCE = {

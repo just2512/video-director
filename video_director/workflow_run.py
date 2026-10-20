@@ -438,6 +438,15 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
         logger.warning(f"director retry rejected: {project_id} has no persisted bundle")
         return None
 
+    # params 先解析（R1 修复：此前意图解析引用 params 时它还没定义，
+    # NameError 被 except 吞掉 → retry 意图回填全灭，447165d 被架空）
+    try:
+        params = json.loads(proj.get("params_json") or "{}")
+        if not isinstance(params, dict):
+            params = {}
+    except json.JSONDecodeError:
+        params = {}
+
     # 2026-10-20 意图链修复：retry 重建 spec 必须重跑意图解析——否则 brief 里的
     # 自然语言要求（水印/时长/字幕开关）在「重试」入口被丢（生产实锚：
     # web-cf64b359 三次 retry 后 watermark 丢失、_intent_duration_s=None）。
@@ -448,12 +457,6 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
     except Exception:
         _intent = {}
 
-    try:
-        params = json.loads(proj.get("params_json") or "{}")
-        if not isinstance(params, dict):
-            params = {}
-    except json.JSONDecodeError:
-        params = {}
     spec = {
         "project_id": project_id,
         # 重试沿用初次参数；script 覆盖：bundle 里可能有 director 生成稿
