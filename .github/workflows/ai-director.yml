@@ -168,7 +168,54 @@ jobs:
         run: npm run build:studio
       - name: Run test suite and retain JUnit report
         if: always() && steps.ensure_checkout.outcome == 'success'
-        run: '"$PY311_BIN/python3.11" -m pytest -q --junitxml=junit.xml'
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -q --tb=short --junitxml=junit.xml > pytest-output.log 2>&1
+          test_exit=$?
+          set -e
+          if [ -f pytest-output.log ]; then
+            echo "---- pytest output (last 240 lines) ----"
+            tail -n 240 pytest-output.log
+          fi
+          if [ -f junit.xml ]; then
+            "$PY311_BIN/python3.11" - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = ET.parse("junit.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.findall(".//testsuite"))
+          failures, errors = [], []
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          for suite in suites:
+              for key in totals:
+                  totals[key] += int(suite.attrib.get(key, "0") or 0)
+              for case in suite.findall("testcase"):
+                  for kind in ("failure", "error"):
+                      node = case.find(kind)
+                      if node is not None:
+                          message = (node.attrib.get("message") or node.text or "").strip().replace("\\n", " ")
+                          record = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}: {message[:500]}"
+                          (failures if kind == "failure" else errors).append(record)
+          print("PYTEST_SUMMARY " + str(totals))
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as out:
+                  out.write("## Pytest regression summary\\n\\n")
+                  out.write(f"- Tests: {totals['tests']}\\n- Failures: {totals['failures']}\\n- Errors: {totals['errors']}\\n- Skipped: {totals['skipped']}\\n\\n")
+                  for title, rows in (("Failures", failures), ("Errors", errors)):
+                      if rows:
+                          out.write(f"### {title}\\n")
+                          for row in rows[:100]:
+                              out.write(f"- `{row}`\\n")
+                          out.write("\\n")
+          for title, rows in (("FAILURE", failures), ("ERROR", errors)):
+              for row in rows:
+                  print(f"PYTEST_{title}: {row}")
+          PY
+          fi
+          exit "$test_exit"
       - name: Check JavaScript syntax (run even when tests fail)
         if: always() && steps.ensure_checkout.outcome == 'success'
         run: |
@@ -190,6 +237,7 @@ jobs:
           retention-days: 14
           path: |
             junit.xml
+            pytest-output.log
             test-results/**
             webui/static/js/film-studio-react.js
             playwright-report/**
