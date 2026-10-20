@@ -16,6 +16,9 @@ from video_director.models import CompositionIR
     ]}, "clip-path:polygon(10% 20%, 90% 20%, 70% 80%, 20% 90%)"),
     ("rectangle", {"id": "shape", "shape": "rectangle", "x": 0.5, "y": 0.5,
                    "width": 0.6, "height": 0.4}, "clip-path:inset(30% 20% 30% 20%)"),
+    ("path", {"id": "shape", "shape": "path", "geometry": [
+        [0.1, 0.1], [0.9, 0.15], [0.75, 0.8], [0.25, 0.9],
+    ]}, "clip-path:polygon(10% 10%, 90% 15%, 75% 80%, 25% 90%)"),
 ])
 def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_path, monkeypatch, shape, mask, expected):
     storage = tmp_path / "storage"
@@ -58,3 +61,5 @@ def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_pat
     assert attrs["opacity"] == "0.7"
     assert not any("presentation_mode" in warning for warning in result["warnings"])
     assert not any("mask:蒙版形状" in warning for warning in result["warnings"])
+    if shape == "path":
+        assert any("path 蒙版按 IR 中保存的归一顶点" in warning for warning in result["warnings"])

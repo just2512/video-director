@@ -2401,20 +2401,27 @@ def _film_mask_clip_path(raw_mask: dict | None) -> tuple[str | None, list[str]]:
             f"ellipse({_fmt(width * 50)}% {_fmt(height * 50)}% at {_fmt(x * 100)}% {_fmt(y * 100)}%)",
             warnings,
         )
-    if shape == "polygon":
+    if shape in {"polygon", "path"}:
+        # CompositionIR's Mask.geometry stores normalized [x,y] vertices for
+        # both polygon and path; it does not carry Bezier commands or open-path
+        # stroke data. Preserve the polygonal path; flag that semantic boundary.
         points = raw_mask.get("geometry") or []
         if not isinstance(points, list) or len(points) < 3:
-            return None, warnings + ["polygon geometry 少于三个顶点，不能迁移"]
+            return None, warnings + [f"{shape} geometry 少于三个顶点，不能迁移"]
         mapped_points = []
         try:
             for point in points:
                 if not isinstance(point, (list, tuple)) or len(point) != 2:
-                    raise FilmError("INVALID_MASK_GEOMETRY", "polygon 顶点必须是 [x,y]")
+                    raise FilmError("INVALID_MASK_GEOMETRY", f"{shape} 顶点必须是 [x,y]")
                 px = _number(point[0], "mask.geometry.x", 0, 1)
                 py = _number(point[1], "mask.geometry.y", 0, 1)
                 mapped_points.append(f"{_fmt(px * 100)}% {_fmt(py * 100)}%")
         except FilmError as exc:
-            return None, warnings + [f"polygon 顶点无效：{exc}"]
+            return None, warnings + [f"{shape} 顶点无效：{exc}"]
+        if shape == "path":
+            warnings.append(
+                "path 蒙版按 IR 中保存的归一顶点转换为闭合多边形；Bezier/开放路径语义未进入当前 schema"
+            )
         return "polygon(" + ", ".join(mapped_points) + ")", warnings
     if shape == "rounded_rect":
         return None, warnings + ["rounded_rect 未提供明确圆角半径，不能无损映射"]
