@@ -1204,9 +1204,55 @@ class Handler(BaseHTTPRequestHandler):
                     return True
                 sse_publish("film_ai", {"phase": "planning", "project_id": pid, "base_revision": state["rev"]})
                 plan_summary = {}
+                selected_clip_id = str(payload.get("selected_clip_id") or "")
+                selected_element = None
+                raw_element = payload.get("selected_element")
+                if raw_element is not None:
+                    if not isinstance(raw_element, dict):
+                        raise fd.FilmError("INVALID_SELECTED_ELEMENT", "selected_element 必须是对象", 400)
+                    if raw_element.get("base_revision") != state["rev"]:
+                        self._send_json({"ok": False, "code": "REVISION_CONFLICT",
+                                         "error": "画布元素上下文已过期，请在当前预览中重新选中元素。",
+                                         "current_revision": state["rev"]}, 409)
+                        return True
+                    element_clip_id = str(raw_element.get("clip_id") or "")
+                    selector = raw_element.get("selector")
+                    target_clip = next((clip for track in state["doc"]["tracks"] for clip in track["clips"]
+                                        if clip.get("id") == element_clip_id), None)
+                    if (element_clip_id != selected_clip_id or target_clip is None
+                            or target_clip.get("tag") != "iframe"
+                            or not isinstance(selector, str) or not selector.strip() or len(selector) > 500):
+                        raise fd.FilmError("INVALID_SELECTED_ELEMENT",
+                                           "画布选中元素必须属于当前选中的 HTML 镜头片段", 422)
+                    raw_styles = raw_element.get("styles") or {}
+                    if not isinstance(raw_styles, dict):
+                        raw_styles = {}
+                    allowed_context_styles = {
+                        "color", "backgroundColor", "fontSize", "fontWeight", "textAlign",
+                        "lineHeight", "letterSpacing", "left", "top", "width", "height",
+                        "position", "opacity", "borderRadius", "rotate"
+                    }
+                    selected_element = {
+                        "clip_id": element_clip_id,
+                        "selector": selector.strip(),
+                        "tag": str(raw_element.get("tag") or "")[:32],
+                        "text": str(raw_element.get("text") or "")[:4000],
+                        "textEditable": raw_element.get("textEditable") is not False,
+                        "styles": {
+                            key: str(value)[:120] for key, value in raw_styles.items()
+                            if key in allowed_context_styles and isinstance(value, (str, int, float))
+                        },
+                        "rect": {
+                            key: value for key, value in (raw_element.get("localRect") or {}).items()
+                            if key in {"x", "y", "width", "height"}
+                            and isinstance(value, (int, float)) and not isinstance(value, bool)
+                            and abs(float(value)) <= 100000
+                        } if isinstance(raw_element.get("localRect"), dict) else {},
+                    }
                 operations = fd.plan_film_command(
                     llm, state, str(payload.get("message") or ""),
-                    str(payload.get("selected_clip_id") or ""), summary_out=plan_summary)
+                    selected_clip_id, summary_out=plan_summary,
+                    selected_element=selected_element)
                 assistant_summary = str(plan_summary.get("summary") or "").strip()
                 if not operations:
                     self._send_json({"ok": True, "no_op": True,
