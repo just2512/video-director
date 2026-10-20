@@ -955,7 +955,15 @@
     await filmStudioCommit([elementOp]);
     // The commit triggers a full, revision-bound reload. Keep selection context
     // visible, but the user can reselect when CSS/structure changes the selector.
-    if(S.data&&S.data.exists){selected.baseRevision=S.rev;S.selectedElement=selected;renderInspector();renderElementSelection(selected);}
+    if(S.data&&S.data.exists){
+      // The runtime and the parent selection geometry were just rebuilt against
+      // the new revision. Drop the old geometry/context instead of showing stale
+      // text or letting a subsequent AI turn target an obsolete element snapshot.
+      S.selectedElement=null;S.hoveredElement=null;
+      var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
+      renderInspector();renderAssets();
+      showStatus('画布修改已保存到 film.html。若需继续编辑或让 AI 修改该元素，请在当前画面中重新选择。','success');
+    }
   };
   window.addEventListener('message',function(event){
     var frame=$('fs-preview-composition');
@@ -1299,7 +1307,7 @@
       if(right&&Number.isFinite(Number(right)))dock.style.setProperty('--fs-right',Math.max(18,Math.min(38,Number(right)))+'%');
       var timelineHeight=Number(localStorage.getItem('film-studio-timeline-height'));
       if(studioPanel&&Number.isFinite(timelineHeight)&&timelineHeight>=160){
-        studioPanel.style.setProperty('--fs-timeline-height',Math.max(120,Math.min(window.innerHeight*0.45,timelineHeight))+'px');
+        studioPanel.style.setProperty('--fs-timeline-height',Math.max(160,Math.min(window.innerHeight*0.45,timelineHeight))+'px');
       }
     }catch(_){}
   }
