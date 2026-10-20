@@ -2327,6 +2327,93 @@ def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict]
     return normalized, list(dict.fromkeys(warnings))
 
 
+
+def _film_mask_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list[str]]:
+    """Convert mask_path keyframes containing normalized polygon vertices."""
+    if not isinstance(raw_tracks, list):
+        return [], ["mask_path keyframes 格式无效"]
+    mapped: list[dict] = []
+    warnings: list[str] = []
+    found = False
+    for track in raw_tracks:
+        if not isinstance(track, dict):
+            warnings.append("mask_path keyframe track 格式无效")
+            continue
+        prop = str(track.get("property") or "")
+        if prop != "mask_path":
+            warnings.append(f"蒙版关键帧属性 {prop or 'unknown'} 尚未迁移")
+            continue
+        found = True
+        points = track.get("keyframes") or []
+        if not isinstance(points, list):
+            warnings.append("mask_path keyframes 必须是数组")
+            continue
+        track_points: list[dict] = []
+        for point in points:
+            try:
+                at = _number(point.get("at"), "mask_path keyframe.at", 0)
+            except (AttributeError, FilmError) as exc:
+                warnings.append(f"mask_path keyframe 时间无效：{exc}")
+                continue
+            value = point.get("value") if isinstance(point, dict) else None
+            if isinstance(value, dict):
+                value = value.get("geometry") or value.get("points")
+            if not isinstance(value, list) or not 3 <= len(value) <= 64:
+                warnings.append(f"mask_path@{_fmt(at)}s 顶点数必须在 3–64 之间")
+                continue
+            vertices: list[list[float]] = []
+            valid = True
+            for vertex in value:
+                try:
+                    if not isinstance(vertex, (list, tuple)) or len(vertex) != 2:
+                        raise FilmError("INVALID_MASK_KEYFRAME", "顶点必须是 [x,y]")
+                    vx = _number(vertex[0], "mask_path.x", 0, 1)
+                    vy = _number(vertex[1], "mask_path.y", 0, 1)
+                except FilmError as exc:
+                    warnings.append(f"mask_path@{_fmt(at)}s 顶点无效：{exc}")
+                    valid = False
+                    break
+                vertices.append([vx, vy])
+            if not valid:
+                continue
+            if at > duration + 0.001:
+                warnings.append(f"mask_path@{_fmt(at)}s 超出片段时长")
+                continue
+            if at > 600:
+                warnings.append(f"mask_path@{_fmt(at)}s 超出 Runtime 600s 限制")
+                continue
+            easing = str(point.get("easing") or "linear")
+            if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                warnings.append(f"mask_path@{_fmt(at)}s 缓动 {easing} 不受支持，改用线性插值")
+                easing = "linear"
+            track_points.append({"at": at, "value": vertices, "easing": easing})
+        if track_points:
+            mapped.extend(track_points)
+
+    if not found:
+        return [], list(dict.fromkeys(warnings))
+    mapped.sort(key=lambda point: point["at"])
+    normalized: list[dict] = []
+    for point in mapped:
+        if normalized and abs(normalized[-1]["at"] - point["at"]) <= 1e-9:
+            normalized[-1] = point
+            warnings.append(f"mask_path 在 {_fmt(point['at'])}s 有重复关键帧；保留最后一个")
+        else:
+            normalized.append(point)
+    if normalized:
+        vertex_count = len(normalized[0]["value"])
+        if any(len(point["value"]) != vertex_count for point in normalized):
+            warnings.append("mask_path 各关键帧顶点数量不同，不能逐点插值；动态蒙版未写入")
+            return [], list(dict.fromkeys(warnings))
+    if len(normalized) > 128:
+        warnings.append("mask_path 关键帧数量超出 Runtime 的 128 个限制；动态蒙版未写入")
+        return [], list(dict.fromkeys(warnings))
+    if not normalized:
+        warnings.append("mask_path 没有可迁移的有效关键帧")
+    return normalized, list(dict.fromkeys(warnings))
+
+
+
 def _motion_keyframes(motion: str | None, duration: float, transform: dict,
                       channels: list[dict]) -> tuple[list[dict], str | None]:
     """Map supported legacy zoom/pan presets into the frame(t) keyframe contract."""
@@ -2368,7 +2455,7 @@ def _apply_film_transform(attrs: dict, transform: dict, channels: list[dict],
 
 
 
-def _film_mask_clip_path(raw_mask: dict | None) -> tuple[str | None, list[str]]:
+def _film_mask_clip_path(raw_mask: dict | None, allow_empty_path: bool = False) -> tuple[str | None, list[str]]:
     """Convert only CSS-representable mask geometry; report alpha/feather/inversion loss."""
     if not isinstance(raw_mask, dict):
         return None, ["蒙版格式无效"]
@@ -2391,8 +2478,6 @@ def _film_mask_clip_path(raw_mask: dict | None) -> tuple[str | None, list[str]]:
         warnings.append("feather 羽化未映射（CSS clip-path 不支持该羽化语义）")
     if opacity < 1:
         warnings.append("蒙版独立 opacity 未映射；片段本身的 opacity 不变")
-    if raw_mask.get("animated") or raw_mask.get("keyframes"):
-        warnings.append("动态蒙版关键帧尚未迁移；仅能表达静态几何")
     if shape == "rectangle":
         top = (y - height / 2) * 100
         right = (1 - x - width / 2) * 100
@@ -2410,6 +2495,8 @@ def _film_mask_clip_path(raw_mask: dict | None) -> tuple[str | None, list[str]]:
         # stroke data. Preserve the polygonal path; flag that semantic boundary.
         points = raw_mask.get("geometry") or []
         if not isinstance(points, list) or len(points) < 3:
+            if allow_empty_path and shape in {"polygon", "path"} and not points:
+                return None, warnings
             return None, warnings + [f"{shape} geometry 少于三个顶点，不能迁移"]
         mapped_points = []
         try:
@@ -2681,9 +2768,13 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 track for track in raw_layer_keyframes
                 if isinstance(track, dict) and str(track.get("property") or "") == "volume"
             ] if isinstance(raw_layer_keyframes, list) else []
+            mask_layer_tracks = [
+                track for track in raw_layer_keyframes
+                if isinstance(track, dict) and str(track.get("property") or "") == "mask_path"
+            ] if isinstance(raw_layer_keyframes, list) else []
             visual_keyframes = [
                 track for track in raw_layer_keyframes
-                if not isinstance(track, dict) or str(track.get("property") or "") != "volume"
+                if not isinstance(track, dict) or str(track.get("property") or "") not in {"volume", "mask_path"}
             ] if isinstance(raw_layer_keyframes, list) else raw_layer_keyframes
             channels, unsupported_keyframes = _film_keyframes(visual_keyframes, d)
             unsupported_layer_fields.extend(f"keyframes:{field}" for field in unsupported_keyframes)
@@ -2712,29 +2803,52 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             if layer.get("animation"):
                 unsupported_layer_fields.append("animation")
             raw_mask = layer.get("mask")
+            mask_tracks = list(mask_layer_tracks)
+            if isinstance(raw_mask, dict) and isinstance(raw_mask.get("keyframes"), list):
+                mask_tracks.extend(raw_mask.get("keyframes") or [])
+            mask_keyframes, mask_keyframe_warnings = _film_mask_keyframes(mask_tracks, d)
+            unsupported_layer_fields.extend(f"mask:{warning}" for warning in mask_keyframe_warnings)
+            mask_clip_path = None
             if raw_mask:
-                mask_clip_path, mask_warnings = _film_mask_clip_path(raw_mask)
+                mask_clip_path, mask_warnings = _film_mask_clip_path(
+                    raw_mask, allow_empty_path=bool(mask_keyframes)
+                )
                 unsupported_layer_fields.extend(f"mask:{warning}" for warning in mask_warnings)
-                channels_affect_geometry = any(
-                    channel.get("property") in {"x", "y", "scale", "rotation"}
-                    for channel in channels
+                if raw_mask.get("animated") and not mask_keyframes:
+                    unsupported_layer_fields.append("蒙版标记为 animated，但没有可迁移的 mask_path 关键帧")
+            channels_affect_geometry = any(
+                channel.get("property") in {"x", "y", "scale", "rotation"}
+                for channel in channels
+            )
+            transform_affects_geometry = bool(
+                raw_transform
+                and (
+                    abs(float(base_transform["x"]) - 0.5) > 1e-6
+                    or abs(float(base_transform["y"]) - 0.5) > 1e-6
+                    or abs(float(base_transform["scale"]) - 1.0) > 1e-6
+                    or abs(float(base_transform["rotation"])) > 1e-6
                 )
-                transform_affects_geometry = bool(
-                    raw_transform
-                    and (
-                        abs(float(base_transform["x"]) - 0.5) > 1e-6
-                        or abs(float(base_transform["y"]) - 0.5) > 1e-6
-                        or abs(float(base_transform["scale"]) - 1.0) > 1e-6
-                        or abs(float(base_transform["rotation"])) > 1e-6
+            )
+            if mask_keyframes:
+                attrs["data-film-mask-keyframes"] = json.dumps(
+                    mask_keyframes, ensure_ascii=False, separators=(",", ":")
+                )
+                if mask_clip_path is None:
+                    first_polygon = mask_keyframes[0]["value"]
+                    mask_clip_path = "polygon(" + ", ".join(
+                        f"{_fmt(x * 100)}% {_fmt(y * 100)}%" for x, y in first_polygon
+                    ) + ")"
+                if channels_affect_geometry or transform_affects_geometry or known_motion:
+                    unsupported_layer_fields.append(
+                        "动态蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
                     )
-                )
-                if mask_clip_path:
-                    if channels_affect_geometry or transform_affects_geometry or known_motion:
-                        unsupported_layer_fields.append(
-                            "蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
-                        )
-                    else:
-                        attrs["style"] += ";clip-path:" + mask_clip_path
+            if mask_clip_path:
+                if channels_affect_geometry or transform_affects_geometry or known_motion:
+                    unsupported_layer_fields.append(
+                        "蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
+                    )
+                else:
+                    attrs["style"] += ";clip-path:" + mask_clip_path
             if layer.get("locked"):
                 locked_clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
             else:

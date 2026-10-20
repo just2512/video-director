@@ -23,7 +23,8 @@ def _write_html_film_project(tmp_path: Path, monkeypatch) -> tuple[str, str]:
  style="left:0px;top:0px;width:160px;height:90px"></iframe>
 <img id="moving-red" src="assets/moving-red.png#t=0,1" at="0"
  data-film-transform='{"x":0.125,"y":0.5,"scale":1,"rotation":0,"opacity":1,"anchor":"center","stage_width":160,"stage_height":90,"base_width":20,"base_height":20}'
- data-film-keyframes='[{"property":"x","keyframes":[{"at":0,"value":0.125,"easing":"linear"},{"at":1,"value":0.875,"easing":"linear"}]},{"property":"camera_x","keyframes":[{"at":0,"value":0.5,"easing":"linear"},{"at":1,"value":0.25,"easing":"linear"}]},{"property":"camera_scale","keyframes":[{"at":0,"value":1,"easing":"linear"},{"at":1,"value":1.1,"easing":"linear"}]}]'
+ data-film-keyframes='[{"property":"x","keyframes":[{"at":0,"value":0.125,"easing":"linear"},{"at":1,"value":0.75,"easing":"linear"}]},{"property":"camera_x","keyframes":[{"at":0,"value":0.5,"easing":"linear"},{"at":1,"value":0.45,"easing":"linear"}]},{"property":"camera_scale","keyframes":[{"at":0,"value":1,"easing":"linear"},{"at":1,"value":1.1,"easing":"linear"}]}]'
+ data-film-mask-keyframes='[{"at":0,"easing":"linear","value":[[0,0],[0.55,0],[0.55,1],[0,1]]},{"at":1,"easing":"linear","value":[[0.45,0],[1,0],[1,1],[0.45,1]]}]'
  style="left:10px;top:35px;width:20px;height:20px;opacity:1;object-fit:contain;transform-origin:50% 50%;rotate:0deg"/>
 </section></body></html>'''
     scene_html = '''<!doctype html>
@@ -56,7 +57,7 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
         pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
 
     project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
-    look = film_render.look_project_film(project_id, expected_revision=revision, times=[0.0, 0.5])
+    look = film_render.look_project_film(project_id, expected_revision=revision, times=[0.0, 0.5, 1.0])
     assert look["ok"] is True
     assert look["revision"] == revision
     assert look["determinism_status"] == "PASS"
@@ -66,7 +67,7 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
     # to the actual rendered element, not merely persist the JSON attributes.
     with Image.open(look["image_path"]) as contact_sheet:
         sheet = contact_sheet.convert("RGB")
-        assert sheet.width >= 1280 and sheet.height >= 360
+        assert sheet.width >= 1920 and sheet.height >= 360
 
         def red_centroid(tile):
             pixels = [
@@ -80,11 +81,24 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
 
         first_tile = sheet.crop((0, 0, 640, 360))
         second_tile = sheet.crop((640, 0, 1280, 360))
+        third_tile = sheet.crop((1280, 0, 1920, 360))
         first_center = red_centroid(first_tile)
         second_center = red_centroid(second_tile)
+        third_center = red_centroid(third_tile)
         assert second_center - first_center > 150, (
             f"Transform keyframes were not applied at t=0.5s: {first_center=}, {second_center=}"
         )
+        assert third_center - first_center > 150, (
+            f"Transform keyframes were not applied at t=1s: {first_center=}, {third_center=}"
+        )
+        # The mask is left-half at t=0 and right-half at t=1. Normalize measured
+        # centroids back to the 160px composition space and relative to the known
+        # transform centers; opposite-signed offsets prove frame(t) applied the
+        # dynamic polygon rather than merely saving its keyframes.
+        first_offset = first_center / 4.0 - 20.0
+        third_offset = third_center / 4.0 - 132.8
+        assert first_offset < -2.0, f"left-half mask wasn't applied at t=0: offset={first_offset}"
+        assert third_offset > 2.0, f"right-half mask wasn't applied at t=1: offset={third_offset}"
 
     state = fd.read_project_film(project_id)
     result = film_render.render_project_film(project_id, state["rev"], fps=2)

@@ -131,10 +131,12 @@
     try{filmTransform=JSON.parse(String(clip.attrs&&clip.attrs['data-film-transform']||'null'));}catch(_){}
     try{filmKeyframes=JSON.parse(String(clip.attrs&&clip.attrs['data-film-keyframes']||'[]'));}catch(_){}
     if(!Array.isArray(filmKeyframes))filmKeyframes=[];
+    var baseClipPath=String(el.style.clipPath||'');
+    var maskKeyframes=parseMaskKeyframes(clip.attrs&&clip.attrs['data-film-mask-keyframes']);
     entry={track:track,clip:clip,el:el,active:false,iframeLoaded:iframeLoaded,iframeLoadError:iframeLoadError,
       volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope),
       filmTransform:filmTransform&&typeof filmTransform==='object'?filmTransform:null,
-      filmKeyframes:filmKeyframes,
+      filmKeyframes:filmKeyframes,maskKeyframes:maskKeyframes,baseClipPath:baseClipPath,
       fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1)};
     byId[clip.id]=entry;return entry;
   }
@@ -185,6 +187,62 @@
     state.playing=playing;
     if(playing){state.originTime=state.time;state.originClock=performance.now();}
     post({type:'film-runtime:loaded',rev:state.rev});
+  }
+  function parseMaskKeyframes(value){
+    if(!value)return [];
+    try{
+      var points=typeof value==='string'?JSON.parse(value):value;
+      if(!Array.isArray(points)||points.length<1||points.length>128)return [];
+      var normalized=[],vertexCount=-1,last=-1;
+      for(var i=0;i<points.length;i++){
+        var point=points[i],at=Number(point&&point.at),easing=String(point&&point.easing||'linear'),
+            value=point&&point.value;
+        if(!Number.isFinite(at)||at<0||at>600||at<=last||!Array.isArray(value)||value.length<3||value.length>64)return [];
+        if(vertexCount<0)vertexCount=value.length;
+        if(value.length!==vertexCount)return [];
+        var vertices=[];
+        for(var v=0;v<value.length;v++){
+          var pair=value[v];
+          if(!Array.isArray(pair)||pair.length!==2)return [];
+          var x=Number(pair[0]),y=Number(pair[1]);
+          if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||x>1||y<0||y>1)return [];
+          vertices.push([x,y]);
+        }
+        if(['linear','ease_in','ease_out','ease_in_out'].indexOf(easing)<0)easing='linear';
+        normalized.push({at:at,value:vertices,easing:easing});
+        last=at;
+      }
+      return normalized;
+    }catch(_){return [];}
+  }
+  function polygonFromVertices(vertices){
+    return 'polygon('+vertices.map(function(pair){
+      return (Number(pair[0])*100).toFixed(6).replace(/0+$/,'').replace(/\\.$/,'')+'% '+
+        (Number(pair[1])*100).toFixed(6).replace(/0+$/,'').replace(/\\.$/,'')+'%';
+    }).join(', ')+')';
+  }
+  function applyFilmMaskKeyframes(entry,t){
+    var points=entry.maskKeyframes||[];
+    if(!points.length){entry.el.style.clipPath=entry.baseClipPath;return;}
+    var local=Math.max(0,t-finite(entry.clip.at,0));
+    if(local<points[0].at){entry.el.style.clipPath=entry.baseClipPath;return;}
+    var left=points[0],right=null;
+    for(var i=1;i<points.length;i++){
+      if(local<=points[i].at){left=points[i-1];right=points[i];break;}
+      left=points[i];
+    }
+    var vertices=left.value;
+    if(right){
+      var span=right.at-left.at;
+      var ratio=span<=0?1:filmEase((local-left.at)/span,right.easing);
+      vertices=left.value.map(function(pair,index){
+        return [
+          pair[0]+(right.value[index][0]-pair[0])*ratio,
+          pair[1]+(right.value[index][1]-pair[1])*ratio
+        ];
+      });
+    }
+    entry.el.style.clipPath=polygonFromVertices(vertices);
   }
   function filmEase(value,mode){
     var x=clamp(value,0,1);
@@ -261,6 +319,7 @@
     el.style.display='block';
     var fadeFactor=clipFadeAt(entry,t);
     var transformOpacity=applyFilmTransform(entry,t);
+    applyFilmMaskKeyframes(entry,t);
     if(tag!=='audio')el.style.opacity=String(clamp(transformOpacity*fadeFactor,0,1));
     if(tag==='iframe'){
       var localTime=mediaTime(clip,t);
