@@ -74,10 +74,11 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=160,height=90">
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111}</style></head>
 <body>
+<!-- Track DOM order is the visual stacking order: base footage first, then stills and HTML cards. -->
+<section id="video-track" data-label="主画面"></section>
+<section id="still-track" data-label="贴图"></section>
 <section id="title-track" data-label="标题"></section>
 <section id="subtitle-track" data-label="字幕"></section>
-<section id="still-track" data-label="贴图"></section>
-<section id="video-track" data-label="主画面"></section>
 <section id="narration-track" data-label="旁白"></section>
 <section id="music-track" data-label="背景音乐"></section>
 <section id="sfx-track" data-label="音效"></section>

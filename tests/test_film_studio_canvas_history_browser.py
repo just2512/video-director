@@ -174,6 +174,12 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     "() => document.querySelector('#fs-element-inspect-toggle')?.getAttribute('aria-pressed') === 'true'",
                     timeout=5000,
                 )
+                # Wait for the nested HTML scene to acknowledge Inspect mode before
+                # clicking it; otherwise this click can race the two postMessage hops.
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
+                    timeout=10000,
+                )
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
