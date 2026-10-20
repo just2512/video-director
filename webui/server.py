@@ -1225,6 +1225,9 @@ class Handler(BaseHTTPRequestHandler):
                     "draft_path": str(draft) if draft else "",
                     "draft_exists": draft is not None,
                     "final_path": str(final) if final else "",
+                    # final_exists 是前端/消费者依赖的显式布尔（此前缺失，
+                    # 只能靠 final_path 非空推断——幽灵字段，2026-10-20 补齐）
+                    "final_exists": final is not None,
                 })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
