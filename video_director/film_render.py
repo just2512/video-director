@@ -978,7 +978,9 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
         cache_dir.mkdir(parents=True, exist_ok=True)
         output = cache_dir / f"contact-{revision}.png"
         cell_width, image_height, label_height = 640, 360, 28
-        columns = 2
+        # Three samples fit on one row at native preview scale; longer films
+        # wrap to additional rows without making each thumbnail too small.
+        columns = min(3, len(samples))
         rows = int(math.ceil(len(samples) / columns))
         sheet = Image.new("RGB", (columns * cell_width, rows * (image_height + label_height)), (24, 24, 24))
         draw = ImageDraw.Draw(sheet)

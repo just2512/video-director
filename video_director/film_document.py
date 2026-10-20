@@ -533,7 +533,11 @@ def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = Non
             if affected and (track_locked or "data-clip-locked" in attrs):
                 code = "TRACK_LOCKED" if track_locked else "CLIP_LOCKED"
                 target = track["id"] if track_locked else clip["id"]
-                raise FilmError(code, f"波纹删除会影响已锁定对象 {target}；整笔操作已拒绝", 409)
+                if track_locked:
+                    message = f"锁定轨道 {target} 将受到波纹删除影响；整笔操作已拒绝 [TRACK_LOCKED]"
+                else:
+                    message = f"波纹删除会影响已锁定对象 {target}；整笔操作已拒绝 [CLIP_LOCKED]"
+                raise FilmError(code, message, 409)
 
     for track in doc["tracks"]:
         rewritten: list[dict] = []
