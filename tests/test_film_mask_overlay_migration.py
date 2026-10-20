@@ -126,3 +126,44 @@ def test_mask_keyframes_with_different_vertex_counts_are_rejected_explicitly():
     mapped, warnings = fd._film_mask_keyframes(tracks, 1.0)
     assert mapped == []
     assert any("顶点数量不同" in warning for warning in warnings)
+
+
+def test_inverted_animated_mask_is_not_silently_applied_as_positive_polygon(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "inverted-animated-mask"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "assets": [{"id": "asset-image", "type": "image", "file": "assets/still.png"}],
+        "scenes": [{
+            "id": "inverted-mask-scene", "start": 0, "duration": 1, "text": "mask",
+            "layers": [{
+                "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
+                "mask": {
+                    "id": "inverted-animated-mask", "shape": "polygon", "inverted": True,
+                    "animated": True, "geometry": [[0, 0], [0.5, 0], [0.5, 1], [0, 1]],
+                    "keyframes": [{"property": "mask_path", "keyframes": [
+                        {"at": 0, "value": [[0, 0], [0.5, 0], [0.5, 1], [0, 1]]},
+                        {"at": 1, "value": [[0.1, 0], [0.6, 0], [0.6, 1], [0.1, 1]]},
+                    ]}],
+                },
+            }],
+        }],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    attrs = track["clips"][0]["attrs"]
+    assert "data-film-mask-keyframes" not in attrs
+    assert "clip-path:" not in attrs.get("style", "")
+    warnings = "\n".join(result["warnings"])
+    assert "inverted 动态蒙版无法由当前 Runtime 无损表达" in warnings
+    archived = json.loads(result["pages"]["migration/source-composition.json"])
+    assert archived["scenes"][0]["layers"][0]["mask"]["inverted"] is True
+    assert archived["scenes"][0]["layers"][0]["mask"]["keyframes"]

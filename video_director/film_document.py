@@ -3239,6 +3239,14 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 mask_tracks.extend(raw_mask.get("keyframes") or [])
             mask_keyframes, mask_keyframe_warnings = _film_mask_keyframes(mask_tracks, d)
             unsupported_layer_fields.extend(f"mask:{warning}" for warning in mask_keyframe_warnings)
+            if isinstance(raw_mask, dict) and raw_mask.get("inverted") and mask_keyframes:
+                # The Runtime currently accepts only a positive polygon clip-path.
+                # Applying these frames would turn an inverted mask into its opposite,
+                # which is worse than explicitly leaving the source mask unapplied.
+                unsupported_layer_fields.append(
+                    "inverted 动态蒙版无法由当前 Runtime 无损表达；未应用正向关键帧，原始值保留于源副本"
+                )
+                mask_keyframes = []
             mask_clip_path = None
             if raw_mask:
                 mask_clip_path, mask_warnings = _film_mask_clip_path(
