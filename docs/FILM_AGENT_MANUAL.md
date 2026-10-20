@@ -104,6 +104,23 @@ python -m video_director film diff --project-id PROJECT_ID
 python -m video_director film render --project-id PROJECT_ID
 ```
 
+For timeline edits, external agents must use the revision-checked operation entry point instead of overwriting `film.html` directly:
+
+```json
+[
+  {"op": "set", "clip": "footage", "field": "at", "value": 6.0},
+  {"op": "set", "clip": "footage", "field": "speed", "value": 1.25}
+]
+```
+
+Save that array as a UTF-8 JSON file (for example, `film-ops.json`), copy the exact `revision` from the latest `film status` result, then run:
+
+```bash
+python -m video_director film edit --project-id PROJECT_ID --base-revision REVISION --ops-file film-ops.json
+```
+
+The command applies the whole operation batch under the project lock, validates it with the same FilmDocument contract as Studio, and appends it to undo/diff history. A stale revision is rejected with `REVISION_CONFLICT` and does not write anything. The command does not silently rebase an external agent's intent. Re-read `status`, inspect `diff`, and produce a new operation batch after a conflict. Edit scene source files under `scenes/` directly when necessary; for structural direct edits to `film.html`, use a validated temporary file and atomic replacement, and recognize that direct replacement is outside the operation-level history.
+
 - `status` reports the current revision, stage, tracks, clips and duration.
 - `validate` checks the strict film document and verifies that referenced local files exist. It does not prove that the scene's frame contract works.
 - `look` renders a contact sheet through the real browser runtime and repeats sample times in reverse order. Read the returned `image_path`; fix each explicit frame/resource/determinism failure before full export.

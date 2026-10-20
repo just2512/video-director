@@ -89,17 +89,23 @@ def main(argv=None):
 
     caps = sub.add_parser("capabilities", help="能力清单与 preflight 报告")
 
-    film = sub.add_parser("film", help="读取、验证、检查或导出权威 film.html 工程")
+    film = sub.add_parser("film", help="读取、验证、编辑、检查或导出权威 film.html 工程")
     film_sub = film.add_subparsers(dest="film_cmd", required=True)
     for command, help_text in (
         ("status", "显示 film.html revision、画幅、轨道和片段摘要"),
         ("validate", "验证 film.html 协议、媒体引用和源区间声明"),
+        ("edit", "按指定 base revision 原子提交 JSON 编辑操作并记录历史"),
         ("diff", "将指定历史 revision 与当前 film.html 比较"),
         ("look", "生成真实浏览器画面接触表并反序验证确定性"),
         ("render", "把固定 revision 的 film.html 导出为 MP4"),
     ):
         command_parser = film_sub.add_parser(command, help=help_text)
         command_parser.add_argument("--project-id", required=True)
+        if command == "edit":
+            command_parser.add_argument("--base-revision", required=True,
+                                        help="从 film status 读取的精确 revision；过期时拒绝写入")
+            command_parser.add_argument("--ops-file", required=True,
+                                        help="UTF-8 JSON 文件，顶层必须是操作对象数组")
         if command == "diff":
             command_parser.add_argument("--from-revision", default=None,
                                         help="历史 revision；省略时比较最近一次编辑前的版本")
@@ -139,6 +145,36 @@ def main(argv=None):
                     "tracks": [{"id": track["id"], "flags": sorted(track["attrs"].keys()),
                                 "clip_ids": [clip["id"] for clip in track["clips"]]}
                                for track in doc["tracks"]],
+                })
+
+            if a.film_cmd == "edit":
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                try:
+                    operations = json.loads(Path(a.ops_file).read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    emit({"ok": False, "code": "INVALID_OPERATIONS_FILE",
+                          "error": "无法读取编辑操作 JSON；请提供 UTF-8、合法 JSON 文件。",
+                          "detail": str(exc)[:500]}, 2)
+                if (not isinstance(operations, list) or not operations
+                        or len(operations) > fd.MAX_OPERATIONS
+                        or any(not isinstance(operation, dict) for operation in operations)):
+                    emit({"ok": False, "code": "INVALID_OPERATIONS",
+                          "error": f"编辑操作必须是 1–{fd.MAX_OPERATIONS} 个 JSON 对象组成的数组。"}, 2)
+                # External agents go through exactly the same document validator,
+                # locking, operation history and revision guard as the Studio.
+                # Never use the UI's best-effort rebase behavior for an agent write.
+                result = fd.edit_project_film(
+                    pid, a.base_revision, operations, require_base=True
+                )
+                emit({
+                    "ok": True, "project_id": pid,
+                    "base_revision": a.base_revision,
+                    "revision": result["rev"],
+                    "operation_count": len(result["ops"]),
+                    "operations": result["ops"],
+                    "rebased": False,
                 })
 
             if a.film_cmd == "validate":
