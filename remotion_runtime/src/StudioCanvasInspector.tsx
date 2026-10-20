@@ -140,7 +140,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       title: String(attrs.title || ""),
     };
   });
-  const update = (field: keyof FilmClipInspectorValues, value: string) => {
+  const update = <K extends keyof FilmClipInspectorValues>(field: K, value: FilmClipInspectorValues[K]) => {
     setForm((current) => ({...current, [field]: value}));
   };
   if (!clip) {

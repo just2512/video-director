@@ -17,6 +17,7 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert 'id="fs-field-title"' in component
     assert "filmStudioSaveInspector?: (values?: FilmClipInspectorValues) => Promise<void> | void" in component
     assert "const [form, setForm] = useState<FilmClipInspectorValues>" in component
+    assert "const update = <K extends keyof FilmClipInspectorValues>" in component
     assert 'value={form.at}' in component
     assert 'onChange={(event) => update("at", event.currentTarget.value)}' in component
     assert 'id="fs-apply-clip-inspector"' in component

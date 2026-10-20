@@ -181,6 +181,18 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 assert page.locator("#fs-inspector #fs-field-fade-in").count() == 1
                 page.locator("#fs-apply-clip-inspector").wait_for(state="visible", timeout=10000)
 
+                # React controlled inputs submit a typed payload through the same edit transaction.
+                page.locator("#fs-field-at").fill("0.25")
+                page.locator("#fs-field-title").fill("React title")
+                page.locator("#fs-apply-clip-inspector").click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已保存')",
+                    timeout=15000,
+                )
+                persisted_clip = _clip(project_id)
+                assert float(persisted_clip["attrs"]["at"]) == 0.25
+                assert persisted_clip["attrs"]["title"] == "React title"
+
                 page.locator("#fs-element-text").fill("Saved title")
                 page.locator("#fs-element-left").fill("64")
                 page.locator("#fs-element-top").fill("75")
