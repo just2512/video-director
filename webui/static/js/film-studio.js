@@ -1124,7 +1124,7 @@
       if(left&&Number.isFinite(Number(left)))dock.style.setProperty('--fs-left',Math.max(15,Math.min(38,Number(left)))+'%');
       if(right&&Number.isFinite(Number(right)))dock.style.setProperty('--fs-right',Math.max(18,Math.min(38,Number(right)))+'%');
       var timelineHeight=Number(localStorage.getItem('film-studio-timeline-height'));
-      if(studioPanel&&Number.isFinite(timelineHeight)&&timelineHeight>=120){
+      if(studioPanel&&Number.isFinite(timelineHeight)&&timelineHeight>=160){
         studioPanel.style.setProperty('--fs-timeline-height',Math.max(120,Math.min(window.innerHeight*0.45,timelineHeight))+'px');
       }
     }catch(_){}
@@ -1157,7 +1157,7 @@
     if(d.side==='timeline'){
       var panelHeight=studioPanel?studioPanel.getBoundingClientRect().height:d.panelHeight;
       var maxHeight=Math.max(160,Math.min(window.innerHeight*0.45,panelHeight*0.45));
-      var height=Math.max(120,Math.min(maxHeight,d.startHeight+d.startY-e.clientY));
+      var height=Math.max(160,Math.min(maxHeight,d.startHeight+d.startY-e.clientY));
       if(studioPanel)studioPanel.style.setProperty('--fs-timeline-height',height.toFixed(0)+'px');
       try{localStorage.setItem('film-studio-timeline-height',height.toFixed(0));}catch(_){}
       return;
@@ -1210,7 +1210,7 @@
       var current=pane.getBoundingClientRect().height;
       var delta=(e.key==='ArrowUp'?1:-1)*(e.shiftKey?48:16);
       var maxHeight=Math.max(160,Math.min(window.innerHeight*0.45,studioPanel.getBoundingClientRect().height*0.45));
-      var height=Math.max(120,Math.min(maxHeight,current+delta));
+      var height=Math.max(160,Math.min(maxHeight,current+delta));
       studioPanel.style.setProperty('--fs-timeline-height',height.toFixed(0)+'px');
       try{localStorage.setItem('film-studio-timeline-height',height.toFixed(0));}catch(_){}
     });
