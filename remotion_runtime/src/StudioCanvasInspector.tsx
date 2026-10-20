@@ -53,6 +53,23 @@ type FilmStudioAssetsModel = {
 interface FilmStudioReactAssetsBridge {
   render(model: FilmStudioAssetsModel): void;
 }
+type FilmTimelineSurfaceClip = {
+  id: string; trackId: string; tag: string; title: string;
+  left: number; width: number; atLabel: string; durationLabel: string;
+  selected: boolean; thumbnail: string; waveform: boolean; envelope: boolean; trimHandles: boolean;
+};
+type FilmTimelineSurfaceTrack = {
+  id: string; label: string; locked: boolean; syncLocked: boolean; hidden: boolean; muted: boolean;
+  clips: FilmTimelineSurfaceClip[];
+};
+type FilmTimelineSurfaceModel = {
+  renderKey: string; laneWidth: number; totalWidth: number; pixelsPerSecond: number;
+  ticks: Array<{at:number;label:string;left:number}>;
+  tracks: FilmTimelineSurfaceTrack[];
+};
+interface FilmStudioReactTimelineBridge {
+  renderSurface(model: FilmTimelineSurfaceModel): void;
+}
 
 declare global {
   interface Window {
@@ -62,6 +79,7 @@ declare global {
     filmStudioSaveInspector?: () => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
+    filmStudioReactTimeline?: FilmStudioReactTimelineBridge;
     filmStudioSelectClip?: (clipId: string) => void;
     filmStudioShowAssetMode?: (mode: string) => void;
     filmStudioAddAsset?: (assetId: string) => Promise<void> | void;
@@ -176,6 +194,63 @@ const StudioToolbar: React.FC = () => (
     <button className="fs-btn" type="button" data-film-action="reload">重新载入</button>
     <button className="fs-btn fs-primary" type="button" data-film-action="render">导出 MP4</button>
     <button className="fs-btn" type="button" data-film-action="close" title="退出全屏 Studio，不切回旧编辑状态">退出 Studio</button>
+  </>
+);
+
+const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => (
+  <>
+    <div className="fs-ruler" style={{width:model.totalWidth}} data-react-timeline-surface="true">
+      <div className="fs-ruler-head">时码</div>
+      <div className="fs-ruler-body" id="fs-ruler-body" style={{width:model.laneWidth}}>
+        {model.ticks.map((tick) => (
+          <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at}>{tick.label}</div>
+        ))}
+      </div>
+    </div>
+    {model.tracks.map((track) => (
+      <div
+        className={"fs-track" + (track.locked ? " fs-track-locked" : "") +
+          (track.syncLocked ? " fs-sync-locked" : "") + (track.hidden ? " fs-hidden-track" : "") +
+          (track.muted ? " fs-muted-track" : "")}
+        data-track={track.id}
+        key={track.id}
+      >
+        <div className="fs-track-head">
+          <span className="fs-track-label" title={track.label}>{track.label}</span>
+          <span className="fs-track-controls">
+            <button type="button" className="fs-btn" data-track-lock={track.id} title={track.locked ? "解锁轨道" : "锁定轨道"}>{track.locked ? "🔒" : "锁"}</button>
+            <button type="button" className="fs-btn" data-track-flag="sync-lock" data-track-key={track.id} aria-pressed={track.syncLocked ? "true" : "false"} title={track.syncLocked ? "取消同步锁定" : "启用同步锁定"}>{track.syncLocked ? "⇄" : "同步"}</button>
+            <button type="button" className="fs-btn" data-track-flag="hidden" data-track-key={track.id} title={track.hidden ? "显示轨道" : "隐藏轨道"}>{track.hidden ? "显" : "隐"}</button>
+            <button type="button" className="fs-btn" data-track-flag="muted" data-track-key={track.id} title={track.muted ? "取消静音" : "静音轨道"}>{track.muted ? "🔊" : "🔇"}</button>
+          </span>
+        </div>
+        <div className="fs-track-body" style={{width:model.laneWidth}}>
+          {track.clips.map((clip) => (
+            <div
+              className={"fs-clip" + (clip.selected ? " fs-clip-selected" : "")}
+              data-clip={clip.id}
+              data-track={clip.trackId}
+              data-kind={clip.tag}
+              data-react-timeline-clip={clip.id}
+              style={{left:clip.left,width:clip.width}}
+              title={clip.title}
+              key={clip.id}
+            >
+              {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
+              {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}
+              {clip.envelope ? <canvas className="fs-clip-envelope" data-envelope-clip={clip.id} aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点" /> : null}
+              {clip.trimHandles ? <>
+                <span className="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点" />
+                <span className="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点" />
+              </> : null}
+              <span className="fs-clip-title">{clip.title}</span>
+              <span className="fs-clip-subtitle">{clip.atLabel}{clip.durationLabel}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    ))}
+    <div className="fs-playhead" id="fs-playhead-line" />
   </>
 );
 
@@ -341,6 +416,22 @@ window.filmStudioReactAssets = {
     }
     flushSync(() => {
       assetsRoot?.render(<StudioAssets model={model} />);
+    });
+  },
+};
+
+let timelineSurfaceRoot: Root | null = null;
+let timelineSurfaceMount: HTMLElement | null = null;
+window.filmStudioReactTimeline = {
+  renderSurface(model) {
+    const mount = document.getElementById("fs-timeline");
+    if (!mount) return;
+    if (!timelineSurfaceRoot || timelineSurfaceMount !== mount) {
+      timelineSurfaceRoot = createRoot(mount);
+      timelineSurfaceMount = mount;
+    }
+    flushSync(() => {
+      timelineSurfaceRoot?.render(<TimelineSurface key={model.renderKey} model={model} />);
     });
   },
 };

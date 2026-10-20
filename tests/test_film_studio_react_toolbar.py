@@ -17,6 +17,11 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "if(legacy)legacy.style.display='';" in studio
     assert "const StudioAssets: React.FC" in component
     assert "window.filmStudioReactAssets = {" in component
+    assert "const TimelineSurface: React.FC" in component
+    assert "window.filmStudioReactTimeline = {" in component
+    assert "renderSurface(model)" in component
+    assert "window.filmStudioReactTimeline.renderSurface(renderModel);" in studio
+    assert 'data-react-timeline-clip={clip.id}' in component
     assert "window.filmStudioReactAssets.render({" in studio
     assert 'data-react-asset-list="true"' in component
     assert 'id="fs-assets-list"' in html

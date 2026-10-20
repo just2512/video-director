@@ -105,6 +105,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     assert page.locator("#fs-assets-list [data-react-asset-clip]").count() == 1
                 else:
                     assert page.locator("#fs-assets-list [data-react-asset-list]").count() == 0
+                has_react_timeline = page.evaluate(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function'"
+                )
+                if has_react_timeline:
+                    page.locator('#fs-timeline [data-react-timeline-surface="true"]').wait_for(state="attached", timeout=10000)
+                    assert page.locator("#fs-timeline [data-react-timeline-clip]").count() == 1
+                else:
+                    assert page.locator("#fs-timeline [data-react-timeline-clip]").count() == 0
                 page.locator("#fs-static-toolbar").wait_for(state="attached", timeout=10000)
                 has_react_toolbar = page.evaluate(
                     "() => typeof window.filmStudioReactToolbar?.render === 'function' && typeof window.filmStudioReactToolbar?.renderScrub === 'function'"
