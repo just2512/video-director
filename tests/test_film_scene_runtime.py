@@ -28,7 +28,7 @@ def test_scene_relative_media_paths_are_rewritten_inside_project_boundary():
 def test_css_rewriter_resolves_paths_relative_to_the_stylesheet():
     source = ".hero { background: url('../images/hero.webp'); mask: url(#shape); }"
     result = inject_scene_css(source, "film-test", "scenes/css/theme.css", "/media")
-    assert "url('/media?project_id=film-test&src=images%2Fhero.webp')" in result
+    assert "url('/media?project_id=film-test&src=scenes%2Fimages%2Fhero.webp')" in result
     assert "url(#shape)" in result
 
 
