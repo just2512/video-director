@@ -2219,7 +2219,8 @@ def film_payload(project_id: str, state: dict) -> dict:
             "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
 
 
-def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "", summary_out: dict | None = None) -> list[dict]:
+def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "",
+                      summary_out: dict | None = None, selected_element: dict | None = None) -> list[dict]:
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         raise FilmError("INVALID_MESSAGE", "指令不能为空且不能超过 4000 个字符")
     if not state.get("exists") or not state.get("doc"):
@@ -2261,11 +2262,13 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
         "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
         "可用 ripple_delete 操作: {op:'ripple_delete',clip:准确片段ID,scope:'all'}。仅当用户明确要求波纹删除或删除并收拢时间线时使用；会影响全部轨道，并切分跨越删除区间的片段。"
+        "可用 element_set 操作: {op:'element_set',clip:当前选中 HTML 镜头 ID,selector:当前选中元素的精确 selector,text?:字符串,style?:{color:'色值',backgroundColor:'色值',fontSize:'32px',left:'20px',top:'20px',width:'300px',height:'100px',rotate:'10deg',...}}。只允许修改系统提供的当前选中元素；不能猜测其他 selector；仅当用户明确要求修改该画面元素时使用。style 仅允许 color/backgroundColor/fontSize/fontWeight/textAlign/lineHeight/letterSpacing/left/top/width/height/position/opacity/transform/borderRadius/rotate，CSS 值会经过服务端安全校验。不要通过 set 直接修改 overrides。"
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
         "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
+        f"\n当前选中画布元素（只可操作这一项）：{json.dumps(selected_element, ensure_ascii=False, separators=(',', ':')) if selected_element else '无；不得使用 element_set'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"
         f"\n用户指令：{message}"
     )
@@ -2292,8 +2295,21 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
     valid_tracks = {t["id"] for t in doc["tracks"]}
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip", "join", "roll", "slide"}:
+        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip", "join", "roll", "slide", "element_set"}:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
+        if op["op"] == "element_set":
+            target = next((clip for track in doc["tracks"] for clip in track["clips"]
+                           if clip["id"] == op.get("clip")), None)
+            if (not selected_element or not isinstance(selected_element, dict)
+                    or op.get("clip") != selected_element.get("clip_id")
+                    or op.get("clip") != selected_clip_id
+                    or op.get("selector") != selected_element.get("selector")
+                    or target is None or target.get("tag") != "iframe"):
+                raise FilmError("LLM_INVALID_ELEMENT_TARGET",
+                                "AI 只能修改当前选中的 HTML 镜头内、且 selector 精确匹配的元素", 422)
+            # Reuse the same server-side style/text validator used by edit execution.
+            _normalize_element_override(op.get("selector"), op.get("text"),
+                                        "text" in op, op.get("style"))
         if op["op"] == "join" and (op.get("clip") not in valid_ids or op.get("other_clip") not in valid_ids):
             raise FilmError("LLM_INVALID_PLAN", "AI 愈合切口操作必须指定两个已存在的片段 ID", 422)
         if op["op"] == "roll":
