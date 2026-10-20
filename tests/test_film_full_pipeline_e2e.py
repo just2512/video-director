@@ -13,7 +13,7 @@ from PIL import Image
 def test_blank_film_to_multitrack_mp4_with_html_scene_and_audio_mix(tmp_path, monkeypatch):
     """Exercise the real document editor, browser runtime, QC look and FFmpeg muxer."""
     pytest.importorskip("playwright.sync_api")
-    from video_director import config, film_document as fd, film_render, prober, renderer
+    from video_director import config, film_document as fd, prober, renderer
 
     try:
         ffmpeg = renderer._ffmpeg()
