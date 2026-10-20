@@ -139,12 +139,14 @@
           <div class="fs-monitor-stage" id="fs-monitor-stage">
             <div class="fs-monitor-placeholder">选择项目并初始化影片文档</div>
             <iframe id="fs-preview-composition" title="多轨影片预览" src="/static/film-runtime.html" style="display:none" aria-label="多轨影片预览"></iframe>
+            <div id="fs-element-selection" class="fs-element-selection" aria-hidden="true" hidden></div>
           </div>
           <div class="fs-scrub-row">
             <button class="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>
             <button class="fs-btn" type="button" id="fs-play-toggle" data-film-action="play-toggle">播放</button>
             <input id="fs-playhead" type="range" min="0" max="10" step="0.033333" value="0" oninput="filmStudioSeek(this.value)" aria-label="播放头">
             <button class="fs-btn" type="button" data-film-action="frame-next">下一帧</button>
+            <button class="fs-btn" id="fs-element-inspect-toggle" type="button" data-film-action="canvas-inspect" aria-pressed="false" title="在节目监视器中点选 HTML 镜头里的文字或图层">选择画面元素</button>
             <span id="fs-playhead-value">00:00.000</span>
           </div>
         </section>
