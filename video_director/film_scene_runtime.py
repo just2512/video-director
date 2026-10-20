@@ -1,0 +1,225 @@
+"""Deterministic frame(t) bridge for local HTML scenes embedded in film.html.
+
+Only project-local relative references are rewritten. The injected bridge is a
+small, versioned postMessage contract: the parent asks for an exact local time,
+the child awaits window.film.ready, invokes window.film.frame(t), and reports
+whether the page actually supports the contract.
+"""
+from __future__ import annotations
+
+import html
+import posixpath
+import re
+from urllib.parse import quote, unquote, urlsplit
+
+
+_SCENE_BRIDGE = r"""
+(function () {
+  'use strict';
+  if (window.__videoDirectorSceneBridge) return;
+  window.__videoDirectorSceneBridge = true;
+
+  var epoch = 1767225600000;
+  var clock = { time: 0, active: false, queue: [], nextId: 0, cancelled: Object.create(null), randomState: 1 };
+  var NativeDate = window.Date;
+  var nativeRaf = window.requestAnimationFrame.bind(window);
+  var nativeCancelRaf = window.cancelAnimationFrame.bind(window);
+  var nativePerformanceNow = window.performance && window.performance.now
+    ? window.performance.now.bind(window.performance) : function () { return clock.time * 1000; };
+
+  function FilmDate() {
+    var args = Array.prototype.slice.call(arguments);
+    if (!(this instanceof FilmDate)) {
+      return args.length ? NativeDate.apply(null, args) : new NativeDate(epoch + clock.time * 1000).toString();
+    }
+    return args.length ? new (Function.prototype.bind.apply(NativeDate, [null].concat(args)))()
+      : new NativeDate(epoch + clock.time * 1000);
+  }
+  FilmDate.prototype = NativeDate.prototype;
+  try { Object.setPrototypeOf(FilmDate, NativeDate); } catch (_) {}
+  FilmDate.now = function () { return epoch + clock.time * 1000; };
+  FilmDate.parse = NativeDate.parse;
+  FilmDate.UTC = NativeDate.UTC;
+  window.Date = FilmDate;
+
+  try {
+    Object.defineProperty(window.performance, 'now', {
+      configurable: true, value: function () { return clock.time * 1000; }
+    });
+  } catch (_) {}
+
+  function seed(value) {
+    clock.randomState = ((Math.floor(value * 1000000) >>> 0) ^ 0x6D2B79F5) >>> 0;
+    if (!clock.randomState) clock.randomState = 1;
+  }
+  Math.random = function () {
+    var t = clock.randomState += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  window.requestAnimationFrame = function (callback) {
+    if (!clock.active) return nativeRaf(callback);
+    var id = ++clock.nextId;
+    clock.queue.push({ id: id, callback: callback });
+    return id;
+  };
+  window.cancelAnimationFrame = function (id) {
+    if (!clock.active) return nativeCancelRaf(id);
+    clock.cancelled[id] = true;
+    clock.queue = clock.queue.filter(function (item) { return item.id !== id; });
+  };
+
+  function waitNativeFrame() {
+    return new Promise(function (resolve) { nativeRaf(function () { resolve(); }); });
+  }
+  function syncAnimations(t) {
+    if (!document.getAnimations) return;
+    document.getAnimations().forEach(function (animation) {
+      try {
+        animation.pause();
+        animation.currentTime = t * 1000;
+      } catch (_) {}
+    });
+  }
+  async function waitUntilLoaded() {
+    if (document.readyState !== 'complete') {
+      await new Promise(function (resolve) { window.addEventListener('load', resolve, { once: true }); });
+    }
+    if (window.film && window.film.ready && typeof window.film.ready.then === 'function') {
+      await window.film.ready;
+    }
+  }
+  function flushRaf(t) {
+    clock.active = true;
+    var rounds = 0;
+    while (clock.queue.length && rounds < 8) {
+      rounds += 1;
+      var current = clock.queue.splice(0);
+      current.forEach(function (item) {
+        if (clock.cancelled[item.id]) return;
+        try { item.callback(t * 1000); } catch (error) {
+          setTimeout(function () { throw error; }, 0);
+        }
+      });
+    }
+    clock.queue.length = 0;
+    clock.cancelled = Object.create(null);
+  }
+  function sendFrameReady(message, supported, error) {
+    try {
+      parent.postMessage({
+        type: 'film-frame:ready',
+        frame: message.frame,
+        time: message.time,
+        supported: supported,
+        error: error || null
+      }, '*');
+    } catch (_) {}
+  }
+  async function draw(message) {
+    var t = Number(message.time);
+    if (!Number.isFinite(t) || t < 0) {
+      sendFrameReady(message, false, 'frame time must be a finite non-negative number');
+      return;
+    }
+    try {
+      await waitUntilLoaded();
+      if (!window.film || typeof window.film.frame !== 'function') {
+        sendFrameReady(message, false, '页面未实现 window.film.frame(t)');
+        return;
+      }
+      clock.time = t;
+      seed(t);
+      clock.queue.length = 0;
+      clock.cancelled = Object.create(null);
+      syncAnimations(t);
+      var result = window.film.frame(t);
+      if (result && typeof result.then === 'function') await result;
+      syncAnimations(t);
+      flushRaf(t);
+      await waitNativeFrame();
+      await waitNativeFrame();
+      sendFrameReady(message, true, null);
+    } catch (error) {
+      sendFrameReady(message, true, String(error && error.stack || error));
+    } finally {
+      clock.active = false;
+      clock.queue.length = 0;
+      clock.cancelled = Object.create(null);
+    }
+  }
+  window.addEventListener('message', function (event) {
+    if (event.source !== parent || !event.data) return;
+    var message = event.data;
+    if (message.type === 'film-frame') draw(message);
+    else if (message.type === 'film-time' && window.film && typeof window.film.frame === 'function') {
+      draw({ type: 'film-frame', time: message.time, frame: -1 });
+    }
+  });
+})();
+"""
+
+
+_ATTR_RE = re.compile(r"\b(src|href|poster|data-src)\s*=\s*(['\"])(.*?)\2", re.I | re.S)
+_CSS_URL_RE = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.I | re.S)
+
+
+def _asset_url(value: str, project_id: str, page_src: str, route: str) -> str | None:
+    value = html.unescape(value.strip())
+    if not value or value.startswith(("#", "/", "\\", "//")):
+        return None
+    parts = urlsplit(value)
+    if parts.scheme or parts.netloc or not parts.path:
+        return None
+    page_path = unquote(page_src.split("#", 1)[0].split("?", 1)[0]).replace("\\", "/")
+    joined = posixpath.normpath(posixpath.join(posixpath.dirname(page_path), unquote(parts.path)))
+    if joined in ("", ".") or joined == ".." or joined.startswith("../") or joined.startswith("/"):
+        return None
+    url = route + "?project_id=" + quote(project_id, safe="") + "&src=" + quote(joined, safe="")
+    if parts.query:
+        url += "&resource_query=" + quote(parts.query, safe="")
+    if parts.fragment:
+        url += "#" + parts.fragment
+    return url
+
+
+def rewrite_scene_css(source: str, project_id: str, src: str, route: str) -> str:
+    def replace_url(match: re.Match) -> str:
+        target = _asset_url(match.group(2), project_id, src, route)
+        if target is None:
+            return match.group(0)
+        return "url('" + target.replace("'", "%27") + "')"
+    return _CSS_URL_RE.sub(replace_url, source)
+
+
+def inject_scene_runtime(source: str, project_id: str, src: str,
+                         route: str = "/api/editor/film/media") -> str:
+    """Resolve relative HTML resources and install the deterministic scene bridge."""
+    def replace_attr(match: re.Match) -> str:
+        target = _asset_url(match.group(3), project_id, src, route)
+        if target is None:
+            return match.group(0)
+        return match.group(1) + "=" + match.group(2) + html.escape(target, quote=True) + match.group(2)
+
+    result = _ATTR_RE.sub(replace_attr, source)
+
+    def rewrite_style(match: re.Match) -> str:
+        return match.group(1) + rewrite_scene_css(match.group(2), project_id, src, route) + match.group(3)
+
+    result = re.sub(r"(<style\b[^>]*>)(.*?)(</style\s*>)", rewrite_style, result, flags=re.I | re.S)
+
+    bridge = "<script data-vd-film-bridge=\"1\">" + _SCENE_BRIDGE + "</script>"
+    head = re.search(r"<head\b[^>]*>", result, flags=re.I)
+    if head:
+        result = result[:head.end()] + bridge + result[head.end():]
+    else:
+        html_open = re.search(r"<html\b[^>]*>", result, flags=re.I)
+        result = result[:html_open.end()] + bridge + result[html_open.end():] if html_open else bridge + result
+    return result
+
+
+def inject_scene_css(source: str, project_id: str, src: str,
+                     route: str = "/api/editor/film/media") -> str:
+    return rewrite_scene_css(source, project_id, src, route)
