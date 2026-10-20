@@ -530,8 +530,8 @@ def _audio_signal_qc(ffmpeg: str, path: Path, duration: float) -> dict:
                 "error": str(exc)[:500]}
 
     output = (completed.stderr or "") + "\n" + (completed.stdout or "")
-    mean_match = re.search(r"mean_volume:\s*(-inf|[-+]?\\d+(?:\\.\\d+)?)\\s*dB", output, re.I)
-    max_match = re.search(r"max_volume:\s*(-inf|[-+]?\\d+(?:\\.\\d+)?)\\s*dB", output, re.I)
+    mean_match = re.search(r"mean_volume:\s*(-inf|[-+]?\d+(?:\.\d+)?)\\s*dB", output, re.I)
+    max_match = re.search(r"max_volume:\s*(-inf|[-+]?\d+(?:\.\d+)?)\\s*dB", output, re.I)
 
     def db(match):
         if not match or match.group(1).lower() == "-inf":
