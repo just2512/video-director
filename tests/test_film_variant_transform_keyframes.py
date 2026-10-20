@@ -64,3 +64,45 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert {item["property"] for item in channels} == {"x", "opacity"}
     assert any("active-cut" in warning for warning in result["warnings"])
     assert not any("keyframes:x" in warning or "keyframes:opacity" in warning for warning in result["warnings"])
+
+
+def test_active_variant_duration_includes_audio_extending_past_final_scene(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "variant-audio-tail-duration"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"image source not decoded by migration")
+    (assets / "music.wav").write_bytes(b"audio source not decoded by migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-still", "file": "assets/still.png", "type": "image"},
+        {"id": "asset-music", "file": "assets/music.wav", "type": "audio"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "scenes": [{
+            "id": "fallback-scene", "start": 0, "duration": 1, "text": "fallback",
+            "layers": [{"type": "image", "asset_id": "asset-still", "start": 0, "duration": 1}],
+        }],
+        "variants": [{
+            "id": "active-cut",
+            "scenes": [{
+                "id": "active-scene", "start": 0, "duration": 1, "text": "active",
+                "layers": [{"type": "image", "asset_id": "asset-still", "start": 0, "duration": 1}],
+            }],
+            "tracks": [{
+                "id": "long-bgm", "type": "bgm", "asset_id": "asset-music",
+                "start": 0, "duration": 3, "volume": 0.4,
+            }],
+        }],
+        "active_variant_id": "active-cut",
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    assert result["duration"] == 3
+    audio_track = next(track for track in result["document"]["tracks"]
+                       if any(clip["tag"] == "audio" for clip in track["clips"]))
+    audio_clip = audio_track["clips"][0]
+    assert audio_clip["attrs"]["data-asset-id"] == "asset-music"
+    assert audio_clip["attrs"]["at"] == "0"
+    assert "与旧 project.duration" in "\n".join(result["warnings"])

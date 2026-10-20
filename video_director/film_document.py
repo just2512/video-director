@@ -2447,16 +2447,22 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         selected_variant = variants[0]
     source_scenes = list((selected_variant or {}).get("scenes") or raw_ir.get("scenes") or [])
     source_audio = list((selected_variant or {}).get("tracks") or raw_ir.get("audio") or [])
-    variant_duration = max(
+    variant_scene_end = max(
         (float(scene.get("start", 0)) + float(scene.get("duration", 0)) for scene in source_scenes),
         default=0.0,
     )
+    variant_audio_end = max(
+        (float(audio.get("start", 0)) + float(audio.get("duration", 0))
+         for audio in source_audio if isinstance(audio, dict)),
+        default=0.0,
+    )
+    variant_duration = max(variant_scene_end, variant_audio_end)
     variant_warnings = []
-    if selected_variant and source_scenes and variant_duration > 0:
+    if selected_variant and variant_duration > 0:
         if abs(variant_duration - declared_duration) > 0.05:
             variant_warnings.append(
-                f"所选变体 {selected_variant.get('id')} 时长为 {variant_duration:.3f}s，"
-                f"与旧 project.duration {declared_duration:.3f}s 不同；迁移按所选变体实际场景时长处理"
+                f"所选变体 {selected_variant.get('id')} 最晚画面/音轨结束于 {variant_duration:.3f}s，"
+                f"与旧 project.duration {declared_duration:.3f}s 不同；迁移按画面与音轨的较晚结束时间定时长"
             )
         duration = variant_duration
     manifest_path = root / "assets" / "manifest.json"
