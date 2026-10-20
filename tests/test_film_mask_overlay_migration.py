@@ -40,6 +40,7 @@ def test_animated_mask_path_keyframes_migrate_to_film_runtime_contract(tmp_path,
                 "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
                 "mask": {
                     "id": "animated-mask", "shape": "polygon", "animated": True,
+                    "geometry": [[0, 0], [0.5, 0], [0.5, 1], [0, 1]],
                     "keyframes": [{"property": "mask_path", "keyframes": [
                         {"at": 0, "value": [[0, 0], [0.5, 0], [0.5, 1], [0, 1]], "easing": "linear"},
                         {"at": 1, "value": [[0.5, 0], [1, 0], [1, 1], [0.5, 1]], "easing": "ease_in_out"},
