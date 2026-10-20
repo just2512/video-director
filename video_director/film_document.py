@@ -2079,7 +2079,127 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         return _safe_storage_uri(pid, file_value)
 
     clips, tracks, pages, warnings = [], [], {}, []
+    project_spec = raw_ir.get("project") or {}
+    if int(project_spec.get("fps", config.DEFAULT_FPS)) != config.DEFAULT_FPS:
+        warnings.append(
+            f"旧项目帧率为 {project_spec.get('fps')} FPS；film.html 未保存此设置，"
+            f"导出默认帧率为 {config.DEFAULT_FPS} FPS，需显式选择目标帧率"
+        )
+    if raw_ir.get("style_id"):
+        warnings.append("旧项目 style_id 未映射到 film.html 的可执行样式；需检查成片样式")
+    if raw_ir.get("style_contract"):
+        warnings.append("旧项目 style_contract 尚未转换为 film.html 样式，语义样式信息会丢失")
+    if raw_ir.get("origin_template_id") or raw_ir.get("origin_template_version"):
+        warnings.append("旧项目模板来源 lineage 未写入 film.html")
+    if raw_ir.get("variants"):
+        warnings.append(
+            f"旧项目包含 {len(raw_ir.get('variants') or [])} 个 variants；迁移仅处理顶层 scenes/audio，"
+            "不会合并或自动选择 variant 内容"
+        )
+    if raw_ir.get("active_variant_id") and not raw_ir.get("variants"):
+        warnings.append("旧项目 active_variant_id 未映射到 film.html")
+    if raw_ir.get("camera_tracks"):
+        warnings.append("旧项目 camera_tracks 未转换为 film.html 镜头运动")
+    if raw_ir.get("continuity_links"):
+        warnings.append("旧项目 continuity_links 仅属创作 lineage，未映射到 film.html")
+    references = raw_ir.get("references") or {}
+    if references.get("references"):
+        warnings.append("旧项目参考图/首尾帧/遮罩等 references lineage 未写入 film.html")
+    assets_with_provenance = [
+        asset for asset in (raw_ir.get("assets") or [])
+        if isinstance(asset, dict) and (
+            asset.get("prompt") or asset.get("description") or asset.get("keywords")
+            or asset.get("license_note") or asset.get("provenance") or asset.get("rights_status")
+            or asset.get("source") not in (None, "", "uploaded", "local")
+        )
+    ]
+    if assets_with_provenance:
+        warnings.append(
+            f"{len(assets_with_provenance)} 个素材带有来源/版权/提示词/描述元数据；"
+            "film.html 保留素材 ID 与路径，但不会保存这些资产目录元数据"
+        )
+
+    audio_lanes_by_id = {
+        str(lane.get("id")): lane for lane in (raw_ir.get("audio_tracks") or [])
+        if isinstance(lane, dict) and lane.get("id")
+    }
+    audio_lane_usage = {}
+    for audio_item in (raw_ir.get("audio") or []):
+        lane_id = str(audio_item.get("track_id") or "")
+        if lane_id:
+            audio_lane_usage[lane_id] = audio_lane_usage.get(lane_id, 0) + 1
+    for lane_id, lane in audio_lanes_by_id.items():
+        if lane.get("locked"):
+            warnings.append(f"旧音轨 {lane.get('name') or lane_id} 的锁定状态未迁移")
+        if lane.get("hidden"):
+            warnings.append(f"旧音轨 {lane.get('name') or lane_id} 的隐藏状态未迁移")
+        if audio_lane_usage.get(lane_id, 0) > 1:
+            warnings.append(
+                f"旧音轨 {lane.get('name') or lane_id} 含多个片段；片段会拆成独立 Film 轨道，"
+                "只保留轨道标签，不保留原始分组关系"
+            )
+
+    subtitle_style = raw_ir.get("subtitle_style") or {}
+    unsupported_subtitle_style = []
+    if subtitle_style.get("font"):
+        unsupported_subtitle_style.append("font")
+    if abs(float(subtitle_style.get("size", 1.0) or 1.0) - 1.0) > 1e-6:
+        unsupported_subtitle_style.append("size")
+    if subtitle_style.get("stroke_color", "#000000") != "#000000" or subtitle_style.get("stroke_width", 2) != 2:
+        unsupported_subtitle_style.append("stroke")
+    if subtitle_style.get("background"):
+        unsupported_subtitle_style.append("background")
+    if subtitle_style.get("position", "bottom") != "bottom":
+        unsupported_subtitle_style.append("position")
+    if subtitle_style.get("alignment", "center") != "center":
+        unsupported_subtitle_style.append("alignment")
+    if abs(float(subtitle_style.get("max_width", 0.9) or 0.9) - 0.9) > 1e-6:
+        unsupported_subtitle_style.append("max_width")
+    if subtitle_style.get("animation", "none") != "none":
+        unsupported_subtitle_style.append("animation")
+    if unsupported_subtitle_style:
+        warnings.append(
+            "旧字幕样式字段 " + ", ".join(unsupported_subtitle_style)
+            + " 尚未映射到生成的字幕 HTML"
+        )
+    subtitle_track = raw_ir.get("subtitle_track") or {}
+    if subtitle_track.get("style_id"):
+        warnings.append("旧 subtitle_track.style_id 样式注册表引用未解析")
+    if subtitle_track.get("source") not in (None, "", "tts_word_boundary"):
+        warnings.append("旧字幕对齐来源元数据未写入 film.html")
+    if subtitle_track.get("mode") not in (None, "", "sentence"):
+        warnings.append("旧字幕 mode 元数据未写入 film.html；仅保留 cue 时间与文本")
+
+    visual_tracks = raw_ir.get("visual_tracks") or []
+    if len(visual_tracks) > 1 or any(
+        track.get("id") != "overlay-main" or track.get("name") != "画面叠加"
+        or track.get("order", 0) != 0 or track.get("locked") or track.get("hidden")
+        for track in visual_tracks if isinstance(track, dict)
+    ):
+        warnings.append("旧视觉轨道的分组/顺序/锁定/隐藏属性未完整映射")
+    if raw_ir.get("visual_overlays"):
+        warnings.append(
+            "旧 visual_overlays 会转成单片段 Film 轨道；z_index/track_id 分组语义不会原样保留"
+        )
+
     for scene in raw_ir.get("scenes") or []:
+        scene_id = str(scene.get("id") or "unknown")
+        if scene.get("selections"):
+            warnings.append(f"场景 {scene_id} 的 selections 语义锚点未映射到 film.html")
+        if scene.get("beats"):
+            warnings.append(f"场景 {scene_id} 的 beats 分层内容未迁移；仅处理 scene.layers")
+        scene_metadata = [
+            name for name in (
+                "semantic_role", "intent", "visual_intent", "selected_candidate_id",
+                "origin_recipe_id", "origin_recipe_version",
+            ) if scene.get(name)
+        ]
+        if scene_metadata:
+            warnings.append(f"场景 {scene_id} 的创作 lineage 字段未映射：" + ", ".join(scene_metadata))
+        if any(scene.get(name) for name in (
+            "entrance_state", "exit_state", "continuity_in", "continuity_out", "camera"
+        )):
+            warnings.append(f"场景 {scene_id} 的 camera/continuity/state 信息未迁移")
         scene_start = _number(scene.get("start", 0), "scene start", 0)
         for idx, layer in enumerate(scene.get("layers") or []):
             kind = str(layer.get("type") or "")
@@ -2097,10 +2217,33 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)), "data-asset-id": str(layer.get("asset_id") or "")}
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
+            unsupported_layer_fields = []
             if layer.get("transform"):
-                warnings.append(f"片段 {cid} 的 transform 尚未映射到标准 CSS box")
+                unsupported_layer_fields.append("transform")
             if layer.get("keyframes"):
-                warnings.append(f"片段 {cid} 的关键帧映射尚未完成")
+                unsupported_layer_fields.append("keyframes")
+            if layer.get("motion"):
+                unsupported_layer_fields.append("motion")
+            if layer.get("animation"):
+                unsupported_layer_fields.append("animation")
+            if layer.get("motion_recipe_id") or layer.get("motion_version") or layer.get("motion_instance"):
+                unsupported_layer_fields.append("motion_recipe/instance")
+            if layer.get("mask"):
+                unsupported_layer_fields.append("mask")
+            if layer.get("locked"):
+                unsupported_layer_fields.append("locked")
+            if layer.get("fit_mode", "cover") != "cover":
+                unsupported_layer_fields.append("fit_mode")
+            if kind == "image" and (
+                abs(_number(layer.get("speed", 1), "image speed", 0.001) - 1) > 1e-6
+                or _number(layer.get("source_in", 0), "image source_in", 0) > 0
+                or layer.get("source_out") is not None
+            ):
+                unsupported_layer_fields.append("image source timing/speed")
+            if unsupported_layer_fields:
+                warnings.append(
+                    f"片段 {cid} 字段 " + ", ".join(unsupported_layer_fields) + " 尚未无损迁移"
+                )
             clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
 
     # Put each overlapping overlay/audio item on its own physical section; OpenFilm tracks may not overlap internally.
@@ -2127,10 +2270,16 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at), "style": style, "data-asset-id": str(overlay.get("asset_id") or "")}
         if kind == "video" and abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
+        if overlay.get("transform"):
+            warnings.append(f"叠加层 {cid} 的 transform 未映射到标准 CSS box")
+        if overlay.get("source_audio_enabled") or abs(_number(overlay.get("source_audio_volume", 1), "overlay source audio volume", 0, 2) - 1) > 1e-6:
+            warnings.append(f"叠加层 {cid} 的 source_audio_enabled/source_audio_volume 未映射")
+        if overlay.get("presentation_mode", "picture_in_picture") != "picture_in_picture":
+            warnings.append(f"叠加层 {cid} 的 presentation_mode 未显式映射")
         tid = _safe_id("track-" + cid, "track")
         tracks.append(one_clip_track(tid, "叠加画面", {"id": cid, "tag": kind, "attrs": attrs}))
 
-    subtitle = raw_ir.get("subtitle_track") or {}
+    subtitle = subtitle_track
     cues = subtitle.get("cues") or []
     if cues:
         pages["scenes/subtitles.html"] = _subtitle_page(stage["width"], stage["height"], duration, cues, raw_ir.get("subtitle_style"))
@@ -2139,25 +2288,57 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "attrs": {"id": cid, "src": f"scenes/subtitles.html#t=0,{_fmt(duration)}", "at": "0",
                       "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px"}}))
 
-    for idx, audio in enumerate(raw_ir.get("audio") or []):
+    audio_items = list(raw_ir.get("audio") or [])
+    audio_items.sort(key=lambda item: (
+        int(audio_lanes_by_id.get(str(item.get("track_id") or ""), {}).get("order", 999)),
+        _number(item.get("start", 0), "audio start", 0),
+        str(item.get("id") or ""),
+    ))
+    for idx, audio in enumerate(audio_items):
         uri = asset_uri(audio.get("asset_id"))
         start, d = _number(audio.get("start", 0), "audio start", 0), _number(audio.get("duration"), "audio duration", 0.001)
         src_in = _number(audio.get("source_in", 0), "audio source_in", 0)
         speed = _number(audio.get("speed", 1), "audio speed", 0.25, 4)
         src_out = _number(audio.get("source_out") if audio.get("source_out") is not None else src_in + d * speed, "audio source_out", src_in + 0.001)
         cid = _safe_id(f"audio-{audio.get('id') or idx + 1}", "clip")
+        lane = audio_lanes_by_id.get(str(audio.get("track_id") or ""), {})
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
                  "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or "")}
         if abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
-        if audio.get("muted"):
+        if audio.get("muted") or lane.get("muted"):
             attrs["muted"] = ""
+        fade_in = _number(audio.get("fadeIn", 0), "audio fadeIn", 0, 60)
+        fade_out = _number(audio.get("fadeOut", 0), "audio fadeOut", 0, 60)
+        if fade_in + fade_out <= d + 0.001:
+            if fade_in > 0 or fade_out > 0:
+                attrs["fade"] = f"{_fmt(fade_in)},{_fmt(fade_out)}"
+        elif fade_in > 0 or fade_out > 0:
+            warnings.append(f"音频片段 {cid} 的 fadeIn/fadeOut 之和超过片段时长，淡入淡出未迁移")
+        if audio.get("ducking"):
+            warnings.append(f"音频片段 {cid} 的 ducking 自动压低未迁移")
+        if audio.get("keyframes"):
+            warnings.append(f"音频片段 {cid} 的 keyframes 未迁移")
+        if audio.get("linked_visual_overlay_id") or audio.get("follows_scene_video") is False:
+            warnings.append(f"音频片段 {cid} 的原声关联/跟随视频关系未迁移")
         tid = _safe_id("track-" + cid, "track")
-        tracks.append(one_clip_track(tid, str(audio.get("type") or "音频"), {"id": cid, "tag": "audio", "attrs": attrs}))
+        label = str(lane.get("name") or audio.get("type") or "音频")
+        tracks.append(one_clip_track(tid, label, {"id": cid, "tag": "audio", "attrs": attrs}))
 
     watermarks = raw_ir.get("watermarks") or []
     if watermarks:
         warnings.append("水印尚未完整迁移；初始化后请检查旧项目的水印")
+    declared_duration = duration
+    mapped_end = max(
+        [float(clip["attrs"].get("at", 0)) + (clip_duration(clip) or 0.0)
+         for track in tracks + ([{"clips": clips}] if clips else []) for clip in track.get("clips", [])]
+        or [0.0]
+    )
+    if declared_duration - mapped_end > 0.05:
+        warnings.append(
+            f"旧项目总时长为 {declared_duration:.3f}s，但可迁移片段仅到 {mapped_end:.3f}s；"
+            "尾部空白/gap 未变成显式片段，film.html 导出时长会缩短"
+        )
     for scene in raw_ir.get("scenes") or []:
         transition = (scene.get("transition_out") or {}).get("type", "cut")
         if transition not in {"cut", "none", ""}:
