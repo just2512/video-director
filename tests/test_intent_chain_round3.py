@@ -216,3 +216,70 @@ class TestSceneLock:
         assert called_scenes.get("ids") == ["S01"]
         # S02 回填既有绑定（锁定绑定在素材池有效时保留）
         assert state["assignments"].get("S02") == "vid-1"
+
+
+class TestAdversarialProbes:
+    """2026-10-21 对抗探针固化：LLM 怪输出 / sfx 覆盖顺序 / 锁定继承。"""
+
+    def _state(self, tmp_path, pid="proj-adv-x"):
+        from video_director import config
+        config.composer_storage_root = lambda: tmp_path
+        from video_director.style import StyleContract
+        return {
+            "project_id": pid,
+            "narration_scenes": [
+                {"id": "S01", "text": "句", "start": 0.0, "duration": 2.0}],
+            "word_timeline": [],
+            "style_contract": StyleContract(style_id="documentary-calm"),
+        }
+
+    @pytest.mark.parametrize("weird", ["[]", '"just a string"', "{bad json", '{"S01": 123}', ""])
+    def test_bilingual_translation_weird_llm_outputs(self, tmp_path, monkeypatch, weird):
+        """翻译 LLM 五种怪输出全部诚实降级，不炸节点。"""
+        import video_director.llm_provider as m
+        from video_director import director_agent
+        state = self._state(tmp_path, "proj-adv-bi")
+
+        class P:
+            def __init__(self, ret): self.ret = ret
+            def generate(self, prompt, system=None): return self.ret
+        monkeypatch.setattr(m, "get_llm", lambda: P(weird))
+        r = director_agent._tool_subtitle({"subtitle_mode": "bilingual"}, state)
+        assert r["status"] == "APPLIED"
+
+    def test_sfx_off_beats_explicit_payload_plan(self, tmp_path, monkeypatch):
+        """sfx=off 时用户明确关闭赢过 payload 显式 sfx_plan（override 优先）。"""
+        import video_director.llm_provider as m
+        from video_director import director_agent
+        monkeypatch.setattr(m, "get_llm", lambda: None)
+        state = self._state(tmp_path, "proj-adv-sfx")
+        director_agent._apply_sfx_policy({"sfx": "off"}, state)
+        spec = {"sfx": "off", "sfx_plan": [{"action": "hammer", "at": 1.0}]}
+        effective = spec.get("sfx_plan")
+        if state.get("sfx_plan_override") is not None:
+            effective = state["sfx_plan_override"]
+        assert effective == []
+
+    def test_lock_survives_edit_roundtrip(self, tmp_path, monkeypatch):
+        """锁定标记经编辑+save/load 往返保留（Scene 字段持久化契约）。"""
+        monkeypatch.setattr("video_director.config.composer_storage_root",
+                            lambda: tmp_path)
+        from video_director.editor import (save_composition, load_composition,
+                                           _cmd_set_scene_locked)
+        from video_director.models import CompositionIR
+        ir = CompositionIR.model_validate({
+            "project": {"fps": 30, "width": 1080, "height": 1920, "duration": 4.0},
+            "scenes": [{"id": "S01", "start": 0.0, "duration": 4.0, "text": "a",
+                        "layers": [{"type": "video", "asset_id": "v", "start": 0.0,
+                                    "duration": 4.0, "source_in": 0.0,
+                                    "source_out": 4.0}]}],
+            "assets": [{"id": "v", "type": "video", "file": "a.mp4",
+                        "duration": 10.0}],
+            "audio": [], "subtitle_track": {"cues": []},
+        })
+        save_composition("proj-adv-rt", ir)
+        ir2 = load_composition("proj-adv-rt")
+        _cmd_set_scene_locked(ir2, "S01", {"locked": True})
+        ir2.scenes[0].visual_intent = "换"
+        save_composition("proj-adv-rt", ir2)
+        assert load_composition("proj-adv-rt").scenes[0].human_locked is True
