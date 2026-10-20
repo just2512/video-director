@@ -2168,7 +2168,7 @@ _FILM_ANCHORS = {
     "center_left": (0.0, 0.5), "center": (0.5, 0.5), "center_right": (1.0, 0.5),
     "bottom_left": (0.0, 1.0), "bottom_center": (0.5, 1.0), "bottom_right": (1.0, 1.0),
 }
-_FILM_KEYFRAME_PROPERTIES = {"x", "y", "scale", "rotation", "opacity", "blur"}
+_FILM_KEYFRAME_PROPERTIES = {"x", "y", "scale", "rotation", "opacity", "blur", "camera_x", "camera_y", "camera_scale"}
 
 
 def _film_transform_metadata(transform: dict | None, stage_width: int, stage_height: int,
@@ -2240,6 +2240,9 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
             limits = {
                 "x": (0.0, 1.0), "y": (0.0, 1.0), "scale": (0.1, 5.0),
                 "rotation": (-3600.0, 3600.0), "opacity": (0.0, 1.0), "blur": (0.0, 100.0),
+                # Camera keyframes are 2D Composition-space view controls. FilmRuntime
+                # applies them around the frame center to each clip in the active scene.
+                "camera_x": (0.0, 1.0), "camera_y": (0.0, 1.0), "camera_scale": (0.1, 5.0),
             }[prop]
             if not limits[0] <= value <= limits[1]:
                 invalid = True

@@ -44,6 +44,18 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
                             {"at": 0, "value": 0.8, "easing": "linear"},
                             {"at": 1, "value": 1.0, "easing": "ease_out"},
                         ]},
+                        {"property": "camera_x", "keyframes": [
+                            {"at": 0, "value": 0.5, "easing": "linear"},
+                            {"at": 1, "value": 0.25, "easing": "ease_in_out"},
+                        ]},
+                        {"property": "camera_y", "keyframes": [
+                            {"at": 0, "value": 0.5, "easing": "linear"},
+                            {"at": 1, "value": 0.6, "easing": "ease_out"},
+                        ]},
+                        {"property": "camera_scale", "keyframes": [
+                            {"at": 0, "value": 1.0, "easing": "linear"},
+                            {"at": 1, "value": 1.2, "easing": "ease_in_out"},
+                        ]},
                     ],
                 }],
             }],
@@ -61,9 +73,15 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert transform["opacity"] == 0.8 and transform["anchor"] == "center"
     assert "object-fit:contain" in clip["attrs"]["style"]
     channels = json.loads(clip["attrs"]["data-film-keyframes"])
-    assert {item["property"] for item in channels} == {"x", "opacity"}
+    assert {item["property"] for item in channels} == {
+        "x", "opacity", "camera_x", "camera_y", "camera_scale",
+    }
     assert any("active-cut" in warning for warning in result["warnings"])
-    assert not any("keyframes:x" in warning or "keyframes:opacity" in warning for warning in result["warnings"])
+    assert not any(
+        f"keyframes:{name}" in warning
+        for warning in result["warnings"]
+        for name in ("x", "opacity", "camera_x", "camera_y", "camera_scale")
+    )
 
 
 def test_active_variant_duration_includes_audio_extending_past_final_scene(tmp_path, monkeypatch):

@@ -217,6 +217,17 @@
     var x=clamp(filmKeyframeValue(channels,'x',local,finite(cfg.x,0.5)),0,1);
     var y=clamp(filmKeyframeValue(channels,'y',local,finite(cfg.y,0.5)),0,1);
     var scale=clamp(filmKeyframeValue(channels,'scale',local,finite(cfg.scale,1)),0.1,5);
+    // Camera-space channels are deterministic 2D view transforms. Keep a default
+    // camera centered at (0.5, 0.5) with unit scale; movement shifts clips in the
+    // opposite direction to camera travel, while zoom scales around frame center.
+    var cameraX=clamp(filmKeyframeValue(channels,'camera_x',local,0.5),0,1);
+    var cameraY=clamp(filmKeyframeValue(channels,'camera_y',local,0.5),0,1);
+    var cameraScale=clamp(filmKeyframeValue(channels,'camera_scale',local,1),0.1,5);
+    if(cameraX!==0.5||cameraY!==0.5||cameraScale!==1){
+      x=clamp(0.5+(x-cameraX)*cameraScale,0,1);
+      y=clamp(0.5+(y-cameraY)*cameraScale,0,1);
+      scale=clamp(scale*cameraScale,0.1,5);
+    }
     var rotation=clamp(filmKeyframeValue(channels,'rotation',local,finite(cfg.rotation,0)),-3600,3600);
     var opacity=clamp(filmKeyframeValue(channels,'opacity',local,finite(cfg.opacity,1)),0,1);
     var blur=clamp(filmKeyframeValue(channels,'blur',local,0),0,100);
