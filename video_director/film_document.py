@@ -3353,6 +3353,25 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                        "attrs": {"id": "track-main", "data-label": "主画面",
                                  "data-render-z-index": "0", "style": "z-index:0"},
                        "clips": clips})
+    # Keep a stable semantic ordering in the serialized document: overlay sections
+    # remain before the base picture (for callers that enumerate tracks), the main
+    # picture comes next, extra/locked visual layers follow it, and audio/utility
+    # tracks stay after the visual stack. Compositing remains governed by z-index.
+    def _migration_track_order(track: dict) -> tuple[int, str]:
+        track_id = str(track.get("id") or "")
+        if track_id.startswith("track-overlay-"):
+            group = 0
+        elif track_id == "track-main":
+            group = 1
+        elif track_id.startswith("track-layer-"):
+            group = 2
+        elif track_id.startswith("track-audio-"):
+            group = 4
+        else:
+            group = 3
+        return group, track_id
+
+    tracks.sort(key=_migration_track_order)
     if not tracks:
         raise FilmError("NO_SUPPORTED_CLIPS", "当前 Composition 没有可迁移的视频、图片、字幕或音频片段", 422)
     warnings = list(dict.fromkeys(warnings))

@@ -172,8 +172,10 @@
       var trackClasses=String(track.attrs&&track.attrs.class||'').split(/\s+/).filter(function(name){return /^[A-Za-z_][A-Za-z0-9_-]{0,79}$/.test(name);});
       if(trackClasses.length)lane.classList.add.apply(lane.classList,trackClasses);
       var requestedTrackZ=finite(track.attrs&&track.attrs["data-render-z-index"],NaN);
+      // Last unnumbered timeline track is the foreground. Explicit migrated
+      // data-render-z-index always overrides this fallback.
       lane.style.zIndex=Number.isFinite(requestedTrackZ)&&Math.floor(requestedTrackZ)===requestedTrackZ
-        ?String(clamp(requestedTrackZ,-1000000,1000000)):String(tracks.length-index);
+        ?String(clamp(requestedTrackZ,-1000000,1000000)):String(index);
       if(has(track.attrs,'hidden'))lane.style.display='none';
       var entries=[];
       (track.clips||[]).forEach(function(clip){var entry=makeClip(track,clip);if(entry){lane.appendChild(entry.el);entries.push(entry);}});
