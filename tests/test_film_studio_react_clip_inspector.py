@@ -15,3 +15,6 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert 'id="fs-field-volume"' in component
     assert 'id="fs-field-fade-in"' in component
     assert 'id="fs-field-title"' in component
+    assert "filmStudioSaveInspector?: () => Promise<void> | void" in component
+    assert 'id="fs-apply-clip-inspector"' in component
+    assert "window.filmStudioSaveInspector?.()" in component

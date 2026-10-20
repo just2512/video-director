@@ -2639,6 +2639,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         locked_track_id = _safe_id("track-locked-" + locked_clip["id"], "track")
         locked_track = one_clip_track(locked_track_id, "锁定片段 " + locked_clip["id"], locked_clip)
         locked_track["attrs"]["locked"] = ""
+        locked_track["attrs"]["data-render-z-index"] = "0"
+        locked_track["attrs"]["style"] = "z-index:0"
         tracks.append(locked_track)
 
     visual_overlay_items = list(raw_ir.get("visual_overlays") or [])
@@ -2708,6 +2710,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         tid = _safe_id("track-" + cid, "track")
         source_label = str(source_lane.get("name") or "叠加画面")
         overlay_track = one_clip_track(tid, source_label, {"id": cid, "tag": kind, "attrs": attrs})
+        # Track-level stacking decides overlay order across independent CSS contexts.
+        # The clip's own z-index remains authored metadata within that track.
+        render_z_index = 100001 + z_index
+        overlay_track["attrs"]["data-render-z-index"] = str(render_z_index)
+        overlay_track["attrs"]["style"] = f"z-index:{render_z_index}"
         if source_lane.get("locked"):
             overlay_track["attrs"]["locked"] = ""
         if source_lane.get("hidden"):
@@ -2722,9 +2729,12 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     if cues:
         pages["scenes/subtitles.html"] = _subtitle_page(stage["width"], stage["height"], duration, cues, raw_ir.get("subtitle_style"))
         cid = "subtitle-page"
-        tracks.append(one_clip_track("track-subtitles", "字幕", {"id": cid, "tag": "iframe",
+        subtitle_track_film = one_clip_track("track-subtitles", "字幕", {"id": cid, "tag": "iframe",
             "attrs": {"id": cid, "src": f"scenes/subtitles.html#t=0,{_fmt(duration)}", "at": "0",
-                      "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px"}}))
+                      "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px"}})
+        subtitle_track_film["attrs"]["data-render-z-index"] = "200002"
+        subtitle_track_film["attrs"]["style"] = "z-index:200002"
+        tracks.append(subtitle_track_film)
 
     audio_items = list(source_audio)
     audio_items.sort(key=lambda item: (
@@ -2863,7 +2873,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if transition not in {"cut", "none", ""}:
             warnings.append(f"场景 {scene.get('id')} 转场 {transition} 尚未完整映射")
     if clips:
-        tracks.append({"id": "track-main", "attrs": {"id": "track-main", "data-label": "主画面"}, "clips": clips})
+        tracks.append({"id": "track-main",
+                       "attrs": {"id": "track-main", "data-label": "主画面",
+                                 "data-render-z-index": "0", "style": "z-index:0"},
+                       "clips": clips})
     if not tracks:
         raise FilmError("NO_SUPPORTED_CLIPS", "当前 Composition 没有可迁移的视频、图片、字幕或音频片段", 422)
     warnings = list(dict.fromkeys(warnings))

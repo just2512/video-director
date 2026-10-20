@@ -46,6 +46,11 @@ def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_pat
     base = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
     assert expected in base["clips"][0]["attrs"]["style"]
     overlay = next(track for track in result["document"]["tracks"] if track["id"] == "track-overlay-full-screen-card")
+    assert overlay["attrs"]["data-render-z-index"] == "100009"
+    assert overlay["attrs"]["style"] == "z-index:100009"
+    base_index = next(i for i, track in enumerate(result["document"]["tracks"]) if track["id"] == "track-main")
+    overlay_index = next(i for i, track in enumerate(result["document"]["tracks"]) if track["id"] == "track-overlay-full-screen-card")
+    assert overlay_index < base_index
     attrs = overlay["clips"][0]["attrs"]
     assert "left:0px" in attrs["style"] and "top:0px" in attrs["style"]
     assert "width:320px" in attrs["style"] and "height:180px" in attrs["style"]

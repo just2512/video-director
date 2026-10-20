@@ -31,6 +31,7 @@ declare global {
   interface Window {
     filmStudioReactInspector?: CanvasInspectorBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
+    filmStudioSaveInspector?: () => Promise<void> | void;
   }
 }
 
@@ -125,6 +126,12 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       <div className="fs-inspector-description fs-inspector-section">
         更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
       </div>
+      <button
+        type="button"
+        id="fs-apply-clip-inspector"
+        className="fs-btn fs-primary"
+        onClick={() => { void window.filmStudioSaveInspector?.(); }}
+      >应用片段属性</button>
     </div>
   );
 };

@@ -162,7 +162,9 @@
       var lane=document.createElement('div');lane.className='fs-runtime-track';lane.id=String(track.id||'');lane.setAttribute('data-track-id',track.id);
       var trackClasses=String(track.attrs&&track.attrs.class||'').split(/\s+/).filter(function(name){return /^[A-Za-z_][A-Za-z0-9_-]{0,79}$/.test(name);});
       if(trackClasses.length)lane.classList.add.apply(lane.classList,trackClasses);
-      lane.style.zIndex=String(tracks.length-index);
+      var requestedTrackZ=finite(track.attrs&&track.attrs["data-render-z-index"],NaN);
+      lane.style.zIndex=Number.isFinite(requestedTrackZ)&&Math.floor(requestedTrackZ)===requestedTrackZ
+        ?String(clamp(requestedTrackZ,-1000000,1000000)):String(tracks.length-index);
       if(has(track.attrs,'hidden'))lane.style.display='none';
       var entries=[];
       (track.clips||[]).forEach(function(clip){var entry=makeClip(track,clip);if(entry){lane.appendChild(entry.el);entries.push(entry);}});
