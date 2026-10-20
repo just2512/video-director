@@ -39,11 +39,16 @@ jobs:
         run: |
           git config --global http.version HTTP/1.1
           git config --global --get http.version
-      - name: Checkout source revision
+      # Do not use actions/checkout here: the self-hosted runner's
+      # action-download endpoint intermittently times out before any shell step.
+      # The following step restores the exact immutable GITHUB_SHA via Git or
+      # the authenticated GitHub archive API, and also rejects stale workspace files.
+      - name: Defer checkout to exact-revision recovery
         id: checkout
-        continue-on-error: true
-        timeout-minutes: 2
-        uses: actions/checkout@v4
+        shell: bash
+        run: |
+          echo "source_mode=deferred" >> "$GITHUB_OUTPUT"
+          echo "Source will be recovered from exact GITHUB_SHA without external actions."
       - name: Verify and recover exact source revision
         id: ensure_checkout
         if: always()
