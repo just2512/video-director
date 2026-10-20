@@ -227,21 +227,6 @@ jobs:
           done
           node --check third_party/huashu/huashu_motion_bundle.js
 
-      - name: Upload test reports and browser traces
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        timeout-minutes: 5
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-director-test-artifacts
-          if-no-files-found: warn
-          retention-days: 14
-          path: |
-            junit.xml
-            pytest-output.log
-            test-results/**
-            webui/static/js/film-studio-react.js
-            playwright-report/**
-            artifacts/**
 
       # The browser serves the checked-in bundle, not an ephemeral build directory.
       # Publish only if all checks succeeded and main has not advanced since checkout.
@@ -332,3 +317,19 @@ jobs:
           })
           print(f"Published verified React Studio bundle: {updated['object']['sha']}")
           PY
+
+      - name: Upload test reports and browser traces
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-director-test-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            junit.xml
+            pytest-output.log
+            test-results/**
+            webui/static/js/film-studio-react.js
+            playwright-report/**
+            artifacts/**
