@@ -127,12 +127,14 @@ def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
             window.__selection = null;
             window.__frameReply = null;
             window.__snapshot = null;
+            window.__dragEnd = null;
             var frame = document.getElementById('scene');
             window.addEventListener('message', function (event) {
               if (event.source !== frame.contentWindow || !event.data) return;
               if (event.data.type === 'film-element-selected') window.__selection = event.data;
               if (event.data.type === 'film-frame:ready') window.__frameReply = event.data;
               if (event.data.type === 'scene-snapshot') window.__snapshot = event.data;
+              if (event.data.type === 'film-element-drag-end') window.__dragEnd = event.data;
             });
             frame.addEventListener('load', function () {
               frame.contentWindow.postMessage({type:'film-inspect', enabled:true}, '*');
@@ -149,6 +151,22 @@ def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
         assert selection["textEditable"] is True
         assert selection["tag"] == "h1"
         assert selection["rect"]["width"] > 0
+
+        # A pointer gesture over the selected HTML element must produce a
+        # persistent move/resize proposal rather than only a selection outline.
+        box = page.frame_locator("#scene").locator("#title").bounding_box()
+        assert box and box["width"] > 0 and box["height"] > 0
+        start_x = box["x"] + box["width"] / 2
+        start_y = box["y"] + box["height"] / 2
+        page.mouse.move(start_x, start_y)
+        page.mouse.down()
+        page.mouse.move(start_x + 40, start_y + 25, steps=4)
+        page.mouse.up()
+        page.wait_for_function("window.__dragEnd !== null", timeout=10000)
+        drag_end = page.evaluate("window.__dragEnd")
+        assert drag_end["styles"]["position"] == "fixed"
+        assert drag_end["styles"]["left"] == "52px"
+        assert drag_end["styles"]["top"] == "40px"
 
         page.evaluate("""() => document.getElementById('scene').contentWindow.postMessage({
           type:'film-overrides',
