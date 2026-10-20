@@ -96,14 +96,37 @@
     if(/^#[0-9a-f]{3}$/i.test(text))return '#'+text.slice(1).split('').map(function(v){return v+v;}).join('');
     return '#ffffff';
   }
+  function renderElementInspector(element) {
+    var mount=$('fs-react-canvas-inspector');
+    if(!mount)return;
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.render==='function'){
+      window.filmStudioReactInspector.render(element||null);
+      return;
+    }
+    // A source checkout can run before npm build:studio has produced the React
+    // bundle. Keep the same form contract live instead of leaving an empty pane.
+    if(!element){mount.innerHTML='';return;}
+    var rect=element.localRect||element.rect||{},styles=element.styles||{},rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
+    mount.innerHTML='<section class="fs-inspector-element" data-canvas-inspector-fallback="true">'+
+      '<h4>画布元素 · '+esc(element.tag)+' · '+esc(element.selector)+'</h4>'+
+      '<label class="fs-inspector-field">文本<textarea id="fs-element-text" rows="2" '+(element.textEditable===false?'disabled title="该元素包含子元素，为避免破坏内部结构，暂不允许整体替换文本"':'')+'>'+esc(element.text||'')+'</textarea></label>'+
+      '<label class="fs-inspector-field">左坐标<input id="fs-element-left" type="number" step="1" value="'+esc(num(rect.x,0).toFixed(1))+'"></label>'+
+      '<label class="fs-inspector-field">上坐标<input id="fs-element-top" type="number" step="1" value="'+esc(num(rect.y,0).toFixed(1))+'"></label>'+
+      '<label class="fs-inspector-field">宽度<input id="fs-element-width" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.width,1).toFixed(1))+'"></label>'+
+      '<label class="fs-inspector-field">高度<input id="fs-element-height" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.height,1).toFixed(1))+'"></label>'+
+      '<label class="fs-inspector-field">文字颜色<input id="fs-element-color" type="color" value="'+esc(hexColor(styles.color||'#ffffff'))+'"></label>'+
+      '<label class="fs-inspector-field">字号（px）<input id="fs-element-font-size" type="number" min="1" max="1000" step="1" value="'+esc(num(parseFloat(styles.fontSize),24))+'"></label>'+
+      '<label class="fs-inspector-field">旋转（度）<input id="fs-element-rotate" type="number" min="-3600" max="3600" step="1" value="'+esc(rotateMatch?Number(rotateMatch[0]):0)+'"></label>'+
+      '<button type="button" class="fs-btn fs-primary" id="fs-apply-element">应用画布修改</button></section>';
+    var apply=$('fs-apply-element');
+    if(apply)apply.addEventListener('click',function(){if(window.filmStudioSaveSelectedElement)window.filmStudioSaveSelectedElement();});
+  }
   function syncElementInspectorFields(element) {
     if(!element)return;
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.sync==='function'){
       window.filmStudioReactInspector.sync(element);
       return;
     }
-    // Source-checkout fallback before the React bundle is built: keep the
-    // existing canvas inspector functional instead of silently losing edits.
     var rect=element.localRect||element.rect||{},styles=element.styles||{},rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
     var values={
       'fs-element-text':String(element.text||''),
@@ -582,7 +605,7 @@
     var clip=findClip(S.selectedId);
     if(!clip){
       $('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';
-      if(window.filmStudioReactInspector)window.filmStudioReactInspector.render(null);
+      renderElementInspector(null);
       return;
     }
     var a=clip.attrs||{};
@@ -616,7 +639,7 @@
         '<button type="button" class="fs-btn fs-primary" id="fs-apply-element">应用画布修改</button></div>';
     }
     $('fs-inspector').innerHTML=fields;
-    if(window.filmStudioReactInspector)window.filmStudioReactInspector.render(element);
+    renderElementInspector(element);
     else{
       var applyElement=$('fs-apply-element');
       if(applyElement)applyElement.addEventListener('click',function(){window.filmStudioSaveSelectedElement();});
