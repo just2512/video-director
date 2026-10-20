@@ -207,7 +207,16 @@ _SCENE_BRIDGE = r"""
     if (typeof value !== 'string' || value.length > 120
         || /[{};]/.test(value) || /url\s*\(|expression\s*\(|javascript:|@import/i.test(value)) return false;
     if (['left','top','width','height','fontSize','letterSpacing','lineHeight','borderRadius'].indexOf(key)>=0) {
-      return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%|em|rem|vh|vw)?$/.test(value.trim());
+      var lengthMatch = value.trim().match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(?:px|%|em|rem|vh|vw)?$/);
+      if (!lengthMatch) return false;
+      var magnitude = Number(lengthMatch[1]);
+      if (!Number.isFinite(magnitude)) return false;
+      if ((key === 'width' || key === 'height') && !(magnitude > 0 && magnitude <= 10000)) return false;
+      if (key === 'fontSize' && !(magnitude > 0 && magnitude <= 1000)) return false;
+      if ((key === 'left' || key === 'top') && Math.abs(magnitude) > 100000) return false;
+      if (key === 'letterSpacing' && Math.abs(magnitude) > 1000) return false;
+      if (key === 'lineHeight' && magnitude <= 0) return false;
+      return true;
     }
     if (key === 'opacity') return Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1;
     if (key === 'position') return ['static','relative','absolute','fixed','sticky'].indexOf(value) >= 0;
