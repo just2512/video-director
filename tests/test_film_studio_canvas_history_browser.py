@@ -132,6 +132,40 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     assert not page.locator("#fs-react-toolbar").is_visible()
                     assert not page.locator("#fs-react-timeline-toolbar").is_visible()
                     assert not page.locator("#fs-react-scrub-row").is_visible()
+                has_react_ai = page.evaluate(
+                    "() => typeof window.filmStudioReactAi?.render === 'function'"
+                )
+                if has_react_ai:
+                    page.locator('#fs-react-ai-director [data-react-ai-chat-log="true"]').wait_for(
+                        state="attached", timeout=10000
+                    )
+                    page.locator("#fs-side-tab-ai").click()
+                    page.locator("#fs-chat-input").fill("检查当前影片的开场")
+                    page.route(
+                        "**/api/editor/film/command",
+                        lambda route: route.fulfill(
+                            status=200,
+                            content_type="application/json",
+                            body=json.dumps({
+                                "ok": True,
+                                "no_op": True,
+                                "message": "浏览器回归模拟：未生成修改提案",
+                            }),
+                        ),
+                    )
+                    page.locator("#fs-chat-input").press("Enter")
+                    page.locator('#fs-chat-log [class*="fs-user"]').get_by_text(
+                        "检查当前影片的开场", exact=True
+                    ).wait_for(state="attached", timeout=10000)
+                    page.locator("#fs-chat-log").get_by_text(
+                        "浏览器回归模拟：未生成修改提案", exact=True
+                    ).wait_for(state="attached", timeout=10000)
+                    page.unroute("**/api/editor/film/command")
+                    page.locator("#fs-side-tab-inspector").click()
+                else:
+                    assert page.locator("#fs-static-ai-director").is_visible()
+                    assert not page.locator("#fs-react-ai-director").is_visible()
+
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
                     state="attached", timeout=15000
                 )
