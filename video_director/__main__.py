@@ -89,7 +89,156 @@ def main(argv=None):
 
     caps = sub.add_parser("capabilities", help="能力清单与 preflight 报告")
 
+    film = sub.add_parser("film", help="读取、验证、检查或导出权威 film.html 工程")
+    film_sub = film.add_subparsers(dest="film_cmd", required=True)
+    for command, help_text in (
+        ("status", "显示 film.html revision、画幅、轨道和片段摘要"),
+        ("validate", "验证 film.html 协议、媒体引用和源区间声明"),
+        ("diff", "将指定历史 revision 与当前 film.html 比较"),
+        ("look", "生成真实浏览器画面接触表并反序验证确定性"),
+        ("render", "把固定 revision 的 film.html 导出为 MP4"),
+    ):
+        command_parser = film_sub.add_parser(command, help=help_text)
+        command_parser.add_argument("--project-id", required=True)
+        if command == "diff":
+            command_parser.add_argument("--from-revision", default=None,
+                                        help="历史 revision；省略时比较最近一次编辑前的版本")
+        if command == "look":
+            command_parser.add_argument("--revision", default=None,
+                                        help="要求当前 revision 必须精确匹配")
+            command_parser.add_argument("--times", default=None,
+                                        help="逗号分隔的秒数，例如 0,1.5,4")
+        if command == "render":
+            command_parser.add_argument("--fps", type=int, default=30)
+    
     a = ap.parse_args(argv)
+
+    if a.cmd == "film":
+        from difflib import unified_diff
+        from video_director import film_document as fd
+
+        def emit(payload, exit_code=0):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            if exit_code:
+                sys.exit(exit_code)
+
+        try:
+            pid = fd.validate_project_id(a.project_id)
+            state = fd.read_project_film(pid)
+            if a.film_cmd == "status":
+                if not state.get("exists"):
+                    emit({"ok": True, "exists": False, "project_id": pid,
+                          "message": "尚未初始化 film.html"})
+                doc = state["doc"]
+                clips = [clip for track in doc["tracks"] for clip in track["clips"]]
+                duration = max((fd.clip_end(clip) or 0.0 for clip in clips), default=0.0)
+                emit({
+                    "ok": True, "exists": True, "project_id": pid,
+                    "revision": state["rev"], "stage": doc["stage"],
+                    "track_count": len(doc["tracks"]), "clip_count": len(clips),
+                    "duration": round(duration, 6),
+                    "tracks": [{"id": track["id"], "flags": sorted(track["attrs"].keys()),
+                                "clip_ids": [clip["id"] for clip in track["clips"]]}
+                               for track in doc["tracks"]],
+                })
+
+            if a.film_cmd == "validate":
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                # read_project_film has already run the strict document parser. This
+                # second parse keeps the command's contract explicit and fail-closed.
+                doc = fd.parse_film(state["text"])
+                issues = []
+                checked_assets = 0
+                for track in doc["tracks"]:
+                    for clip in track["clips"]:
+                        src = str((clip.get("attrs") or {}).get("src") or "")
+                        try:
+                            asset_path = fd.media_path_for_src(pid, src)
+                            checked_assets += 1
+                            if not asset_path.is_file():
+                                issues.append({"code": "MISSING_ASSET", "clip": clip["id"],
+                                               "src": src, "message": "素材文件不存在"})
+                        except Exception as exc:
+                            issues.append({"code": getattr(exc, "code", "INVALID_MEDIA_PATH"),
+                                           "clip": clip["id"], "src": src, "message": str(exc)})
+                clips = [clip for track in doc["tracks"] for clip in track["clips"]]
+                duration = max((fd.clip_end(clip) or 0.0 for clip in clips), default=0.0)
+                payload = {
+                    "ok": not issues, "project_id": pid, "revision": state["rev"],
+                    "stage": doc["stage"], "track_count": len(doc["tracks"]),
+                    "clip_count": len(clips), "duration": round(duration, 6),
+                    "assets_checked": checked_assets, "issues": issues,
+                    "note": "frame(t) 页面能力与实际逐帧确定性由 film look / film render 的真实浏览器验收。",
+                }
+                emit(payload, 0 if not issues else 1)
+
+            if a.film_cmd == "diff":
+                import json as _json
+                from pathlib import Path as _Path
+                history_path = fd.config.project_dir(pid) / fd.HISTORY_NAME
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                if history_path.is_file():
+                    history = _json.loads(history_path.read_text(encoding="utf-8"))
+                else:
+                    history = {"past": [], "future": []}
+                entries = list(history.get("past", [])) + list(history.get("future", []))
+                requested = getattr(a, "from_revision", None)
+                candidate = None
+                if requested is None and history.get("past"):
+                    candidate = (history["past"][-1].get("before_rev"),
+                                 history["past"][-1].get("before"))
+                else:
+                    for entry in entries:
+                        if entry.get("before_rev") == requested:
+                            candidate = (entry.get("before_rev"), entry.get("before"))
+                            break
+                        if entry.get("after_rev") == requested:
+                            candidate = (entry.get("after_rev"), entry.get("after"))
+                            break
+                if not candidate or not isinstance(candidate[1], str):
+                    emit({"ok": False, "code": "REVISION_NOT_IN_HISTORY",
+                          "error": "找不到指定 revision 的历史快照；历史窗口最多保留最近 200 次编辑。",
+                          "current_revision": state["rev"]}, 2)
+                old_rev, old_text = candidate
+                diff = "".join(unified_diff(
+                    old_text.splitlines(keepends=True), state["text"].splitlines(keepends=True),
+                    fromfile="film.html@" + str(old_rev),
+                    tofile="film.html@" + str(state["rev"]),
+                ))
+                print(diff if diff else "无差异。")
+                sys.exit(0)
+
+            if a.film_cmd == "look":
+                from video_director import film_render as film_render_mod
+                requested_times = None
+                if a.times:
+                    try:
+                        requested_times = [float(part.strip()) for part in a.times.split(",") if part.strip()]
+                    except ValueError:
+                        emit({"ok": False, "code": "INVALID_LOOK_TIMES",
+                              "error": "--times 必须是逗号分隔的秒数。"}, 2)
+                result = film_render_mod.look_project_film(
+                    pid, expected_revision=a.revision, times=requested_times
+                )
+                emit(result)
+
+            if a.film_cmd == "render":
+                from video_director import film_render as film_render_mod
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                result = film_render_mod.render_project_film(pid, state["rev"], fps=a.fps)
+                emit(result)
+
+        except SystemExit:
+            raise
+        except Exception as exc:
+            emit({"ok": False, "code": getattr(exc, "code", "FILM_COMMAND_FAILED"),
+                  "error": str(exc)}, 1)
 
     if a.cmd == "capabilities":
         from video_director import capabilities as caps_mod
