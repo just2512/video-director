@@ -86,17 +86,25 @@ def test_film_runtime_interpolates_mask_keyframes_on_forward_and_backward_seek()
 
                 def seek_and_read(time_value: float) -> list[float]:
                     page.evaluate(
-                        "(time) => window.postMessage("
-                        "{type:'film-runtime:seek-pause',time},window.location.origin)",
+                        """time => {
+                          window.__filmRuntimeMessages = [];
+                          window.postMessage(
+                            {type:'film-runtime:seek-pause', time},
+                            window.location.origin
+                          );
+                        }""",
                         time_value,
                     )
                     page.wait_for_function(
-                        "() => !!document.querySelector('#mask-clip')?.style.clipPath",
+                        """time => window.__filmRuntimeMessages.some(message =>
+                          message.type === 'film-runtime:paused'
+                          && Math.abs(Number(message.time) - time) < 0.0001)""",
+                        arg=time_value,
                         timeout=3000,
                     )
                     return page.eval_on_selector(
                         "#mask-clip",
-                        """el => (el.style.clipPath.match(/\\d+(?:\\.\\d+)?%/g) || [])
+                        """el => (el.style.clipPath.match(/\d+(?:\.\d+)?%/g) || [])
                           .map(value => Number.parseFloat(value))""",
                     )
 
