@@ -44,7 +44,8 @@ export type FilmOperation =
   | { op: "slip"; clip: string; delta_source: number }
   | { op: "roll"; clip: string; other_clip: string; delta: number }
   | { op: "slide"; clip: string; delta: number }
-  | { op: "element_set"; clip: string; selector: string; text?: string; style?: Record<string, string> };
+  | { op: "element_set"; clip: string; selector: string; text?: string; style?: Record<string, string> }
+  | { op: "clip_lock"; clip: string; locked: boolean };
 export type FilmEditResponse =
   | { ok: true; rev: string; ops: FilmOperation[]; rebased?: boolean }
   | { ok: false; code: string; error: string; current_revision?: string };

@@ -1096,7 +1096,18 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
         if not isinstance(op, dict):
             raise FilmError("INVALID_OPERATION", f"第 {index + 1} 项操作不是对象")
         kind = op.get("op")
-        if kind == "element_set":
+        if kind == "clip_lock":
+            track, clip = _find_clip(out, str(op.get("clip") or ""))
+            _ensure_unlocked(track)
+            locked = op.get("locked")
+            if not isinstance(locked, bool):
+                raise FilmError("INVALID_CLIP_LOCK", "clip_lock.locked 必须是布尔值", 422)
+            if locked:
+                clip["attrs"]["data-clip-locked"] = ""
+            else:
+                clip["attrs"].pop("data-clip-locked", None)
+            normalized.append({"op": "clip_lock", "clip": clip["id"], "locked": locked})
+        elif kind == "element_set":
             normalized.append(_apply_element_set(out, op))
         elif kind == "set":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
