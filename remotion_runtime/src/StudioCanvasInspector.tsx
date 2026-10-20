@@ -30,6 +30,7 @@ export interface FilmClipInspectorModel {
   at: number;
   duration: number | null;
   attrs: Record<string, string>;
+  fps?: number;
   trackLocked?: boolean;
 }
 interface CanvasInspectorBridge {
@@ -297,7 +298,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       <div className="fs-inspector-section">
         <label className="fs-inspector-field">
           时间位置（秒）
-          <input id="fs-field-at" type="number" min={0} step={0.033333} value={form.at} disabled={readOnly}
+          <input id="fs-field-at" type="number" min={0} step={1 / Math.max(1, Math.min(60, clip.fps || 30))} value={form.at} disabled={readOnly}
             onChange={(event) => update("at", event.currentTarget.value)} />
         </label>
         {hasMediaControls && (

@@ -700,8 +700,10 @@
       return;
     }
     var a=clip.attrs||{};
+    var projectFps=Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)));
+    var frameStep=1/projectFps;
     var fields='<div class="fs-inspector-description"><strong>'+esc(clip.id)+'</strong><br>'+esc(clip.tag)+'<br>'+esc(a.src||'')+'</div><div class="fs-inspector-section">'+
-      '<label class="fs-inspector-field">时间位置（秒）<input id="fs-field-at" type="number" min="0" step="0.033333" value="'+esc(a.at||clip.at||0)+'"></label>';
+      '<label class="fs-inspector-field">时间位置（秒）<input id="fs-field-at" type="number" min="0" step="'+esc(frameStep)+'" value="'+esc(a.at||clip.at||0)+'"></label>';
     if(clip.tag==='video'||clip.tag==='audio'){
       fields+='<label class="fs-inspector-field">速度<input id="fs-field-speed" type="number" min="0.25" max="4" step="0.05" value="'+esc(a.speed||1)+'"></label>';
       fields+='<div class="fs-speed-presets"><span>预设倍率</span><div>'+[0.5,1,1.5,2,4].map(function(value){return '<button type="button" class="fs-speed-chip '+(Math.abs(num(a.speed,1)-value)<0.001?'fs-speed-chip-active':'')+'" data-speed-preset="'+value+'">'+value+'×</button>';}).join('')+'</div></div>';
@@ -716,7 +718,7 @@
     fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     var element=S.selectedElement&&S.selectedElement.clipId===clip.id?S.selectedElement:null;
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
-      window.filmStudioReactInspector.renderClip(clip);
+      window.filmStudioReactInspector.renderClip(Object.assign({},clip,{fps:Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)))}));
       renderElementInspector(element);
       return;
     }
@@ -1324,7 +1326,7 @@
     if(resultBox)resultBox.hidden=true;
     showStatus('正在提交 film.html revision '+revision+' 的 MP4 导出任务……');
     try{
-      var started=await apiPost('/api/editor/film/render',{project_id:pid,expected_revision:revision,fps:30});
+      var started=await apiPost('/api/editor/film/render',{project_id:pid,expected_revision:revision});
       if(!started||!started.ok||!started.run_id){
         showStatus((started&&started.error)||'导出任务启动失败。','error');S.rendering=false;if(button)button.disabled=false;return;
       }
