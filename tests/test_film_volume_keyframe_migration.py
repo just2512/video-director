@@ -43,6 +43,35 @@ def test_video_layer_volume_keyframes_migrate_to_runtime_envelope(tmp_path, monk
     assert envelope == [{"t": 0.0, "v": 0.2}, {"t": 1.0, "v": 0.8}, {"t": 2.0, "v": 0.4}]
     assert "data-film-keyframes" not in clip["attrs"]
     assert not any("keyframes:volume" in warning for warning in result["warnings"])
+    assert any(
+        "缓动 ease_in_out" in warning and "按线性插值迁移" in warning
+        for warning in result["warnings"]
+    )
+
+
+def test_single_volume_keyframe_becomes_a_valid_constant_envelope():
+    points, warnings = fd._film_volume_envelope([
+        {"property": "volume", "keyframes": [
+            {"at": 0.5, "value": 0.3, "easing": "linear"},
+        ]},
+    ], 2.0)
+    assert points == [{"t": 0.0, "v": 0.3}, {"t": 2.0, "v": 0.3}]
+    assert any("只有一个有效关键帧" in warning for warning in warnings)
+
+
+def test_nonlinear_volume_keyframe_easing_is_reported_explicitly():
+    points, warnings = fd._film_volume_envelope([
+        {"property": "volume", "keyframes": [
+            {"at": 0, "value": 0.2, "easing": "linear"},
+            {"at": 1, "value": 0.8, "easing": "ease_in_out"},
+            {"at": 2, "value": 0.4, "easing": "linear"},
+        ]},
+    ], 2.0)
+    assert points == [{"t": 0.0, "v": 0.2}, {"t": 1.0, "v": 0.8}, {"t": 2.0, "v": 0.4}]
+    assert any(
+        "缓动 ease_in_out" in warning and "按线性插值迁移" in warning
+        for warning in warnings
+    )
     assert not any("按线性插值迁移" in warning for warning in result["warnings"])
 
 
