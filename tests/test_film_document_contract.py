@@ -1331,3 +1331,35 @@ def test_canvas_inspector_submits_the_validated_element_set_operation():
     assert 'if kind == "element_set":' in document
     assert "field:'overrides',value:JSON.stringify(overrides)" not in studio
 
+"""The FilmDocument keeps FPS authoritative across parse/serialize operations."""
+from __future__ import annotations
+
+import pytest
+
+from video_director import config, film_document as fd
+
+
+def test_film_fps_metadata_round_trip_and_range_validation():
+    source = (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=320,height=180">'
+        '</head><body><section id="video">'
+        '<video id="clip" src="assets/video.mp4#t=0,1" at="0"></video>'
+        '</section></body></html>'
+    )
+    legacy = fd.parse_film(source)
+    assert legacy["fps"] == config.DEFAULT_FPS
+    legacy["fps"] = 24
+    serialized = fd.serialize_film(legacy)
+    assert '<meta name="film-fps" content="24">' in serialized
+    assert fd.parse_film(serialized)["fps"] == 24
+    assert fd.serialize_film(fd.parse_film(serialized)) == serialized
+
+    invalid = dict(legacy)
+    invalid["fps"] = 61
+    with pytest.raises(fd.FilmError, match="帧率必须是 1–60 的整数"):
+        fd.serialize_film(invalid)
+
+    malformed = serialized.replace('content="24"', 'content="0"')
+    with pytest.raises(fd.FilmError, match="film-fps=0 超出 1–60 范围"):
+        fd.parse_film(malformed)

@@ -64,7 +64,11 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert snapshot["watermarks"][0]["text"] == "测试水印"
     assert snapshot["subtitle_style"]["font"] == "Brand Subtitle Font"
     warnings = "\n".join(result["warnings"])
-    assert "24 FPS" in warnings
+    assert "24 FPS" not in warnings
+    assert result["document"]["fps"] == 24
+    migrated_html = fd.serialize_film(result["document"])
+    assert '<meta name="film-fps" content="24">' in migrated_html
+    assert fd.parse_film(migrated_html)["fps"] == 24
     assert "style_id" in warnings
     assert "variants" in warnings
     assert "camera_tracks" in warnings

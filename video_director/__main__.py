@@ -189,7 +189,8 @@ def main(argv=None):
             command_parser.add_argument("--times", default=None,
                                         help="逗号分隔的秒数，例如 0,1.5,4")
         if command == "render":
-            command_parser.add_argument("--fps", type=int, default=30)
+            command_parser.add_argument("--fps", type=int, default=None,
+                                        help="覆盖 film.html 保存的帧率；省略则使用项目帧率")
     
     a = ap.parse_args(argv)
 

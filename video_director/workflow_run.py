@@ -731,19 +731,21 @@ def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> di
         vd_store.set_stage = orig_set_stage
 
 
-def run_film_render_async(project_id: str, expected_revision: str, fps: int = 30) -> str:
+def run_film_render_async(project_id: str, expected_revision: str, fps: int | None = None) -> str:
     """Render a pinned film.html revision in the background; never invoke the legacy IR renderer."""
     from video_director import film_document as fd
     pid = fd.validate_project_id(project_id)
     if not isinstance(expected_revision, str) or not expected_revision.strip():
         raise fd.FilmError("REVISION_REQUIRED", "导出请求缺少 film.html revision。", 400)
-    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
-        raise fd.FilmError("INVALID_FPS", "导出帧率必须是 1–60 的整数。", 422)
     state = fd.read_project_film(pid)
     if not state.get("exists"):
         raise fd.FilmError("FILM_NOT_INITIALIZED", "当前项目尚未初始化 film.html。", 409)
     if state["rev"] != expected_revision:
         raise fd.FilmError("REVISION_CONFLICT", "film.html 已发生变化；请重新载入后再导出。", 409)
+    if fps is None:
+        fps = int(state["doc"].get("fps", 30))
+    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
+        raise fd.FilmError("INVALID_FPS", "导出帧率必须是 1–60 的整数。", 422)
     run_id = start_run("film_render_final", project_id=pid, steps=["render", "verify"])
     thread = threading.Thread(
         target=_film_render_worker, args=(run_id, pid, expected_revision, fps),

@@ -1126,7 +1126,9 @@ class Handler(BaseHTTPRequestHandler):
                         "current_revision": state["rev"],
                     }, 409)
                     return True
-                raw_fps = payload.get("fps", 30)
+                raw_fps = payload.get("fps")
+                if raw_fps is None:
+                    raw_fps = int(state["doc"].get("fps", 30))
                 if isinstance(raw_fps, bool) or not isinstance(raw_fps, int) or not 1 <= raw_fps <= 60:
                     raise fd.FilmError("INVALID_FPS", "帧率必须是 1–60 的整数。", 422)
                 from video_director import workflow_run as vd_wf
