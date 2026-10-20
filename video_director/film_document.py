@@ -2513,8 +2513,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 warnings.append(
                     f"片段 {cid} 字段 " + ", ".join(unsupported_layer_fields) + " 尚未无损迁移"
                 )
-            clips.append({"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs})
-
     # Put each overlapping overlay/audio item on its own physical section; OpenFilm tracks may not overlap internally.
     def one_clip_track(track_id, label, clip):
         return {"id": track_id, "attrs": {"id": track_id, "data-label": label}, "clips": [clip]}
@@ -2558,7 +2556,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             overlay_transform = _film_transform_metadata(
                 raw_overlay_transform, stage["width"], stage["height"], w, h
             )
-            overlay_transform["opacity"] = _fmt(float(overlay_transform["opacity"]) * opacity)
+            overlay_transform["opacity"] = float(overlay_transform["opacity"]) * opacity
             _apply_film_transform(attrs, overlay_transform, [], fit)
         else:
             style = f"left:{_fmt(x)}px;top:{_fmt(y)}px;width:{_fmt(w)}px;height:{_fmt(h)}px;opacity:{_fmt(opacity)};object-fit:{fit}"
