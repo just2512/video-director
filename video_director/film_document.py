@@ -3351,6 +3351,23 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         _number(overlay.get("start", 0), "overlay start", 0),
         str(overlay.get("id") or ""),
     ))
+    # Each overlay is lifted to its own physical Film track, so CSS z-index on
+    # the clip itself cannot order it against another track. Reassign a compact
+    # render z-index by (source track order, authored z_index), keeping every
+    # overlay inside the overlay band below subtitles/watermarks.
+    stack_order = sorted(
+        enumerate(visual_overlay_items),
+        key=lambda entry: (
+            int(visual_lanes_by_id.get(str(entry[1].get("track_id") or ""), {}).get("order", 999)),
+            int(_number(entry[1].get("z_index", 0), "overlay z_index", -100000, 100000)),
+            str(entry[1].get("id") or ""),
+            entry[0],
+        ),
+    )
+    overlay_render_z_by_object = {
+        id(overlay): 100001 + rank
+        for rank, (_original_index, overlay) in enumerate(stack_order)
+    }
     for idx, overlay in enumerate(visual_overlay_items):
         asset_item = by_id.get(str(overlay.get("asset_id") or ""), {})
         asset_file = str(asset_item.get("file") or "")
@@ -3426,7 +3443,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         overlay_track = one_clip_track(tid, source_label, {"id": cid, "tag": kind, "attrs": attrs})
         # Track-level stacking decides overlay order across independent CSS contexts.
         # The clip's own z-index remains authored metadata within that track.
-        render_z_index = 100001 + z_index
+        render_z_index = overlay_render_z_by_object[id(overlay)]
         overlay_track["attrs"]["data-render-z-index"] = str(render_z_index)
         overlay_track["attrs"]["style"] = f"z-index:{render_z_index}"
         if source_lane.get("locked"):

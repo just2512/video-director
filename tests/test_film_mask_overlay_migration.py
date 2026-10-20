@@ -96,10 +96,10 @@ def test_css_representable_static_masks_and_overlay_z_order_are_migrated(tmp_pat
     base = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
     assert expected in base["clips"][0]["attrs"]["style"]
     overlay = next(track for track in result["document"]["tracks"] if track["id"] == "track-overlay-full-screen-card")
-    assert overlay["attrs"]["data-render-z-index"] == "100009"
+    assert overlay["attrs"]["data-render-z-index"] == "100001"
     assert "locked" in overlay["attrs"]
     assert overlay["attrs"]["data-source-track-hidden"] == "true"
-    assert overlay["attrs"]["style"] == "z-index:100009"
+    assert overlay["attrs"]["style"] == "z-index:100001"
     base_index = next(i for i, track in enumerate(result["document"]["tracks"]) if track["id"] == "track-main")
     overlay_index = next(i for i, track in enumerate(result["document"]["tracks"]) if track["id"] == "track-overlay-full-screen-card")
     assert overlay_index < base_index
@@ -217,3 +217,48 @@ def test_animated_mask_is_not_approximated_when_layer_transform_changes_its_coor
     archived_mask = archived["scenes"][0]["layers"][0]["mask"]
     assert archived_mask["keyframes"] == source_mask["keyframes"]
     assert archived_mask["geometry"] == source_mask["geometry"]
+
+
+def test_visual_track_order_precedes_each_overlay_local_z_index(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "overlay-track-order-beats-local-z"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "assets": [{"id": "asset-image", "type": "image", "file": "assets/still.png"}],
+        "scenes": [{
+            "id": "base-scene", "start": 0, "duration": 1, "text": "base",
+            "layers": [{"type": "image", "asset_id": "asset-image", "start": 0, "duration": 1}],
+        }],
+        "visual_tracks": [
+            {"id": "overlay-back", "name": "背景叠加", "order": 0},
+            {"id": "overlay-front", "name": "前景叠加", "order": 1},
+        ],
+        "visual_overlays": [
+            {"id": "back-high-local-z", "asset_id": "asset-image", "track_id": "overlay-back",
+             "start": 0, "duration": 1, "z_index": 100000},
+            {"id": "front-low-local-z", "asset_id": "asset-image", "track_id": "overlay-front",
+             "start": 0, "duration": 1, "z_index": -100000},
+        ],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    back = next(track for track in result["document"]["tracks"]
+                if track["id"] == "track-overlay-back-high-local-z")
+    front = next(track for track in result["document"]["tracks"]
+                 if track["id"] == "track-overlay-front-low-local-z")
+    back_z = int(back["attrs"]["data-render-z-index"])
+    front_z = int(front["attrs"]["data-render-z-index"])
+    assert front_z > back_z, (
+        "visual_tracks.order must order different physical Film tracks before "
+        f"overlay-local z_index: back={back_z}, front={front_z}"
+    )
+    assert 100001 <= back_z < front_z < 200002, (
+        "all overlay tracks must remain below subtitles/watermarks"
+    )
