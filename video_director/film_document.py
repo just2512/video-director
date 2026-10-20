@@ -2817,7 +2817,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 if raw_mask.get("animated") and not mask_keyframes:
                     unsupported_layer_fields.append("蒙版标记为 animated，但没有可迁移的 mask_path 关键帧")
             channels_affect_geometry = any(
-                channel.get("property") in {"x", "y", "scale", "rotation"}
+                channel.get("property") in {
+                    "x", "y", "scale", "rotation", "camera_x", "camera_y", "camera_scale",
+                }
                 for channel in channels
             )
             transform_affects_geometry = bool(
@@ -2829,6 +2831,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     or abs(float(base_transform["rotation"])) > 1e-6
                 )
             )
+            mask_geometry_conflict = channels_affect_geometry or transform_affects_geometry or known_motion
             if mask_keyframes:
                 attrs["data-film-mask-keyframes"] = json.dumps(
                     mask_keyframes, ensure_ascii=False, separators=(",", ":")
@@ -2838,15 +2841,16 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     mask_clip_path = "polygon(" + ", ".join(
                         f"{_fmt(x * 100)}% {_fmt(y * 100)}%" for x, y in first_polygon
                     ) + ")"
-                if channels_affect_geometry or transform_affects_geometry or known_motion:
+                if mask_geometry_conflict:
                     unsupported_layer_fields.append(
                         "动态蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
                     )
             if mask_clip_path:
-                if channels_affect_geometry or transform_affects_geometry or known_motion:
-                    unsupported_layer_fields.append(
-                        "蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
-                    )
+                if mask_geometry_conflict:
+                    if not mask_keyframes:
+                        unsupported_layer_fields.append(
+                            "蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
+                        )
                 else:
                     attrs["style"] += ";clip-path:" + mask_clip_path
             if layer.get("locked"):
