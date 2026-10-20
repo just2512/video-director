@@ -134,8 +134,13 @@ _SCENE_BRIDGE = r"""
       seed(t);
       clock.queue.length = 0;
       clock.cancelled = Object.create(null);
+      clock.active = true;
       syncAnimations(t);
       var result = window.film.frame(t);
+      // Flush callbacks requested synchronously by frame(t) before awaiting its
+      // Promise, so a frame implementation may enqueue one draw callback without
+      // waiting forever for a native wall-clock animation frame.
+      flushRaf(t);
       if (result && typeof result.then === 'function') await result;
       syncAnimations(t);
       flushRaf(t);
