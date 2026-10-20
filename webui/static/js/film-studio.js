@@ -1060,11 +1060,17 @@
       window.filmStudioPlaying=false;syncRuntime('pause');
     }
     if(button){button.setAttribute('aria-pressed',String(S.elementInspect));button.textContent=S.elementInspect?'点选/拖动画面元素…':'选择画面元素';}
-    if(frame&&frame.contentWindow)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:S.elementInspect},window.location.origin);
     if(S.elementInspect){
+      // Inspect must operate on the currently loaded, visible preview. A nested
+      // iframe can be present in the DOM while its outer monitor is still hidden.
+      // Sync first (reveals the monitor and loads the exact current revision),
+      // then send inspect; the runtime replays inspect again after its ready ack.
+      syncRuntime('seek');
+      if(frame&&frame.contentWindow)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:true},window.location.origin);
       window.filmStudioSetSideMode('inspector');
       showStatus('已开启画面元素选取：在预览中点击标题、文字或其他 HTML 图层。','success');
     }else{
+      if(frame&&frame.contentWindow)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:false},window.location.origin);
       showStatus('已退出画面元素选取。');
       renderElementSelection(S.selectedElement);
     }

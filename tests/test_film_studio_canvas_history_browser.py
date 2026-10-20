@@ -212,6 +212,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
                     timeout=10000,
                 )
+                page.locator("#fs-preview-composition").wait_for(state="visible", timeout=10000)
+                assert page.locator("#fs-preview-composition").evaluate("(frame) => getComputedStyle(frame).display") != "none"
                 pointer_mode = page.frame_locator("#fs-preview-composition").locator("#scene-clip").evaluate(
                     "(frame) => getComputedStyle(frame).pointerEvents"
                 )
