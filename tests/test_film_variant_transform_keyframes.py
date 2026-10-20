@@ -57,6 +57,14 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
                             {"at": 0, "value": 1.0, "easing": "linear"},
                             {"at": 1, "value": 1.2, "easing": "ease_in_out"},
                         ]},
+                        {"property": "offset_x", "keyframes": [
+                            {"at": 0, "value": 12, "easing": "linear"},
+                            {"at": 1, "value": 24, "easing": "ease_in_out"},
+                        ]},
+                        {"property": "offset_y", "keyframes": [
+                            {"at": 0, "value": -8, "easing": "linear"},
+                            {"at": 1, "value": 0, "easing": "ease_out"},
+                        ]},
                     ],
                 }],
             }],
@@ -78,8 +86,14 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert "object-fit:contain" in clip["attrs"]["style"]
     channels = json.loads(clip["attrs"]["data-film-keyframes"])
     assert {item["property"] for item in channels} == {
-        "x", "opacity", "camera_x", "camera_y", "camera_scale",
+        "x", "opacity", "camera_x", "camera_y", "camera_scale", "offset_x", "offset_y",
     }
+    assert next(item for item in channels if item["property"] == "offset_x")["keyframes"][1]["value"] == 24
+    assert next(item for item in channels if item["property"] == "offset_y")["keyframes"][0]["value"] == -8
+    source_snapshot = json.loads(result["pages"]["migration/source-composition.json"])
+    assert source_snapshot["variants"][0]["metadata"]["author"] == "legacy-agent"
+    assert source_snapshot["variants"][0]["scenes"][0]["transition_out"]["type"] == "dissolve"
+    assert source_snapshot["scenes"][0]["id"] == "base-scene"
     assert any("active-cut" in warning for warning in result["warnings"])
     warnings_text = "\n".join(result["warnings"])
     assert "metadata 字段未映射" in warnings_text
