@@ -1032,12 +1032,12 @@ def _apply_element_set(doc: dict, op: dict) -> dict:
         current = []
     if not isinstance(current, list):
         raise FilmError("INVALID_OVERRIDES", "当前 overrides 必须是数组；未写入画布修改", 422)
-    if len(current) >= 500:
-        raise FilmError("OVERRIDE_LIMIT", "单个镜头最多保存 500 项 overrides", 422)
     entries = [dict(item) if isinstance(item, dict) else item for item in current]
     match = next((item for item in entries
                   if isinstance(item, dict) and item.get("selector") == override["selector"]), None)
     if match is None:
+        if len(current) >= 500:
+            raise FilmError("OVERRIDE_LIMIT", "单个镜头最多保存 500 项 overrides", 422)
         entries.append(override)
     else:
         if "text" in override:
@@ -2308,6 +2308,9 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
                 raise FilmError("LLM_INVALID_ELEMENT_TARGET",
                                 "AI 只能修改当前选中的 HTML 镜头内、且 selector 精确匹配的元素", 422)
             # Reuse the same server-side style/text validator used by edit execution.
+            if "text" in op and selected_element.get("textEditable") is False:
+                raise FilmError("ELEMENT_TEXT_NOT_EDITABLE",
+                                "当前选中元素包含子元素；为避免破坏内部结构，不允许整体替换其文本", 422)
             _normalize_element_override(op.get("selector"), op.get("text"),
                                         "text" in op, op.get("style"))
         if op["op"] == "join" and (op.get("clip") not in valid_ids or op.get("other_clip") not in valid_ids):
