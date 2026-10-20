@@ -605,6 +605,10 @@
     if(!S.data||!S.data.exists){renderMigration();return;}
     $('fs-project-label').textContent=S.projectId+' · rev '+S.rev;S.duration=Math.max(0.001,num(S.data.duration,10));
     var available=clips().map(function(c){return c.id;});
+    if(S.selectedElement&&available.indexOf(S.selectedElement.clipId)<0){
+      S.selectedElement=null;S.hoveredElement=null;
+      var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
+    }
     S.selectedIds=(S.selectedIds||[]).filter(function(id){return available.indexOf(id)>=0;});
     if(!findClip(S.selectedId)){var first=clips().filter(function(c){return c.tag!=='audio';})[0];S.selectedId=first?first.id:'';}
     if(S.selectedIds.indexOf(S.selectedId)<0&&S.selectedId)S.selectedIds.push(S.selectedId);
@@ -625,7 +629,13 @@
     var requestProjectId=nextId;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
     if(requestProjectId!==S.projectId)return;
-    if(r&&r.ok&&r.exists){S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();}
+    if(r&&r.ok&&r.exists){
+      if(S.rev&&r.rev!==S.rev){
+        S.selectedElement=null;S.hoveredElement=null;
+        var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
+      }
+      S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();
+    }
     else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';window.filmStudioPlaying=false;S.migration=r;renderMigration();}
     else {if(r&&r.code==='INVALID_FILM')S.broken=true;S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
   }
@@ -652,6 +662,7 @@
       var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
       if(!r||!r.ok){showStatus((r&&r.error)||'编辑提交失败。','error');if(S.data&&S.data.exists)render();return;}
       S.data=r;S.rev=r.rev;
+      if(S.selectedElement)S.selectedElement.baseRevision=S.rev;
       showStatus(r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。',r.rebased?'':'success');render();
     }catch(error){
       showStatus('编辑提交失败：'+String(error&&error.message||error),'error');
@@ -924,7 +935,7 @@
     await filmStudioCommit([{op:'set',clip:clip.id,field:'overrides',value:JSON.stringify(overrides)}]);
     // The commit triggers a full, revision-bound reload. Keep selection context
     // visible, but the user can reselect when CSS/structure changes the selector.
-    if(S.data&&S.data.exists){S.selectedElement=selected;renderInspector();renderElementSelection(selected);}
+    if(S.data&&S.data.exists){selected.baseRevision=S.rev;S.selectedElement=selected;renderInspector();renderElementSelection(selected);}
   };
   window.addEventListener('message',function(event){
     var frame=$('fs-preview-composition');
@@ -948,9 +959,10 @@
       };
       if(message.type==='film-runtime:element-selected'){
         if(!findClip(element.clipId)){showStatus('所选画面元素对应的片段已不存在。','error');return;}
+        element.baseRevision=S.rev;
         S.selectedElement=element;S.selectedId=element.clipId;S.selectedIds=[element.clipId];S.selectionAnchor=element.clipId;
         window.filmStudioSetSideMode('inspector');
-        renderInspector();renderAssets();renderElementSelection(element);
+        syncClipSelectionVisual();renderInspector();renderAssets();renderElementSelection(element);
         showStatus('已选中 '+element.tag+' 元素：'+element.selector,'success');
       }else{
         S.hoveredElement=element;
@@ -1162,7 +1174,21 @@
     if(S.proposal){window.filmStudioRejectProposal();}
     appendMessage(message,'user');input.value='';S.busy=true;
     try{
-      var r=await apiPost('/api/editor/film/command',{project_id:S.projectId,base:S.rev,message:message,selected_clip_id:S.selectedId});
+      var request={project_id:S.projectId,base:S.rev,message:message,selected_clip_id:S.selectedId};
+      if(S.selectedElement&&S.selectedElement.clipId===S.selectedId){
+        if(S.selectedElement.baseRevision!==S.rev){
+          S.busy=false;
+          appendMessage('画布元素上下文已过期，请在当前预览中重新选中该元素后再指挥修改。','assistant');
+          showStatus('画布元素上下文已过期，请重新选择元素。','error');
+          return;
+        }
+        request.selected_element={
+          base_revision:S.rev,clip_id:S.selectedElement.clipId,selector:S.selectedElement.selector,
+          tag:S.selectedElement.tag,text:S.selectedElement.text,textEditable:S.selectedElement.textEditable,
+          styles:S.selectedElement.styles,localRect:S.selectedElement.localRect
+        };
+      }
+      var r=await apiPost('/api/editor/film/command',request);
       if(!r||!r.ok){appendMessage((r&&r.error)||'AI 提案生成失败。','assistant');showStatus((r&&r.error)||'AI 提案生成失败。','error');return;}
       if(r.no_op){appendMessage(r.message||'AI 没有生成可安全应用的操作，请补充目标。','assistant');showStatus(r.message||'没有产生候选操作。');return;}
       if(!r.proposal){appendMessage('服务器没有返回结构化提案，未修改正式影片。','assistant');showStatus('AI 响应缺少提案对象。','error');return;}
