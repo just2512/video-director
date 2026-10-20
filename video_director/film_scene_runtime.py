@@ -293,11 +293,15 @@ _SCENE_BRIDGE = r"""
       var parsed = Number.parseFloat(text.slice(0, -2));
       return Number.isFinite(parsed) ? parsed : fallback;
     }
+    // Inline styles are the persisted design-space values written by
+    // applyOverrides(). Prefer them over computed styles, which can be affected
+    // by viewport/layout scaling in nested iframe previews.
+    var inlineStyle = element.style;
     var localRect = {
-      x: cssPixel(style.left, rect.x),
-      y: cssPixel(style.top, rect.y),
-      width: cssPixel(style.width, rect.width),
-      height: cssPixel(style.height, rect.height)
+      x: cssPixel(inlineStyle.left, cssPixel(style.left, rect.x)),
+      y: cssPixel(inlineStyle.top, cssPixel(style.top, rect.y)),
+      width: cssPixel(inlineStyle.width, cssPixel(style.width, rect.width)),
+      height: cssPixel(inlineStyle.height, cssPixel(style.height, rect.height))
     };
     parent.postMessage({
       type: type,

@@ -229,7 +229,21 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                         timeout=15000,
                     )
                 except Exception as exc:
-                    trace = page.evaluate("() => ({trace:window.__vdCanvasTrace||[], alert:document.querySelector('#film-studio-alert')?.textContent, iframePointerEvents:getComputedStyle(document.querySelector('#fs-preview-composition')?.contentDocument?.querySelector('#scene-clip')).pointerEvents})")
+                    trace = page.evaluate("""() => {
+                      const outer=document.querySelector('#fs-preview-composition');
+                      const frame=outer&&outer.contentDocument&&outer.contentDocument.querySelector('#scene-clip');
+                      const element=frame&&frame.contentDocument&&frame.contentDocument.querySelector('#title');
+                      const computed=element&&getComputedStyle(element);
+                      return {
+                        trace:window.__vdCanvasTrace||[],
+                        alert:document.querySelector('#film-studio-alert')?.textContent,
+                        iframePointerEvents:frame&&getComputedStyle(frame).pointerEvents,
+                        inlineStyle:element&&element.getAttribute('style'),
+                        inlineLeft:element&&element.style.left,
+                        computedLeft:computed&&computed.left,
+                        viewport:frame&&frame.contentWindow?{width:frame.contentWindow.innerWidth,height:frame.contentWindow.innerHeight}:null
+                      };
+                    }""")
                     raise AssertionError("Canvas picker message chain did not reach Studio: " + json.dumps(trace, ensure_ascii=False)) from exc
                 page.locator("#fs-element-text").wait_for(state="visible")
                 page.locator("#fs-inspector [data-react-clip-inspector]").wait_for(state="attached", timeout=10000)
