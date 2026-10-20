@@ -204,8 +204,10 @@ _SCENE_BRIDGE = r"""
       selector: selectorFor(element),
       tag: element.tagName.toLowerCase(),
       text: (element.innerText || element.textContent || '').slice(0, 4000),
+      textEditable: element.children.length === 0,
       styles: styleData,
-      rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height}
+      rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+      viewport: {width: window.innerWidth, height: window.innerHeight}
     }, '*');
   }
   function elementFromEvent(event) {
