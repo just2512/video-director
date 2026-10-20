@@ -24,7 +24,7 @@ def test_video_layer_volume_keyframes_migrate_to_runtime_envelope(tmp_path, monk
         "scenes": [{
             "id": "shot-scene", "start": 0, "duration": 2, "text": "原声",
             "layers": [{
-                "type": "video", "asset_id": "asset-shot", "start": 0,
+                "id": "legacy-video-layer", "type": "video", "asset_id": "asset-shot", "start": 0,
                 "duration": 2, "source_in": 0, "source_out": 2,
                 "keyframes": [{
                     "property": "volume", "keyframes": [
@@ -42,6 +42,7 @@ def test_video_layer_volume_keyframes_migrate_to_runtime_envelope(tmp_path, monk
     envelope = json.loads(clip["attrs"]["volume_envelope"])
     assert envelope == [{"t": 0.0, "v": 0.2}, {"t": 1.0, "v": 0.8}, {"t": 2.0, "v": 0.4}]
     assert "data-film-keyframes" not in clip["attrs"]
+    assert clip["attrs"]["data-source-id"] == "legacy-video-layer"
     assert not any("keyframes:volume" in warning for warning in result["warnings"])
     assert any(
         "缓动 ease_in_out" in warning and "按线性插值迁移" in warning

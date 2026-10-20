@@ -29,6 +29,8 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
             "id": "scene-opening", "start": 0, "duration": 1, "text": "开场",
             "intent": "先给出结论",
             "layers": [{
+                "id": "legacy-layer-opening-01",
+                "track_id": "legacy-visual-track",
                 "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
                 "motion": "slow_zoom_in", "locked": True,
             }],
@@ -85,6 +87,9 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     visual_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-locked-main-scene-opening-1")
     assert "locked" in visual_track["attrs"]
     image_clip = visual_track["clips"][0]
+    assert image_clip["attrs"]["data-source-id"] == "legacy-layer-opening-01"
+    assert image_clip["attrs"]["data-source-scene-id"] == "scene-opening"
+    assert image_clip["attrs"]["data-source-track-id"] == "legacy-visual-track"
     transform = json.loads(image_clip["attrs"]["data-film-transform"])
     channels = json.loads(image_clip["attrs"]["data-film-keyframes"])
     assert transform["anchor"] == "center"
@@ -98,6 +103,8 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert audio_track["attrs"]["data-label"] == "自定义 BGM"
     assert audio_clip["attrs"]["muted"] == ""
     assert audio_clip["attrs"]["fade"] == "0.2,0.3"
+    assert audio_clip["attrs"]["data-source-id"] == "music-bed"
+    assert audio_clip["attrs"]["data-source-track-id"] == "audio-bgm"
 
     # Initialization persists the archive and a digest that can be rechecked later.
     from video_director import editor as vd_editor

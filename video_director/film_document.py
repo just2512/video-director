@@ -2755,7 +2755,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             src_in = _number(layer.get("source_in", 0), "source_in", 0) if kind == "video" else 0
             src_out = _number(layer.get("source_out") if kind == "video" and layer.get("source_out") is not None else src_in + d * speed, "source_out", src_in + 0.001)
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
-            attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)), "data-asset-id": str(layer.get("asset_id") or "")}
+            attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(scene_start + _number(layer.get("start", 0), "layer start", 0)), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
             if kind == "video" and abs(speed - 1) > 1e-6:
                 attrs["speed"] = _fmt(speed)
             unsupported_layer_fields = []
@@ -2914,7 +2914,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             h = _number(overlay.get("height", 0.3), "overlay height", 0.001, 1) * stage["height"]
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
-                 "data-asset-id": str(overlay.get("asset_id") or ""), "opacity": _fmt(opacity)}
+                 "data-asset-id": str(overlay.get("asset_id") or ""), "data-source-id": str(overlay.get("id") or ""), "opacity": _fmt(opacity)}
         source_lane_id = str(overlay.get("track_id") or "")
         source_lane = visual_lanes_by_id.get(source_lane_id, {})
         if source_lane_id:
@@ -2971,6 +2971,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         cid = "subtitle-page"
         subtitle_track_film = one_clip_track("track-subtitles", "字幕", {"id": cid, "tag": "iframe",
             "attrs": {"id": cid, "src": f"scenes/subtitles.html#t=0,{_fmt(duration)}", "at": "0",
+                      "data-source-track-id": str(subtitle_track.get("id") or ""),
                       "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px"}})
         subtitle_track_film["attrs"]["data-render-z-index"] = "200002"
         subtitle_track_film["attrs"]["style"] = "z-index:200002"
@@ -2991,7 +2992,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         cid = _safe_id(f"audio-{audio.get('id') or idx + 1}", "clip")
         lane = audio_lanes_by_id.get(str(audio.get("track_id") or ""), {})
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
-                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or "")}
+                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio.get("id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
         if abs(speed - 1) > 1e-6:
             attrs["speed"] = _fmt(speed)
         if audio.get("muted") or lane.get("muted"):
