@@ -431,12 +431,47 @@ _SCENE_BRIDGE = r"""
       clock.cancelled = Object.create(null);
     }
   }
+  // frame(t) mutates the page, so two outstanding asynchronous draws would
+  // race on the shared DOM and clock. Exact offline frame requests are serialized;
+  // interactive preview seeks are coalesced to the newest requested time.
+  var drawChain = Promise.resolve();
+  var pendingPreview = null;
+  var previewScheduled = false;
+
+  function enqueueExactFrame(message) {
+    drawChain = drawChain.then(function () { return draw(message); }).catch(function (error) {
+      sendFrameReady(message, true, String(error && error.stack || error));
+    });
+  }
+  function enqueuePreviewTime(message) {
+    pendingPreview = message;
+    if (previewScheduled) return;
+    previewScheduled = true;
+    drawChain = drawChain.then(async function () {
+      while (pendingPreview) {
+        var next = pendingPreview;
+        pendingPreview = null;
+        await draw({
+          type: 'film-frame',
+          time: next.time,
+          frame: -1,
+          overrides: next.overrides
+        });
+      }
+      previewScheduled = false;
+    }).catch(function (error) {
+      previewScheduled = false;
+      pendingPreview = null;
+      try { parent.postMessage({type:'film-preview:error', error:String(error)}, '*'); } catch (_) {}
+    });
+  }
+
   window.addEventListener('message', function (event) {
     if (event.source !== parent || !event.data) return;
     var message = event.data;
-    if (message.type === 'film-frame') draw(message);
+    if (message.type === 'film-frame') enqueueExactFrame(message);
     else if (message.type === 'film-time' && window.film && typeof window.film.frame === 'function') {
-      draw({ type: 'film-frame', time: message.time, frame: -1, overrides: message.overrides });
+      enqueuePreviewTime(message);
     } else if (message.type === 'film-overrides') {
       currentOverrides = parseOverrides(message.overrides);
       applyOverrides();
