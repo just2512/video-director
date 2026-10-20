@@ -1498,15 +1498,22 @@
   });
 
   function mountReactToolbar(){
-    var reactMount=$('fs-react-toolbar'),legacy=$('fs-static-toolbar');
-    if(window.filmStudioReactToolbar&&typeof window.filmStudioReactToolbar.render==='function'&&reactMount){
+    var reactMount=$('fs-react-toolbar'),legacy=$('fs-static-toolbar'),
+        reactTimeline=$('fs-react-timeline-toolbar'),legacyTimeline=$('fs-static-timeline-toolbar');
+    if(window.filmStudioReactToolbar&&typeof window.filmStudioReactToolbar.render==='function'
+        &&typeof window.filmStudioReactToolbar.renderTimeline==='function'&&reactMount&&reactTimeline){
       window.filmStudioReactToolbar.render();
+      window.filmStudioReactToolbar.renderTimeline();
       reactMount.style.display='flex';
+      reactTimeline.style.display='flex';
       if(legacy)legacy.style.display='none';
+      if(legacyTimeline)legacyTimeline.style.display='none';
       return;
     }
     if(reactMount)reactMount.style.display='none';
+    if(reactTimeline)reactTimeline.style.display='none';
     if(legacy)legacy.style.display='';
+    if(legacyTimeline)legacyTimeline.style.display='';
   }
   mountReactToolbar();
 

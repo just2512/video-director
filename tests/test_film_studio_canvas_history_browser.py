@@ -103,10 +103,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 )
                 if has_react_toolbar:
                     page.locator('#fs-react-toolbar [data-film-action="undo"]').wait_for(state="visible", timeout=10000)
+                    page.locator('#fs-react-timeline-toolbar [data-film-action="split"]').wait_for(state="visible", timeout=10000)
                     assert not page.locator("#fs-static-toolbar").is_visible()
+                    assert not page.locator("#fs-static-timeline-toolbar").is_visible()
                 else:
                     assert page.locator("#fs-static-toolbar").is_visible()
+                    assert page.locator("#fs-static-timeline-toolbar").is_visible()
                     assert not page.locator("#fs-react-toolbar").is_visible()
+                    assert not page.locator("#fs-react-timeline-toolbar").is_visible()
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
                     state="attached", timeout=15000
                 )

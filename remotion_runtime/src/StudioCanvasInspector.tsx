@@ -28,6 +28,7 @@ interface CanvasInspectorBridge {
 }
 interface FilmStudioReactToolbarBridge {
   render(): void;
+  renderTimeline(): void;
 }
 
 declare global {
@@ -150,6 +151,23 @@ const StudioToolbar: React.FC = () => (
   </>
 );
 
+const StudioTimelineToolbar: React.FC = () => (
+  <>
+    <button className="fs-btn" type="button" data-film-action="insert-mode" aria-pressed="false" title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：关</button>
+    <button className="fs-btn" type="button" data-film-action="split" title="在播放头切分（S）">在播放头切分</button>
+    <button className="fs-btn" type="button" data-film-action="join-cut" title="合并同轨相邻、同源连续且属性一致的切分片段">愈合切口</button>
+    <button className="fs-btn" type="button" data-film-action="remove">删除片段</button>
+    <button className="fs-btn" type="button" data-film-action="ripple-delete" title="删除选中片段对应的时间段，并收拢全部轨道">波纹删除</button>
+    <button className="fs-btn" type="button" data-film-action="envelope-mode" aria-pressed="false" title="切换音量关键帧编辑模式；普通模式下可正常拖动片段">音量曲线：关</button>
+    <button className="fs-btn" type="button" data-film-action="slide-mode" aria-pressed="false" title="切换滑移修剪模式；拖动中间视频/音频片段主体，外侧时间线边界保持不变">滑移修剪：关</button>
+    <button className="fs-btn" type="button" data-film-action="add-track">＋轨道</button>
+    <button className="fs-btn" type="button" data-film-action="remove-empty-track">删空轨</button>
+    <button className="fs-btn" type="button" data-film-action="zoom-out">−</button>
+    <button className="fs-btn" type="button" data-film-action="zoom-in">＋</button>
+    <button className="fs-btn fs-primary" type="button" data-film-action="apply-inspector">应用属性</button>
+  </>
+);
+
 const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element}) => {
   const rect = element.localRect || element.rect || {};
   const styles = element.styles || {};
@@ -208,6 +226,8 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
 
 let toolbarRoot: Root | null = null;
 let toolbarMount: HTMLElement | null = null;
+let timelineToolbarRoot: Root | null = null;
+let timelineToolbarMount: HTMLElement | null = null;
 window.filmStudioReactToolbar = {
   render() {
     const mount = document.getElementById("fs-react-toolbar");
@@ -218,6 +238,17 @@ window.filmStudioReactToolbar = {
     }
     flushSync(() => {
       toolbarRoot?.render(<StudioToolbar />);
+    });
+  },
+  renderTimeline() {
+    const mount = document.getElementById("fs-react-timeline-toolbar");
+    if (!mount) return;
+    if (!timelineToolbarRoot || timelineToolbarMount !== mount) {
+      timelineToolbarRoot = createRoot(mount);
+      timelineToolbarMount = mount;
+    }
+    flushSync(() => {
+      timelineToolbarRoot?.render(<StudioTimelineToolbar />);
     });
   },
 };
