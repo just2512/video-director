@@ -948,6 +948,109 @@ def _join_through_edit(doc: dict, left_id: str, right_id: str) -> dict:
     return {"clip": left_id, "joined_clip": right_id, "duration": _fmt(left_duration + right_duration)}
 
 
+_OVERRIDE_STYLE_MAP = {
+    "color": "color", "backgroundColor": "background-color", "fontSize": "font-size",
+    "fontWeight": "font-weight", "textAlign": "text-align", "lineHeight": "line-height",
+    "letterSpacing": "letter-spacing", "left": "left", "top": "top", "width": "width",
+    "height": "height", "position": "position", "opacity": "opacity", "transform": "transform",
+    "borderRadius": "border-radius", "rotate": "rotate",
+}
+
+
+def _normalize_element_override(selector: Any, text_value: Any = None,
+                                text_supplied: bool = False,
+                                style_value: Any = None) -> dict:
+    if not isinstance(selector, str) or not selector.strip() or len(selector) > 500:
+        raise FilmError("INVALID_ELEMENT_SELECTOR", "画布元素必须提供 1–500 字符的 CSS selector", 422)
+    selector = selector.strip()
+    if any(ord(char) < 32 for char in selector):
+        raise FilmError("INVALID_ELEMENT_SELECTOR", "CSS selector 不能包含控制字符", 422)
+    if text_supplied and (not isinstance(text_value, str) or len(text_value) > 4000):
+        raise FilmError("INVALID_ELEMENT_TEXT", "画布元素文本必须是字符串且不超过 4000 字符", 422)
+    if style_value is None:
+        style_value = {}
+    if not isinstance(style_value, dict) or len(style_value) > len(_OVERRIDE_STYLE_MAP):
+        raise FilmError("INVALID_ELEMENT_STYLE", "画布元素 style 必须是受支持属性组成的对象", 422)
+    style = {}
+    for key, raw_value in style_value.items():
+        if key not in _OVERRIDE_STYLE_MAP:
+            raise FilmError("ELEMENT_STYLE_NOT_ALLOWED", f"不允许修改画布 CSS 属性：{key}", 422)
+        if not isinstance(raw_value, str) or len(raw_value) > 120:
+            raise FilmError("INVALID_ELEMENT_STYLE", f"画布 CSS 属性 {key} 必须是字符串且不超过 120 字符", 422)
+        value = raw_value.strip()
+        if not value or re.search(r"[{};]", value) or re.search(r"url\s*\(|expression\s*\(|javascript:|@import", value, re.I):
+            raise FilmError("UNSAFE_ELEMENT_STYLE", f"画布 CSS 属性 {key} 包含不允许的值", 422)
+        if key in {"left", "top", "width", "height", "fontSize", "letterSpacing", "lineHeight", "borderRadius"}:
+            if not re.fullmatch(r"-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%|em|rem|vh|vw)?", value):
+                raise FilmError("INVALID_ELEMENT_STYLE", f"画布 CSS 属性 {key} 需要有效长度值", 422)
+        elif key == "opacity":
+            number = _number(value, "opacity", 0, 1)
+            value = _fmt(number)
+        elif key == "position" and value not in {"static", "relative", "absolute", "fixed", "sticky"}:
+            raise FilmError("INVALID_ELEMENT_STYLE", "position 不是受支持的定位值", 422)
+        elif key == "fontWeight" and not re.fullmatch(r"(?:normal|bold|bolder|lighter|[1-9]00)", value):
+            raise FilmError("INVALID_ELEMENT_STYLE", "fontWeight 不是受支持的字重值", 422)
+        elif key == "textAlign" and value not in {"left", "right", "center", "justify", "start", "end"}:
+            raise FilmError("INVALID_ELEMENT_STYLE", "textAlign 不是受支持的对齐值", 422)
+        elif key == "rotate" and not re.fullmatch(r"-?(?:\d+(?:\.\d+)?|\.\d+)(?:deg|rad|turn)", value):
+            raise FilmError("INVALID_ELEMENT_STYLE", "rotate 必须使用 deg、rad 或 turn 单位", 422)
+        elif key == "transform" and not re.fullmatch(
+                r"(?:none|translate(?:X|Y)?\([-+\d.%a-zA-Z, ]+\)|scale(?:X|Y)?\([\d., -]+\)|rotate\([-+\d.]+deg\))",
+                value):
+            raise FilmError("INVALID_ELEMENT_STYLE", "transform 不是受支持的安全变换值", 422)
+        elif key in {"color", "backgroundColor"} and not re.fullmatch(
+                r"(?:#[0-9a-fA-F]{3,8}|rgba?\([\d.,%\s]+\)|hsla?\([\d.,%\s]+\)|[a-zA-Z]{1,24})",
+                value):
+            raise FilmError("INVALID_ELEMENT_STYLE", f"{key} 不是受支持的颜色值", 422)
+        style[key] = value
+    if not text_supplied and not style:
+        raise FilmError("EMPTY_ELEMENT_EDIT", "画布元素修改必须包含文本或至少一个样式属性", 422)
+    result = {"selector": selector}
+    if text_supplied:
+        result["text"] = text_value
+    if style:
+        result["style"] = style
+    return result
+
+
+def _apply_element_set(doc: dict, op: dict) -> dict:
+    track, clip = _find_clip(doc, str(op.get("clip") or ""))
+    _ensure_unlocked(track)
+    if clip.get("tag") != "iframe":
+        raise FilmError("ELEMENT_EDIT_REQUIRES_HTML", "画布元素修改只支持 HTML 镜头 iframe 片段", 422)
+    text_supplied = "text" in op
+    override = _normalize_element_override(
+        op.get("selector"), op.get("text"), text_supplied, op.get("style")
+    )
+    attrs = clip["attrs"]
+    raw = attrs.get("overrides")
+    try:
+        current = json.loads(raw) if isinstance(raw, str) and raw.strip() else raw
+    except json.JSONDecodeError as exc:
+        raise FilmError("INVALID_OVERRIDES", "当前 overrides 不是有效 JSON；未写入画布修改", 422) from exc
+    if current is None or current == "":
+        current = []
+    if not isinstance(current, list):
+        raise FilmError("INVALID_OVERRIDES", "当前 overrides 必须是数组；未写入画布修改", 422)
+    if len(current) >= 500:
+        raise FilmError("OVERRIDE_LIMIT", "单个镜头最多保存 500 项 overrides", 422)
+    entries = [dict(item) if isinstance(item, dict) else item for item in current]
+    match = next((item for item in entries
+                  if isinstance(item, dict) and item.get("selector") == override["selector"]), None)
+    if match is None:
+        entries.append(override)
+    else:
+        if "text" in override:
+            match["text"] = override["text"]
+        match["style"] = {**(match.get("style") if isinstance(match.get("style"), dict) else {}),
+                          **override.get("style", {})}
+    # Keep other legacy override records intact. The browser runtime only applies
+    # the selector-based subset it understands, so this edit cannot flatten them.
+    attrs["overrides"] = json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
+    normalized = {"op": "element_set", "clip": clip["id"], **override}
+    return normalized
+
+
 def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
     if not isinstance(ops, list) or not ops or len(ops) > MAX_OPERATIONS:
         raise FilmError("INVALID_OPERATIONS", f"ops 必须是 1–{MAX_OPERATIONS} 项的数组")
@@ -957,7 +1060,9 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
         if not isinstance(op, dict):
             raise FilmError("INVALID_OPERATION", f"第 {index + 1} 项操作不是对象")
         kind = op.get("op")
-        if kind == "set":
+        if kind == "element_set":
+            normalized.append(_apply_element_set(out, op))
+        elif kind == "set":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
             _ensure_unlocked(track)
             field = str(op.get("field") or "")
