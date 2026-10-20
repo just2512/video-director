@@ -181,7 +181,11 @@
       // During offline frame capture, prepareFrameEntry sends the strict frame(t)
       // request and waits for its acknowledgement; avoid a duplicate legacy seek.
       if(!state.renderMode){
-        try{if(el.contentWindow)el.contentWindow.postMessage({type:'film-time',time:localTime},'*');}catch(_){}
+        try{
+          if(el.contentWindow)el.contentWindow.postMessage({
+            type:'film-time',time:localTime,overrides:attrs.overrides||null
+          },'*');
+        }catch(_){}
       }
       entry.active=true;return;
     }
@@ -270,7 +274,7 @@
             clearTimeout(timer);window.removeEventListener('message',onMessage);resolve();
           }
           window.addEventListener('message',onMessage);
-          el.contentWindow.postMessage({type:'film-time',time:localTime},'*');
+          el.contentWindow.postMessage({type:'film-time',time:localTime,overrides:(clip.attrs||{}).overrides||null},'*');
         });
       }else{
         await new Promise(function(resolve,reject){
@@ -290,7 +294,7 @@
           window.addEventListener('message',onMessage);
           try{
             if(!el.contentWindow)throw new Error('镜头 iframe 尚未创建');
-            el.contentWindow.postMessage({type:'film-frame',time:localTime,frame:frameNumber},'*');
+            el.contentWindow.postMessage({type:'film-frame',time:localTime,frame:frameNumber,overrides:(clip.attrs||{}).overrides||null},'*');
           }catch(error){
             clearTimeout(timer);window.removeEventListener('message',onMessage);reject(error);
           }
@@ -318,8 +322,51 @@
     renderTime(state.time,true);pauseAll();post({type:'film-runtime:paused',time:state.time});
   }
   window.addEventListener('resize',fitStage);
+  function findEntryForFrame(source){
+    for(var i=0;i<state.tracks.length;i++){
+      for(var j=0;j<state.tracks[i].clips.length;j++){
+        var entry=state.tracks[i].clips[j];
+        if(entry.clip.tag==='iframe'&&entry.el.contentWindow===source)return entry;
+      }
+    }
+    return null;
+  }
+  function forwardSceneElementEvent(event,message){
+    if(!message||['film-element-selected','film-element-hover'].indexOf(message.type)<0)return false;
+    var entry=findEntryForFrame(event.source);
+    if(!entry)return false;
+    var rect=message.rect||{},viewportSize=message.viewport||{};
+    var localWidth=Math.max(1,finite(viewportSize.width,entry.el.clientWidth));
+    var localHeight=Math.max(1,finite(viewportSize.height,entry.el.clientHeight));
+    var scaleX=entry.el.clientWidth/localWidth,scaleY=entry.el.clientHeight/localHeight;
+    var left=entry.el.offsetLeft,top=entry.el.offsetTop;
+    post({
+      type:message.type==='film-element-selected'?'film-runtime:element-selected':'film-runtime:element-hover',
+      rev:state.rev,clipId:entry.clip.id,selector:message.selector,tag:message.tag,text:message.text,
+      styles:message.styles||{},
+      rect:{
+        x:left+finite(rect.x,0)*scaleX,y:top+finite(rect.y,0)*scaleY,
+        width:finite(rect.width,0)*scaleX,height:finite(rect.height,0)*scaleY
+      },
+      localRect:rect
+    });
+    return true;
+  }
+  function sendInspectMode(enabled){
+    state.tracks.forEach(function(track){
+      track.clips.forEach(function(entry){
+        if(entry.clip.tag==='iframe'&&entry.el.contentWindow){
+          try{entry.el.contentWindow.postMessage({type:'film-inspect',enabled:!!enabled},'*');}catch(_){}
+        }
+      });
+    });
+  }
   window.addEventListener('message',function(event){
-    if(event.source!==parent||event.origin!==window.location.origin)return;
+    if(event.source!==parent){
+      forwardSceneElementEvent(event,event.data||{});
+      return;
+    }
+    if(event.origin!==window.location.origin)return;
     var message=event.data||{};
     if(message.type==='film-runtime:load'){loadDocument(message.data,message.rev);post({type:'film-runtime:ready',rev:state.rev});}
     else if(message.type==='film-runtime:seek'){
@@ -337,6 +384,13 @@
     else if(message.type==='film-runtime:play')play();
     else if(message.type==='film-runtime:pause')pause();
     else if(message.type==='film-runtime:render-frame')renderFrame(message);
+    else if(message.type==='film-runtime:inspect')sendInspectMode(message.enabled);
+    else if(message.type==='film-runtime:element-edit'){
+      var target=byId[message.clipId];
+      if(target&&target.clip.tag==='iframe'&&target.el.contentWindow){
+        try{target.el.contentWindow.postMessage({type:'film-element-edit',override:message.override},'*');}catch(_){}
+      }
+    }
   });
   post({type:'film-runtime:ready'});
 })();
