@@ -2287,6 +2287,11 @@ def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict]
             except (AttributeError, FilmError):
                 warnings.append("volume 关键帧含非数值或越界值（允许范围 0–1）")
                 continue
+            easing = str(point.get("easing") or "linear")
+            if easing != "linear":
+                warnings.append(
+                    f"volume@{_fmt(at)}s 的缓动 {easing} 尚未进入统一包络协议；本次按线性插值迁移"
+                )
             if at > duration + 0.001:
                 warnings.append(f"volume@{_fmt(at)}s 超出片段时长")
                 continue
@@ -2309,6 +2314,13 @@ def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict]
         return [], list(dict.fromkeys(warnings))
     if not normalized:
         warnings.append("volume 关键帧没有可迁移的有效点")
+        return [], list(dict.fromkeys(warnings))
+    if len(normalized) == 1:
+        # A lone gain point has no slope; preserve it as a constant envelope.
+        gain = normalized[0]["v"]
+        end = min(max(0.001, float(duration)), 600.0)
+        normalized = [{"t": 0.0, "v": gain}, {"t": end, "v": gain}]
+        warnings.append("volume 只有一个有效关键帧；按恒定音量补齐 0s 与片段末端")
     return normalized, list(dict.fromkeys(warnings))
 
 
@@ -2545,7 +2557,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             audio_lane_usage[lane_id] = audio_lane_usage.get(lane_id, 0) + 1
     for lane_id, lane in audio_lanes_by_id.items():
         if lane.get("hidden"):
-            warnings.append(f"旧音轨 {lane.get('name') or lane_id} 的隐藏状态未迁移")
+            warnings.append(
+                f"旧音轨 {lane.get('name') or lane_id} hidden 表示时间线折叠；"
+                "来源状态保存在 data-source-track-hidden，原分组折叠交互尚未迁移"
+            )
         if audio_lane_usage.get(lane_id, 0) > 1:
             warnings.append(
                 f"旧音轨 {lane.get('name') or lane_id} 含多个片段；片段会拆成独立 Film 轨道，"
@@ -2584,6 +2599,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         str(lane.get("id")): lane for lane in visual_tracks
         if isinstance(lane, dict) and lane.get("id")
     }
+    if any(lane.get("hidden") for lane in visual_tracks if isinstance(lane, dict)):
+        warnings.append(
+            "旧视觉轨道 hidden 表示时间线折叠而不是画面隐藏；来源状态保存在 data-source-track-hidden，"
+            "原分组折叠交互尚未迁移"
+        )
     overlay_lane_counts: dict[str, int] = {}
     for overlay in raw_ir.get("visual_overlays") or []:
         if not isinstance(overlay, dict):
@@ -2802,9 +2822,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if source_lane.get("locked"):
             overlay_track["attrs"]["locked"] = ""
         if source_lane.get("hidden"):
-            # Preserve the actual render/editor state, not only migration metadata.
-            # Film Runtime already honors track.attrs.hidden and the Studio can unhide it.
-            overlay_track["attrs"]["hidden"] = ""
+            # Source "hidden" folds a timeline lane; FilmDocument "hidden" suppresses rendering.
+            # Preserve it as metadata instead of muting the picture.
             overlay_track["attrs"]["data-source-track-hidden"] = "true"
         if source_lane_id:
             overlay_track["attrs"]["data-source-track-id"] = source_lane_id
@@ -2867,6 +2886,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         audio_timeline_track = one_clip_track(tid, label, {"id": cid, "tag": "audio", "attrs": attrs})
         if lane.get("locked"):
             audio_timeline_track["attrs"]["locked"] = ""
+        if lane.get("hidden"):
+            audio_timeline_track["attrs"]["data-source-track-hidden"] = "true"
         tracks.append(audio_timeline_track)
 
     watermarks = raw_ir.get("watermarks") or []
