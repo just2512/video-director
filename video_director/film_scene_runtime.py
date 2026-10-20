@@ -483,6 +483,7 @@ _SCENE_BRIDGE = r"""
     } else if (message.type === 'film-inspect') {
       inspectMode = !!message.enabled;
       if (!inspectMode) window.__vdHoveredElement = null;
+      else parent.postMessage({type:'film-inspect-ready',enabled:true}, '*');
     } else if (message.type === 'film-element-edit') {
       var incoming = message.override;
       if (!incoming || typeof incoming.selector !== 'string') return;

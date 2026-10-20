@@ -1,7 +1,7 @@
 /* Multi-track browser preview from the authoritative film.html projection. */
 (function(){
   'use strict';
-  var state={data:null,time:0,playing:false,renderMode:false,originTime:0,originClock:0,lastParentUpdate:0,rev:'',tracks:[],duration:0,raf:0};
+  var state={data:null,time:0,playing:false,renderMode:false,inspectMode:false,originTime:0,originClock:0,lastParentUpdate:0,rev:'',tracks:[],duration:0,raf:0};
   var stage=document.getElementById('stage'),viewport=document.getElementById('viewport'),notice=document.getElementById('notice');
   var byId=Object.create(null);
   function finite(v,fallback){var n=Number(v);return Number.isFinite(n)?n:fallback;}
@@ -90,7 +90,14 @@
     else if(clip.tag==='iframe')el=document.createElement('iframe');
     else return null;
     if(clip.tag==='iframe'){
-      el.addEventListener('load',function(){iframeLoaded=true;if(entry)entry.iframeLoaded=true;});
+      el.addEventListener('load',function(){
+        iframeLoaded=true;if(entry)entry.iframeLoaded=true;
+        // The Studio may enable Inspect before this scene's bridge script is ready.
+        // Replay the current mode on load so a one-time postMessage cannot be lost.
+        if(state.inspectMode&&el.contentWindow){
+          try{el.contentWindow.postMessage({type:'film-inspect',enabled:true},'*');}catch(_){}
+        }
+      });
       el.addEventListener('error',function(){iframeLoadError=true;if(entry)entry.iframeLoadError=true;});
     }
     el.className='fs-runtime-media';el.id=String(clip.id||'');el.setAttribute('data-clip-id',clip.id);
@@ -492,7 +499,8 @@
       'film-element-selected':'film-runtime:element-selected',
       'film-element-hover':'film-runtime:element-hover',
       'film-element-preview':'film-runtime:element-preview',
-      'film-element-drag-end':'film-runtime:element-drag-end'
+      'film-element-drag-end':'film-runtime:element-drag-end',
+      'film-inspect-ready':'film-runtime:inspect-ready'
     };
     if(!message||!mappedType[message.type])return false;
     var entry=findEntryForFrame(event.source);
@@ -510,7 +518,7 @@
         x:left+finite(rect.x,0)*scaleX,y:top+finite(rect.y,0)*scaleY,
         width:finite(rect.width,0)*scaleX,height:finite(rect.height,0)*scaleY
       },
-      localRect:rect
+      localRect:rect,enabled:message.enabled===true
     });
     return true;
   }
@@ -546,7 +554,10 @@
     else if(message.type==='film-runtime:play')play();
     else if(message.type==='film-runtime:pause')pause();
     else if(message.type==='film-runtime:render-frame')renderFrame(message);
-    else if(message.type==='film-runtime:inspect')sendInspectMode(message.enabled);
+    else if(message.type==='film-runtime:inspect'){
+      state.inspectMode=!!message.enabled;
+      sendInspectMode(state.inspectMode);
+    }
     else if(message.type==='film-runtime:element-edit'){
       var target=byId[message.clipId];
       if(target&&target.clip.tag==='iframe'&&target.el.contentWindow){

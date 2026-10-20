@@ -2785,7 +2785,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                         attrs["volume_envelope"] = json.dumps(
                             volume_envelope, ensure_ascii=False, separators=(",", ":")
                         )
-                    unsupported_layer_fields.extend(f"keyframes:volume:{warning}" for warning in volume_warnings)
+                    unsupported_layer_fields.extend(f"音量包络迁移提示：{warning}" for warning in volume_warnings)
                 else:
                     unsupported_layer_fields.append("图片层的 volume 关键帧无对应音轨，未迁移")
             channels, motion_warning = _motion_keyframes(layer.get("motion"), d, base_transform, channels)
