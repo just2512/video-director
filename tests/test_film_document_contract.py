@@ -1309,3 +1309,14 @@ def test_ai_planner_refuses_whole_text_replacement_for_nested_selected_element()
     with pytest.raises(fd.FilmError, match="包含子元素"):
         fd.plan_film_command(FakeLLM(), state, "改标题", "scene", selected_element=selected)
 
+
+
+def test_canvas_inspector_submits_the_validated_element_set_operation():
+    root = Path(__file__).resolve().parents[1]
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    document = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert "var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle}" in studio
+    assert "await filmStudioCommit([elementOp]);" in studio
+    assert 'if kind == "element_set":' in document
+    assert "field:'overrides',value:JSON.stringify(overrides)" not in studio
+
