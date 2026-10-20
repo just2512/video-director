@@ -20,6 +20,80 @@ def _collect_files(d: str, exts: tuple) -> list:
     return sorted(str(x) for x in p.iterdir() if x.suffix.lower() in exts)
 
 
+def _validate_migration_source_snapshot(project_id: str):
+    """Verify the source-IR archive linked from film-migration.json.
+
+    Returns (True, []) when a declared archive is intact, (None, []) when this
+    is not a migrated project or has no archive metadata, and (False, issues)
+    when the manifest/archive is malformed, missing, or has a bad digest.
+    """
+    import hashlib
+
+    from video_director import film_document as fd
+
+    root = fd._project_root(fd.validate_project_id(project_id)).resolve()
+    manifest_candidate = (root / fd.MIGRATION_NAME).resolve()
+    try:
+        manifest_candidate.relative_to(root)
+    except ValueError:
+        return False, [{"code": "INVALID_MIGRATION_MANIFEST_PATH",
+                        "message": "film-migration.json 的解析路径超出项目目录"}]
+    if not manifest_candidate.is_file():
+        return None, []
+    try:
+        manifest = json.loads(manifest_candidate.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return False, [{"code": "MIGRATION_MANIFEST_INVALID",
+                        "message": f"迁移清单不可读取或不是合法 JSON：{exc}"}]
+    if not isinstance(manifest, dict):
+        return False, [{"code": "MIGRATION_MANIFEST_INVALID",
+                        "message": "迁移清单必须是 JSON 对象"}]
+
+    archive_relative = manifest.get("source_snapshot_path")
+    expected_digest = manifest.get("source_snapshot_sha256")
+    if archive_relative is None and expected_digest is None:
+        return None, []
+    if not isinstance(archive_relative, str) or not archive_relative.strip() or not isinstance(expected_digest, str):
+        return False, [{"code": "SOURCE_SNAPSHOT_METADATA_INCOMPLETE",
+                        "message": "迁移清单缺少有效的 source_snapshot_path 或 source_snapshot_sha256"}]
+    relative = Path(archive_relative)
+    if relative.is_absolute() or "\\" in archive_relative or any(part in {"", ".", ".."} for part in relative.parts):
+        return False, [{"code": "INVALID_SOURCE_SNAPSHOT_PATH",
+                        "message": "来源快照路径必须是项目目录内的相对路径"}]
+    snapshot_candidate = (root / relative).resolve()
+    try:
+        snapshot_candidate.relative_to(root)
+    except ValueError:
+        return False, [{"code": "INVALID_SOURCE_SNAPSHOT_PATH",
+                        "message": "来源快照路径超出项目目录"}]
+    if not snapshot_candidate.is_file():
+        return False, [{"code": "SOURCE_SNAPSHOT_MISSING",
+                        "path": archive_relative,
+                        "message": "迁移清单引用的来源快照文件不存在"}]
+    try:
+        snapshot_bytes = snapshot_candidate.read_bytes()
+    except OSError as exc:
+        return False, [{"code": "SOURCE_SNAPSHOT_UNREADABLE",
+                        "path": archive_relative, "message": f"来源快照不可读取：{exc}"}]
+    actual_digest = hashlib.sha256(snapshot_bytes).hexdigest()
+    if actual_digest != expected_digest:
+        return False, [{"code": "SOURCE_SNAPSHOT_DIGEST_MISMATCH",
+                        "path": archive_relative,
+                        "expected_sha256": expected_digest,
+                        "actual_sha256": actual_digest,
+                        "message": "来源快照 SHA-256 与迁移清单不一致"}]
+    try:
+        snapshot = json.loads(snapshot_bytes.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        return False, [{"code": "SOURCE_SNAPSHOT_INVALID_JSON",
+                        "path": archive_relative, "message": f"来源快照不是有效 UTF-8 JSON：{exc}"}]
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("project"), dict):
+        return False, [{"code": "SOURCE_SNAPSHOT_INVALID_SCHEMA",
+                        "path": archive_relative,
+                        "message": "来源快照不是带有 project 对象的 CompositionIR JSON"}]
+    return True, []
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser("video_director", description="AI Video Director")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -185,6 +259,8 @@ def main(argv=None):
                 # second parse keeps the command's contract explicit and fail-closed.
                 doc = fd.parse_film(state["text"])
                 issues = []
+                source_snapshot_checked, snapshot_issues = _validate_migration_source_snapshot(pid)
+                issues.extend(snapshot_issues)
                 checked_assets = 0
                 for track in doc["tracks"]:
                     for clip in track["clips"]:
@@ -204,8 +280,10 @@ def main(argv=None):
                     "ok": not issues, "project_id": pid, "revision": state["rev"],
                     "stage": doc["stage"], "track_count": len(doc["tracks"]),
                     "clip_count": len(clips), "duration": round(duration, 6),
-                    "assets_checked": checked_assets, "issues": issues,
-                    "note": "frame(t) 页面能力与实际逐帧确定性由 film look / film render 的真实浏览器验收。",
+                    "assets_checked": checked_assets,
+                    "source_snapshot_checked": source_snapshot_checked,
+                    "issues": issues,
+                    "note": "素材存在性和迁移来源快照摘要会在此检查；frame(t) 页面能力与实际逐帧确定性仍由 film look / film render 的真实浏览器验收。",
                 }
                 emit(payload, 0 if not issues else 1)
 
