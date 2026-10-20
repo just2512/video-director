@@ -1065,6 +1065,11 @@
       // iframe can be present in the DOM while its outer monitor is still hidden.
       // Sync first (reveals the monitor and loads the exact current revision),
       // then send inspect; the runtime replays inspect again after its ready ack.
+      if(frame){
+        frame.style.display='block';
+        var monitorPlaceholder=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
+        if(monitorPlaceholder)monitorPlaceholder.style.display='none';
+      }
       syncRuntime('seek');
       if(frame&&frame.contentWindow)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:true},window.location.origin);
       window.filmStudioSetSideMode('inspector');
@@ -1123,6 +1128,18 @@
     if(message.type==='film-runtime:ready'){
       var expectedRuntimeRev=S.previewProposalActive&&S.proposal?'proposal:'+S.proposal.id:S.rev;
       var hasRuntimeData=!!(S.previewProposalActive&&S.proposal?S.proposal.candidate:S.data);
+      // The runtime's first ready message has no revision. It can race the
+      // iframe load event (or arrive before a project is selected), so use it
+      // as a real handshake and replay the current document after that event.
+      if(!message.rev){
+        S.runtimeReady=true;
+        try{S.runtimeDocument=frame.contentDocument||S.runtimeDocument;}catch(_){}
+        if(hasRuntimeData){
+          S.runtimeRev='';
+          syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
+        }
+        return;
+      }
       if(message.rev&&hasRuntimeData&&message.rev!==expectedRuntimeRev){
         S.runtimeRev='';
         syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
