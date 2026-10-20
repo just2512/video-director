@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 
 from video_director import config, film_document as fd
 from video_director.models import CompositionIR
@@ -168,3 +169,23 @@ def test_active_variant_duration_includes_audio_extending_past_final_scene(tmp_p
     assert audio_clip["attrs"]["data-asset-id"] == "asset-music"
     assert audio_clip["attrs"]["at"] == "0"
     assert "与旧 project.duration" in "\n".join(result["warnings"])
+
+def test_migration_rejects_disk_composition_that_differs_from_loaded_ir(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "composition-source-revision-mismatch"
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "scenes": [{
+            "id": "scene", "start": 0, "duration": 1, "text": "source",
+            "layers": [{"type": "image", "asset_id": "asset-still", "start": 0, "duration": 1}],
+        }],
+    })
+    raw_disk = json.loads(ir.model_dump_json())
+    raw_disk["project"]["width"] = 321
+    source_path = config.project_dir(project_id) / "plans" / "composition.json"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text(json.dumps(raw_disk), encoding="utf-8")
+
+    with pytest.raises(fd.FilmError, match="磁盘 composition.json 已与当前迁移对象不同"):
+        fd.build_film_from_composition(project_id, ir)
