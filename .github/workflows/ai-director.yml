@@ -206,6 +206,7 @@ jobs:
           test -s webui/static/js/film-studio-react.js
           "$PY311_BIN/python3.11" - <<'PY'
           import base64
+          import hashlib
           import json
           import os
           import sys
@@ -225,37 +226,59 @@ jobs:
               "User-Agent": "video-director-ci",
           }
 
-          def request(url, method="GET", payload=None):
+          def request(route, method="GET", payload=None):
+              url = route if route.startswith("https://") else api + route
               data = None if payload is None else json.dumps(payload).encode("utf-8")
               req = urllib.request.Request(url, data=data, headers=headers, method=method)
               try:
-                  with urllib.request.urlopen(req, timeout=45) as response:
+                  with urllib.request.urlopen(req, timeout=60) as response:
                       raw = response.read()
                       return json.loads(raw) if raw else {}
               except urllib.error.HTTPError as exc:
                   details = exc.read().decode("utf-8", "replace")[:2000]
-                  raise RuntimeError(f"GitHub API {method} {url}: HTTP {exc.code}: {details}") from exc
+                  raise RuntimeError(f"GitHub API {method} {route}: HTTP {exc.code}: {details}") from exc
 
-          branch = request(f"{api}/repos/{repo}/commits/main")
-          if branch.get("sha") != expected:
-              print(
-                  "::warning::main advanced while CI was running; bundle publication skipped "
-                  f"(tested={expected}, current={branch.get('sha')})."
-              )
+          current = request(f"/repos/{repo}/commits/main").get("sha")
+          if current != expected:
+              print(f"::warning::main advanced while tests ran; bundle publish skipped (tested={expected}, current={current}).")
               sys.exit(0)
 
-          remote_file = request(f"{api}/repos/{repo}/contents/{path}?ref=main")
+          remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
           built = Path(path).read_bytes()
-          payload = {
-              "message": "build: publish verified React 19 Studio bundle",
-              "content": base64.b64encode(built).decode("ascii"),
-              "sha": remote_file["sha"],
-              "branch": "main",
-          }
-          result = request(f"{api}/repos/{repo}/contents/{path}", "PUT", payload)
-          new_sha = (result.get("commit") or {}).get("sha")
-          if not new_sha:
-              raise RuntimeError("GitHub API did not return the bundle commit SHA")
-          print(f"Published verified React Studio bundle: {new_sha}")
-          PY
+          git_blob_sha = hashlib.sha1(
+              b"blob " + str(len(built)).encode("ascii") + bytes([0]) + built
+          ).hexdigest()
+          if git_blob_sha == remote_file.get("sha"):
+              print("React Studio bundle is already current; no commit created.")
+              sys.exit(0)
 
+          # Contents API is not reliable for generated bundles over 1 MiB.
+          # Publish via Git Database API and never force-update the main ref.
+          blob = request(f"/repos/{repo}/git/blobs", "POST", {
+              "content": base64.b64encode(built).decode("ascii"),
+              "encoding": "base64",
+          })
+          current_ref = request(f"/repos/{repo}/git/ref/heads/main")
+          parent_sha = current_ref["object"]["sha"]
+          if parent_sha != expected:
+              print(f"::warning::main advanced before bundle publication; no ref update (tested={expected}, current={parent_sha}).")
+              sys.exit(0)
+          parent_commit = request(f"/repos/{repo}/git/commits/{parent_sha}")
+          tree = request(f"/repos/{repo}/git/trees", "POST", {
+              "base_tree": parent_commit["tree"]["sha"],
+              "tree": [{"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]}],
+          })
+          new_commit = request(f"/repos/{repo}/git/commits", "POST", {
+              "message": "build: publish verified React 19 Studio bundle",
+              "tree": tree["sha"],
+              "parents": [parent_sha],
+          })
+          current_ref = request(f"/repos/{repo}/git/ref/heads/main")
+          if current_ref["object"]["sha"] != expected:
+              print("::warning::main advanced during bundle publication; generated blob is unreferenced, ref update skipped.")
+              sys.exit(0)
+          updated = request(f"/repos/{repo}/git/refs/heads/main", "PATCH", {
+              "sha": new_commit["sha"], "force": False,
+          })
+          print(f"Published verified React Studio bundle: {updated['object']['sha']}")
+          PY
