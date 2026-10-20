@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 
 def _write_html_film_project(tmp_path: Path, monkeypatch) -> tuple[str, str]:
@@ -12,12 +13,18 @@ def _write_html_film_project(tmp_path: Path, monkeypatch) -> tuple[str, str]:
     project_id = "html-scene-e2e"
     project = config.project_dir(project_id)
     (project / "scenes").mkdir(parents=True, exist_ok=True)
+    (project / "assets").mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (20, 20), (255, 0, 0)).save(project / "assets" / "moving-red.png")
     film_html = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=160,height=90">
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden}</style></head>
 <body><section id="visual" data-label="网页镜头">
 <iframe id="scene-opening" src="scenes/opening.html#t=0,1" at="0"
  style="left:0px;top:0px;width:160px;height:90px"></iframe>
+<img id="moving-red" src="assets/moving-red.png#t=0,1" at="0"
+ data-film-transform='{"x":0.125,"y":0.5,"scale":1,"rotation":0,"opacity":1,"anchor":"center","stage_width":160,"stage_height":90,"base_width":20,"base_height":20}'
+ data-film-keyframes='[{"property":"x","keyframes":[{"at":0,"value":0.125,"easing":"linear"},{"at":1,"value":0.875,"easing":"linear"}]}]'
+ style="left:10px;top:35px;width:20px;height:20px;opacity:1;object-fit:contain;transform-origin:50% 50%;rotate:0deg"/>
 </section></body></html>'''
     scene_html = '''<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -54,6 +61,30 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
     assert look["revision"] == revision
     assert look["determinism_status"] == "PASS"
     assert Path(look["image_path"]).is_file()
+
+    # The migrated FilmRuntime must apply frame(t)-driven Transform keyframes
+    # to the actual rendered element, not merely persist the JSON attributes.
+    with Image.open(look["image_path"]) as contact_sheet:
+        sheet = contact_sheet.convert("RGB")
+        assert sheet.width >= 1280 and sheet.height >= 360
+
+        def red_centroid(tile):
+            pixels = [
+                (x, y)
+                for y in range(tile.height)
+                for x in range(tile.width)
+                if (lambda rgb: rgb[0] > 220 and rgb[1] < 60 and rgb[2] < 60)(tile.getpixel((x, y)))
+            ]
+            assert len(pixels) >= 200, f"red moving layer is absent from the contact sheet ({len(pixels)} pixels)"
+            return sum(x for x, _ in pixels) / len(pixels)
+
+        first_tile = sheet.crop((0, 0, 640, 360))
+        second_tile = sheet.crop((640, 0, 1280, 360))
+        first_center = red_centroid(first_tile)
+        second_center = red_centroid(second_tile)
+        assert second_center - first_center > 150, (
+            f"Transform keyframes were not applied at t=0.5s: {first_center=}, {second_center=}"
+        )
 
     state = fd.read_project_film(project_id)
     result = film_render.render_project_film(project_id, state["rev"], fps=2)
