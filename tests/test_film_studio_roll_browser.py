@@ -93,6 +93,24 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 }""", project_id)
                 page.evaluate("window.filmStudioToggle()")
                 page.locator('#film-studio-panel.fs-studio-expanded').wait_for(state="visible")
+                # Exercise the actual horizontal dock seam, not only its DOM presence.
+                timeline_pane = page.locator('.fs-timeline-pane')
+                divider = page.locator('#fs-timeline-divider')
+                divider.wait_for(state="visible")
+                before_height = timeline_pane.bounding_box()["height"]
+                divider_box = divider.bounding_box()
+                assert divider_box and before_height > 0
+                page.mouse.move(divider_box["x"] + divider_box["width"] / 2,
+                                divider_box["y"] + divider_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(divider_box["x"] + divider_box["width"] / 2,
+                                divider_box["y"] + divider_box["height"] / 2 - 64,
+                                steps=4)
+                page.mouse.up()
+                after_height = timeline_pane.bounding_box()["height"]
+                assert after_height >= before_height + 30, "timeline seam should resize the timeline panel"
+                saved_height = page.evaluate("localStorage.getItem('film-studio-timeline-height')")
+                assert saved_height and abs(float(saved_height) - after_height) < 2
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
                 page.evaluate("window.filmStudioSeek(2)")
