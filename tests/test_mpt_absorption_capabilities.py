@@ -29,8 +29,18 @@ class TestStockProviders:
         assert stock.PROVIDER_POLICY["pixabay"]["standalone_export_allowed"] is False
         assert stock.PROVIDER_POLICY["coverr"]["default_status"] == "REVIEW"
 
-    def test_missing_key_honest_unavailable(self, monkeypatch):
-        """§86：三 provider 全缺 key → STOCK_UNAVAILABLE（不伪造结果）。"""
+    def test_missing_key_honest_unavailable(self, monkeypatch, tmp_path):
+        """§86：三 provider 全缺 key → STOCK_UNAVAILABLE（不伪造结果）。
+
+        2026-10-21 隔离修复两处泄漏：①pexels 403 根修后真实缓存会出现——
+        隔离缓存目录（缓存命中不要求 provider 就绪是 §三十 有意设计）；
+        ②model_config.json 文件 key 优先于 env（fa552b9 契约）——只删 env
+        挡不住文件 key，必须隔离 model_config 到空目录。
+        """
+        from video_director import config as _cfg, model_config as _mc
+        monkeypatch.setattr(_cfg, "composer_storage_root", lambda: tmp_path)
+        monkeypatch.setattr(_mc, "_cache", None)
+        monkeypatch.setattr(_mc, "_config_path", lambda: tmp_path / "mc.json")
         monkeypatch.delenv("PEXELS_API_KEY", raising=False)
         monkeypatch.delenv("PIXABAY_API_KEY", raising=False)
         monkeypatch.delenv("COVERR_API_KEY", raising=False)
