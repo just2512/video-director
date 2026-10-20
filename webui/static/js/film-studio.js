@@ -9,8 +9,36 @@
   function clips() { return (S.data && S.data.tracks || []).reduce(function (a,t) { return a.concat((t.clips || []).map(function (c) { c.track_id = t.id; return c; })); }, []); }
   function findClip(id) { return clips().find(function (c) { return c.id === id; }) || null; }
   function showStatus(message, kind) { var el=$('film-studio-alert'); if(!el)return; el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':''); el.textContent=message||''; }
+  function renderAiDirector() {
+    var bridge=window.filmStudioReactAi,root=$('fs-react-ai-director'),legacy=$('fs-static-ai-director');
+    if(bridge&&typeof bridge.render==='function'&&root){
+      var proposal=S.proposal?{
+        summary:String(S.proposal.summary||'AI 候选修改'),
+        operationCount:(S.proposal.operations||[]).length,
+        baseRevision:String(S.proposal.base_revision||'')
+      }:null;
+      try{
+        bridge.render({
+          messages:(S.messages||[]).map(function(item){return{text:String(item.text||''),role:String(item.role||'assistant')};}),
+          proposal:proposal
+        });
+        root.style.display='flex';
+        if(legacy)legacy.style.display='none';
+        return true;
+      }catch(error){
+        console.error('React AI director mount failed; using static fallback.',error);
+        root.style.display='none';
+        if(legacy)legacy.style.display='';
+      }
+    }
+    return false;
+  }
   function appendMessage(text, role) {
     S.messages.push({text:String(text),role:role});
+    if(renderAiDirector()){
+      var reactLog=$('fs-chat-log');if(reactLog)reactLog.scrollTop=reactLog.scrollHeight;
+      return;
+    }
     var log=$('fs-chat-log'); if (!log) return;
     log.innerHTML=S.messages.map(function(m){return '<div class="fs-chat-message '+(m.role==='user'?'fs-user':'fs-assistant')+'">'+esc(m.text)+'</div>';}).join('');
     log.scrollTop=log.scrollHeight;
@@ -1258,6 +1286,7 @@
     }
   };
   function renderProposalPanel(){
+    if(renderAiDirector())return;
     var panel=$('fs-proposal-panel'),proposal=S.proposal;
     if(!panel)return;
     panel.hidden=!proposal;
@@ -1581,5 +1610,6 @@
     if(legacyScrub)legacyScrub.style.display='';
   }
   mountReactToolbar();
+  renderAiDirector();
 
 })();

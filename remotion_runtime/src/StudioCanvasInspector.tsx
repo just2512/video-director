@@ -70,6 +70,12 @@ type FilmTimelineSurfaceModel = {
 interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
 }
+type FilmStudioAiMessage = {text: string; role: string};
+type FilmStudioAiProposal = {summary: string; operationCount: number; baseRevision: string} | null;
+type FilmStudioAiDirectorModel = {messages: FilmStudioAiMessage[]; proposal: FilmStudioAiProposal};
+interface FilmStudioReactAiBridge {
+  render(model: FilmStudioAiDirectorModel): void;
+}
 
 declare global {
   interface Window {
@@ -80,6 +86,8 @@ declare global {
     filmStudioSeek?: (value: string | number) => void;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
     filmStudioReactTimeline?: FilmStudioReactTimelineBridge;
+    filmStudioReactAi?: FilmStudioReactAiBridge;
+    filmStudioAsk?: () => Promise<void> | void;
     filmStudioSelectClip?: (clipId: string) => void;
     filmStudioShowAssetMode?: (mode: string) => void;
     filmStudioAddAsset?: (assetId: string) => Promise<void> | void;
@@ -184,6 +192,47 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
         onClick={() => { void window.filmStudioSaveInspector?.(); }}
       >应用片段属性</button>
     </div>
+  );
+};
+
+const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model}) => {
+  const messages = model.messages.length ? model.messages : [{
+    role: "assistant",
+    text: "可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。"
+  }];
+  const proposal = model.proposal;
+  return (
+    <>
+      {proposal ? (
+        <div className="fs-proposal-panel" id="fs-proposal-panel" data-react-ai-proposal="true">
+          <strong id="fs-proposal-summary">{proposal.summary || "AI 候选修改"}</strong>
+          <p id="fs-proposal-detail">{proposal.operationCount} 项操作 · 基于 revision {proposal.baseRevision} · 尚未写入正式文档</p>
+          <div className="fs-proposal-actions">
+            <button className="fs-btn" type="button" data-film-action="preview-proposal">重新预览</button>
+            <button className="fs-btn" type="button" data-film-action="reject-proposal">拒绝</button>
+            <button className="fs-btn fs-primary" type="button" data-film-action="apply-proposal">确认应用</button>
+          </div>
+        </div>
+      ) : null}
+      <div id="fs-chat-log" className="fs-chat-log" aria-live="polite" data-react-ai-chat-log="true">
+        {messages.map((message, index) => (
+          <div
+            className={"fs-chat-message " + (message.role === "user" ? "fs-user" : "fs-assistant")}
+            key={index}
+          >{message.text}</div>
+        ))}
+      </div>
+      <div className="fs-chat-input-row">
+        <input
+          id="fs-chat-input"
+          type="text"
+          placeholder="描述你要修改的影片……"
+          aria-label="给 AI 导演的修改指令"
+          onKeyDown={(event) => { if (event.key === "Enter") void window.filmStudioAsk?.(); }}
+        />
+        <button className="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
+      </div>
+    </>
   );
 };
 
@@ -474,6 +523,22 @@ window.filmStudioReactToolbar = {
     }
     flushSync(() => {
       scrubRoot?.render(<StudioScrubRow />);
+    });
+  },
+};
+
+let aiRoot: Root | null = null;
+let aiMount: HTMLElement | null = null;
+window.filmStudioReactAi = {
+  render(model) {
+    const mount = document.getElementById("fs-react-ai-director");
+    if (!mount) return;
+    if (!aiRoot || aiMount !== mount) {
+      aiRoot = createRoot(mount);
+      aiMount = mount;
+    }
+    flushSync(() => {
+      aiRoot?.render(<StudioAiDirector key="ai-director" model={model} />);
     });
   },
 };

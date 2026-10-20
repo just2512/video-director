@@ -165,19 +165,22 @@
             <div id="fs-react-canvas-inspector"></div>
           </div>
           <div class="fs-side-view fs-side-ai" id="fs-side-ai" role="tabpanel" hidden>
-            <div class="fs-proposal-panel" id="fs-proposal-panel" hidden>
-              <strong id="fs-proposal-summary">待确认修改</strong>
-              <p id="fs-proposal-detail"></p>
-              <div class="fs-proposal-actions">
-                <button class="fs-btn" type="button" data-film-action="preview-proposal">重新预览</button>
-                <button class="fs-btn" type="button" data-film-action="reject-proposal">拒绝</button>
-                <button class="fs-btn fs-primary" type="button" data-film-action="apply-proposal">确认应用</button>
+            <div id="fs-react-ai-director" class="fs-ai-director-root" style="display:none" aria-label="React AI 导演面板"></div>
+            <div id="fs-static-ai-director">
+              <div class="fs-proposal-panel" id="fs-proposal-panel" hidden>
+                <strong id="fs-proposal-summary">待确认修改</strong>
+                <p id="fs-proposal-detail"></p>
+                <div class="fs-proposal-actions">
+                  <button class="fs-btn" type="button" data-film-action="preview-proposal">重新预览</button>
+                  <button class="fs-btn" type="button" data-film-action="reject-proposal">拒绝</button>
+                  <button class="fs-btn fs-primary" type="button" data-film-action="apply-proposal">确认应用</button>
+                </div>
               </div>
-            </div>
-            <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。</div></div>
-            <div class="fs-chat-input-row">
-              <input id="fs-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
-              <button class="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
+              <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。</div></div>
+              <div class="fs-chat-input-row">
+                <input id="fs-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
+                <button class="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
+              </div>
             </div>
           </div>
         </aside>
