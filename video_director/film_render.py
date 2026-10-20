@@ -6,7 +6,9 @@ from the same stable clip IDs / source ranges.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+from datetime import datetime, timezone
 from io import BytesIO
 import math
 import mimetypes
@@ -20,7 +22,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageStat
 
 from video_director import config
 from video_director import film_document as fd
@@ -506,6 +508,87 @@ def _assert_frame_deterministic(reference_path: Path, candidate_png: bytes, fram
         )
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _audio_signal_qc(ffmpeg: str, path: Path, duration: float) -> dict:
+    """Measure the encoded first audio stream without changing the export."""
+    try:
+        completed = subprocess.run(
+            [ffmpeg, "-hide_banner", "-nostats", "-i", str(path),
+             "-map", "0:a:0", "-vn", "-af", "volumedetect", "-f", "null", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            timeout=max(60, int(duration * 10 + 20)), check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"status": "UNKNOWN", "mean_volume_db": None, "max_volume_db": None,
+                "error": str(exc)[:500]}
+
+    output = (completed.stderr or "") + "\n" + (completed.stdout or "")
+    mean_match = re.search(r"mean_volume:\s*(-inf|[-+]?\\d+(?:\\.\\d+)?)\\s*dB", output, re.I)
+    max_match = re.search(r"max_volume:\s*(-inf|[-+]?\\d+(?:\\.\\d+)?)\\s*dB", output, re.I)
+
+    def db(match):
+        if not match or match.group(1).lower() == "-inf":
+            return None
+        try:
+            value = float(match.group(1))
+            return value if math.isfinite(value) else None
+        except (TypeError, ValueError):
+            return None
+
+    mean_db, max_db = db(mean_match), db(max_match)
+    if completed.returncode != 0 or (not mean_match and not max_match):
+        return {"status": "UNKNOWN", "mean_volume_db": mean_db, "max_volume_db": max_db,
+                "error": (output.strip()[-800:] or "FFmpeg volumedetect 未返回音量统计")}
+    if mean_db is None and max_db is None:
+        status = "SILENT"
+    elif max_db is not None and max_db > -80 and (mean_db is None or mean_db > -60):
+        status = "AUDIBLE"
+    else:
+        status = "NEAR_SILENT"
+    return {"status": status, "mean_volume_db": mean_db, "max_volume_db": max_db}
+
+
+def _visual_frame_qc(path: Path, frame_number: int, fps: int) -> dict:
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+    stats = ImageStat.Stat(image)
+    return {
+        "frame": frame_number,
+        "timestamp_seconds": round(frame_number / fps, 6),
+        "width": image.width,
+        "height": image.height,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "mean_rgb": [round(value, 3) for value in stats.mean],
+        "stddev_rgb": [round(value, 3) for value in stats.stddev],
+    }
+
+
+def _write_qc_report(project_id: str, report: dict) -> Path:
+    qc_dir = config.project_dir(project_id) / "qc"
+    qc_dir.mkdir(parents=True, exist_ok=True)
+    report_path = qc_dir / f"film-final-{report['source_revision']}.json"
+    temporary = report_path.with_name(report_path.name + f".{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, report_path)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return report_path
+
+
 def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_DEFAULT) -> dict:
     """Render a pinned film.html revision to MP4; never falls back to CompositionIR."""
     pid = fd.validate_project_id(project_id)
@@ -652,18 +735,96 @@ def render_project_film(project_id: str, expected_revision: str, fps: int = FPS_
         _mux_audio(ffmpeg, silent_video, output_temp, audio_specs, duration, temp_root)
         if not output_temp.is_file() or output_temp.stat().st_size <= 0:
             raise FilmRenderError("OUTPUT_MISSING", "渲染结束后没有生成 MP4。", 500)
+
+        # QC is a hard gate before publishing the output: a non-empty MP4 is not
+        # evidence that it contains a usable video stream, correct canvas or audio.
+        from video_director import prober
+        probe = prober.probe_media(str(output_temp))
+        expected_width = width + (width % 2)
+        expected_height = height + (height % 2)
+        if not probe.has_video_stream:
+            raise FilmRenderError("QC_VIDEO_STREAM_MISSING", "导出 QC 未检测到视频流。", 500)
+        if probe.width != expected_width or probe.height != expected_height:
+            raise FilmRenderError(
+                "QC_DIMENSION_MISMATCH",
+                f"导出画幅与工程不一致：检测到 {probe.width}×{probe.height}，"
+                f"预期 {expected_width}×{expected_height}。",
+                500,
+            )
+        if probe.duration is None or abs(float(probe.duration) - duration) > max(0.25, 2.0 / fps):
+            raise FilmRenderError(
+                "QC_DURATION_MISMATCH",
+                f"导出时长与时间线不一致：检测到 {probe.duration} 秒，预期约 {duration:.3f} 秒。",
+                500,
+            )
+        if audio_specs and not probe.has_audio_stream:
+            raise FilmRenderError("QC_AUDIO_STREAM_MISSING", "时间线含音频片段，但导出文件没有音频流。", 500)
+
+        ffmpeg = renderer._ffmpeg()
+        audio_qc = (_audio_signal_qc(ffmpeg, output_temp, duration) if probe.has_audio_stream else {
+            "status": "NOT_PRESENT", "mean_volume_db": None, "max_volume_db": None,
+        })
+        visual_samples = [
+            _visual_frame_qc(frame_dir / f"{frame_number + 1:08d}.png", frame_number, fps)
+            for frame_number in sample_frames
+        ]
         os.replace(output_temp, output)
         after = fd.read_project_film(pid)
+        current_match = after.get("rev") == revision
+        warnings = []
+        if not current_match:
+            warnings.append("导出期间影片文档已变化；成片对应 rendered_revision，不对应当前最新 revision。")
+        if audio_specs and audio_qc["status"] in {"SILENT", "NEAR_SILENT", "UNKNOWN"}:
+            warnings.append("时间线包含音频，但音频信号检测为 " + audio_qc["status"] + "；请人工试听并检查增益。")
+        qc_report = {
+            "schema_version": 1,
+            "status": "PASS",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "project_id": pid,
+            "source_revision": revision,
+            "current_revision": after.get("rev"),
+            "current_revision_match": current_match,
+            "output": {
+                "mp4_path": str(output),
+                "size_bytes": output.stat().st_size,
+                "sha256": _sha256_file(output),
+                "video_codec": probe.codec,
+                "width": probe.width,
+                "height": probe.height,
+                "fps": fps,
+                "duration_seconds": float(probe.duration),
+            },
+            "audio": {
+                **audio_qc,
+                "stream_present": bool(probe.has_audio_stream),
+                "tracks_mixed": len(audio_specs),
+            },
+            "determinism": {
+                "status": "PASS",
+                "samples_checked": determinism_samples,
+                "sample_frames": sample_frames,
+            },
+            "visual_samples": visual_samples,
+            "checks": [
+                {"name": "mp4_nonempty", "status": "PASS"},
+                {"name": "video_stream", "status": "PASS"},
+                {"name": "canvas_dimensions", "status": "PASS"},
+                {"name": "timeline_duration", "status": "PASS"},
+                {"name": "audio_stream", "status": "PASS" if (probe.has_audio_stream or not audio_specs) else "FAIL"},
+                {"name": "deterministic_frames", "status": "PASS"},
+            ],
+            "warnings": warnings,
+        }
+        qc_path = _write_qc_report(pid, qc_report)
         return {
             "ok": True, "project_id": pid, "mp4_path": str(output),
             "rendered_revision": revision, "current_revision": after.get("rev"),
-            "current": after.get("rev") == revision, "fps": fps,
-            "width": width, "height": height, "duration": duration,
-            "frame_count": frame_count, "audio_tracks_mixed": len(audio_specs),
+            "current": current_match, "fps": fps, "width": width, "height": height,
+            "duration": duration, "frame_count": frame_count,
+            "audio_tracks_mixed": len(audio_specs),
             "determinism_status": "PASS", "determinism_samples": determinism_samples,
-            "warnings": [] if after.get("rev") == revision else [
-                "导出期间影片文档已变化；成片对应 rendered_revision，不对应当前最新 revision。"
-            ],
+            "qc_status": qc_report["status"], "qc_report_path": str(qc_path),
+            "audio_signal_status": audio_qc["status"], "warnings": warnings,
         }
     except FilmRenderError:
         raise

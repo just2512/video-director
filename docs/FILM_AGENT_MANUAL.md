@@ -125,7 +125,7 @@ The command applies the whole operation batch under the project lock, validates 
 - `validate` checks the strict film document and verifies that referenced local files exist. It does not prove that the scene's frame contract works.
 - `look` renders a contact sheet through the real browser runtime and repeats sample times in reverse order. Read the returned `image_path`; fix each explicit frame/resource/determinism failure before full export.
 - `diff` shows the current document against a retained revision snapshot. The built-in history window is finite, so create a deliberate project snapshot or Git commit before a large rewrite.
-- `render` exports the current exact revision to MP4 and returns `rendered_revision`. If the project changes during export, do not describe the result as the latest revision.
+- `render` exports the current exact revision to MP4 and returns `rendered_revision`. It also writes `qc/film-final-<revision>.json` with output SHA-256/size, probed stream/dimensions/duration, audio signal measurements when available, visual sample hashes/metrics and determinism checks. Studio exposes the QC record next to the MP4 link. If the project changes during export, the record includes `current_revision_match: false`; do not describe the result as the latest revision. A technical PASS does not replace human review of visual composition or listening to the audio.
 
 For editing:
 

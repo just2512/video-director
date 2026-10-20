@@ -181,4 +181,47 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     assert output.is_file() and output.stat().st_size > 0
     probe = prober.probe_media(str(output))
     assert probe.has_video_stream and probe.has_audio_stream
+    assert (probe.width, probe.height) == (160, 90)
     assert probe.duration is not None and abs(float(probe.duration) - 1.0) <= 0.15
+
+    # The actual rendered frames must contain each principal visual layer, not
+    # merely produce a decodable file: the image is red and the video background blue.
+    frame_path = tmp_path / "final-frame.png"
+    generate("-ss", "0.1", "-i", str(output), "-frames:v", "1", "-y", str(frame_path))
+    with Image.open(frame_path) as rendered_frame:
+        frame = rendered_frame.convert("RGB")
+        assert frame.size == (160, 90)
+        still_pixel = frame.getpixel((10, 10))
+        assert still_pixel[0] > still_pixel[1] + 80 and still_pixel[0] > still_pixel[2] + 50, (
+            f"still layer is not visible at its expected position: {still_pixel}"
+        )
+        background_pixel = frame.getpixel((150, 50))
+        assert background_pixel[2] > background_pixel[0] + 20, (
+            f"video background is not visible outside overlays: {background_pixel}"
+        )
+        title_crop = frame.crop((35, 5, 155, 40))
+        bright_pixels = sum(
+            1 for pixel in title_crop.getdata()
+            if min(pixel) > 220
+        )
+        assert bright_pixels >= 5, "title-card text was not visible in the encoded frame"
+
+    qc_path = Path(rendered["qc_report_path"])
+    assert rendered["qc_status"] == "PASS"
+    assert rendered["audio_signal_status"] == "AUDIBLE"
+    assert qc_path.is_file() and qc_path.stat().st_size > 0
+    qc = json.loads(qc_path.read_text(encoding="utf-8"))
+    assert qc["status"] == "PASS"
+    assert qc["source_revision"] == reloaded["rev"]
+    assert qc["current_revision"] == reloaded["rev"]
+    assert qc["current_revision_match"] is True
+    assert qc["output"]["sha256"] and len(qc["output"]["sha256"]) == 64
+    assert qc["output"]["size_bytes"] == output.stat().st_size
+    assert qc["output"]["width"] == 160 and qc["output"]["height"] == 90
+    assert qc["determinism"]["status"] == "PASS"
+    assert len(qc["visual_samples"]) >= 1
+    assert qc["audio"]["stream_present"] is True
+    assert qc["audio"]["tracks_mixed"] == 3
+    assert qc["audio"]["mean_volume_db"] is not None
+    assert -60 < qc["audio"]["mean_volume_db"] < 0
+    assert all(check["status"] == "PASS" for check in qc["checks"])

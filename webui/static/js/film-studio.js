@@ -1146,7 +1146,13 @@
             link.href='/file?path='+encodeURIComponent(path);
             link.textContent=out.current===false?'打开该版本 MP4（文档已更新）':'打开 MP4';
             var resultText=$('fs-render-result-text');
-            if(resultText)resultText.textContent=(out.width||'—')+'×'+(out.height||'—')+' · '+(Number(out.duration||0).toFixed(2))+' 秒 · revision '+(out.rendered_revision||revision);
+            if(resultText)resultText.textContent=(out.width||'—')+'×'+(out.height||'—')+' · '+(Number(out.duration||0).toFixed(2))+' 秒 · revision '+(out.rendered_revision||revision)+' · QC '+(out.qc_status||'UNKNOWN');
+            var qcLink=$('fs-qc-download'),qcPath=out.qc_report_path||'';
+            if(qcLink){
+              qcLink.hidden=!qcPath;
+              qcLink.href=qcPath?'/file?path='+encodeURIComponent(qcPath):'#';
+              qcLink.textContent=out.qc_status==='PASS'?'打开 QC 记录（PASS）':'打开 QC 记录';
+            }
             resultBox.hidden=false;
           }
           if(S.projectId===pid){
