@@ -107,6 +107,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     timeout=15000,
                 )
                 page.locator("#fs-element-text").wait_for(state="visible")
+                page.locator("#fs-inspector [data-react-clip-inspector]").wait_for(state="attached", timeout=10000)
+                assert page.locator("#fs-inspector #fs-field-at").count() == 1
+                assert page.locator("#fs-inspector #fs-field-fade-in").count() == 1
 
                 page.locator("#fs-element-text").fill("Saved title")
                 page.locator("#fs-element-left").fill("64")

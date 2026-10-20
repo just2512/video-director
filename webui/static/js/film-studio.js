@@ -148,7 +148,9 @@
     $('fs-project-label').textContent=S.projectId;$('fs-clip-count').textContent='—';$('fs-timeline-meta').textContent='迁移预览';
     $('fs-assets-list').innerHTML='<div class="fs-empty">当前项目还没有 film.html。初始化将生成可编辑影片文档，不会覆盖旧 Composition。</div>';
     $('fs-timeline').innerHTML='<div class="fs-empty">先检查迁移提示，再初始化。</div>';
-    $('fs-inspector').innerHTML='<div class="fs-empty">初始化影片文档后才能编辑片段。</div>';resetPreview();
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip(null,'初始化影片文档后才能编辑片段。');
+    else $('fs-inspector').innerHTML='<div class="fs-empty">初始化影片文档后才能编辑片段。</div>';
+    resetPreview();
     var message=data.migration_available?'可从当前 Composition 初始化 film.html。预计 '+(preview.duration||0)+' 秒、'+(preview.track_count||0)+' 条轨道、'+(preview.clip_count||0)+' 个片段。':'无法初始化：'+(data.migration_error||'当前项目没有可编辑的 CompositionIR。');
     if(warnings.length)message+=' 迁移提示：'+warnings.join('；');
     showStatus(message,data.migration_available?'':'error');
@@ -605,7 +607,8 @@
   function renderInspector() {
     var clip=findClip(S.selectedId);
     if(!clip){
-      $('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';
+      if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip(null);
+      else $('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';
       renderElementInspector(null);
       return;
     }
@@ -625,7 +628,8 @@
     }
     fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     var element=S.selectedElement&&S.selectedElement.clipId===clip.id?S.selectedElement:null;
-    $('fs-inspector').innerHTML=fields;
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip(clip);
+    else $('fs-inspector').innerHTML=fields;
     renderElementInspector(element);
     $('fs-inspector').querySelectorAll('[data-speed-preset]').forEach(function(button){
       button.addEventListener('click',function(e){

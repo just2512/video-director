@@ -14,8 +14,16 @@ export interface CanvasElementSelection {
   localRect: Rect;
   baseRevision: string;
 }
+export interface FilmClipInspectorModel {
+  id: string;
+  tag: string;
+  at: number;
+  duration: number | null;
+  attrs: Record<string, string>;
+}
 interface CanvasInspectorBridge {
   render(element: CanvasElementSelection | null): void;
+  renderClip(clip: FilmClipInspectorModel | null, emptyMessage?: string): void;
   sync(element: CanvasElementSelection): void;
 }
 
@@ -47,6 +55,78 @@ const toHexColor = (value: string): string => {
 const rotateDegrees = (styles: Record<string, string>): number => {
   const match = String(styles.rotate || "").match(/-?\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : 0;
+};
+
+const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage?: string}> = ({clip, emptyMessage}) => {
+  if (!clip) {
+    return <div className="fs-empty" data-react-clip-inspector-empty="true">{emptyMessage || "选择时间线片段后编辑属性。"}</div>;
+  }
+  const attrs = clip.attrs || {};
+  const speed = Number(attrs.speed || 1);
+  const fade = String(attrs.fade || "0,0").split(",");
+  const muted = Object.prototype.hasOwnProperty.call(attrs, "muted");
+  return (
+    <div data-react-clip-inspector="true">
+      <div className="fs-inspector-description">
+        <strong>{clip.id}</strong><br />{clip.tag}<br />{attrs.src || ""}
+      </div>
+      <div className="fs-inspector-section">
+        <label className="fs-inspector-field">
+          时间位置（秒）
+          <input id="fs-field-at" type="number" min={0} step={0.033333} defaultValue={String(attrs.at || clip.at || 0)} />
+        </label>
+        {(clip.tag === "video" || clip.tag === "audio") && (
+          <>
+            <label className="fs-inspector-field">
+              速度
+              <input id="fs-field-speed" type="number" min={0.25} max={4} step={0.05} defaultValue={String(attrs.speed || 1)} />
+            </label>
+            <div className="fs-speed-presets">
+              <span>预设倍率</span>
+              <div>{[0.5, 1, 1.5, 2, 4].map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={"fs-speed-chip" + (Math.abs(speed - value) < 0.001 ? " fs-speed-chip-active" : "")}
+                  data-speed-preset={value}
+                  title={"设置速度为 " + value + " 倍"}
+                >{value}×</button>
+              ))}</div>
+            </div>
+            <label className="fs-inspector-field">
+              音量
+              <input id="fs-field-volume" type="number" min={0} max={2} step={0.05} defaultValue={String(attrs.volume == null ? 1 : attrs.volume)} />
+            </label>
+            <label className="fs-inspector-field">
+              静音
+              <select id="fs-field-muted" defaultValue={muted ? "true" : "false"}>
+                <option value="false">否</option><option value="true">是</option>
+              </select>
+            </label>
+          </>
+        )}
+        {clip.duration != null && (
+          <>
+            <label className="fs-inspector-field">
+              淡入（秒）
+              <input id="fs-field-fade-in" type="number" min={0} max={60} step={0.05} defaultValue={fade[0] || "0"} />
+            </label>
+            <label className="fs-inspector-field">
+              淡出（秒）
+              <input id="fs-field-fade-out" type="number" min={0} max={60} step={0.05} defaultValue={fade[1] || "0"} />
+            </label>
+          </>
+        )}
+        <label className="fs-inspector-field">
+          片段标题
+          <input id="fs-field-title" type="text" maxLength={200} defaultValue={attrs.title || ""} />
+        </label>
+      </div>
+      <div className="fs-inspector-description fs-inspector-section">
+        更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
+      </div>
+    </div>
+  );
 };
 
 const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element}) => {
@@ -107,8 +187,22 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
 
 let activeRoot: Root | null = null;
 let activeMount: HTMLElement | null = null;
+let clipRoot: Root | null = null;
+let clipMount: HTMLElement | null = null;
 
 window.filmStudioReactInspector = {
+  renderClip(clip, emptyMessage) {
+    const mount = document.getElementById("fs-inspector");
+    if (!mount) return;
+    if (!clipRoot || clipMount !== mount) {
+      clipRoot = createRoot(mount);
+      clipMount = mount;
+    }
+    const key = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (emptyMessage || "");
+    flushSync(() => {
+      clipRoot?.render(<ClipInspector key={key} clip={clip} emptyMessage={emptyMessage} />);
+    });
+  },
   render(element) {
     const mount = document.getElementById("fs-react-canvas-inspector");
     if (!mount) return;
