@@ -94,12 +94,18 @@ _SCENE_BRIDGE = r"""
   async function waitForVisualResources() {
     var waits = [];
     if (document.fonts && document.fonts.ready) {
-      waits.push(Promise.race([
-        document.fonts.ready,
-        new Promise(function (_, reject) {
-          setTimeout(function () { reject(new Error('字体资源等待超过 12 秒')); }, 12000);
-        })
-      ]));
+      waits.push(new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () {
+          reject(new Error('字体资源等待超过 12 秒'));
+        }, 12000);
+        Promise.resolve(document.fonts.ready).then(function () {
+          clearTimeout(timer);
+          resolve();
+        }, function (error) {
+          clearTimeout(timer);
+          reject(error);
+        });
+      }));
     }
     Array.prototype.forEach.call(document.images || [], function (image) {
       if (image.complete && image.naturalWidth > 0) {
