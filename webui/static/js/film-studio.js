@@ -483,18 +483,23 @@
       $('fs-timeline').innerHTML=ruler+body+'<div class="fs-playhead" id="fs-playhead-line"></div>';
     }
     $('fs-timeline').style.width=(132+laneWidth)+'px';$('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
-    $('fs-timeline').querySelectorAll('[data-film-keyframe-marker]').forEach(function(marker){
-      if(marker.__filmStudioKeyframeBound)return;
-      marker.__filmStudioKeyframeBound=true;
-      marker.addEventListener('pointerdown',function(event){event.stopPropagation();});
-      marker.addEventListener('click',function(event){
+    var timelineRoot=$('fs-timeline');
+    if(timelineRoot&&!timelineRoot.__filmStudioKeyframeDelegationBound){
+      timelineRoot.__filmStudioKeyframeDelegationBound=true;
+      timelineRoot.addEventListener('pointerdown',function(event){
+        var marker=event.target&&event.target.closest?event.target.closest('[data-film-keyframe-marker]'):null;
+        if(marker)event.stopPropagation();
+      },true);
+      timelineRoot.addEventListener('click',function(event){
+        var marker=event.target&&event.target.closest?event.target.closest('[data-film-keyframe-marker]'):null;
+        if(!marker)return;
         event.preventDefault();event.stopPropagation();
         var clipId=marker.getAttribute('data-film-keyframe-marker'),clip=findClip(clipId);
         if(!clip)return;
         if(window.filmStudioSelectClip)window.filmStudioSelectClip(clipId);
         window.filmStudioSeek(Math.max(0,Number(clip.at)+Number(marker.getAttribute('data-keyframe-at')||0)));
-      });
-    });
+      },true);
+    }
     $('fs-timeline').querySelectorAll('[data-clip]').forEach(function(el){
       // React keeps keyed clip nodes between renders. Bind native handlers once;
       // the legacy fallback replaces innerHTML, which naturally creates fresh nodes.

@@ -740,7 +740,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                   data-keyframe-at={mark.at}
                   title={"关键帧 "+mark.at.toFixed(3)+"s · "+mark.properties.join(", ")}
                   aria-label={"跳转到 "+mark.at.toFixed(3)+" 秒关键帧"}
-                  style={{left:(clip.duration && clip.duration>0 ? Math.max(0,Math.min(100,mark.at/clip.duration*100)) : 0)+"%"}
+                  style={{left:(clip.duration && clip.duration>0 ? Math.max(0,Math.min(100,mark.at/clip.duration*100)) : 0)+"%"}}
                   key={mark.at}
                 />
               ))}
