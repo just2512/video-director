@@ -1706,3 +1706,22 @@ def test_parse_rejects_unclosed_track_or_media_elements(source, expected):
     with pytest.raises(fd.FilmError) as error:
         fd.parse_film(source)
     assert expected in str(error.value)
+
+
+def test_head_extraction_ignores_tag_examples_inside_comments():
+    source = '''<!doctype html>
+<!-- documentation example: <head> and </head> are literal comment text -->
+<html><head>
+<!-- example script syntax: <script>alert(1)</script> is not executable here -->
+<meta charset="utf-8">
+</head><body>
+<section id="track"><video id="clip" src="assets/video.mp4#t=0,1" at="0"></video></section>
+</body></html>'''
+    parsed = fd.parse_film(source)
+    assert parsed["head_html"].startswith("<head>")
+    assert parsed["head_html"].endswith("</head>")
+    assert "<!-- example script syntax: <script>alert(1)</script> is not executable here -->" in parsed["head_html"]
+    serialized = fd.serialize_film(parsed)
+    assert serialized.count("<!-- documentation example: <head> and </head> are literal comment text -->") == 1
+    assert serialized.count("<!-- example script syntax: <script>alert(1)</script> is not executable here -->") == 1
+    assert fd.serialize_film(fd.parse_film(serialized)) == serialized

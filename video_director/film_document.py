@@ -597,16 +597,53 @@ class _FilmParser(HTMLParser):
             )
 
 
+class _FilmHeadSourceLocator(HTMLParser):
+    """Locate the real head element; comments and script/style text are not markup."""
+    def __init__(self, source: str):
+        super().__init__(convert_charrefs=False)
+        self.source = source
+        self.line_offsets = [0]
+        for match in re.finditer("\n", source):
+            self.line_offsets.append(match.end())
+        self.stack: list[str] = []
+        self.head_start: int | None = None
+        self.head_end: int | None = None
+        self.script_line: int | None = None
+        self.feed(source)
+        self.close()
+
+    def _position(self) -> int:
+        line, column = self.getpos()
+        return self.line_offsets[line - 1] + column
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "head" and self.head_start is None:
+            self.head_start = self._position()
+        if tag == "script" and "head" in self.stack and self.head_end is None:
+            self.script_line = self.getpos()[0]
+        if tag not in VOID_TAGS:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag):
+        position = self._position()
+        if tag == "head" and self.head_start is not None and self.head_end is None:
+            closing_end = self.source.find(">", position)
+            if closing_end >= 0:
+                self.head_end = closing_end + 1
+        if tag in self.stack:
+            index = len(self.stack) - 1 - self.stack[::-1].index(tag)
+            del self.stack[index:]
+
+
 def parse_film(text: str) -> dict:
     if not isinstance(text, str) or not text.strip():
         raise FilmError("INVALID_FILM", "film.html 为空", 422)
-    head_match = re.search(r"<head\b[^>]*>.*?</head\s*>", text, re.I | re.S)
-    if not head_match:
+    head_locator = _FilmHeadSourceLocator(text)
+    if head_locator.head_start is None or head_locator.head_end is None:
         raise FilmError("INVALID_FILM", "film.html 缺少完整 head 元素", 422)
-    head = head_match.group(0)
-    script_in_head = re.search(r"<script\b", head, re.I)
-    if script_in_head:
-        line_number = text[:head_match.start() + script_in_head.start()].count("\n") + 1
+    head = text[head_locator.head_start:head_locator.head_end]
+    if head_locator.script_line is not None:
+        line_number = head_locator.script_line
         raise FilmError("INVALID_FILM", f"第 {line_number} 行：film.html 的 head 禁止 script；动态画面应放在 scenes/*.html", 422)
     parser = _FilmParser()
     parser.feed(text)
