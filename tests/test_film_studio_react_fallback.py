@@ -16,5 +16,8 @@ def test_canvas_inspector_has_functional_unbundled_fallback():
         assert f'id="{field_id}"' in studio
     assert "id=\"fs-apply-element\"" in studio
     assert "window.filmStudioSaveSelectedElement()" in studio
+    assert 'id="fs-field-keyframes"' in studio
+    assert "window.filmStudioSaveInspector=async function()" in studio
+    assert "data-film-keyframes" in studio
     assert "renderElementInspector(element);" in studio
     assert "renderElementInspector(null);" in studio

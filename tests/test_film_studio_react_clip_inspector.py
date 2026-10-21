@@ -58,6 +58,11 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "disabled={readOnly}" in component
     assert "所在轨道已锁定；解锁轨道后才能编辑该片段。" in component
     assert 'id="fs-toggle-clip-lock" className="fs-btn" disabled={trackLocked}' in component
+    for field_id in ("fs-keyframe-property", "fs-keyframe-add", "fs-keyframe-clear"):
+        assert f'id="{field_id}"' in component
+    assert "keyframePath" in component
+    assert 'field: "data-film-keyframes"' in contract
+    assert "keyframes" in component
 
 
 def test_react_film_operation_contract_covers_the_supported_editor_operations():
