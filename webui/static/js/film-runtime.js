@@ -154,7 +154,6 @@
     if(Number.isFinite(rotate))el.style.rotate=rotate+'deg';
     if(Number.isFinite(opacity))el.style.opacity=String(clamp(opacity,0,1));
     var src=sourceBase(clip.media_url||'');
-    if(src)el.src=src;
     var filmTransform=null,filmKeyframes=[];
     try{filmTransform=JSON.parse(String(clip.attrs&&clip.attrs['data-film-transform']||'null'));}catch(_){}
     try{filmKeyframes=JSON.parse(String(clip.attrs&&clip.attrs['data-film-keyframes']||'[]'));}catch(_){}
@@ -166,8 +165,14 @@
       filmTransform:filmTransform&&typeof filmTransform==='object'?filmTransform:null,
       filmKeyframes:filmKeyframes,maskKeyframes:maskKeyframes,baseClipPath:baseClipPath,
       maskHost:maskHost,hostElement:maskHost,
-      fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1)};
-    byId[clip.id]=entry;return entry;
+      fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1),
+      lastPresentedFrames:NaN,lastPresentedMediaTime:NaN,initialFrameCallbackId:null,initialFramePromise:null,initialFrameResolve:null};
+    byId[clip.id]=entry;
+    // Register before assigning src; this captures the first frame even when it
+    // arrives before prepareFrameEntry begins its exact-time seek.
+    if(clip.tag==='video')startInitialVideoFrameWait(entry);
+    if(src)el.src=src;
+    return entry;
   }
   function pauseAll(){
     state.tracks.forEach(function(track){
@@ -465,6 +470,64 @@
       timer=setTimeout(timeout,timeoutMs||8000);
     });
   }
+  function startInitialVideoFrameWait(entry){
+    var el=entry&&entry.el;
+    if(!entry||entry.clip.tag!=='video'||!el||typeof el.requestVideoFrameCallback!=='function')return;
+    entry.initialFramePromise=new Promise(function(resolve){
+      entry.initialFrameResolve=resolve;
+      try{
+        entry.initialFrameCallbackId=el.requestVideoFrameCallback(function(_now,metadata){
+          entry.initialFrameCallbackId=null;
+          entry.lastPresentedFrames=metadata?finite(metadata.presentedFrames,NaN):NaN;
+          entry.lastPresentedMediaTime=metadata?finite(metadata.mediaTime,NaN):NaN;
+          entry.initialFrameResolve=null;
+          resolve(metadata||null);
+        });
+      }catch(error){
+        entry.initialFrameError=String(error&&error.message||error);
+        entry.initialFrameCallbackId=null;
+        entry.initialFrameResolve=null;
+        resolve(null);
+      }
+    });
+  }
+  function cancelInitialVideoFrameWait(entry){
+    if(!entry)return;
+    if(entry.initialFrameCallbackId!=null&&entry.el&&typeof entry.el.cancelVideoFrameCallback==='function'){
+      try{entry.el.cancelVideoFrameCallback(entry.initialFrameCallbackId);}catch(_){}
+    }
+    entry.initialFrameCallbackId=null;
+    if(typeof entry.initialFrameResolve==='function'){
+      var resolve=entry.initialFrameResolve;
+      entry.initialFrameResolve=null;
+      resolve(null);
+    }
+  }
+  async function awaitInitialVideoFrame(entry,desired){
+    if(!entry||!entry.initialFramePromise)return null;
+    var timer=0;
+    var metadata=await new Promise(function(resolve,reject){
+      var done=false;
+      timer=setTimeout(function(){
+        if(done)return;done=true;
+        reject(new Error('视频片段 '+entry.clip.id+' 初始帧等待超过 12 秒；拒绝使用未确认的画面'));
+      },12000);
+      entry.initialFramePromise.then(function(value){
+        if(done)return;done=true;clearTimeout(timer);
+        if(!value)reject(new Error('视频片段 '+entry.clip.id+' 无法确认初始呈现帧：'+String(entry.initialFrameError||'requestVideoFrameCallback 未返回帧元数据')));
+        else resolve(value);
+      },function(error){
+        if(done)return;done=true;clearTimeout(timer);reject(error);
+      });
+    });
+    var mediaTime=metadata?Number(metadata.mediaTime):NaN;
+    var sourceFps=finite(entry.clip.source_fps,finite(state.fps,30));
+    var tolerance=1/Math.max(1,sourceFps)+0.002;
+    if(Number.isFinite(mediaTime)&&Math.abs(mediaTime-desired)>tolerance){
+      throw new Error('视频片段 '+entry.clip.id+' 的初始呈现时间 '+mediaTime.toFixed(6)+'s 与请求时间 '+desired.toFixed(6)+'s 不匹配');
+    }
+    return metadata;
+  }
   function waitForPresentedVideoFrame(el,clip,desired,previousPresentedFrames){
     var resolvePromise,rejectPromise,done=false,timer=0,callbackId=null;
     var sourceFps=finite(clip.source_fps,finite(state.fps,30));
@@ -535,9 +598,16 @@
         if(typeof el.requestVideoFrameCallback!=='function'){
           throw new Error('当前浏览器不支持 requestVideoFrameCallback；无法确认视频帧已准确呈现：'+clip.id);
         }
+        // Cancel the first-frame callback before the seek so it cannot consume the
+        // seek's new presentation event out of order.
+        cancelInitialVideoFrameWait(entry);
         // Register before changing currentTime; after seeked, the requested frame
         // may already have reached the compositor and a late callback can hang.
         frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames);
+      }
+      if(tag==='video'&&!needsSeek&&!Number.isFinite(entry.lastPresentedFrames)){
+        var initialPresented=await awaitInitialVideoFrame(entry,desired);
+        if(!initialPresented)throw new Error('视频片段 '+clip.id+' 未确认初始呈现帧');
       }
       if(needsSeek){
         var seeked=waitForEvent(el,'seeked',12000);
