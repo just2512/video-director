@@ -1,4 +1,4 @@
-import React, {useState} from "react";
+import React, {useEffect, useState} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
 import {flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
@@ -31,8 +31,69 @@ export interface FilmClipInspectorModel {
   duration: number | null;
   attrs: Record<string, string>;
   fps?: number;
+  playhead?: number;
   trackLocked?: boolean;
 }
+type FilmKeyframeProperty = "x"|"y"|"scale"|"scale_x"|"scale_y"|"rotation"|"opacity"|"blur"|"camera_x"|"camera_y"|"camera_scale"|"offset_x"|"offset_y";
+type FilmKeyframeEasing = "linear"|"ease_in"|"ease_out"|"ease_in_out";
+type FilmKeyframePoint = {at:number;value:number;easing:FilmKeyframeEasing};
+type FilmKeyframeChannel = {property:FilmKeyframeProperty;keyframes:FilmKeyframePoint[]};
+const FILM_KEYFRAME_PROPERTIES: Array<{value:FilmKeyframeProperty;label:string;min:number;max:number;initial:number}> = [
+  {value:"x",label:"水平位置 X",min:0,max:1,initial:.5},
+  {value:"y",label:"垂直位置 Y",min:0,max:1,initial:.5},
+  {value:"scale",label:"整体缩放",min:.1,max:5,initial:1},
+  {value:"scale_x",label:"水平缩放",min:.1,max:5,initial:1},
+  {value:"scale_y",label:"垂直缩放",min:.1,max:5,initial:1},
+  {value:"rotation",label:"旋转角度",min:-3600,max:3600,initial:0},
+  {value:"opacity",label:"不透明度",min:0,max:1,initial:1},
+  {value:"blur",label:"模糊",min:0,max:100,initial:0},
+  {value:"camera_x",label:"镜头中心 X",min:0,max:1,initial:.5},
+  {value:"camera_y",label:"镜头中心 Y",min:0,max:1,initial:.5},
+  {value:"camera_scale",label:"镜头缩放",min:.1,max:5,initial:1},
+  {value:"offset_x",label:"水平偏移",min:-10000,max:10000,initial:0},
+  {value:"offset_y",label:"垂直偏移",min:-10000,max:10000,initial:0},
+];
+const keyframeInfo = (property:FilmKeyframeProperty) => FILM_KEYFRAME_PROPERTIES.find(item=>item.value===property)!;
+const parseFilmKeyframes = (raw:string):FilmKeyframeChannel[] => {
+  if(!raw)return [];
+  try {
+    const input=JSON.parse(raw);
+    if(!Array.isArray(input))return [];
+    const result:FilmKeyframeChannel[]=[];
+    for(const channel of input){
+      if(!channel||!FILM_KEYFRAME_PROPERTIES.some(item=>item.value===channel.property)||!Array.isArray(channel.keyframes)||result.some(item=>item.property===channel.property))continue;
+      const points:FilmKeyframePoint[]=channel.keyframes.filter((point:any)=>point&&Number.isFinite(Number(point.at))&&Number.isFinite(Number(point.value)))
+        .map((point:any)=>({at:Number(point.at),value:Number(point.value),easing:(["linear","ease_in","ease_out","ease_in_out"].includes(point.easing)?point.easing:"linear") as FilmKeyframeEasing}))
+        .sort((a:FilmKeyframePoint,b:FilmKeyframePoint)=>a.at-b.at);
+      if(points.length)result.push({property:channel.property,keyframes:points});
+    }
+    return result;
+  } catch { return []; }
+};
+const clampKeyframe = (value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
+const keyframeEase = (t:number,easing:FilmKeyframeEasing)=>{
+  const x=clampKeyframe(t,0,1);
+  if(easing==="ease_in")return x*x;
+  if(easing==="ease_out")return 1-(1-x)*(1-x);
+  if(easing==="ease_in_out")return x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+  return x;
+};
+const keyframePath = (channel:FilmKeyframeChannel,duration:number,min:number,max:number)=>{
+  if(duration<=0||channel.keyframes.length<2)return "";
+  const x=(t:number)=>8+clampKeyframe(t/duration,0,1)*344;
+  const y=(v:number)=>8+(1-(clampKeyframe(v,min,max)-min)/Math.max(1e-9,max-min))*72;
+  const commands:string[]=[];
+  for(let i=1;i<channel.keyframes.length;i++){
+    const a=channel.keyframes[i-1],b=channel.keyframes[i],span=b.at-a.at;
+    if(span<=0)continue;
+    for(let j=0;j<=12;j++){
+      if(i>1&&j===0)continue;
+      const t=j/12,e=keyframeEase(t,b.easing);
+      commands.push((commands.length?"L":"M")+x(a.at+span*t).toFixed(2)+" "+y(a.value+(b.value-a.value)*e).toFixed(2));
+    }
+  }
+  return commands.join(" ");
+};
 interface CanvasInspectorBridge {
   render(element: CanvasElementSelection | null): void;
   renderClip(clip: FilmClipInspectorModel | null, emptyMessage?: string): void;
