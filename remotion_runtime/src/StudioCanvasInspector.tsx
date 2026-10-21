@@ -380,6 +380,18 @@ const rotateDegrees = (styles: Record<string, string>): number => {
 const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage?: string}> = ({clip, emptyMessage}) => {
   const [feedback, setFeedback] = useState("");
   const keyframesAttribute = clip?.attrs?.["data-film-keyframes"] || "";
+  const currentAttrs = clip?.attrs || {};
+  const currentFade = String(currentAttrs.fade || "0,0").split(",");
+  const clipFormDefaults:FilmClipInspectorValues = {
+    at:String(currentAttrs.at ?? clip?.at ?? 0),
+    speed:String(currentAttrs.speed || 1),
+    volume:String(currentAttrs.volume == null ? 1 : currentAttrs.volume),
+    muted:Object.prototype.hasOwnProperty.call(currentAttrs,"muted")?"true":"false",
+    fadeIn:currentFade[0]||"0",
+    fadeOut:currentFade[1]||"0",
+    title:String(currentAttrs.title||""),
+  };
+  const clipFormSignature=JSON.stringify(clipFormDefaults);
   const [keyframeChannels,setKeyframeChannels] = useState<FilmKeyframeChannel[]>(()=>parseFilmKeyframes(keyframesAttribute));
   const [keyframeDirty,setKeyframeDirty] = useState(false);
   const [animationProperty,setAnimationProperty] = useState<FilmKeyframeProperty>("opacity");
@@ -388,30 +400,23 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
   const [newKeyframeEasing,setNewKeyframeEasing] = useState<FilmKeyframeEasing>("linear");
   const [draggingKeyframe,setDraggingKeyframe] = useState<number|null>(null);
   const [keyframeFeedback,setKeyframeFeedback] = useState("");
-  const [form, setForm] = useState<FilmClipInspectorValues>(() => {
-    const attrs = clip?.attrs || {};
-    const fade = String(attrs.fade || "0,0").split(",");
-    return {
-      at: String(attrs.at ?? clip?.at ?? 0),
-      speed: String(attrs.speed || 1),
-      volume: String(attrs.volume == null ? 1 : attrs.volume),
-      muted: Object.prototype.hasOwnProperty.call(attrs, "muted") ? "true" : "false",
-      fadeIn: fade[0] || "0",
-      fadeOut: fade[1] || "0",
-      title: String(attrs.title || ""),
-    };
-  });
+  const [form, setForm] = useState<FilmClipInspectorValues>(() => ({...clipFormDefaults}));
   const update = <K extends keyof FilmClipInspectorValues>(field: K, value: FilmClipInspectorValues[K]) => {
     setForm((current) => ({...current, [field]: value}));
   };
   useEffect(()=>{
+    // The same React component is reused when the selected clip changes. Reset
+    // scalar and keyframe drafts from the new revision instead of leaking values
+    // from the previously selected clip.
+    setForm({...clipFormDefaults});
+    setFeedback("");
     setKeyframeChannels(parseFilmKeyframes(keyframesAttribute));
     setKeyframeDirty(false);setDraggingKeyframe(null);setKeyframeFeedback("");
     const duration=clip?.duration;
     const relative=clip&&typeof clip.playhead==="number"?clip.playhead-clip.at:0;
     setNewKeyframeAt((duration!=null&&duration>0?clampKeyframe(relative,0,duration):0).toFixed(3));
     setNewKeyframeValue(String(keyframeInfo(animationProperty).initial));
-  },[clip?.id,keyframesAttribute]);
+  },[clip?.id,clipFormSignature,keyframesAttribute]);
   if (!clip) {
     return <div className="fs-empty" data-react-clip-inspector-empty="true">{emptyMessage || "选择时间线片段后编辑属性。"}</div>;
   }
