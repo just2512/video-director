@@ -1297,8 +1297,8 @@ class Handler(BaseHTTPRequestHandler):
                     def emit(event_name, data):
                         if disconnected["value"]:
                             return
-                        packet = ("event: " + event_name + "\\n" +
-                                  "data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\\n\\n")
+                        packet = ("event: " + event_name + "\n" +
+                                  "data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n")
                         try:
                             self.wfile.write(packet.encode("utf-8"))
                             self.wfile.flush()
