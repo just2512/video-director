@@ -91,6 +91,11 @@ from video_director.film_proposals import FilmProposalStore
 # Watch only projects actively opened in Studio; publish validated changes on the existing SSE bus.
 _FILM_REVISION_WATCHER = get_film_watcher(sse_publish)
 _FILM_PROPOSALS = FilmProposalStore()
+# Active model streams are keyed by (project_id, request_id). A separate cancellation
+# tombstone handles the race where the user stops immediately before the stream starts.
+_FILM_AI_ACTIVE_STREAMS: dict[tuple[str, str], dict] = {}
+_FILM_AI_CANCELLED_REQUESTS: dict[tuple[str, str], float] = {}
+_FILM_AI_STREAM_LOCK = threading.Lock()
 
 
 # §三十四：通用 Registry 类别（shots/motions/templates/provenance 之外的 8 类）。
@@ -941,7 +946,8 @@ class Handler(BaseHTTPRequestHandler):
         get_routes = {"/api/editor/film", "/api/editor/film/media"}
         post_routes = {"/api/editor/film/initialize", "/api/editor/film/insert-asset", "/api/editor/film/edit",
                        "/api/editor/film/undo", "/api/editor/film/redo",
-                       "/api/editor/film/command", "/api/editor/film/apply-proposal", "/api/editor/film/render"}
+                       "/api/editor/film/command", "/api/editor/film/command/cancel",
+                       "/api/editor/film/apply-proposal", "/api/editor/film/render"}
         if method == "GET" and route not in get_routes:
             return False
         if method == "POST" and route not in post_routes:
@@ -1114,6 +1120,32 @@ class Handler(BaseHTTPRequestHandler):
             return True
         try:
             pid = fd.validate_project_id(pid)
+            if route == "/api/editor/film/command/cancel":
+                request_id = str(payload.get("request_id") or "").strip()
+                if not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", request_id):
+                    self._send_json({"ok": False, "code": "INVALID_AI_REQUEST_ID",
+                                     "error": "AI 取消请求缺少有效的 request_id"}, 400)
+                    return True
+                key = (pid, request_id)
+                stream = None
+                with _FILM_AI_STREAM_LOCK:
+                    now = time.time()
+                    for cancelled_key, cancelled_at in list(_FILM_AI_CANCELLED_REQUESTS.items()):
+                        if now - cancelled_at > 300:
+                            _FILM_AI_CANCELLED_REQUESTS.pop(cancelled_key, None)
+                    active = _FILM_AI_ACTIVE_STREAMS.get(key)
+                    if active:
+                        active["cancel_event"].set()
+                        stream = active.get("stream")
+                    else:
+                        _FILM_AI_CANCELLED_REQUESTS[key] = now
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+                self._send_json({"ok": True, "cancel_requested": True, "stream_found": bool(active)}, 200)
+                return True
             if route == "/api/editor/film/initialize":
                 from video_director import editor as vd_editor
                 expected = payload.get("expected_composition_version")
@@ -1287,6 +1319,30 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("stream") is True:
                     # Stream model deltas over the same request. Streaming is feedback only:
                     # the validated candidate still must be accepted through apply-proposal.
+                    request_id = str(payload.get("request_id") or "").strip()
+                    if not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", request_id):
+                        self._send_json({"ok": False, "code": "INVALID_AI_REQUEST_ID",
+                                         "error": "流式 AI 请求必须包含有效的 request_id"}, 400)
+                        return True
+                    key = (pid, request_id)
+                    cancel_event = threading.Event()
+                    active_stream = {"project_id": pid, "request_id": request_id,
+                                     "cancel_event": cancel_event, "stream": None}
+                    with _FILM_AI_STREAM_LOCK:
+                        now = time.time()
+                        for cancelled_key, cancelled_at in list(_FILM_AI_CANCELLED_REQUESTS.items()):
+                            if now - cancelled_at > 300:
+                                _FILM_AI_CANCELLED_REQUESTS.pop(cancelled_key, None)
+                        if key in _FILM_AI_CANCELLED_REQUESTS:
+                            _FILM_AI_CANCELLED_REQUESTS.pop(key, None)
+                            self._send_json({"ok": False, "code": "AI_REQUEST_CANCELLED",
+                                             "error": "AI 请求在生成开始前已取消。"}, 409)
+                            return True
+                        if key in _FILM_AI_ACTIVE_STREAMS:
+                            self._send_json({"ok": False, "code": "DUPLICATE_AI_REQUEST_ID",
+                                             "error": "AI request_id 已在使用中。"}, 409)
+                            return True
+                        _FILM_AI_ACTIVE_STREAMS[key] = active_stream
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache, no-transform")
@@ -1305,8 +1361,20 @@ class Handler(BaseHTTPRequestHandler):
                         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                             disconnected["value"] = True
 
+                    def on_stream_open(stream):
+                        with _FILM_AI_STREAM_LOCK:
+                            current = _FILM_AI_ACTIVE_STREAMS.get(key)
+                            if current is active_stream:
+                                current["stream"] = stream
+                            cancelled = cancel_event.is_set()
+                        if cancelled:
+                            try:
+                                stream.close()
+                            except Exception:
+                                pass
+
                     def on_delta(fragment):
-                        if disconnected["value"]:
+                        if disconnected["value"] or cancel_event.is_set():
                             raise ConnectionAbortedError("AI 客户端已取消流式请求")
                         emit("token", {"fragment": fragment})
 
@@ -1314,7 +1382,10 @@ class Handler(BaseHTTPRequestHandler):
                         operations = fd.plan_film_command(
                             llm, state, str(payload.get("message") or ""),
                             selected_clip_id, summary_out=plan_summary,
-                            selected_element=selected_element, on_token=on_delta)
+                            selected_element=selected_element, on_token=on_delta,
+                            on_stream_open=on_stream_open, cancel_event=cancel_event)
+                        if cancel_event.is_set():
+                            raise ConnectionAbortedError("AI 请求已取消")
                         assistant_summary = str(plan_summary.get("summary") or "").strip()
                         if not operations:
                             response = {
@@ -1347,11 +1418,17 @@ class Handler(BaseHTTPRequestHandler):
                                         "message": "已生成并验证候选修改；尚未写入正式影片文档。"}
                         emit("result", response)
                     except Exception as exc:
-                        if not disconnected["value"]:
+                        cancelled = cancel_event.is_set()
+                        if not disconnected["value"] and not cancelled:
                             code = getattr(exc, "code", "LLM_PLAN_FAILED")
                             emit("error", {"ok": False, "code": str(code),
                                            "error": str(exc) or "AI 流式规划失败"})
-                        sse_publish("film_ai", {"phase": "failed", "project_id": pid, "base_revision": state["rev"]})
+                        sse_publish("film_ai", {"phase": "cancelled" if cancelled else "failed",
+                                                "project_id": pid, "base_revision": state["rev"]})
+                    finally:
+                        with _FILM_AI_STREAM_LOCK:
+                            if _FILM_AI_ACTIVE_STREAMS.get(key) is active_stream:
+                                _FILM_AI_ACTIVE_STREAMS.pop(key, None)
                     return True
 
                 operations = fd.plan_film_command(
