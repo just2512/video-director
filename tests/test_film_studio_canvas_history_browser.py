@@ -198,6 +198,24 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     assert page.locator("#fs-static-ai-director").is_visible()
                     assert not page.locator("#fs-react-ai-director").is_visible()
 
+                # Exercise the actual React clip inspector write path before canvas inspection.
+                # This is conditional only for direct-source test runs with the placeholder bundle;
+                # the pre-publish smoke requires and builds the real React bundle.
+                has_react_clip_inspector = page.evaluate(
+                    "() => typeof window.filmStudioReactInspector?.renderClip === 'function'"
+                )
+                page.locator("#fs-timeline .fs-clip[data-clip='scene-clip']").click(position={"x": 40, "y": 10})
+                if has_react_clip_inspector:
+                    page.locator('#fs-inspector [data-react-clip-inspector="true"]').wait_for(
+                        state="attached", timeout=10000
+                    )
+                    page.locator("#fs-field-title").fill("React inspector persisted")
+                    page.locator("#fs-apply-clip-inspector").click()
+                    page.wait_for_function(
+                        "() => document.querySelector('#film-studio-alert')?.textContent.includes('已保存 1 项编辑')",
+                        timeout=15000,
+                    )
+                    assert _clip(project_id)["attrs"].get("title") == "React inspector persisted"
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
                     state="attached", timeout=15000
                 )
