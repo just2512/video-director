@@ -3875,15 +3875,12 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 )
             )
             mask_geometry_conflict = channels_affect_geometry or transform_affects_geometry or known_motion
-            if mask_geometry_conflict and mask_keyframes:
-                # A polygon expressed in stage coordinates cannot be attached to a
-                # transformed local clip without changing its meaning. Do not emit a
-                # plausible-looking but semantically wrong animation; the complete mask
-                # remains in migration/source-composition.json for a future faithful mapper.
-                unsupported_layer_fields.append(
-                    "动态蒙版与图层 Transform/位置动效坐标系冲突；未写入近似关键帧，原始值保留于源副本"
-                )
-                mask_keyframes = []
+            # CompositionIR mask coordinates belong to the composition stage. If
+            # the media clip is transformed or animated, attach its mask to a
+            # stage-sized wrapper instead of the transformed media's local box.
+            # This preserves both the static mask and animated mask_path geometry.
+            if mask_geometry_conflict and (mask_clip_path is not None or mask_keyframes):
+                attrs["data-film-mask-space"] = "composition"
             if mask_keyframes:
                 attrs["data-film-mask-keyframes"] = json.dumps(
                     mask_keyframes, ensure_ascii=False, separators=(",", ":")
@@ -3893,18 +3890,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     mask_clip_path = "polygon(" + ", ".join(
                         f"{_fmt(x * 100)}% {_fmt(y * 100)}%" for x, y in first_polygon
                     ) + ")"
-                if mask_geometry_conflict:
-                    unsupported_layer_fields.append(
-                        "动态蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
-                    )
             if mask_clip_path:
-                if mask_geometry_conflict:
-                    if not mask_keyframes:
-                        unsupported_layer_fields.append(
-                            "蒙版画布坐标与图层 Transform/位置动效的组合尚未无损迁移"
-                        )
-                else:
-                    attrs["style"] += ";clip-path:" + mask_clip_path
+                attrs["style"] += ";clip-path:" + mask_clip_path
             if layer.get("locked"):
                 attrs["data-clip-locked"] = ""
             clip_record = {"id": cid, "tag": "video" if kind == "video" else "img", "attrs": attrs}

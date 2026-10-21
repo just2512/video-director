@@ -169,7 +169,7 @@ def test_inverted_animated_mask_is_not_silently_applied_as_positive_polygon(tmp_
     assert archived["scenes"][0]["layers"][0]["mask"]["keyframes"]
 
 
-def test_animated_mask_is_not_approximated_when_layer_transform_changes_its_coordinate_space(tmp_path, monkeypatch):
+def test_animated_mask_stays_in_composition_space_when_layer_transform_changes(tmp_path, monkeypatch):
     storage = tmp_path / "composer"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
     project_id = "mask-transform-coordinate-conflict"
@@ -210,9 +210,10 @@ def test_animated_mask_is_not_approximated_when_layer_transform_changes_its_coor
     result = fd.build_film_from_composition(project_id, ir)
     track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
     attrs = track["clips"][0]["attrs"]
-    assert "data-film-mask-keyframes" not in attrs
-    assert "clip-path:" not in attrs.get("style", "")
-    assert any("坐标系冲突；未写入近似关键帧" in warning for warning in result["warnings"])
+    assert attrs["data-film-mask-space"] == "composition"
+    assert "data-film-mask-keyframes" in attrs
+    assert "clip-path:polygon(" in attrs.get("style", "")
+    assert not any("坐标系冲突；未写入近似关键帧" in warning for warning in result["warnings"])
     archived = json.loads(result["pages"]["migration/source-composition.json"])
     archived_mask = archived["scenes"][0]["layers"][0]["mask"]
     assert archived_mask["keyframes"] == source_mask["keyframes"]

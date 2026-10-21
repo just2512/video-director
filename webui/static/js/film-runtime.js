@@ -120,6 +120,23 @@
       el.style.border='0';
     }
     safeStyle(clip.attrs&&clip.attrs.style,el);
+    var compositionMask=String(clip.attrs&&clip.attrs['data-film-mask-space']||'')==='composition'
+      &&(clip.tag==='video'||clip.tag==='img');
+    var maskHost=null;
+    if(compositionMask){
+      // Keep composition-space clipping independent from the media clip's
+      // Transform/keyframes by clipping a stage-sized wrapper around the child.
+      maskHost=document.createElement('div');
+      maskHost.className='fs-runtime-mask-host';
+      maskHost.setAttribute('data-film-mask-host',String(clip.id||''));
+      maskHost.style.position='absolute';
+      maskHost.style.left='0px';maskHost.style.top='0px';
+      maskHost.style.width=state.data.stage.width+'px';
+      maskHost.style.height=state.data.stage.height+'px';
+      maskHost.style.overflow='hidden';maskHost.style.pointerEvents='none';
+      maskHost.style.clipPath=String(el.style.clipPath||'');
+      el.style.clipPath='';
+    }
     if(clip.tag==='video'||clip.tag==='img'){
       if(!String(clip.attrs&&clip.attrs.style||'').match(/(?:^|;)\s*object-fit\s*:/i))el.style.objectFit='contain';
     }
@@ -142,12 +159,13 @@
     try{filmTransform=JSON.parse(String(clip.attrs&&clip.attrs['data-film-transform']||'null'));}catch(_){}
     try{filmKeyframes=JSON.parse(String(clip.attrs&&clip.attrs['data-film-keyframes']||'[]'));}catch(_){}
     if(!Array.isArray(filmKeyframes))filmKeyframes=[];
-    var baseClipPath=String(el.style.clipPath||'');
+    var baseClipPath=String(maskHost?maskHost.style.clipPath:(el.style.clipPath||''));
     var maskKeyframes=parseMaskKeyframes(clip.attrs&&clip.attrs['data-film-mask-keyframes']);
     entry={track:track,clip:clip,el:el,active:false,iframeLoaded:iframeLoaded,iframeLoadError:iframeLoadError,
       volumeEnvelope:parseVolumeEnvelope(clip.attrs&&clip.attrs.volume_envelope),
       filmTransform:filmTransform&&typeof filmTransform==='object'?filmTransform:null,
       filmKeyframes:filmKeyframes,maskKeyframes:maskKeyframes,baseClipPath:baseClipPath,
+      maskHost:maskHost,hostElement:maskHost,
       fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1)};
     byId[clip.id]=entry;return entry;
   }
@@ -182,7 +200,14 @@
         ?String(clamp(requestedTrackZ,-1000000,1000000)):String(index);
       if(has(track.attrs,'hidden'))lane.style.display='none';
       var entries=[];
-      (track.clips||[]).forEach(function(clip){var entry=makeClip(track,clip);if(entry){lane.appendChild(entry.el);entries.push(entry);}});
+      (track.clips||[]).forEach(function(clip){
+        var entry=makeClip(track,clip);
+        if(entry){
+          if(entry.hostElement){entry.hostElement.appendChild(entry.el);lane.appendChild(entry.hostElement);}
+          else lane.appendChild(entry.el);
+          entries.push(entry);
+        }
+      });
       stage.appendChild(lane);
       // Capture class-based opacity after attachment so a fade multiplies, rather
       // than overwrites, any opacity supplied by the document's authored CSS.
@@ -235,10 +260,10 @@
     }).join(', ')+')';
   }
   function applyFilmMaskKeyframes(entry,t){
-    var points=entry.maskKeyframes||[];
-    if(!points.length){entry.el.style.clipPath=entry.baseClipPath;return;}
+    var points=entry.maskKeyframes||[],target=entry.maskHost||entry.el;
+    if(!points.length){target.style.clipPath=entry.baseClipPath;return;}
     var local=Math.max(0,t-finite(entry.clip.at,0));
-    if(local<points[0].at){entry.el.style.clipPath=entry.baseClipPath;return;}
+    if(local<points[0].at){target.style.clipPath=entry.baseClipPath;return;}
     var left=points[0],right=null;
     for(var i=1;i<points.length;i++){
       if(local<=points[i].at){left=points[i-1];right=points[i];break;}
@@ -255,7 +280,7 @@
         ];
       });
     }
-    entry.el.style.clipPath=polygonFromVertices(vertices);
+    target.style.clipPath=polygonFromVertices(vertices);
   }
   function filmEase(value,mode){
     var x=clamp(value,0,1);

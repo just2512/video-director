@@ -1,0 +1,4 @@
+/* Tailwind 4 utilities are scoped to Studio components. No Preflight: the legacy app shell must remain unchanged. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "./StudioCanvasInspector.tsx";

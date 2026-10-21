@@ -585,7 +585,7 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
   const rect = element.localRect || element.rect || {};
   const styles = element.styles || {};
   return (
-    <section className="fs-inspector-element" data-react-canvas-inspector="true">
+    <section className="fs-inspector-element focus-within:ring-2 focus-within:ring-teal-400" data-react-canvas-inspector="true">
       <h4>画布元素 · {element.tag} · {element.selector}</h4>
       <label className="fs-inspector-field">
         文本
@@ -627,7 +627,7 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
       </label>
       <button
         type="button"
-        className="fs-btn fs-primary"
+        className="fs-btn fs-primary transition-colors duration-150 hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400"
         id="fs-apply-element"
         onClick={() => { void window.filmStudioSaveSelectedElement?.(); }}
       >

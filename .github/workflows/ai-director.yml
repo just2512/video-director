@@ -175,9 +175,14 @@ jobs:
         if: always() && steps.ensure_checkout.outcome == 'success'
         working-directory: remotion_runtime
         run: npm run build:studio
+      - name: Build scoped Tailwind 4 CSS for React Studio
+        id: tailwind_build
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        working-directory: remotion_runtime
+        run: npm run build:studio:css
       - name: Run React Studio integration smoke tests
         id: react_smoke
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success'
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success'
         run: |
           "$PY311_BIN/python3.11" -m pytest -q \
             tests/test_film_studio_canvas_history_browser.py \
@@ -255,14 +260,15 @@ jobs:
       # Publish only after typecheck, bundle build, focused React/migration browser smoke tests and JS syntax pass.
       # The full suite still reports independently; unrelated full-suite failures must not leave main serving a placeholder bundle.
       # A GitHub-token push intentionally does not fan out another workflow run.
-      - name: Publish verified React Studio bundle to main
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success'
+      - name: Publish verified React Studio bundle and Tailwind CSS to main
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test -s webui/static/js/film-studio-react.js
+          test -s webui/static/css/film-studio-tailwind.css
           "$PY311_BIN/python3.11" - <<'PY'
           import base64
           import hashlib
@@ -276,7 +282,10 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           expected = os.environ["GITHUB_SHA"]
           token = os.environ["GITHUB_TOKEN"]
-          path = "webui/static/js/film-studio-react.js"
+          paths = [
+              "webui/static/js/film-studio-react.js",
+              "webui/static/css/film-studio-tailwind.css",
+          ]
           api = "https://api.github.com"
           headers = {
               "Accept": "application/vnd.github+json",
@@ -302,21 +311,26 @@ jobs:
               print(f"::warning::main advanced while tests ran; bundle publish skipped (tested={expected}, current={current}).")
               sys.exit(0)
 
-          remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
-          built = Path(path).read_bytes()
-          git_blob_sha = hashlib.sha1(
-              b"blob " + str(len(built)).encode("ascii") + bytes([0]) + built
-          ).hexdigest()
-          if git_blob_sha == remote_file.get("sha"):
-              print("React Studio bundle is already current; no commit created.")
+          changed = []
+          for path in paths:
+              remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
+              built = Path(path).read_bytes()
+              git_blob_sha = hashlib.sha1(
+                  b"blob " + str(len(built)).encode("ascii") + bytes([0]) + built
+              ).hexdigest()
+              if git_blob_sha == remote_file.get("sha"):
+                  continue
+              blob = request(f"/repos/{repo}/git/blobs", "POST", {
+                  "content": base64.b64encode(built).decode("ascii"),
+                  "encoding": "base64",
+              })
+              changed.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
+          if not changed:
+              print("React Studio bundle and Tailwind CSS are already current; no commit created.")
               sys.exit(0)
 
           # Contents API is not reliable for generated bundles over 1 MiB.
           # Publish via Git Database API and never force-update the main ref.
-          blob = request(f"/repos/{repo}/git/blobs", "POST", {
-              "content": base64.b64encode(built).decode("ascii"),
-              "encoding": "base64",
-          })
           current_ref = request(f"/repos/{repo}/git/ref/heads/main")
           parent_sha = current_ref["object"]["sha"]
           if parent_sha != expected:
@@ -325,7 +339,7 @@ jobs:
           parent_commit = request(f"/repos/{repo}/git/commits/{parent_sha}")
           tree = request(f"/repos/{repo}/git/trees", "POST", {
               "base_tree": parent_commit["tree"]["sha"],
-              "tree": [{"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]}],
+              "tree": changed,
           })
           new_commit = request(f"/repos/{repo}/git/commits", "POST", {
               "message": "build: publish verified React 19 Studio bundle",
@@ -339,5 +353,5 @@ jobs:
           updated = request(f"/repos/{repo}/git/refs/heads/main", "PATCH", {
               "sha": new_commit["sha"], "force": False,
           })
-          print(f"Published verified React Studio bundle: {updated['object']['sha']}")
+          print(f"Published verified React Studio bundle and Tailwind CSS: {updated['object']['sha']}")
           PY
