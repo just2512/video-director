@@ -76,7 +76,7 @@ type FilmTimelineSurfaceTrack = {
   clips: FilmTimelineSurfaceClip[];
 };
 type FilmTimelineSurfaceModel = {
-  renderKey: string; laneWidth: number; totalWidth: number; pixelsPerSecond: number;
+  laneWidth: number; totalWidth: number; pixelsPerSecond: number;
   ticks: Array<{at:number;label:string;left:number}>;
   tracks: FilmTimelineSurfaceTrack[];
 };
@@ -664,7 +664,7 @@ window.filmStudioReactTimeline = {
       timelineSurfaceMount = mount;
     }
     flushSync(() => {
-      timelineSurfaceRoot?.render(<TimelineSurface key={model.renderKey} model={model} />);
+      timelineSurfaceRoot?.render(<TimelineSurface model={model} />);
     });
   },
 };

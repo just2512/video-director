@@ -338,9 +338,8 @@
     var laneWidth=Math.max(720,Math.ceil(S.duration*S.pxPerSec)),ticks=Math.min(240,Math.ceil(S.duration/5));
     var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
     if(reactTimeline){
-      S.timelineRenderSequence=(S.timelineRenderSequence||0)+1;
       var renderModel={
-        renderKey:String(S.timelineRenderSequence),laneWidth:laneWidth,totalWidth:132+laneWidth,
+        laneWidth:laneWidth,totalWidth:132+laneWidth,
         pixelsPerSecond:S.pxPerSec,
         ticks:(function(){var items=[];for(var i=0;i<=ticks;i++){var sec=Math.min(S.duration,i*5);items.push({at:sec,label:fmtTime(sec),left:sec*S.pxPerSec});}return items;})(),
         tracks:S.data.tracks.map(function(track){

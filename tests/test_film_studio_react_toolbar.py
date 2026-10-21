@@ -22,8 +22,11 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "renderSurface(model)" in component
     assert "window.filmStudioReactTimeline.renderSurface(renderModel);" in studio
     assert 'data-react-timeline-clip={clip.id}' in component
-    assert '<TimelineSurface key={model.renderKey} model={model} />' in component
-    assert "S.timelineRenderSequence=(S.timelineRenderSequence||0)+1;" in studio
+    assert "timelineSurfaceRoot?.render(<TimelineSurface model={model} />);" in component
+    assert "<TimelineSurface key={model.renderKey}" not in component
+    assert "key={track.id}" in component
+    assert "key={clip.id}" in component
+    assert "S.timelineRenderSequence=" not in studio
     roll_test = (root / "tests" / "test_film_studio_roll_browser.py").read_text(encoding="utf-8")
     insert_test = (root / "tests" / "test_film_studio_insert_browser.py").read_text(encoding="utf-8")
     assert '[data-film-action="split"]:visible' in roll_test
@@ -37,3 +40,12 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "const StudioScrubRow: React.FC" in component
     assert "renderScrub(): void" in component
     assert "bridge.renderScrub();" in studio
+
+
+def test_react_timeline_keeps_stable_dom_identity_for_tracks_and_clips():
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    assert "timelineSurfaceRoot?.render(<TimelineSurface model={model} />);" in component
+    assert "<TimelineSurface key=" not in component
+    assert "key={track.id}" in component
+    assert "key={clip.id}" in component
