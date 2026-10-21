@@ -380,6 +380,125 @@ def _film_attribute_issues(tag: str, attrs: dict[str, str]) -> list[str]:
     return issues
 
 
+def _film_runtime_metadata_issues(clip: dict) -> list[str]:
+    """Reject malformed executable metadata instead of letting Runtime silently drop it."""
+    attrs = clip.get("attrs") or {}
+    issues: list[str] = []
+    duration = clip_duration(clip)
+    if duration is None or not math.isfinite(float(duration)) or duration <= 0:
+        duration = None
+
+    transform_text = attrs.get("data-film-transform")
+    if transform_text is not None:
+        try:
+            transform = json.loads(transform_text)
+            if not isinstance(transform, dict):
+                raise FilmError("INVALID_FILM_TRANSFORM", "必须是 JSON 对象", 422)
+            allowed = {
+                "x", "y", "scale", "scale_x", "scale_y", "rotation", "opacity", "anchor",
+                "stage_width", "stage_height", "base_width", "base_height",
+            }
+            unknown = sorted(set(transform) - allowed)
+            if unknown:
+                raise FilmError(
+                    "INVALID_FILM_TRANSFORM",
+                    "包含未知字段：" + ", ".join(str(name) for name in unknown[:12]),
+                    422,
+                )
+            dimension_values = {}
+            for key in ("stage_width", "stage_height"):
+                value = _number(transform.get(key), "data-film-transform." + key, 1, 32768)
+                if not value.is_integer():
+                    raise FilmError("INVALID_FILM_TRANSFORM", key + " 必须是整数", 422)
+                dimension_values[key] = int(value)
+            for key in ("base_width", "base_height"):
+                _number(transform.get(key), "data-film-transform." + key, 1, 32768)
+            _film_transform_metadata(
+                transform,
+                dimension_values["stage_width"],
+                dimension_values["stage_height"],
+                transform["base_width"],
+                transform["base_height"],
+            )
+        except (FilmError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            issues.append("data-film-transform 无效：" + str(exc)[:320])
+
+    keyframes_text = attrs.get("data-film-keyframes")
+    if keyframes_text is not None:
+        try:
+            channels = json.loads(keyframes_text)
+            if not isinstance(channels, list):
+                raise FilmError("INVALID_FILM_KEYFRAMES", "必须是 JSON 数组", 422)
+            if duration is None:
+                raise FilmError("INVALID_FILM_KEYFRAMES", "片段时长未知，无法验证关键帧", 422)
+            allowed_properties = _FILM_KEYFRAME_PROPERTIES
+            seen_properties: set[str] = set()
+            for channel in channels:
+                if not isinstance(channel, dict):
+                    raise FilmError("INVALID_FILM_KEYFRAMES", "通道项必须是对象", 422)
+                if set(channel) - {"property", "keyframes"}:
+                    raise FilmError("INVALID_FILM_KEYFRAMES", "通道包含未知字段", 422)
+                prop = str(channel.get("property") or "")
+                if prop not in allowed_properties:
+                    raise FilmError("INVALID_FILM_KEYFRAMES", "不支持属性 " + repr(prop), 422)
+                if prop in seen_properties:
+                    raise FilmError("INVALID_FILM_KEYFRAMES", "同一属性不能有重复通道：" + prop, 422)
+                seen_properties.add(prop)
+                points = channel.get("keyframes")
+                if not isinstance(points, list) or not points:
+                    raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 必须包含非空 keyframes 数组", 422)
+                last_at = -1.0
+                for point in points:
+                    if not isinstance(point, dict) or set(point) - {"at", "value", "easing"}:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的关键帧结构无效", 422)
+                    at = _number(point.get("at"), prop + ".at", 0, duration)
+                    _number(point.get("value"), prop + ".value")
+                    if at <= last_at:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的关键帧时间必须严格递增且不能重复", 422)
+                    easing = str(point.get("easing") or "linear")
+                    if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 不支持缓动 " + easing, 422)
+                    last_at = at
+            mapped, warnings = _film_keyframes(channels, duration)
+            if warnings or len(mapped) != len(channels):
+                raise FilmError("INVALID_FILM_KEYFRAMES", "；".join(warnings) or "关键帧没有完整映射", 422)
+        except (FilmError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            issues.append("data-film-keyframes 无效：" + str(exc)[:320])
+
+    mask_text = attrs.get("data-film-mask-keyframes")
+    if mask_text is not None:
+        try:
+            points = json.loads(mask_text)
+            if not isinstance(points, list) or not points:
+                raise FilmError("INVALID_FILM_MASK_KEYFRAMES", "必须是非空 JSON 数组", 422)
+            if duration is None:
+                raise FilmError("INVALID_FILM_MASK_KEYFRAMES", "片段时长未知，无法验证关键帧", 422)
+            if len(points) > 128:
+                raise FilmError("INVALID_FILM_MASK_KEYFRAMES", "关键帧最多 128 个", 422)
+            previous_at = -1.0
+            for point in points:
+                if not isinstance(point, dict) or set(point) - {"at", "value", "easing"}:
+                    raise FilmError("INVALID_FILM_MASK_KEYFRAMES", "关键帧结构无效", 422)
+                at = _number(point.get("at"), "mask_path.at", 0, min(600, duration))
+                if at <= previous_at:
+                    raise FilmError("INVALID_FILM_MASK_KEYFRAMES", "关键帧时间必须严格递增且不能重复", 422)
+                easing = str(point.get("easing") or "linear")
+                if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                    raise FilmError("INVALID_FILM_MASK_KEYFRAMES", "不支持缓动 " + easing, 422)
+                previous_at = at
+            mapped, warnings = _film_mask_keyframes(
+                [{"property": "mask_path", "keyframes": points}], duration
+            )
+            if warnings or len(mapped) != len(points):
+                raise FilmError("INVALID_FILM_MASK_KEYFRAMES", "；".join(warnings) or "蒙版关键帧没有完整映射", 422)
+        except (FilmError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            issues.append("data-film-mask-keyframes 无效：" + str(exc)[:320])
+
+    if "data-film-mask-space" in attrs and attrs["data-film-mask-space"] != "composition":
+        issues.append("data-film-mask-space 只接受 'composition'")
+    return issues
+
+
 class _FilmParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -681,6 +800,8 @@ def parse_film(text: str) -> dict:
                     _parse_volume_envelope(clip["attrs"]["volume_envelope"])
                 except FilmError as exc:
                     problems.append(f"片段 {clip['id']} 的音量包络无效：{exc}")
+            for metadata_issue in _film_runtime_metadata_issues(clip):
+                problems.append(f"片段 {clip['id']} 的运行时元数据无效：{metadata_issue}")
             if "fade" in clip["attrs"]:
                 try:
                     fade_in, fade_out = _parse_fade(clip["attrs"]["fade"])

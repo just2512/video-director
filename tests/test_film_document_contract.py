@@ -1725,3 +1725,111 @@ def test_head_extraction_ignores_tag_examples_inside_comments():
     assert serialized.count("<!-- documentation example: <head> and </head> are literal comment text -->") == 1
     assert serialized.count("<!-- example script syntax: <script>alert(1)</script> is not executable here -->") == 1
     assert fd.serialize_film(fd.parse_film(serialized)) == serialized
+
+
+
+def _source_with_runtime_metadata(metadata: dict) -> str:
+    document = fd.parse_film(SAMPLE)
+    clip = next(item for track in document["tracks"] for item in track["clips"])
+    clip["attrs"].update(metadata)
+    return fd.serialize_film(document)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"data-film-transform": "{broken-json"},
+        {"data-film-transform": json.dumps({"x": 0.5, "y": 0.5, "scale": 1})},
+        {
+            "data-film-transform": json.dumps({
+                "x": 0.5, "y": 0.5, "scale": 1, "scale_x": 1, "scale_y": 1,
+                "rotation": 0, "opacity": 1, "anchor": "center",
+                "stage_width": 320, "stage_height": 180, "base_width": 320,
+                "base_height": 180, "transform": "scale(2)",
+            }),
+        },
+    ],
+)
+def test_parse_rejects_broken_or_unknown_film_transform_metadata(metadata):
+    source = _source_with_runtime_metadata(metadata)
+    with pytest.raises(fd.FilmError, match="data-film-transform 无效"):
+        fd.parse_film(source)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"data-film-keyframes": "{broken-json"},
+        {
+            "data-film-keyframes": json.dumps([
+                {"property": "perspective3d", "keyframes": [{"at": 0, "value": 1}]}
+            ]),
+        },
+        {
+            "data-film-keyframes": json.dumps([
+                {"property": "scale_x", "keyframes": [
+                    {"at": 0, "value": 1, "easing": "spring"},
+                ]},
+            ]),
+        },
+        {
+            "data-film-keyframes": json.dumps([
+                {"property": "scale_x", "keyframes": [
+                    {"at": 0, "value": 1},
+                    {"at": 0, "value": 1.2},
+                ]},
+            ]),
+        },
+        {
+            "data-film-keyframes": json.dumps([
+                {"property": "scale_x", "keyframes": [
+                    {"at": 0, "value": 1},
+                    {"at": 6, "value": 1.2},
+                ]},
+            ]),
+        },
+    ],
+)
+def test_parse_rejects_keyframe_metadata_that_runtime_would_silently_drop(metadata):
+    source = _source_with_runtime_metadata(metadata)
+    with pytest.raises(fd.FilmError, match="data-film-keyframes 无效"):
+        fd.parse_film(source)
+
+
+def test_parse_rejects_malformed_mask_keyframes_and_accepts_valid_transform_channels():
+    valid_transform = {
+        "x": 0.5, "y": 0.5, "scale": 1, "scale_x": 0.8, "scale_y": 1.2,
+        "rotation": 0, "opacity": 1, "anchor": "center",
+        "stage_width": 320, "stage_height": 180, "base_width": 320,
+        "base_height": 180,
+    }
+    valid_channels = [
+        {"property": "scale_x", "keyframes": [
+            {"at": 0, "value": 0.8, "easing": "linear"},
+            {"at": 1, "value": 1.4, "easing": "ease_in_out"},
+        ]},
+        {"property": "scale_y", "keyframes": [
+            {"at": 0, "value": 1.2, "easing": "linear"},
+            {"at": 1, "value": 0.9, "easing": "ease_out"},
+        ]},
+    ]
+    good = _source_with_runtime_metadata({
+        "data-film-transform": json.dumps(valid_transform),
+        "data-film-keyframes": json.dumps(valid_channels),
+        "data-film-mask-keyframes": json.dumps([
+            {"at": 0, "value": [[0, 0], [1, 0], [1, 1], [0, 1]], "easing": "linear"},
+            {"at": 1, "value": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]], "easing": "ease_in_out"},
+        ]),
+        "data-film-mask-space": "composition",
+    })
+    parsed = fd.parse_film(good)
+    roundtrip = fd.serialize_film(parsed)
+    assert fd.serialize_film(fd.parse_film(roundtrip)) == roundtrip
+
+    bad = _source_with_runtime_metadata({
+        "data-film-mask-keyframes": json.dumps([
+            {"at": 0, "value": [[0, 0], [1, 0]], "easing": "linear"},
+        ]),
+    })
+    with pytest.raises(fd.FilmError, match="data-film-mask-keyframes 无效"):
+        fd.parse_film(bad)
