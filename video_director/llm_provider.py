@@ -138,6 +138,41 @@ class OpenAICompatibleProvider:
         except (AttributeError, IndexError) as exc:
             raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
 
+    def generate_stream(self, prompt: str, system: Optional[str] = None,
+                        on_delta=None) -> str:
+        """Stream text deltas to the caller while also returning the complete text."""
+        self._ensure_client()
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        parts: list[str] = []
+        try:
+            stream = self._client.chat.completions.create(
+                model=self._model, messages=messages, stream=True,
+            )
+            for event in stream:
+                choices = getattr(event, "choices", None) or []
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                content = getattr(delta, "content", None)
+                if isinstance(content, str) and content:
+                    parts.append(content)
+                    if on_delta is not None:
+                        on_delta(content)
+                elif isinstance(content, list):
+                    for item in content:
+                        fragment = getattr(item, "text", None)
+                        if isinstance(fragment, str) and fragment:
+                            parts.append(fragment)
+                            if on_delta is not None:
+                                on_delta(fragment)
+        except Exception as exc:
+            logger.warning(f"LLM stream 失败 (model={self._model}): {exc}")
+            raise RuntimeError(f"LLM stream 失败: {exc}") from exc
+        return "".join(parts)
+
 
 # ---------------------------------------------------------------------------
 # 工厂：有 key 返真实 provider，无 key 返 None（诚实）
