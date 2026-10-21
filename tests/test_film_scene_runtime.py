@@ -298,3 +298,13 @@ def test_scene_root_relative_media_paths_are_rewritten_inside_project_boundary()
     assert 'href="/api/editor/film/media?project_id=film-test&amp;src=assets%2Fcss%2Ftheme.css"' in result
     assert 'src="/api/editor/film/media?project_id=film-test&amp;src=assets%2Fimages%2Flogo.png"' in result
     assert "url('/api/editor/film/media?project_id=film-test&src=assets%2Fimages%2Fhero.webp')" in result
+
+
+def test_frame_readiness_scans_pseudo_element_css_image_resources():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "video_director" / "film_scene_runtime.py").read_text(encoding="utf-8")
+    assert "['', '::before', '::after', '::marker'].forEach(function (pseudo)" in source
+    assert "window.getComputedStyle(element, pseudo)" in source
+    assert "CSS 图片资源加载失败" in source
+    assert "CSS 图片资源等待超过 12 秒" in source

@@ -151,10 +151,12 @@ _SCENE_BRIDGE = r"""
     }
     try {
       Array.prototype.forEach.call(document.querySelectorAll('*'), function (element) {
-        var style = window.getComputedStyle(element);
-        ['backgroundImage','maskImage','webkitMaskImage','borderImageSource',
-         'listStyleImage','cursor','content','filter','clipPath'].forEach(function (property) {
-          rememberCssUrls(style[property]);
+        ['', '::before', '::after', '::marker'].forEach(function (pseudo) {
+          var style = pseudo ? window.getComputedStyle(element, pseudo) : window.getComputedStyle(element);
+          ['backgroundImage','maskImage','webkitMaskImage','borderImageSource',
+           'listStyleImage','cursor','content','filter','clipPath'].forEach(function (property) {
+            rememberCssUrls(style[property]);
+          });
         });
       });
     } catch (error) {

@@ -1620,3 +1620,33 @@ def test_parse_rejects_comments_inside_media_clip_instead_of_dropping_them():
     )
     with pytest.raises(fd.FilmError, match="媒体片段内部不允许注释"):
         fd.parse_film(source)
+
+
+def test_unrelated_comments_survive_authoritative_film_edit():
+    source = '''<!doctype html>
+<!-- keep wrapper note -->
+<html><head><!-- keep head note --></head><body>
+<section id="visual">
+<!-- keep edit note -->
+<video id="first" src="assets/first.mp4#t=0,1" at="0"></video>
+<!-- keep between-clip note -->
+<video id="second" src="assets/second.mp4#t=0,1" at="1"></video>
+</section>
+<!-- keep between-track note -->
+</body></html>'''
+    parsed = fd.parse_film(source)
+    edited, operations = fd.apply_ops(parsed, [
+        {"op": "set", "clip": "first", "field": "title", "value": "Updated title"},
+    ])
+    assert len(operations) == 1
+    serialized = fd.serialize_film(edited)
+    assert 'title="Updated title"' in serialized
+    for comment in (
+        "<!-- keep wrapper note -->",
+        "<!-- keep head note -->",
+        "<!-- keep edit note -->",
+        "<!-- keep between-clip note -->",
+        "<!-- keep between-track note -->",
+    ):
+        assert serialized.count(comment) == 1, f"comment lost during film edit: {comment}"
+    assert fd.serialize_film(fd.parse_film(serialized)) == serialized
