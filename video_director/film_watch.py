@@ -78,6 +78,8 @@ class FilmRevisionWatcher:
                 self._projects[pid] = {
                     "last_revision": baseline_revision,
                     "last_text": baseline_text,
+                    "last_phase": "revision_changed" if matched_initial_snapshot and path.is_file() else "missing",
+                    "last_error": None,
                     "pending_signature": signature,
                     "processed_signature": signature if matched_initial_snapshot else None,
                     "changed_at": now - self.settle_seconds if not matched_initial_snapshot else now,
@@ -168,13 +170,26 @@ class FilmRevisionWatcher:
                 if live is None or live["pending_signature"] != signature:
                     continue
                 live["processed_signature"] = signature
-                if revision != live["last_revision"]:
+                previous_revision = live.get("last_revision")
+                previous_phase = live.get("last_phase")
+                previous_error = live.get("last_error")
+                state_changed = (
+                    revision != previous_revision
+                    or phase != previous_phase
+                    or error != previous_error
+                )
+                if state_changed:
                     live["last_revision"] = revision
+                    live["last_phase"] = phase
+                    live["last_error"] = error
                     if phase == "revision_changed":
                         # Update the content baseline only after strict parse success.
                         live["last_text"] = source
                     already_recorded = bool(
-                        history_result and history_result.get("status") == "already_recorded"
+                        phase == "revision_changed"
+                        and revision != previous_revision
+                        and history_result
+                        and history_result.get("status") == "already_recorded"
                     )
                     if not already_recorded:
                         event = {

@@ -51,3 +51,28 @@ def test_invalid_utf8_external_write_publishes_broken_state_then_recovers(tmp_pa
     assert recovered["phase"] == "revision_changed"
     assert recovered["source"] == "external_file"
     assert recovered["revision"] == fd.revision_of(repaired)
+
+
+
+def test_first_external_write_invalid_utf8_is_reported_even_when_revision_matches_empty_baseline(tmp_path: Path):
+    project_id = "film-watch-first-write-invalid-utf8"
+    film_path = tmp_path / "film.html"
+    events = []
+    watcher = FilmRevisionWatcher(
+        lambda topic, payload: events.append((topic, payload)),
+        path_for_project=lambda _project_id: film_path,
+        settle_seconds=0.05,
+        interval_seconds=0.02,
+    )
+    watcher.watch(project_id)
+
+    now = time.monotonic() + 1
+    film_path.write_bytes(b"<!doctype html><html>\\xff</html>")
+    watcher.poll_once(now=now)
+    watcher.poll_once(now=now + 1)
+
+    assert events, "document_broken must be emitted even when the fallback text hashes to the empty baseline"
+    topic, broken = events[-1]
+    assert topic == "film"
+    assert broken["phase"] == "document_broken"
+    assert broken["error"] and "UTF-8" in broken["error"]
