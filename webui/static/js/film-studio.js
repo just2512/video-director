@@ -180,7 +180,8 @@
     else $('fs-inspector').innerHTML='<div class="fs-empty">初始化影片文档后才能编辑片段。</div>';
     resetPreview();
     var variants=Array.isArray(data.variants)?data.variants:[];
-    var needsVariantChoice=variants.length>1&&!preview.selected_variant_id;
+    var needsVariantChoice=variants.length>1&&!preview.selected_variant_id
+      &&(data.migration_error_code==='ACTIVE_VARIANT_REQUIRED'||data.migration_error_code==='ACTIVE_VARIANT_NOT_FOUND');
     var message=data.migration_available
       ?'可从当前 Composition 初始化 film.html。预计 '+(preview.duration||0)+' 秒、'+(preview.track_count||0)+' 条轨道、'+(preview.clip_count||0)+' 个片段。'
       :(needsVariantChoice?'旧项目包含多个候选版本，请先选择本次要迁移的版本。':'无法初始化：'+(data.migration_error||'当前项目没有可编辑的 CompositionIR。'));
@@ -190,6 +191,7 @@
     var variantPicker='';
     if(variants.length>1){
       variantPicker='<label class="fs-migrate-variant" for="fs-migration-variant"><span>选择迁移版本</span><select id="fs-migration-variant">';
+      if(!selectedVariantId)variantPicker+='<option value="" disabled selected>请选择一个版本</option>';
       variantPicker+=variants.map(function(variant){
         var variantId=String(variant.id||''),label=String(variant.label||variantId);
         return '<option value="'+esc(variantId)+'"'+(variantId===selectedVariantId?' selected':'')+'>'+esc(label)+' · v'+esc(String(variant.version||1))+'</option>';

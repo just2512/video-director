@@ -96,3 +96,12 @@ def test_film_migration_api_requires_and_persists_explicit_variant_selection(tmp
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_variant_migration_ui_requires_an_explicit_choice_when_no_active_variant_exists():
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "if(!selectedVariantId)variantPicker+='<option value=\"\" disabled selected>请选择一个版本</option>';" in script
+    assert "data.migration_error_code==='ACTIVE_VARIANT_REQUIRED'||data.migration_error_code==='ACTIVE_VARIANT_NOT_FOUND'" in script
+    assert "S.migration=next;renderMigration();" in script
