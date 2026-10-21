@@ -1,0 +1,116 @@
+name: Studio UI build and browser smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/studio-ui-build.yml"
+      - "remotion_runtime/**"
+      - "webui/static/**"
+      - "webui/server.py"
+      - "video_director/film_document.py"
+      - "video_director/film_scene_runtime.py"
+      - "video_director/film_render.py"
+      - "tests/test_film_document_contract.py"
+      - "tests/test_film_studio_*.py"
+      - "tests/test_film_mask_overlay_migration.py"
+      - "tests/test_film_variant_*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: studio-ui-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install the Studio build dependencies
+        working-directory: remotion_runtime
+        run: npm install --no-package-lock
+
+      - name: Typecheck React 19 and FilmDocument operations
+        working-directory: remotion_runtime
+        run: npm run typecheck
+
+      - name: Build React Studio bundle and scoped Tailwind 4 CSS
+        working-directory: remotion_runtime
+        run: |
+          npm run build:studio
+          npm run build:studio:css
+          test -s ../webui/static/js/film-studio-react.js
+          test -s ../webui/static/css/film-studio-tailwind.css
+          if grep -q "Build output placeholder" ../webui/static/js/film-studio-react.js; then
+            echo "React Studio bundle is still a placeholder" >&2
+            exit 1
+          fi
+          if [ "$(wc -c < ../webui/static/css/film-studio-tailwind.css)" -lt 1000 ]; then
+            echo "Tailwind CSS output is unexpectedly small" >&2
+            exit 1
+          fi
+
+      - name: Install focused Python/browser test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pydantic>=2.5" "loguru>=0.7" "edge-tts>=7.0" pillow imageio-ffmpeg openai pyyaml "playwright>=1.40" "pytest>=7.4"
+          python -m playwright install --with-deps chromium
+
+      - name: Run FilmDocument, migration, and Studio browser regressions
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_film_document_contract.py \
+            tests/test_film_variant_transform_keyframes.py \
+            tests/test_film_variant_migration_api.py \
+            tests/test_film_mask_overlay_migration.py \
+            tests/test_film_runtime_mask_keyframes_browser.py \
+            tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_react_clip_inspector.py \
+            tests/test_film_studio_react_fallback.py \
+            tests/test_film_studio_inspector_renderer.py
+
+      - name: Check JavaScript syntax
+        run: |
+          for file in webui/static/js/*.js; do node --check "$file"; done
+
+      - name: Publish built Studio assets without overwriting newer main
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add webui/static/js/film-studio-react.js webui/static/css/film-studio-tailwind.css
+          if git diff --cached --quiet; then
+            echo "Built Studio assets are already current; no commit created."
+            exit 0
+          fi
+          git commit -m "build: publish verified React Studio assets"
+          current="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$current" != "$GITHUB_SHA" ]; then
+            echo "::warning::main advanced while Studio assets were being built; refusing to publish stale output."
+            exit 0
+          fi
+          # No force push: if main advances after the check, the server rejects this non-fast-forward update.
+          git push origin HEAD:refs/heads/main
