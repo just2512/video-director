@@ -1876,19 +1876,26 @@ def record_external_film_revision(
 
         history = _history_read(pid)
         past = history["past"]
-        # Studio API writes are already in past at their after snapshot. Undo
-        # moves that entry to future and writes its before snapshot. Redo moves
-        # it back to past and writes its after snapshot. Only those exact
-        # directional matches are deduplicated; a new external write that happens
-        # to restore an old revision must create a new undoable history entry.
-        if any(
-            entry.get("after_rev") == after_revision and entry.get("after") == after_text
-            for entry in history["past"]
+        # Only the top of the active stack can represent the immediately
+        # preceding Studio save/undo/redo that the watcher has just observed.
+        # Searching all history by content is incorrect: a new external edit may
+        # intentionally restore a revision that appeared days/edits earlier.
+        last_past = history["past"][-1] if history["past"] else None
+        if (
+            last_past
+            and last_past.get("before") == before_text
+            and last_past.get("after") == after_text
+            and last_past.get("before_rev") == before_revision
+            and last_past.get("after_rev") == after_revision
         ):
             return {"status": "already_recorded", "revision": after_revision}
-        if any(
-            entry.get("before_rev") == after_revision and entry.get("before") == after_text
-            for entry in history["future"]
+        last_future = history["future"][-1] if history["future"] else None
+        if (
+            last_future
+            and last_future.get("before") == after_text
+            and last_future.get("before_rev") == after_revision
+            and last_future.get("after") == before_text
+            and last_future.get("after_rev") == before_revision
         ):
             return {"status": "already_recorded", "revision": after_revision}
         if past:

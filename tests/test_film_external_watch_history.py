@@ -179,3 +179,31 @@ def test_external_agent_can_restore_an_old_snapshot_without_clearing_undoability
 
     fd.undo_redo_project_film(project_id, None, "undo")
     assert film_path.read_text(encoding="utf-8") == version_b
+
+
+
+def test_external_edit_that_restores_a_historical_revision_is_still_recorded(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "external-edit-restores-old-revision"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True)
+    film_path = fd._film_path(project_id)
+
+    initial = FILM
+    restored = FILM.replace('at="0"', 'at="0.5"')
+    film_path.write_text(restored, encoding="utf-8")
+    first = fd.record_external_film_revision(project_id, initial, restored)
+    assert first["status"] == "recorded"
+
+    # An independent external write restores the original bytes/revision. It is
+    # a new edit event, not a duplicate of the first entry's 'before' snapshot.
+    film_path.write_text(initial, encoding="utf-8")
+    second = fd.record_external_film_revision(project_id, restored, initial)
+    assert second["status"] == "recorded"
+
+    history = fd._history_read(project_id)
+    assert len(history["past"]) == 2
+    assert history["past"][0]["before"] == initial
+    assert history["past"][0]["after"] == restored
+    assert history["past"][1]["before"] == restored
+    assert history["past"][1]["after"] == initial
