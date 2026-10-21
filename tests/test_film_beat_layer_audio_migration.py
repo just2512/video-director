@@ -42,7 +42,10 @@ def test_beat_layers_and_audio_are_migrated_and_tagged_without_duplicate_global_
                     "id": "beat-overlay", "type": "image", "asset_id": "asset-overlay",
                     "start": 0.25, "duration": 0.5, "fit_mode": "contain",
                 }],
-                "audio": [global_sfx],
+                "audio": [
+                    global_sfx,
+                    {**global_sfx, "volume": 0.2},
+                ],
             }],
         }],
         "audio": [global_sfx],
@@ -69,9 +72,19 @@ def test_beat_layers_and_audio_are_migrated_and_tagged_without_duplicate_global_
 
     audio_matches = [
         clip for _, clip in clips
-        if clip["attrs"].get("data-role") == "sfx" and clip["attrs"].get("data-source-id") == "sfx-shared"
+        if clip["attrs"].get("data-role") == "sfx" and (
+            clip["attrs"].get("data-source-id") == "sfx-shared"
+            or clip["attrs"].get("id", "").startswith("audio-beat-beat-hook-sfx-shared")
+        )
     ]
-    assert len(audio_matches) == 1
-    assert audio_matches[0]["attrs"]["data-source-beat-ids"] == '["beat-hook"]'
-    assert float(audio_matches[0]["attrs"]["at"]) == 0.2
+    # Equal ID/content merges despite the normalized top-level track_id. A
+    # same-ID clip with different volume is preserved as a second real clip.
+    assert len(audio_matches) == 2
+    original = next(clip for clip in audio_matches if clip["attrs"].get("data-source-id") == "sfx-shared")
+    distinct = next(clip for clip in audio_matches if clip is not original)
+    assert original["attrs"]["data-source-beat-ids"] == '["beat-hook"]'
+    assert float(original["attrs"]["at"]) == 0.2
+    assert float(original["attrs"]["volume"]) == 0.6
+    assert float(distinct["attrs"]["volume"]) == 0.2
+    assert any("ID 冲突但内容不同" in warning for warning in result["warnings"])
     assert not any("beats 分层内容未迁移" in warning for warning in result["warnings"])

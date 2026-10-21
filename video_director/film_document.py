@@ -2951,6 +2951,15 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     source_audio_entries = []
     beat_audio_by_source_id: dict[str, list[dict]] = {}
 
+    def _audio_content_signature(audio_value: dict) -> str:
+        # track_id is lane placement, not the audio content. CompositionIR's
+        # validator fills a default track_id on top-level audio but can leave an
+        # otherwise identical Beat.audio entry without one; including it would
+        # duplicate the same explicit source clip.
+        comparable = dict(audio_value)
+        comparable.pop("track_id", None)
+        return json.dumps(comparable, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+
     # Beat has no separate timeline origin. AudioTrack.start remains the
     # composition-time coordinate, matching CompositionIR.audio.
     for audio_item in source_audio:
@@ -2958,7 +2967,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             beat_migration_warnings.append("Composition 音频项格式无效；该项没有被猜测转换")
             continue
         original_id = str(audio_item.get("id") or "")
-        signature = json.dumps(audio_item, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+        signature = _audio_content_signature(audio_item)
         entry = {
             "audio": dict(audio_item), "source_id": original_id, "signature": signature,
             "beat_ids": [], "beat_roles": [], "semantic_anchors": [],
@@ -2987,7 +2996,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     )
                     continue
                 original_id = str(beat_audio.get("id") or "")
-                signature = json.dumps(beat_audio, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+                signature = _audio_content_signature(beat_audio)
                 candidates = beat_audio_by_source_id.get(original_id, []) if original_id else []
                 existing = next((candidate for candidate in candidates if candidate["signature"] == signature), None)
                 if existing is not None:
