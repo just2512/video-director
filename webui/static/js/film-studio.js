@@ -361,7 +361,14 @@
   }
   function findTimelineSnap(rawAt, excludedIds, thresholdPx){
     if(!S.snapEnabled)return null;
-    var ids=excludedIds||[], candidates=[{at:0,kind:'片头'},{at:S.playhead,kind:'播放头'}];
+    var ids=excludedIds||[], candidates=[{at:0,kind:'片头'}];
+    // Clip selection may move the playhead to the dragged clip's start. Do not
+    // snap that clip straight back to its own origin while the pointer is moving.
+    var playheadIsSelectedClipStart=ids.some(function(id){
+      var selected=findClip(id);
+      return selected&&Number.isFinite(Number(selected.at))&&Math.abs(Number(selected.at)-S.playhead)*S.pxPerSec<=0.5;
+    });
+    if(!playheadIsSelectedClipStart)candidates.push({at:S.playhead,kind:'播放头'});
     clips().forEach(function(clip){
       if(ids.indexOf(clip.id)>=0)return;
       if(Number.isFinite(Number(clip.at)))candidates.push({at:Number(clip.at),kind:'片段入点'});
