@@ -332,13 +332,10 @@ def _film_style_issues(value: str, *, is_track: bool = False) -> list[str]:
             if not re.fullmatch(r"-?\d+(?:\.\d+)?deg", raw_value, re.I):
                 issues.append("style 属性 'rotate' 必须使用 deg 数值")
         elif name == "transform-origin":
-            tokens = raw_value.lower().split()
-            if not 1 <= len(tokens) <= 2 or any(
-                token not in {"left", "center", "right", "top", "bottom"}
-                and not re.fullmatch(r"-?\d+(?:\.\d+)?%", token)
-                for token in tokens
-            ):
-                issues.append("style 属性 'transform-origin' 只接受位置关键字或百分比")
+            # Keep this in sync with webui/static/js/film-runtime.js:safeStyle;
+            # migrated anchors emit only the 0/50/100 percent grid.
+            if not re.fullmatch(r"(?:0|50|100)%\s+(?:0|50|100)%", raw_value):
+                issues.append("style 属性 'transform-origin' 只接受 0/50/100% 坐标")
         elif name == "object-fit":
             if raw_value not in {"cover", "contain", "fill", "none", "scale-down"}:
                 issues.append(f"style 属性 'object-fit' 的值无效：{raw_value!r}")
@@ -350,13 +347,16 @@ def _film_style_issues(value: str, *, is_track: bool = False) -> list[str]:
             if not math.isfinite(number) or not 0 <= number <= 1:
                 issues.append("style 属性 'opacity' 必须在 0–1 范围内")
         elif name == "z-index":
-            if not re.fullmatch(r"-?\d+", raw_value):
-                issues.append("style 属性 'z-index' 必须是整数")
+            if not re.fullmatch(r"-?\d{1,6}", raw_value) or abs(int(raw_value)) > 100000:
+                issues.append("style 属性 'z-index' 必须是 -100000–100000 范围内的整数")
         elif name == "clip-path":
-            if raw_value != "none" and not re.fullmatch(
-                r"(?:inset|ellipse|polygon)\(\s*[^;]+\s*\)", raw_value, re.I
+            inset = r"inset\(\s*-?(?:\d+(?:\.\d+)?|\.\d+)%(?:\s+-?(?:\d+(?:\.\d+)?|\.\d+)%){0,3}\s*\)"
+            ellipse = r"ellipse\(\s*\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%\s+at\s+\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%\s*\)"
+            polygon = r"polygon\(\s*\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%(?:\s*,\s*\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%){2,}\s*\)"
+            if raw_value != "none" and not any(
+                re.fullmatch(pattern, raw_value, re.I) for pattern in (inset, ellipse, polygon)
             ):
-                issues.append("style 属性 'clip-path' 只接受 inset()/ellipse()/polygon()")
+                issues.append("style 属性 'clip-path' 的值不符合 Runtime 的 inset()/ellipse()/polygon() 契约")
     return issues
 
 

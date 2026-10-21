@@ -1455,3 +1455,22 @@ def test_parse_rejects_unknown_head_element_and_typo_in_meta_attribute():
     with pytest.raises(fd.FilmError) as attr_error:
         fd.parse_film(typo_attr)
     assert "未知属性 'charsett'" in str(attr_error.value)
+
+
+@pytest.mark.parametrize(
+    "style, expected",
+    [
+        ("transform-origin:25% 25%;left:0px;top:0px;width:100px;height:100px", "0/50/100%"),
+        ("z-index:100001;left:0px;top:0px;width:100px;height:100px", "100000 范围"),
+        ("clip-path:polygon(url(https://example.invalid/x));left:0px;top:0px;width:100px;height:100px", "Runtime 的"),
+    ],
+)
+def test_parse_rejects_css_values_runtime_would_ignore(style, expected):
+    source = (
+        '<!doctype html><html><head></head><body>'
+        '<section id="video"><video id="clip" src="assets/video.mp4#t=0,2" at="0" '
+        + 'style="' + style + '"></video></section></body></html>'
+    )
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(source)
+    assert expected in str(error.value)
