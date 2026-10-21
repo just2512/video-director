@@ -1990,3 +1990,48 @@ def test_parse_reports_unknown_fields_in_selector_override_without_destroying_le
         clip for track in parsed["tracks"] for clip in track["clips"] if clip["id"] == "scene"
     )["attrs"]["overrides"]) == entries
     assert any("当前 Runtime 不识别的字段" in warning for warning in parsed["warnings"])
+
+
+def test_film_command_streams_model_deltas_before_parsing_final_proposal():
+    output = '{"summary":"调整镜头节奏","operations":[]}'
+    fragments = []
+
+    class StreamingLLM:
+        def generate_stream(self, prompt, on_delta=None):
+            assert "用户指令" in prompt
+            for fragment in (output[:13], output[13:25], output[25:]):
+                if on_delta:
+                    on_delta(fragment)
+            return output
+
+        def generate(self, prompt):
+            raise AssertionError("stream-capable models must use generate_stream")
+
+    state = {"exists": True, "doc": fd.parse_film(HTML_SCENE_SAMPLE)}
+    summary = {}
+    operations = fd.plan_film_command(
+        StreamingLLM(), state, "调整镜头节奏", "scene",
+        summary_out=summary, on_token=fragments.append,
+    )
+    assert operations == []
+    assert "".join(fragments) == output
+    assert summary["summary"] == "调整镜头节奏"
+
+
+def test_film_command_stream_falls_back_for_legacy_llm_providers():
+    output = '{"summary":"不需要修改","operations":[]}'
+    fragments = []
+
+    class LegacyLLM:
+        def generate(self, prompt):
+            return output
+
+    state = {"exists": True, "doc": fd.parse_film(HTML_SCENE_SAMPLE)}
+    summary = {}
+    operations = fd.plan_film_command(
+        LegacyLLM(), state, "检查当前片子", "scene",
+        summary_out=summary, on_token=fragments.append,
+    )
+    assert operations == []
+    assert fragments == [output]
+    assert summary["summary"] == "不需要修改"
