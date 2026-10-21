@@ -10,7 +10,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert 'id="fs-react-timeline-toolbar"' in html
     assert 'id="fs-static-timeline-toolbar"' in html
     assert "const StudioTimelineToolbar: React.FC" in component
-    for action in ("insert-mode", "split", "join-cut", "ripple-delete", "envelope-mode", "slide-mode", "add-track", "zoom-in", "apply-inspector"):
+    for action in ("insert-mode", "toggle-snap", "split", "join-cut", "ripple-delete", "envelope-mode", "slide-mode", "add-track", "zoom-in", "apply-inspector"):
         assert f'data-film-action="{action}"' in component
     assert "renderTimeline(): void" in component
     assert "var bridge=window.filmStudioReactToolbar" in studio
