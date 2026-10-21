@@ -35,10 +35,13 @@ export interface FilmDocumentPayload {
     selected_variant_id?: string | null;
   };
 }
+export type FilmStringField =
+  | "src" | "title" | "fade" | "class" | "alt" | "lang" | "dir" | "size"
+  | "style" | "overrides" | "volume_envelope";
 export type FilmOperation =
   | { op: "set"; clip: string; field: "at" | "speed" | "volume"; value: number }
-  | { op: "set"; clip: string; field: "title" | "fade"; value: string | null }
   | { op: "set"; clip: string; field: "muted"; value: boolean }
+  | { op: "set"; clip: string; field: FilmStringField; value: string | null }
   | { op: "move"; clip: string; at: number; track_id?: string }
   | { op: "trim"; clip: string; edge: "start"; at: number }
   | { op: "trim"; clip: string; edge: "end"; end: number }
@@ -46,8 +49,22 @@ export type FilmOperation =
   | { op: "slip"; clip: string; delta_source: number }
   | { op: "roll"; clip: string; other_clip: string; delta: number }
   | { op: "slide"; clip: string; delta: number }
+  | { op: "join"; clip: string; other_clip: string }
+  | { op: "remove"; clip: string }
+  | { op: "ripple_delete"; clip: string; scope: "all"; split_ids?: string[] }
+  | { op: "insert"; track_id: string; clip: FilmClipInsert }
+  | { op: "insert_ripple"; track_id: string; at: number; clip: FilmClipInsert }
+  | { op: "track_add"; track_id: string; label?: string; index?: number; kind?: string }
+  | { op: "track_remove"; track_id: string }
+  | { op: "track"; track_id: string; field: "locked" | "hidden" | "muted" | "sync-lock"; value: boolean }
   | { op: "element_set"; clip: string; selector: string; text?: string; style?: Record<string, string> }
   | { op: "clip_lock"; clip: string; locked: boolean };
+
+export interface FilmClipInsert {
+  id: string;
+  tag: FilmClipTag;
+  attrs: Record<string, string>;
+}
 export type FilmEditResponse =
   | { ok: true; rev: string; ops: FilmOperation[]; rebased?: boolean }
   | { ok: false; code: string; error: string; current_revision?: string };
