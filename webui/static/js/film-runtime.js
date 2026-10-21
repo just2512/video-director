@@ -534,10 +534,10 @@
     var resolvePromise,rejectPromise,done=false,timer=0,callbackId=null;
     var sourceFps=finite(clip.source_fps,finite(state.fps,30));
     var timeTolerance=0.5/Math.max(1,sourceFps)+0.002;
-    var promise=new Promise(function(resolve,reject){resolvePromise=resolve;rejectPromise=reject;});
     if(!Number.isFinite(previousPresentedFrames)){
-      finish(new Error('视频片段 '+clip.id+' 无法建立先前的呈现帧计数基线；拒绝确认可能过期的帧'));
+      throw new Error('视频片段 '+clip.id+' 无法建立先前的呈现帧计数基线；拒绝确认可能过期的帧');
     }
+    var promise=new Promise(function(resolve,reject){resolvePromise=resolve;rejectPromise=reject;});
     function cleanup(){
       if(timer)clearTimeout(timer);
       if(callbackId!=null&&typeof el.cancelVideoFrameCallback==='function'){

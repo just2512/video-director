@@ -12,6 +12,7 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "requestVideoFrameCallback" in helper
     assert "metadata.mediaTime" in helper
     assert "metadata.presentedFrames" in helper
+    assert helper.index("throw new Error('视频片段 '+clip.id+' 无法建立先前的呈现帧计数基线") < helper.index("var promise=new Promise")
     assert "if(!Number.isFinite(previousPresentedFrames))" in helper
     assert "var frameAdvanced=Number.isFinite(presentedFrames)&&presentedFrames>previousPresentedFrames;" in helper
     assert "var baseline=await awaitInitialVideoFrame(entry,baselineTime);" in prepare
