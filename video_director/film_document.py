@@ -3126,11 +3126,14 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 f"其它 variants {alternatives or '无'} 不会被并入成片"
             )
             if selected_variant.get("style"):
-                warnings.append(f"变体 {selected_variant.get('id')} 的 variant.style 未映射到 film.html")
+                warnings.append(
+                    f"变体 {selected_variant.get('id')} 的 variant.style 已保存在最终轨道的 "
+                    "data-source-variant-style，但尚未编译为实际 CSS"
+                )
             if selected_variant.get("metadata"):
                 warnings.append(
-                    f"变体 {selected_variant.get('id')} 的 metadata 字段未映射到 film.html；"
-                    "完整内容保留于 migration/source-composition.json"
+                    f"变体 {selected_variant.get('id')} 的 metadata 已保存在最终轨道的 "
+                    "data-source-variant-metadata，未被当作渲染指令执行"
                 )
             if not selected_variant.get("scenes"):
                 warnings.append(f"变体 {selected_variant.get('id')} 没有独立 scenes，当前使用顶层 scenes")
@@ -4023,6 +4026,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if selected_variant and selected_variant.get("style"):
             metadata_attrs["data-source-variant-style"] = json.dumps(
                 selected_variant["style"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            )
+        if selected_variant and selected_variant.get("metadata"):
+            metadata_attrs["data-source-variant-metadata"] = json.dumps(
+                selected_variant["metadata"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
             )
     # Keep a stable semantic ordering in the serialized document: overlay sections
     # remain before the base picture (for callers that enumerate tracks), the main
