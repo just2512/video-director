@@ -1,8 +1,20 @@
 name: Studio UI build and browser smoke
 
-# Run manually until this repository's hosted jobs can acquire a runner.
-# The full regression workflow remains on the project's self-hosted WSL runner.
+# Keep the hosted Studio build/browser smoke separate from full self-hosted WSL tests.
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/studio-ui-build.yml"
+      - "remotion_runtime/**"
+      - "webui/static/**"
+      - "webui/server.py"
+      - "video_director/film_document.py"
+      - "video_director/film_scene_runtime.py"
+      - "video_director/film_render.py"
+      - "video_director/film_watch.py"
+      - "video_director/prober.py"
+      - "tests/test_film_*.py"
   workflow_dispatch:
 
 permissions:

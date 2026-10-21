@@ -340,6 +340,28 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             return
 
 
+def _source_video_fps(project_id: str, raw_path: str) -> float:
+    """Return a verified source cadence; never silently substitute the composition FPS."""
+    try:
+        from video_director import prober
+        probe = prober.probe_media(str(fd.media_path_for_src(project_id, raw_path)))
+        fps = float(probe.fps) if probe.fps is not None else 0.0
+    except Exception as exc:
+        raise FilmRenderError(
+            "SOURCE_FPS_UNAVAILABLE",
+            f"无法确认视频素材 {raw_path!r} 的源帧率，不能保证精确 seek/逐帧导出："
+            f"{type(exc).__name__}: {str(exc)[:240]}",
+            422,
+        ) from exc
+    if not math.isfinite(fps) or fps <= 0:
+        raise FilmRenderError(
+            "SOURCE_FPS_UNAVAILABLE",
+            f"视频素材 {raw_path!r} 未返回有效源帧率，不能安全地确认呈现帧时间。",
+            422,
+        )
+    return fps
+
+
 def _runtime_payload(project_id: str, state: dict, base_url: str) -> dict:
     payload = fd.film_payload(project_id, state)
     payload["head_html"] = state["doc"].get("head_html", "")
@@ -353,16 +375,8 @@ def _runtime_payload(project_id: str, state: dict, base_url: str) -> dict:
                 + (("#" + fragment) if marker else "")
             )
             if clip.get("tag") == "video":
-                # Pass the source frame cadence so the browser confirms the
-                # presented frame against source time instead of assuming output FPS.
-                try:
-                    from video_director import prober
-                    probe = prober.probe_media(str(fd.media_path_for_src(project_id, raw_path)))
-                    if probe.fps is not None and math.isfinite(float(probe.fps)) and float(probe.fps) > 0:
-                        clip["source_fps"] = float(probe.fps)
-                except Exception:
-                    # Source-range validation already fails closed if probing itself is required.
-                    pass
+                # Exact presented-frame verification requires the media's own cadence.
+                clip["source_fps"] = _source_video_fps(project_id, raw_path)
     payload["render_css"] = _style_blocks(payload.get("head_html", ""))
     return payload
 

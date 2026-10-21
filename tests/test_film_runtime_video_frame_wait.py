@@ -34,3 +34,28 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert 'clip["source_fps"] = float(probe.fps)' in render
     assert "Promise.race" not in prepare
     assert "setTimeout(resolve,12000)" not in prepare
+
+
+
+def test_source_video_fps_fails_closed_instead_of_using_composition_fps(monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+    from video_director import film_document as fd
+    from video_director.film_render import FilmRenderError, _source_video_fps
+    from video_director import prober
+
+    monkeypatch.setattr(fd, "media_path_for_src", lambda _pid, path: "/tmp/" + path)
+    monkeypatch.setattr(prober, "probe_media", lambda path: SimpleNamespace(fps=25.0))
+    assert _source_video_fps("film-project", "assets/source.mp4") == 25.0
+
+    monkeypatch.setattr(prober, "probe_media", lambda _path: SimpleNamespace(fps=None))
+    with pytest.raises(FilmRenderError) as missing:
+        _source_video_fps("film-project", "assets/source.mp4")
+    assert missing.value.code == "SOURCE_FPS_UNAVAILABLE"
+
+    def fail(_path):
+        raise RuntimeError("ffprobe could not parse stream")
+    monkeypatch.setattr(prober, "probe_media", fail)
+    with pytest.raises(FilmRenderError, match="ffprobe could not parse stream"):
+        _source_video_fps("film-project", "assets/source.mp4")
