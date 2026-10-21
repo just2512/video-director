@@ -659,6 +659,17 @@ async function createProject(){
   const referenceEl = document.getElementById('cf-reference');
   const selectedReference = !!(referenceEl && referenceEl.files && referenceEl.files.length);
   const referenceFile = selectedReference ? referenceEl.files[0] : null;
+  // 差距 1（终审 R1）：已选参考文件但分析结果为空（_cfReference=null）——
+  // 旧代码只在「换了文件」时触发自动分析，首次选中直接提交时静默走无参考分支，
+  // 用户以为参考生效了，成片里却没有任何参考风格输入。
+  // 阻止提交并让用户先点「分析参考视频」——比这里自动触发分析更可控
+  // （自动触发会把 10-40 秒分析塞进提交流程，引入时序竞态与取消歧义）。
+  if (referenceFile && !window._cfReference) {
+    CF.state = 'failed';
+    status.textContent = '已选择参考视频但尚未分析：请先点「分析参考视频」并等待分析完成（约 10-40 秒），再提交创作任务。';
+    btn.disabled = false;
+    return;
+  }
   if (selectedReference && window._cfReferenceFileObject !== referenceFile) {
     btn.disabled = true;
     status.textContent = '检测到参考视频尚未分析，正在自动分析；分析成功后才会提交创作任务……';

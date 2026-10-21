@@ -253,6 +253,13 @@ def _build_manifest() -> List[Capability]:
         "生成正式旁白（NarrationArtifact，入 Composition）", input_schema="VoicePreviewRequest",
         outputs=("NarrationArtifact",), provider_required=True,
         examples=("生成配音",)))
+    # 应用音色到项目（写 projects.params_json["voice"]）——此前 voice.change
+    # 误指只读的 tts.list_voices，前端「应用音色」只会拿到音色列表、假成功。
+    caps.append(_cap("tts.set_voice", "audio",
+        "把选定音色写入项目配音参数（projects.params_json.voice）",
+        input_schema="VoicePreviewRequest",
+        outputs=("NarrationConfig",), side_effect="runtime",
+        examples=("换成男声", "应用这个音色")))
 
     # ---- CAP-MUSIC（§34/§35/§89）----
     caps.append(_cap("music.search", "music",

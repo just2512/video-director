@@ -165,6 +165,23 @@ class TestSystemContext:
         assert s["build_id"], "§42 build_id 必须非空"
         assert "local" in s["asset_sources"] and "generated" in s["asset_sources"]
 
+    def test_system_context_hides_unwired_actions(self):
+        """三层注册但前端/服务端零入口的能力不得向 Agent 声明——
+        否则 Agent 读 system_context 会派发全部打空的能力。
+        已接线的 generate.image 必须保留（防止过度过滤）。"""
+        actions = ar.system_context()["actions"]
+        for unwired in ("generate.sfx", "music.auto_match",
+                        "delivery.generate_metadata"):
+            assert unwired not in actions, f"{unwired} 零接线，不应暴露给 Agent"
+        assert "generate.image" in actions, "已接线能力不得被误过滤"
+
+    def test_unwired_actions_still_registered_for_frontend(self):
+        """反向锁：过滤只发生在 system_context，_ACTIONS 注册表本身不动——
+        前端动作面板按 target 索引，三个 action 仍可被查（接线后一处改动即恢复）。"""
+        ids = {a.id for a in ar._ACTIONS}
+        assert {"generate.sfx", "music.auto_match",
+                "delivery.generate_metadata"} <= ids
+
     def test_commercial_context_declares_policies(self):
         """§64 三 Provider 商业政策由系统声明。"""
         cs = ar.commercial_context()

@@ -78,6 +78,8 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
             return _execute_music_match(project_id)
         if _is_content(tool):
             return _execute_content(project_id, tool, payload, target_id)
+        if _is_tts_voice(tool):
+            return _execute_tts_voice(project_id, tool, payload)
         return _execute_editor_command(project_id, tool, payload, target_id)
     except ToolExecutorError as exc:
         return _result(tool, False, exc.code, error=str(exc))
@@ -153,9 +155,17 @@ _RENDER = {"render.draft", "render.final"}
 #: §37/§57 项目管理能力（Variant 快照 / 重开 / 保存）
 _PROJECT_MGMT = {"version.create", "project.reopen", "project.save", "project.create"}
 
+# 音色应用（写项目级参数，非编辑域命令）——必须走 _execute_tts_voice，
+# 不能落到 _execute_editor_command（那里按 _COMMAND_MAP 查表会 KeyError）。
+_TTS_VOICE = {"tts.set_voice"}
+
 _CONTENT = {"content.generate_script", "content.rewrite_script"}
 
 _VERIFY = {"timeline.verify", "audio.verify", "asset.verify", "render.verify", "composition.verify"}
+
+
+def _is_tts_voice(tool: str) -> bool:
+    return tool in _TTS_VOICE
 
 
 def _is_verify(tool: str) -> bool:
@@ -197,6 +207,38 @@ def _is_content(tool: str) -> bool:
 def _result(tool: str, ok: bool, status: str, result=None, error=None, verify=None) -> dict:
     return {"tool": tool, "ok": ok, "status": status,
             "result": result or {}, "error": error, "verify": verify or {}}
+
+
+def _execute_tts_voice(project_id: str, tool: str, payload: dict) -> dict:
+    """应用音色：写 projects.params_json["voice"]。
+
+    音色是渲染期参数（workflow_run 读 params_json.voice 组 NarrationConfig），
+    不住 Composition IR，因此不能走 editor 命令域。
+    此前 voice.change 的 capability 误指只读的 tts.list_voices，前端
+    「应用音色」只拿到音色列表、返回 ok=True 却什么都没落盘——比
+    「选择静默丢失」更糟的假成功。
+    """
+    from video_director import store as store_mod
+    from video_director.voice import list_voices, make_narration_config
+
+    voice_id = str(payload.get("voiceId") or payload.get("voice_id") or "").strip()
+    if not voice_id:
+        return _result(tool, False, "MISSING_REQUIREMENT",
+                       error="缺 voiceId（要应用的音色）")
+    # 音色必须真实存在：假 id 写进去只会在渲染期才炸（更晚、更难查）
+    known = {str(v.get("voiceId") or v.get("id") or "")
+             for v in list_voices()}
+    if voice_id not in known:
+        return _result(tool, False, "VOICE_NOT_FOUND",
+                       error=f"音色 {voice_id!r} 不在可用列表中")
+    # 读-改-写：只动 voice 键，其余 params 原样保留
+    params = store_mod.read_project_params(project_id)
+    params["voice"] = voice_id
+    store_mod.write_project_params(project_id, params)
+    logger.info(f"tool_executor: {project_id} 配音音色 → {voice_id}")
+    cfg = make_narration_config(voice=voice_id)
+    return _result(tool, True, "OK",
+                   result={"voice": voice_id, "narration_config": cfg.to_dict()})
 
 
 def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id) -> dict:

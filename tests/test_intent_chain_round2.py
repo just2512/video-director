@@ -34,6 +34,12 @@ class TestSubtitleOff:
         from video_director import director_agent, config, subtitle as subtitle_mod
         pid = "proj-sub-bi"
         config.init_project_dirs(config.project_dir(pid))
+        # 测试隔离（_provider_cache 单例泄漏同族，第三次）：本测断言的是
+        # 「LLM 不可用 → 诚实降级 plain+警告」，必须隔离真实 provider，
+        # 否则环境里配置了可用 LLM 时翻译成功、warnings 为空、断言必然失败。
+        from video_director import llm_provider
+        monkeypatch.setattr(llm_provider, "_provider_cache", None)
+        monkeypatch.setattr(llm_provider, "get_llm", lambda *a, **k: None)
         state = {
             "project_id": pid,
             "narration_scenes": [{"id": "S01", "text": "句", "start": 0.0, "duration": 2.0}],

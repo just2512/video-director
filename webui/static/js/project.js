@@ -439,10 +439,22 @@ async function pmOpenDetail(pid){
     const sb = j.storyboard || {};
     const sceneRows = (sb.scenes || []).map(s =>
       `<div class="pm-detail-scene"><b>${esc(s.scene_id || '')}</b> · ${(s.duration || 0).toFixed(1)}s<div>${esc(s.text || '')}</div></div>`).join('');
+    // 2026-10-21 指纹核查补落地：意图执行报告出用户可见口——警告（降级/预算/
+    // 风格未映射）+ 命中的意图字段（用户能核对「AI 听懂了什么」）。
+    const irpt = j.intent_report || {};
+    const warnRows = (irpt.warnings || []).map(w =>
+      `<div class="pm-detail-warn">⚠ ${esc(w)}</div>`).join('');
+    const fields = irpt.intent_fields || {};
+    const fieldEntries = Object.entries(fields);
+    const fieldRows = fieldEntries.length
+      ? `<div class="hint" style="margin-top:8px">已按你的要求执行：${fieldEntries.map(([k, v]) => `<span class="pm-intent-chip">${esc(k)}=${esc(String(v))}</span>`).join(' ')}</div>`
+      : '';
     box.innerHTML = `
       <h3 style="font-size:15px">${esc(j.name || pid)}</h3>
       <div class="hint">${pmStatusCn(j)} · ${sb.scene_count || '?'} 场景 · ${sb.total_duration || '?'}s
         ${j.has_final ? ' · 有成品' : ''}${j.has_draft ? ' · 有草稿' : ''}</div>
+      ${warnRows ? `<div class="pm-detail-warns">${warnRows}</div>` : ''}
+      ${fieldRows}
       <div class="pm-detail-scenes">${sceneRows || '<div class="hint">无分镜数据</div></div>'}
       <div class="btn-row">
         ${j.editable ? `<button class="btn-sm" onclick="workspaceOpen('${esc(pid)}')">打开工作台</button>` : ''}

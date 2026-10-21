@@ -717,13 +717,14 @@ function editorVoiceOpen(){
     <b>配音</b>${voicesHtml}<span class="hint" id="ed-voice-status"></span></div>`);
   const host = document.getElementById('ed-voice-sel-host');
   if (host && !host.querySelector('select')) {
-    // §46 旁白操作面四按钮：试听 / 完整试听 / 重新生成 / 替换音频
+    // §46 旁白操作面：试听 / 完整试听 / 应用此音色 / 重新生成 / 替换音频
     host.innerHTML = `<div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
       <select id="ed-voice-sel" style="flex:1;min-width:120px"></select>
       <button class="btn-secondary btn-sm" onclick="edVoicePreview()" title="单句试听当前音色">试听</button>
       <button class="btn-secondary btn-sm" onclick="edVoiceFullPreview()" title="整段旁白合成试听">完整试听</button>
     </div>
     <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
+      <button class="btn-secondary btn-sm" onclick="edVoiceApply()" title="把下拉选中音色写入项目配音参数（应用后再重新生成旁白）">应用此音色</button>
       <button class="btn-secondary btn-sm" onclick="edVoiceRegenerate()" title="按当前音色重新生成全部旁白（渲染草稿后生效）">重新生成旁白</button>
       <button class="btn-secondary btn-sm" onclick="edVoiceReplaceUpload()" title="上传配音文件替换 AI 旁白（mp3/wav/m4a）">替换音频</button>
     </div>
@@ -738,6 +739,26 @@ function editorVoiceOpen(){
     edVoiceLoadOptions();
   }
   document.getElementById('ed-voice-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+/**
+ * §46 应用此音色：把下拉选中值写回项目配音参数（Action 通路 voice.change）。
+ * 此前只有试听没有提交——下拉选了音色就静默丢失，重新生成旁白仍用旧音色。
+ * executeAction 内部已有 toast/失败提示，这里只补状态行的进度反馈。
+ */
+async function edVoiceApply(){
+  const sel = document.getElementById('ed-voice-sel');
+  const st = document.getElementById('ed-voice-status');
+  if (!ED.pid) { editorToast('先打开项目', true); return; }
+  if (!sel || !sel.value) { if (st) st.textContent = '先选音色'; return; }
+  const chosen = sel.value;
+  if (st) st.textContent = '正在应用音色……';
+  try {
+    await executeAction('voice.change', {voice_id: chosen}, 'project');
+    if (st) st.textContent = '已应用音色：' + chosen + '（重新生成旁白后生效）';
+  } catch (e) {
+    if (st) st.textContent = '应用失败：' + (e.message || e);
+  }
 }
 
 /** §46 重新生成旁白：换音色后点此 → WorkflowRun 重渲（真链路，非静默）。 */
@@ -1606,7 +1627,7 @@ Object.assign(window, {
   renderKeyframeList, editorAddKeyframe, editorRemoveKeyframe,
   maskShapeCn, editorApplyMask, editorRunMatting,
   editorToggleLock, uiInlineInput, _ensureInlineHost, editorAudioVolume,
-  edVoiceLoadOptions, edVoicePreview, editorOriginalAudio, editorOriginalAudioVolume,
+  edVoiceLoadOptions, edVoicePreview, edVoiceApply, editorOriginalAudio, editorOriginalAudioVolume,
   editorWatermarkAdd, editorWatermarkRemove, renderWatermarkList,
   editorWatermarkMove, editorWatermarkOpacity,
   editorSubtitleStyleApply, editorSubtitleGenerate, editorBgmVolume,

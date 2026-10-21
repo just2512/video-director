@@ -668,7 +668,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 from video_director import generation as gen_mod
                 gen_rw = int(spec.get("width") or config.DEFAULT_RESOLUTION[0])
                 gen_rh = int(spec.get("height") or config.DEFAULT_RESOLUTION[1])
-                generated_files = []
+                generated_files: List[tuple] = []
                 for sid in _gen_missing:
                     sel_id = selected_candidate_by_scene.get(sid, "")
                     cand = next(
@@ -713,14 +713,17 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         videos.append(fpath)  # motion（Huashu 动效）产物是视频
                     else:
                         images.append(fpath)
-                    generated_files.append((sid, fpath, used_gt))
+                    # 血缘透传：把实际采用的 generation_prompt 一并带进
+                    # generated_files，后面建 AssetRef 时写入 prompt 字段——
+                    # 不传则「按原 prompt 重生成」/「这画面凭什么生成」无据可查。
+                    generated_files.append((sid, fpath, used_gt, prompt))
                 if generated_files:
                     # 只把生成物**追加**进现有素材表，不整体重建——整体重建会让
                     # build_manifest 重新编号，既有 assignments 变幽灵 id，静默毁掉
                     # 已匹配结果（对抗审查 CRITICAL 2）。生成物 id 唯一化后追加。
                     existing_files = {str(ref.file) for ref in all_assets.values()}
                     new_refs: Dict[str, AssetRef] = {}
-                    for sid, fpath, gt in generated_files:
+                    for sid, fpath, gt, gen_prompt in generated_files:
                         if str(fpath) in existing_files:
                             continue  # 幂等：已登记过
                         aid = f"gen-{sid.lower()}-{gt}"
@@ -738,6 +741,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
                                 id=aid,
                                 type=ref_type,
                                 file=str(fpath),
+                                # 血缘：候选 generation_prompt 透传（审计差距 8）。
+                                # 无候选/无 prompt 时为 None，不伪造空串掩盖缺失。
+                                prompt=(gen_prompt or None),
                                 source="generated",
                                 license_note="AI generated in-app",
                                 rights_status="CLEAR",
@@ -747,7 +753,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     if new_refs:
                         all_assets = {**all_assets, **new_refs}
                         order = order + [aid for aid in new_refs]
-                        for sid, fpath, gt in generated_files:
+                        for sid, fpath, gt, _gen_prompt in generated_files:
                             aid = next((a for a, ref in new_refs.items()
                                         if str(ref.file) == str(fpath)), None)
                             if aid:
@@ -768,7 +774,7 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     try:
                         from video_director import visual_qa as vqa_mod
                         reviewed = []
-                        for sid, fpath, gt in list(generated_files):
+                        for sid, fpath, gt, _gen_prompt in list(generated_files):
                             scene_text = next(
                                 (s.get("text", "") for s in state.get("narration_scenes") or []
                                  if s.get("id") == sid), "")
