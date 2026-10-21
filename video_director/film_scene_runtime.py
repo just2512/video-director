@@ -534,13 +534,19 @@ _CSS_URL_RE = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.I | re.S)
 
 def _asset_url(value: str, project_id: str, page_src: str, route: str) -> str | None:
     value = html.unescape(value.strip())
-    if not value or value.startswith(("#", "/", "\\", "//")):
+    if not value or value.startswith(("#", "\\", "//")):
         return None
     parts = urlsplit(value)
     if parts.scheme or parts.netloc or not parts.path:
         return None
     page_path = unquote(page_src.split("#", 1)[0].split("?", 1)[0]).replace("\\", "/")
-    joined = posixpath.normpath(posixpath.join(posixpath.dirname(page_path), unquote(parts.path)))
+    source_path = unquote(parts.path)
+    # A root-relative scene URL is still project-local. Resolve it from the
+    # project root instead of letting it fall through to the WebUI origin.
+    if source_path.startswith("/"):
+        joined = posixpath.normpath(source_path.lstrip("/"))
+    else:
+        joined = posixpath.normpath(posixpath.join(posixpath.dirname(page_path), source_path))
     if joined in ("", ".") or joined == ".." or joined.startswith("../") or joined.startswith("/"):
         return None
     url = route + "?project_id=" + quote(project_id, safe="") + "&src=" + quote(joined, safe="")

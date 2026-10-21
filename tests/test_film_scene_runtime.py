@@ -287,3 +287,14 @@ def test_inspect_ready_errors_are_forwarded_to_the_studio():
     assert "error:typeof message.error==='string'?message.error.slice(0,1000):''" in runtime
     assert "message.enabled===false" in studio
     assert "绘制队列未能完成" in studio
+
+
+def test_scene_root_relative_media_paths_are_rewritten_inside_project_boundary():
+    source = '''<!doctype html><html><head>
+<link rel="stylesheet" href="/assets/css/theme.css">
+<style>.hero{background-image:url('/assets/images/hero.webp')}</style>
+</head><body><img src="/assets/images/logo.png"></body></html>'''
+    result = inject_scene_runtime(source, "film-test", "scenes/title.html")
+    assert 'href="/api/editor/film/media?project_id=film-test&amp;src=assets%2Fcss%2Ftheme.css"' in result
+    assert 'src="/api/editor/film/media?project_id=film-test&amp;src=assets%2Fimages%2Flogo.png"' in result
+    assert "url('/api/editor/film/media?project_id=film-test&src=assets%2Fimages%2Fhero.webp')" in result
