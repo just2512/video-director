@@ -545,7 +545,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
             onChange={(event) => update("title", event.currentTarget.value)} />
         </label>
       </div>
-      <section className="fs-inspector-section fs-keyframe-editor" data-film-keyframe-editor="true">
+      {clip.tag!=="audio" ? <section className="fs-inspector-section fs-keyframe-editor" data-film-keyframe-editor="true">
         <h4>视觉关键帧</h4>
         <p className="fs-inspector-description">关键帧使用片段相对时间。拖动曲线节点调整时间和值；缓动由右侧节点决定。修改后点击“应用片段属性”。</p>
         <input type="hidden" id="fs-field-keyframes" readOnly value={keyframeDirty?JSON.stringify(keyframeChannels):(clip.attrs["data-film-keyframes"]||"")} />
@@ -602,7 +602,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
         {keyframeFeedback?<div className="fs-alert fs-visible fs-error" role="status">{keyframeFeedback}</div>:null}
         <button type="button" className="fs-btn" id="fs-keyframe-clear" disabled={readOnly||!keyframeChannels.length}
           onClick={()=>{setKeyframeChannels([]);setKeyframeDirty(true);setKeyframeFeedback("");}}>清空全部视觉关键帧</button>
-      </section>
+      </section> : null}
       <div className="fs-inspector-description fs-inspector-section">
         更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
       </div>

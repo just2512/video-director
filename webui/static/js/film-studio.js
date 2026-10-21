@@ -10,7 +10,7 @@
   function findClip(id) { return clips().find(function (c) { return c.id === id; }) || null; }
   function timelineKeyframeMarks(clip){
     var attrs=clip&&clip.attrs||{},duration=Number(clip&&clip.duration),raw=attrs['data-film-keyframes'];
-    if(typeof raw!=='string'||!raw.trim()||!Number.isFinite(duration)||duration<=0)return [];
+    if(clip.tag==='audio'||typeof raw!=='string'||!raw.trim()||!Number.isFinite(duration)||duration<=0)return [];
     var channels;try{channels=JSON.parse(raw);}catch(_){return [];}
     if(!Array.isArray(channels))return [];
     var grouped=Object.create(null);
