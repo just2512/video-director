@@ -93,6 +93,31 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert fd.read_project_film(project_id)["rev"] == fd.revision_of(changed)
 
+                # An external revision must not overwrite edits still sitting in
+                # the React Inspector's local form state. Reload is the explicit
+                # user decision that discards the draft.
+                page.locator("#fs-field-title").fill("Local unsaved draft")
+                changed_again = changed.replace('speed="2.5"', 'speed="2.6"')
+                film_path.write_text(changed_again, encoding="utf-8")
+                page.wait_for_function(
+                    "() => { const alert = document.querySelector('#film-studio-alert'); "
+                    "return !!alert && alert.textContent.includes('未提交的属性草稿'); }",
+                    timeout=15000,
+                )
+                assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
+                assert page.locator("#fs-field-speed").input_value() == "2.5"
+                assert film_path.read_text(encoding="utf-8") == changed_again
+
+                page.once("dialog", lambda dialog: dialog.accept())
+                page.locator('[data-film-action="reload"]').click()
+                page.wait_for_function(
+                    "() => { const speed = document.querySelector('#fs-field-speed'); "
+                    "const title = document.querySelector('#fs-field-title'); "
+                    "return !!speed && speed.value === '2.6' && !!title && title.value === ''; }",
+                    timeout=15000,
+                )
+                assert fd.read_project_film(project_id)["rev"] == fd.revision_of(changed_again)
+
                 film_path.write_text("<html><body>partial write</body></html>", encoding="utf-8")
                 page.wait_for_function(
                     "() => { const alert = document.querySelector('#film-studio-alert'); return !!alert && alert.textContent.includes('影片文件校验失败'); }",
