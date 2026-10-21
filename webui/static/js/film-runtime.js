@@ -522,7 +522,7 @@
     });
     var mediaTime=metadata?Number(metadata.mediaTime):NaN;
     var sourceFps=finite(entry.clip.source_fps,finite(state.fps,30));
-    var tolerance=1/Math.max(1,sourceFps)+0.002;
+    var tolerance=0.5/Math.max(1,sourceFps)+0.002;
     if(!Number.isFinite(mediaTime)||Math.abs(mediaTime-desired)>tolerance){
       throw new Error('视频片段 '+entry.clip.id+' 的初始呈现时间 '+(Number.isFinite(mediaTime)?mediaTime.toFixed(6):'未知')+'s 与请求时间 '+desired.toFixed(6)+'s 不匹配');
     }
@@ -531,7 +531,7 @@
   function waitForPresentedVideoFrame(el,clip,desired,previousPresentedFrames){
     var resolvePromise,rejectPromise,done=false,timer=0,callbackId=null;
     var sourceFps=finite(clip.source_fps,finite(state.fps,30));
-    var timeTolerance=1/Math.max(1,sourceFps)+0.002;
+    var timeTolerance=0.5/Math.max(1,sourceFps)+0.002;
     var promise=new Promise(function(resolve,reject){resolvePromise=resolve;rejectPromise=reject;});
     function cleanup(){
       if(timer)clearTimeout(timer);
@@ -613,7 +613,7 @@
       }
       if(tag==='video'&&!needsSeek){
         var confirmedMediaTime=Number(entry.lastPresentedMediaTime);
-        var confirmedTolerance=1/Math.max(1,sourceFps)+0.002;
+        var confirmedTolerance=0.5/Math.max(1,sourceFps)+0.002;
         if(!Number.isFinite(confirmedMediaTime)||Math.abs(confirmedMediaTime-desired)>confirmedTolerance){
           throw new Error('视频片段 '+clip.id+' 最近确认的呈现时间与请求时间不匹配：'
             +(Number.isFinite(confirmedMediaTime)?confirmedMediaTime.toFixed(6):'未知')

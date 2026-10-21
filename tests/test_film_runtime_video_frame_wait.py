@@ -23,6 +23,9 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "if(!Number.isFinite(mediaTime)||Math.abs(mediaTime-desired)>tolerance){" in helper
     assert "cancelInitialVideoFrameWait(entry);" in prepare
     assert "clip.source_fps" in helper
+    assert "var timeTolerance=0.5/Math.max(1,sourceFps)+0.002;" in helper
+    assert "var tolerance=0.5/Math.max(1,sourceFps)+0.002;" in runtime
+    assert "var confirmedTolerance=0.5/Math.max(1,sourceFps)+0.002;" in prepare
     assert "seekThreshold=Math.max(0.001,0.5/Math.max(1,sourceFps))" in prepare
     assert helper.index("requestNext();") < helper.index("return {")
     assert prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames)") < prepare.index("el.currentTime=desired")
