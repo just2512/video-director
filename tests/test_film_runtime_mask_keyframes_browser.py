@@ -186,7 +186,7 @@ def test_film_runtime_keeps_composition_mask_stationary_while_clip_transform_mov
                     "data-film-transform": json.dumps({
                         "x": 0.25, "y": 0.5, "scale": 1, "rotation": 0, "opacity": 1,
                         "anchor": "center", "stage_width": 100, "stage_height": 100,
-                        "base_width": 20, "base_height": 20,
+                        "base_width": 20, "base_height": 20, "scale_x": 1.5, "scale_y": 0.75,
                     }, separators=(",", ":")),
                     "data-film-keyframes": json.dumps([{
                         "property": "x",
@@ -249,7 +249,8 @@ def test_film_runtime_keeps_composition_mask_stationary_while_clip_transform_mov
                         hostWidth:Number.parseFloat(host.style.width),
                         localMask:el.style.clipPath,
                         left:Number.parseFloat(el.style.left),
-                        width:Number.parseFloat(el.style.width)
+                        width:Number.parseFloat(el.style.width),
+                        height:Number.parseFloat(el.style.height)
                       };
                     }""")
 
@@ -257,7 +258,9 @@ def test_film_runtime_keeps_composition_mask_stationary_while_clip_transform_mov
                 assert at_zero["mask"] == [0, 0, 50, 0, 50, 100, 0, 100], at_zero
                 assert at_half["mask"] == [25, 0, 75, 0, 75, 100, 25, 100], at_half
                 assert at_one["mask"] == [50, 0, 100, 0, 100, 100, 50, 100], at_one
-                assert [at_zero["left"], at_half["left"], at_one["left"]] == [15, 40, 65]
+                assert [at_zero["left"], at_half["left"], at_one["left"]] == [10, 35, 60]
+                assert at_zero["width"] == at_half["width"] == at_one["width"] == 30
+                assert at_zero["height"] == at_half["height"] == at_one["height"] == 15
                 assert at_zero["hostLeft"] == at_half["hostLeft"] == at_one["hostLeft"] == "0px"
                 assert at_zero["hostWidth"] == at_half["hostWidth"] == at_one["hostWidth"] == 100
                 assert at_zero["localMask"] == at_half["localMask"] == at_one["localMask"] == ""
