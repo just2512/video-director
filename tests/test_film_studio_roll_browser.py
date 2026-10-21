@@ -219,20 +219,19 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 )
 
                 # Slip the left clip without moving it or changing its timeline
-                # duration. The fixture uses a real 20-second MP4 so the backend's
-                # source-duration preflight is exercised, not mocked.
+                # duration. Use the explicit mode for this integration assertion;
+                # Alt-drag remains a supported shortcut but is not required for discoverability.
+                slip_mode = page.locator('[data-film-action="slip-mode"]:visible')
+                slip_mode.click()
+                assert slip_mode.get_attribute("aria-pressed") == "true"
                 left_element = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
                 left_box = left_element.bounding_box()
                 assert left_box and left_box["width"] > 40
                 x, y = left_box["x"] + left_box["width"] / 2, left_box["y"] + left_box["height"] / 2
-                page.keyboard.down("Alt")
-                try:
-                    page.mouse.move(x, y)
-                    page.mouse.down()
-                    page.mouse.move(x + 9, y, steps=3)  # +0.25 timeline s × 2× speed = +0.5 source s
-                    page.mouse.up()
-                finally:
-                    page.keyboard.up("Alt")
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + 9, y, steps=3)  # +0.25 timeline s × 2× speed = +0.5 source s
+                page.mouse.up()
 
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));

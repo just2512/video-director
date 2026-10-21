@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -409,13 +409,15 @@
           e.preventDefault();showStatus('该片段已锁定，只能查看属性；如需编辑，请在属性栏显式解锁。');return;
         }
         var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
-            slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))&&(clip.tag==='video'||clip.tag==='audio')),canDrag;
-        if(rollGesture||slideGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
+            mediaCanSlip=(clip.tag==='video'||clip.tag==='audio'),
+            slideGesture=!!(!trim&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip),
+            slipGesture=!!(!trim&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip),canDrag;
+        if(rollGesture||slideGesture||slipGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
         else{canDrag=selectClipWithModifiers(clip.id,e);}
         if(!canDrag){e.preventDefault();return;}
         S.playhead=clip.at;setPlayheadVisual();previewCurrent();
         var mode=trim?(rollGesture?'roll':(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'))
-          :(slideGesture?'slide':((e.altKey&&(clip.tag==='video'||clip.tag==='audio'))?'slip':'move'));
+          :(slideGesture?'slide':(slipGesture?'slip':'move'));
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
         var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
         var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
@@ -661,12 +663,13 @@
   }
   window.filmStudioSetEnvelopeMode=function(enabled){
     S.envelopeMode=!!enabled;
-    if(S.envelopeMode)S.slideMode=false;
+    if(S.envelopeMode){S.slideMode=false;S.slipMode=false;}
     var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="envelope-mode"]'),
-        slideButton=document.querySelector('[data-film-action="slide-mode"]');
+        slideButton=document.querySelector('[data-film-action="slide-mode"]'),slipButton=document.querySelector('[data-film-action="slip-mode"]');
     if(panel){
       panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
       panel.classList.toggle('fs-slide-mode',S.slideMode);
+      panel.classList.toggle('fs-slip-mode',S.slipMode);
     }
     if(button){
       button.classList.toggle('fs-envelope-mode-active',S.envelopeMode);
@@ -678,6 +681,11 @@
       slideButton.textContent=S.slideMode?'滑移修剪：开':'滑移修剪：关';
       slideButton.setAttribute('aria-pressed',String(S.slideMode));
     }
+    if(slipButton){
+      slipButton.classList.toggle('fs-slip-mode-active',S.slipMode);
+      slipButton.textContent=S.slipMode?'源区间滑移：开':'源区间滑移：关';
+      slipButton.setAttribute('aria-pressed',String(S.slipMode));
+    }
     showStatus(S.envelopeMode
       ?'音量曲线模式：点击曲线添加关键帧；拖动关键帧调整；Shift 或右键点击内部点删除。切回“音量曲线：关”即可正常移动片段。'
       :'普通剪辑模式已恢复；片段可直接拖动、修剪和切分。');
@@ -685,12 +693,13 @@
   window.filmStudioToggleEnvelopeMode=function(){window.filmStudioSetEnvelopeMode(!S.envelopeMode);};
   window.filmStudioSetSlideMode=function(enabled){
     S.slideMode=!!enabled;
-    if(S.slideMode)S.envelopeMode=false;
+    if(S.slideMode){S.envelopeMode=false;S.slipMode=false;}
     var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="slide-mode"]'),
-        envelopeButton=document.querySelector('[data-film-action="envelope-mode"]');
+        envelopeButton=document.querySelector('[data-film-action="envelope-mode"]'),slipButton=document.querySelector('[data-film-action="slip-mode"]');
     if(panel){
       panel.classList.toggle('fs-slide-mode',S.slideMode);
       panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
+      panel.classList.toggle('fs-slip-mode',S.slipMode);
     }
     if(button){
       button.classList.toggle('fs-slide-mode-active',S.slideMode);
@@ -702,11 +711,48 @@
       envelopeButton.textContent=S.envelopeMode?'音量曲线：开':'音量曲线：关';
       envelopeButton.setAttribute('aria-pressed',String(S.envelopeMode));
     }
+    if(slipButton){
+      slipButton.classList.toggle('fs-slip-mode-active',S.slipMode);
+      slipButton.textContent=S.slipMode?'源区间滑移：开':'源区间滑移：关';
+      slipButton.setAttribute('aria-pressed',String(S.slipMode));
+    }
     showStatus(S.slideMode
       ?'滑移修剪模式已开启：拖动视频/音频片段主体，片段长度不变并联动左右相邻片段。点击按钮关闭；Alt+Shift 拖动也可直接使用。'
       :'普通剪辑模式已恢复；片段可直接拖动、修剪和切分。');
   };
   window.filmStudioToggleSlideMode=function(){window.filmStudioSetSlideMode(!S.slideMode);};
+  window.filmStudioSetSlipMode=function(enabled){
+    S.slipMode=!!enabled;
+    if(S.slipMode){S.slideMode=false;S.envelopeMode=false;}
+    var panel=$('film-studio-panel'),
+        button=document.querySelector('[data-film-action="slip-mode"]'),
+        slideButton=document.querySelector('[data-film-action="slide-mode"]'),
+        envelopeButton=document.querySelector('[data-film-action="envelope-mode"]');
+    if(panel){
+      panel.classList.toggle('fs-slip-mode',S.slipMode);
+      panel.classList.toggle('fs-slide-mode',S.slideMode);
+      panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
+    }
+    if(button){
+      button.classList.toggle('fs-slip-mode-active',S.slipMode);
+      button.textContent=S.slipMode?'源区间滑移：开':'源区间滑移：关';
+      button.setAttribute('aria-pressed',String(S.slipMode));
+    }
+    if(slideButton){
+      slideButton.classList.toggle('fs-slide-mode-active',S.slideMode);
+      slideButton.textContent=S.slideMode?'滑移修剪：开':'滑移修剪：关';
+      slideButton.setAttribute('aria-pressed',String(S.slideMode));
+    }
+    if(envelopeButton){
+      envelopeButton.classList.toggle('fs-envelope-mode-active',S.envelopeMode);
+      envelopeButton.textContent=S.envelopeMode?'音量曲线：开':'音量曲线：关';
+      envelopeButton.setAttribute('aria-pressed',String(S.envelopeMode));
+    }
+    showStatus(S.slipMode
+      ?'源区间滑移模式：拖动视频/音频片段主体，只改变素材源入点和源出点，不移动片段、不改变片段时长。Alt 拖动仍可作为快捷手势。'
+      :'普通剪辑模式已恢复；片段可直接拖动、修剪和切分。');
+  };
+  window.filmStudioToggleSlipMode=function(){window.filmStudioSetSlipMode(!S.slipMode);};
   function renderVolumeEnvelopes(){
     var timeline=$('fs-timeline');if(!timeline)return;
     timeline.querySelectorAll('[data-envelope-clip]').forEach(function(canvas){
@@ -1683,6 +1729,7 @@
     'ripple-delete': () => window.filmStudioRippleDelete(),
     'envelope-mode': () => window.filmStudioToggleEnvelopeMode(),
     'slide-mode': () => window.filmStudioToggleSlideMode(),
+    'slip-mode': () => window.filmStudioToggleSlipMode(),
     'insert-mode': () => window.filmStudioToggleInsertMode(),
     'add-track': () => window.filmStudioAddTrack(),
     'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),
