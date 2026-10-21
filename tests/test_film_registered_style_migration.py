@@ -46,7 +46,8 @@ def test_registered_style_id_drives_subtitle_and_zoom_motion(tmp_path, monkeypat
     assert "bottom:18px;top:auto;" in subtitle_page
     warnings = "\n".join(result["warnings"])
     assert "已执行注册风格 knowledge-explainer" in warnings
-    assert "transition_budget、bgm_volume、sfx_density 尚未由 Film Runtime 执行" in warnings
+    assert "bgm_volume 仅作为未显式设置音量的 BGM 片段默认值" in warnings
+    assert "transition_budget、sfx_density 尚未由 Film Runtime 执行" in warnings
     assert "当前不会自动应用 Style Registry" not in warnings
 
 
