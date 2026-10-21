@@ -1761,7 +1761,7 @@ def _history_read(project_id: str) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("past"), list) and isinstance(data.get("future"), list):
             return data
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError):
         pass
     raise FilmError("HISTORY_CORRUPT", "影片编辑历史文件损坏；为防止覆盖，不继续写入", 500)
 

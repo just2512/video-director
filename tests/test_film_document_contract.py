@@ -1650,3 +1650,16 @@ def test_unrelated_comments_survive_authoritative_film_edit():
     ):
         assert serialized.count(comment) == 1, f"comment lost during film edit: {comment}"
     assert fd.serialize_film(fd.parse_film(serialized)) == serialized
+
+
+def test_corrupt_non_utf8_history_is_reported_as_history_corrupt(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "history-invalid-utf8"
+    project = fd.config.project_dir(project_id)
+    project.mkdir(parents=True)
+    history_path = fd._history_path(project_id)
+    history_path.write_bytes(b"{\xff}")
+    with pytest.raises(fd.FilmError) as error:
+        fd._history_read(project_id)
+    assert error.value.code == "HISTORY_CORRUPT"
+    assert "历史文件损坏" in str(error.value)
