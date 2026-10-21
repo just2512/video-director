@@ -138,20 +138,27 @@ class OpenAICompatibleProvider:
         except (AttributeError, IndexError) as exc:
             raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
 
+    supports_stream_cancellation = True
+
     def generate_stream(self, prompt: str, system: Optional[str] = None,
-                        on_delta=None) -> str:
-        """Stream text deltas to the caller while also returning the complete text."""
+                        on_delta=None, on_stream_open=None, cancel_event=None) -> str:
+        """Stream deltas, expose the active upstream stream, and close it on cancellation."""
         self._ensure_client()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
         parts: list[str] = []
+        stream = None
         try:
             stream = self._client.chat.completions.create(
                 model=self._model, messages=messages, stream=True,
             )
+            if callable(on_stream_open):
+                on_stream_open(stream)
             for event in stream:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("LLM stream 已取消")
                 choices = getattr(event, "choices", None) or []
                 if not choices:
                     continue
@@ -168,9 +175,19 @@ class OpenAICompatibleProvider:
                             parts.append(fragment)
                             if on_delta is not None:
                                 on_delta(fragment)
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("LLM stream 已取消")
         except Exception as exc:
-            logger.warning(f"LLM stream 失败 (model={self._model}): {exc}")
-            raise RuntimeError(f"LLM stream 失败: {exc}") from exc
+            reason = "已取消" if cancel_event is not None and cancel_event.is_set() else f"失败: {exc}"
+            logger.warning(f"LLM stream {reason} (model={self._model})")
+            raise RuntimeError(f"LLM stream {reason}") from exc
+        finally:
+            closer = getattr(stream, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:
+                    pass
         return "".join(parts)
 
 
