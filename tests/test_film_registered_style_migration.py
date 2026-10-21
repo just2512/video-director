@@ -40,6 +40,7 @@ def test_registered_style_id_drives_subtitle_and_zoom_motion(tmp_path, monkeypat
     assert zoom["keyframes"][1]["value"] == 1.12
     subtitle_page = result["pages"]["scenes/subtitles.html"]
     assert "font-size:60px" in subtitle_page
+    assert "-webkit-line-clamp:2" in subtitle_page
     assert "bottom:18px;top:auto;" in subtitle_page
     warnings = "\n".join(result["warnings"])
     assert "已执行注册风格 knowledge-explainer" in warnings
@@ -174,6 +175,7 @@ def test_unregistered_variant_style_applies_only_whitelisted_parameters(tmp_path
                 "parameters": {
                     "subtitle_position": "top",
                     "subtitle_font_size": 48,
+                    "subtitle_max_lines": 1,
                     "image_motion_intensity": 1.15,
                     "palette_tokens": {"accent": "#d02030"},
                 },
@@ -189,6 +191,7 @@ def test_unregistered_variant_style_applies_only_whitelisted_parameters(tmp_path
     assert scale["keyframes"][1]["value"] == 1.15
     subtitle_page = result["pages"]["scenes/subtitles.html"]
     assert "font-size:48px" in subtitle_page
+    assert "-webkit-line-clamp:1" in subtitle_page
     assert "top:18px;bottom:auto;" in subtitle_page
     warnings = "\n".join(result["warnings"])
     assert "已应用受支持参数：image_motion_intensity, subtitle_font_size, subtitle_position" in warnings

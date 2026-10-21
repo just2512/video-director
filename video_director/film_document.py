@@ -2081,6 +2081,13 @@ def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], s
     else:
         requested_size = _number(absolute_size, "subtitle font size", 1, 1000)
     font_size = int(max(12, min(160, requested_size)))
+    max_lines_raw = opts.get("max_lines", opts.get("maxLines", 0)) or 0
+    max_lines = int(_number(max_lines_raw, "subtitle max_lines", 0, 8))
+    line_limit_css = (
+        f"display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{max_lines};overflow:hidden;"
+        if max_lines else ""
+    )
+    display_mode = "-webkit-box" if max_lines else "block"
 
     color = str(opts.get("color") or "#FFFFFF")
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
@@ -2130,14 +2137,14 @@ def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], s
 
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width={width},height={height}"><style>
 html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}}#stage{{position:relative;width:{width}px;height:{height}px;pointer-events:none}}
-#caption{{position:absolute;left:50%;width:{_fmt(max_width)}%;max-width:{_fmt(max_width)}%;box-sizing:border-box;{position_css}transform:{base_transform};text-align:{alignment};font-family:{font_family};font-size:{font_size}px;font-weight:700;color:{color};-webkit-text-stroke:{stroke_width}px {stroke_color};text-shadow:0 2px 4px rgba(0,0,0,.9);{background_css}white-space:pre-wrap;line-height:1.25}}
+#caption{{position:absolute;left:50%;width:{_fmt(max_width)}%;max-width:{_fmt(max_width)}%;box-sizing:border-box;{position_css}transform:{base_transform};text-align:{alignment};font-family:{font_family};font-size:{font_size}px;font-weight:700;color:{color};-webkit-text-stroke:{stroke_width}px {stroke_color};text-shadow:0 2px 4px rgba(0,0,0,.9);{background_css}{line_limit_css}white-space:pre-wrap;line-height:1.25}}
 </style></head><body><div id="stage"><div id="caption"></div></div><script>
 const cues={data};const caption=document.getElementById('caption');
 const baseTransform="{base_transform}";const animation="{animation}";
 window.film={{width:{width},height:{height},duration:{_fmt(duration)},frame(t){{
   const active=cues.filter(c=>Number(c.start)<=t&&t<Number(c.end));
   caption.textContent=active.map(c=>String(c.text||'')).join('\\\\n');
-  caption.style.display=active.length?'block':'none';
+  caption.style.display=active.length?'{display_mode}':'none';
   let alpha=1;let transform=baseTransform;
   if(active.length){{
     const start=Math.min(...active.map(c=>Number(c.start)||0));
@@ -3002,6 +3009,15 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             style_parameter_applied.add("subtitle_font_size")
         except FilmError:
             style_parameter_warnings.append("subtitle_font_size 参数越界，未应用该参数")
+    if "subtitle_max_lines" in style_parameters:
+        try:
+            value = _number(style_parameters["subtitle_max_lines"], "style subtitle_max_lines", 1, 4)
+            if not value.is_integer():
+                raise FilmError("INVALID_SUBTITLE_MAX_LINES", "subtitle_max_lines 必须是整数", 422)
+            migrated_style["subtitle_max_lines"] = int(value)
+            style_parameter_applied.add("subtitle_max_lines")
+        except FilmError:
+            style_parameter_warnings.append("subtitle_max_lines 必须是 1–4 的整数，未应用该参数")
     if "image_motion_intensity" in style_parameters:
         try:
             migrated_style["image_motion_intensity"] = _number(
@@ -3011,7 +3027,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         except FilmError:
             style_parameter_warnings.append("image_motion_intensity 参数越界，未应用该参数")
     unsupported_parameters = sorted(
-        set(style_parameters) - {"subtitle_position", "subtitle_font_size", "image_motion_intensity"}
+        set(style_parameters) - {"subtitle_position", "subtitle_font_size", "subtitle_max_lines", "image_motion_intensity"}
     )
     if unsupported_parameters:
         style_parameter_warnings.append(
@@ -3350,6 +3366,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         builtin_style
         or migrated_style.get("subtitle_font_size") is not None
         or migrated_style.get("subtitle_position") in {"top", "center", "bottom"}
+        or migrated_style.get("subtitle_max_lines") is not None
     ):
         # SubtitleTrack rendering consumes absolute font_size and position.
         # Apply the built-in registered style only when no explicit subtitle
@@ -3358,6 +3375,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             subtitle_style["font_size"] = int(migrated_style["subtitle_font_size"])
         if migrated_style.get("subtitle_position") in {"top", "center", "bottom"}:
             subtitle_style["position"] = migrated_style["subtitle_position"]
+        if migrated_style.get("subtitle_max_lines") is not None:
+            subtitle_style["max_lines"] = int(migrated_style["subtitle_max_lines"])
     style_contract_palette = style_contract_source.get("palette") or {}
     style_contract_typography = style_contract_source.get("typography") or {}
     if "safe_zone" in style_contract_source:
