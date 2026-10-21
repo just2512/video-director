@@ -2671,7 +2671,7 @@ _FILM_KEYFRAME_PROPERTIES = {"x", "y", "scale", "rotation", "opacity", "blur", "
 
 def _film_transform_metadata(transform: dict | None, stage_width: int, stage_height: int,
                              base_width: float, base_height: float) -> dict:
-    """Normalize Transform into the deterministic 2D contract consumed by FilmRuntime."""
+    """Normalize the executable 2D contract, including allowlisted legacy non-uniform scale."""
     raw = transform or {}
     anchor = str(raw.get("anchor") or "center")
     if anchor not in _FILM_ANCHORS:
@@ -2680,6 +2680,8 @@ def _film_transform_metadata(transform: dict | None, stage_width: int, stage_hei
         "x": _number(raw.get("x", 0.5), "transform.x", 0, 1),
         "y": _number(raw.get("y", 0.5), "transform.y", 0, 1),
         "scale": _number(raw.get("scale", 1), "transform.scale", 0.1, 5),
+        "scale_x": _number(raw.get("scale_x", 1), "transform.scale_x", 0.1, 5),
+        "scale_y": _number(raw.get("scale_y", 1), "transform.scale_y", 0.1, 5),
         "rotation": _number(raw.get("rotation", 0), "transform.rotation", -3600, 3600),
         "opacity": _number(raw.get("opacity", 1), "transform.opacity", 0, 1),
         "anchor": anchor,
@@ -2693,8 +2695,8 @@ def _film_transform_metadata(transform: dict | None, stage_width: int, stage_hei
 def _film_transform_css(transform: dict, fit_mode: str | None = None) -> str:
     anchor_x, anchor_y = _FILM_ANCHORS[transform["anchor"]]
     scale = float(transform["scale"])
-    width = float(transform["base_width"]) * scale
-    height = float(transform["base_height"]) * scale
+    width = float(transform["base_width"]) * scale * float(transform.get("scale_x", 1))
+    height = float(transform["base_height"]) * scale * float(transform.get("scale_y", 1))
     left = float(transform["x"]) * int(transform["stage_width"]) - anchor_x * width
     top = float(transform["y"]) * int(transform["stage_height"]) - anchor_y * height
     origin = f"{int(anchor_x * 100)}% {int(anchor_y * 100)}%"
@@ -3313,7 +3315,11 @@ def _collect_unmodeled_source_fields(source: Any, model: Any, prefix: str = "Com
     fields = getattr(type(model), "model_fields", None)
     if not isinstance(fields, dict):
         return []
-    unknown = [f"{prefix}.{key}" for key in sorted(source) if key not in fields]
+    unknown = [
+        f"{prefix}.{key}" for key in sorted(source)
+        if key not in fields
+        and not (prefix.endswith(".transform") and key in _FILM_SUPPORTED_SOURCE_TRANSFORM_EXTENSIONS)
+    ]
     for key, raw_value in source.items():
         if key not in fields:
             continue
@@ -3327,6 +3333,28 @@ def _collect_unmodeled_source_fields(source: Any, model: Any, prefix: str = "Com
                 if isinstance(raw_child, dict) and isinstance(getattr(type(model_child), "model_fields", None), dict):
                     unknown.extend(_collect_unmodeled_source_fields(raw_child, model_child, f"{child_prefix}[{index}]"))
     return unknown
+
+
+_FILM_SUPPORTED_SOURCE_TRANSFORM_EXTENSIONS = {"scale_x", "scale_y"}
+
+
+def _merge_supported_source_extensions(source: Any, normalized: Any, parent_key: str = "") -> Any:
+    """Reapply allowlisted legacy fields filtered by Pydantic; arbitrary extras stay inert."""
+    if isinstance(source, dict) and isinstance(normalized, dict):
+        merged = copy.deepcopy(normalized)
+        for key, value in source.items():
+            if key in merged:
+                merged[key] = _merge_supported_source_extensions(value, merged[key], key)
+            elif parent_key == "transform" and key in _FILM_SUPPORTED_SOURCE_TRANSFORM_EXTENSIONS:
+                merged[key] = copy.deepcopy(value)
+        return merged
+    if isinstance(source, list) and isinstance(normalized, list):
+        return [
+            _merge_supported_source_extensions(value, normalized[index], parent_key)
+            if index < len(normalized) else copy.deepcopy(value)
+            for index, value in enumerate(source)
+        ]
+    return copy.deepcopy(normalized)
 
 
 def _source_composition_archive(project_id: str, ir: Any, typed_ir: dict) -> tuple[dict, list[str]]:
@@ -3366,6 +3394,9 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
     pid = validate_project_id(project_id)
     raw_ir = json.loads(ir.model_dump_json())
     source_archive_ir, source_archive_warnings = _source_composition_archive(pid, ir, raw_ir)
+    # Rehydrate only explicitly supported legacy transform extensions from the exact
+    # source snapshot. Unknown schema extras remain archived and are never executed.
+    raw_ir = _merge_supported_source_extensions(source_archive_ir, raw_ir)
     root = _project_root(pid)
     project_spec = raw_ir.get("project") or {}
     stage = {"width": int(project_spec.get("width", 1080)),

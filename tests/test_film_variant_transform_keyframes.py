@@ -75,6 +75,10 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     raw_archive = json.loads(ir.model_dump_json())
     raw_archive["future_renderer_contract"] = {"version": 4, "projection": "custom"}
     raw_archive["variants"][0]["future_transition_plugin"] = {"type": "wipe", "duration": 0.15}
+    # Transform.scale_x/scale_y are present in older source JSON but not in the
+    # current Pydantic Transform model; migration must map them from the archive.
+    raw_archive["variants"][0]["scenes"][0]["layers"][0]["transform"]["scale_x"] = 1.5
+    raw_archive["variants"][0]["scenes"][0]["layers"][0]["transform"]["scale_y"] = 0.75
     raw_archive["variants"][0]["scenes"][0]["future_timing_semantics"] = {"mode": "beat"}
     raw_path = project_root / "plans" / "composition.json"
     raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +96,9 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert transform["x"] == 0.4 and transform["y"] == 0.6
     assert transform["scale"] == 1.25 and transform["rotation"] == 12
     assert transform["opacity"] == 0.8 and transform["anchor"] == "center"
+    assert transform["scale_x"] == 1.5 and transform["scale_y"] == 0.75
+    assert "width:600px" in clip["attrs"]["style"]
+    assert "height:168.75px" in clip["attrs"]["style"]
     assert "object-fit:contain" in clip["attrs"]["style"]
     channels = json.loads(clip["attrs"]["data-film-keyframes"])
     assert {item["property"] for item in channels} == {
@@ -112,6 +119,8 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert "CompositionIR.variants[0].scenes[0].future_timing_semantics" in migration_warnings
     assert any("active-cut" in warning for warning in result["warnings"])
     warnings_text = "\n".join(result["warnings"])
+    assert "CompositionIR.variants[0].scenes[0].layers[0].transform.scale_x" not in warnings_text
+    assert "CompositionIR.variants[0].scenes[0].layers[0].transform.scale_y" not in warnings_text
     assert "metadata 字段未映射" in warnings_text
     assert "转场 type=dissolve" in warnings_text
     assert not any(
