@@ -1540,3 +1540,18 @@ def test_parse_accepts_migrated_overlay_track_z_index_but_rejects_runtime_ignore
     )
     with pytest.raises(fd.FilmError, match="100000"):
         fd.parse_film(clip_source)
+
+
+@pytest.mark.parametrize(
+    "bad_head, expected",
+    [
+        ('<html><head><head></head></head><body><section id="t"></section></body></html>', "head 必须是 html 的直接子元素且不能嵌套"),
+        ('<html><head><title><meta charset="utf-8"></title></head><body><section id="t"></section></body></html>', "meta 必须是 head 的直接子元素"),
+        ('<html><body><head></head></body></html>', "body 中不允许 head"),
+    ],
+)
+def test_parse_rejects_nested_or_misplaced_head_elements(bad_head, expected):
+    source = '<!doctype html>' + bad_head
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(source)
+    assert expected in str(error.value)

@@ -420,14 +420,18 @@ class _FilmParser(HTMLParser):
                 )
                 self.stack.append(tag)
                 return
-            if tag == "head" and not self.body_seen and parent == "html":
+            if tag == "head" and not self.body_seen:
+                if parent != "html" or "head" in self.stack:
+                    self.problems.append(f"第 {line_number} 行：head 必须是 html 的直接子元素且不能嵌套")
                 self.problems.extend(
                     f"第 {line_number} 行：head 不允许未知属性 {key!r}"
                     for key in attr_map if key not in _FILM_HEAD_ATTRIBUTES["head"]
                 )
                 self.stack.append(tag)
                 return
-            if tag in _FILM_HEAD_ATTRIBUTES and not self.body_seen and "head" in self.stack:
+            if tag in {"meta", "link", "style", "title"} and not self.body_seen and "head" in self.stack:
+                if parent != "head":
+                    self.problems.append(f"第 {line_number} 行：{tag} 必须是 head 的直接子元素")
                 self.problems.extend(
                     f"第 {line_number} 行：{tag} 不允许未知属性 {key!r}"
                     for key in attr_map if key not in _FILM_HEAD_ATTRIBUTES[tag]
