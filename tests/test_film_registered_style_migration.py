@@ -88,3 +88,31 @@ def test_variant_registered_style_takes_precedence_over_base_style_id(tmp_path, 
     warnings = "\n".join(result["warnings"])
     assert "变体 variant 的注册风格 knowledge-explainer 已执行" in warnings
     assert "变体 variant 的 variant.style 已保存在" not in warnings
+
+
+def test_registered_style_supplies_default_image_motion_when_layer_has_no_preset(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "registered-style-default-motion"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "style_id": "knowledge-explainer",
+        "scenes": [{
+            "id": "opening", "start": 0, "duration": 1, "text": "default motion",
+            "layers": [{"type": "image", "asset_id": "asset-image", "start": 0, "duration": 1}],
+        }],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    channels = json.loads(track["clips"][0]["attrs"]["data-film-keyframes"])
+    scale = next(item for item in channels if item["property"] == "scale")
+    assert scale["keyframes"][0]["value"] == 1
+    assert scale["keyframes"][1]["value"] == 1.12
+    assert any("已执行注册风格 knowledge-explainer" in warning for warning in result["warnings"])

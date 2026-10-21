@@ -3678,6 +3678,24 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             channels, motion_warning = _motion_keyframes(layer.get("motion"), d, base_transform, channels, legacy_motion_intensity)
             if motion_warning:
                 unsupported_layer_fields.append(motion_warning)
+            # Registered StyleContract image-motion intensity also applies when
+            # the old Layer had no explicit motion preset, matching the old
+            # renderer's default image-motion behavior. Explicit scale channels,
+            # transform recipe channels and non-image media keep their own rules.
+            style_motion_enabled = (
+                builtin_style is not None
+                or contract_motion_temper in {"calm", "energetic", "cinematic"}
+            )
+            has_scale_channel = any(
+                isinstance(channel, dict) and channel.get("property") == "scale"
+                for channel in channels
+            )
+            if kind == "image" and style_motion_enabled and not layer.get("motion") and not has_scale_channel:
+                channels, style_motion_warning = _motion_keyframes(
+                    "slow_zoom_in", d, base_transform, channels, legacy_motion_intensity
+                )
+                if style_motion_warning:
+                    unsupported_layer_fields.append(style_motion_warning)
             recipe_channels, recipe_warnings = _film_motion_recipe_keyframes(layer, d)
             current_channel_properties = {
                 str(channel.get("property") or "") for channel in channels
