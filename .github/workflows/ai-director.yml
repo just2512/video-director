@@ -11,8 +11,10 @@ on:
 permissions:
   contents: write
 
+# A unique concurrency key prevents GitHub from replacing an older pending run
+# with a later push. The self-hosted runner serializes the actual work.
 concurrency:
-  group: ai-director-${{ github.event.pull_request.number || github.ref }}
+  group: ai-director-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
