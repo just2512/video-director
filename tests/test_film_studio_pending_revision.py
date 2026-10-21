@@ -122,3 +122,19 @@ def test_rejected_timeline_commit_rolls_back_dom_without_remounting_inspector():
     assert "renderTimeline();" in rejected
     assert "render();" not in rejected
     assert "return false;" in rejected
+
+
+
+def test_broken_external_document_preserves_current_view_and_defers_reload_until_recovery():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    helper = source[source.index("function flushPendingExternalRevision"):source.index("window.filmStudio")]
+    broken_start = source.index("data.phase==='document_broken'")
+    recovered_start = source.index("data.phase==='revision_changed'&&data.source==='external_file'", broken_start)
+    broken = source[broken_start:recovered_start]
+    assert "||S.broken||" in helper
+    assert "S.broken=true;" in broken
+    assert "保留当前画面并暂停编辑" in broken
+    assert "S.pendingExternalRevision=data.revision" not in broken
+    assert "flushPendingExternalRevision();" not in broken
+    assert "S.broken=false;" in source[recovered_start:]
+    assert "S.pendingExternalRevision=data.revision;flushPendingExternalRevision();" in source[recovered_start:]

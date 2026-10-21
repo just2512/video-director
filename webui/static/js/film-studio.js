@@ -963,7 +963,7 @@
     renderElementInspector(null);
   }
   function flushPendingExternalRevision(){
-    if(!S.pendingExternalRevision||!S.open||S.busy||S.drag||S.envelopeDrag)return false;
+    if(!S.pendingExternalRevision||!S.open||S.broken||S.busy||S.drag||S.envelopeDrag)return false;
     if(hasUncommittedInspectorEdits()){
       showStatus('外部 revision 已变化，但 Inspector 中有未提交的属性草稿。请先应用修改，或点击“重新载入”并确认丢弃草稿。','error');
       return false;
@@ -1734,11 +1734,11 @@
         var data=packet.data||{};
         if(data.project_id&&S.projectId&&data.project_id!==S.projectId)return;
         if(packet.event==='film'&&data.phase==='document_broken'&&S.open){
+          // Preserve the last valid view while the agent is in the middle of
+          // writing a broken/partial file. Only a later valid revision may reload.
           S.broken=true;
-          if(data.revision)S.pendingExternalRevision=data.revision;
           if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
-          showStatus('影片文件校验失败，已暂停编辑：'+String(data.error||'文档解析失败'),'error');
-          flushPendingExternalRevision();
+          showStatus('影片文件校验失败，已保留当前画面并暂停编辑：'+String(data.error||'文档解析失败'),'error');
         }else if(packet.event==='film'&&data.phase==='revision_changed'&&data.source==='external_file'&&S.open){
           S.broken=false;
           if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
