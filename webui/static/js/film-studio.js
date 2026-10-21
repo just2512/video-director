@@ -439,7 +439,7 @@
               var clipAttrs=clip.attrs||{},aid=clipAttrs['data-asset-id']||'';
               var thumbnail=aid&&clip.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
               return {
-                id:clip.id,trackId:track.id,tag:clip.tag,title:String(clipAttrs.title||clip.id),
+                id:clip.id,trackId:track.id,tag:clip.tag,title:String(clipAttrs.title||clip.id),at:clip.at,
                 left:Math.max(0,clip.at*S.pxPerSec),width:Math.max(24,(clip.duration==null?2:clip.duration)*S.pxPerSec),
                 atLabel:fmtTime(clip.at),durationLabel:clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s',
                 selected:(S.selectedIds||[]).indexOf(clip.id)>=0,thumbnail:thumbnail,duration:clip.duration,

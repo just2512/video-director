@@ -742,12 +742,6 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                   aria-label={"跳转到 "+mark.at.toFixed(3)+" 秒关键帧"}
                   style={{left:(clip.duration && clip.duration>0 ? Math.max(0,Math.min(100,mark.at/clip.duration*100)) : 0)+"%"}
                   key={mark.at}
-                  onPointerDownCapture={event=>{event.preventDefault();event.stopPropagation();}}
-                  onClick={event=>{
-                    event.preventDefault();event.stopPropagation();
-                    window.filmStudioSelectClip?.(clip.id);
-                    window.filmStudioSeek?.(Math.max(0,clip.at+mark.at));
-                  }}
                 />
               ))}
               {clip.locked ? <span className="fs-clip-lock-mark" aria-label="片段已锁定">🔒</span> : null}
