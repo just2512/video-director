@@ -242,3 +242,11 @@ def test_registered_style_bgm_volume_is_default_only_when_volume_was_not_explici
     }
     assert audio_by_id["implicit-volume"]["attrs"]["volume"] == "0.16"
     assert audio_by_id["explicit-volume"]["attrs"]["volume"] == "0.7"
+
+
+def test_subtitle_renderer_rejects_fractional_or_boolean_line_limits():
+    import pytest
+    with pytest.raises(fd.FilmError, match="必须是整数"):
+        fd._subtitle_page(320, 180, 1, [{"start": 0, "end": 1, "text": "line"}], {"max_lines": 1.5})
+    with pytest.raises(fd.FilmError, match="有限数字"):
+        fd._subtitle_page(320, 180, 1, [{"start": 0, "end": 1, "text": "line"}], {"max_lines": False})

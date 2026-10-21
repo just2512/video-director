@@ -2081,8 +2081,13 @@ def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], s
     else:
         requested_size = _number(absolute_size, "subtitle font size", 1, 1000)
     font_size = int(max(12, min(160, requested_size)))
-    max_lines_raw = opts.get("max_lines", opts.get("maxLines", 0)) or 0
-    max_lines = int(_number(max_lines_raw, "subtitle max_lines", 0, 8))
+    max_lines_raw = opts.get("max_lines", opts.get("maxLines", 0))
+    if max_lines_raw in (None, ""):
+        max_lines_raw = 0
+    max_lines_number = _number(max_lines_raw, "subtitle max_lines", 0, 8)
+    if not max_lines_number.is_integer():
+        raise FilmError("INVALID_SUBTITLE_MAX_LINES", "subtitle max_lines 必须是整数", 422)
+    max_lines = int(max_lines_number)
     line_limit_css = (
         f"display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{max_lines};overflow:hidden;"
         if max_lines else ""
