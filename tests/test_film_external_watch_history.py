@@ -82,3 +82,28 @@ def test_watcher_does_not_duplicate_an_edit_already_recorded_by_studio_api(tmp_p
     assert len(history["past"]) == 1
     assert history["past"][0]["ops"][0]["op"] == "set"
     assert events == []
+
+
+
+def test_external_write_between_initial_read_and_watcher_registration_is_not_lost(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "watch-registration-race"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+
+    # An external agent writes after the GET snapshot but before watcher.watch().
+    external = FILM.replace('at="0"', 'at="0.75"')
+    film_path.write_text(external, encoding="utf-8")
+    events = []
+    watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
+    watcher.watch(project_id, initial["rev"], initial_text=initial["text"])
+    _poll_changed_file(watcher)
+
+    history = fd._history_read(project_id)
+    assert len(history["past"]) == 1
+    assert history["past"][0]["before"] == initial["text"]
+    assert history["past"][0]["after"] == external
+    assert events and events[-1][1]["revision"] == fd.revision_of(external)

@@ -1038,7 +1038,9 @@ class Handler(BaseHTTPRequestHandler):
                     return True
 
                 state = fd.read_project_film(pid)
-                _FILM_REVISION_WATCHER.watch(pid, state.get("rev"))
+                _FILM_REVISION_WATCHER.watch(
+                    pid, state.get("rev"), initial_text=state.get("text")
+                )
                 if state["exists"]:
                     self._send_json(fd.film_payload(pid, state))
                     return True

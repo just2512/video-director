@@ -43,26 +43,41 @@ class FilmRevisionWatcher:
         with self._lock:
             self.publish = publish
 
-    def watch(self, project_id: str, initial_revision: str | None = None) -> None:
+    def watch(
+        self, project_id: str, initial_revision: str | None = None,
+        initial_text: str | None = None,
+    ) -> None:
         pid = fd.validate_project_id(project_id)
         path = self.path_for_project(pid)
         signature = self._signature(path)
-        initial_text = None
         try:
-            initial_text = path.read_text(encoding="utf-8")
-            actual_revision = fd.revision_of(initial_text)
+            current_text = path.read_text(encoding="utf-8")
+            actual_revision = fd.revision_of(current_text)
         except (OSError, UnicodeError):
+            current_text = None
             actual_revision = fd.revision_of("")
+        # The caller may provide the exact text it just read before registering
+        # the watcher. Prefer that paired snapshot over a second read so an
+        # external write between GET and watch registration remains detectable.
+        if isinstance(initial_text, str):
+            baseline_text = initial_text
+            baseline_revision = fd.revision_of(initial_text)
+            if initial_revision is not None and initial_revision != baseline_revision:
+                # Never bind a revision hash to text that does not produce it.
+                initial_revision = baseline_revision
+        else:
+            baseline_text = current_text
+            baseline_revision = initial_revision if initial_revision is not None else actual_revision
         if initial_revision is None:
-            initial_revision = actual_revision
+            initial_revision = baseline_revision
         matched_initial_snapshot = actual_revision == initial_revision
         now = time.monotonic()
         with self._lock:
             state = self._projects.get(pid)
             if state is None:
                 self._projects[pid] = {
-                    "last_revision": initial_revision,
-                    "last_text": initial_text if matched_initial_snapshot else None,
+                    "last_revision": baseline_revision,
+                    "last_text": baseline_text,
                     "pending_signature": signature,
                     "processed_signature": signature if matched_initial_snapshot else None,
                     "changed_at": now - self.settle_seconds if not matched_initial_snapshot else now,
