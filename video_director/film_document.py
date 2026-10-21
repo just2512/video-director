@@ -380,6 +380,89 @@ def _film_attribute_issues(tag: str, attrs: dict[str, str]) -> list[str]:
     return issues
 
 
+def _film_override_diagnostics(clip: dict) -> tuple[list[str], list[str]]:
+    """Validate executable selector overrides; retain and report inert legacy records."""
+    attrs = clip.get("attrs") or {}
+    raw = attrs.get("overrides")
+    if raw is None or raw == "":
+        return [], []
+    issues: list[str] = []
+    warnings: list[str] = []
+    try:
+        entries = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError) as exc:
+        return [f"overrides 不是有效 JSON：{str(exc)[:180]}"], []
+    if not isinstance(entries, list):
+        return ["overrides 必须是 JSON 数组"], []
+    if len(entries) > 500:
+        issues.append("overrides 超过 500 项限制")
+        return issues, warnings
+
+    seen_selectors: set[str] = set()
+    legacy_keys = {"selector", "n", "t", "s", "r", "style", "text", "lock"}
+    for index, entry in enumerate(entries):
+        label = f"overrides 第 {index + 1} 项"
+        if not isinstance(entry, dict):
+            issues.append(f"{label} 必须是对象")
+            continue
+        if "selector" not in entry:
+            # Older document formats used non-selector records. Preserve their exact
+            # JSON value, but don't pretend the current runtime executes them.
+            warnings.append(f"{label} 是不含 selector 的遗留记录；已保留原值，当前 Runtime 不执行")
+            continue
+
+        selector = entry.get("selector")
+        if not isinstance(selector, str) or not selector.strip() or len(selector) > 500:
+            issues.append(f"{label} 的 selector 必须是 1–500 字符的字符串")
+            continue
+        selector = selector.strip()
+        if any(ord(char) < 32 for char in selector):
+            issues.append(f"{label} 的 selector 不能包含控制字符")
+            continue
+        if selector in seen_selectors:
+            warnings.append(f"{label} 重复使用 selector {selector!r}；Runtime 按文档顺序依次应用")
+        seen_selectors.add(selector)
+
+        unknown_entry_keys = sorted(set(entry) - legacy_keys)
+        if unknown_entry_keys:
+            warnings.append(
+                f"{label} 含当前 Runtime 不识别的字段：{', '.join(str(k) for k in unknown_entry_keys[:12])}；"
+                "原值保留但不执行"
+            )
+
+        text_supplied = "text" in entry
+        if text_supplied and (not isinstance(entry["text"], str) or len(entry["text"]) > 4000):
+            issues.append(f"{label} 的 text 必须是字符串且不超过 4000 字符")
+
+        style_value = entry.get("style", {})
+        if style_value is None:
+            style_value = {}
+        if not isinstance(style_value, dict):
+            issues.append(f"{label} 的 style 必须是对象")
+            continue
+        executable_style = {key: value for key, value in style_value.items() if key in _OVERRIDE_STYLE_MAP}
+        unsupported_style = sorted(set(style_value) - set(_OVERRIDE_STYLE_MAP))
+        if unsupported_style:
+            warnings.append(
+                f"{label} 含当前 Runtime 不支持的 style 属性：{', '.join(str(k) for k in unsupported_style[:12])}；"
+                "原值保留但不执行"
+            )
+        if text_supplied or executable_style:
+            try:
+                _normalize_element_override(
+                    selector,
+                    entry.get("text"),
+                    text_supplied,
+                    executable_style,
+                )
+            except FilmError as exc:
+                issues.append(f"{label} 无法安全执行：{exc}")
+        elif not unsupported_style:
+            warnings.append(f"{label} 没有可执行的 text/style 字段；原值保留")
+
+    return list(dict.fromkeys(issues)), list(dict.fromkeys(warnings))
+
+
 def _film_runtime_metadata_issues(clip: dict) -> list[str]:
     """Reject malformed executable metadata instead of letting Runtime silently drop it."""
     attrs = clip.get("attrs") or {}
@@ -790,11 +873,19 @@ def parse_film(text: str) -> dict:
         problems.append("片段 id 必须全片唯一")
     if not parser.tracks:
         problems.append("film.html 至少需要一个 section 轨道")
+    runtime_warnings: list[str] = []
     for track in parser.tracks:
         ordered = sorted(track["clips"], key=lambda c: _number(c["attrs"].get("at", 0), "at", 0))
         last_end = None
         last_id = ""
         for clip in ordered:
+            override_issues, override_warnings = _film_override_diagnostics(clip)
+            problems.extend(
+                f"片段 {clip['id']} 的 overrides 无效：{issue}" for issue in override_issues
+            )
+            runtime_warnings.extend(
+                f"片段 {clip['id']} 的 overrides 提示：{warning}" for warning in override_warnings
+            )
             if "volume_envelope" in clip["attrs"]:
                 try:
                     _parse_volume_envelope(clip["attrs"]["volume_envelope"])
@@ -856,6 +947,7 @@ def parse_film(text: str) -> dict:
     return {
         "stage": stage, "fps": fps, "head_html": head, "tracks": parser.tracks,
         "body_comments": parser.body_comments, "outer_comments": parser.outer_comments,
+        "warnings": runtime_warnings,
     }
 
 
@@ -5002,6 +5094,7 @@ def film_payload(project_id: str, state: dict) -> dict:
     return {"ok": True, "exists": True, "project_id": project_id, "rev": state["rev"], "stage": doc["stage"],
             "fps": doc.get("fps", config.DEFAULT_FPS),
             "head_html": head_html, "render_css": render_css, "tracks": tracks,
+            "warnings": list(doc.get("warnings") or []),
             "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
 
 

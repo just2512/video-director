@@ -1881,3 +1881,65 @@ def test_parse_rejects_transform_stage_dimensions_that_disagree_with_viewport():
         fd.parse_film(fd.serialize_film(document))
     assert error.value.code == "FILM_TRANSFORM_STAGE_MISMATCH"
     assert "viewport" in str(error.value)
+
+
+
+def _source_with_overrides(overrides) -> str:
+    document = fd.parse_film(SAMPLE)
+    iframe = {
+        "id": "scene",
+        "tag": "iframe",
+        "attrs": {
+            "id": "scene",
+            "src": "scenes/title.html#t=0,5",
+            "at": "0",
+        },
+    }
+    document["tracks"].append({"id": "scene-track", "attrs": {"id": "scene-track"}, "clips": [iframe]})
+    iframe["attrs"]["overrides"] = json.dumps(overrides, ensure_ascii=False)
+    return fd.serialize_film(document)
+
+
+def test_parse_rejects_malformed_selector_overrides_instead_of_ignoring_them():
+    bad_documents = [
+        '{"selector": "#title"}',
+        json.dumps({"selector": "#title"}),
+        json.dumps([{"selector": "", "text": "title"}]),
+        json.dumps([{"selector": "#title", "text": 3}]),
+        json.dumps([{"selector": "#title", "style": "color:red"}]),
+        json.dumps([{"selector": "#title", "style": {"color": "url(https://invalid.example/x)"}}]),
+        json.dumps([{"selector": "#title", "style": {"fontSize": "large"}}]),
+    ]
+    for raw in bad_documents:
+        source = _source_with_overrides([])
+        source = source.replace('overrides="[]"', 'overrides="' + raw.replace('"', '&quot;') + '"')
+        with pytest.raises(fd.FilmError, match="overrides"):
+            fd.parse_film(source)
+
+
+def test_parse_preserves_legacy_overrides_but_returns_explicit_runtime_warnings():
+    legacy = [
+        {"n": ".headline", "t": "text", "s": {"x": 20, "y": 30}},
+        {"selector": "#title", "text": "新标题", "style": {"color": "#ffffff", "fontSize": "28px"}},
+        {"selector": "#title", "style": {"boxShadow": "0 0 4px red"}},
+    ]
+    document = fd.parse_film(_source_with_overrides(legacy))
+    iframe = next(clip for track in document["tracks"] for clip in track["clips"] if clip["id"] == "scene")
+    assert json.loads(iframe["attrs"]["overrides"]) == legacy
+    assert any("不含 selector 的遗留记录" in warning for warning in document["warnings"])
+    assert any("不支持的 style 属性" in warning for warning in document["warnings"])
+    payload = fd.film_payload("film-test", {
+        "exists": True,
+        "rev": fd.revision_of(fd.serialize_film(document)),
+        "doc": document,
+    })
+    assert any("不含 selector 的遗留记录" in warning for warning in payload["warnings"])
+
+
+def test_parse_reports_unknown_fields_in_selector_override_without_destroying_legacy_values():
+    entries = [{"selector": "#title", "text": "Title", "legacyEffect": {"s": 2}}]
+    parsed = fd.parse_film(_source_with_overrides(entries))
+    assert json.loads(next(
+        clip for track in parsed["tracks"] for clip in track["clips"] if clip["id"] == "scene"
+    )["attrs"]["overrides"]) == entries
+    assert any("当前 Runtime 不识别的字段" in warning for warning in parsed["warnings"])
