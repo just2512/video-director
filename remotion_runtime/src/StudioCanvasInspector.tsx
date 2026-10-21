@@ -379,6 +379,15 @@ const rotateDegrees = (styles: Record<string, string>): number => {
 
 const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage?: string}> = ({clip, emptyMessage}) => {
   const [feedback, setFeedback] = useState("");
+  const keyframesAttribute = clip?.attrs?.["data-film-keyframes"] || "";
+  const [keyframeChannels,setKeyframeChannels] = useState<FilmKeyframeChannel[]>(()=>parseFilmKeyframes(keyframesAttribute));
+  const [keyframeDirty,setKeyframeDirty] = useState(false);
+  const [animationProperty,setAnimationProperty] = useState<FilmKeyframeProperty>("opacity");
+  const [newKeyframeAt,setNewKeyframeAt] = useState("0");
+  const [newKeyframeValue,setNewKeyframeValue] = useState("1");
+  const [newKeyframeEasing,setNewKeyframeEasing] = useState<FilmKeyframeEasing>("linear");
+  const [draggingKeyframe,setDraggingKeyframe] = useState<number|null>(null);
+  const [keyframeFeedback,setKeyframeFeedback] = useState("");
   const [form, setForm] = useState<FilmClipInspectorValues>(() => {
     const attrs = clip?.attrs || {};
     const fade = String(attrs.fade || "0,0").split(",");
@@ -395,6 +404,14 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
   const update = <K extends keyof FilmClipInspectorValues>(field: K, value: FilmClipInspectorValues[K]) => {
     setForm((current) => ({...current, [field]: value}));
   };
+  useEffect(()=>{
+    setKeyframeChannels(parseFilmKeyframes(keyframesAttribute));
+    setKeyframeDirty(false);setDraggingKeyframe(null);setKeyframeFeedback("");
+    const duration=clip?.duration;
+    const relative=clip&&typeof clip.playhead==="number"?clip.playhead-clip.at:0;
+    setNewKeyframeAt((duration!=null&&duration>0?clampKeyframe(relative,0,duration):0).toFixed(3));
+    setNewKeyframeValue(String(keyframeInfo(animationProperty).initial));
+  },[clip?.id,keyframesAttribute]);
   if (!clip) {
     return <div className="fs-empty" data-react-clip-inspector-empty="true">{emptyMessage || "选择时间线片段后编辑属性。"}</div>;
   }
@@ -404,6 +421,62 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
   const readOnly = clipLocked || trackLocked;
   const speed = Number(form.speed || 1);
   const hasMediaControls = clip.tag === "video" || clip.tag === "audio";
+  const animationInfo=keyframeInfo(animationProperty);
+  const activeChannel=keyframeChannels.find(channel=>channel.property===animationProperty)||null;
+  const clipDuration=clip.duration||0;
+  const frameStep=1/Math.max(1,Math.min(60,clip.fps||30));
+  const updateKeyframePoint=(index:number,patch:Partial<FilmKeyframePoint>)=>{
+    setKeyframeDirty(true);
+    setKeyframeChannels(current=>current.map(channel=>{
+      if(channel.property!==animationProperty)return channel;
+      const points=channel.keyframes.map(point=>({...point})),point=points[index];
+      if(!point)return channel;
+      if(typeof patch.value==="number")point.value=clampKeyframe(patch.value,animationInfo.min,animationInfo.max);
+      if(patch.easing)point.easing=patch.easing;
+      if(typeof patch.at==="number"){
+        const lower=index>0?points[index-1].at+frameStep:0;
+        const upper=index<points.length-1?points[index+1].at-frameStep:clipDuration;
+        point.at=clampKeyframe(Math.round(patch.at/frameStep)*frameStep,Math.min(lower,upper),Math.max(lower,upper));
+      }
+      return {...channel,keyframes:points};
+    }));
+    setKeyframeFeedback("");
+  };
+  const addKeyframe=()=>{
+    if(clip.duration==null||clip.duration<=0){setKeyframeFeedback("片段时长未知，不能安全添加关键帧。");return;}
+    const at=Number(newKeyframeAt),value=Number(newKeyframeValue);
+    if(!newKeyframeAt.trim()||!Number.isFinite(at)||at<0||at>clip.duration){setKeyframeFeedback("关键帧时间必须位于片段内（剪辑相对秒数）。");return;}
+    if(!newKeyframeValue.trim()||!Number.isFinite(value)||value<animationInfo.min||value>animationInfo.max){setKeyframeFeedback("关键帧数值超出当前属性允许范围。");return;}
+    const snapped=Math.round(at/frameStep)*frameStep;
+    const channel=keyframeChannels.find(item=>item.property===animationProperty);
+    if(channel?.keyframes.some(point=>Math.abs(point.at-snapped)<frameStep*0.5)){setKeyframeFeedback("该时间点已经存在关键帧；请编辑已有节点。");return;}
+    setKeyframeChannels(current=>{
+      const existing=current.find(item=>item.property===animationProperty);
+      const points=[...(existing?.keyframes||[]),{at:snapped,value,easing:newKeyframeEasing}].sort((a,b)=>a.at-b.at);
+      const nextChannel:FilmKeyframeChannel={property:animationProperty,keyframes:points};
+      return existing?current.map(item=>item.property===animationProperty?nextChannel:item):[...current,nextChannel];
+    });
+    setKeyframeDirty(true);setKeyframeFeedback("");
+  };
+  const removeKeyframe=(index:number)=>{
+    setKeyframeChannels(current=>current.flatMap(channel=>{
+      if(channel.property!==animationProperty)return [channel];
+      const points=channel.keyframes.filter((_point,i)=>i!==index);
+      return points.length?[{...channel,keyframes:points}]:[];
+    }));
+    setKeyframeDirty(true);setKeyframeFeedback("");
+  };
+  const handleKeyframePointerMove=(event:React.PointerEvent<SVGSVGElement>)=>{
+    if(draggingKeyframe==null||!activeChannel||clip.duration==null||clip.duration<=0)return;
+    const rect=event.currentTarget.getBoundingClientRect();
+    if(!rect.width||!rect.height)return;
+    const x=(event.clientX-rect.left)/rect.width*360,y=(event.clientY-rect.top)/rect.height*96;
+    updateKeyframePoint(draggingKeyframe,{
+      at:clampKeyframe((x-8)/344*clip.duration,0,clip.duration),
+      value:animationInfo.max-(y-8)/72*(animationInfo.max-animationInfo.min)
+    });
+    event.preventDefault();
+  };
   return (
     <div data-react-clip-inspector="true">
       <div className="fs-inspector-description">
@@ -475,11 +548,20 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
         onClick={() => {
           const result = buildClipInspectorOperations(clip, {...form});
           if (!result.ok) { setFeedback(result.message); return; }
-          if (!result.ops.length) { setFeedback("属性没有变化。"); return; }
+          const operations=[...result.ops];
+          const existingChannels=parseFilmKeyframes(String(attrs["data-film-keyframes"]||""));
+          if(JSON.stringify(existingChannels)!==JSON.stringify(keyframeChannels)){
+            operations.push({op:"set",clip:clip.id,field:"data-film-keyframes",
+              value:keyframeChannels.length?JSON.stringify(keyframeChannels.map(channel=>({
+                property:channel.property,keyframes:channel.keyframes.slice().sort((a,b)=>a.at-b.at)
+                  .map(point=>({at:Number(point.at.toFixed(6)),value:Number(point.value.toFixed(6)),easing:point.easing}))
+              }))):null});
+          }
+          if (!operations.length) { setFeedback("属性没有变化。"); return; }
           const commit = window.filmStudioCommitInspectorOperations;
           if (!commit) { setFeedback("Studio 编辑提交接口不可用。"); return; }
           setFeedback("");
-          void Promise.resolve(commit(result.ops)).catch((error: unknown) => {
+          void Promise.resolve(commit(operations)).catch((error: unknown) => {
             setFeedback("属性提交失败：" + String(error instanceof Error ? error.message : error));
           });
         }}
