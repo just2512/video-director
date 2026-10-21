@@ -666,6 +666,7 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
           aria-label="给 AI 导演的修改指令"
           onKeyDown={(event) => { if (event.key === "Enter") void window.filmStudioAsk?.(); }}
         />
+        <button className="fs-btn" type="button" data-film-action="cancel-ai" title="停止本轮生成；生成中再次发送新指令会中止并按新方向重新规划">停止 / 转向</button>
         <button className="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
       </div>
     </>

@@ -180,6 +180,7 @@
               <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。</div></div>
               <div class="fs-chat-input-row">
                 <input id="fs-static-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
+                <button class="fs-btn" type="button" data-film-action="cancel-ai" title="停止本轮生成；生成中再次发送新指令会中止并按新方向重新规划">停止 / 转向</button>
                 <button class="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
               </div>
             </div>

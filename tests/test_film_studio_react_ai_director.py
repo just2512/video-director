@@ -17,6 +17,11 @@ def test_react_ai_director_keeps_the_existing_action_and_message_contract():
     assert 'id="fs-chat-log"' in component
     assert 'id="fs-chat-input"' in component
     for action in ("ask", "preview-proposal", "reject-proposal", "apply-proposal"):
+    assert 'data-film-action="cancel-ai"' in component
+    assert "window.filmStudioCancelAi" in studio
+    assert "readFilmAiStream" in studio
+    assert "stream:true" in studio
+    assert "on_token=on_delta" in (root / "webui" / "server.py").read_text(encoding="utf-8")
         assert f'data-film-action="{action}"' in component
     assert "S.messages.push({text:String(text),role:role});" in studio
     assert "baseRevision:String(S.proposal.base_revision||'')" in studio
