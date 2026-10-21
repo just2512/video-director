@@ -2947,6 +2947,85 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         selected_variant = variants[0]
     source_scenes = list((selected_variant or {}).get("scenes") or raw_ir.get("scenes") or [])
     source_audio = list((selected_variant or {}).get("tracks") or raw_ir.get("audio") or [])
+    beat_migration_warnings = []
+    source_audio_entries = []
+    beat_audio_by_source_id: dict[str, list[dict]] = {}
+
+    # Beat has no separate timeline origin. AudioTrack.start remains the
+    # composition-time coordinate, matching CompositionIR.audio.
+    for audio_item in source_audio:
+        if not isinstance(audio_item, dict):
+            beat_migration_warnings.append("Composition 音频项格式无效；该项没有被猜测转换")
+            continue
+        original_id = str(audio_item.get("id") or "")
+        signature = json.dumps(audio_item, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+        entry = {
+            "audio": dict(audio_item), "source_id": original_id, "signature": signature,
+            "beat_ids": [], "beat_roles": [], "semantic_anchors": [],
+        }
+        source_audio_entries.append(entry)
+        if original_id:
+            beat_audio_by_source_id.setdefault(original_id, []).append(entry)
+
+    for source_scene in source_scenes:
+        for beat in source_scene.get("beats") or []:
+            if not isinstance(beat, dict):
+                beat_migration_warnings.append(
+                    f"场景 {source_scene.get('id') or 'unknown'} 含无效 Beat；其分层内容没有被猜测转换"
+                )
+                continue
+            beat_id = str(beat.get("id") or "")
+            beat_role = str(beat.get("role") or "")
+            beat_anchors = [
+                anchor for anchor in (beat.get("semantic_anchors") or [])
+                if isinstance(anchor, dict)
+            ]
+            for beat_audio in beat.get("audio") or []:
+                if not isinstance(beat_audio, dict):
+                    beat_migration_warnings.append(
+                        f"Beat {beat_id or 'unknown'} 含无效音频项；该项没有被转换"
+                    )
+                    continue
+                original_id = str(beat_audio.get("id") or "")
+                signature = json.dumps(beat_audio, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+                candidates = beat_audio_by_source_id.get(original_id, []) if original_id else []
+                existing = next((candidate for candidate in candidates if candidate["signature"] == signature), None)
+                if existing is not None:
+                    if beat_id and beat_id not in existing["beat_ids"]:
+                        existing["beat_ids"].append(beat_id)
+                    if beat_role and beat_role not in existing["beat_roles"]:
+                        existing["beat_roles"].append(beat_role)
+                    for anchor in beat_anchors:
+                        if anchor not in existing["semantic_anchors"]:
+                            existing["semantic_anchors"].append(anchor)
+                    continue
+
+                audio_export = dict(beat_audio)
+                if original_id and candidates:
+                    # Same source id but different timing/parameters is not the
+                    # same clip. Preserve both with a deterministic unique ID.
+                    suffix = len(candidates) + 1
+                    audio_export["id"] = f"beat-{beat_id or 'unknown'}-{original_id}-{suffix}"
+                    beat_migration_warnings.append(
+                        f"Beat {beat_id or 'unknown'} 音频 ID {original_id} 与现有音轨 ID 冲突但内容不同；"
+                        f"已保留为独立片段 {audio_export['id']}"
+                    )
+                elif not original_id:
+                    beat_migration_warnings.append(
+                        f"Beat {beat_id or 'unknown'} 音频没有稳定 ID；已按独立音频片段保留，不能自动与其它音频去重"
+                    )
+                entry = {
+                    "audio": audio_export, "source_id": original_id,
+                    "signature": signature,
+                    "beat_ids": [beat_id] if beat_id else [],
+                    "beat_roles": [beat_role] if beat_role else [],
+                    "semantic_anchors": list(beat_anchors),
+                }
+                source_audio_entries.append(entry)
+                if original_id:
+                    beat_audio_by_source_id.setdefault(original_id, []).append(entry)
+
+    source_audio = [entry["audio"] for entry in source_audio_entries]
     variant_scene_end = max(
         (float(scene.get("start", 0)) + float(scene.get("duration", 0)) for scene in source_scenes),
         default=0.0,
@@ -3000,6 +3079,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     clips, tracks, pages, warnings = [], [], {}, []
     warnings.extend(variant_warnings)
     warnings.extend(source_archive_warnings)
+    warnings.extend(beat_migration_warnings)
     if variants:
         if selected_variant:
             alternatives = [str(item.get("id")) for item in variants
@@ -3142,8 +3222,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         scene_id = str(scene.get("id") or "unknown")
         if scene.get("selections"):
             warnings.append(f"场景 {scene_id} 的 selections 语义锚点未映射到 film.html")
-        if scene.get("beats"):
-            warnings.append(f"场景 {scene_id} 的 beats 分层内容未迁移；仅处理 scene.layers")
         scene_metadata = [
             name for name in (
                 "semantic_role", "intent", "visual_intent", "selected_candidate_id",
@@ -3157,6 +3235,83 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         )):
             warnings.append(f"场景 {scene_id} 的 continuity/state 信息未迁移")
         scene_start = _number(scene.get("start", 0), "scene start", 0)
+
+        # SceneIR.layers are the flattened scene composition. Beat.layers can
+        # contain additional visual layers or repeat the same typed Layer.
+        # Merge exact repeats into provenance tags; render distinct Beat layers.
+        scene_layer_entries = []
+        scene_layer_by_signature: dict[str, dict] = {}
+        scene_layer_by_source_id: dict[str, list[dict]] = {}
+
+        def _beat_layer_signature(value: dict) -> str:
+            return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+
+        def _attach_beat_layer_metadata(entry: dict, beat: dict) -> None:
+            beat_id = str(beat.get("id") or "")
+            beat_role = str(beat.get("role") or "")
+            anchors = [anchor for anchor in (beat.get("semantic_anchors") or []) if isinstance(anchor, dict)]
+            if beat_id and beat_id not in entry["beat_ids"]:
+                entry["beat_ids"].append(beat_id)
+            if beat_role and beat_role not in entry["beat_roles"]:
+                entry["beat_roles"].append(beat_role)
+            for anchor in anchors:
+                if anchor not in entry["semantic_anchors"]:
+                    entry["semantic_anchors"].append(anchor)
+
+        for scene_layer in scene.get("layers") or []:
+            entry = {
+                "layer": scene_layer, "beat_ids": [], "beat_roles": [], "semantic_anchors": [],
+                "beat_instance": False,
+            }
+            scene_layer_entries.append(entry)
+            if not isinstance(scene_layer, dict):
+                continue
+            signature = _beat_layer_signature(scene_layer)
+            scene_layer_by_signature.setdefault(signature, entry)
+            source_id = str(scene_layer.get("id") or scene_layer.get("clip_id") or "")
+            if source_id:
+                scene_layer_by_source_id.setdefault(source_id, []).append(entry)
+
+        semantic_only_beats = []
+        for beat in scene.get("beats") or []:
+            if not isinstance(beat, dict):
+                continue
+            beat_layers = [item for item in (beat.get("layers") or []) if isinstance(item, dict)]
+            beat_audio = [item for item in (beat.get("audio") or []) if isinstance(item, dict)]
+            matched_any = False
+            for beat_layer in beat_layers:
+                signature = _beat_layer_signature(beat_layer)
+                existing = scene_layer_by_signature.get(signature)
+                if existing is not None:
+                    _attach_beat_layer_metadata(existing, beat)
+                    matched_any = True
+                    continue
+
+                source_id = str(beat_layer.get("id") or beat_layer.get("clip_id") or "")
+                collisions = scene_layer_by_source_id.get(source_id, []) if source_id else []
+                if collisions:
+                    warnings.append(
+                        f"场景 {scene_id} 的 Beat 图层 ID {source_id} 与 scene.layers 内容不一致；"
+                        "作为独立图层保留，不覆盖原始图层"
+                    )
+                entry = {
+                    "layer": beat_layer, "beat_ids": [], "beat_roles": [],
+                    "semantic_anchors": [], "beat_instance": True,
+                }
+                _attach_beat_layer_metadata(entry, beat)
+                scene_layer_entries.append(entry)
+                scene_layer_by_signature.setdefault(signature, entry)
+                if source_id:
+                    scene_layer_by_source_id.setdefault(source_id, []).append(entry)
+                matched_any = True
+
+            if not matched_any and not beat_audio and (beat.get("role") or beat.get("semantic_anchors")):
+                semantic_only_beats.append(str(beat.get("id") or "unknown"))
+        if semantic_only_beats:
+            warnings.append(
+                f"场景 {scene_id} 的 Beat {', '.join(semantic_only_beats)} 仅含 role/semantic_anchors；"
+                "这些创作标签没有等价的渲染属性，完整值保存在 migration/source-composition.json"
+            )
 
         # SceneIR.camera is scoped to the scene; unlike the composition-wide
         # camera_tracks collection, its keyframe times are scene-local.
@@ -3195,8 +3350,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     scene_camera_failed = True
         elif raw_ir.get("camera_tracks"):
             scene_camera_tracks = raw_ir.get("camera_tracks") or []
-        for idx, layer in enumerate(scene.get("layers") or []):
-            kind = str(layer.get("type") or "")
+        for idx, layer_entry in enumerate(scene_layer_entries):
+            layer = layer_entry["layer"]
+            kind = str(layer.get("type") or "") if isinstance(layer, dict) else ""
             if kind == "gap":
                 continue
             if kind not in {"video", "image"}:
@@ -3210,6 +3366,12 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
             layer_timeline_start = scene_start + _number(layer.get("start", 0), "layer start", 0)
             attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(layer_timeline_start), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
+            if layer_entry["beat_ids"]:
+                attrs["data-source-beat-ids"] = json.dumps(layer_entry["beat_ids"], ensure_ascii=False, separators=(",", ":"))
+                attrs["data-source-beat-roles"] = json.dumps(layer_entry["beat_roles"], ensure_ascii=False, separators=(",", ":"))
+                attrs["data-source-semantic-anchors"] = json.dumps(layer_entry["semantic_anchors"], ensure_ascii=False, separators=(",", ":"))
+            if layer_entry["beat_instance"]:
+                attrs["data-source-beat-layer"] = "true"
             if selected_variant:
                 attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
                 attrs["data-source-variant-version"] = str(selected_variant.get("version", 1))
@@ -3559,13 +3721,14 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         subtitle_track_film["attrs"]["style"] = "z-index:200002"
         tracks.append(subtitle_track_film)
 
-    audio_items = list(source_audio)
+    audio_items = list(source_audio_entries)
     audio_items.sort(key=lambda item: (
-        int(audio_lanes_by_id.get(str(item.get("track_id") or ""), {}).get("order", 999)),
-        _number(item.get("start", 0), "audio start", 0),
-        str(item.get("id") or ""),
+        int(audio_lanes_by_id.get(str(item["audio"].get("track_id") or ""), {}).get("order", 999)),
+        _number(item["audio"].get("start", 0), "audio start", 0),
+        str(item["audio"].get("id") or ""),
     ))
-    for idx, audio in enumerate(audio_items):
+    for idx, audio_entry in enumerate(audio_items):
+        audio = audio_entry["audio"]
         uri = asset_uri(audio.get("asset_id"))
         start, d = _number(audio.get("start", 0), "audio start", 0), _number(audio.get("duration"), "audio duration", 0.001)
         src_in = _number(audio.get("source_in", 0), "audio source_in", 0)
@@ -3574,7 +3737,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         cid = _safe_id(f"audio-{audio.get('id') or idx + 1}", "clip")
         lane = audio_lanes_by_id.get(str(audio.get("track_id") or ""), {})
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
-                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio.get("id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
+                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio_entry.get("source_id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
+        if audio_entry.get("beat_ids"):
+            attrs["data-source-beat-ids"] = json.dumps(audio_entry["beat_ids"], ensure_ascii=False, separators=(",", ":"))
+            attrs["data-source-beat-roles"] = json.dumps(audio_entry["beat_roles"], ensure_ascii=False, separators=(",", ":"))
+            attrs["data-source-semantic-anchors"] = json.dumps(audio_entry["semantic_anchors"], ensure_ascii=False, separators=(",", ":"))
         if selected_variant:
             attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
             attrs["data-source-variant-version"] = str(selected_variant.get("version", 1))
