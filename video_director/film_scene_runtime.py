@@ -162,47 +162,56 @@ _SCENE_BRIDGE = r"""
     } catch (error) {
       waits.push(Promise.reject(new Error('无法检查场景 CSS 图片资源：' + String(error && error.message || error))));
     }
+    // Frames repeatedly visit the same stylesheet URLs. Reuse the first
+    // load/decode promise per URL instead of issuing a second Image request for
+    // every output frame. A rejected promise stays rejected for this scene page:
+    // a missing asset must not turn into a later silent blank frame.
+    var cssResourcePromises = window.__filmCssResourcePromises ||
+      (window.__filmCssResourcePromises = Object.create(null));
     Object.keys(cssImageUrls).forEach(function (url) {
-      waits.push(new Promise(function (resolve, reject) {
-        var image = new Image(), timer = 0, settled = false;
-        function cleanup() {
-          if (timer) clearTimeout(timer);
-          image.removeEventListener('load', loaded);
-          image.removeEventListener('error', failed);
-        }
-        function finishError(message) {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new Error(message + '：' + url.slice(0, 500)));
-        }
-        function loaded() {
-          if (settled) return;
-          if (!image.naturalWidth || !image.naturalHeight) {
-            finishError('CSS 图片资源未成功解码');
-            return;
+      if (!cssResourcePromises[url]) {
+        cssResourcePromises[url] = new Promise(function (resolve, reject) {
+          var image = new Image(), timer = 0, settled = false;
+          function cleanup() {
+            if (timer) clearTimeout(timer);
+            image.removeEventListener('load', loaded);
+            image.removeEventListener('error', failed);
           }
-          if (typeof image.decode === 'function') {
-            image.decode().then(function () {
-              if (settled) return;
+          function finishError(message) {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(new Error(message + '：' + url.slice(0, 500)));
+          }
+          function loaded() {
+            if (settled) return;
+            if (!image.naturalWidth || !image.naturalHeight) {
+              finishError('CSS 图片资源未成功解码');
+              return;
+            }
+            if (typeof image.decode === 'function') {
+              image.decode().then(function () {
+                if (settled) return;
+                settled = true; cleanup(); resolve();
+              }, function (error) {
+                finishError('CSS 图片解码失败：' + String(error && error.message || error));
+              });
+            } else {
               settled = true; cleanup(); resolve();
-            }, function (error) {
-              finishError('CSS 图片解码失败：' + String(error && error.message || error));
-            });
-          } else {
-            settled = true; cleanup(); resolve();
+            }
           }
-        }
-        function failed() { finishError('CSS 图片资源加载失败'); }
-        timer = setTimeout(function () { finishError('CSS 图片资源等待超过 12 秒'); }, 12000);
-        image.addEventListener('load', loaded, { once: true });
-        image.addEventListener('error', failed, { once: true });
-        image.src = url;
-        if (image.complete) {
-          if (image.naturalWidth > 0) loaded();
-          else failed();
-        }
-      }));
+          function failed() { finishError('CSS 图片资源加载失败'); }
+          timer = setTimeout(function () { finishError('CSS 图片资源等待超过 12 秒'); }, 12000);
+          image.addEventListener('load', loaded, { once: true });
+          image.addEventListener('error', failed, { once: true });
+          image.src = url;
+          if (image.complete) {
+            if (image.naturalWidth > 0) loaded();
+            else failed();
+          }
+        });
+      }
+      waits.push(cssResourcePromises[url]);
     });
     await Promise.all(waits);
   }

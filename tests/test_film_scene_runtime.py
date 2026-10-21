@@ -308,3 +308,10 @@ def test_frame_readiness_scans_pseudo_element_css_image_resources():
     assert "window.getComputedStyle(element, pseudo)" in source
     assert "CSS 图片资源加载失败" in source
     assert "CSS 图片资源等待超过 12 秒" in source
+
+
+def test_scene_css_resource_promises_are_cached_across_output_frames():
+    source = (Path(__file__).resolve().parents[1] / "video_director" / "film_scene_runtime.py").read_text(encoding="utf-8")
+    assert "window.__filmCssResourcePromises" in source
+    assert "waits.push(cssResourcePromises[url]);" in source
+    assert "cssResourcePromises[url] = new Promise(function (resolve, reject)" in source
