@@ -116,3 +116,31 @@ def test_registered_style_supplies_default_image_motion_when_layer_has_no_preset
     assert scale["keyframes"][0]["value"] == 1
     assert scale["keyframes"][1]["value"] == 1.12
     assert any("已执行注册风格 knowledge-explainer" in warning for warning in result["warnings"])
+
+
+def test_style_contract_safe_zone_is_compiled_into_subtitle_safe_margins(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "style-contract-safe-zone"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "style_contract": {"style_id": "safe-zone-test", "safe_zone": 0.9},
+        "scenes": [{
+            "id": "opening", "start": 0, "duration": 1, "text": "safe zone",
+            "layers": [{"type": "image", "asset_id": "asset-image", "start": 0, "duration": 1}],
+        }],
+        "subtitle_track": {"cues": [{"start": 0, "end": 1, "text": "stay in safe area"}]},
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    subtitle_html = result["pages"]["scenes/subtitles.html"]
+    assert "bottom:9px;top:auto;" in subtitle_html
+    warnings = "\n".join(result["warnings"])
+    assert "已应用 motion_temper, safe_zone subtitle margins" in warnings
+    assert "safe_zone 及未识别" not in warnings

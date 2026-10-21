@@ -2103,11 +2103,15 @@ def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], s
         background_css = f"background-color:rgba({red},{green},{blue},{_fmt(alpha)});padding:0.12em 0.24em;border-radius:0.12em;"
 
     max_width = _number(opts.get("max_width", 0.9), "subtitle max_width", 0.3, 1.0) * 100
+    # Preserve the legacy 10% edge margin when safe_zone is absent (0.8 safe
+    # area). When Composition explicitly supplies safe_zone, compile its
+    # vertical inset into subtitle positioning rather than merely archiving it.
+    safe_zone = _number(opts.get("safe_zone", 0.8), "subtitle safe_zone", 0.5, 1.0)
     alignment = str(opts.get("alignment") or "center")
     if alignment not in {"left", "center", "right"}:
         alignment = "center"
     position = str(opts.get("position") or "bottom")
-    margin = int(max(0, min(height - 10, height * 0.1)))
+    margin = int(max(0, min(height - 10, height * (1.0 - safe_zone) / 2.0)))
     if position == "top":
         position_css, base_transform = f"top:{margin}px;bottom:auto;", "translateX(-50%)"
     elif position == "center":
@@ -3239,6 +3243,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         mapped_contract_parts = []
         if contract_motion_temper in {"calm", "energetic", "cinematic"}:
             mapped_contract_parts.append("motion_temper")
+        if "safe_zone" in style_contract_source and "safe_zone" in subtitle_style:
+            mapped_contract_parts.append("safe_zone subtitle margins")
         if not raw_ir.get("subtitle_style"):
             if isinstance(style_contract_palette, dict) and any(
                 isinstance(style_contract_palette.get(key), str)
@@ -3253,7 +3259,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         warnings.append(
             "style_contract 已保存在最终轨道的 data-source-style-contract；"
             + ("已应用 " + ", ".join(mapped_contract_parts) + "；" if mapped_contract_parts else "")
-            + "safe_zone 及未识别的调色板/字体字段仍未编译为实际 CSS"
+            + "未识别的调色板/字体字段仍未编译为实际 CSS"
         )
     if raw_ir.get("continuity_links"):
         warnings.append(
@@ -3334,6 +3340,13 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             subtitle_style["position"] = migrated_style["subtitle_position"]
     style_contract_palette = style_contract_source.get("palette") or {}
     style_contract_typography = style_contract_source.get("typography") or {}
+    if "safe_zone" in style_contract_source:
+        try:
+            subtitle_style["safe_zone"] = _number(
+                style_contract_source["safe_zone"], "style_contract safe_zone", 0.5, 1.0
+            )
+        except FilmError:
+            style_parameter_warnings.append("style_contract safe_zone 越界，未应用")
     if not raw_ir.get("subtitle_style") and not builtin_style:
         if isinstance(style_contract_palette, dict):
             for key in ("subtitle", "text", "foreground"):
