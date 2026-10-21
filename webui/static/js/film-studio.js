@@ -803,9 +803,9 @@
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();
   }
   async function filmStudioCommit(ops) {
-    if(!S.projectId||!S.data||!S.data.exists)return;
-    if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return;}
-    if(S.broken){showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return;}
+    if(!S.projectId||!S.data||!S.data.exists)return false;
+    if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
+    if(S.broken){showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return false;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     S.busy=true;
     var studioPanel=$('film-studio-panel'),busyTimeline=$('fs-timeline');
@@ -817,7 +817,7 @@
         var failureMessage=(r&&r.error)||'编辑提交失败。';
         if(S.data&&S.data.exists)render();
         showStatus(failureMessage,'error');
-        return;
+        return false;
       }
       S.data=r;S.rev=r.rev;
       if(r.rebased){
@@ -828,10 +828,12 @@
       render();
       var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
       showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,r.rebased?'':'success');
+      return true;
     }catch(error){
       var editFailure='编辑提交失败：'+String(error&&error.message||error);
       if(S.data&&S.data.exists)render();
       showStatus(editFailure,'error');
+      return false;
     }finally{
       S.busy=false;
       if(studioPanel)studioPanel.setAttribute('data-busy','false');
@@ -1285,8 +1287,16 @@
     await filmStudioCommit([{op:'clip_lock',clip:clip.id,locked:locked}]);
   };
   window.filmStudioCommitInspectorOperations=async function(ops){
-    if(!Array.isArray(ops)||!ops.length)return;
-    await filmStudioCommit(ops);
+    if(!Array.isArray(ops)||!ops.length)return false;
+    if(!S.projectId||!S.data||!S.data.exists)throw new Error('当前没有可编辑的 film.html。');
+    if(S.busy)throw new Error('上一项编辑仍在保存；本次修改未提交，请重试。');
+    if(S.broken)throw new Error('film.html 无效，当前不能写入。');
+    var committed=await filmStudioCommit(ops);
+    if(!committed){
+      var status=$('film-studio-alert');
+      throw new Error(status&&status.textContent||'片段属性没有保存，请检查影片状态后重试。');
+    }
+    return true;
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
   window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段？此操作可撤销。'))return;await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
