@@ -15,8 +15,10 @@ def test_registered_style_id_drives_subtitle_and_zoom_motion(tmp_path, monkeypat
     assets = root / "assets"
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "music.wav").write_bytes(b"not-decoded-by-migration")
     (assets / "manifest.json").write_text(json.dumps([
         {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+        {"id": "asset-music", "file": "assets/music.wav", "type": "audio"},
     ]), encoding="utf-8")
 
     ir = CompositionIR.model_validate({
@@ -177,11 +179,13 @@ def test_unregistered_variant_style_applies_only_whitelisted_parameters(tmp_path
                     "subtitle_font_size": 48,
                     "subtitle_max_lines": 1,
                     "image_motion_intensity": 1.15,
+                    "bgm_volume": 0.25,
                     "palette_tokens": {"accent": "#d02030"},
                 },
             },
         }],
         "active_variant_id": "brand-look",
+        "audio": [{"type": "bgm", "id": "custom-style-bgm", "asset_id": "asset-music", "start": 0, "duration": 1}],
         "subtitle_track": {"cues": [{"start": 0, "end": 1, "text": "custom safe mapping"}]},
     })
     result = fd.build_film_from_composition(project_id, ir)
@@ -193,6 +197,47 @@ def test_unregistered_variant_style_applies_only_whitelisted_parameters(tmp_path
     assert "font-size:48px" in subtitle_page
     assert "-webkit-line-clamp:1" in subtitle_page
     assert "top:18px;bottom:auto;" in subtitle_page
+    bgm_track = next(
+        item for item in result["document"]["tracks"]
+        if item.get("attrs", {}).get("data-label") == "bgm"
+        or any(clip["attrs"].get("data-role") == "bgm" for clip in item["clips"])
+    )
+    assert bgm_track["clips"][0]["attrs"]["volume"] == "0.25"
     warnings = "\n".join(result["warnings"])
     assert "已应用受支持参数：image_motion_intensity, subtitle_font_size, subtitle_max_lines, subtitle_position" in warnings
     assert "palette_tokens" in warnings
+
+
+def test_registered_style_bgm_volume_is_default_only_when_volume_was_not_explicit(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "registered-style-bgm-volume"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "music.wav").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+        {"id": "asset-music", "file": "assets/music.wav", "type": "audio"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "style_id": "knowledge-explainer",
+        "scenes": [{
+            "id": "opening", "start": 0, "duration": 2, "text": "bgm volume",
+            "layers": [{"type": "image", "asset_id": "asset-image", "start": 0, "duration": 2}],
+        }],
+        "audio": [
+            {"type": "bgm", "id": "implicit-volume", "asset_id": "asset-music", "start": 0, "duration": 1},
+            {"type": "bgm", "id": "explicit-volume", "asset_id": "asset-music", "start": 1, "duration": 1, "volume": 0.7},
+        ],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    audio_by_id = {
+        clip["attrs"].get("data-source-id"): clip
+        for track in result["document"]["tracks"] for clip in track["clips"]
+        if clip["tag"] == "audio"
+    }
+    assert audio_by_id["implicit-volume"]["attrs"]["volume"] == "0.16"
+    assert audio_by_id["explicit-volume"]["attrs"]["volume"] == "0.7"

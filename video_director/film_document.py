@@ -3026,8 +3026,14 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             style_parameter_applied.add("image_motion_intensity")
         except FilmError:
             style_parameter_warnings.append("image_motion_intensity 参数越界，未应用该参数")
+    if "bgm_volume" in style_parameters:
+        try:
+            migrated_style["bgm_volume"] = _number(style_parameters["bgm_volume"], "style bgm_volume", 0, 2)
+            style_parameter_applied.add("bgm_volume")
+        except FilmError:
+            style_parameter_warnings.append("bgm_volume 必须在 0–2 范围内，未应用该参数")
     unsupported_parameters = sorted(
-        set(style_parameters) - {"subtitle_position", "subtitle_font_size", "subtitle_max_lines", "image_motion_intensity"}
+        set(style_parameters) - {"subtitle_position", "subtitle_font_size", "subtitle_max_lines", "image_motion_intensity", "bgm_volume"}
     )
     if unsupported_parameters:
         style_parameter_warnings.append(
@@ -3059,6 +3065,39 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         comparable.pop("track_id", None)
         return json.dumps(comparable, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
 
+    # Model fields_set distinguishes a real user-authored volume from the
+    # AudioTrack default (1.0). Style BGM gain may replace only that default.
+    selected_variant_model = next(
+        (variant_model for variant_model in (getattr(ir, "variants", []) or [])
+         if selected_variant and str(getattr(variant_model, "id", "")) == str(selected_variant.get("id"))),
+        None,
+    )
+    source_audio_models = (
+        list(getattr(selected_variant_model, "tracks", []) or [])
+        if selected_variant_model is not None and getattr(selected_variant_model, "tracks", [])
+        else list(getattr(ir, "audio", []) or [])
+    )
+    source_scene_models = (
+        list(getattr(selected_variant_model, "scenes", []) or [])
+        if selected_variant_model is not None and getattr(selected_variant_model, "scenes", [])
+        else list(getattr(ir, "scenes", []) or [])
+    )
+    source_audio_models = list(source_audio_models)
+    for source_scene_model in source_scene_models:
+        for beat_model in (getattr(source_scene_model, "beats", []) or []):
+            source_audio_models.extend(getattr(beat_model, "audio", []) or [])
+    explicit_audio_volume_signatures = set()
+    for audio_model in source_audio_models:
+        if "volume" not in set(getattr(audio_model, "model_fields_set", set())):
+            continue
+        try:
+            explicit_audio_volume_signatures.add(
+                _audio_content_signature(audio_model.model_dump(mode="json"))
+            )
+        except (AttributeError, TypeError, ValueError):
+            # Unknown object shape: conservatively preserve its serialized gain.
+            continue
+
     # Beat has no separate timeline origin. AudioTrack.start remains the
     # composition-time coordinate, matching CompositionIR.audio.
     for audio_item in source_audio:
@@ -3069,6 +3108,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         signature = _audio_content_signature(audio_item)
         entry = {
             "audio": dict(audio_item), "source_id": original_id, "signature": signature,
+            "volume_explicit": signature in explicit_audio_volume_signatures,
             "beat_ids": [], "beat_roles": [], "semantic_anchors": [],
         }
         source_audio_entries.append(entry)
@@ -3125,6 +3165,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 entry = {
                     "audio": audio_export, "source_id": original_id,
                     "signature": signature,
+                    "volume_explicit": signature in explicit_audio_volume_signatures,
                     "beat_ids": [beat_id] if beat_id else [],
                     "beat_roles": [beat_role] if beat_role else [],
                     "semantic_anchors": list(beat_anchors),
@@ -3229,7 +3270,8 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 if builtin_style and variant_style_id:
                     warnings.append(
                         f"变体 {selected_variant.get('id')} 的注册风格 {normalized_style_id} 已执行字幕位置/字号"
-                        "和旧式 zoom 动效映射；transition_budget、bgm_volume、sfx_density 尚未由 Film Runtime 执行。"
+                        "和旧式 zoom 动效映射；bgm_volume 仅作为未显式设置音量的 BGM 片段默认值；"
+                        "transition_budget、sfx_density 尚未由 Film Runtime 执行。"
                         "完整原始 variant.style 仍保存在 data-source-variant-style"
                     )
                 elif style_parameter_applied:
@@ -3264,7 +3306,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if builtin_style and not variant_style_id and normalized_style_id == str(raw_ir.get("style_id")).removeprefix("style."):
             warnings.append(
                 f"已执行注册风格 {normalized_style_id} 的字幕位置/字号和旧式 zoom 动效；"
-                "transition_budget、bgm_volume、sfx_density 尚未由 Film Runtime 执行"
+                "bgm_volume 仅作为未显式设置音量的 BGM 片段默认值；transition_budget、sfx_density 尚未由 Film Runtime 执行"
             )
         elif not builtin_style:
             warnings.append(
@@ -4055,8 +4097,15 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         src_out = _number(audio.get("source_out") if audio.get("source_out") is not None else src_in + d * speed, "audio source_out", src_in + 0.001)
         cid = _safe_id(f"audio-{audio.get('id') or idx + 1}", "clip")
         lane = audio_lanes_by_id.get(str(audio.get("track_id") or ""), {})
+        volume_value = _number(audio.get("volume", 1), "audio volume", 0, 2)
+        if (
+            str(audio.get("type") or "").lower() == "bgm"
+            and migrated_style.get("bgm_volume") is not None
+            and not audio_entry.get("volume_explicit", False)
+        ):
+            volume_value = _number(migrated_style["bgm_volume"], "style bgm_volume", 0, 2)
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
-                 "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio_entry.get("source_id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
+                 "volume": _fmt(volume_value), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio_entry.get("source_id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
         asset_metadata = _source_asset_metadata(str(audio.get("asset_id") or ""))
         if asset_metadata:
             attrs["data-source-asset-metadata"] = asset_metadata
