@@ -628,6 +628,7 @@ const StudioTimelineToolbar: React.FC = () => (
     <button className="fs-btn" type="button" data-film-action="ripple-delete" title="删除选中片段对应的时间段，并收拢全部轨道">波纹删除</button>
     <button className="fs-btn" type="button" data-film-action="envelope-mode" aria-pressed="false" title="切换音量关键帧编辑模式；普通模式下可正常拖动片段">音量曲线：关</button>
     <button className="fs-btn" type="button" data-film-action="slide-mode" aria-pressed="false" title="切换滑移修剪模式；拖动中间视频/音频片段主体，外侧时间线边界保持不变">滑移修剪：关</button>
+    <button className="fs-btn" type="button" data-film-action="slip-mode" aria-pressed="false" title="切换源区间滑移模式；只改变素材源范围，片段时间线位置与长度不变">源区间滑移：关</button>
     <button className="fs-btn" type="button" data-film-action="add-track">＋轨道</button>
     <button className="fs-btn" type="button" data-film-action="remove-empty-track">删空轨</button>
     <button className="fs-btn" type="button" data-film-action="zoom-out">−</button>

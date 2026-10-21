@@ -32,6 +32,11 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert '[data-film-action="split"]:visible' in roll_test
     assert '[data-film-action="slide-mode"]:visible' in roll_test
     assert '[data-film-action="insert-mode"]:visible' in insert_test
+    assert 'data-film-action="slip-mode"' in component
+    assert 'data-film-action="copy-clips"' in component
+    assert 'data-film-action="paste-clips"' in component
+    assert "window.filmStudioCopyClips" in studio
+    assert "window.filmStudioPasteClips" in studio
     assert "window.filmStudioReactAssets.render({" in studio
     assert 'data-react-asset-list="true"' in component
     assert 'id="fs-assets-list"' in html
