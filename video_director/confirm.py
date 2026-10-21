@@ -776,11 +776,29 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
     if not narration_path.is_file():
         narration_path = dirs["audio"] / "narration.mp3"
     narration = str(narration_path) if narration_path.is_file() else None
+
+    # Keep render-only options that older projects stored in the project row
+    # rather than CompositionIR. They still apply when exporting hand-edited IR.
+    # （读取提前：R5 的 subtitle_mode=off 判定也要用同一份 params，避免读两次库）
+    project_row = store.get_project(project_id) or {}
+    render_params = {}
+    if project_row.get("params_json"):
+        try:
+            render_params = json.loads(project_row["params_json"])
+        except (TypeError, json.JSONDecodeError):
+            render_params = {}
+    # R5（2026-10-21 终审）：subtitle_mode="off" 时规划期残留的 master.ass 会被
+    # 下面的 is_file() 判定当有效字幕烧进成片——用户明确关字幕却烧了字幕。
+    # off: subtitles 强制 None，且不写 IR 重建的 ass（写了也只是留残留给下次）。
+    subtitle_off = render_params.get("subtitle_mode") == "off"
+
     subtitle_path = dirs["render"] / "master.ass"
     # 对抗审查 MEDIUM 8：编辑器改过字幕（set_subtitle_track 写 ir.subtitle_track.cues）
     # 但旧 master.ass 是规划期产物——原样烧录会把用户改的文字/时间点丢掉。
     # cues 非空时从 IR 重建 ass（样式仍由 renderer 读 ir.subtitle_style 控制）。
-    if ir.subtitle_track and ir.subtitle_track.cues:
+    if subtitle_off:
+        subtitles = None
+    elif ir.subtitle_track and ir.subtitle_track.cues:
         from video_director.subtitle import ASS_PLAIN_HEADER, _ass_time
         width = int(render_ir.project.width or 1080)
         height = int(render_ir.project.height or 1920)
@@ -802,22 +820,35 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
             disp = text if len(text) <= 16 else text[: len(text) // 2] + "\\N" + text[len(text) // 2:]
             events.append(f"Dialogue: 0,{_ass_time(cue.start)},{_ass_time(cue.end)},Sub,,0,0,0,,{disp}")
         subtitle_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
-    subtitles = str(subtitle_path) if subtitle_path.is_file() else None
+        subtitles = str(subtitle_path)
+    else:
+        subtitles = str(subtitle_path) if subtitle_path.is_file() else None
     title_card_path = dirs["render"] / "title_card.mp4"
     title_card = str(title_card_path) if title_card_path.is_file() else None
 
-    # Keep render-only options that older projects stored in the project row
-    # rather than CompositionIR. They still apply when exporting hand-edited IR.
-    project_row = store.get_project(project_id) or {}
-    render_params = {}
-    if project_row.get("params_json"):
-        try:
-            render_params = json.loads(project_row["params_json"])
-        except (TypeError, json.JSONDecodeError):
-            render_params = {}
     lower_third_name = render_params.get("lower_third_name")
     lower_third_role = render_params.get("lower_third_role")
     legacy_watermark = render_params.get("watermark")
+
+    # 差距 6（终审 R6）：版权放行闸门。旧管线只挂在 pipeline.resume_after_confirm，
+    # 而编辑器工作台的正式导出走本函数——BLOCKED 素材此前可从编辑器路径直接进成片。
+    # 插在 RENDERING 之前：阻止只挡渲染，不把项目卡死在等待确认态（用户替换素材后
+    # 可直接重试，与 pipeline:930 的时序契约一致）。
+    # UNKNOWN/REVIEW 只警告不阻止（Jerry 裁决：当前 stock 多为 UNKNOWN，硬阻止出不了片）。
+    release = commercial_release_gate(project_id, ir=ir)
+    if release.get("blocked"):
+        error = (
+            "商业发布被阻止：以下素材授权状态为 BLOCKED，禁止商用——"
+            + ", ".join(release["blocked"])
+            + "。请在素材库删除或替换这些素材后重新导出。"
+        )
+        store.set_stage(project_id, store.Stage.FAILED, error=error)
+        raise ConfirmError(f"编辑器最终导出未通过版权闸门，成片没有被标记为完成：{error}")
+    if release.get("unknown"):
+        logger.warning(
+            f"版权提示：{len(release['unknown'])} 个素材授权状态待核实（UNKNOWN/REVIEW），"
+            f"已放行但请人工确认，素材：{', '.join(release['unknown'][:20])}"
+        )
 
     store.set_stage(project_id, store.Stage.RENDERING)
     work_dir = dirs["render"] / "editor-final"
@@ -864,7 +895,8 @@ def _render_saved_composition_final(project_id: str, profile: Optional[str] = No
     store.finish_project(project_id, str(final_path), narration_duration, report_data)
     return str(final_path)
 
-def commercial_release_gate(project_id: str) -> dict:
+def commercial_release_gate(project_id: str,
+                            ir: Optional[CompositionIR] = None) -> dict:
     """差距 7（仓库审计）：正式渲染前检查素材授权状态。
 
     BLOCKED（明确禁止商用）→ 硬阻止；UNKNOWN/REVIEW（授权待核实）→ 警告
@@ -873,9 +905,14 @@ def commercial_release_gate(project_id: str) -> dict:
     返回 {"blocked": [...], "unknown": [...]}。授权状态取 Composition IR 里
     AssetRef.rights_status（由 assets._library_semantics 从 Library 的
     commercial_status 归一而来，USER_SUPPLIED→CLEAR）。
+
+    ir 可传已解析的 IR：编辑器导出路径（_render_saved_composition_final）
+    与旧管线都已持有同一份 composition.json 的解析结果——传进来可免掉一次
+    重复读盘 + pydantic 校验（同一文件读两遍既慢也是多余失败点）。
     """
-    from video_director import editor
-    ir = editor.load_composition(project_id)
+    if ir is None:
+        from video_director import editor
+        ir = editor.load_composition(project_id)
     blocked: List[str] = []
     unknown: List[str] = []
     for a in ir.assets:

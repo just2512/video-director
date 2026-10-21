@@ -32,9 +32,40 @@ from video_director import config
 
 
 class GenerationError(Exception):
+    """生成失败（诚实暴露，禁 fake success）。
+
+    终审分类（配额 vs 临时故障）：供应商余额耗尽（429/insufficient quota/
+    欠费/余额不足）与网络临时故障（超时/连接失败）须区别对待——前者
+    recoverable=False，充值或换供应商才有解，重试只会重复付费。
+    """
+
+    #: 配额类关键词（供应商余额耗尽；命中即 QUOTA_EXCEEDED，不可自恢复）
+    QUOTA_MARKERS = ("429", "insufficient", "quota", "余额", "欠费", "billing")
+    #: 临时故障关键词（超时/连接失败；可重试）
+    TRANSIENT_MARKERS = ("timeout", "timed out", "connection", "connectionerror", "econnreset")
+
     def __init__(self, code: str, message: str):
         self.code = code
-        super().__init__(f"[{code}] {message}")
+        self.message = message
+        low = f"{message}".lower()
+        self.is_quota_err = any(m in low for m in self.QUOTA_MARKERS)
+        self.is_transient = any(m in low for m in self.TRANSIENT_MARKERS)
+        if self.is_quota_err:
+            # 配额耗尽不可自恢复：code 归一为 QUOTA_EXCEEDED，message 原样保留
+            # （供应商原文（含「余额不足」等中文提示）用户要能看懂）
+            self.code = "QUOTA_EXCEEDED"
+            self.recoverable = False
+        else:
+            self.recoverable = self.is_transient
+        super().__init__(f"[{self.code}] {message}")
+
+    def is_quota(self) -> bool:
+        """供应商余额/配额耗尽（重试无解，需充值或换供应商）。"""
+        return self.is_quota_err
+
+    def is_recoverable(self) -> bool:
+        """临时故障（网络超时等），重试可能恢复。"""
+        return self.recoverable
 
 
 #: 本系统真实可用的生成类型（sfx 无 provider，诚实不可用）
@@ -95,15 +126,28 @@ def _save_jobs(project_id: str, jobs: dict) -> None:
     tmp.replace(path)
 
 
+def _jobs_lock(project_id: str):
+    """generation_jobs.json 跨进程/跨线程写锁（filelock 已装，勿手写）。
+
+    并发场景真实存在：webui 线程池的 _update_job + recover_pending_video_jobs
+    后台恢复同写一个 project——原来的读-改-写无锁，最后一写覆盖中间更新。
+    ponytail: 全局单锁；吞吐不足时再拆 per-job 锁。
+    """
+    from filelock import FileLock
+    lock_path = _jobs_path(project_id).with_suffix(".lock")
+    return FileLock(str(lock_path), timeout=30)
+
+
 def _update_job(project_id: str, job_id: str, fields: dict) -> dict:
-    """增量更新一条 job 记录并落盘（读-改-写，单进程内够用）。"""
-    jobs = _load_jobs(project_id)
-    job = jobs.get(job_id) or {}
-    job.update(fields)
-    job["job_id"] = job_id
-    job["updated_at"] = fields.get("updated_at", time.time())
-    jobs[job_id] = job
-    _save_jobs(project_id, jobs)
+    """增量更新一条 job 记录并落盘（全程持锁：webui 线程池 + 后台恢复并发安全）。"""
+    with _jobs_lock(project_id):
+        jobs = _load_jobs(project_id)
+        job = jobs.get(job_id) or {}
+        job.update(fields)
+        job["job_id"] = job_id
+        job["updated_at"] = fields.get("updated_at", time.time())
+        jobs[job_id] = job
+        _save_jobs(project_id, jobs)
     return job
 
 
@@ -223,7 +267,9 @@ def generate_image_variants(
     try:
         resp = client.images.generate(model=model, prompt=prompt, size=size, n=n)
     except Exception as exc:
-        # 供应商协议不符/失败 → 诚实暴露，不 fake
+        # 供应商拒绝/配额/网络故障 → 诚实暴露，不 fake。
+        # 配额类（429/insufficient quota/欠费）由 GenerationError.__init__ 自动
+        # 归类为 QUOTA_EXCEEDED（message 原样保留，用户能看懂供应商原文）。
         raise GenerationError(
             "IMAGE_GENERATION_FAILED",
             f"生图调用失败（model={model}, size={size}）：{exc}",
@@ -574,6 +620,14 @@ def _generate_image_or_fallback(project_id, prompt, width, height, variants,
             logger.info(f"生图 provider 未配置，兜底程序化视觉卡: {exc}")
             return _generate_graphic(prompt, width, height, variants, assets_dir,
                                      input_fp, manifest)
+        if exc.is_quota():
+            # 配额耗尽不可自恢复：兜底程序化视觉卡保持可用，但必须明确提示用户
+            # 充值或配置备用供应商（项目当前无第二供应商切换机制，见报告）
+            logger.warning(
+                f"生图配额耗尽，已兜底程序化视觉卡；请充值或配置备用供应商: {exc}"
+            )
+            return _generate_graphic(prompt, width, height, variants, assets_dir,
+                                     input_fp, manifest)
         # IMAGE_GENERATION_FAILED：AI 生图失败 → 诚实兜底程序化，但记警告
         logger.warning(f"AI 生图失败，兜底程序化视觉卡: {exc}")
         return _generate_graphic(prompt, width, height, variants, assets_dir,
@@ -621,10 +675,18 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                 client, project_id, model, prompt, width, height,
                 input_fp, v, str(out_file))
         except Exception as exc:
-            raise GenerationError(
+            # 供应商拒绝/配额/网络故障 → 诚实暴露，不 fake。
+            # 配额类（429/insufficient quota/欠费）自动归类 QUOTA_EXCEEDED，
+            # 网络超时归类 recoverable（可由恢复路径重试）。
+            err = GenerationError(
                 "VIDEO_GENERATION_FAILED",
                 f"生视频调用失败（model={model}）：{exc}",
-            ) from exc
+            )
+            if err.is_quota():
+                # 项目当前无第二供应商切换机制：明确提示充值或配置备用供应商，
+                # 不发明切换逻辑（越界）
+                logger.warning(f"生视频配额耗尽，请充值或配置备用供应商: {err}")
+            raise err from exc
         out_file.write_bytes(_download_bytes(url))
         _register_result(manifest, results, asset_id, "video", out_file, width, height,
                          5.0, model, "video-llm", prompt, input_fp, v)

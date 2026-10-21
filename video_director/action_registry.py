@@ -115,7 +115,9 @@ _ACTIONS: List[ActionSpec] = [
                aliases=["混音", "整体声音调整", "原声 20% BGM 10%"],
                payload_defaults={},
                effects=["audio_bus"]),
-    ActionSpec("voice.change", "换配音", "tts.list_voices", "set_narration_voice",
+    # capability 必须是 tts.set_voice（写 params_json.voice）——曾误指只读的
+    # tts.list_voices，导致「应用音色」返回 ok=True 却什么都没落盘（假成功）。
+    ActionSpec("voice.change", "换配音", "tts.set_voice", "set_narration_voice",
                targets=["project"],
                aliases=["换音色", "换个声音", "配音换成男声", "重新配音", "改配音"]),
     ActionSpec("voice.preview", "试听音色", "tts.preview_voice", "preview_voice",
@@ -992,10 +994,15 @@ def ai_tool_surface() -> dict:
 def system_context() -> dict:
     """§16 System Context：actions/providers/render_profiles/asset_sources/voice_sources/music_sources。"""
     from video_director.capability_registry.manifest import manifest as _mf
+    # 已三层注册（_ACTIONS/capability manifest/workflow）但前端动作面板与服务端
+    # action-dispatcher 均零入口的能力——Agent 读 system_context 会当成可调能力
+    # 派发，实际全部打空。从这里摘掉，等真实接线后再移除本集合。
+    # 注意：_ACTIONS 本身不动（前端面板按 target 索引，过滤只影响 Agent 面）。
+    _FRONTEND_UNWIRED = {"generate.sfx", "music.auto_match", "delivery.generate_metadata"}
     caps = sorted(_mf().keys())
     return {
         "build_id": BUILD_ID,
-        "actions": [a.id for a in _ACTIONS],
+        "actions": [a.id for a in _ACTIONS if a.id not in _FRONTEND_UNWIRED],
         "capabilities_count": len(caps),
         "workflows": workflow_specs(),       # §67 Workflow Registry
         "ai_tools": ai_tool_surface(),       # §68 AI 高层工具面

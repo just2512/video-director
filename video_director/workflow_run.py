@@ -413,6 +413,23 @@ def run_director_continue_async(project_id: str, target: str = "preview") -> Opt
     return run_director_create_async(spec, plan=plan)
 
 
+def _load_persisted_director_spec(project_id: str) -> dict:
+    """读 execute() 落盘的完整 spec（plans/director_spec.json）。
+
+    director_agent.execute 持久化时剔除 api_key/token/secret——这里只做读，
+    不再做字段过滤（调用方按名取白名单字段）。文件缺失/损坏 → {}（诚实降级）。
+    """
+    try:
+        path = config.project_dir(project_id) / "plans" / "director_spec.json"
+        if not path.is_file():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(f"director spec 持久化读取失败（{project_id}）: {exc}")
+        return {}
+
+
 def run_director_retry_async(project_id: str) -> Optional[str]:
     """FAILED 导演项目「重新执行」：从持久化 bundle + params 重建 spec → 新 run。
 
@@ -479,6 +496,41 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
     }
     if _intent.get("duration"):
         spec["_intent_duration_s"] = _intent["duration"]
+
+    # R3（2026-10-21 终审）：retry 重建 spec 丢字段修复。run_director_continue_async
+    # 会往 spec 写 stop_at/confirm_mode，director_service 创建时写 auto_sfx_search/
+    # sfx_density 相关/lower_third_*——这些不在 params_json 也不在 bundle，
+    # 只有 execute() 落盘的 plans/director_spec.json（完整 spec）持有。
+    # 回填顺序：params_json（当前机读现值）优先，spec 历史值兜底——
+    # 用户改过的以 DB 为准，DB 没有的才认上次运行。
+    persisted = _load_persisted_director_spec(project_id)
+    for key in ("stop_at", "confirm_mode", "auto_sfx_search", "lower_third_name",
+                "lower_third_role", "sfx", "sfx_density"):
+        if spec.get(key) in (None, ""):
+            if key in params:
+                spec[key] = params[key]
+            elif key in persisted:
+                spec[key] = persisted[key]
+
+    # R3b（2026-10-21 终审）：白名单只有 7 键，director_service 初建 spec 时设置的
+    # 其余字段（voice_mode/bgm_volume/narration_volume/fit_mode/concat_mode/
+    # visual_source/narration_upload/sfx_plan…）retry 后全丢——voice_mode=silent
+    # 的用户 retry 后变 auto 合成，真实意图丢失。改为全量兜底：spec 仍未持有的键
+    # 才从持久化 spec 补，spec 已有值一律不覆盖（params/意图解析现值优先）。
+    # 排除两类键：
+    #   1）execute() 落盘时虽剔除 api_key/token/secret，但 run_director_continue_async
+    #      等内链会往 spec 写 _run_kind，project_id 会话内已有正确值——都不回填；
+    #   2）_intent/_unresolved 是解析中间产物，回填会把陈旧解析结果当现值。
+    # 空串 "" 视为缺值；False/0/[] 是合法值（voice/fit/sfx_plan 决策分支依赖）。
+    _NO_BACKFILL = {"api_key", "token", "secret", "project_id", "_run_kind",
+                    "_intent_duration_s", "_unresolved"}
+    for key, value in persisted.items():
+        if key in spec or key in _NO_BACKFILL:
+            continue
+        if value is None or value == "":
+            continue
+        spec[key] = value
+
     try:
         store.set_stage(project_id, store.Stage.CREATED)
     except Exception as exc:
