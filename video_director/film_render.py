@@ -352,6 +352,17 @@ def _runtime_payload(project_id: str, state: dict, base_url: str) -> dict:
                 + "&src=" + quote(raw_path, safe="")
                 + (("#" + fragment) if marker else "")
             )
+            if clip.get("tag") == "video":
+                # Pass the source frame cadence so the browser confirms the
+                # presented frame against source time instead of assuming output FPS.
+                try:
+                    from video_director import prober
+                    probe = prober.probe_media(str(fd.media_path_for_src(project_id, raw_path)))
+                    if probe.fps is not None and math.isfinite(float(probe.fps)) and float(probe.fps) > 0:
+                        clip["source_fps"] = float(probe.fps)
+                except Exception:
+                    # Source-range validation already fails closed if probing itself is required.
+                    pass
     payload["render_css"] = _style_blocks(payload.get("head_html", ""))
     return payload
 

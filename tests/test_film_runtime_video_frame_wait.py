@@ -1,36 +1,23 @@
-"""Fail closed when offline video or image media never reaches the requested frame."""
-from __future__ import annotations
-
+"""Offline film runtime must register a frame wait before seeking and verify the presented source timestamp."""
 from pathlib import Path
 
 
-def test_media_event_timeout_cannot_be_mistaken_for_a_successful_frame():
+def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot():
     root = Path(__file__).resolve().parents[1]
     runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
-    wait_start = runtime.index("function waitForEvent(element,eventName,timeoutMs){")
-    wait_end = runtime.index("function nextFrame()", wait_start)
-    wait_event = runtime[wait_start:wait_end]
-    assert "new Promise(function(resolve,reject)" in wait_event
-    assert "reject(new Error('等待媒体事件 '" in wait_event
-    assert "setTimeout(finish" not in wait_event
+    render = (root / "video_director" / "film_render.py").read_text(encoding="utf-8")
 
-    video_start = runtime.index("if(tag==='video'){", runtime.index("async function prepareFrameEntry"))
-    video_end = runtime.index("}else if(tag==='img'){", video_start)
-    video_wait = runtime[video_start:video_end]
-    assert "requestVideoFrameCallback" in video_wait
-    assert "cancelVideoFrameCallback" in video_wait
-    assert "reject(new Error('视频片段 '" in video_wait
-    assert "Promise.race" not in video_wait
-    assert "setTimeout(resolve,12000)" not in video_wait
-
-
-def test_failed_or_undecodable_still_image_blocks_offline_render():
-    root = Path(__file__).resolve().parents[1]
-    runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
-    image_start = runtime.index("}else if(tag==='img'){", runtime.index("async function prepareFrameEntry"))
-    image_end = runtime.index("}else if(tag==='iframe'){", image_start)
-    image_wait = runtime[image_start:image_end]
-    assert "el.naturalWidth" in image_wait
-    assert "el.naturalHeight" in image_wait
-    assert "throw new Error('图片素材未成功解码：" in image_wait
-    assert "await el.decode();" in image_wait
+    helper = runtime[runtime.index("function waitForPresentedVideoFrame"):runtime.index("function nextFrame()", runtime.index("function waitForPresentedVideoFrame"))]
+    prepare = runtime[runtime.index("async function prepareFrameEntry"):runtime.index("function renderFrame", runtime.index("async function prepareFrameEntry"))]
+    assert "requestVideoFrameCallback" in helper
+    assert "metadata.mediaTime" in helper
+    assert "metadata.presentedFrames" in helper
+    assert "clip.source_fps" in helper
+    assert "seekThreshold=Math.max(0.001,0.5/Math.max(1,sourceFps))" in prepare
+    assert helper.index("requestNext();") < helper.index("return {")
+    assert prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames)") < prepare.index("el.currentTime=desired")
+    assert "await frameWait.promise" in prepare
+    assert "等待新的呈现帧超时" in helper
+    assert 'clip["source_fps"] = float(probe.fps)' in render
+    assert "Promise.race" not in prepare
+    assert "setTimeout(resolve,12000)" not in prepare

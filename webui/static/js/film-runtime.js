@@ -465,6 +465,54 @@
       timer=setTimeout(timeout,timeoutMs||8000);
     });
   }
+  function waitForPresentedVideoFrame(el,clip,desired,previousPresentedFrames){
+    var resolvePromise,rejectPromise,done=false,timer=0,callbackId=null;
+    var sourceFps=finite(clip.source_fps,finite(state.fps,30));
+    var timeTolerance=1/Math.max(1,sourceFps)+0.002;
+    var promise=new Promise(function(resolve,reject){resolvePromise=resolve;rejectPromise=reject;});
+    function cleanup(){
+      if(timer)clearTimeout(timer);
+      if(callbackId!=null&&typeof el.cancelVideoFrameCallback==='function'){
+        try{el.cancelVideoFrameCallback(callbackId);}catch(_){}
+      }
+      callbackId=null;
+    }
+    function finish(error,metadata){
+      if(done)return;
+      done=true;cleanup();
+      if(error)rejectPromise(error);else resolvePromise(metadata||null);
+    }
+    function requestNext(){
+      if(done)return;
+      try{callbackId=el.requestVideoFrameCallback(onFrame);}
+      catch(error){finish(new Error('无法等待视频呈现帧：'+clip.id+' '+String(error&&error.message||error)));}
+    }
+    function onFrame(_now,metadata){
+      callbackId=null;
+      if(done)return;
+      var mediaTime=metadata?Number(metadata.mediaTime):NaN;
+      var presentedFrames=metadata?Number(metadata.presentedFrames):NaN;
+      var frameAdvanced=!Number.isFinite(previousPresentedFrames)
+        ||!Number.isFinite(presentedFrames)||presentedFrames>previousPresentedFrames;
+      var timeMatches=Number.isFinite(mediaTime)&&Math.abs(mediaTime-desired)<=timeTolerance;
+      if(frameAdvanced&&timeMatches){
+        finish(null,{mediaTime:mediaTime,presentedFrames:presentedFrames});
+        return;
+      }
+      requestNext();
+    }
+    timer=setTimeout(function(){
+      finish(new Error('视频片段 '+clip.id+' 在源时间 '+desired.toFixed(6)+'s 等待新的呈现帧超时；拒绝导出可能过期的画面'));
+    },12000);
+    requestNext();
+    return {
+      promise:promise,
+      cancel:function(){
+        // Resolve rather than leave an unobserved rejection when assigning currentTime itself fails.
+        finish(null,null);
+      }
+    };
+  }
   function nextFrame(){return new Promise(function(resolve){requestAnimationFrame(function(){resolve();});});}
   async function prepareFrameEntry(entry,t,frameNumber){
     var clip=entry.clip,el=entry.el,tag=clip.tag;
@@ -475,37 +523,39 @@
       try{el.pause();}catch(_){}
       if(el.readyState===0)await waitForEvent(el,'loadedmetadata',12000);
       if(el.readyState===0)throw new Error('素材元数据加载失败：'+clip.id);
+      if(tag==='video'&&el.readyState<2)await waitForEvent(el,'loadeddata',12000);
+      if(tag==='video'&&el.readyState<2)throw new Error('视频尚未解码出可呈现画面：'+clip.id);
       var desired=mediaTime(clip,t);
       if(Number.isFinite(el.duration)&&el.duration>0)desired=Math.min(desired,Math.max(0,el.duration-0.001));
-      if(Math.abs(finite(el.currentTime,0)-desired)>0.015){
-        var seeked=waitForEvent(el,'seeked',12000);
-        try{el.currentTime=desired;}catch(error){throw new Error('无法定位素材时间：'+clip.id+' '+error.message);}
-        await seeked;
-      }
-      if(tag==='video'){
+      var sourceFps=finite(clip.source_fps,finite(state.fps,30));
+      var seekThreshold=Math.max(0.001,0.5/Math.max(1,sourceFps));
+      var needsSeek=Math.abs(finite(el.currentTime,0)-desired)>seekThreshold;
+      var frameWait=null;
+      if(tag==='video'&&needsSeek){
         if(typeof el.requestVideoFrameCallback!=='function'){
           throw new Error('当前浏览器不支持 requestVideoFrameCallback；无法确认视频帧已准确呈现：'+clip.id);
         }
-        await new Promise(function(resolve,reject){
-          var done=false,timer=0,callbackId=null;
-          function cleanup(){
-            if(timer)clearTimeout(timer);
-            if(callbackId!=null&&typeof el.cancelVideoFrameCallback==='function'){
-              try{el.cancelVideoFrameCallback(callbackId);}catch(_){}
-            }
-          }
-          timer=setTimeout(function(){
-            if(done)return;done=true;cleanup();
-            reject(new Error('视频片段 '+clip.id+' 等待指定源时间的呈现帧超过 12 秒；拒绝使用可能过期的画面'));
-          },12000);
-          try{
-            callbackId=el.requestVideoFrameCallback(function(){
-              if(done)return;done=true;cleanup();resolve();
-            });
-          }catch(error){
-            if(done)return;done=true;cleanup();reject(error);
-          }
-        });
+        // Register before changing currentTime; after seeked, the requested frame
+        // may already have reached the compositor and a late callback can hang.
+        frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames);
+      }
+      if(needsSeek){
+        var seeked=waitForEvent(el,'seeked',12000);
+        try{el.currentTime=desired;}
+        catch(error){
+          if(frameWait)frameWait.cancel();
+          throw new Error('无法定位素材时间：'+clip.id+' '+error.message);
+        }
+        try{await seeked;}
+        catch(error){
+          if(frameWait)frameWait.cancel();
+          throw error;
+        }
+      }
+      if(frameWait){
+        var presented=await frameWait.promise;
+        if(!presented)throw new Error('视频片段 '+clip.id+' 未确认所需时间的呈现帧');
+        if(Number.isFinite(presented.presentedFrames))entry.lastPresentedFrames=presented.presentedFrames;
       }
     }else if(tag==='img'){
       if(!el.complete)await waitForEvent(el,'load',12000);
