@@ -435,8 +435,52 @@ def _validate_source_ranges(project_id: str, doc: dict) -> None:
                 )
 
 
+def _volume_preset_value(x: float, preset: str) -> float:
+    x = min(1.0, max(0.0, float(x)))
+    if preset == "ease_in":
+        return x * x
+    if preset == "ease_out":
+        return 1.0 - (1.0 - x) * (1.0 - x)
+    if preset == "ease_in_out":
+        return 2.0 * x * x if x < 0.5 else 1.0 - ((-2.0 * x + 2.0) ** 2) / 2.0
+    return x
+
+
+def _volume_easing_expression(ratio: str, easing: Any) -> str:
+    """Build an FFmpeg expression equivalent to the shared easing sampler."""
+    if easing == "linear" or easing is None:
+        return f"({ratio})"
+    if isinstance(easing, str):
+        x = f"({ratio})"
+        if easing == "ease_in":
+            return f"(({x})*({x}))"
+        if easing == "ease_out":
+            return f"(1-(1-({x}))*(1-({x})))"
+        if easing == "ease_in_out":
+            return f"if(lt(({x}),0.5),2*({x})*({x}),1-((-2*({x})+2)*(-2*({x})+2))/2)"
+        raise FilmRenderError("INVALID_VOLUME_ENVELOPE", f"未知音量缓动：{easing}", 422)
+    if isinstance(easing, dict) and easing.get("type") == "window":
+        preset = easing.get("preset")
+        start, end = float(easing["start"]), float(easing["end"])
+        curve_start, curve_end = _volume_preset_value(start, preset), _volume_preset_value(end, preset)
+        curve_span = curve_end - curve_start
+        if curve_span <= 1e-12:
+            raise FilmRenderError("INVALID_VOLUME_ENVELOPE", "音量缓动窗口的值域无效", 422)
+        x = f"({_fmt(start)}+({_fmt(end-start)})*({ratio}))"
+        if preset == "ease_in":
+            curve = f"(({x})*({x}))"
+        elif preset == "ease_out":
+            curve = f"(1-(1-({x}))*(1-({x})))"
+        elif preset == "ease_in_out":
+            curve = f"if(lt(({x}),0.5),2*({x})*({x}),1-((-2*({x})+2)*(-2*({x})+2))/2)"
+        else:
+            curve = f"({x})"
+        return f"((({curve})-{_fmt(curve_start)})/{_fmt(curve_span)})"
+    raise FilmRenderError("INVALID_VOLUME_ENVELOPE", "音量缓动结构无效", 422)
+
+
 def _volume_envelope_filter(base_volume: float, points: list[dict]) -> str:
-    """Build a safe FFmpeg volume expression from already-validated numeric points."""
+    """Build FFmpeg gain expressions matching Film Runtime easing."""
     base = min(2.0, max(0.0, float(base_volume)))
     if not points:
         return "volume=" + _fmt(base)
@@ -447,12 +491,13 @@ def _volume_envelope_filter(base_volume: float, points: list[dict]) -> str:
         delta = end - start
         if delta <= 0:
             raise FilmRenderError("INVALID_VOLUME_ENVELOPE", "音量包络时间点必须严格递增。", 422)
-        slope = (float(right["v"]) - float(left["v"])) / delta
-        segment = f"({_fmt(float(left['v']))}+({_fmt(slope)})*(t-{_fmt(start)}))"
+        ratio = f"((t-{_fmt(start)})/{_fmt(delta)})"
+        eased = _volume_easing_expression(ratio, right.get("easing", "linear"))
+        span = float(right["v"]) - float(left["v"])
+        segment = f"({_fmt(float(left['v']))}+({_fmt(span)})*({eased}))"
         expression = f"if(lt(t,{_fmt(end)}),{segment},{expression})"
     first = points[0]
     expression = f"if(lt(t,{_fmt(float(first['t']))}),{_fmt(float(first['v']))},{expression})"
-    # Filtergraph commas are protected by the single-quoted volume expression.
     return f"volume='{_fmt(base)}*({expression})':eval=frame"
 
 

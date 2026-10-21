@@ -55,6 +55,14 @@
     var at=finite(clip.at,0),speed=(clip.tag==='video'||clip.tag==='audio')?clamp(finite(clip.attrs&&clip.attrs.speed,1),0.25,4):1;
     return Math.max(0,finite(clip.src_in,0)+Math.max(0,t-at)*speed);
   }
+  function validVolumeEasing(easing){
+    if(easing==null||easing==='linear'||easing==='ease_in'||easing==='ease_out'||easing==='ease_in_out')return true;
+    if(!easing||typeof easing!=='object'||Array.isArray(easing))return false;
+    if(Object.keys(easing).sort().join(',')!=='end,preset,start,type'||easing.type!=='window')return false;
+    return ['linear','ease_in','ease_out','ease_in_out'].includes(easing.preset)
+      &&Number.isFinite(Number(easing.start))&&Number.isFinite(Number(easing.end))
+      &&Number(easing.start)>=0&&Number(easing.start)<Number(easing.end)&&Number(easing.end)<=1;
+  }
   function parseVolumeEnvelope(value){
     if(!value)return [];
     try{
@@ -64,11 +72,29 @@
       for(var i=0;i<points.length;i++){
         if(!points[i]||!Number.isFinite(Number(points[i].t))||!Number.isFinite(Number(points[i].v))
             ||Number(points[i].t)<0||Number(points[i].t)>600||Number(points[i].v)<0||Number(points[i].v)>1
-            ||Number(points[i].t)<=last)return [];
+            ||Number(points[i].t)<=last||Object.keys(points[i]).some(function(key){return !['t','v','easing'].includes(key);})
+            ||!validVolumeEasing(points[i].easing))return [];
         last=Number(points[i].t);
       }
-      return points.map(function(point){return {t:Number(point.t),v:Number(point.v)};});
+      return points.map(function(point){
+        var parsed={t:Number(point.t),v:Number(point.v)};
+        if(point.easing&&point.easing!=='linear')parsed.easing=point.easing;
+        return parsed;
+      });
     }catch(_){return [];}
+  }
+  function volumeEaseAt(ratio,easing){
+    var x=clamp(ratio,0,1);
+    if(easing&&typeof easing==='object'&&!Array.isArray(easing)&&easing.type==='window'){
+      var preset=String(easing.preset||'linear');
+      var start=clamp(finite(easing.start,0),0,1),end=clamp(finite(easing.end,1),0,1);
+      if(!(start<end))return x;
+      var from=filmEase(start,preset),to=filmEase(end,preset);
+      var span=to-from;
+      if(Math.abs(span)<1e-12)return x;
+      return clamp((filmEase(start+x*(end-start),preset)-from)/span,0,1);
+    }
+    return filmEase(x,easing||'linear');
   }
   function volumeEnvelopeAt(points,localTime){
     if(!points||!points.length)return 1;
@@ -77,7 +103,8 @@
       var left=points[i],right=points[i+1];
       if(localTime<=right.t){
         var ratio=(localTime-left.t)/(right.t-left.t);
-        return left.v+(right.v-left.v)*clamp(ratio,0,1);
+        var amount=volumeEaseAt(ratio,right.easing||'linear');
+        return left.v+(right.v-left.v)*amount;
       }
     }
     return points[points.length-1].v;

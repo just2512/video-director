@@ -191,8 +191,46 @@ def _normalize_fade(value: Any, clip: dict) -> str | None:
     return _fmt(fade_in) + "," + _fmt(fade_out)
 
 
-def _parse_volume_envelope(value: Any) -> list[dict[str, float]]:
-    """Parse an optional clip-relative gain envelope: [{t: seconds, v: 0..1}, ...]."""
+def _volume_ease_value(ratio: float, easing: Any = "linear") -> float:
+    """Evaluate a volume easing identically in Studio, trim/split math, and FFmpeg."""
+    x = min(1.0, max(0.0, float(ratio)))
+
+    def preset_value(value: float, preset: str) -> float:
+        value = min(1.0, max(0.0, value))
+        if preset == "ease_in":
+            return value * value
+        if preset == "ease_out":
+            return 1.0 - (1.0 - value) * (1.0 - value)
+        if preset == "ease_in_out":
+            if value < 0.5:
+                return 2.0 * value * value
+            tail = -2.0 * value + 2.0
+            return 1.0 - tail * tail / 2.0
+        return value
+
+    if isinstance(easing, str):
+        if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+            raise FilmError("INVALID_VOLUME_ENVELOPE", f"未知音量缓动：{easing}", 422)
+        return preset_value(x, easing)
+    if not isinstance(easing, dict) or easing.get("type") != "window":
+        raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络 easing 格式无效", 422)
+    preset = easing.get("preset")
+    start = float(easing.get("start", 0.0))
+    end = float(easing.get("end", 1.0))
+    if preset not in {"linear", "ease_in", "ease_out", "ease_in_out"} or not (
+        math.isfinite(start) and math.isfinite(end) and 0.0 <= start < end <= 1.0
+    ):
+        raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络 window easing 越界或使用了未知曲线", 422)
+    start_value = preset_value(start, preset)
+    end_value = preset_value(end, preset)
+    span = end_value - start_value
+    if span <= 1e-12:
+        raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络 window easing 的曲线区间无效", 422)
+    return (preset_value(start + x * (end - start), preset) - start_value) / span
+
+
+def _parse_volume_envelope(value: Any) -> list[dict[str, Any]]:
+    """Each point's easing defines the curve from the preceding point into this point."""
     if value is None or value == "":
         return []
     if isinstance(value, str):
@@ -202,16 +240,35 @@ def _parse_volume_envelope(value: Any) -> list[dict[str, float]]:
             raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络不是有效 JSON：{exc.msg}", 422) from None
     if not isinstance(value, list) or not 2 <= len(value) <= 128:
         raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络必须是 2–128 个时间点的数组", 422)
-    points: list[dict[str, float]] = []
+    points: list[dict[str, Any]] = []
     previous_time = -1.0
     for index, point in enumerate(value):
-        if not isinstance(point, dict) or set(point) != {"t", "v"}:
-            raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络第 {index + 1} 点必须只包含 t、v", 422)
+        if not isinstance(point, dict) or set(point) not in ({"t", "v"}, {"t", "v", "easing"}):
+            raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络第 {index + 1} 点必须只包含 t、v，可选 easing", 422)
         timestamp = _number(point.get("t"), f"音量包络时间点 {index + 1}", 0, 600)
         gain = _number(point.get("v"), f"音量包络值 {index + 1}", 0, 1)
         if timestamp <= previous_time:
             raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络时间点必须严格递增且不能重复", 422)
-        points.append({"t": timestamp, "v": gain})
+        easing = point.get("easing", "linear")
+        if isinstance(easing, str):
+            if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络第 {index + 1} 点 easing 未知：{easing}", 422)
+        elif isinstance(easing, dict):
+            if set(easing) != {"type", "preset", "start", "end"} or easing.get("type") != "window":
+                raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络第 {index + 1} 点 window easing 字段无效", 422)
+            preset = easing.get("preset")
+            start = _number(easing.get("start"), f"音量包络第 {index + 1} 点 window.start", 0, 1)
+            end = _number(easing.get("end"), f"音量包络第 {index + 1} 点 window.end", 0, 1)
+            if preset not in {"linear", "ease_in", "ease_out", "ease_in_out"} or start >= end:
+                raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络第 {index + 1} 点 window easing 无效", 422)
+            easing = {"type": "window", "preset": preset,
+                      "start": float(_fmt(start)), "end": float(_fmt(end))}
+        else:
+            raise FilmError("INVALID_VOLUME_ENVELOPE", f"音量包络第 {index + 1} 点 easing 类型无效", 422)
+        parsed = {"t": timestamp, "v": gain}
+        if easing != "linear":
+            parsed["easing"] = easing
+        points.append(parsed)
         previous_time = timestamp
     return points
 
@@ -220,10 +277,23 @@ def _normalize_volume_envelope(value: Any) -> str:
     points = _parse_volume_envelope(value)
     if not points:
         raise FilmError("INVALID_VOLUME_ENVELOPE", "音量包络不能为空；清除时请将字段设为 null", 422)
-    canonical = [{"t": float(_fmt(point["t"])), "v": float(_fmt(point["v"]))} for point in points]
+    canonical = []
+    for point in points:
+        item = {"t": float(_fmt(point["t"])), "v": float(_fmt(point["v"]))}
+        easing = point.get("easing", "linear")
+        if easing != "linear":
+            if isinstance(easing, dict):
+                item["easing"] = {
+                    "type": "window", "preset": easing["preset"],
+                    "start": float(_fmt(easing["start"])), "end": float(_fmt(easing["end"])),
+                }
+            else:
+                item["easing"] = easing
+        canonical.append(item)
     return json.dumps(canonical, ensure_ascii=False, separators=(",", ":"))
 
-def _volume_envelope_value(points: list[dict[str, float]], timestamp: float) -> float:
+
+def _volume_envelope_value(points: list[dict[str, Any]], timestamp: float) -> float:
     if not points:
         return 1.0
     if timestamp <= points[0]["t"]:
@@ -231,12 +301,13 @@ def _volume_envelope_value(points: list[dict[str, float]], timestamp: float) -> 
     for left, right in zip(points, points[1:]):
         if timestamp <= right["t"]:
             amount = (timestamp - left["t"]) / (right["t"] - left["t"])
+            amount = _volume_ease_value(amount, right.get("easing", "linear"))
             return left["v"] + (right["v"] - left["v"]) * min(1.0, max(0.0, amount))
     return points[-1]["v"]
 
 
 def _slice_volume_envelope(attrs: dict, old_start: float, old_end: float) -> None:
-    """Rebase an envelope to a retained subrange of the old clip-local timeline."""
+    """Trim/split without turning a nonlinear gain curve into linear segments."""
     if "volume_envelope" not in attrs:
         return
     if not math.isfinite(old_start) or not math.isfinite(old_end) or old_start < 0 or old_end <= old_start:
@@ -245,11 +316,47 @@ def _slice_volume_envelope(attrs: dict, old_start: float, old_end: float) -> Non
     if not points:
         attrs.pop("volume_envelope", None)
         return
-    rebased = [{"t": 0.0, "v": _volume_envelope_value(points, old_start)}]
-    for point in points:
-        if old_start + 1e-7 < point["t"] < old_end - 1e-7:
-            rebased.append({"t": point["t"] - old_start, "v": point["v"]})
-    rebased.append({"t": old_end - old_start, "v": _volume_envelope_value(points, old_end)})
+
+    def segment_easing(a: float, b: float) -> Any:
+        if b <= points[0]["t"] + 1e-9 or a >= points[-1]["t"] - 1e-9:
+            return "linear"
+        for left, right in zip(points, points[1:]):
+            if a >= left["t"] - 1e-9 and b <= right["t"] + 1e-9:
+                span = right["t"] - left["t"]
+                if span <= 1e-12:
+                    return "linear"
+                original = right.get("easing", "linear")
+                if original == "linear":
+                    return "linear"
+                if isinstance(original, dict):
+                    preset, base_start, base_end = original["preset"], original["start"], original["end"]
+                else:
+                    preset, base_start, base_end = original, 0.0, 1.0
+                sub_start = base_start + (base_end - base_start) * min(1.0, max(0.0, (a - left["t"]) / span))
+                sub_end = base_start + (base_end - base_start) * min(1.0, max(0.0, (b - left["t"]) / span))
+                if abs(sub_start - base_start) <= 1e-9 and abs(sub_end - base_end) <= 1e-9:
+                    return original
+                if preset == "linear":
+                    return "linear"
+                return {
+                    "type": "window", "preset": preset,
+                    "start": float(_fmt(sub_start)), "end": float(_fmt(sub_end)),
+                }
+        return "linear"
+
+    boundaries = [old_start]
+    boundaries.extend(point["t"] for point in points if old_start + 1e-9 < point["t"] < old_end - 1e-9)
+    boundaries.append(old_end)
+    rebased = [{"t": 0.0, "v": float(_fmt(_volume_envelope_value(points, old_start)))}]
+    for start, end in zip(boundaries, boundaries[1:]):
+        item = {
+            "t": float(_fmt(end - old_start)),
+            "v": float(_fmt(_volume_envelope_value(points, end))),
+        }
+        easing = segment_easing(start, end)
+        if easing != "linear":
+            item["easing"] = easing
+        rebased.append(item)
     attrs["volume_envelope"] = _normalize_volume_envelope(rebased)
 
 
@@ -3184,10 +3291,10 @@ def _film_motion_recipe_keyframes(layer: dict, clip_duration: float) -> tuple[li
 
 
 def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict], list[str]]:
-    """Convert volume keyframes into the bounded envelope consumed by Film Runtime."""
+    """Convert volume keyframes and preserve all runtime-supported easing curves."""
     if not isinstance(raw_tracks, list):
         return [], ["volume keyframes 格式无效"]
-    mapped: list[dict] = []
+    mapped: list[dict[str, Any]] = []
     warnings: list[str] = []
     found = False
     for track in raw_tracks:
@@ -3203,6 +3310,7 @@ def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict]
         if not isinstance(points, list):
             warnings.append("volume keyframes 列表格式无效")
             continue
+        prior_valid_time = None
         for point in points:
             try:
                 at = _number(point.get("at"), "volume keyframe.at", 0)
@@ -3210,22 +3318,25 @@ def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict]
             except (AttributeError, FilmError):
                 warnings.append("volume 关键帧含非数值或越界值（允许范围 0–1）")
                 continue
-            easing = str(point.get("easing") or "linear")
-            if easing != "linear":
-                warnings.append(
-                    f"volume@{_fmt(at)}s 的缓动 {easing} 尚未进入统一包络协议；本次按线性插值迁移"
-                )
             if at > duration + 0.001:
                 warnings.append(f"volume@{_fmt(at)}s 超出片段时长")
                 continue
             if at > 600:
                 warnings.append(f"volume@{_fmt(at)}s 超出 Runtime 音量包络 600s 的限制")
                 continue
-            mapped.append({"t": at, "v": value})
+            easing = str(point.get("easing") or "linear")
+            if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                warnings.append(f"volume@{_fmt(at)}s 缓动 {easing} 无法映射；该关键帧按 linear 执行")
+                easing = "linear"
+            item = {"t": at, "v": value}
+            if prior_valid_time is not None and at > prior_valid_time and easing != "linear":
+                item["easing"] = easing
+            mapped.append(item)
+            prior_valid_time = at
     if not found:
         return [], list(dict.fromkeys(warnings))
     mapped.sort(key=lambda point: point["t"])
-    normalized: list[dict] = []
+    normalized: list[dict[str, Any]] = []
     for point in mapped:
         if normalized and abs(normalized[-1]["t"] - point["t"]) <= 1e-9:
             normalized[-1] = point
@@ -3239,7 +3350,6 @@ def _film_volume_envelope(raw_tracks: list, duration: float) -> tuple[list[dict]
         warnings.append("volume 关键帧没有可迁移的有效点")
         return [], list(dict.fromkeys(warnings))
     if len(normalized) == 1:
-        # A lone gain point has no slope; preserve it as a constant envelope.
         gain = normalized[0]["v"]
         end = min(max(0.001, float(duration)), 600.0)
         normalized = [{"t": 0.0, "v": gain}, {"t": end, "v": gain}]
