@@ -50,7 +50,7 @@ class FilmRevisionWatcher:
         if initial_revision is None:
             try:
                 initial_revision = fd.revision_of(path.read_text(encoding="utf-8"))
-            except OSError:
+            except (OSError, UnicodeError):
                 initial_revision = fd.revision_of("")
         now = time.monotonic()
         with self._lock:
@@ -92,10 +92,15 @@ class FilmRevisionWatcher:
             if current_time - snapshot["changed_at"] < self.settle_seconds:
                 continue
 
+            read_error = None
             try:
                 source = path.read_text(encoding="utf-8")
-            except OSError:
+            except UnicodeError as exc:
                 source = ""
+                read_error = f"film.html 必须使用 UTF-8 编码：{exc}"
+            except OSError as exc:
+                source = ""
+                read_error = f"film.html 无法读取：{exc}"
             if self._signature(path) != signature:
                 with self._lock:
                     live = self._projects.get(pid)
@@ -106,6 +111,9 @@ class FilmRevisionWatcher:
 
             revision = fd.revision_of(source)
             try:
+                if read_error:
+                    code = "FILM_ENCODING_INVALID" if "UTF-8" in read_error else "FILM_READ_FAILED"
+                    raise fd.FilmError(code, read_error, 422)
                 fd.parse_film(source)
                 phase, error = "revision_changed", None
             except fd.FilmError as exc:
