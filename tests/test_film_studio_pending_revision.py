@@ -27,3 +27,12 @@ def test_studio_does_not_apply_load_response_mid_drag_or_busy_edit():
     assert "S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';" in load
     assert load.index("if(S.busy||S.drag||S.envelopeDrag){") < load.index("S.data=r;S.rev=r.rev;")
     assert "pending!==S.rev" in source[source.index("function flushPendingExternalRevision"):source.index("async function filmStudioCommit")]
+
+
+def test_studio_discards_out_of_order_load_responses():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    load = source[source.index("async function filmStudioLoad(force)"):source.index("async function filmStudioInitialize")]
+    assert "loadGeneration:0" in source
+    assert "var requestGeneration=++S.loadGeneration;" in load
+    assert "if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return;" in load
+    assert load.index("requestGeneration!==S.loadGeneration") < load.index("S.data=r;S.rev=r.rev;")

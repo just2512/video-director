@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -864,8 +864,9 @@
     }
     S.projectId=nextId;
     var requestProjectId=nextId;
+    var requestGeneration=++S.loadGeneration;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
-    if(requestProjectId!==S.projectId)return;
+    if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return;
     // A user can start a drag while this GET is in flight. Never replace the
     // timeline DOM mid-gesture, even when the response still reports the same
     // revision; defer a fresh load until the gesture/busy edit has fully ended.
