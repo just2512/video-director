@@ -22,5 +22,12 @@ def test_react_ai_director_keeps_the_existing_action_and_message_contract():
     assert "readFilmAiStream" in studio
     assert "stream:true" in studio
     assert "on_token=on_delta" in (root / "webui" / "server.py").read_text(encoding="utf-8")
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    assert 'route == "/api/editor/film/command/cancel"' in server
+    assert "_FILM_AI_ACTIVE_STREAMS" in server
+    assert "on_stream_open=on_stream_open, cancel_event=cancel_event" in server
+    assert "stream.close()" in server
+    assert "request_id:requestId" in studio
+    assert "window.filmStudioCancelAi({preserveSteer:true})" in studio
     assert "S.messages.push({text:String(text),role:role});" in studio
     assert "baseRevision:String(S.proposal.base_revision||'')" in studio

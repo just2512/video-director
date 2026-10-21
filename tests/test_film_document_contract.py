@@ -2035,3 +2035,38 @@ def test_film_command_stream_falls_back_for_legacy_llm_providers():
     assert operations == []
     assert fragments == [output]
     assert summary["summary"] == "不需要修改"
+
+
+def test_streaming_planner_forwards_cancel_event_and_upstream_handle():
+    import threading
+
+    output = '{"summary":"调整画面关键帧","operations":[]}'
+    received = []
+    cancellation = threading.Event()
+    upstream = object()
+
+    class CancellableLLM:
+        supports_stream_cancellation = True
+
+        def generate_stream(self, prompt, on_delta=None, on_stream_open=None, cancel_event=None):
+            assert cancel_event is cancellation
+            on_stream_open(upstream)
+            for part in (output[:17], output[17:]):
+                on_delta(part)
+            return output
+
+        def generate(self, prompt):
+            raise AssertionError("cancellable stream provider must not use generate()")
+
+    state = {"exists": True, "doc": fd.parse_film(HTML_SCENE_SAMPLE)}
+    summary = {}
+    result = fd.plan_film_command(
+        CancellableLLM(), state, "调整画面关键帧", "scene",
+        summary_out=summary, on_token=received.append,
+        on_stream_open=lambda stream: received.append(("opened", stream)),
+        cancel_event=cancellation,
+    )
+    assert result == []
+    assert received[0] == ("opened", upstream)
+    assert "".join(item for item in received[1:] if isinstance(item, str)) == output
+    assert summary["summary"] == "调整画面关键帧"
