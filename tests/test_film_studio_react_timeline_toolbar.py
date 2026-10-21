@@ -17,5 +17,8 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "fs-snap-guide" in studio
     assert "contextmenu" in studio
     assert "window.filmStudioDuplicateClips" in studio
+    assert "timelineKeyframeMarks" in studio
+    assert "data-film-keyframe-marker" in studio
+    assert "clip.keyframeMarks.map" in component
     assert "var bridge=window.filmStudioReactToolbar" in studio
     assert "bridge.renderTimeline();" in studio

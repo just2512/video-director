@@ -8,6 +8,26 @@
   function fmtTime(v) { var n = Math.max(0, Number(v) || 0), m = Math.floor(n / 60), s = n - m * 60; return String(m).padStart(2,'0') + ':' + s.toFixed(3).padStart(6,'0'); }
   function clips() { return (S.data && S.data.tracks || []).reduce(function (a,t) { return a.concat((t.clips || []).map(function (c) { c.track_id = t.id; c.trackLocked = Object.prototype.hasOwnProperty.call(t.attrs || {}, 'locked'); return c; })); }, []); }
   function findClip(id) { return clips().find(function (c) { return c.id === id; }) || null; }
+  function timelineKeyframeMarks(clip){
+    var attrs=clip&&clip.attrs||{},duration=Number(clip&&clip.duration),raw=attrs['data-film-keyframes'];
+    if(typeof raw!=='string'||!raw.trim()||!Number.isFinite(duration)||duration<=0)return [];
+    var channels;try{channels=JSON.parse(raw);}catch(_){return [];}
+    if(!Array.isArray(channels))return [];
+    var grouped=Object.create(null);
+    channels.forEach(function(channel){
+      if(!channel||!Array.isArray(channel.keyframes))return;
+      var property=String(channel.property||'');
+      channel.keyframes.forEach(function(point){
+        var at=Number(point&&point.at);
+        if(!Number.isFinite(at)||at<0||at>duration+0.001)return;
+        var key=String(Math.max(0,Math.min(duration,Number(at.toFixed(3)))));
+        if(!grouped[key])grouped[key]=[];
+        if(property&&grouped[key].indexOf(property)<0)grouped[key].push(property);
+      });
+    });
+    return Object.keys(grouped).map(function(key){return {at:Number(key),properties:grouped[key]};})
+      .sort(function(a,b){return a.at-b.at;}).slice(0,500);
+  }
   function showStatus(message, kind) { var el=$('film-studio-alert'); if(!el)return; el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':''); el.textContent=message||''; }
   function renderAiDirector() {
     var bridge=window.filmStudioReactAi,root=$('fs-react-ai-director'),legacy=$('fs-static-ai-director');
@@ -422,7 +442,8 @@
                 id:clip.id,trackId:track.id,tag:clip.tag,title:String(clipAttrs.title||clip.id),
                 left:Math.max(0,clip.at*S.pxPerSec),width:Math.max(24,(clip.duration==null?2:clip.duration)*S.pxPerSec),
                 atLabel:fmtTime(clip.at),durationLabel:clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s',
-                selected:(S.selectedIds||[]).indexOf(clip.id)>=0,thumbnail:thumbnail,
+                selected:(S.selectedIds||[]).indexOf(clip.id)>=0,thumbnail:thumbnail,duration:clip.duration,
+                keyframeMarks:timelineKeyframeMarks(clip),
                 waveform:clip.tag==='audio',envelope:(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null,
                 locked:Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked'),
                 trimHandles:clip.duration!=null&&!Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked')
@@ -449,8 +470,12 @@
           var thumbHtml=thumb?'<img class="fs-clip-thumb" src="'+esc(thumb)+'" loading="lazy" alt="" onerror="this.remove()">':'';
           var waveformHtml=clip.tag==='audio'?'<canvas class="fs-clip-waveform" data-waveform-clip="'+esc(clip.id)+'" aria-label="音频波形"></canvas>':'';
           var envelopeHtml=(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null?'<canvas class="fs-clip-envelope" data-envelope-clip="'+esc(clip.id)+'" aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点"></canvas>':'';
+          var keyframeHtml=timelineKeyframeMarks(clip).map(function(mark){
+            var position=clip.duration>0?Math.max(0,Math.min(100,mark.at/clip.duration*100)):0;
+            return '<button type="button" class="fs-clip-keyframe-marker" data-film-keyframe-marker="'+esc(clip.id)+'" data-keyframe-at="'+mark.at+'" style="left:'+position+'%" title="关键帧 '+mark.at.toFixed(3)+'s · '+esc(mark.properties.join(', '))+'" aria-label="跳转到 '+mark.at.toFixed(3)+' 秒关键帧"></button>';
+          }).join('');
           var handles=clip.duration==null||clipLocked?'':'<span class="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点"></span><span class="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点"></span>';
-          lane+='<div class="fs-clip '+(clipLocked?'fs-clip-locked ':'')+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+envelopeHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
+          lane+='<div class="fs-clip '+(clipLocked?'fs-clip-locked ':'')+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+envelopeHtml+keyframeHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
         });
         lane+='</div>';
         return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(syncLocked?'fs-sync-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="sync-lock" data-track-key="'+esc(track.id)+'" aria-pressed="'+(syncLocked?'true':'false')+'" title="'+(syncLocked?'取消同步锁定':'启用同步锁定')+'">'+(syncLocked?'⇄':'同步')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
@@ -458,6 +483,18 @@
       $('fs-timeline').innerHTML=ruler+body+'<div class="fs-playhead" id="fs-playhead-line"></div>';
     }
     $('fs-timeline').style.width=(132+laneWidth)+'px';$('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
+    $('fs-timeline').querySelectorAll('[data-film-keyframe-marker]').forEach(function(marker){
+      if(marker.__filmStudioKeyframeBound)return;
+      marker.__filmStudioKeyframeBound=true;
+      marker.addEventListener('pointerdown',function(event){event.stopPropagation();});
+      marker.addEventListener('click',function(event){
+        event.preventDefault();event.stopPropagation();
+        var clipId=marker.getAttribute('data-film-keyframe-marker'),clip=findClip(clipId);
+        if(!clip)return;
+        if(window.filmStudioSelectClip)window.filmStudioSelectClip(clipId);
+        window.filmStudioSeek(Math.max(0,Number(clip.at)+Number(marker.getAttribute('data-keyframe-at')||0)));
+      });
+    });
     $('fs-timeline').querySelectorAll('[data-clip]').forEach(function(el){
       // React keeps keyed clip nodes between renders. Bind native handlers once;
       // the legacy fallback replaces innerHTML, which naturally creates fresh nodes.

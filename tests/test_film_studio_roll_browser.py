@@ -17,7 +17,7 @@ SAMPLE = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
 <body>
 <section id="video-main" data-label="主画面">
-<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2" volume="1"></video>
+<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2" volume="1" data-film-keyframes='[{"property":"opacity","keyframes":[{"at":0,"value":0,"easing":"linear"},{"at":1,"value":1,"easing":"ease_out"}]}]'></video>
 <video id="clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>
 </section>
 <section id="audio-bed" data-label="BGM">
@@ -257,6 +257,10 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 # Same-project keyboard copy/paste must preserve the source range
                 # and speed, allocate a new stable ID, and avoid track overlap.
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
+                keyframe_marker = page.locator('#fs-timeline [data-film-keyframe-marker="clip-a"][data-keyframe-at="1"]')
+                keyframe_marker.wait_for(state="visible", timeout=5000)
+                keyframe_marker.click()
+                assert abs(float(page.locator("#fs-playhead").input_value()) - 1.0) < 0.001
                 before_paste = fd.read_project_film(project_id)
                 before_count = sum(len(track["clips"]) for track in before_paste["doc"]["tracks"])
                 page.keyboard.press("Control+C")

@@ -129,8 +129,9 @@ interface FilmStudioReactAssetsBridge {
 }
 type FilmTimelineSurfaceClip = {
   id: string; trackId: string; tag: string; title: string;
-  left: number; width: number; atLabel: string; durationLabel: string;
-  selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; envelope: boolean; trimHandles: boolean;
+  left: number; width: number; duration:number|null; at:number; atLabel: string; durationLabel: string;
+  selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; envelope: boolean;
+  keyframeMarks:Array<{at:number;properties:string[]}>; trimHandles: boolean;
 };
 type FilmTimelineSurfaceTrack = {
   id: string; label: string; locked: boolean; syncLocked: boolean; hidden: boolean; muted: boolean;
@@ -731,6 +732,24 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
               {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}
               {clip.envelope ? <canvas className="fs-clip-envelope" data-envelope-clip={clip.id} aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点" /> : null}
+              {clip.keyframeMarks.map(mark => (
+                <button
+                  type="button"
+                  className="fs-clip-keyframe-marker"
+                  data-film-keyframe-marker={clip.id}
+                  data-keyframe-at={mark.at}
+                  title={"关键帧 "+mark.at.toFixed(3)+"s · "+mark.properties.join(", ")}
+                  aria-label={"跳转到 "+mark.at.toFixed(3)+" 秒关键帧"}
+                  style={{left:(clip.duration && clip.duration>0 ? Math.max(0,Math.min(100,mark.at/clip.duration*100)) : 0)+"%"}
+                  key={mark.at}
+                  onPointerDownCapture={event=>{event.preventDefault();event.stopPropagation();}}
+                  onClick={event=>{
+                    event.preventDefault();event.stopPropagation();
+                    window.filmStudioSelectClip?.(clip.id);
+                    window.filmStudioSeek?.(Math.max(0,clip.at+mark.at));
+                  }}
+                />
+              ))}
               {clip.locked ? <span className="fs-clip-lock-mark" aria-label="片段已锁定">🔒</span> : null}
               {clip.trimHandles ? <>
                 <span className="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点" />
