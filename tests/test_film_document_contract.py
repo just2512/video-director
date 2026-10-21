@@ -1663,3 +1663,23 @@ def test_corrupt_non_utf8_history_is_reported_as_history_corrupt(tmp_path, monke
         fd._history_read(project_id)
     assert error.value.code == "HISTORY_CORRUPT"
     assert "历史文件损坏" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        (
+            '<!doctype html><html><head></head><head><title>Lost</title></head>'
+            '<body><section id="track"></section></body></html>',
+            "存在多个 head 元素",
+        ),
+        (
+            '<!doctype html><html><head></head><body><section id="track"></section></body>',
+            "html 根元素不完整",
+        ),
+    ],
+)
+def test_parse_rejects_duplicate_head_or_incomplete_html_root(source, expected):
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(source)
+    assert expected in str(error.value)

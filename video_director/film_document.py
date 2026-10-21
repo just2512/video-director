@@ -385,6 +385,10 @@ class _FilmParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.stack = []
         self.in_body = False
+        self.html_seen = False
+        self.html_closed = False
+        self.head_seen = False
+        self.head_closed = False
         self.body_seen = False
         self.body_closed = False
         self.tracks = []
@@ -416,6 +420,10 @@ class _FilmParser(HTMLParser):
             return
         if not self.in_body:
             if tag == "html" and not self.body_seen and not parent:
+                if self.html_seen:
+                    self.problems.append(f"第 {line_number} 行：存在多个 html 根元素")
+                self.html_seen = True
+                self.html_closed = False
                 unknown = [key for key in attr_map if key not in (_FILM_DOCUMENT_ATTRIBUTES | {"xmlns"})]
                 self.problems.extend(
                     f"第 {line_number} 行：html 不允许未知属性 {key!r}" for key in unknown
@@ -423,6 +431,10 @@ class _FilmParser(HTMLParser):
                 self.stack.append(tag)
                 return
             if tag == "head" and not self.body_seen:
+                if self.head_seen:
+                    self.problems.append(f"第 {line_number} 行：存在多个 head 元素")
+                self.head_seen = True
+                self.head_closed = False
                 if parent != "html" or "head" in self.stack:
                     self.problems.append(f"第 {line_number} 行：head 必须是 html 的直接子元素且不能嵌套")
                 self.problems.extend(
@@ -512,6 +524,17 @@ class _FilmParser(HTMLParser):
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
+        line_number = self.getpos()[0]
+        if tag == "html":
+            if "html" not in self.stack:
+                self.problems.append(f"第 {line_number} 行：存在未匹配的 html 结束标签")
+            else:
+                self.html_closed = True
+        if tag == "head":
+            if "head" not in self.stack:
+                self.problems.append(f"第 {line_number} 行：存在未匹配的 head 结束标签")
+            else:
+                self.head_closed = True
         if tag == "body":
             self.in_body, self.body_closed = False, True
         if tag in CLIP_TAGS and self.clip_stack:
@@ -589,6 +612,10 @@ def parse_film(text: str) -> dict:
     parser.feed(text)
     parser.close()
     problems = list(dict.fromkeys(parser.problems))
+    if not parser.html_seen or not parser.html_closed:
+        problems.append("html 根元素不完整")
+    if not parser.head_seen or not parser.head_closed:
+        problems.append("head 标签不完整")
     if not parser.body_seen or not parser.body_closed:
         problems.append("body 标签不完整")
     track_ids = [t["id"] for t in parser.tracks]
