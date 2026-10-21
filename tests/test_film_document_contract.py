@@ -1683,3 +1683,26 @@ def test_parse_rejects_duplicate_head_or_incomplete_html_root(source, expected):
     with pytest.raises(fd.FilmError) as error:
         fd.parse_film(source)
     assert expected in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        (
+            '<!doctype html><html><head></head><body>'
+            '<section id="track"><video id="clip" src="assets/video.mp4#t=0,1" at="0">'
+            '</section></body></html>',
+            "媒体片段结束标签不完整",
+        ),
+        (
+            '<!doctype html><html><head></head><body>'
+            '<section id="track"><video id="clip" src="assets/video.mp4#t=0,1" at="0"></video>'
+            '</body></html>',
+            "轨道 section 标签不完整",
+        ),
+    ],
+)
+def test_parse_rejects_unclosed_track_or_media_elements(source, expected):
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(source)
+    assert expected in str(error.value)

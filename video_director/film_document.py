@@ -618,6 +618,14 @@ def parse_film(text: str) -> dict:
         problems.append("head 标签不完整")
     if not parser.body_seen or not parser.body_closed:
         problems.append("body 标签不完整")
+    if parser.current_track is not None:
+        problems.append("轨道 section 标签不完整：存在未闭合的轨道")
+    if parser.clip_stack:
+        open_clips = ", ".join(str(item.get("tag") or "unknown") for item in parser.clip_stack[:8])
+        problems.append("媒体片段结束标签不完整：存在未闭合片段 " + open_clips)
+    if parser.stack:
+        open_elements = ", ".join(str(tag) for tag in parser.stack[-8:])
+        problems.append("HTML 元素未闭合或 wrapper 层级不完整：" + open_elements)
     track_ids = [t["id"] for t in parser.tracks]
     clip_ids = [c["id"] for t in parser.tracks for c in t["clips"]]
     if len(track_ids) != len(set(track_ids)):
