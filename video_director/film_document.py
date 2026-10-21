@@ -3964,7 +3964,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     subtitle = subtitle_track
     cues = subtitle.get("cues") or []
     if cues:
-        pages["scenes/subtitles.html"] = _subtitle_page(stage["width"], stage["height"], duration, cues, raw_ir.get("subtitle_style"))
+        pages["scenes/subtitles.html"] = _subtitle_page(stage["width"], stage["height"], duration, cues, subtitle_style)
         cid = "subtitle-page"
         subtitle_track_film = one_clip_track("track-subtitles", "字幕", {"id": cid, "tag": "iframe",
             "attrs": {"id": cid, "src": f"scenes/subtitles.html#t=0,{_fmt(duration)}", "at": "0",
