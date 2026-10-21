@@ -870,8 +870,9 @@
     // A user can start a drag while this GET is in flight. Never replace the
     // timeline DOM mid-gesture, even when the response still reports the same
     // revision; defer a fresh load until the gesture/busy edit has fully ended.
-    if(S.busy||S.drag||S.envelopeDrag){
+    if(S.busy||S.drag||S.envelopeDrag||hasUncommittedInspectorEdits()){
       S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';
+      if(hasUncommittedInspectorEdits())showStatus('影片读取结果已暂存；Inspector 有未提交的属性草稿。应用修改或选择重新载入。','error');
       return;
     }
     if(r&&r.ok&&r.exists){
@@ -903,8 +904,60 @@
     S.data=r;S.rev=r.rev;S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();
   }
+  function inspectorFieldDiffersNumber(id, expected, tolerance){
+    var input=$(id);if(!input)return false;
+    var actual=Number(input.value),baseline=Number(expected);
+    if(!input.value.trim()||!Number.isFinite(actual)||!Number.isFinite(baseline))return true;
+    return Math.abs(actual-baseline)>(tolerance==null?0.001:tolerance);
+  }
+  function inspectorFieldDiffersText(id, expected){
+    var input=$(id);return !!input&&String(input.value)!==String(expected==null?'':expected);
+  }
+  function hasUncommittedInspectorEdits(){
+    if(!S.data||!S.data.exists)return false;
+    var clip=findClip(S.selectedId);
+    if(clip){
+      var attrs=clip.attrs||{};
+      if(inspectorFieldDiffersNumber('fs-field-at',attrs.at==null?(clip.at||0):attrs.at))return true;
+      if(inspectorFieldDiffersNumber('fs-field-speed',attrs.speed||1))return true;
+      if(inspectorFieldDiffersNumber('fs-field-volume',attrs.volume==null?1:attrs.volume))return true;
+      if(inspectorFieldDiffersText('fs-field-muted',Object.prototype.hasOwnProperty.call(attrs,'muted')?'true':'false'))return true;
+      var fade=String(attrs.fade||'0,0').split(',');
+      if(inspectorFieldDiffersNumber('fs-field-fade-in',fade[0]||0))return true;
+      if(inspectorFieldDiffersNumber('fs-field-fade-out',fade[1]||0))return true;
+      if(inspectorFieldDiffersText('fs-field-title',attrs.title||''))return true;
+    }
+    var element=S.selectedElement;
+    if(element){
+      var rect=element.localRect||element.rect||{},styles=element.styles||{};
+      if(element.textEditable!==false&&inspectorFieldDiffersText('fs-element-text',element.text||''))return true;
+      if(inspectorFieldDiffersNumber('fs-element-left',num(rect.x,0)))return true;
+      if(inspectorFieldDiffersNumber('fs-element-top',num(rect.y,0)))return true;
+      if(inspectorFieldDiffersNumber('fs-element-width',num(rect.width,1)))return true;
+      if(inspectorFieldDiffersNumber('fs-element-height',num(rect.height,1)))return true;
+      if(inspectorFieldDiffersText('fs-element-color',hexColor(styles.color||'#ffffff')))return true;
+      if(inspectorFieldDiffersNumber('fs-element-font-size',num(parseFloat(styles.fontSize),24)))return true;
+      var rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
+      if(inspectorFieldDiffersNumber('fs-element-rotate',rotateMatch?Number(rotateMatch[0]):0))return true;
+    }
+    return false;
+  }
+  function resetInspectorDraft(){
+    S.selectedElement=null;S.hoveredElement=null;
+    var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
+      window.filmStudioReactInspector.renderClip(null,'正在重新载入影片文档。');
+    }
+    if(S.data&&S.data.exists)renderInspector();
+    else renderMigration();
+    renderElementInspector(null);
+  }
   function flushPendingExternalRevision(){
     if(!S.pendingExternalRevision||!S.open||S.busy||S.drag||S.envelopeDrag)return false;
+    if(hasUncommittedInspectorEdits()){
+      showStatus('外部 revision 已变化，但 Inspector 中有未提交的属性草稿。请先应用修改，或点击“重新载入”并确认丢弃草稿。','error');
+      return false;
+    }
     var pending=S.pendingExternalRevision;
     S.pendingExternalRevision='';
     if(pending!==S.rev){
@@ -914,6 +967,18 @@
     }
     return false;
   }
+  window.filmStudioReload=function(){
+    if(S.busy||S.drag||S.envelopeDrag){
+      showStatus('保存或拖动尚未结束；完成当前操作后再重新载入。','error');
+      return;
+    }
+    var dirty=hasUncommittedInspectorEdits();
+    if(dirty&&!window.confirm('Inspector 中有未提交的属性草稿。重新载入将放弃这些修改；是否继续？'))return;
+    if(dirty)resetInspectorDraft();
+    if(!S.open){S.pendingExternalRevision='';filmStudioLoad(true);return;}
+    S.pendingExternalRevision='__reload__';
+    flushPendingExternalRevision();
+  };
   async function filmStudioCommit(ops) {
     if(!S.projectId||!S.data||!S.data.exists)return false;
     if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
@@ -1241,7 +1306,7 @@
     if(!selected){showStatus('画布选择已经失效，请重新选取元素。','error');return;}
     if(selected.baseRevision!==S.rev){
       showStatus('影片 revision 已变化；为防止覆盖旧画布状态，请重新选择元素。','error');
-      S.selectedElement=null;renderInspector();return;
+      S.selectedElement=null;renderInspector();flushPendingExternalRevision();return;
     }
     if(!operation||operation.op!=='element_set'||operation.clip!==selected.clipId||operation.selector!==selected.selector){
       showStatus('画布编辑目标与当前选择不一致；本次没有写入。','error');return;
@@ -1253,6 +1318,7 @@
     var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
     renderInspector();renderAssets();
     showStatus('画布修改已保存到 film.html。若需继续编辑或让 AI 修改该元素，请在当前画面中重新选择。','success');
+    flushPendingExternalRevision();
   };
   window.filmStudioSaveSelectedElement=async function(){
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.saveSelected==='function'){
@@ -1286,7 +1352,9 @@
     };
     var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle};
     if(textInput&&!textInput.disabled&&textInput.value!==null)elementOp.text=textInput.value;
-    await filmStudioCommit([elementOp]);
+    var previousRevision=S.rev;
+    var committed=await filmStudioCommit([elementOp]);
+    if(!committed||S.rev===previousRevision)return;
     // The commit triggers a full, revision-bound reload. Keep selection context
     // visible, but the user can reselect when CSS/structure changes the selector.
     if(S.data&&S.data.exists){
@@ -1297,6 +1365,7 @@
       var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
       renderInspector();renderAssets();
       showStatus('画布修改已保存到 film.html。若需继续编辑或让 AI 修改该元素，请在当前画面中重新选择。','success');
+      flushPendingExternalRevision();
     }
   };
   window.addEventListener('message',function(event){
@@ -1769,7 +1838,7 @@
     toggle: () => window.filmStudioToggle(),
     undo: () => window.filmStudioUndo(),
     redo: () => window.filmStudioRedo(),
-    reload: () => window.filmStudioLoad(true),
+    reload: () => window.filmStudioReload(),
     close: () => window.filmStudioClose(),
     'clips-mode': () => window.filmStudioShowAssetMode('clips'),
     'library-mode': () => window.filmStudioLoadLibrary(),

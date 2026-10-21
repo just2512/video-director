@@ -36,3 +36,31 @@ def test_studio_discards_out_of_order_load_responses():
     assert "var requestGeneration=++S.loadGeneration;" in load
     assert "if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return;" in load
     assert load.index("requestGeneration!==S.loadGeneration") < load.index("S.data=r;S.rev=r.rev;")
+
+
+def test_studio_preserves_unsubmitted_inspector_and_canvas_form_drafts_on_external_revision():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "function hasUncommittedInspectorEdits()" in source
+    for field in ("fs-field-at", "fs-field-speed", "fs-field-volume", "fs-field-muted", "fs-field-fade-in", "fs-field-fade-out", "fs-field-title"):
+        assert field in source
+    for field in ("fs-element-text", "fs-element-left", "fs-element-top", "fs-element-width", "fs-element-height", "fs-element-color", "fs-element-font-size", "fs-element-rotate"):
+        assert field in source
+    flush = source[source.index("function flushPendingExternalRevision"):source.index("async function filmStudioCommit")]
+    assert "if(hasUncommittedInspectorEdits())" in flush
+    assert "未提交的属性草稿" in flush
+
+
+def test_explicit_reload_confirms_discard_and_canvas_save_reports_failure_honestly():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "window.filmStudioReload=function()" in source
+    reload = source[source.index("window.filmStudioReload=function()"):source.index("async function filmStudioCommit", source.index("window.filmStudioReload=function()"))]
+    assert "if(S.busy||S.drag||S.envelopeDrag)" in reload
+    assert reload.index("if(S.busy||S.drag||S.envelopeDrag)") < reload.index("var dirty=hasUncommittedInspectorEdits()")
+    assert "重新载入将放弃这些修改" in source
+    assert "reload: () => window.filmStudioReload()" in source
+    save_start = source.index("window.filmStudioSaveSelectedElement=async function()")
+    save_end = source.index("window.addEventListener('message',function(event)", save_start)
+    save = source[save_start:save_end]
+    assert "var committed=await filmStudioCommit([elementOp]);" in save
+    assert "if(!committed||S.rev===previousRevision)return;" in save
+    assert "flushPendingExternalRevision();" in save
