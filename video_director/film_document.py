@@ -391,6 +391,8 @@ class _FilmParser(HTMLParser):
         self.current_track = None
         self.problems = []
         self.clip_stack = []
+        self.body_comments = []
+        self.outer_comments = []
 
     def handle_starttag(self, tag, attrs):
         line_number = self.getpos()[0]
@@ -456,7 +458,7 @@ class _FilmParser(HTMLParser):
                 self.problems.append("轨道不能嵌套")
             tid = attr_map.get("id") or f"track-{len(self.tracks) + 1:03d}"
             attr_map["id"] = tid
-            self.current_track = {"id": tid, "attrs": attr_map, "clips": []}
+            self.current_track = {"id": tid, "attrs": attr_map, "clips": [], "comments": []}
             self.tracks.append(self.current_track)
             self.stack.append(tag)
             return
@@ -525,11 +527,51 @@ class _FilmParser(HTMLParser):
             idx = len(self.stack) - 1 - self.stack[::-1].index(tag)
             del self.stack[idx:]
 
+    def handle_comment(self, data):
+        line_number = self.getpos()[0]
+        if "--" in data or data.endswith("-"):
+            self.problems.append(f"第 {line_number} 行：HTML 注释内容包含非法的连字符序列")
+            return
+        comment = "<!--" + data + "-->"
+        if self.clip_stack:
+            self.problems.append(f"第 {line_number} 行：媒体片段内部不允许注释；请将注释放在片段之间")
+            return
+        if self.in_body:
+            if self.current_track is not None:
+                clips = self.current_track.get("clips") or []
+                self.current_track.setdefault("comments", []).append({
+                    "after_clip_id": clips[-1]["id"] if clips else None,
+                    "html": comment,
+                })
+            else:
+                tracks = self.tracks or []
+                self.body_comments.append({
+                    "after_track_id": tracks[-1]["id"] if tracks else None,
+                    "html": comment,
+                })
+            return
+        # head_html is retained verbatim, so comments inside <head> already
+        # survive round-trips. Other wrapper comments are kept outside the
+        # regenerated document nodes rather than silently discarded.
+        if "head" not in self.stack:
+            self.outer_comments.append(comment)
+
     def handle_data(self, data):
         if self.clip_stack:
             self.clip_stack[-1]["text"] += data
             if data.strip():
                 self.problems.append(f"{self.clip_stack[-1]['tag']} 必须为空元素")
+        elif self.in_body and data.strip():
+            line_number = self.getpos()[0]
+            self.problems.append(
+                f"第 {line_number} 行：body 中不允许裸文本节点；请将文字放入显式的 HTML 场景或字幕片段，"
+                "避免编辑 film.html 时丢失内容"
+            )
+        elif not self.in_body and "head" not in self.stack and data.strip():
+            line_number = self.getpos()[0]
+            self.problems.append(
+                f"第 {line_number} 行：head/body 之外不允许裸文本节点；保存时无法安全保留该内容"
+            )
 
 
 def parse_film(text: str) -> dict:
@@ -601,7 +643,10 @@ def parse_film(text: str) -> dict:
         fps = int(raw_fps)
         if not 1 <= fps <= 60:
             raise FilmError("INVALID_FPS", f"film.html 的 film-fps={fps} 超出 1–60 范围。", 422)
-    return {"stage": stage, "fps": fps, "head_html": head, "tracks": parser.tracks}
+    return {
+        "stage": stage, "fps": fps, "head_html": head, "tracks": parser.tracks,
+        "body_comments": parser.body_comments, "outer_comments": parser.outer_comments,
+    }
 
 
 def _serialize_attrs(attrs: dict[str, Any]) -> str:
@@ -620,28 +665,82 @@ def serialize_film(doc: dict) -> str:
     if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
         raise FilmError("INVALID_FPS", "film.html 帧率必须是 1–60 的整数。", 422)
     viewport = f'<meta name="viewport" content="width={int(stage["width"])},height={int(stage["height"])}">'
-    if re.search(r"<meta\b[^>]*\bname\s*=\s*['\"]?viewport", head, re.I):
-        head = re.sub(r"<meta\b[^>]*\bname\s*=\s*['\"]?viewport['\"]?[^>]*>", viewport, head, count=1, flags=re.I)
+    if re.search(r"""<meta\b[^>]*\bname\s*=\s*['"]?viewport""", head, re.I):
+        head = re.sub(r"""<meta\b[^>]*\bname\s*=\s*['"]?viewport['"]?[^>]*>""", viewport, head, count=1, flags=re.I)
     else:
         head = head.replace("</head>", viewport + "</head>", 1)
     fps_meta = f'<meta name="film-fps" content="{fps}">'
-    fps_pattern = r"<meta\b(?=[^>]*\bname\s*=\s*['\"]?film-fps['\"]?)[^>]*>"
+    fps_pattern = r"""<meta\b(?=[^>]*\bname\s*=\s*['"]?film-fps['"]?)[^>]*>"""
     if re.search(fps_pattern, head, re.I):
         head = re.sub(fps_pattern, fps_meta, head, count=1, flags=re.I)
     else:
         head = head.replace("</head>", fps_meta + "</head>", 1)
-    rows = []
-    for track in doc.get("tracks") or []:
+
+    def comment_html(item: Any) -> str:
+        if isinstance(item, str):
+            return item if item.startswith("<!--") and item.endswith("-->") else ""
+        if not isinstance(item, dict):
+            return ""
+        value = item.get("html")
+        return value if isinstance(value, str) and value.startswith("<!--") and value.endswith("-->") else ""
+
+    def serialize_track(track: dict) -> str:
         attrs = dict(track.get("attrs") or {})
         attrs["id"] = track["id"]
         row = [f"<section{_serialize_attrs(attrs)}>"]
-        for clip in sorted(track.get("clips") or [], key=lambda c: _number(c["attrs"].get("at", 0), "at", 0)):
-            attrs = dict(clip.get("attrs") or {})
-            attrs["id"] = clip["id"]
-            row.append(f"<img{_serialize_attrs(attrs)}>" if clip["tag"] == "img" else f"<{clip['tag']}{_serialize_attrs(attrs)}></{clip['tag']}>")
+        comments = [item for item in track.get("comments") or [] if comment_html(item)]
+        emitted = set()
+        clips = sorted(
+            track.get("clips") or [],
+            key=lambda clip: _number(clip["attrs"].get("at", 0), "at", 0),
+        )
+
+        def append_comments(anchor):
+            for index, item in enumerate(comments):
+                if index not in emitted and item.get("after_clip_id") == anchor:
+                    row.append(comment_html(item))
+                    emitted.add(index)
+
+        append_comments(None)
+        for clip in clips:
+            clip_attrs = dict(clip.get("attrs") or {})
+            clip_attrs["id"] = clip["id"]
+            row.append(
+                f"<img{_serialize_attrs(clip_attrs)}>"
+                if clip["tag"] == "img"
+                else f"<{clip['tag']}{_serialize_attrs(clip_attrs)}></{clip['tag']}>"
+            )
+            append_comments(clip["id"])
+        # Keep comments whose anchor clip was explicitly removed; do not silently
+        # destroy human notes as a side effect of an edit.
+        for index, item in enumerate(comments):
+            if index not in emitted:
+                row.append(comment_html(item))
         row.append("</section>")
-        rows.append("\n".join(row))
-    return "<!doctype html>\n<html>\n" + head + "\n<body>\n" + "\n".join(rows) + "\n</body>\n</html>\n"
+        return "\n".join(row)
+
+    rows = []
+    body_comments = [item for item in doc.get("body_comments") or [] if comment_html(item)]
+    emitted_body_comments = set()
+
+    def append_body_comments(anchor):
+        for index, item in enumerate(body_comments):
+            if index not in emitted_body_comments and item.get("after_track_id") == anchor:
+                rows.append(comment_html(item))
+                emitted_body_comments.add(index)
+
+    tracks = list(doc.get("tracks") or [])
+    append_body_comments(None)
+    for track in tracks:
+        rows.append(serialize_track(track))
+        append_body_comments(track["id"])
+    for index, item in enumerate(body_comments):
+        if index not in emitted_body_comments:
+            rows.append(comment_html(item))
+
+    outer_comments = [comment_html(item) for item in doc.get("outer_comments") or [] if comment_html(item)]
+    outer = ("\n".join(outer_comments) + "\n") if outer_comments else ""
+    return "<!doctype html>\n<html>\n" + outer + head + "\n<body>\n" + "\n".join(rows) + "\n</body>\n</html>\n"
 
 
 def _find_clip(doc: dict, clip_id: str) -> tuple[dict, dict]:

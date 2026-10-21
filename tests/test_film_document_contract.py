@@ -1555,3 +1555,68 @@ def test_parse_rejects_nested_or_misplaced_head_elements(bad_head, expected):
     with pytest.raises(fd.FilmError) as error:
         fd.parse_film(source)
     assert expected in str(error.value)
+
+
+def test_parse_serialize_preserves_comments_outside_and_between_film_nodes():
+    source = '''<!doctype html>
+<!-- wrapper note -->
+<html><head><meta charset="utf-8"><!-- retained head note --></head>
+<body>
+<!-- before first track -->
+<section id="visual" data-label="画面">
+<!-- before first clip -->
+<video id="first" src="assets/first.mp4#t=0,1" at="0"></video>
+<!-- between clips: don't delete this editor note -->
+<video id="second" src="assets/second.mp4#t=0,1" at="1"></video>
+<!-- after last clip -->
+</section>
+<!-- between tracks -->
+<section id="audio" data-label="音轨">
+<audio id="voice" src="assets/voice.wav#t=0,1" at="0"></audio>
+</section>
+<!-- after last track -->
+</body></html>'''
+    parsed = fd.parse_film(source)
+    serialized = fd.serialize_film(parsed)
+    for comment in (
+        "<!-- wrapper note -->",
+        "<!-- retained head note -->",
+        "<!-- before first track -->",
+        "<!-- before first clip -->",
+        "<!-- between clips: don't delete this editor note -->",
+        "<!-- after last clip -->",
+        "<!-- between tracks -->",
+        "<!-- after last track -->",
+    ):
+        assert serialized.count(comment) == 1, f"lost or duplicated comment: {comment}"
+    assert serialized.index('id="first"') < serialized.index("<!-- between clips") < serialized.index('id="second"')
+    assert serialized.index("</section>") < serialized.index("<!-- between tracks") < serialized.index('id="audio"')
+    assert fd.serialize_film(fd.parse_film(serialized)) == serialized
+
+
+@pytest.mark.parametrize(
+    "body_text",
+    [
+        "text before a track",
+        "text after a track",
+        "<section id=\"track\">text beside media</section>",
+    ],
+)
+def test_parse_rejects_bare_text_nodes_that_would_be_lost_on_save(body_text):
+    if body_text.startswith("<section"):
+        inner = body_text
+    else:
+        inner = '<section id="track"><video id="clip" src="assets/video.mp4#t=0,1" at="0"></video></section>' + body_text
+    source = '<!doctype html><html><head></head><body>' + inner + '</body></html>'
+    with pytest.raises(fd.FilmError, match="裸文本节点"):
+        fd.parse_film(source)
+
+
+def test_parse_rejects_comments_inside_media_clip_instead_of_dropping_them():
+    source = (
+        '<!doctype html><html><head></head><body><section id="track">'
+        '<video id="clip" src="assets/video.mp4#t=0,1" at="0"><!-- clip note --></video>'
+        '</section></body></html>'
+    )
+    with pytest.raises(fd.FilmError, match="媒体片段内部不允许注释"):
+        fd.parse_film(source)
