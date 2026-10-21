@@ -340,7 +340,7 @@ def _film_style_issues(value: str, *, is_track: bool = False) -> list[str]:
             if not re.fullmatch(r"(?:0|50|100)%\s+(?:0|50|100)%", raw_value):
                 issues.append("style 属性 'transform-origin' 只接受 0/50/100% 坐标")
         elif name == "border-radius":
-            if not re.fullmatch(r"(?:\d+(?:\.\d+)?(?:px|%)\s*){1,4}", raw_value, re.I):
+            if not re.fullmatch(r"\d+(?:\.\d+)?(?:px|%)(?:\s+\d+(?:\.\d+)?(?:px|%)){0,3}", raw_value, re.I):
                 issues.append("style 属性 'border-radius' 只接受 1–4 个 px/% 半径值")
         elif name == "object-fit":
             if raw_value not in {"cover", "contain", "fill", "none", "scale-down"}:
