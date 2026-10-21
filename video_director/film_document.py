@@ -3874,6 +3874,9 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
             channels_affect_geometry = any(
                 channel.get("property") in {
                     "x", "y", "scale", "rotation", "camera_x", "camera_y", "camera_scale",
+                    # Offset channels use CSS translate; a stage-space mask must
+                    # stay anchored to the composition rather than follow the clip.
+                    "offset_x", "offset_y",
                 }
                 for channel in channels
             )
@@ -3884,6 +3887,9 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
                     or abs(float(base_transform["y"]) - 0.5) > 1e-6
                     or abs(float(base_transform["scale"]) - 1.0) > 1e-6
                     or abs(float(base_transform["rotation"])) > 1e-6
+                    # Non-center anchors alter rendered geometry even when x/y/scale
+                    # equal their defaults, so they must use the composition mask host.
+                    or str(base_transform.get("anchor") or "center") != "center"
                 )
             )
             mask_geometry_conflict = channels_affect_geometry or transform_affects_geometry or known_motion

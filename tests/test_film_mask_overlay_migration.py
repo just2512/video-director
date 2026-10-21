@@ -169,7 +169,25 @@ def test_inverted_animated_mask_is_not_silently_applied_as_positive_polygon(tmp_
     assert archived["scenes"][0]["layers"][0]["mask"]["keyframes"]
 
 
-def test_animated_mask_stays_in_composition_space_when_layer_transform_changes(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("transform", "layer_keyframes"),
+    [
+        (
+            {"x": 0.5, "y": 0.5, "scale": 1, "rotation": 0, "opacity": 1, "anchor": "top_left"},
+            [],
+        ),
+        (
+            {"x": 0.5, "y": 0.5, "scale": 1, "rotation": 0, "opacity": 1, "anchor": "center"},
+            [{"property": "offset_x", "keyframes": [
+                {"at": 0, "value": 0, "easing": "linear"},
+                {"at": 1, "value": 24, "easing": "linear"},
+            ]}],
+        ),
+    ],
+)
+def test_animated_mask_stays_in_composition_space_when_layer_transform_changes(
+    tmp_path, monkeypatch, transform, layer_keyframes
+):
     storage = tmp_path / "composer"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
     project_id = "mask-transform-coordinate-conflict"
@@ -201,7 +219,8 @@ def test_animated_mask_stays_in_composition_space_when_layer_transform_changes(t
             "id": "masked-scene", "start": 0, "duration": 1, "text": "mask",
             "layers": [{
                 "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
-                "transform": {"x": 0.25, "y": 0.5, "scale": 1, "rotation": 0, "opacity": 1},
+                "transform": transform,
+                "keyframes": layer_keyframes,
                 "mask": source_mask,
             }],
         }],
