@@ -1235,6 +1235,23 @@ def test_element_set_merges_selector_override_without_erasing_existing_entries()
     assert normalized[0]["clip"] == "scene"
 
 
+def test_element_set_can_explicitly_restore_transparent_background():
+    doc = fd.parse_film(HTML_SCENE_SAMPLE)
+    updated, normalized = fd.apply_ops(doc, [{
+        "op": "element_set", "clip": "scene", "selector": "#title",
+        "style": {"backgroundColor": "transparent", "opacity": "0.75",
+                  "fontWeight": "500", "textAlign": "center"},
+    }])
+    clip = updated["tracks"][0]["clips"][0]
+    overrides = json.loads(clip["attrs"]["overrides"])
+    title = next(item for item in overrides if item.get("selector") == "#title")
+    assert title["style"] == {
+        "backgroundColor": "transparent", "opacity": "0.75",
+        "fontWeight": "500", "textAlign": "center",
+    }
+    assert normalized[0]["op"] == "element_set"
+
+
 def test_element_set_rejects_non_html_target_and_unsafe_style_values():
     doc = fd.parse_film(SAMPLE)
     with pytest.raises(fd.FilmError, match="HTML 镜头"):

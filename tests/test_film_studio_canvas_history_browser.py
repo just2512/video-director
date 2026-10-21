@@ -407,6 +407,25 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 assert page.locator("#fs-element-width").input_value() == "280.0"
                 assert page.locator("#fs-element-font-size").input_value() == "36"
                 assert fd.read_project_film(project_id)["rev"] == saved_revision
+
+                # Clearing a previously applied fill must persist explicit transparency;
+                # undo restores the filled background through the same revisioned history.
+                page.locator("#fs-element-background-enabled").uncheck()
+                page.locator("#fs-apply-element").click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('画布修改已保存到 film.html')",
+                    timeout=15000,
+                )
+                cleared = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
+                assert cleared["style"]["backgroundColor"] == "transparent"
+                undo_selector = '#fs-react-toolbar [data-film-action="undo"]' if has_react_toolbar else '#fs-static-toolbar [data-film-action="undo"]'
+                page.locator(undo_selector).click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已撤销')",
+                    timeout=15000,
+                )
+                restored = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
+                assert restored["style"]["backgroundColor"] == "#112233"
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:
