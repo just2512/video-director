@@ -1812,6 +1812,81 @@ window.filmStudioCopyClips=function(){
     showStatus('已粘贴 '+created.length+' 个片段，起始时间 '+fmtTime(candidate)+'；全部修改可作为一个事务撤销。','success');
     return true;
   };
+  window.filmStudioDuplicateClips=async function(clipId){
+    var targetId=clipId||S.selectedId;
+    if(targetId&&(!S.selectedIds||S.selectedIds.indexOf(targetId)<0)){
+      S.selectedId=targetId;S.selectedIds=[targetId];S.selectionAnchor=targetId;
+      syncClipSelectionVisual();renderInspector();renderAssets();
+    }
+    if(!window.filmStudioCopyClips())return false;
+    var selection=(S.selectedIds||[]).map(function(id){return findClip(id);}).filter(Boolean);
+    if(!selection.length)return false;
+    var originalPlayhead=S.playhead;
+    S.playhead=Math.max.apply(null,selection.map(function(clip){return clip.end==null?clip.at+num(clip.duration,0):clip.end}));
+    setPlayheadVisual();
+    var result=false;
+    try{result=await window.filmStudioPasteClips();}
+    finally{S.playhead=originalPlayhead;setPlayheadVisual();}
+    return result;
+  };
+  var activeTimelineContextMenu=null;
+  function closeTimelineContextMenu(){
+    if(activeTimelineContextMenu&&activeTimelineContextMenu.parentNode)activeTimelineContextMenu.parentNode.removeChild(activeTimelineContextMenu);
+    activeTimelineContextMenu=null;
+  }
+  document.addEventListener('contextmenu',function(event){
+    var clipElement=event.target&&event.target.closest?event.target.closest('#fs-timeline .fs-clip[data-clip]'):null;
+    if(!clipElement){closeTimelineContextMenu();return;}
+    event.preventDefault();
+    var clipId=clipElement.getAttribute('data-clip');
+    if((S.selectedIds||[]).indexOf(clipId)<0)selectClipWithModifiers(clipId,{});
+    closeTimelineContextMenu();
+    var menu=document.createElement('div');
+    menu.className='fs-context-menu';
+    menu.setAttribute('role','menu');
+    menu.innerHTML=[
+      '<button type="button" role="menuitem" data-context-action="copy">复制所选片段</button>',
+      '<button type="button" role="menuitem" data-context-action="duplicate">重复所选片段</button>',
+      '<button type="button" role="menuitem" data-context-action="paste">粘贴到播放头</button>',
+      '<div class="fs-context-separator"></div>',
+      '<button type="button" role="menuitem" data-context-action="split">在播放头切分</button>',
+      '<button type="button" role="menuitem" data-context-action="delete">删除所选片段</button>',
+      '<button type="button" role="menuitem" data-context-action="ripple">波纹删除</button>',
+      '<div class="fs-context-separator"></div>',
+      '<button type="button" role="menuitem" data-context-action="inspector">打开属性检查器</button>'
+    ].join('');
+    menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-204))+'px';
+    menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-292))+'px';
+    document.body.appendChild(menu);
+    activeTimelineContextMenu=menu;
+    menu.addEventListener('contextmenu',function(e){e.preventDefault();});
+    menu.addEventListener('click',function(e){
+      var item=e.target&&e.target.closest?e.target.closest('[data-context-action]'):null;
+      if(!item)return;
+      e.preventDefault();e.stopPropagation();
+      var action=item.getAttribute('data-context-action');
+      closeTimelineContextMenu();
+      if(action==='copy')window.filmStudioCopyClips();
+      else if(action==='duplicate')window.filmStudioDuplicateClips(clipId);
+      else if(action==='paste')window.filmStudioPasteClips();
+      else if(action==='split'){
+        var clip=findClip(clipId);
+        if(!clip||S.playhead<=clip.at+0.001||clip.end==null||S.playhead>=clip.end-0.001){
+          showStatus('播放头必须位于选中片段内部才能切分。','error');return;
+        }
+        S.selectedId=clipId;if((S.selectedIds||[]).indexOf(clipId)<0)S.selectedIds=[clipId];
+        window.filmStudioSplit();
+      }else if(action==='delete')window.filmStudioRemove();
+      else if(action==='ripple')window.filmStudioRippleDelete();
+      else if(action==='inspector')window.filmStudioSetSideMode('inspector');
+    });
+  });
+  document.addEventListener('pointerdown',function(event){
+    if(activeTimelineContextMenu&&!activeTimelineContextMenu.contains(event.target))closeTimelineContextMenu();
+  },true);
+  document.addEventListener('keydown',function(event){
+    if(event.key==='Escape'&&activeTimelineContextMenu){closeTimelineContextMenu();event.stopPropagation();}
+  });
   window.filmStudioJoinThroughEdit=async function(){
     var clip=findClip(S.selectedId);
     if(!clip){showStatus('请先选择切分后的左段或右段。','error');return;}
