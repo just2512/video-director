@@ -1188,15 +1188,17 @@
       var startSnap=findTimelineSnap(rawStart,[d.id],8);
       if(startSnap)rawStart=startSnap.at;
       var newStart=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawStart));
-      showTimelineSnapGuide(startSnap?startSnap.at:null,startSnap&&startSnap.kind);
+      var startSnapUsed=startSnap&&Math.abs(newStart-startSnap.at)<0.001;
+      showTimelineSnapGuide(startSnapUsed?startSnap.at:null,startSnapUsed&&startSnap.kind);
       d.element.style.left=(newStart*S.pxPerSec)+'px';
       d.element.style.width=Math.max(3,(d.originalEnd-newStart)*S.pxPerSec)+'px';
     }else if(d.mode==='trim-end'){
       var rawEnd=d.originalEnd+dx/S.pxPerSec;
       var endSnap=findTimelineSnap(rawEnd,[d.id],8);
       if(endSnap)rawEnd=endSnap.at;
-      var newEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd+Math.max(0,dx/S.pxPerSec)+1,rawEnd));
-      showTimelineSnapGuide(endSnap?endSnap.at:null,endSnap&&endSnap.kind);
+      var newEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawEnd));
+      var endSnapUsed=endSnap&&Math.abs(newEnd-endSnap.at)<0.001;
+      showTimelineSnapGuide(endSnapUsed?endSnap.at:null,endSnapUsed&&endSnap.kind);
       d.element.style.width=Math.max(3,(newEnd-d.originalAt)*S.pxPerSec)+'px';
     }else{
       var chosenIds=(d.members||[]).map(function(member){return member.id;});
@@ -1246,6 +1248,8 @@
     d.element.removeAttribute('data-slide-delta');d.element.classList.remove('fs-sliding');
     if(d.mode==='slide'){
       var slideDelta=deltaPx/S.pxPerSec;
+      var slideSnap=findTimelineSnap(d.centerAt+slideDelta,[d.leftClipId,d.centerClipId,d.rightClipId],8);
+      if(slideSnap)slideDelta=slideSnap.at-d.centerAt;
       slideDelta=Math.max(-Math.min(d.leftDuration,d.centerDuration)+0.04,
         Math.min(Math.min(d.centerDuration,d.rightDuration)-0.04,slideDelta));
       if(Math.abs(slideDelta)<0.001){renderTimeline();return;}
@@ -1253,6 +1257,8 @@
     }
     if(d.mode==='roll'){
       var rollDelta=deltaPx/S.pxPerSec;
+      var rollSnap=findTimelineSnap(d.rightAt+rollDelta,[d.leftClipId,d.rightClipId],8);
+      if(rollSnap)rollDelta=rollSnap.at-d.rightAt;
       rollDelta=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,rollDelta));
       if(Math.abs(rollDelta)<0.001){renderTimeline();return;}
       await filmStudioCommit([{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:Number(rollDelta.toFixed(3))}]);return;
@@ -1265,11 +1271,17 @@
       await filmStudioCommit([{op:'slip',clip:d.id,delta_source:Number(sourceDelta.toFixed(3))}]);return;
     }
     if(d.mode==='trim-start'){
-      var trimAt=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,d.originalAt+deltaPx/S.pxPerSec));
+      var rawTrimAt=d.originalAt+deltaPx/S.pxPerSec;
+      var commitStartSnap=findTimelineSnap(rawTrimAt,[d.id],8);
+      if(commitStartSnap)rawTrimAt=commitStartSnap.at;
+      var trimAt=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawTrimAt));
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:Number(trimAt.toFixed(3))}]);return;
     }
     if(d.mode==='trim-end'){
-      var trimEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,d.originalEnd+deltaPx/S.pxPerSec));
+      var rawTrimEnd=d.originalEnd+deltaPx/S.pxPerSec;
+      var commitEndSnap=findTimelineSnap(rawTrimEnd,[d.id],8);
+      if(commitEndSnap)rawTrimEnd=commitEndSnap.at;
+      var trimEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawTrimEnd));
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:Number(trimEnd.toFixed(3))}]);return;
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
