@@ -2940,7 +2940,7 @@ def _source_composition_archive(project_id: str, ir: Any, typed_ir: dict) -> tup
         )
     return source, diagnostics
 
-def build_film_from_composition(project_id: str, ir) -> dict:
+def build_film_from_composition(project_id: str, ir, selected_variant_id: str | None = None) -> dict:
     """Convert supported video/image/audio/subtitle content; report non-lossless fields."""
     pid = validate_project_id(project_id)
     raw_ir = json.loads(ir.model_dump_json())
@@ -2953,15 +2953,27 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     duration = declared_duration
     variants = raw_ir.get("variants") or []
     selected_variant = None
-    requested_variant = raw_ir.get("active_variant_id")
+    requested_variant = selected_variant_id
+    if requested_variant is None:
+        requested_variant = raw_ir.get("active_variant_id")
+    if requested_variant is not None:
+        requested_variant = str(requested_variant).strip() or None
     if requested_variant:
         selected_variant = next((variant for variant in variants
                                  if str(variant.get("id")) == str(requested_variant)), None)
         if selected_variant is None:
             raise FilmError("ACTIVE_VARIANT_NOT_FOUND",
-                            f"active_variant_id {requested_variant!r} 未匹配到 Composition 变体，拒绝静默回退", 422)
+                            f"所选 variant_id {requested_variant!r} 未匹配到 Composition 变体，拒绝静默回退", 422)
     elif len(variants) == 1:
         selected_variant = variants[0]
+    elif len(variants) > 1:
+        available = ", ".join(str(variant.get("id") or "<missing-id>") for variant in variants[:20])
+        suffix = f" 等另外 {len(variants) - 20} 个" if len(variants) > 20 else ""
+        raise FilmError(
+            "ACTIVE_VARIANT_REQUIRED",
+            f"Composition 有 {len(variants)} 个候选变体但没有 active_variant_id；请在迁移预览中明确选择一个版本（{available}{suffix}）。",
+            409,
+        )
 
     # Resolve known legacy style IDs into executable FilmDocument values. Unknown
     # styles stay archived as metadata; arbitrary parameter objects are never

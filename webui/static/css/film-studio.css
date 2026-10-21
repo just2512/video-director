@@ -277,3 +277,9 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-ai-director-root{display:flex;flex-direction:column;gap:10px;min-height:0;height:100%}
 .fs-ai-director-root .fs-chat-log{flex:1;min-height:80px}
 .fs-ai-director-root .fs-proposal-panel{flex:0 0 auto}
+
+
+.fs-migrate-variant{display:grid;gap:6px;max-width:360px;margin:8px 0 10px;color:#ddd}
+.fs-migrate-variant span{font-size:12px;color:#aaa}
+.fs-migrate-variant select{box-sizing:border-box;min-width:220px;width:100%;padding:6px 8px;background:#222;color:#eee;border:1px solid #444;border-radius:4px}
+.fs-migrate-variant small{font-size:11px;color:#999;line-height:1.45}

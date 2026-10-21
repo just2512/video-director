@@ -15,7 +15,11 @@ The document is parsed into stage, tracks and clips. Editing supports set, move,
 
 ## Migration behavior
 
-Supported video/image/audio and overlay clips are mapped into tracks. Subtitle cues can be exported to a page-backed track. Fields that are not yet losslessly mapped, including some transforms, keyframes, transitions and watermark types, are reported as migration warnings. The API requires explicit confirmation if warnings exist. The migration manifest stores the source Composition revision and warning list.
+Video/image/audio, supported overlay clips, subtitle cues, static 2D transforms, supported frame-driven channels (x/y/scale/rotation/opacity/blur/offset_x/offset_y), clip-relative volume envelopes, and a constrained subset of top-down orthographic camera tracks are mapped into the FilmDocument. Composition-space polygon masks, including supported animated mask_path keyframes on transformed clips, use a stage-sized clipping wrapper so the mask is not accidentally transformed with the media element.
+
+The mapping is deliberately capability-gated rather than pretending every field is equivalent. Perspective cameras, camera follow/constraints, changing 3D camera direction, inverted or feathered masks, path masks whose Bézier/open-path semantics are absent from the source schema, unsupported easing or transitions, some watermark/subtitle style details and unknown future schema fields remain in the exact migration/source-composition.json archive with explicit warnings. A warning is not a converted feature; users must review and explicitly accept unresolved semantics before initialization.
+
+When a Composition has multiple variants and no valid active_variant_id, migration is blocked until the Studio selector chooses a specific version. An explicit selection is previewed through the same builder and must be supplied again when initialization runs. Other variants remain available in the archived source; they are not silently merged into one timeline. A stale/unknown variant ID is rejected.
 
 ## Legacy-source isolation
 
@@ -155,3 +159,7 @@ Supported video/image/audio and overlay clips are mapped into tracks. Subtitle c
 - The MP4 adapter samples the shared browser runtime frame-by-frame, then lets FFmpeg encode the frames and mix audio source intervals. Generated subtitle pages use their legacy acknowledgement; local HTML scenes must implement `window.film.frame(t)` and return a successful frame acknowledgement. Unsupported scenes fail explicitly rather than exporting an unverified static frame.
 - Full lossless migration of every CompositionIR field is not claimed. Migration warnings are explicit.
 - After migration, do not continue editing the same project in the legacy editor unless a deliberate bridge migration is added.
+
+## React 19 / Tailwind 4 Studio integration boundary
+
+The Studio is being moved incrementally to typed React components instead of swapping the entire working editor in one rewrite. Timeline operation validation, revision handling, undo/redo and media rendering continue to use the FilmDocument backend and existing pointer-event editing engine; typed React surfaces mount behind stable bridge contracts. Tailwind 4 is scoped to the React surfaces and deliberately omits Preflight so it cannot reset the existing dock/timeline styles. This is an integration milestone, not a claim that the entire Studio shell or every timeline interaction has completed a full React rewrite.

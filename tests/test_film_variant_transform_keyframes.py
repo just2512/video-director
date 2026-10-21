@@ -269,3 +269,49 @@ def test_scene_local_camera_track_is_shifted_to_global_timeline_before_migration
     assert [(point["at"], point["value"]) for point in camera_x["keyframes"]] == [(0.0, 0.5), (1.0, 0.2)]
     assert [(point["at"], point["value"]) for point in camera_y["keyframes"]] == [(0.0, 0.5), (1.0, 0.7)]
     assert not any("scene.camera 的 camera/continuity/state" in warning for warning in result["warnings"])
+
+
+def test_multi_variant_migration_requires_explicit_choice_and_uses_selected_cut(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "migration-multiple-variants-explicit-choice"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "base.png").write_bytes(b"fixture data, migration does not decode this file")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-base", "file": "assets/base.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 3},
+        "scenes": [{
+            "id": "legacy-fallback", "start": 0, "duration": 1, "text": "fallback",
+            "layers": [{"type": "image", "asset_id": "asset-base", "start": 0, "duration": 1}],
+        }],
+        "variants": [
+            {"id": "cut-a", "version": 1, "scenes": [{
+                "id": "scene-a", "start": 0, "duration": 1, "text": "cut A",
+                "layers": [{"type": "image", "asset_id": "asset-base", "start": 0, "duration": 1}],
+            }]},
+            {"id": "cut-b", "version": 2, "scenes": [{
+                "id": "scene-b", "start": 0, "duration": 2, "text": "cut B",
+                "layers": [{"type": "image", "asset_id": "asset-base", "start": 0, "duration": 2}],
+            }]},
+        ],
+    })
+
+    with pytest.raises(fd.FilmError) as error:
+        fd.build_film_from_composition(project_id, ir)
+    assert error.value.code == "ACTIVE_VARIANT_REQUIRED"
+    assert "cut-a" in str(error.value) and "cut-b" in str(error.value)
+
+    selected = fd.build_film_from_composition(project_id, ir, selected_variant_id="cut-b")
+    assert selected["selected_variant_id"] == "cut-b"
+    assert selected["duration"] == 2
+    track = next(item for item in selected["document"]["tracks"] if item["id"] == "track-main")
+    clip = track["clips"][0]
+    assert clip["attrs"]["data-source-variant-id"] == "cut-b"
+
+    with pytest.raises(fd.FilmError) as unknown:
+        fd.build_film_from_composition(project_id, ir, selected_variant_id="missing-cut")
+    assert unknown.value.code == "ACTIVE_VARIANT_NOT_FOUND"

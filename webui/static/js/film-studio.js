@@ -179,12 +179,37 @@
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip(null,'初始化影片文档后才能编辑片段。');
     else $('fs-inspector').innerHTML='<div class="fs-empty">初始化影片文档后才能编辑片段。</div>';
     resetPreview();
-    var message=data.migration_available?'可从当前 Composition 初始化 film.html。预计 '+(preview.duration||0)+' 秒、'+(preview.track_count||0)+' 条轨道、'+(preview.clip_count||0)+' 个片段。':'无法初始化：'+(data.migration_error||'当前项目没有可编辑的 CompositionIR。');
+    var variants=Array.isArray(data.variants)?data.variants:[];
+    var needsVariantChoice=variants.length>1&&!preview.selected_variant_id;
+    var message=data.migration_available
+      ?'可从当前 Composition 初始化 film.html。预计 '+(preview.duration||0)+' 秒、'+(preview.track_count||0)+' 条轨道、'+(preview.clip_count||0)+' 个片段。'
+      :(needsVariantChoice?'旧项目包含多个候选版本，请先选择本次要迁移的版本。':'无法初始化：'+(data.migration_error||'当前项目没有可编辑的 CompositionIR。'));
     if(warnings.length)message+=' 迁移提示：'+warnings.join('；');
     showStatus(message,data.migration_available?'':'error');
-    if(data.migration_available){
-      $('fs-timeline').innerHTML='<div class="fs-migrate-action"><strong>从旧项目迁移到 film.html</strong><p>初始化会创建影片文档。旧工作台不会自动同步 film.html 的编辑。迁移存在警告时会再次要求确认。</p><button type="button" class="fs-btn fs-primary" id="fs-initialize-button">初始化影片文档</button></div>';
-      $('fs-initialize-button').addEventListener('click',function(){filmStudioInitialize(false);});
+    var selectedVariantId=String(preview.selected_variant_id||data.active_variant_id||'');
+    var variantPicker='';
+    if(variants.length>1){
+      variantPicker='<label class="fs-migrate-variant" for="fs-migration-variant"><span>选择迁移版本</span><select id="fs-migration-variant">';
+      variantPicker+=variants.map(function(variant){
+        var variantId=String(variant.id||''),label=String(variant.label||variantId);
+        return '<option value="'+esc(variantId)+'"'+(variantId===selectedVariantId?' selected':'')+'>'+esc(label)+' · v'+esc(String(variant.version||1))+'</option>';
+      }).join('');
+      variantPicker+='</select><small>本次只迁移所选版本；其余版本完整保留在源 Composition 归档中。</small></label>';
+    }
+    if(data.migration_available||variants.length>1){
+      $('fs-timeline').innerHTML='<div class="fs-migrate-action"><strong>从旧项目迁移到 film.html</strong><p>初始化会创建影片文档。旧工作台不会自动同步 film.html 的编辑。迁移存在警告时会再次要求确认。</p>'+variantPicker+(data.migration_available?'<button type="button" class="fs-btn fs-primary" id="fs-initialize-button">初始化影片文档</button>':'')+'</div>';
+      var variantSelect=$('fs-migration-variant');
+      if(variantSelect)variantSelect.addEventListener('change',async function(){
+        variantSelect.disabled=true;
+        var url='/api/editor/film?project_id='+encodeURIComponent(S.projectId)+'&selected_variant_id='+encodeURIComponent(variantSelect.value);
+        try{
+          var next=await apiGet(url);
+          if(next&&next.ok&&!next.exists){S.migration=next;renderMigration();}
+          else{variantSelect.disabled=false;showStatus((next&&next.error)||'读取所选版本预览失败。','error');}
+        }catch(error){variantSelect.disabled=false;showStatus('读取所选版本预览失败：'+String(error&&error.message||error),'error');}
+      });
+      var initializeButton=$('fs-initialize-button');
+      if(initializeButton)initializeButton.addEventListener('click',function(){filmStudioInitialize(false);});
     }
   }
   function renderLibraryAssets() {
@@ -792,7 +817,12 @@
     if(!S.projectId){showStatus('缺少项目编号。','error');return;}
     var expected=S.migration?S.migration.source_composition_version:null;
     if(expected==null){showStatus('迁移预览缺少源版本号，请重新载入。','error');return;}
-    var r=await apiPost('/api/editor/film/initialize',{project_id:S.projectId,expected_composition_version:expected,accept_warnings:!!acceptWarnings});
+    var selectedVariantId=S.migration&&S.migration.migration_preview
+      ?(S.migration.migration_preview.selected_variant_id||null):null;
+    var r=await apiPost('/api/editor/film/initialize',{
+      project_id:S.projectId,expected_composition_version:expected,
+      selected_variant_id:selectedVariantId,accept_warnings:!!acceptWarnings
+    });
     if(r&&r.code==='MIGRATION_WARNINGS_REQUIRE_CONFIRMATION'){
       var message='以下内容目前不能保证无损迁移：\n\n'+(r.warnings||[]).join('\n')+'\n\n确认后才写入 film.html。是否继续？';
       if(window.confirm(message))return filmStudioInitialize(true);

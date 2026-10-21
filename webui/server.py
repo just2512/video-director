@@ -1042,23 +1042,50 @@ class Handler(BaseHTTPRequestHandler):
                 if state["exists"]:
                     self._send_json(fd.film_payload(pid, state))
                     return True
-                preview = {"migration_available": False, "migration_error": "项目没有可编辑的 CompositionIR"}
+                preview = {
+                    "migration_available": False,
+                    "migration_error": "项目没有可编辑的 CompositionIR",
+                    "migration_error_code": None,
+                    "source_composition_version": None,
+                    "active_variant_id": None,
+                    "variants": [],
+                }
                 try:
                     from video_director import editor as vd_editor
                     ir = vd_editor.load_composition(pid)
                     version = vd_editor.composition_version(pid)
-                    plan = fd.build_film_from_composition(pid, ir)
-                    preview = {
-                        "migration_available": True,
+                    raw_variants = getattr(ir, "variants", []) or []
+                    variant_options = []
+                    for variant in raw_variants:
+                        metadata = getattr(variant, "metadata", None)
+                        metadata = metadata if isinstance(metadata, dict) else {}
+                        variant_id = str(getattr(variant, "id", "") or "")
+                        variant_options.append({
+                            "id": variant_id,
+                            "label": str(metadata.get("name") or metadata.get("label") or variant_id),
+                            "version": int(getattr(variant, "version", 1) or 1),
+                        })
+                    active_variant_id = getattr(ir, "active_variant_id", None)
+                    selected_variant_id = (qs.get("selected_variant_id", [""])[0] or "").strip() or None
+                    preview.update({
                         "source_composition_version": version,
+                        "active_variant_id": active_variant_id,
+                        "variants": variant_options,
+                    })
+                    plan = fd.build_film_from_composition(pid, ir, selected_variant_id=selected_variant_id)
+                    preview.update({
+                        "migration_available": True,
+                        "migration_error": None,
+                        "migration_error_code": None,
                         "migration_preview": {
                             "duration": plan["duration"], "track_count": plan["track_count"],
                             "clip_count": plan["clip_count"], "warnings": plan["warnings"],
                             "selected_variant_id": plan.get("selected_variant_id"),
                         },
-                    }
+                    })
                 except Exception as exc:
                     preview["migration_error"] = str(exc)
+                    preview["migration_error_code"] = getattr(exc, "code", None)
                 self._send_json({"ok": True, "exists": False, "project_id": pid, "rev": state["rev"], **preview})
                 return True
             except fd.FilmError as exc:
@@ -1095,7 +1122,8 @@ class Handler(BaseHTTPRequestHandler):
                                      "source_composition_version": current_version}, 409)
                     return True
                 ir = vd_editor.load_composition(pid)
-                plan = fd.build_film_from_composition(pid, ir)
+                selected_variant_id = str(payload.get("selected_variant_id") or "").strip() or None
+                plan = fd.build_film_from_composition(pid, ir, selected_variant_id=selected_variant_id)
                 if plan["warnings"] and not payload.get("accept_warnings", False):
                     self._send_json({
                         "ok": False, "code": "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION",
