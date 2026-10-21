@@ -3056,6 +3056,34 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         if isinstance(asset, dict) and asset.get("id"):
             by_id.setdefault(str(asset["id"]), asset)
 
+    source_assets_by_id = {
+        str(asset.get("id")): asset
+        for asset in (raw_ir.get("assets") or [])
+        if isinstance(asset, dict) and asset.get("id")
+    }
+
+    def _source_asset_metadata(asset_id: str | None) -> str | None:
+        if not asset_id:
+            return None
+        # Store useful source-provenance fields beside a clip without copying
+        # raw filesystem paths. Composition AssetRef wins; manifest is fallback.
+        raw_asset = source_assets_by_id.get(str(asset_id), {})
+        catalog_asset = by_id.get(str(asset_id), {})
+        fields = (
+            "type", "duration", "width", "height", "fps", "prompt", "description",
+            "keywords", "source", "license_note", "provenance", "rights_status",
+        )
+        metadata = {}
+        for field in fields:
+            value = raw_asset.get(field)
+            if value in (None, "", [], {}):
+                value = catalog_asset.get(field)
+            if value not in (None, "", [], {}):
+                metadata[field] = value
+        if not metadata:
+            return None
+        return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
     def asset_uri(asset_id):
         if not asset_id:
             raise FilmError("ASSET_ID_MISSING", "片段缺少 asset_id，无法生成素材引用", 422)
@@ -3108,28 +3136,58 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     if isinstance(source_fps, bool) or not isinstance(source_fps, int) or not 1 <= source_fps <= 60:
         raise FilmError("INVALID_FPS", f"旧项目帧率 {source_fps!r} 不在支持的 1–60 范围内，拒绝静默限制。", 422)
     if raw_ir.get("style_id"):
-        warnings.append("旧项目 style_id 未映射到 film.html 的可执行样式；需检查成片样式")
+        warnings.append(
+            "style_id 已保存在最终轨道的 data-source-style-id；当前不会自动应用 Style Registry 视觉样式"
+        )
     if raw_ir.get("style_contract"):
-        warnings.append("旧项目 style_contract 尚未转换为 film.html 样式，语义样式信息会丢失")
-    if raw_ir.get("origin_template_id") or raw_ir.get("origin_template_version"):
-        warnings.append("旧项目模板来源 lineage 未写入 film.html")
+        warnings.append(
+            "style_contract 已保存在最终轨道的 data-source-style-contract；调色板/字体/安全区尚未编译为实际 CSS"
+        )
     if raw_ir.get("continuity_links"):
-        warnings.append("旧项目 continuity_links 仅属创作 lineage，未映射到 film.html")
+        warnings.append(
+            "continuity_links 已保存在最终轨道的 data-source-continuity-links；carry/morph 等动作尚未编译为播放行为"
+        )
     references = raw_ir.get("references") or {}
     if references.get("references"):
-        warnings.append("旧项目参考图/首尾帧/遮罩等 references lineage 未写入 film.html")
-    assets_with_provenance = [
+        warnings.append(
+            "ReferenceGraph 已保存在最终轨道的 data-source-reference-graph；引用图不会自动生成或插入未在时间线中的素材"
+        )
+    referenced_asset_ids = set()
+    for scene_item in source_scenes:
+        if not isinstance(scene_item, dict):
+            continue
+        for layer_item in scene_item.get("layers") or []:
+            if isinstance(layer_item, dict) and layer_item.get("asset_id"):
+                referenced_asset_ids.add(str(layer_item["asset_id"]))
+        for beat_item in scene_item.get("beats") or []:
+            if not isinstance(beat_item, dict):
+                continue
+            for layer_item in beat_item.get("layers") or []:
+                if isinstance(layer_item, dict) and layer_item.get("asset_id"):
+                    referenced_asset_ids.add(str(layer_item["asset_id"]))
+    for audio_item in source_audio:
+        if isinstance(audio_item, dict) and audio_item.get("asset_id"):
+            referenced_asset_ids.add(str(audio_item["asset_id"]))
+    for overlay_item in raw_ir.get("visual_overlays") or []:
+        if isinstance(overlay_item, dict) and overlay_item.get("asset_id"):
+            referenced_asset_ids.add(str(overlay_item["asset_id"]))
+    for watermark_item in raw_ir.get("watermarks") or []:
+        if isinstance(watermark_item, dict) and watermark_item.get("asset_id"):
+            referenced_asset_ids.add(str(watermark_item["asset_id"]))
+    unreferenced_assets_with_provenance = [
         asset for asset in (raw_ir.get("assets") or [])
-        if isinstance(asset, dict) and (
+        if isinstance(asset, dict) and asset.get("id")
+        and str(asset["id"]) not in referenced_asset_ids
+        and (
             asset.get("prompt") or asset.get("description") or asset.get("keywords")
             or asset.get("license_note") or asset.get("provenance") or asset.get("rights_status")
             or asset.get("source") not in (None, "", "uploaded", "local")
         )
     ]
-    if assets_with_provenance:
+    if unreferenced_assets_with_provenance:
         warnings.append(
-            f"{len(assets_with_provenance)} 个素材带有来源/版权/提示词/描述元数据；"
-            "film.html 保留素材 ID 与路径，但不会保存这些资产目录元数据"
+            f"{len(unreferenced_assets_with_provenance)} 个未被选定时间线引用的素材带有来源/版权/提示词/描述元数据；"
+            "完整原始值保存在 migration/source-composition.json，未附加到成片片段"
         )
 
     audio_lanes_by_id = {
@@ -3363,6 +3421,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
             layer_timeline_start = scene_start + _number(layer.get("start", 0), "layer start", 0)
             attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(layer_timeline_start), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
+            asset_metadata = _source_asset_metadata(str(layer.get("asset_id") or ""))
+            if asset_metadata:
+                attrs["data-source-asset-metadata"] = asset_metadata
             scene_metadata_attrs = {
                 "semantic_role": "data-source-scene-semantic-role",
                 "intent": "data-source-scene-intent",
@@ -3699,6 +3760,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         fit = "contain" if overlay.get("fit_mode") == "contain" else "cover"
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(at),
                  "data-asset-id": str(overlay.get("asset_id") or ""), "data-source-id": str(overlay.get("id") or ""), "opacity": _fmt(opacity)}
+        asset_metadata = _source_asset_metadata(str(overlay.get("asset_id") or ""))
+        if asset_metadata:
+            attrs["data-source-asset-metadata"] = asset_metadata
         if selected_variant:
             attrs["data-source-variant-id"] = str(selected_variant.get("id") or "")
             attrs["data-source-variant-version"] = str(selected_variant.get("version", 1))
@@ -3788,6 +3852,9 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         lane = audio_lanes_by_id.get(str(audio.get("track_id") or ""), {})
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
                  "volume": _fmt(_number(audio.get("volume", 1), "audio volume", 0, 2)), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio_entry.get("source_id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
+        asset_metadata = _source_asset_metadata(str(audio.get("asset_id") or ""))
+        if asset_metadata:
+            attrs["data-source-asset-metadata"] = asset_metadata
         if audio_entry.get("beat_ids"):
             attrs["data-source-beat-ids"] = json.dumps(audio_entry["beat_ids"], ensure_ascii=False, separators=(",", ":"))
             attrs["data-source-beat-roles"] = json.dumps(audio_entry["beat_roles"], ensure_ascii=False, separators=(",", ":"))
@@ -3871,7 +3938,15 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             "src": f"{page_name}#t=0,{_fmt(watermark_duration)}",
             "at": _fmt(start),
             "style": f"left:0px;top:0px;width:{stage['width']}px;height:{stage['height']}px;pointer-events:none",
+            "data-source-watermark-id": watermark_id,
+            "data-source-watermark-contract": json.dumps(
+                watermark, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ),
         }
+        if watermark.get("asset_id"):
+            asset_metadata = _source_asset_metadata(str(watermark.get("asset_id")))
+            if asset_metadata:
+                watermark_attrs["data-source-asset-metadata"] = asset_metadata
         watermark_track = {
             "id": _safe_id("track-" + watermark_clip_id, "track"),
             "attrs": {"id": _safe_id("track-" + watermark_clip_id, "track"),
@@ -3911,6 +3986,35 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                        "attrs": {"id": "track-main", "data-label": "主画面",
                                  "data-render-z-index": "0", "style": "z-index:0"},
                        "clips": clips})
+    # Keep project-level source contracts in the authoritative film.html. The
+    # attrs below preserve metadata; they do not pretend to compile it into style.
+    metadata_track = next((track for track in tracks if track.get("id") == "track-main"), None)
+    if metadata_track is None and tracks:
+        metadata_track = tracks[0]
+    if metadata_track is not None:
+        metadata_attrs = metadata_track.setdefault("attrs", {})
+        if raw_ir.get("style_id"):
+            metadata_attrs["data-source-style-id"] = str(raw_ir["style_id"])
+        if raw_ir.get("style_contract"):
+            metadata_attrs["data-source-style-contract"] = json.dumps(
+                raw_ir["style_contract"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            )
+        if raw_ir.get("origin_template_id"):
+            metadata_attrs["data-source-origin-template-id"] = str(raw_ir["origin_template_id"])
+        if raw_ir.get("origin_template_version"):
+            metadata_attrs["data-source-origin-template-version"] = str(raw_ir["origin_template_version"])
+        if raw_ir.get("continuity_links"):
+            metadata_attrs["data-source-continuity-links"] = json.dumps(
+                raw_ir["continuity_links"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            )
+        if references.get("references"):
+            metadata_attrs["data-source-reference-graph"] = json.dumps(
+                references, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            )
+        if selected_variant and selected_variant.get("style"):
+            metadata_attrs["data-source-variant-style"] = json.dumps(
+                selected_variant["style"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            )
     # Keep a stable semantic ordering in the serialized document: overlay sections
     # remain before the base picture (for callers that enumerate tracks), the main
     # picture comes next, extra/locked visual layers follow it, and audio/utility
