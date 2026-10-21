@@ -67,7 +67,7 @@ def test_first_external_write_invalid_utf8_is_reported_even_when_revision_matche
     watcher.watch(project_id)
 
     now = time.monotonic() + 1
-    film_path.write_bytes(b"<!doctype html><html>\\xff</html>")
+    film_path.write_bytes(b"<!doctype html><html>\xff</html>")
     watcher.poll_once(now=now)
     watcher.poll_once(now=now + 1)
 
