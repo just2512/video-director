@@ -144,3 +144,38 @@ def test_external_edit_then_studio_undo_redo_does_not_corrupt_shared_history(tmp
     assert history_after_redo["future"] == []
     assert film_path.read_text(encoding="utf-8") == external
     assert events == []
+
+
+def test_external_agent_can_restore_an_old_snapshot_without_clearing_undoability(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "external-history-restored-snapshot"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+    original = fd.read_project_film(project_id)
+
+    events = []
+    watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
+    watcher.watch(project_id, original["rev"], initial_text=original["text"])
+    version_b = FILM.replace('at="0"', 'at="0.25"')
+    film_path.write_text(version_b, encoding="utf-8")
+    _poll_changed_file(watcher)
+    assert len(fd._history_read(project_id)["past"]) == 1
+
+    # A new external write, not a Studio undo/redo action, even though these bytes
+    # equal the old snapshot already present in history.
+    version_a_again = FILM
+    film_path.write_text(version_a_again, encoding="utf-8")
+    _poll_changed_file(watcher)
+
+    history = fd._history_read(project_id)
+    assert len(history["past"]) == 2
+    assert history["past"][1]["before"] == version_b
+    assert history["past"][1]["after"] == version_a_again
+    assert history["past"][1]["ops"][0]["op"] == "external_file"
+    assert history["future"] == []
+    assert film_path.read_text(encoding="utf-8") == version_a_again
+
+    fd.undo_redo_project_film(project_id, None, "undo")
+    assert film_path.read_text(encoding="utf-8") == version_b

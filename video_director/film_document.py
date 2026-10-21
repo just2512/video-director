@@ -1804,16 +1804,21 @@ def record_external_film_revision(
 
         history = _history_read(pid)
         past = history["past"]
-        # Studio undo moves an entry from past to future before the file watcher
-        # observes the new file signature. Redo moves it back. Both snapshots
-        # are already journaled and must not be re-added as external edits.
-        for bucket in (history["past"], history["future"]):
-            for entry in bucket:
-                if (
-                    (entry.get("before_rev") == after_revision and entry.get("before") == after_text)
-                    or (entry.get("after_rev") == after_revision and entry.get("after") == after_text)
-                ):
-                    return {"status": "already_recorded", "revision": after_revision}
+        # Studio API writes are already in past at their after snapshot. Undo
+        # moves that entry to future and writes its before snapshot. Redo moves
+        # it back to past and writes its after snapshot. Only those exact
+        # directional matches are deduplicated; a new external write that happens
+        # to restore an old revision must create a new undoable history entry.
+        if any(
+            entry.get("after_rev") == after_revision and entry.get("after") == after_text
+            for entry in history["past"]
+        ):
+            return {"status": "already_recorded", "revision": after_revision}
+        if any(
+            entry.get("before_rev") == after_revision and entry.get("before") == after_text
+            for entry in history["future"]
+        ):
+            return {"status": "already_recorded", "revision": after_revision}
         if past:
             last = past[-1]
             if last.get("after_rev") != before_revision:
