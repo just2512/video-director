@@ -283,6 +283,17 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                         continue
                     assert not (float(duplicate["attrs"]["at"]) < fd.clip_end(existing) - 0.001
                                 and fd.clip_end(duplicate) > float(existing["attrs"]["at"]) + 0.001)
+
+                # The clip context menu must invoke the same undoable duplicate transaction.
+                page.locator('#fs-timeline .fs-clip[data-clip="' + duplicate["id"] + '"]').click(button="right")
+                page.locator('.fs-context-menu [data-context-action="duplicate"]').wait_for(state="visible", timeout=5000)
+                page.locator('.fs-context-menu [data-context-action="duplicate"]').click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
+                    timeout=15000,
+                )
+                duplicated_again = fd.read_project_film(project_id)
+                assert sum(len(track["clips"]) for track in duplicated_again["doc"]["tracks"]) == before_count + 2
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:

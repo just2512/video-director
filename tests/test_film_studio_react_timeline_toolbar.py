@@ -13,5 +13,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     for action in ("insert-mode", "toggle-snap", "split", "join-cut", "ripple-delete", "envelope-mode", "slide-mode", "add-track", "zoom-in", "apply-inspector"):
         assert f'data-film-action="{action}"' in component
     assert "renderTimeline(): void" in component
+    assert "findTimelineSnap" in studio
+    assert "fs-snap-guide" in studio
+    assert "contextmenu" in studio
+    assert "window.filmStudioDuplicateClips" in studio
     assert "var bridge=window.filmStudioReactToolbar" in studio
     assert "bridge.renderTimeline();" in studio
