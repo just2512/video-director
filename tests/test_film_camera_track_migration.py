@@ -52,6 +52,43 @@ def test_orthographic_camera_pan_maps_to_deterministic_film_keyframes(tmp_path, 
     assert not any("camera_tracks camera-pan" in warning for warning in result["warnings"])
 
 
+
+def test_scene_camera_overrides_global_camera_without_double_processing(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "scene-camera-overrides-global"
+    raw = _camera_project(project_id).model_dump(mode="json")
+    raw["scenes"][0]["camera"] = {
+        "id": "scene-camera",
+        "projection": "orthographic",
+        "keyframes": [
+            {"at": 0, "position": [0.2, 0.4, 1], "target": [0.2, 0.4, 0]},
+            {"at": 1, "position": [0.3, 0.7, 1], "target": [0.3, 0.7, 0]},
+        ],
+    }
+    # The global camera requests a different pan. SceneIR.camera is the explicit
+    # override for this scene and must be the sole input to its migrated channels.
+    ir = CompositionIR.model_validate(raw)
+
+    result = fd.build_film_from_composition(project_id, ir)
+    main_track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    channels = {
+        channel["property"]: channel["keyframes"]
+        for channel in json.loads(main_track["clips"][0]["attrs"]["data-film-keyframes"])
+    }
+    assert channels["camera_x"] == [
+        {"at": 0.0, "value": 0.2, "easing": "linear"},
+        {"at": 1.0, "value": 0.3, "easing": "linear"},
+    ]
+    assert channels["camera_y"] == [
+        {"at": 0.0, "value": 0.4, "easing": "linear"},
+        {"at": 1.0, "value": 0.7, "easing": "linear"},
+    ]
+    warnings = "\\n".join(result["warnings"])
+    assert "场景 camera-scene 同时含 scene.camera 与全局 camera_tracks" in warnings
+    assert "camera_tracks camera_x 与图层显式关键帧冲突" not in warnings
+    assert "camera_tracks camera_y 与图层显式关键帧冲突" not in warnings
+
 def test_perspective_camera_is_not_falsely_reported_as_migrated(tmp_path, monkeypatch):
     storage = tmp_path / "composer"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))

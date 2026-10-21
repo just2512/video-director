@@ -3307,19 +3307,10 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                     layer.get("motion_instance") or {},
                     ensure_ascii=False, separators=(",", ":")
                 )
-            camera_channels, camera_warnings = _film_camera_channels(
-                raw_ir.get("camera_tracks") or [], layer_timeline_start, d
-            )
-            unsupported_layer_fields.extend(camera_warnings)
-            for camera_channel in camera_channels:
-                camera_property = str(camera_channel.get("property") or "")
-                if camera_property in current_channel_properties:
-                    unsupported_layer_fields.append(
-                        f"camera_tracks {camera_property} 与图层显式关键帧冲突；保留图层关键帧"
-                    )
-                    continue
-                channels.append(camera_channel)
-                current_channel_properties.add(camera_property)
+            # CameraTrack selection and scene-local precedence were resolved above in
+            # scene_camera_tracks. Do not re-apply the global track here: when a
+            # scene has its own camera this would emit false conflict warnings and
+            # could mix camera channels if their supported property sets diverge.
             fit_mode = str(layer.get("fit_mode") or "cover")
             if fit_mode not in {"cover", "contain", "fill", "none", "scale-down"}:
                 unsupported_layer_fields.append(f"fit_mode:{fit_mode}")
