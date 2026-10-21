@@ -1281,6 +1281,20 @@ class Handler(BaseHTTPRequestHandler):
                 script_file = pdir / "input" / "script.txt"
                 if script_file.is_file():
                     detail["script"] = script_file.read_text(encoding="utf-8")[:2000]
+                # 2026-10-21 指纹核查补落地：intent_report.json 落盘后必须有
+                # 用户可见出口——「系统如实告知」不能只活在文件里。详情抽屉
+                # 消费 warnings + intent_fields（缺失=旧项目/未跑导演链，不显示）。
+                intent_file = pdir / "plans" / "intent_report.json"
+                if intent_file.is_file():
+                    try:
+                        irpt = json.loads(intent_file.read_text(encoding="utf-8"))
+                        if isinstance(irpt, dict):
+                            detail["intent_report"] = {
+                                "warnings": list(irpt.get("warnings") or []),
+                                "intent_fields": dict(irpt.get("intent_fields") or {}),
+                            }
+                    except (OSError, json.JSONDecodeError):
+                        pass
                 self._send_json(detail)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
@@ -1864,6 +1878,46 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/styles/sample_render":
             self._style_sample_render()
+            return
+
+        if parsed.path == "/api/export_freeze":
+            # P1 视频定格出口：成片生成后追加「定格最后一帧 N 秒」副本。
+            # 不改 confirm 导出链（动主链风险大），复用 draft_info 同源的
+            # final 定位（render/final.mp4 优先，output/final.mp4 兼容）。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                freeze_seconds = float(payload.get("freeze_seconds") or 0)
+            except (TypeError, ValueError):
+                self._send_json({"ok": False, "error": "freeze_seconds 不是合法数字"}, 400)
+                return
+            if freeze_seconds <= 0:
+                self._send_json({"ok": False, "error": "freeze_seconds 需大于 0"}, 400)
+                return
+            pdir = COMPOSER_ROOT / pid
+            final = next((c for c in (pdir / "render" / "final.mp4",
+                                      pdir / "output" / "final.mp4") if c.is_file()), None)
+            if final is None:
+                self._send_json({"ok": False, "error": "项目尚未生成成片，先确认导出"}, 409)
+                return
+            out_path = final.parent / "final_freeze.mp4"
+            try:
+                from video_director import renderer as vd_renderer
+                vd_renderer.freeze_last_frame(str(final), str(out_path), freeze_seconds)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"定格失败：{exc}"}, 500)
+                return
+            self._send_json({"ok": True, "project_id": pid,
+                             "freeze_seconds": freeze_seconds,
+                             "final_path": str(out_path)})
             return
 
         # §52 POST /api/workflows：发起 WorkflowRun → 立即返回 run_id（不阻塞）。

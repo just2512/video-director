@@ -187,8 +187,11 @@ async function _startRenderWorkflow(actionId, pid){
             previewShowVideo(path, '成片 · 已完成');
             const box = document.getElementById('editor-preflight-box');
             if (box) {
+              // P1 定格出口：下载链接旁给「定格+2s」小按钮（POST /api/export_freeze
+              // → 生成 final_freeze.mp4 并换成新下载链接）。
               box.innerHTML =
-                `<div class="panel ok-box">成片渲染完成：<a class="dl" href="/file?path=${encodeURIComponent(path)}" download="final.mp4">下载 final.mp4</a></div>`;
+                `<div class="panel ok-box">成片渲染完成：<a class="dl" href="/file?path=${encodeURIComponent(path)}" download="final.mp4">下载 final.mp4</a>` +
+                `<button class="btn-secondary btn-sm" style="margin-left:8px" onclick="editorExportFreeze('${encodeURIComponent(pid)}', 2)">定格+2s</button></div>`;
             }
           }
           if (typeof taskRefresh === 'function') taskRefresh();
@@ -212,6 +215,31 @@ async function _startRenderWorkflow(actionId, pid){
   } catch (e) {
     editorToast('渲染任务提交失败：' + (e.message || e), true);
     return {ok:false,error:e.message || String(e)};
+  }
+}
+
+/** P1 定格出口：POST /api/export_freeze → 成片尾帧定格 N 秒 → 换下载链接。 */
+async function editorExportFreeze(encodedPid, freezeSeconds){
+  const pid = decodeURIComponent(encodedPid || '');
+  if (!pid) { editorToast('缺少项目 ID', true); return; }
+  const btn = document.querySelector('#editor-preflight-box button[onclick*="editorExportFreeze"]');
+  if (btn) { btn.disabled = true; btn.textContent = '定格中…'; }
+  try {
+    const r = await apiPost('/api/export_freeze', {project_id: pid, freeze_seconds: freezeSeconds});
+    if (!r || !r.ok) throw new Error((r && r.error) || '定格失败');
+    const box = document.getElementById('editor-preflight-box');
+    const link = box ? box.querySelector('a.dl') : null;
+    if (link) {
+      link.href = '/file?path=' + encodeURIComponent(r.final_path);
+      link.setAttribute('download', 'final_freeze.mp4');
+      link.textContent = '下载 final_freeze.mp4（定格+' + freezeSeconds + 's）';
+    }
+    editorToast('已生成定格版本（+' + freezeSeconds + 's）');
+    // 同步刷新预览信息，让 PV.finalPath 指向定格版
+    if (typeof previewLoadDraft === 'function') await previewLoadDraft();
+  } catch (e) {
+    editorToast('定格失败：' + (e.message || e), true);
+    if (btn) { btn.disabled = false; btn.textContent = '定格+' + freezeSeconds + 's'; }
   }
 }
 async function executeAction(actionId, params={}, target=null, selection=null){
@@ -290,4 +318,4 @@ document.addEventListener('click', (ev) => {
   actionDispatch(el, ev);
 });
 
-Object.assign(window, {actionDispatch, executeAction, UI_BEHAVIORS});
+Object.assign(window, {actionDispatch, executeAction, UI_BEHAVIORS, editorExportFreeze});

@@ -70,6 +70,9 @@
 .pm-empty { padding: 36px 16px; text-align: center; color: var(--muted); }
 .pm-detail-scene { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; margin-top: 6px; font-size: 12px; color: var(--text); }
 .pm-detail-scenes { max-height: 260px; overflow: auto; margin-top: 8px; }
+.pm-detail-warns { margin-top: 8px; }
+.pm-detail-warn { border: 1px solid var(--warning, #c90); border-radius: var(--radius-sm); padding: 6px 8px; margin-top: 4px; font-size: 12px; }
+.pm-intent-chip { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 11px; }
 
 /* ---- §24 审阅三栏 ---- */
 .review-layout {
@@ -116,6 +119,13 @@
   background: var(--accent); border-radius: 3px; cursor: ew-resize;
   pointer-events: auto;  /* 只有顶部手柄可拖（不挡场景/层 hitbox） */
 }
+/* 吸附命中：播放头同步变色加宽（与 .ed-session-snap-guide 同生命周期，
+   class 由 editor-session.js setGuide/clearGuide 维护） */
+.tl-playhead.ed-playhead-snap {
+  width: 3px; background: var(--success);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--success) 70%, transparent);
+}
+.tl-playhead.ed-playhead-snap::after { background: var(--success); }
 .tl-dragging { outline: 2px dashed var(--accent); opacity: .8; }
 
 /* ---- §14 场景块 hitbox 分离 ---- */

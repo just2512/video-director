@@ -659,6 +659,47 @@ def _verify_segment_duration(out_path: str, expect: float) -> str:
     return out_path
 
 
+def freeze_last_frame(video_in: str, out_path: str, freeze_seconds: float) -> str:
+    """定格最后一帧 N 秒（导出收尾能力）。
+
+    tpad=stop_mode=clone 克隆末帧延长视频流；定格窗口在原音轨结束之后，
+    因此音频不 remux（-an），避免 tpad 的静音尾随污染成品长度判定。
+    时长校验：输出 >= 原时长 + freeze*0.9（tpad 有 1 帧内的取整误差）。
+
+    freeze_seconds <= 0 视为无操作，直接返回输入路径（调用方按原片导出）。
+    """
+    freeze = float(freeze_seconds)
+    if not freeze > 0:
+        return video_in
+    if not video_in or not Path(video_in).is_file():
+        raise RenderError(f"定格输入视频不存在: {video_in}")
+
+    source_duration = prober.probe_media(video_in).duration
+    if not source_duration:
+        raise RenderError(f"无法探测输入时长，拒绝定格: {video_in}")
+
+    ff = _ffmpeg()
+    cmd = [
+        ff, "-y", "-loglevel", "error",
+        "-i", video_in,
+        "-vf", f"tpad=stop_mode=clone:stop_duration={freeze:.3f}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-an",
+        out_path,
+    ]
+    _run(cmd)
+
+    out_duration = prober.probe_media(out_path).duration
+    if out_duration is None:
+        raise RenderError(f"定格输出无法探测时长: {out_path}")
+    expected_min = source_duration + freeze * 0.9
+    if out_duration < expected_min:
+        raise RenderError(
+            f"定格输出时长 {out_duration:.3f}s 低于预期下限 {expected_min:.3f}s: {out_path}"
+        )
+    return out_path
+
+
 def _render_image_layer_alpha_composite(
     asset: AssetRef,
     out_path: str,
