@@ -138,6 +138,36 @@ def test_new_track_and_insert_are_one_stable_id_operation_batch():
     assert [item["op"] for item in ops] == ["track_add","insert"]
 
 
+def test_set_data_film_keyframes_roundtrips_and_rejects_invalid_channels():
+    doc = fd.parse_film(HTML_SCENE_SAMPLE)
+    channels = [
+        {"property": "opacity", "keyframes": [
+            {"at": 0, "value": 0.0, "easing": "ease_in"},
+            {"at": 1.5, "value": 1.0, "easing": "ease_out"},
+        ]},
+        {"property": "rotation", "keyframes": [
+            {"at": 0, "value": -10.0, "easing": "linear"},
+            {"at": 4, "value": 10.0, "easing": "ease_in_out"},
+        ]},
+    ]
+    edited, normalized = fd.apply_ops(doc, [{
+        "op": "set", "clip": "scene", "field": "data-film-keyframes", "value": channels,
+    }])
+    attrs = edited["tracks"][0]["clips"][0]["attrs"]
+    assert json.loads(attrs["data-film-keyframes"]) == channels
+    assert normalized[0]["field"] == "data-film-keyframes"
+    reparsed = fd.parse_film(fd.serialize_film(edited))
+    assert reparsed["tracks"][0]["clips"][0]["attrs"]["data-film-keyframes"] == attrs["data-film-keyframes"]
+
+    with pytest.raises(fd.FilmError):
+        fd.apply_ops(doc, [{
+            "op": "set", "clip": "scene", "field": "data-film-keyframes",
+            "value": [{"property": "opacity", "keyframes": [
+                {"at": 0, "value": 0}, {"at": 4, "value": 2.0},
+            ]}],
+        })
+
+
 def test_unknown_id_and_non_whitelisted_field_fail_closed():
     doc=fd.parse_film(SAMPLE)
     with pytest.raises(fd.FilmError,match="不存在或已被删除"):

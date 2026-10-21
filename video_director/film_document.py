@@ -22,8 +22,8 @@ HISTORY_NAME = ".film-history.json"
 MIGRATION_NAME = "film-migration.json"
 CLIP_TAGS = {"iframe", "video", "img", "audio"}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
-SETTABLE_FIELDS = {"at", "src", "speed", "volume", "volume_envelope", "fade", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size"}
-AI_SETTABLE_FIELDS = {"at", "speed", "volume", "volume_envelope", "fade", "style", "class", "muted", "title"}
+SETTABLE_FIELDS = {"at", "src", "speed", "volume", "volume_envelope", "fade", "style", "class", "overrides", "muted", "title", "alt", "lang", "dir", "size", "data-film-keyframes"}
+AI_SETTABLE_FIELDS = {"at", "speed", "volume", "volume_envelope", "fade", "style", "class", "muted", "title", "data-film-keyframes"}
 TRACK_FLAGS = {"locked", "hidden", "muted", "sync-lock"}
 MAX_OPERATIONS = 200
 
@@ -1860,9 +1860,9 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 if clip["tag"] not in {"video", "audio"} or not isinstance(value, bool):
                     raise FilmError("INVALID_BOOLEAN", "muted 只接受视频/音频片段的布尔值")
                 value = "" if value else None
-            elif field in {"class", "title", "alt", "lang", "dir", "size", "style", "overrides"}:
+            elif field in {"class", "title", "alt", "lang", "dir", "size", "style", "overrides", "data-film-keyframes"}:
                 if value is not None and not isinstance(value, str):
-                    if field == "overrides" and isinstance(value, (list, dict)):
+                    if field in {"overrides", "data-film-keyframes"} and isinstance(value, (list, dict)):
                         value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
                     else:
                         raise FilmError("INVALID_FIELD", f"{field} 必须是字符串或 null")
@@ -5243,8 +5243,8 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
             })
     prompt = (
         "你是视频时间线编辑规划器。只输出 JSON：{"
-        '"operations":[...],"summary":"..."}。'
-        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'fade'|'muted'|'style'|'class'|'title',value:...}; "
+        '"summary":"简短自然语言说明","operations":[...]}。'
+        "可用 set 操作: {op:'set',clip:准确片段ID,field:'at'|'speed'|'volume'|'volume_envelope'|'fade'|'muted'|'style'|'class'|'title'|'data-film-keyframes',value:...}; "
         "可用 move 操作: {op:'move',clip:准确ID,track_id:现有轨道ID,at:非负秒}; "
         "可用 slip 操作: {op:'slip',clip:准确视频/音频片段ID,delta_source:素材源时间偏移秒}。滑移只改变 #t 入出点，不改变时间线位置和长度；仅在用户明确要求保持时间线位置但更换素材源区间时使用。 " "可用 slide 操作: {op:'slide',clip:中间视频/音频片段ID,delta:时间线秒}。滑移式修剪会移动中间片段，同时修剪左右相邻片段以保持三段总时长与外侧边界不变；当前仅支持同源连续、同类型、等速且无 fade 的三段。只在用户明确要求 slide trim 时使用。 "
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; " "可用 join 操作: {op:'join',clip:左片段ID,other_clip:右片段ID}。只在用户明确要求愈合切口/合并同源切开片段时使用；需要同轨相邻、源区间连续、属性一致。" "可用 roll 操作: {op:'roll',clip:左片段ID,other_clip:右片段ID,delta:秒}。只在用户明确要求滚动修剪切口时使用；仅允许同源连续切口；正数延长左段并缩短右段，负数相反，总时长不变。"
@@ -5255,7 +5255,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
-        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
+        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。data-film-keyframes 是通用视觉属性关键帧数组，形如 [{property:'opacity',keyframes:[{at:0,value:0,easing:'ease_in'},{at:1,value:1,easing:'ease_out'}]}]；at 是剪辑相对秒数，属性仅限 x/y（0–1）、scale/scale_x/scale_y/camera_scale（0.1–5）、rotation（-3600–3600）、opacity（0–1）、blur（0–100）、camera_x/camera_y（0–1）、offset_x/offset_y（-10000–10000）；easing 仅 linear/ease_in/ease_out/ease_in_out。仅在用户明确要求视觉属性关键帧时修改，不要把关键帧时间当成全局时间。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
         f"\n当前选中画布元素（只可操作这一项）：{json.dumps(selected_element, ensure_ascii=False, separators=(',', ':')) if selected_element else '无；不得使用 element_set'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"

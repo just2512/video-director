@@ -37,7 +37,7 @@ export interface FilmDocumentPayload {
 }
 export type FilmStringField =
   | "src" | "title" | "fade" | "class" | "alt" | "lang" | "dir" | "size"
-  | "style" | "overrides" | "volume_envelope";
+  | "style" | "overrides" | "volume_envelope" | "data-film-keyframes";
 export type FilmOperation =
   | { op: "set"; clip: string; field: "at" | "speed" | "volume"; value: number }
   | { op: "set"; clip: string; field: "muted"; value: boolean }
