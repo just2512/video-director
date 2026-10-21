@@ -605,11 +605,20 @@
         // may already have reached the compositor and a late callback can hang.
         frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames);
       }
-      if(tag==='video'&&!needsSeek){
+      if(tag==='video'&&!needsSeek&&!Number.isFinite(entry.lastPresentedMediaTime)){
         var initialPresented=await awaitInitialVideoFrame(entry,desired);
         if(!initialPresented)throw new Error('视频片段 '+clip.id+' 未确认初始呈现帧');
         if(Number.isFinite(initialPresented.presentedFrames))entry.lastPresentedFrames=initialPresented.presentedFrames;
-        if(Number.isFinite(initialPresented.mediaTime))entry.lastPresentedMediaTime=initialPresented.mediaTime;
+        entry.lastPresentedMediaTime=initialPresented.mediaTime;
+      }
+      if(tag==='video'&&!needsSeek){
+        var confirmedMediaTime=Number(entry.lastPresentedMediaTime);
+        var confirmedTolerance=1/Math.max(1,sourceFps)+0.002;
+        if(!Number.isFinite(confirmedMediaTime)||Math.abs(confirmedMediaTime-desired)>confirmedTolerance){
+          throw new Error('视频片段 '+clip.id+' 最近确认的呈现时间与请求时间不匹配：'
+            +(Number.isFinite(confirmedMediaTime)?confirmedMediaTime.toFixed(6):'未知')
+            +'s → '+desired.toFixed(6)+'s');
+        }
       }
       if(needsSeek){
         var seeked=waitForEvent(el,'seeked',12000);
@@ -628,6 +637,7 @@
         var presented=await frameWait.promise;
         if(!presented)throw new Error('视频片段 '+clip.id+' 未确认所需时间的呈现帧');
         if(Number.isFinite(presented.presentedFrames))entry.lastPresentedFrames=presented.presentedFrames;
+        entry.lastPresentedMediaTime=presented.mediaTime;
       }
     }else if(tag==='img'){
       if(!el.complete)await waitForEvent(el,'load',12000);
