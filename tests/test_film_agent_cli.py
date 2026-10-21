@@ -75,3 +75,50 @@ def test_agent_cli_edit_is_revision_guarded_and_enters_shared_history(tmp_path, 
     assert len(history["past"]) == 1
     assert history["past"][0]["before_rev"] == before["rev"]
     assert history["past"][0]["after_rev"] == committed_revision
+
+
+def test_agent_cli_diff_from_after_revision_uses_the_after_snapshot(tmp_path, monkeypatch):
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    project_id = "agent-cli-diff-after-revision"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    (project / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+    ops_path = tmp_path / "film-ops.json"
+
+    initial = fd.read_project_film(project_id)
+    ops_path.write_text(json.dumps([
+        {"op": "set", "clip": "footage", "field": "at", "value": 0.5}
+    ]), encoding="utf-8")
+    first = _cli(
+        repo_root, env, "film", "edit", "--project-id", project_id,
+        "--base-revision", initial["rev"], "--ops-file", str(ops_path),
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    first_revision = json.loads(first.stdout)["revision"]
+
+    ops_path.write_text(json.dumps([
+        {"op": "set", "clip": "footage", "field": "at", "value": 1.0}
+    ]), encoding="utf-8")
+    second = _cli(
+        repo_root, env, "film", "edit", "--project-id", project_id,
+        "--base-revision", first_revision, "--ops-file", str(ops_path),
+    )
+    assert second.returncode == 0, second.stdout + second.stderr
+
+    diff = _cli(
+        repo_root, env, "film", "diff", "--project-id", project_id,
+        "--from-revision", first_revision,
+    )
+    assert diff.returncode == 0, diff.stdout + diff.stderr
+    removed = [line for line in diff.stdout.splitlines()
+               if line.startswith("-") and 'id="footage"' in line]
+    added = [line for line in diff.stdout.splitlines()
+             if line.startswith("+") and 'id="footage"' in line]
+    assert len(removed) == 1, diff.stdout
+    assert len(added) == 1, diff.stdout
+    assert 'at="0.5"' in removed[0], diff.stdout
+    assert 'at="1"' in added[0], diff.stdout
