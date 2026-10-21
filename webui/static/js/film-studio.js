@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -2150,11 +2150,21 @@ window.filmStudioCopyClips=function(){
     if(!result)throw new Error('AI 流式响应结束，但没有返回最终提案结果。');
     return result;
   }
-  window.filmStudioCancelAi=function(){
+  window.filmStudioCancelAi=function(options){
     if(!S.aiController){showStatus('当前没有正在生成的 AI 指令。');return false;}
-    S.aiPendingSteer='';
+    options=options||{};
+    if(!options.preserveSteer)S.aiPendingSteer='';
+    var requestId=S.aiRequestId,projectId=S.projectId;
+    if(requestId&&projectId){
+      try{
+        fetch('/api/editor/film/command/cancel',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({project_id:projectId,request_id:requestId}),keepalive:true
+        }).catch(function(){/* The AbortController remains the client-side fallback. */});
+      }catch(_){}
+    }
     S.aiController.abort();
-    showStatus('已请求停止本轮 AI 生成；正式影片不会因取消而写入。');
+    showStatus(options.preserveSteer?'已请求终止当前上游生成，随后按新方向重新规划。':'已请求停止上游模型生成；正式影片不会因取消而写入。');
     return true;
   };
   window.filmStudioAsk=async function(overrideMessage, alreadyShown){
@@ -2165,7 +2175,7 @@ window.filmStudioCopyClips=function(){
         S.aiPendingSteer='原指令：'+S.aiActiveMessage+'\n执行中转向/补充要求：'+message;
         appendMessage(message,'user');input.value='';
         showStatus('已收到新的剪辑方向；正在停止当前生成并按新方向重新规划。');
-        S.aiController.abort();
+        window.filmStudioCancelAi({preserveSteer:true});
       }
       return;
     }
@@ -2176,11 +2186,15 @@ window.filmStudioCopyClips=function(){
     if(S.proposal){window.filmStudioRejectProposal();}
     if(!alreadyShown)appendMessage(message,'user');
     input.value='';S.busy=true;S.aiActiveMessage=message;S.aiStreamText='';
+    S.aiRequestId=(window.crypto&&typeof window.crypto.randomUUID==='function')
+      ?window.crypto.randomUUID()
+      :'ai-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12);
+    var requestId=S.aiRequestId;
     S.aiLiveMessageIndex=S.messages.length;
     appendMessage('AI 正在读取影片上下文并生成修改计划…','assistant');
     var controller=new AbortController();S.aiController=controller;
     try{
-      var request={project_id:S.projectId,base:S.rev,message:message,selected_clip_id:S.selectedId,stream:true};
+      var request={project_id:S.projectId,base:S.rev,message:message,selected_clip_id:S.selectedId,stream:true,request_id:requestId};
       if(S.selectedElement&&S.selectedElement.clipId===S.selectedId){
         if(S.selectedElement.baseRevision!==S.rev){
           appendMessage('画布元素上下文已过期，请在当前预览中重新选中该元素后再指挥修改。','assistant');
@@ -2228,6 +2242,7 @@ window.filmStudioCopyClips=function(){
       }
     }finally{
       if(S.aiController===controller)S.aiController=null;
+      if(S.aiRequestId===requestId)S.aiRequestId='';
       S.busy=false;flushPendingExternalRevision();
       var pending=S.aiPendingSteer;S.aiPendingSteer='';
       if(pending&&S.open&&S.data&&S.data.exists&&!S.broken){
