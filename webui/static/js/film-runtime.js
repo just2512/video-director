@@ -523,8 +523,8 @@
     var mediaTime=metadata?Number(metadata.mediaTime):NaN;
     var sourceFps=finite(entry.clip.source_fps,finite(state.fps,30));
     var tolerance=1/Math.max(1,sourceFps)+0.002;
-    if(Number.isFinite(mediaTime)&&Math.abs(mediaTime-desired)>tolerance){
-      throw new Error('视频片段 '+entry.clip.id+' 的初始呈现时间 '+mediaTime.toFixed(6)+'s 与请求时间 '+desired.toFixed(6)+'s 不匹配');
+    if(!Number.isFinite(mediaTime)||Math.abs(mediaTime-desired)>tolerance){
+      throw new Error('视频片段 '+entry.clip.id+' 的初始呈现时间 '+(Number.isFinite(mediaTime)?mediaTime.toFixed(6):'未知')+'s 与请求时间 '+desired.toFixed(6)+'s 不匹配');
     }
     return metadata;
   }
@@ -605,9 +605,11 @@
         // may already have reached the compositor and a late callback can hang.
         frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames);
       }
-      if(tag==='video'&&!needsSeek&&!Number.isFinite(entry.lastPresentedFrames)){
+      if(tag==='video'&&!needsSeek){
         var initialPresented=await awaitInitialVideoFrame(entry,desired);
         if(!initialPresented)throw new Error('视频片段 '+clip.id+' 未确认初始呈现帧');
+        if(Number.isFinite(initialPresented.presentedFrames))entry.lastPresentedFrames=initialPresented.presentedFrames;
+        if(Number.isFinite(initialPresented.mediaTime))entry.lastPresentedMediaTime=initialPresented.mediaTime;
       }
       if(needsSeek){
         var seeked=waitForEvent(el,'seeked',12000);

@@ -17,6 +17,8 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     make_clip = runtime[runtime.index("function makeClip(track,clip)"):runtime.index("function pauseAll()", runtime.index("function makeClip(track,clip)"))]
     assert make_clip.index("startInitialVideoFrameWait(entry)") < make_clip.index("if(src)el.src=src")
     assert "awaitInitialVideoFrame(entry,desired)" in prepare
+    assert "if(tag==='video'&&!needsSeek){" in prepare
+    assert "if(!Number.isFinite(mediaTime)||Math.abs(mediaTime-desired)>tolerance){" in helper
     assert "cancelInitialVideoFrameWait(entry);" in prepare
     assert "clip.source_fps" in helper
     assert "seekThreshold=Math.max(0.001,0.5/Math.max(1,sourceFps))" in prepare
