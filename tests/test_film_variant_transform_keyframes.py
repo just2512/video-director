@@ -35,8 +35,9 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
                 "layers": [{
                     "type": "image", "asset_id": "asset-variant", "start": 0, "duration": 1,
                     "fit_mode": "contain",
-                    "transform": {"x": 0.4, "y": 0.6, "scale": 1.25, "rotation": 12,
-                                  "opacity": 0.8, "anchor": "center"},
+                    "transform": {"x": 0.4, "y": 0.6, "scale": 1.25, "scale_x": 1.5,
+                                  "scale_y": 0.75, "rotation": 12, "opacity": 0.8,
+                                  "anchor": "center"},
                     "keyframes": [
                         {"property": "x", "keyframes": [
                             {"at": 0, "value": 0.4, "easing": "linear"},
@@ -83,10 +84,10 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     raw_archive = json.loads(ir.model_dump_json())
     raw_archive["future_renderer_contract"] = {"version": 4, "projection": "custom"}
     raw_archive["variants"][0]["future_transition_plugin"] = {"type": "wipe", "duration": 0.15}
-    # Transform.scale_x/scale_y are present in older source JSON but not in the
-    # current Pydantic Transform model; migration must map them from the archive.
-    raw_archive["variants"][0]["scenes"][0]["layers"][0]["transform"]["scale_x"] = 1.5
-    raw_archive["variants"][0]["scenes"][0]["layers"][0]["transform"]["scale_y"] = 0.75
+    # Non-uniform scale is part of the public Transform schema and must survive
+    # ordinary model validation/dump without a raw-archive recovery workaround.
+    assert raw_archive["variants"][0]["scenes"][0]["layers"][0]["transform"]["scale_x"] == 1.5
+    assert raw_archive["variants"][0]["scenes"][0]["layers"][0]["transform"]["scale_y"] == 0.75
     raw_archive["variants"][0]["scenes"][0]["future_timing_semantics"] = {"mode": "beat"}
     raw_path = project_root / "plans" / "composition.json"
     raw_path.parent.mkdir(parents=True, exist_ok=True)

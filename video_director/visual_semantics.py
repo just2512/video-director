@@ -62,7 +62,9 @@ class Transform(BaseModel):
 
     x: float = 0.5            # 锚点相对画幅 width 的归一水平位置 [0,1]
     y: float = 0.5            # 锚点相对画幅 height 的归一垂直位置 [0,1]
-    scale: float = 1.0        # 缩放（>1 放大）
+    scale: float = 1.0        # 等比缩放（>1 放大）
+    scale_x: float = 1.0      # 水平非等比缩放 [0.1,5]，默认恒等
+    scale_y: float = 1.0      # 垂直非等比缩放 [0.1,5]，默认恒等
     rotation: float = 0.0     # 旋转角度（度）
     opacity: float = 1.0      # 不透明度 [0,1]
     anchor: Anchor = Anchor.center
@@ -75,6 +77,10 @@ class Transform(BaseModel):
             raise ValueError(f"transform: y {self.y} 越界 [0,1]")
         if not (0.1 <= self.scale <= 5.0):
             raise ValueError(f"transform: scale {self.scale} 越界 [0.1,5.0]")
+        if not (0.1 <= self.scale_x <= 5.0):
+            raise ValueError(f"transform: scale_x {self.scale_x} 越界 [0.1,5.0]")
+        if not (0.1 <= self.scale_y <= 5.0):
+            raise ValueError(f"transform: scale_y {self.scale_y} 越界 [0.1,5.0]")
         if not (0.0 <= self.opacity <= 1.0):
             raise ValueError(f"transform: opacity {self.opacity} 越界 [0,1]")
         return self
