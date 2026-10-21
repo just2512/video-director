@@ -836,6 +836,23 @@ def parse_film(text: str) -> dict:
         fps = int(raw_fps)
         if not 1 <= fps <= 60:
             raise FilmError("INVALID_FPS", f"film.html 的 film-fps={fps} 超出 1–60 范围。", 422)
+    for track in parser.tracks:
+        for clip in track["clips"]:
+            transform_text = clip["attrs"].get("data-film-transform")
+            if not transform_text:
+                continue
+            transform = json.loads(transform_text)
+            if (
+                int(transform["stage_width"]) != stage["width"]
+                or int(transform["stage_height"]) != stage["height"]
+            ):
+                raise FilmError(
+                    "FILM_TRANSFORM_STAGE_MISMATCH",
+                    f"片段 {clip['id']} 的 data-film-transform 舞台尺寸 "
+                    f"{transform['stage_width']}×{transform['stage_height']} 与 film.html viewport "
+                    f"{stage['width']}×{stage['height']} 不一致；请同步修正，不会静默缩放。",
+                    422,
+                )
     return {
         "stage": stage, "fps": fps, "head_html": head, "tracks": parser.tracks,
         "body_comments": parser.body_comments, "outer_comments": parser.outer_comments,

@@ -1744,8 +1744,8 @@ def _source_with_runtime_metadata(metadata: dict) -> str:
             "data-film-transform": json.dumps({
                 "x": 0.5, "y": 0.5, "scale": 1, "scale_x": 1, "scale_y": 1,
                 "rotation": 0, "opacity": 1, "anchor": "center",
-                "stage_width": 320, "stage_height": 180, "base_width": 320,
-                "base_height": 180, "transform": "scale(2)",
+                "stage_width": 1920, "stage_height": 1080, "base_width": 1920,
+                "base_height": 1080, "transform": "scale(2)",
             }),
         },
     ],
@@ -1800,8 +1800,8 @@ def test_parse_rejects_malformed_mask_keyframes_and_accepts_valid_transform_chan
     valid_transform = {
         "x": 0.5, "y": 0.5, "scale": 1, "scale_x": 0.8, "scale_y": 1.2,
         "rotation": 0, "opacity": 1, "anchor": "center",
-        "stage_width": 320, "stage_height": 180, "base_width": 320,
-        "base_height": 180,
+        "stage_width": 1920, "stage_height": 1080, "base_width": 1920,
+        "base_height": 1080,
     }
     valid_channels = [
         {"property": "scale_x", "keyframes": [
@@ -1865,3 +1865,19 @@ def test_duplicate_keyframe_times_are_normalized_with_runtime_last_point_semanti
     assert [point["at"] for point in points] == [0, 1]
     assert [point["value"] for point in points] == [1.3, 1.6]
     assert any("重复关键帧" in warning for warning in warnings)
+
+
+
+def test_parse_rejects_transform_stage_dimensions_that_disagree_with_viewport():
+    document = fd.parse_film(SAMPLE)
+    clip = next(item for track in document["tracks"] for item in track["clips"])
+    clip["attrs"]["data-film-transform"] = json.dumps({
+        "x": 0.5, "y": 0.5, "scale": 1, "scale_x": 1, "scale_y": 1,
+        "rotation": 0, "opacity": 1, "anchor": "center",
+        "stage_width": 320, "stage_height": 180, "base_width": 320,
+        "base_height": 180,
+    })
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(fd.serialize_film(document))
+    assert error.value.code == "FILM_TRANSFORM_STAGE_MISMATCH"
+    assert "viewport" in str(error.value)
