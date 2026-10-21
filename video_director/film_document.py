@@ -1770,6 +1770,68 @@ def _history_write(project_id: str, state: dict):
     _write_atomic(_history_path(project_id), json.dumps(state, ensure_ascii=False, separators=(",", ":")))
 
 
+def record_external_film_revision(
+    project_id: str, before_text: str, after_text: str, *, source: str = "external_file"
+) -> dict:
+    """Record a validated external film.html write in the shared undo/diff history.
+
+    The external editor owns the file write. This helper never rewrites film.html;
+    it verifies the exact settled snapshot under the shared project lock, then
+    journals that snapshot so Studio undo, CLI diff and future edits share history.
+    """
+    pid = validate_project_id(project_id)
+    if not isinstance(before_text, str) or not isinstance(after_text, str):
+        return {"status": "invalid_snapshot"}
+    before_revision = revision_of(before_text)
+    after_revision = revision_of(after_text)
+    if before_revision == after_revision:
+        return {"status": "unchanged", "revision": after_revision}
+
+    with project_lock(pid):
+        path = _film_path(pid)
+        try:
+            current_text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return {"status": "unreadable", "revision": after_revision}
+        if current_text != after_text:
+            return {"status": "superseded", "revision": revision_of(current_text)}
+
+        try:
+            parse_film(before_text)
+            parse_film(after_text)
+        except FilmError as exc:
+            return {"status": "invalid_snapshot", "error": str(exc)[:800]}
+
+        history = _history_read(pid)
+        past = history["past"]
+        if past:
+            last = past[-1]
+            if last.get("after_rev") == after_revision and last.get("after") == after_text:
+                # The normal Studio/CLI write path already recorded this exact
+                # document before the watcher observed the changed file signature.
+                return {"status": "already_recorded", "revision": after_revision}
+            if last.get("after_rev") != before_revision:
+                # The watcher may have been opened after a direct write happened.
+                # Bridge from the last known journal snapshot to the exact baseline
+                # we observed, rather than leaving an undo stack with a broken chain.
+                last_text = last.get("after")
+                last_revision = last.get("after_rev")
+                if not isinstance(last_text, str) or not isinstance(last_revision, str):
+                    return {"status": "history_conflict", "revision": after_revision}
+                past.append({
+                    "before": last_text, "after": before_text,
+                    "before_rev": last_revision, "after_rev": before_revision,
+                    "ops": [{"op": "external_reconcile", "source": str(source)[:80]}],
+                })
+        past.append({
+            "before": before_text, "after": after_text,
+            "before_rev": before_revision, "after_rev": after_revision,
+            "ops": [{"op": "external_file", "source": str(source)[:80]}],
+        })
+        history["past"] = past[-200:]
+        history["future"] = []
+        _history_write(pid, history)
+        return {"status": "recorded", "revision": after_revision}
 
 
 class _FilmSourceLocator(HTMLParser):

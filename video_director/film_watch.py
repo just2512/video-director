@@ -47,20 +47,25 @@ class FilmRevisionWatcher:
         pid = fd.validate_project_id(project_id)
         path = self.path_for_project(pid)
         signature = self._signature(path)
+        initial_text = None
+        try:
+            initial_text = path.read_text(encoding="utf-8")
+            actual_revision = fd.revision_of(initial_text)
+        except (OSError, UnicodeError):
+            actual_revision = fd.revision_of("")
         if initial_revision is None:
-            try:
-                initial_revision = fd.revision_of(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError):
-                initial_revision = fd.revision_of("")
+            initial_revision = actual_revision
+        matched_initial_snapshot = actual_revision == initial_revision
         now = time.monotonic()
         with self._lock:
             state = self._projects.get(pid)
             if state is None:
                 self._projects[pid] = {
                     "last_revision": initial_revision,
+                    "last_text": initial_text if matched_initial_snapshot else None,
                     "pending_signature": signature,
-                    "processed_signature": signature,
-                    "changed_at": now,
+                    "processed_signature": signature if matched_initial_snapshot else None,
+                    "changed_at": now - self.settle_seconds if not matched_initial_snapshot else now,
                     "last_access": now,
                 }
             else:
@@ -119,6 +124,29 @@ class FilmRevisionWatcher:
             except fd.FilmError as exc:
                 phase, error = "document_broken", str(exc)[:1200]
 
+            history_result = None
+            if phase == "revision_changed" and revision != snapshot["last_revision"]:
+                before_text = snapshot.get("last_text")
+                try:
+                    authoritative_path = fd._film_path(pid).resolve()
+                    watched_path = path.resolve()
+                except OSError:
+                    authoritative_path = watched_path = None
+                if isinstance(before_text, str) and watched_path == authoritative_path:
+                    try:
+                        history_result = fd.record_external_film_revision(
+                            pid, before_text, source, source="external_file"
+                        )
+                    except fd.FilmError as exc:
+                        history_result = {"status": "history_error", "error": str(exc)[:800]}
+                    if history_result.get("status") == "superseded":
+                        with self._lock:
+                            live = self._projects.get(pid)
+                            if live is not None:
+                                live["pending_signature"] = self._signature(path)
+                                live["changed_at"] = current_time
+                        continue
+
             event = None
             with self._lock:
                 live = self._projects.get(pid)
@@ -127,14 +155,25 @@ class FilmRevisionWatcher:
                 live["processed_signature"] = signature
                 if revision != live["last_revision"]:
                     live["last_revision"] = revision
-                    event = {
-                        "phase": phase,
-                        "project_id": pid,
-                        "revision": revision,
-                        "source": "external_file",
-                    }
-                    if error:
-                        event["error"] = error
+                    if phase == "revision_changed":
+                        # Update the content baseline only after strict parse success.
+                        live["last_text"] = source
+                    already_recorded = bool(
+                        history_result and history_result.get("status") == "already_recorded"
+                    )
+                    if not already_recorded:
+                        event = {
+                            "phase": phase,
+                            "project_id": pid,
+                            "revision": revision,
+                            "source": "external_file",
+                        }
+                        if error:
+                            event["error"] = error
+                        if history_result and history_result.get("status") not in {"recorded", "unchanged"}:
+                            event["history_status"] = history_result.get("status")
+                            if history_result.get("error"):
+                                event["history_error"] = history_result["error"]
             if event:
                 self.publish("film", event)
 
