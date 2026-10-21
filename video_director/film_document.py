@@ -2985,39 +2985,49 @@ def build_film_from_composition(project_id: str, ir) -> dict:
         "sfx_density": getattr(builtin_style, "sfx_density", None),
     }
     style_parameter_warnings = []
-    if builtin_style:
-        if "subtitle_position" in style_parameters:
-            value = str(style_parameters["subtitle_position"])
-            if value in {"top", "center", "bottom"}:
-                migrated_style["subtitle_position"] = value
-            else:
-                style_parameter_warnings.append("subtitle_position 参数无效，保留内置风格值")
-        if "subtitle_font_size" in style_parameters:
-            try:
-                value = _number(style_parameters["subtitle_font_size"], "style subtitle_font_size", 12, 160)
-                migrated_style["subtitle_font_size"] = int(round(value))
-            except FilmError:
-                style_parameter_warnings.append("subtitle_font_size 参数越界，保留内置风格值")
-        if "image_motion_intensity" in style_parameters:
-            try:
-                migrated_style["image_motion_intensity"] = _number(
-                    style_parameters["image_motion_intensity"], "style image_motion_intensity", 1.0, 1.5
-                )
-            except FilmError:
-                style_parameter_warnings.append("image_motion_intensity 参数越界，保留内置风格值")
-        unsupported_parameters = sorted(
-            set(style_parameters) - {"subtitle_position", "subtitle_font_size", "image_motion_intensity"}
-        )
-        if unsupported_parameters:
-            style_parameter_warnings.append(
-                "这些风格参数尚未映射为 Film Runtime 行为：" + ", ".join(unsupported_parameters)
+    style_parameter_applied: set[str] = set()
+    # Safe, explicitly named parameters can be translated even when the style ID
+    # is project-local/unregistered. Unknown keys are archived, never interpreted.
+    if "subtitle_position" in style_parameters:
+        value = str(style_parameters["subtitle_position"])
+        if value in {"top", "center", "bottom"}:
+            migrated_style["subtitle_position"] = value
+            style_parameter_applied.add("subtitle_position")
+        else:
+            style_parameter_warnings.append("subtitle_position 参数无效，未应用该参数")
+    if "subtitle_font_size" in style_parameters:
+        try:
+            value = _number(style_parameters["subtitle_font_size"], "style subtitle_font_size", 12, 160)
+            migrated_style["subtitle_font_size"] = int(round(value))
+            style_parameter_applied.add("subtitle_font_size")
+        except FilmError:
+            style_parameter_warnings.append("subtitle_font_size 参数越界，未应用该参数")
+    if "image_motion_intensity" in style_parameters:
+        try:
+            migrated_style["image_motion_intensity"] = _number(
+                style_parameters["image_motion_intensity"], "style image_motion_intensity", 1.0, 1.5
             )
+            style_parameter_applied.add("image_motion_intensity")
+        except FilmError:
+            style_parameter_warnings.append("image_motion_intensity 参数越界，未应用该参数")
+    unsupported_parameters = sorted(
+        set(style_parameters) - {"subtitle_position", "subtitle_font_size", "image_motion_intensity"}
+    )
+    if unsupported_parameters:
+        style_parameter_warnings.append(
+            "这些风格参数尚未映射为 Film Runtime 行为：" + ", ".join(unsupported_parameters)
+        )
     contract_motion_temper = str(style_contract_source.get("motion_temper") or "")
     if migrated_style["image_motion_intensity"] is None:
         migrated_style["image_motion_intensity"] = {
             "calm": 1.08, "energetic": 1.18, "cinematic": 1.06,
         }.get(contract_motion_temper, 1.08)
     legacy_motion_intensity = float(migrated_style["image_motion_intensity"])
+    style_motion_enabled = (
+        builtin_style is not None
+        or contract_motion_temper in {"calm", "energetic", "cinematic"}
+        or "image_motion_intensity" in style_parameter_applied
+    )
     source_scenes = list((selected_variant or {}).get("scenes") or raw_ir.get("scenes") or [])
     source_audio = list((selected_variant or {}).get("tracks") or raw_ir.get("audio") or [])
     beat_migration_warnings = []
@@ -3206,6 +3216,12 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                         "和旧式 zoom 动效映射；transition_budget、bgm_volume、sfx_density 尚未由 Film Runtime 执行。"
                         "完整原始 variant.style 仍保存在 data-source-variant-style"
                     )
+                elif style_parameter_applied:
+                    warnings.append(
+                        f"变体 {selected_variant.get('id')} 的自定义 variant.style 已应用受支持参数："
+                        + ", ".join(sorted(style_parameter_applied))
+                        + "；其它参数已保留在 data-source-variant-style，未被猜测执行"
+                    )
                 else:
                     warnings.append(
                         f"变体 {selected_variant.get('id')} 的 variant.style 已保存在最终轨道的 "
@@ -3330,7 +3346,11 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             )
 
     subtitle_style = dict(raw_ir.get("subtitle_style") or {})
-    if not raw_ir.get("subtitle_style") and builtin_style:
+    if not raw_ir.get("subtitle_style") and (
+        builtin_style
+        or migrated_style.get("subtitle_font_size") is not None
+        or migrated_style.get("subtitle_position") in {"top", "center", "bottom"}
+    ):
         # SubtitleTrack rendering consumes absolute font_size and position.
         # Apply the built-in registered style only when no explicit subtitle
         # style was authored; explicit user styling always wins.
@@ -3695,10 +3715,6 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             # the old Layer had no explicit motion preset, matching the old
             # renderer's default image-motion behavior. Explicit scale channels,
             # transform recipe channels and non-image media keep their own rules.
-            style_motion_enabled = (
-                builtin_style is not None
-                or contract_motion_temper in {"calm", "energetic", "cinematic"}
-            )
             has_scale_channel = any(
                 isinstance(channel, dict) and channel.get("property") == "scale"
                 for channel in channels
