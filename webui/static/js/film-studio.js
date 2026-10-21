@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -359,6 +359,40 @@
     if(d&&d.targetRow)d.targetRow.classList.remove('fs-track-drop-target');
     if(d)d.targetRow=null;
   }
+  function findTimelineSnap(rawAt, excludedIds, thresholdPx){
+    if(!S.snapEnabled)return null;
+    var ids=excludedIds||[], candidates=[{at:0,kind:'片头'},{at:S.playhead,kind:'播放头'}];
+    clips().forEach(function(clip){
+      if(ids.indexOf(clip.id)>=0)return;
+      if(Number.isFinite(Number(clip.at)))candidates.push({at:Number(clip.at),kind:'片段入点'});
+      if(Number.isFinite(Number(clip.end)))candidates.push({at:Number(clip.end),kind:'片段出点'});
+    });
+    var best=null,bestDistance=Infinity;
+    candidates.forEach(function(candidate){
+      if(!Number.isFinite(candidate.at))return;
+      var distance=Math.abs(candidate.at-rawAt)*S.pxPerSec;
+      if(distance<=thresholdPx&&distance<bestDistance){best=candidate;bestDistance=distance;}
+    });
+    return best;
+  }
+  function showTimelineSnapGuide(at, kind){
+    var timeline=$('fs-timeline');
+    if(at==null||!timeline){var stale=$('fs-snap-guide');if(stale)stale.remove();return;}
+    var guide=$('fs-snap-guide');
+    if(!guide){guide=document.createElement('div');guide.id='fs-snap-guide';guide.className='fs-snap-guide';timeline.appendChild(guide);}
+    else if(guide.parentElement!==timeline)timeline.appendChild(guide);
+    guide.style.left=(132+Math.max(0,at)*S.pxPerSec)+'px';
+    guide.setAttribute('title','吸附到 '+(kind||'时间点')+' · '+fmtTime(at));
+  }
+  window.filmStudioToggleSnap=function(){
+    S.snapEnabled=!S.snapEnabled;
+    document.querySelectorAll('[data-film-action="toggle-snap"]').forEach(function(button){
+      button.setAttribute('aria-pressed',String(S.snapEnabled));
+      button.textContent=S.snapEnabled?'吸附：开':'吸附：关';
+    });
+    if(!S.snapEnabled)showTimelineSnapGuide(null);
+    showStatus(S.snapEnabled?'时间线吸附已开启（阈值 8 屏幕像素）。':'时间线吸附已关闭。','success');
+  };
   function renderTimeline() {
     if(!S.data||!S.data.exists)return;
     var laneWidth=Math.max(720,Math.ceil(S.duration*S.pxPerSec)),ticks=Math.min(240,Math.ceil(S.duration/5));
@@ -1122,7 +1156,11 @@
       var deltaSlide=dx/S.pxPerSec;
       var slideMin=-Math.min(d.leftDuration,d.centerDuration)+0.04;
       var slideMax=Math.min(d.centerDuration,d.rightDuration)-0.04;
+      var slideIds=[d.leftClipId,d.centerClipId,d.rightClipId];
+      var slideSnap=findTimelineSnap(d.centerAt+deltaSlide,slideIds,8);
+      if(slideSnap)deltaSlide=slideSnap.at-d.centerAt;
       deltaSlide=Math.max(slideMin,Math.min(slideMax,deltaSlide));
+      showTimelineSnapGuide(slideSnap?slideSnap.at:null,slideSnap&&slideSnap.kind);
       d.slideElements[0].style.width=Math.max(3,(d.leftDuration+deltaSlide)*S.pxPerSec)+'px';
       d.slideElements[1].style.left=Math.max(0,(d.centerAt+deltaSlide)*S.pxPerSec)+'px';
       d.slideElements[2].style.left=Math.max(0,(d.rightAt+deltaSlide)*S.pxPerSec)+'px';
@@ -1131,7 +1169,10 @@
       d.element.classList.add('fs-sliding');
     }else if(d.mode==='roll'){
       var deltaRoll=dx/S.pxPerSec;
+      var rollSnap=findTimelineSnap(d.rightAt+deltaRoll,[d.leftClipId,d.rightClipId],8);
+      if(rollSnap)deltaRoll=rollSnap.at-d.rightAt;
       deltaRoll=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,deltaRoll));
+      showTimelineSnapGuide(rollSnap?rollSnap.at:null,rollSnap&&rollSnap.kind);
       d.rollElements[0].style.width=Math.max(3,(d.leftDuration+deltaRoll)*S.pxPerSec)+'px';
       d.rollElements[1].style.left=Math.max(0,(d.rightAt+deltaRoll)*S.pxPerSec)+'px';
       d.rollElements[1].style.width=Math.max(3,(d.rightDuration-deltaRoll)*S.pxPerSec)+'px';
@@ -1143,14 +1184,28 @@
       d.element.setAttribute('data-slip-delta','源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s');
       d.element.classList.add('fs-slipping');
     }else if(d.mode==='trim-start'){
-      var newStart=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,d.originalAt+dx/S.pxPerSec));
+      var rawStart=d.originalAt+dx/S.pxPerSec;
+      var startSnap=findTimelineSnap(rawStart,[d.id],8);
+      if(startSnap)rawStart=startSnap.at;
+      var newStart=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawStart));
+      showTimelineSnapGuide(startSnap?startSnap.at:null,startSnap&&startSnap.kind);
       d.element.style.left=(newStart*S.pxPerSec)+'px';
       d.element.style.width=Math.max(3,(d.originalEnd-newStart)*S.pxPerSec)+'px';
     }else if(d.mode==='trim-end'){
-      var newEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,d.originalEnd+dx/S.pxPerSec));
+      var rawEnd=d.originalEnd+dx/S.pxPerSec;
+      var endSnap=findTimelineSnap(rawEnd,[d.id],8);
+      if(endSnap)rawEnd=endSnap.at;
+      var newEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd+Math.max(0,dx/S.pxPerSec)+1,rawEnd));
+      showTimelineSnapGuide(endSnap?endSnap.at:null,endSnap&&endSnap.kind);
       d.element.style.width=Math.max(3,(newEnd-d.originalAt)*S.pxPerSec)+'px';
     }else{
-      (d.members||[]).forEach(function(member){member.element.style.left=Math.max(0,member.originalAt*S.pxPerSec+dx)+'px';});
+      var chosenIds=(d.members||[]).map(function(member){return member.id;});
+      var lead=(d.members||[]).find(function(member){return member.id===d.id;})||(d.members||[])[0];
+      var rawMoveAt=lead?lead.originalAt+dx/S.pxPerSec:dx/S.pxPerSec;
+      var moveSnap=findTimelineSnap(rawMoveAt,chosenIds,8);
+      var snappedDelta=moveSnap&&lead?moveSnap.at-lead.originalAt:dx/S.pxPerSec;
+      showTimelineSnapGuide(moveSnap?moveSnap.at:null,moveSnap&&moveSnap.kind);
+      (d.members||[]).forEach(function(member){member.element.style.left=Math.max(0,(member.originalAt+snappedDelta)*S.pxPerSec)+'px';});
     }
   }
   async function onUp(e) {
@@ -1176,7 +1231,7 @@
     var d=S.drag;
     if(!d){S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
     S.drag=null;S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
-    clearDragTrackTarget(d);
+    showTimelineSnapGuide(null);clearDragTrackTarget(d);
     (d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
     if(S.pendingExternalRevision){
       syncClipSelectionVisual();renderTimeline();
@@ -1219,10 +1274,9 @@
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
     var lead=(d.members||[]).find(function(member){return member.id===d.id;})||d.members[0];
-    var rawAt=Math.max(0,lead.originalAt+deltaPx/S.pxPerSec),candidates=[S.playhead];
-    clips().forEach(function(c){if(chosen.indexOf(c.id)>=0)return;candidates.push(c.at);if(c.end!=null)candidates.push(c.end);});
-    var nearest=candidates.reduce(function(best,value){return Math.abs(value-rawAt)<Math.abs(best-rawAt)?value:best;},rawAt);
-    var targetAt=Math.abs(nearest-rawAt)*S.pxPerSec<=8?nearest:rawAt;
+    var rawAt=Math.max(0,lead.originalAt+deltaPx/S.pxPerSec);
+    var finalSnap=findTimelineSnap(rawAt,chosen,8);
+    var targetAt=finalSnap?finalSnap.at:rawAt;
     var delta=targetAt-lead.originalAt;
     var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));
     delta=Math.max(-minStart,delta);
@@ -2240,6 +2294,7 @@ window.filmStudioCopyClips=function(){
     split: () => window.filmStudioSplit(),
     'copy-clips': () => window.filmStudioCopyClips(),
     'paste-clips': () => window.filmStudioPasteClips(),
+    'toggle-snap': () => window.filmStudioToggleSnap(),
     'join-cut': () => window.filmStudioJoinThroughEdit(),
     remove: () => window.filmStudioRemove(),
     'ripple-delete': () => window.filmStudioRippleDelete(),
