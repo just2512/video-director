@@ -121,7 +121,8 @@ type ClipInspectorBuildResult =
 
 type CanvasElementFormValues = {
   text: string; left: string; top: string; width: string; height: string;
-  color: string; fontSize: string; rotate: string;
+  color: string; backgroundEnabled: boolean; backgroundColor: string;
+  opacity: string; fontWeight: string; textAlign: string; fontSize: string; rotate: string;
 };
 type CanvasElementBuildResult =
   | {ok:true; operation:Extract<FilmOperation,{op:"element_set"}>}
@@ -145,23 +146,58 @@ export const buildCanvasElementOperation = (
     if(!Number.isFinite(value)||value<min||value>max)return {ok:false,message:label+"必须在 "+min+" 到 "+max+" 之间。"};
     values[label]=value;
   }
-  if(!/^#[0-9a-f]{6}$/i.test(form.color))return {ok:false,message:"颜色必须是有效的 RGB 颜色。"};
+  if(!/^#[0-9a-f]{6}$/i.test(form.color) || !/^#[0-9a-f]{6}$/i.test(form.backgroundColor)) {
+    return {ok:false,message:"颜色必须是有效的 RGB 颜色。"};
+  }
   if(element.textEditable&&form.text.length>4000)return {ok:false,message:"画布元素文本不能超过 4000 个字符。"};
+  if(!form.opacity.trim() || !Number.isFinite(Number(form.opacity)) || Number(form.opacity)<0 || Number(form.opacity)>1) {
+    return {ok:false,message:"不透明度必须是 0 到 1 之间的有效数字。"};
+  }
+  if(!form.fontWeight.trim() || !Number.isInteger(Number(form.fontWeight)) || Number(form.fontWeight)<100
+      || Number(form.fontWeight)>900 || Number(form.fontWeight)%100!==0) {
+    return {ok:false,message:"字重必须是 100 到 900 之间、以 100 为步进的整数。"};
+  }
+  if(!["left","center","right","justify","start","end"].includes(form.textAlign)) {
+    return {ok:false,message:"文字对齐方式无效。"};
+  }
   const style:Record<string,string>={
     position:"fixed",left:values["左坐标"].toFixed(2)+"px",top:values["上坐标"].toFixed(2)+"px",
     width:values["宽度"].toFixed(2)+"px",height:values["高度"].toFixed(2)+"px",color:form.color,
     fontSize:values["字号"].toFixed(2)+"px",rotate:values["旋转角度"].toFixed(2)+"deg",
   };
+  const currentBackground = String(element.styles.backgroundColor || "transparent");
+  const currentBackgroundTransparent = isTransparentBackground(currentBackground);
+  if(form.backgroundEnabled) {
+    if(currentBackgroundTransparent || toHexColor(currentBackground).toLowerCase()!==form.backgroundColor.toLowerCase()) {
+      style.backgroundColor=form.backgroundColor;
+    }
+  } else if(!currentBackgroundTransparent) {
+    // Unchecking an existing fill means explicitly restoring transparency.
+    style.backgroundColor="transparent";
+  }
+  const currentOpacity=asNumber(element.styles.opacity,1);
+  if(Math.abs(Number(form.opacity)-currentOpacity)>1e-5) style.opacity=Number(form.opacity).toFixed(3);
+  if(normalizedFontWeight(element.styles.fontWeight)!==Number(form.fontWeight)) {
+    style.fontWeight=String(Number(form.fontWeight));
+  }
+  const currentTextAlign=String(element.styles.textAlign||"left");
+  if(currentTextAlign!==form.textAlign) style.textAlign=form.textAlign;
   const operation:Extract<FilmOperation,{op:"element_set"}>={op:"element_set",clip:element.clipId,selector:element.selector,style};
   if(element.textEditable)operation.text=form.text;
   return {ok:true,operation};
 };
 const readCanvasElementForm=():CanvasElementFormValues|null=>{
-  const ids=["fs-element-text","fs-element-left","fs-element-top","fs-element-width","fs-element-height","fs-element-color","fs-element-font-size","fs-element-rotate"];
-  const fields=ids.map(id=>document.getElementById(id) as HTMLInputElement|HTMLTextAreaElement|null);
+  const ids=["fs-element-text","fs-element-left","fs-element-top","fs-element-width","fs-element-height","fs-element-color",
+    "fs-element-background-enabled","fs-element-background-color","fs-element-opacity","fs-element-font-weight","fs-element-text-align",
+    "fs-element-font-size","fs-element-rotate"];
+  const fields=ids.map(id=>document.getElementById(id) as HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement|null);
   if(fields.some(field=>!field))return null;
-  const [text,left,top,width,height,color,fontSize,rotate]=fields as Array<HTMLInputElement|HTMLTextAreaElement>;
-  return {text:text.value,left:left.value,top:top.value,width:width.value,height:height.value,color:color.value,fontSize:fontSize.value,rotate:rotate.value};
+  const [text,left,top,width,height,color,backgroundEnabled,backgroundColor,opacity,fontWeight,textAlign,fontSize,rotate]=fields as Array<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>;
+  return {
+    text:text.value,left:left.value,top:top.value,width:width.value,height:height.value,color:color.value,
+    backgroundEnabled:(backgroundEnabled as HTMLInputElement).checked,backgroundColor:backgroundColor.value,
+    opacity:opacity.value,fontWeight:fontWeight.value,textAlign:textAlign.value,fontSize:fontSize.value,rotate:rotate.value
+  };
 };
 
 /** Typed intent builder; persistence remains in Studio's revision-checked commit path. */
@@ -256,6 +292,23 @@ const toHexColor = (value: string): string => {
     return "#" + text.slice(1).split("").map((part) => part + part).join("");
   }
   return "#ffffff";
+};
+
+const isTransparentBackground = (value: string): boolean => {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text || text === "transparent") return true;
+  const rgba = text.match(/^rgba\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([+-]?(?:\d+\.?\d*|\.\d+))\s*\)$/i);
+  return Boolean(rgba && Number(rgba[1]) <= 0);
+};
+
+const normalizedFontWeight = (value: string): number => {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text || text === "normal" || text === "lighter") return 400;
+  if (text === "bold" || text === "bolder") return 700;
+  const number = Number(text);
+  return Number.isFinite(number)
+    ? Math.max(100, Math.min(900, Math.round(number / 100) * 100))
+    : 400;
 };
 
 const rotateDegrees = (styles: Record<string, string>): number => {
@@ -584,6 +637,9 @@ const StudioTimelineToolbar: React.FC = () => (
 const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element}) => {
   const rect = element.localRect || element.rect || {};
   const styles = element.styles || {};
+  const backgroundColor = String(styles.backgroundColor || "transparent");
+  const currentTextAlign = ["left", "center", "right", "justify", "start", "end"].includes(String(styles.textAlign || "left"))
+    ? String(styles.textAlign || "left") : "left";
   return (
     <section className="fs-inspector-element focus-within:ring-2 focus-within:ring-teal-400" data-react-canvas-inspector="true">
       <h4>画布元素 · {element.tag} · {element.selector}</h4>
@@ -616,6 +672,36 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
       <label className="fs-inspector-field">
         文字颜色
         <input id="fs-element-color" type="color" defaultValue={toHexColor(styles.color || "#ffffff")} />
+      </label>
+      <div className="fs-inspector-field">
+        <span>背景填色</span>
+        <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-1">
+            <input id="fs-element-background-enabled" type="checkbox" defaultChecked={!isTransparentBackground(backgroundColor)} />
+            启用
+          </label>
+          <input id="fs-element-background-color" type="color" aria-label="背景颜色" defaultValue={toHexColor(backgroundColor)} />
+        </div>
+      </div>
+      <label className="fs-inspector-field">
+        不透明度（0–1）
+        <input id="fs-element-opacity" type="number" min={0} max={1} step={0.05} defaultValue={asNumber(styles.opacity, 1)} />
+      </label>
+      <label className="fs-inspector-field">
+        字重
+        <select id="fs-element-font-weight" defaultValue={String(normalizedFontWeight(styles.fontWeight))}>
+          {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((weight) => (
+            <option key={weight} value={weight}>{weight}{weight === 400 ? "（常规）" : weight === 700 ? "（粗体）" : ""}</option>
+          ))}
+        </select>
+      </label>
+      <label className="fs-inspector-field">
+        文字对齐
+        <select id="fs-element-text-align" defaultValue={currentTextAlign}>
+          {["left", "center", "right", "justify", "start", "end"].map((align) => (
+            <option key={align} value={align}>{({left:"左对齐",center:"居中",right:"右对齐",justify:"两端对齐",start:"起始对齐",end:"末端对齐"} as Record<string,string>)[align]}</option>
+          ))}
+        </select>
       </label>
       <label className="fs-inspector-field">
         字号（px）
@@ -786,12 +872,18 @@ window.filmStudioReactInspector = {
       ["fs-element-width", asNumber(rect.width, 1).toFixed(1)],
       ["fs-element-height", asNumber(rect.height, 1).toFixed(1)],
       ["fs-element-color", toHexColor(styles.color || "#ffffff")],
+      ["fs-element-background-color", toHexColor(styles.backgroundColor || "#ffffff")],
+      ["fs-element-opacity", String(asNumber(styles.opacity, 1))],
+      ["fs-element-font-weight", String(normalizedFontWeight(styles.fontWeight))],
+      ["fs-element-text-align", ["left", "center", "right", "justify", "start", "end"].includes(String(styles.textAlign || "left")) ? String(styles.textAlign || "left") : "left"],
       ["fs-element-font-size", String(asNumber(parseFloat(styles.fontSize), 24))],
       ["fs-element-rotate", String(rotateDegrees(styles))],
     ];
     for (const [id, value] of values) {
-      const input = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
+      const input = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
       if (input && !(id === "fs-element-text" && input.disabled)) input.value = value;
     }
+    const backgroundToggle = document.getElementById("fs-element-background-enabled") as HTMLInputElement | null;
+    if (backgroundToggle) backgroundToggle.checked = !isTransparentBackground(String(styles.backgroundColor || "transparent"));
   },
 };

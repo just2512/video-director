@@ -301,6 +301,11 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.locator("#fs-element-width").fill("280")
                 page.locator("#fs-element-height").fill("80")
                 page.locator("#fs-element-color").fill("#ff0000")
+                page.locator("#fs-element-background-enabled").check()
+                page.locator("#fs-element-background-color").fill("#112233")
+                page.locator("#fs-element-opacity").fill("0.75")
+                page.locator("#fs-element-font-weight").select_option("500")
+                page.locator("#fs-element-text-align").select_option("center")
                 page.locator("#fs-element-font-size").fill("36")
                 page.locator("#fs-element-rotate").fill("12")
                 page.locator("#fs-apply-element").click()
@@ -317,6 +322,10 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 assert target["style"]["width"] == "280.00px"
                 assert target["style"]["height"] == "80.00px"
                 assert target["style"]["color"] == "#ff0000"
+                assert target["style"]["backgroundColor"] == "#112233"
+                assert target["style"]["opacity"] == "0.75"
+                assert target["style"]["fontWeight"] == "500"
+                assert target["style"]["textAlign"] == "center"
                 assert target["style"]["fontSize"] == "36.00px"
                 assert target["style"]["rotate"] == "12.00deg"
                 saved_revision = fd.read_project_film(project_id)["rev"]

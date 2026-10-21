@@ -9,6 +9,11 @@ def test_canvas_inspector_has_functional_unbundled_fallback():
     assert "data-canvas-inspector-fallback" in studio
     assert "id=\"fs-element-text\"" in studio
     assert "id=\"fs-element-width\"" in studio
+    for field_id in (
+        "fs-element-background-enabled", "fs-element-background-color",
+        "fs-element-opacity", "fs-element-font-weight", "fs-element-text-align",
+    ):
+        assert f'id="{field_id}"' in studio
     assert "id=\"fs-apply-element\"" in studio
     assert "window.filmStudioSaveSelectedElement()" in studio
     assert "renderElementInspector(element);" in studio

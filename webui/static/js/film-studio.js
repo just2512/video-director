@@ -125,6 +125,19 @@
     if(/^#[0-9a-f]{3}$/i.test(text))return '#'+text.slice(1).split('').map(function(v){return v+v;}).join('');
     return '#ffffff';
   }
+  function isTransparentBackground(value) {
+    var text=String(value||'').trim().toLowerCase();
+    if(!text||text==='transparent')return true;
+    var rgba=text.match(/^rgba\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([+-]?(?:\d+\.?\d*|\.\d+))\s*\)$/i);
+    return !!rgba&&Number(rgba[1])<=0;
+  }
+  function normalizedFontWeight(value) {
+    var text=String(value||'').trim().toLowerCase();
+    if(!text||text==='normal'||text==='lighter')return 400;
+    if(text==='bold'||text==='bolder')return 700;
+    var number=Number(text);
+    return Number.isFinite(number)?Math.max(100,Math.min(900,Math.round(number/100)*100)):400;
+  }
   function renderElementInspector(element) {
     var mount=$('fs-react-canvas-inspector');
     if(!mount)return;
@@ -144,6 +157,10 @@
       '<label class="fs-inspector-field">宽度<input id="fs-element-width" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.width,1).toFixed(1))+'"></label>'+
       '<label class="fs-inspector-field">高度<input id="fs-element-height" type="number" min="1" max="10000" step="1" value="'+esc(num(rect.height,1).toFixed(1))+'"></label>'+
       '<label class="fs-inspector-field">文字颜色<input id="fs-element-color" type="color" value="'+esc(hexColor(styles.color||'#ffffff'))+'"></label>'+
+      '<div class="fs-inspector-field"><span>背景填色</span><div style="display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:4px"><input id="fs-element-background-enabled" type="checkbox" '+(!isTransparentBackground(String(styles.backgroundColor||'transparent'))?'checked':'')+'>启用</label><input id="fs-element-background-color" type="color" aria-label="背景颜色" value="'+esc(hexColor(styles.backgroundColor||'#ffffff'))+'"></div></div>'+
+      '<label class="fs-inspector-field">不透明度（0–1）<input id="fs-element-opacity" type="number" min="0" max="1" step="0.05" value="'+esc(num(styles.opacity,1))+'"></label>'+
+      '<label class="fs-inspector-field">字重<select id="fs-element-font-weight">'+[100,200,300,400,500,600,700,800,900].map(function(weight){var selected=weight===normalizedFontWeight(styles.fontWeight)?' selected':'';return '<option value="'+weight+'"'+selected+'>'+weight+(weight===400?'（常规）':weight===700?'（粗体）':'')+'</option>';}).join('')+'</select></label>'+
+      '<label class="fs-inspector-field">文字对齐<select id="fs-element-text-align">'+[['left','左对齐'],['center','居中'],['right','右对齐'],['justify','两端对齐'],['start','起始对齐'],['end','末端对齐']].map(function(option){var current=String(styles.textAlign||'left'),selected=option[0]===current?' selected':'';return '<option value="'+option[0]+'"'+selected+'>'+option[1]+'</option>';}).join('')+'</select></label>'+
       '<label class="fs-inspector-field">字号（px）<input id="fs-element-font-size" type="number" min="1" max="1000" step="1" value="'+esc(num(parseFloat(styles.fontSize),24))+'"></label>'+
       '<label class="fs-inspector-field">旋转（度）<input id="fs-element-rotate" type="number" min="-3600" max="3600" step="1" value="'+esc(rotateMatch?Number(rotateMatch[0]):0)+'"></label>'+
       '<button type="button" class="fs-btn fs-primary" id="fs-apply-element">应用画布修改</button></section>';
@@ -164,12 +181,18 @@
       'fs-element-width':num(rect.width,1).toFixed(1),
       'fs-element-height':num(rect.height,1).toFixed(1),
       'fs-element-color':hexColor(styles.color||'#ffffff'),
+      'fs-element-background-color':hexColor(styles.backgroundColor||'#ffffff'),
+      'fs-element-opacity':String(num(styles.opacity,1)),
+      'fs-element-font-weight':String(normalizedFontWeight(styles.fontWeight)),
+      'fs-element-text-align':['left','center','right','justify','start','end'].indexOf(String(styles.textAlign||'left'))>=0?String(styles.textAlign||'left'):'left',
       'fs-element-font-size':String(num(parseFloat(styles.fontSize),24)),
       'fs-element-rotate':String(rotateMatch?Number(rotateMatch[0]):0)
     };
     Object.keys(values).forEach(function(id){
       var input=$(id);if(input&&!(id==='fs-element-text'&&input.disabled))input.value=values[id];
     });
+    var backgroundToggle=$('fs-element-background-enabled');
+    if(backgroundToggle)backgroundToggle.checked=!isTransparentBackground(String(styles.backgroundColor||'transparent'));
   }
   function renderMigration() {
     var data=S.migration||{}, preview=data.migration_preview||{}, warnings=preview.warnings||[];
@@ -1371,12 +1394,19 @@
     if(!clip){showStatus('所选元素所属片段已不存在，请重新选择。','error');return;}
     var textInput=$('fs-element-text'),leftInput=$('fs-element-left'),topInput=$('fs-element-top'),
         widthInput=$('fs-element-width'),heightInput=$('fs-element-height'),colorInput=$('fs-element-color'),
+        backgroundEnabledInput=$('fs-element-background-enabled'),backgroundColorInput=$('fs-element-background-color'),
+        opacityInput=$('fs-element-opacity'),fontWeightInput=$('fs-element-font-weight'),textAlignInput=$('fs-element-text-align'),
         fontInput=$('fs-element-font-size'),rotateInput=$('fs-element-rotate');
-    var values=[leftInput,topInput,widthInput,heightInput,fontInput,rotateInput].filter(Boolean).map(function(el){return Number(el.value);});
+    var values=[leftInput,topInput,widthInput,heightInput,fontInput,rotateInput,opacityInput,fontWeightInput].filter(Boolean).map(function(el){return Number(el.value);});
     if(values.some(function(value){return !Number.isFinite(value);})
-      ||!widthInput||!heightInput||Number(widthInput.value)<=0||Number(heightInput.value)<=0
+      ||!widthInput||!heightInput||!fontInput||!rotateInput||!backgroundEnabledInput||!backgroundColorInput||!opacityInput||!fontWeightInput||!textAlignInput
+      ||Number(widthInput.value)<=0||Number(heightInput.value)<=0
       ||Number(fontInput.value)<=0||Number(widthInput.value)>10000||Number(heightInput.value)>10000
-      ||Number(fontInput.value)>1000||Math.abs(Number(rotateInput.value))>3600){
+      ||Number(fontInput.value)>1000||Math.abs(Number(rotateInput.value))>3600
+      ||Number(opacityInput.value)<0||Number(opacityInput.value)>1
+      ||Number(fontWeightInput.value)<100||Number(fontWeightInput.value)>900||Number(fontWeightInput.value)%100!==0
+      ||['left','center','right','justify','start','end'].indexOf(textAlignInput.value)<0
+      ||!/^#[0-9a-f]{6}$/i.test(backgroundColorInput.value)){
       showStatus('画布坐标、尺寸、字号或旋转角度超出有效范围。','error');return;
     }
     var elementStyle={
@@ -1389,6 +1419,18 @@
       fontSize:Number(fontInput.value).toFixed(2)+'px',
       rotate:Number(rotateInput.value).toFixed(2)+'deg'
     };
+    var currentBackground=String(selected.styles&&selected.styles.backgroundColor||'transparent');
+    var currentBackgroundTransparent=isTransparentBackground(currentBackground);
+    if(backgroundEnabledInput.checked){
+      if(currentBackgroundTransparent||hexColor(currentBackground).toLowerCase()!==backgroundColorInput.value.toLowerCase())elementStyle.backgroundColor=backgroundColorInput.value;
+    }else if(!currentBackgroundTransparent){
+      elementStyle.backgroundColor='transparent';
+    }
+    var currentOpacity=num(selected.styles&&selected.styles.opacity,1);
+    if(Math.abs(Number(opacityInput.value)-currentOpacity)>1e-5)elementStyle.opacity=Number(opacityInput.value).toFixed(3);
+    if(normalizedFontWeight(selected.styles&&selected.styles.fontWeight)!==Number(fontWeightInput.value))elementStyle.fontWeight=String(Number(fontWeightInput.value));
+    var currentTextAlign=String(selected.styles&&selected.styles.textAlign||'left');
+    if(currentTextAlign!==textAlignInput.value)elementStyle.textAlign=textAlignInput.value;
     var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle};
     if(textInput&&!textInput.disabled&&textInput.value!==null)elementOp.text=textInput.value;
     var previousRevision=S.rev;
