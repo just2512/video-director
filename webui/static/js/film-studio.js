@@ -392,6 +392,10 @@
     }
     $('fs-timeline').style.width=(132+laneWidth)+'px';$('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
     $('fs-timeline').querySelectorAll('[data-clip]').forEach(function(el){
+      // React keeps keyed clip nodes between renders. Bind native handlers once;
+      // the legacy fallback replaces innerHTML, which naturally creates fresh nodes.
+      if(el.__filmStudioClipBound)return;
+      el.__filmStudioClipBound=true;
       el.addEventListener('click',function(e){
         e.stopPropagation();
         if(S.skipNextClipClick){S.skipNextClipClick=false;return;}
@@ -476,6 +480,8 @@
       });
     });
     $('fs-timeline').querySelectorAll('[data-track-lock]').forEach(function(el){
+      if(el.__filmStudioTrackLockBound)return;
+      el.__filmStudioTrackLockBound=true;
       el.addEventListener('click',function(e){
         e.stopPropagation();var track=(S.data.tracks||[]).find(function(t){return t.id===el.getAttribute('data-track-lock');});if(!track)return;
         var locked=Object.prototype.hasOwnProperty.call(track.attrs||{},'locked');
@@ -483,6 +489,8 @@
       });
     });
     $('fs-timeline').querySelectorAll('[data-track-flag]').forEach(function(el){
+      if(el.__filmStudioTrackFlagBound)return;
+      el.__filmStudioTrackFlagBound=true;
       el.addEventListener('click',function(e){
         e.stopPropagation();
         var track=(S.data.tracks||[]).find(function(t){return t.id===el.getAttribute('data-track-key');});
@@ -491,7 +499,11 @@
         filmStudioCommit([{op:'track',track_id:track.id,field:field,value:!on}]);
       });
     });
-    $('fs-ruler-body').querySelectorAll('[data-at]').forEach(function(el){el.addEventListener('click',function(e){window.filmStudioSeek(el.getAttribute('data-at'));});});
+    $('fs-ruler-body').querySelectorAll('[data-at]').forEach(function(el){
+      if(el.__filmStudioRulerBound)return;
+      el.__filmStudioRulerBound=true;
+      el.addEventListener('click',function(){window.filmStudioSeek(el.getAttribute('data-at'));});
+    });
     setPlayheadVisual();
     renderAudioWaveforms();
   }
@@ -611,10 +623,14 @@
     return points[points.length-1].v;
   }
   function bindVolumeEnvelopeCanvas(canvas){
-    var clip=findClip(canvas.getAttribute('data-envelope-clip'));
-    if(!clip||clip.duration==null||clip.duration<=0)return;
+    var initialClip=findClip(canvas.getAttribute('data-envelope-clip'));
+    if(!initialClip||initialClip.duration==null||initialClip.duration<=0)return;
+    if(canvas.__filmStudioEnvelopeBound)return;
+    canvas.__filmStudioEnvelopeBound=true;
     canvas.addEventListener('contextmenu',function(e){e.preventDefault();});
     canvas.addEventListener('pointerdown',function(e){
+      var clip=findClip(canvas.getAttribute('data-envelope-clip'));
+      if(!clip||clip.duration==null||clip.duration<=0)return;
       if(e.button!==0&&e.button!==2)return;
       e.preventDefault();e.stopPropagation();
       if(S.busy||S.broken){showStatus('当前无法编辑音量包络。','error');return;}

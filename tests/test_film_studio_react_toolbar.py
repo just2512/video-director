@@ -49,3 +49,15 @@ def test_react_timeline_keeps_stable_dom_identity_for_tracks_and_clips():
     assert "<TimelineSurface key=" not in component
     assert "key={track.id}" in component
     assert "key={clip.id}" in component
+
+
+def test_stable_react_timeline_nodes_do_not_accumulate_native_event_handlers():
+    from pathlib import Path
+
+    studio = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "if(el.__filmStudioClipBound)return;" in studio
+    assert "if(el.__filmStudioTrackLockBound)return;" in studio
+    assert "if(el.__filmStudioTrackFlagBound)return;" in studio
+    assert "if(el.__filmStudioRulerBound)return;" in studio
+    assert "if(canvas.__filmStudioEnvelopeBound)return;" in studio
+    assert "var clip=findClip(canvas.getAttribute('data-envelope-clip'));" in studio
