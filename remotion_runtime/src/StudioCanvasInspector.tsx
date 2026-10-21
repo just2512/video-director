@@ -539,6 +539,64 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
             onChange={(event) => update("title", event.currentTarget.value)} />
         </label>
       </div>
+      <section className="fs-inspector-section fs-keyframe-editor" data-film-keyframe-editor="true">
+        <h4>视觉关键帧</h4>
+        <p className="fs-inspector-description">关键帧使用片段相对时间。拖动曲线节点调整时间和值；缓动由右侧节点决定。修改后点击“应用片段属性”。</p>
+        <input type="hidden" id="fs-field-keyframes" readOnly value={keyframeDirty?JSON.stringify(keyframeChannels):(clip.attrs["data-film-keyframes"]||"")} />
+        <label className="fs-inspector-field">动画属性
+          <select id="fs-keyframe-property" value={animationProperty} disabled={readOnly||clip.duration==null}
+            onChange={event=>{const property=event.currentTarget.value as FilmKeyframeProperty;setAnimationProperty(property);setNewKeyframeValue(String(keyframeInfo(property).initial));setKeyframeFeedback("");}}>
+            {FILM_KEYFRAME_PROPERTIES.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <div className="fs-keyframe-range">{animationInfo.min} 至 {animationInfo.max} · {clip.duration==null?"时长未知":clip.duration.toFixed(3)+" 秒"}</div>
+        {clip.duration!=null&&clip.duration>0 ? <>
+          <svg className="fs-keyframe-graph" viewBox="0 0 360 96" preserveAspectRatio="none" role="img"
+            aria-label={animationInfo.label+" 关键帧曲线；拖动圆点修改"}
+            onPointerMove={handleKeyframePointerMove} onPointerUp={()=>setDraggingKeyframe(null)} onPointerCancel={()=>setDraggingKeyframe(null)}>
+            {[0,.25,.5,.75,1].map(ratio=><line key={"h"+ratio} x1="8" x2="352" y1={8+ratio*72} y2={8+ratio*72} className="fs-keyframe-grid"/>)}
+            {[0,.25,.5,.75,1].map(ratio=><line key={"v"+ratio} x1={8+ratio*344} x2={8+ratio*344} y1="8" y2="80" className="fs-keyframe-grid"/>)}
+            {typeof clip.playhead==="number"&&<line x1={8+clampKeyframe((clip.playhead-clip.at)/clip.duration,0,1)*344} x2={8+clampKeyframe((clip.playhead-clip.at)/clip.duration,0,1)*344} y1="4" y2="84" className="fs-keyframe-playhead"/>}
+            {activeChannel&&activeChannel.keyframes.length>1&&<path d={keyframePath(activeChannel,clip.duration,animationInfo.min,animationInfo.max)} className="fs-keyframe-curve" fill="none"/>}
+            {activeChannel?.keyframes.map((point,index)=><circle key={point.at}
+              cx={8+clampKeyframe(point.at/clip.duration,0,1)*344}
+              cy={8+(1-(clampKeyframe(point.value,animationInfo.min,animationInfo.max)-animationInfo.min)/Math.max(1e-9,animationInfo.max-animationInfo.min))*72}
+              r="4.5" className={"fs-keyframe-point"+(draggingKeyframe===index?" is-dragging":"")}
+              tabIndex={readOnly?-1:0} role="slider" aria-label={"关键帧 "+(index+1)}
+              onPointerDown={event=>{if(readOnly)return;event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);setDraggingKeyframe(index);}}
+              onKeyDown={event=>{
+                if(readOnly)return;const delta=event.shiftKey?10:1;
+                if(event.key==="ArrowLeft"||event.key==="ArrowRight"){event.preventDefault();updateKeyframePoint(index,{at:point.at+(event.key==="ArrowRight"?delta:-delta)*frameStep});}
+                else if(event.key==="ArrowUp"||event.key==="ArrowDown"){event.preventDefault();updateKeyframePoint(index,{value:point.value+(event.key==="ArrowUp"?1:-1)*(animationInfo.max-animationInfo.min)/100});}
+              }}/>)}
+          </svg>
+          <div className="fs-keyframe-labels"><span>0.000s</span><span>{clip.duration.toFixed(3)}s</span></div>
+          <div className="fs-keyframe-list">
+            {activeChannel?activeChannel.keyframes.map((point,index)=><div className="fs-keyframe-row" key={point.at}>
+              <label>时间<input type="number" min={0} max={clip.duration} step={frameStep} value={point.at.toFixed(3)} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 时间"}
+                onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{at:value});}}/></label>
+              <label>数值<input type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={point.value} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 数值"}
+                onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{value});}}/></label>
+              <label>缓动<select value={point.easing} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 缓动"}
+                onChange={event=>updateKeyframePoint(index,{easing:event.currentTarget.value as FilmKeyframeEasing})}>
+                <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option>
+              </select></label>
+              <button type="button" className="fs-btn" aria-label={"删除关键帧 "+(index+1)} disabled={readOnly} onClick={()=>removeKeyframe(index)}>删除</button>
+            </div>):<div className="fs-empty">该属性还没有关键帧。</div>}
+          </div>
+          <div className="fs-keyframe-add">
+            <label className="fs-inspector-field">时间（相对秒）<input id="fs-keyframe-new-at" type="number" min={0} max={clip.duration} step={frameStep} value={newKeyframeAt} disabled={readOnly} onChange={event=>setNewKeyframeAt(event.currentTarget.value)}/></label>
+            <label className="fs-inspector-field">数值<input id="fs-keyframe-new-value" type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={newKeyframeValue} disabled={readOnly} onChange={event=>setNewKeyframeValue(event.currentTarget.value)}/></label>
+            <label className="fs-inspector-field">缓动<select id="fs-keyframe-new-easing" value={newKeyframeEasing} disabled={readOnly} onChange={event=>setNewKeyframeEasing(event.currentTarget.value as FilmKeyframeEasing)}>
+              <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option>
+            </select></label>
+            <button type="button" className="fs-btn" id="fs-keyframe-add" disabled={readOnly} onClick={addKeyframe}>添加关键帧</button>
+          </div>
+        </>:<div className="fs-empty">该片段没有可验证的明确时长，暂不能编辑动画关键帧。</div>}
+        {keyframeFeedback?<div className="fs-alert fs-visible fs-error" role="status">{keyframeFeedback}</div>:null}
+        <button type="button" className="fs-btn" id="fs-keyframe-clear" disabled={readOnly||!keyframeChannels.length}
+          onClick={()=>{setKeyframeChannels([]);setKeyframeDirty(true);setKeyframeFeedback("");}}>清空全部视觉关键帧</button>
+      </section>
       <div className="fs-inspector-description fs-inspector-section">
         更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。
       </div>
