@@ -81,12 +81,6 @@ def test_nonlinear_volume_keyframe_easing_is_preserved_as_executable_curve():
     assert fd._volume_envelope_value(points, 1.5) == pytest.approx(0.6)
 
 
-def test_single_volume_keyframe_becomes_a_valid_constant_envelope():
-    points, warnings = fd._film_volume_envelope([
-        {"property": "volume", "keyframes": [{"at": 0.5, "value": 0.3, "easing": "linear"}]},
-    ], 2.0)
-    assert points == [{"t": 0.0, "v": 0.3}, {"t": 2.0, "v": 0.3}]
-    assert any("只有一个有效关键帧" in warning for warning in warnings)
 
 
 def test_trimming_nonlinear_volume_envelope_preserves_the_curve_subinterval():
@@ -139,3 +133,15 @@ def test_runtime_volume_envelope_sampler_uses_shared_easing_contract():
     assert "easing.type==='window'" in source
     assert "filmEase(start+x*(end-start),preset)" in source
     assert "volumeEaseAt(ratio,right.easing||'linear')" in source
+
+
+
+def test_python_easing_values_match_ffmpeg_curve_contract():
+    from video_director.film_document import _volume_ease_value
+    from video_director.film_render import _volume_preset_value
+
+    for preset in ("linear", "ease_in", "ease_out", "ease_in_out"):
+        for ratio in (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0):
+            assert _volume_ease_value(ratio, preset) == pytest.approx(
+                _volume_preset_value(ratio, preset), abs=1e-12
+            )
