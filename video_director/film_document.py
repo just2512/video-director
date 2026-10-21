@@ -2641,19 +2641,20 @@ def _film_mask_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict],
 
 
 def _motion_keyframes(motion: str | None, duration: float, transform: dict,
-                      channels: list[dict]) -> tuple[list[dict], str | None]:
+                      channels: list[dict], motion_intensity: float = 1.08) -> tuple[list[dict], str | None]:
     """Map supported legacy zoom/pan presets into the frame(t) keyframe contract."""
     if not motion:
         return channels, None
     existing = {channel.get("property") for channel in channels}
     x, scale = float(transform["x"]), float(transform["scale"])
+    intensity = _number(motion_intensity, "legacy motion intensity", 1.0, 1.5)
     if motion == "slow_zoom_in":
         prop = "scale"
         points = [{"at": 0.0, "value": scale, "easing": "linear"},
-                  {"at": duration, "value": min(5.0, scale * 1.08), "easing": "ease_in_out"}]
+                  {"at": duration, "value": min(5.0, scale * intensity), "easing": "ease_in_out"}]
     elif motion == "slow_zoom_out":
         prop = "scale"
-        points = [{"at": 0.0, "value": min(5.0, scale * 1.08), "easing": "ease_in_out"},
+        points = [{"at": 0.0, "value": min(5.0, scale * intensity), "easing": "ease_in_out"},
                   {"at": duration, "value": scale, "easing": "linear"}]
     elif motion == "pan_left":
         prop = "x"
@@ -2945,6 +2946,74 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                             f"active_variant_id {requested_variant!r} 未匹配到 Composition 变体，拒绝静默回退", 422)
     elif len(variants) == 1:
         selected_variant = variants[0]
+
+    # Resolve known legacy style IDs into executable FilmDocument values. Unknown
+    # styles stay archived as metadata; arbitrary parameter objects are never
+    # interpreted as CSS or as render instructions.
+    variant_style = (selected_variant or {}).get("style") or {}
+    variant_style_id = str(variant_style.get("style_id") or "") if isinstance(variant_style, dict) else ""
+    style_contract_source = raw_ir.get("style_contract") or {}
+    requested_style_id = (
+        variant_style_id
+        or str(style_contract_source.get("style_id") or "")
+        or str(raw_ir.get("style_id") or "")
+    )
+    normalized_style_id = requested_style_id.removeprefix("style.")
+    builtin_style = None
+    if normalized_style_id:
+        try:
+            from video_director import style as legacy_style_registry
+            builtin_style = legacy_style_registry.get_style(normalized_style_id)
+        except (ImportError, AttributeError):
+            builtin_style = None
+    style_parameters = (
+        variant_style.get("parameters") if isinstance(variant_style, dict) else None
+    )
+    if not isinstance(style_parameters, dict):
+        style_parameters = {}
+    migrated_style = {
+        "subtitle_position": getattr(builtin_style, "subtitle_position", None),
+        "subtitle_font_size": getattr(builtin_style, "subtitle_font_size", None),
+        "subtitle_max_lines": getattr(builtin_style, "subtitle_max_lines", None),
+        "image_motion_intensity": getattr(builtin_style, "image_motion_intensity", None),
+        "transition_budget": getattr(builtin_style, "transition_budget", None),
+        "bgm_volume": getattr(builtin_style, "bgm_volume", None),
+        "sfx_density": getattr(builtin_style, "sfx_density", None),
+    }
+    style_parameter_warnings = []
+    if builtin_style:
+        if "subtitle_position" in style_parameters:
+            value = str(style_parameters["subtitle_position"])
+            if value in {"top", "center", "bottom"}:
+                migrated_style["subtitle_position"] = value
+            else:
+                style_parameter_warnings.append("subtitle_position 参数无效，保留内置风格值")
+        if "subtitle_font_size" in style_parameters:
+            try:
+                value = _number(style_parameters["subtitle_font_size"], "style subtitle_font_size", 12, 160)
+                migrated_style["subtitle_font_size"] = int(round(value))
+            except FilmError:
+                style_parameter_warnings.append("subtitle_font_size 参数越界，保留内置风格值")
+        if "image_motion_intensity" in style_parameters:
+            try:
+                migrated_style["image_motion_intensity"] = _number(
+                    style_parameters["image_motion_intensity"], "style image_motion_intensity", 1.0, 1.5
+                )
+            except FilmError:
+                style_parameter_warnings.append("image_motion_intensity 参数越界，保留内置风格值")
+        unsupported_parameters = sorted(
+            set(style_parameters) - {"subtitle_position", "subtitle_font_size", "image_motion_intensity"}
+        )
+        if unsupported_parameters:
+            style_parameter_warnings.append(
+                "这些风格参数尚未映射为 Film Runtime 行为：" + ", ".join(unsupported_parameters)
+            )
+    contract_motion_temper = str(style_contract_source.get("motion_temper") or "")
+    if migrated_style["image_motion_intensity"] is None:
+        migrated_style["image_motion_intensity"] = {
+            "calm": 1.08, "energetic": 1.18, "cinematic": 1.06,
+        }.get(contract_motion_temper, 1.08)
+    legacy_motion_intensity = float(migrated_style["image_motion_intensity"])
     source_scenes = list((selected_variant or {}).get("scenes") or raw_ir.get("scenes") or [])
     source_audio = list((selected_variant or {}).get("tracks") or raw_ir.get("audio") or [])
     beat_migration_warnings = []
@@ -3117,6 +3186,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     warnings.extend(variant_warnings)
     warnings.extend(source_archive_warnings)
     warnings.extend(beat_migration_warnings)
+    warnings.extend(f"Style Registry：{warning}" for warning in style_parameter_warnings)
     if variants:
         if selected_variant:
             alternatives = [str(item.get("id")) for item in variants
@@ -3126,10 +3196,17 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 f"其它 variants {alternatives or '无'} 不会被并入成片"
             )
             if selected_variant.get("style"):
-                warnings.append(
-                    f"变体 {selected_variant.get('id')} 的 variant.style 已保存在最终轨道的 "
-                    "data-source-variant-style，但尚未编译为实际 CSS"
-                )
+                if builtin_style and variant_style_id:
+                    warnings.append(
+                        f"变体 {selected_variant.get('id')} 的注册风格 {normalized_style_id} 已执行字幕位置/字号"
+                        "和旧式 zoom 动效映射；transition_budget、bgm_volume、sfx_density 尚未由 Film Runtime 执行。"
+                        "完整原始 variant.style 仍保存在 data-source-variant-style"
+                    )
+                else:
+                    warnings.append(
+                        f"变体 {selected_variant.get('id')} 的 variant.style 已保存在最终轨道的 "
+                        "data-source-variant-style，但未匹配到可执行的内置风格；自定义参数不会被猜测执行"
+                    )
             if selected_variant.get("metadata"):
                 warnings.append(
                     f"变体 {selected_variant.get('id')} 的 metadata 已保存在最终轨道的 "
@@ -3148,12 +3225,35 @@ def build_film_from_composition(project_id: str, ir) -> dict:
     if isinstance(source_fps, bool) or not isinstance(source_fps, int) or not 1 <= source_fps <= 60:
         raise FilmError("INVALID_FPS", f"旧项目帧率 {source_fps!r} 不在支持的 1–60 范围内，拒绝静默限制。", 422)
     if raw_ir.get("style_id"):
-        warnings.append(
-            "style_id 已保存在最终轨道的 data-source-style-id；当前不会自动应用 Style Registry 视觉样式"
-        )
+        if builtin_style and not variant_style_id and normalized_style_id == str(raw_ir.get("style_id")).removeprefix("style."):
+            warnings.append(
+                f"已执行注册风格 {normalized_style_id} 的字幕位置/字号和旧式 zoom 动效；"
+                "transition_budget、bgm_volume、sfx_density 尚未由 Film Runtime 执行"
+            )
+        elif not builtin_style:
+            warnings.append(
+                "style_id 已保存在最终轨道的 data-source-style-id；未匹配到内置 Style Registry，"
+                "自定义视觉样式不会被猜测执行"
+            )
     if raw_ir.get("style_contract"):
+        mapped_contract_parts = []
+        if contract_motion_temper in {"calm", "energetic", "cinematic"}:
+            mapped_contract_parts.append("motion_temper")
+        if not raw_ir.get("subtitle_style"):
+            if isinstance(style_contract_palette, dict) and any(
+                isinstance(style_contract_palette.get(key), str)
+                and re.fullmatch(r"#[0-9a-fA-F]{6}", style_contract_palette.get(key) or "")
+                for key in ("subtitle", "text", "foreground")
+            ):
+                mapped_contract_parts.append("palette subtitle/text/foreground")
+            if isinstance(style_contract_typography, dict) and any(
+                style_contract_typography.get(key) for key in ("font_family", "font", "font_size", "subtitle_font_size")
+            ):
+                mapped_contract_parts.append("typography font/size")
         warnings.append(
-            "style_contract 已保存在最终轨道的 data-source-style-contract；调色板/字体/安全区尚未编译为实际 CSS"
+            "style_contract 已保存在最终轨道的 data-source-style-contract；"
+            + ("已应用 " + ", ".join(mapped_contract_parts) + "；" if mapped_contract_parts else "")
+            + "safe_zone 及未识别的调色板/字体字段仍未编译为实际 CSS"
         )
     if raw_ir.get("continuity_links"):
         warnings.append(
@@ -3223,7 +3323,34 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 "只保留轨道标签，不保留原始分组关系"
             )
 
-    subtitle_style = raw_ir.get("subtitle_style") or {}
+    subtitle_style = dict(raw_ir.get("subtitle_style") or {})
+    if not raw_ir.get("subtitle_style") and builtin_style:
+        # SubtitleTrack rendering consumes absolute font_size and position.
+        # Apply the built-in registered style only when no explicit subtitle
+        # style was authored; explicit user styling always wins.
+        if migrated_style.get("subtitle_font_size") is not None:
+            subtitle_style["font_size"] = int(migrated_style["subtitle_font_size"])
+        if migrated_style.get("subtitle_position") in {"top", "center", "bottom"}:
+            subtitle_style["position"] = migrated_style["subtitle_position"]
+    style_contract_palette = style_contract_source.get("palette") or {}
+    style_contract_typography = style_contract_source.get("typography") or {}
+    if not raw_ir.get("subtitle_style") and not builtin_style:
+        if isinstance(style_contract_palette, dict):
+            for key in ("subtitle", "text", "foreground"):
+                value = style_contract_palette.get(key)
+                if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+                    subtitle_style["color"] = value
+                    break
+        if isinstance(style_contract_typography, dict):
+            font_name = style_contract_typography.get("font_family") or style_contract_typography.get("font")
+            if isinstance(font_name, str) and re.fullmatch(r"[A-Za-z0-9 _-]{1,80}", font_name):
+                subtitle_style["font"] = font_name
+            font_size = style_contract_typography.get("subtitle_font_size") or style_contract_typography.get("font_size")
+            if font_size not in (None, ""):
+                try:
+                    subtitle_style["font_size"] = int(round(_number(font_size, "style_contract font_size", 12, 160)))
+                except FilmError:
+                    style_parameter_warnings.append("style_contract typography.font_size 越界，未应用")
     unsupported_subtitle_style = []
     if subtitle_style.get("font"):
         font_name = str(subtitle_style.get("font"))
@@ -3239,7 +3366,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             unsupported_subtitle_style.append(
                 "font（不符合 CSS 字体名白名单，已回退为系统后备字体）"
             )
-    rendered_size = float(subtitle_style.get("size", 1.0) or 1.0) * 54
+    rendered_size = float(subtitle_style.get("font_size", subtitle_style.get("fontSize", float(subtitle_style.get("size", 1.0) or 1.0) * 54)) or 54)
     if rendered_size < 12 or rendered_size > 160:
         unsupported_subtitle_style.append("size（换算后的字号超出 12–160px，将被限制）")
     for field_name in ("color", "stroke_color"):
@@ -3548,7 +3675,7 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 str(channel.get("property") or "") for channel in channels
                 if isinstance(channel, dict)
             }
-            channels, motion_warning = _motion_keyframes(layer.get("motion"), d, base_transform, channels)
+            channels, motion_warning = _motion_keyframes(layer.get("motion"), d, base_transform, channels, legacy_motion_intensity)
             if motion_warning:
                 unsupported_layer_fields.append(motion_warning)
             recipe_channels, recipe_warnings = _film_motion_recipe_keyframes(layer, d)
