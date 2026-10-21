@@ -2894,7 +2894,16 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
             continue
         if mapped:
             mapped.sort(key=lambda item: item["at"])
-            channels.append({"property": prop, "keyframes": mapped})
+            deduplicated: list[dict] = []
+            for point in mapped:
+                if deduplicated and abs(deduplicated[-1]["at"] - point["at"]) <= 1e-9:
+                    # Runtime sampling returns the last point for a zero-width span.
+                    # Normalize that case here so a valid edit document has unique times.
+                    deduplicated[-1] = point
+                    unsupported.append(f"{prop}@{_fmt(point['at'])}s 重复关键帧；按 Runtime 语义保留最后一个")
+                else:
+                    deduplicated.append(point)
+            channels.append({"property": prop, "keyframes": deduplicated})
             seen_properties.add(prop)
     return channels, list(dict.fromkeys(unsupported))
 

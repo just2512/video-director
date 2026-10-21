@@ -1849,3 +1849,19 @@ def test_duplicate_keyframe_channels_keep_runtime_first_channel_semantics():
     assert len(mapped) == 1
     assert [point["value"] for point in mapped[0]["keyframes"]] == [1, 1.5]
     assert any("重复关键帧通道" in warning for warning in warnings)
+
+
+
+def test_duplicate_keyframe_times_are_normalized_with_runtime_last_point_semantics():
+    mapped, warnings = fd._film_keyframes([
+        {"property": "scale_x", "keyframes": [
+            {"at": 0, "value": 1},
+            {"at": 0, "value": 1.3},
+            {"at": 1, "value": 1.6},
+        ]},
+    ], 2)
+    assert len(mapped) == 1
+    points = mapped[0]["keyframes"]
+    assert [point["at"] for point in points] == [0, 1]
+    assert [point["value"] for point in points] == [1.3, 1.6]
+    assert any("重复关键帧" in warning for warning in warnings)
