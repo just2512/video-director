@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -288,7 +288,7 @@
       S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
       S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
       showStatus(S.insertMode?'插入编辑已完成：目标轨道及同步锁定轨道已按素材时长推移。':'已在播放头位置新建轨道并添加素材。', 'success');
-    }finally{S.busy=false;}
+    }finally{S.busy=false;flushPendingExternalRevision();}
   };
   window.filmStudioToggleInsertMode=function(){
     S.insertMode=!S.insertMode;
@@ -895,6 +895,17 @@
     S.data=r;S.rev=r.rev;S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();
   }
+  function flushPendingExternalRevision(){
+    if(!S.pendingExternalRevision||!S.open||S.busy||S.drag||S.envelopeDrag)return false;
+    var pending=S.pendingExternalRevision;
+    S.pendingExternalRevision='';
+    if(pending!==S.rev){
+      S.runtimeRev='';
+      filmStudioLoad(true);
+      return true;
+    }
+    return false;
+  }
   async function filmStudioCommit(ops) {
     if(!S.projectId||!S.data||!S.data.exists)return false;
     if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
@@ -931,6 +942,7 @@
       S.busy=false;
       if(studioPanel)studioPanel.setAttribute('data-busy','false');
       if(busyTimeline)busyTimeline.style.pointerEvents='';
+      flushPendingExternalRevision();
     }
   }
   async function filmStudioHistory(action) {
@@ -942,7 +954,7 @@
       var r=await apiPost('/api/editor/film/'+action,{project_id:S.projectId,base:S.rev});
       if(!r||!r.ok){showStatus((r&&r.error)||'历史操作失败。','error');return;}
       S.data=r;S.rev=r.rev;render();showStatus(action==='undo'?'已撤销。':'已重做。','success');
-    }finally{S.busy=false;}
+    }finally{S.busy=false;flushPendingExternalRevision();}
   }
   function onMove(e) {
     if(S.envelopeDrag){
@@ -1011,6 +1023,12 @@
   async function onUp(e) {
     if(S.envelopeDrag){
       var envelopeEdit=S.envelopeDrag;S.envelopeDrag=null;
+      if(S.pendingExternalRevision){
+        renderTimeline();
+        showStatus('影片 revision 在音量曲线拖动期间变化；本次拖动未提交，先载入外部版本。','error');
+        flushPendingExternalRevision();
+        return;
+      }
       if(envelopeEdit.changed){
         var normalized=envelopeEdit.points.map(function(p){return {t:Number(p.t.toFixed(3)),v:Number(p.v.toFixed(3))};})
           .sort(function(a,b){return a.t-b.t;});
@@ -1019,14 +1037,21 @@
         normalized.forEach(function(p){if(unique.length&&Math.abs(unique[unique.length-1].t-p.t)<0.001)unique[unique.length-1]=p;else unique.push(p);});
         if(unique.length>=2)await filmStudioCommit([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}]);
       }else if(S.data&&S.data.exists)renderTimeline();
+      flushPendingExternalRevision();
       return;
     }
     var d=S.drag;
-    if(!d){S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);return;}
+    if(!d){S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
     S.drag=null;S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
     clearDragTrackTarget(d);
     (d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
-    if(!d.active){syncClipSelectionVisual();return;}
+    if(S.pendingExternalRevision){
+      syncClipSelectionVisual();renderTimeline();
+      showStatus('影片 revision 在拖动期间变化；本次旧画面拖动未提交，先载入外部版本。','error');
+      flushPendingExternalRevision();
+      return;
+    }
+    if(!d.active){syncClipSelectionVisual();flushPendingExternalRevision();return;}
     var deltaPx=e.clientX-d.startX+($('fs-timeline-scroll').scrollLeft-d.startScrollLeft);
     d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
     d.element.removeAttribute('data-roll-delta');d.element.classList.remove('fs-rolling');
@@ -1090,6 +1115,7 @@
       });
     }
     if(S.data&&S.data.exists)renderTimeline();
+    flushPendingExternalRevision();
   });
   window.filmStudioSetSideMode=function(mode){
     S.sideMode=mode==='ai'?'ai':'inspector';
@@ -1522,7 +1548,7 @@
       S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.data=result;S.rev=result.rev;S.runtimeRev='';
       appendMessage('已确认并应用提案，提交 '+(result.ops||[]).length+' 项操作。','assistant');
       render();showStatus('AI 提案已应用并写入 revision '+S.rev+'。','success');
-    }finally{S.busy=false;}
+    }finally{S.busy=false;flushPendingExternalRevision();}
   };
   window.filmStudioAsk=async function(){
     var input=$('fs-chat-input')||$('fs-static-chat-input');if(!input)return;
@@ -1553,7 +1579,7 @@
       S.proposal=r.proposal;renderProposalPanel();
       appendMessage((r.proposal.summary||'AI 已生成候选编辑。')+'（'+r.proposal.operations.length+' 项，尚未应用）','assistant');
       window.filmStudioPreviewProposal();
-    }finally{S.busy=false;}
+    }finally{S.busy=false;flushPendingExternalRevision();}
   };
   document.addEventListener('keydown',function(e){
     if(!S.open)return;
@@ -1592,15 +1618,18 @@
         if(data.project_id&&S.projectId&&data.project_id!==S.projectId)return;
         if(packet.event==='film'&&data.phase==='document_broken'&&S.open){
           S.broken=true;
+          if(data.revision)S.pendingExternalRevision=data.revision;
           if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
           showStatus('影片文件校验失败，已暂停编辑：'+String(data.error||'文档解析失败'),'error');
+          flushPendingExternalRevision();
         }else if(packet.event==='film'&&data.phase==='revision_changed'&&data.source==='external_file'&&S.open){
           S.broken=false;
           if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
-          if(data.revision&&data.revision!==S.rev&&!S.busy&&!S.drag){S.runtimeRev='';filmStudioLoad(true);}
-        }else if(packet.event==='film'&&data.phase==='revision_changed'&&S.open&&data.revision&&data.revision!==S.rev&&!S.busy&&!S.drag){
+          if(data.revision&&data.revision!==S.rev){S.pendingExternalRevision=data.revision;flushPendingExternalRevision();}
+        }else if(packet.event==='film'&&data.phase==='revision_changed'&&S.open&&data.revision&&data.revision!==S.rev){
           if(S.proposal){appendMessage('影片 revision 已变化，待确认提案已作废。','assistant');S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
-          filmStudioLoad(true);
+          S.pendingExternalRevision=data.revision;
+          flushPendingExternalRevision();
         }else if(packet.event==='film_ai'&&S.open&&data.project_id===S.projectId&&data.phase==='planning'){
           showStatus('AI 正在分析影片与编辑约束……');
         }else if(packet.event==='film_ai'&&S.open&&data.project_id===S.projectId&&data.phase==='proposed'){
