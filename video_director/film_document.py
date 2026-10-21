@@ -262,7 +262,7 @@ _FILM_GLOBAL_ATTRIBUTES = {
     "aria-label", "aria-hidden", "aria-labelledby", "aria-describedby", "aria-description",
     "aria-roledescription", "aria-details",
 }
-_FILM_TRACK_ATTRIBUTES = _FILM_GLOBAL_ATTRIBUTES | {
+_FILM_TRACK_BASE_ATTRIBUTES = _FILM_GLOBAL_ATTRIBUTES | {
     "data-label", "data-kind", "data-render-z-index", "locked", "muted", "sync-lock",
 }
 _FILM_CLIP_ATTRIBUTES = _FILM_GLOBAL_ATTRIBUTES | {
@@ -286,6 +286,9 @@ _FILM_CLIP_ATTRIBUTES = _FILM_GLOBAL_ATTRIBUTES | {
     "data-source-variant-id", "data-source-variant-metadata", "data-source-variant-style",
     "data-source-variant-version", "data-source-watermark-contract", "data-source-watermark-id",
 }
+_FILM_TRACK_ATTRIBUTES = _FILM_TRACK_BASE_ATTRIBUTES | {
+    key for key in _FILM_CLIP_ATTRIBUTES if key.startswith("data-source-")
+}
 _FILM_DOCUMENT_ATTRIBUTES = {
     "id", "class", "lang", "dir", "role", "tabindex",
     "aria-label", "aria-hidden", "aria-labelledby", "aria-describedby",
@@ -301,7 +304,7 @@ _FILM_HEAD_ATTRIBUTES = {
 _FILM_TRACK_STYLE_PROPERTIES = {"z-index"}
 _FILM_CLIP_STYLE_PROPERTIES = {
     "left", "top", "width", "height", "rotate", "transform-origin",
-    "object-fit", "opacity", "clip-path", "z-index",
+    "object-fit", "opacity", "clip-path", "z-index", "border-radius",
 }
 
 
@@ -336,6 +339,9 @@ def _film_style_issues(value: str, *, is_track: bool = False) -> list[str]:
             # migrated anchors emit only the 0/50/100 percent grid.
             if not re.fullmatch(r"(?:0|50|100)%\s+(?:0|50|100)%", raw_value):
                 issues.append("style 属性 'transform-origin' 只接受 0/50/100% 坐标")
+        elif name == "border-radius":
+            if not re.fullmatch(r"(?:\d+(?:\.\d+)?(?:px|%)\s*){1,4}", raw_value, re.I):
+                issues.append("style 属性 'border-radius' 只接受 1–4 个 px/% 半径值")
         elif name == "object-fit":
             if raw_value not in {"cover", "contain", "fill", "none", "scale-down"}:
                 issues.append(f"style 属性 'object-fit' 的值无效：{raw_value!r}")

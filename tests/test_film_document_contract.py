@@ -1492,3 +1492,31 @@ def test_set_src_rejects_video_or_audio_without_explicit_source_out():
     doc = fd.parse_film(SAMPLE)
     with pytest.raises(fd.FilmError, match=r"#t=in,out"):
         fd.apply_ops(doc, [{"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/new.mp4"}])
+
+
+def test_parse_accepts_migration_provenance_attributes_on_track_sections():
+    source = '''<!doctype html>
+<html><head></head><body>
+<section id="overlay-track" data-label="叠加层"
+         data-source-track-id="legacy-video" data-source-track-order="2"
+         data-source-track-hidden="true" data-source-style-id="style-a"
+         data-source-style-contract="{&quot;version&quot;:1}">
+  <video id="overlay" src="assets/overlay.mp4#t=0,1" at="0"></video>
+</section>
+</body></html>'''
+    document = fd.parse_film(source)
+    track = document["tracks"][0]
+    assert track["attrs"]["data-source-track-id"] == "legacy-video"
+    assert track["attrs"]["data-source-style-id"] == "style-a"
+
+
+def test_parse_accepts_safe_inline_border_radius_and_runtime_media_style():
+    source = (
+        '<!doctype html><html><head></head><body><section id="video">'
+        '<video id="clip" src="assets/video.mp4#t=0,2" at="0" '
+        'style="left:0px;top:0px;width:100px;height:100px;'
+        'object-fit:cover;border-radius:24px 12px"></video>'
+        '</section></body></html>'
+    )
+    parsed = fd.parse_film(source)
+    assert "border-radius:24px 12px" in parsed["tracks"][0]["clips"][0]["attrs"]["style"]
