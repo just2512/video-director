@@ -866,6 +866,13 @@
     var requestProjectId=nextId;
     var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
     if(requestProjectId!==S.projectId)return;
+    // A user can start a drag while this GET is in flight. Never replace the
+    // timeline DOM mid-gesture, even when the response still reports the same
+    // revision; defer a fresh load until the gesture/busy edit has fully ended.
+    if(S.busy||S.drag||S.envelopeDrag){
+      S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';
+      return;
+    }
     if(r&&r.ok&&r.exists){
       if(S.rev&&r.rev!==S.rev){
         S.selectedElement=null;S.hoveredElement=null;
