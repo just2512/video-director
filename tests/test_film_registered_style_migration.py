@@ -194,5 +194,5 @@ def test_unregistered_variant_style_applies_only_whitelisted_parameters(tmp_path
     assert "-webkit-line-clamp:1" in subtitle_page
     assert "top:18px;bottom:auto;" in subtitle_page
     warnings = "\n".join(result["warnings"])
-    assert "已应用受支持参数：image_motion_intensity, subtitle_font_size, subtitle_position" in warnings
+    assert "已应用受支持参数：image_motion_intensity, subtitle_font_size, subtitle_max_lines, subtitle_position" in warnings
     assert "palette_tokens" in warnings
