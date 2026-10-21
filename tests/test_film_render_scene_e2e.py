@@ -164,3 +164,42 @@ def test_offline_render_guard_blocks_external_scene_network_requests():
     with pytest.raises(FilmRenderError) as raised:
         _raise_for_external_scene_resources(blocked)
     assert raised.value.code == "EXTERNAL_SCENE_RESOURCE"
+
+
+def test_offline_scene_renderer_fails_for_missing_project_local_css_or_media_resources():
+    from video_director.film_render import (
+        FilmRenderError,
+        _install_scene_resource_failure_monitor,
+        _raise_for_scene_resource_failures,
+    )
+
+    class FakePage:
+        def __init__(self):
+            self.handlers = {}
+
+        def on(self, event, handler):
+            self.handlers[event] = handler
+
+    class FakeResponse:
+        def __init__(self, url, status):
+            self.url = url
+            self.status = status
+
+    class FakeRequest:
+        def __init__(self, url):
+            self.url = url
+
+    base_url = "http://127.0.0.1:4567"
+    page = FakePage()
+    failures = _install_scene_resource_failure_monitor(page, base_url)
+    page.handlers["response"](FakeResponse(base_url + "/media?src=assets%2Ftheme.css", 404))
+    page.handlers["response"](FakeResponse(base_url + "/media?src=assets%2Ffont.woff2", 200))
+    page.handlers["response"](FakeResponse("https://remote.example/font.css", 404))
+    page.handlers["requestfailed"](FakeRequest(base_url + "/media?src=assets%2Fbackground.webp"))
+
+    assert len(failures) == 2
+    with pytest.raises(FilmRenderError) as error:
+        _raise_for_scene_resource_failures(failures)
+    assert error.value.code == "SCENE_RESOURCE_FAILED"
+    assert "theme.css" in str(error.value)
+    assert "background.webp" in str(error.value)

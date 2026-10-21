@@ -77,6 +77,52 @@ def _raise_for_external_scene_resources(blocked: list[str]) -> None:
         )
 
 
+def _install_scene_resource_failure_monitor(page, base_url: str) -> list[str]:
+    """Record missing project-local media (including CSS background assets and fonts)."""
+    base = urlparse(base_url)
+    failures: list[str] = []
+    seen: set[str] = set()
+
+    def record(url: str, detail: str) -> None:
+        if url in seen:
+            return
+        seen.add(url)
+        failures.append((detail + ": " + url)[:1200])
+
+    def is_project_media_url(value: str) -> bool:
+        item = urlparse(value)
+        return (
+            item.scheme == base.scheme
+            and item.hostname == base.hostname
+            and item.port == base.port
+            and item.path == "/media"
+        )
+
+    def on_response(response) -> None:
+        if is_project_media_url(response.url) and int(response.status) >= 400:
+            record(response.url, "项目资源 HTTP " + str(response.status))
+
+    def on_request_failed(request) -> None:
+        if is_project_media_url(request.url):
+            record(request.url, "项目资源请求失败")
+
+    page.on("response", on_response)
+    page.on("requestfailed", on_request_failed)
+    return failures
+
+
+def _raise_for_scene_resource_failures(failures: list[str]) -> None:
+    if failures:
+        examples = "\n".join("- " + item for item in failures[:8])
+        extra = "" if len(failures) <= 8 else f"\n另有 {len(failures) - 8} 个项目资源请求失败。"
+        raise FilmRenderError(
+            "SCENE_RESOURCE_FAILED",
+            "HTML 场景引用了缺失或无法加载的项目资源；为防止空白画面被误认为成功，已拒绝渲染：\n"
+            + examples + extra,
+            422,
+        )
+
+
 def _style_blocks(head_html: str) -> str:
     """Keep only local, passive CSS from the film document head.
 
@@ -669,6 +715,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
             blocked_external = _install_offline_network_policy(page, base_url)
+            failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
             page.wait_for_function("window.__runtimeReady === true", timeout=30000)
             page.evaluate(
@@ -691,6 +738,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
                 )
                 frame_error = page.evaluate("window.__frameError")
                 _raise_for_external_scene_resources(blocked_external)
+                _raise_for_scene_resource_failures(failed_project_resources)
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED", f"第 {frame_number} 帧失败：{frame_error}", 500)
                 page.locator("#runtime").screenshot(
@@ -919,6 +967,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
             blocked_external = _install_offline_network_policy(page, base_url)
+            failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
             page.wait_for_function("window.__runtimeReady === true", timeout=30000)
             page.evaluate(
@@ -939,6 +988,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                                        arg=frame_number, timeout=20000)
                 frame_error = page.evaluate("window.__frameError")
                 _raise_for_external_scene_resources(blocked_external)
+                _raise_for_scene_resource_failures(failed_project_resources)
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED", f"时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)
                 frame_pngs[timestamp] = page.locator("#runtime").screenshot(
@@ -958,6 +1008,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                                        arg=frame_number, timeout=20000)
                 frame_error = page.evaluate("window.__frameError")
                 _raise_for_external_scene_resources(blocked_external)
+                _raise_for_scene_resource_failures(failed_project_resources)
                 if frame_error:
                     raise FilmRenderError("FRAME_RENDER_FAILED",
                                           f"反序检查时刻 {timestamp:.3f}s 绘制失败：{frame_error}", 422)

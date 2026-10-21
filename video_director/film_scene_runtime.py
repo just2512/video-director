@@ -135,6 +135,73 @@ _SCENE_BRIDGE = r"""
         image.addEventListener('error', failed, { once: true });
       }));
     });
+    // CSS background/mask/border/list/cursor images are not exposed through
+    // document.images. Preload each computed local url() and wait for decoding
+    // as well, so the renderer never screenshots a visually incomplete scene.
+    var cssImageUrls = Object.create(null);
+    var cssUrlPattern = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
+    function rememberCssUrls(value) {
+      var textValue = String(value || ''), match;
+      cssUrlPattern.lastIndex = 0;
+      while ((match = cssUrlPattern.exec(textValue))) {
+        var url = String(match[2] || '').trim();
+        if (!url || url.charAt(0) === '#' || /^(?:data:|blob:|javascript:)/i.test(url)) continue;
+        cssImageUrls[url] = true;
+      }
+    }
+    try {
+      Array.prototype.forEach.call(document.querySelectorAll('*'), function (element) {
+        var style = window.getComputedStyle(element);
+        ['backgroundImage','maskImage','webkitMaskImage','borderImageSource',
+         'listStyleImage','cursor','content','filter','clipPath'].forEach(function (property) {
+          rememberCssUrls(style[property]);
+        });
+      });
+    } catch (error) {
+      waits.push(Promise.reject(new Error('无法检查场景 CSS 图片资源：' + String(error && error.message || error))));
+    }
+    Object.keys(cssImageUrls).forEach(function (url) {
+      waits.push(new Promise(function (resolve, reject) {
+        var image = new Image(), timer = 0, settled = false;
+        function cleanup() {
+          if (timer) clearTimeout(timer);
+          image.removeEventListener('load', loaded);
+          image.removeEventListener('error', failed);
+        }
+        function finishError(message) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error(message + '：' + url.slice(0, 500)));
+        }
+        function loaded() {
+          if (settled) return;
+          if (!image.naturalWidth || !image.naturalHeight) {
+            finishError('CSS 图片资源未成功解码');
+            return;
+          }
+          if (typeof image.decode === 'function') {
+            image.decode().then(function () {
+              if (settled) return;
+              settled = true; cleanup(); resolve();
+            }, function (error) {
+              finishError('CSS 图片解码失败：' + String(error && error.message || error));
+            });
+          } else {
+            settled = true; cleanup(); resolve();
+          }
+        }
+        function failed() { finishError('CSS 图片资源加载失败'); }
+        timer = setTimeout(function () { finishError('CSS 图片资源等待超过 12 秒'); }, 12000);
+        image.addEventListener('load', loaded, { once: true });
+        image.addEventListener('error', failed, { once: true });
+        image.src = url;
+        if (image.complete) {
+          if (image.naturalWidth > 0) loaded();
+          else failed();
+        }
+      }));
+    });
     await Promise.all(waits);
   }
   async function settleFrameResult(result, t) {
