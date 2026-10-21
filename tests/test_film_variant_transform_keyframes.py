@@ -335,3 +335,68 @@ def test_multi_variant_migration_requires_explicit_choice_and_uses_selected_cut(
     with pytest.raises(fd.FilmError) as unknown:
         fd.build_film_from_composition(project_id, ir, selected_variant_id="missing-cut")
     assert unknown.value.code == "ACTIVE_VARIANT_NOT_FOUND"
+
+
+
+def test_partial_transform_defaults_and_supported_keyframes_remain_executable(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "partial-transform-supported-keyframes"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "partial.png").write_bytes(b"migration does not decode assets")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-partial", "file": "assets/partial.png", "type": "image"},
+    ]), encoding="utf-8")
+
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "scenes": [{
+            "id": "scene-partial", "start": 0, "duration": 2, "text": "partial transform",
+            "layers": [{
+                "id": "layer-partial",
+                "type": "image", "asset_id": "asset-partial", "start": 0, "duration": 2,
+                # Missing x/y/scale/rotation/opacity/anchor intentionally exercises
+                # documented identity defaults instead of inventing a full transform.
+                "transform": {"scale_x": 1.5},
+                "keyframes": [
+                    {"property": "scale_y", "keyframes": [
+                        {"at": 0, "value": 1.0, "easing": "linear"},
+                        {"at": 2, "value": 1.25, "easing": "ease_in_out"},
+                    ]},
+                    {"property": "offset_x", "keyframes": [
+                        {"at": 0, "value": 0, "easing": "linear"},
+                        {"at": 2, "value": 24, "easing": "ease_out"},
+                    ]},
+                    {"property": "blur", "keyframes": [
+                        {"at": 0, "value": 0, "easing": "linear"},
+                        {"at": 2, "value": 4, "easing": "ease_in"},
+                    ]},
+                ],
+            }],
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    clip = next(item for item in track["clips"] if item["id"] == "main-scene-partial-1")
+    transform = json.loads(clip["attrs"]["data-film-transform"])
+    channels = {item["property"]: item for item in json.loads(clip["attrs"]["data-film-keyframes"])}
+
+    assert transform["x"] == 0.5 and transform["y"] == 0.5
+    assert transform["scale"] == 1.0 and transform["scale_x"] == 1.5 and transform["scale_y"] == 1.0
+    assert transform["rotation"] == 0.0 and transform["opacity"] == 1.0 and transform["anchor"] == "center"
+    assert "width:480px" in clip["attrs"]["style"]
+    assert "height:180px" in clip["attrs"]["style"]
+    assert [(p["at"], p["value"], p["easing"]) for p in channels["scale_y"]["keyframes"]] == [
+        (0.0, 1.0, "linear"), (2.0, 1.25, "ease_in_out")
+    ]
+    assert [(p["at"], p["value"], p["easing"]) for p in channels["offset_x"]["keyframes"]] == [
+        (0.0, 0.0, "linear"), (2.0, 24.0, "ease_out")
+    ]
+    assert [(p["at"], p["value"], p["easing"]) for p in channels["blur"]["keyframes"]] == [
+        (0.0, 0.0, "linear"), (2.0, 4.0, "ease_in")
+    ]
+    assert not any("scale_x" in warning or "scale_y" in warning or "offset_x" in warning or "blur" in warning
+                   for warning in result["warnings"])
