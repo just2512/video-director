@@ -143,7 +143,7 @@ For editing:
 
 The Studio canvas picker returns an exact scene clip ID plus a CSS selector. The AI can propose an `element_set` operation only for that selected element; the server validates the clip ID, selector, text length and CSS property/value allowlist. Do not use a guessed selector to modify arbitrary elements.
 
-The selector-based `overrides` subset supports text and the bounded style properties exposed in FilmDocument. Legacy/non-selector override records are preserved as-is by an element edit, but the current runtime only applies the selector-based subset it understands. For an element with nested children, do not replace its whole `textContent`; edit an explicit leaf element instead.
+The selector-based `overrides` subset supports text and bounded style properties validated by FilmDocument: `color`, `backgroundColor`, `fontSize`, `fontWeight`, `textAlign`, `lineHeight`, `letterSpacing`, `left`, `top`, `width`, `height`, `position`, `opacity`, `transform`, `borderRadius`, and `rotate`. The Studio Inspector exposes text, position, dimensions, text/background colour, opacity, font weight, text alignment, font size and rotation. A transparent background is not materialized unless the user enables a fill; unchecking an existing fill explicitly restores transparency. Legacy/non-selector override records are preserved as-is by an element edit, but the current runtime only applies the selector-based subset it understands. For an element with nested children, do not replace its whole `textContent`; edit an explicit leaf element instead.
 
 ## Failure policy
 
