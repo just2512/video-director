@@ -1833,3 +1833,19 @@ def test_parse_rejects_malformed_mask_keyframes_and_accepts_valid_transform_chan
     })
     with pytest.raises(fd.FilmError, match="data-film-mask-keyframes 无效"):
         fd.parse_film(bad)
+
+
+
+def test_duplicate_keyframe_channels_keep_runtime_first_channel_semantics():
+    raw = [
+        {"property": "scale_x", "keyframes": [
+            {"at": 0, "value": 1}, {"at": 1, "value": 1.5},
+        ]},
+        {"property": "scale_x", "keyframes": [
+            {"at": 0, "value": 2}, {"at": 1, "value": 3},
+        ]},
+    ]
+    mapped, warnings = fd._film_keyframes(raw, 2)
+    assert len(mapped) == 1
+    assert [point["value"] for point in mapped[0]["keyframes"]] == [1, 1.5]
+    assert any("重复关键帧通道" in warning for warning in warnings)

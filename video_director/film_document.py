@@ -2843,6 +2843,7 @@ def _film_transform_css(transform: dict, fit_mode: str | None = None) -> str:
 def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list[str]]:
     """Convert the supported 2D properties and return explicit warnings for others."""
     channels, unsupported = [], []
+    seen_properties: set[str] = set()
     if not isinstance(raw_tracks, list):
         return [], ["keyframes 格式无效"]
     for track in raw_tracks:
@@ -2853,6 +2854,12 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
         points = track.get("keyframes") or []
         if prop not in _FILM_KEYFRAME_PROPERTIES:
             unsupported.append(prop or "unknown")
+            continue
+        if prop in seen_properties:
+            # FilmRuntime resolves one channel per property (the first match).
+            # Keep that same deterministic meaning instead of emitting duplicate
+            # channels that the strict film.html validator would have to reject.
+            unsupported.append(f"{prop} 重复关键帧通道；按 Runtime 语义保留首个通道")
             continue
         mapped, invalid = [], False
         for point in points:
@@ -2888,6 +2895,7 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
         if mapped:
             mapped.sort(key=lambda item: item["at"])
             channels.append({"property": prop, "keyframes": mapped})
+            seen_properties.add(prop)
     return channels, list(dict.fromkeys(unsupported))
 
 
