@@ -5209,7 +5209,8 @@ def film_payload(project_id: str, state: dict) -> dict:
 
 
 def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "",
-                      summary_out: dict | None = None, selected_element: dict | None = None) -> list[dict]:
+                      summary_out: dict | None = None, selected_element: dict | None = None,
+                      on_token=None) -> list[dict]:
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         raise FilmError("INVALID_MESSAGE", "指令不能为空且不能超过 4000 个字符")
     if not state.get("exists") or not state.get("doc"):
@@ -5262,7 +5263,13 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         f"\n用户指令：{message}"
     )
     try:
-        output = str(llm.generate(prompt) or "").strip()
+        stream_method = getattr(llm, "generate_stream", None) if callable(on_token) else None
+        if callable(stream_method):
+            output = str(stream_method(prompt, on_delta=on_token) or "").strip()
+        else:
+            output = str(llm.generate(prompt) or "").strip()
+            if callable(on_token) and output:
+                on_token(output)
     except Exception as exc:
         raise FilmError("LLM_PLAN_FAILED", f"AI 规划失败：{exc}", 502) from exc
     fence = chr(96) * 3
