@@ -39,6 +39,9 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert 'value={form.at}' in component
     assert 'onChange={(event) => update("at", event.currentTarget.value)}' in component
     assert 'id="fs-apply-clip-inspector"' in component
+    assert "const clipFormSignature=JSON.stringify(clipFormDefaults)" in component
+    assert "setForm({...clipFormDefaults})" in component
+    assert "[clip?.id,clipFormSignature,keyframesAttribute]" in component
     assert "export const buildClipInspectorOperations" in component
     assert "buildClipInspectorOperations(clip, {...form})" in component
     assert "filmStudioCommitInspectorOperations=async function(ops)" in studio

@@ -132,6 +132,11 @@ Studio watches active projects for direct external `film.html` writes. After a s
 
 Studio timeline editing also supports `Ctrl/⌘+C` and `Ctrl/⌘+V` for selected clips. The in-memory clipboard is intentionally scoped to the current project: paste preserves each clip's source range, speed, effects/overrides and relative timing, searches the original tracks for the next interval that can be proven not to overlap, and commits the group as one undoable FilmDocument transaction. It rejects missing/locked source tracks, unknown-duration clips and cross-project paste rather than guessing. Clipboard state is not persisted across a page reload.
 
+Timeline snapping can be toggled from the Studio toolbar. It targets the film start, playhead, and other clips' start/end boundaries within an eight-screen-pixel threshold; drag previews display a snap guide and the commit path recalculates the same target. Right-click a clip for copy, duplicate, paste, split, delete, ripple-delete, and Inspector actions.
+
+The visual keyframe editor stores the validated `data-film-keyframes` schema on the corresponding clip. Each channel is `{property, keyframes:[{at,value,easing}]}`; `at` is relative to the clip and must be within its known duration, and keyframe times must be strictly increasing. Supported easing values are `linear`, `ease_in`, `ease_out`, and `ease_in_out`. The React Inspector provides a curve editor, editable points, easing controls and frame-step snapping. The unbundled fallback uses the same JSON field and FilmDocument transaction. Use only the properties and ranges defined by the current FilmDocument validator.
+
+
 For editing:
 
 1. Read `film.html`, the referenced scene files and only the required assets.
