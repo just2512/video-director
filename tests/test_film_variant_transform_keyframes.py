@@ -58,6 +58,14 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
                             {"at": 0, "value": 1.0, "easing": "linear"},
                             {"at": 1, "value": 1.2, "easing": "ease_in_out"},
                         ]},
+                        {"property": "scale_x", "keyframes": [
+                            {"at": 0, "value": 1.5, "easing": "linear"},
+                            {"at": 1, "value": 2.0, "easing": "ease_in_out"},
+                        ]},
+                        {"property": "scale_y", "keyframes": [
+                            {"at": 0, "value": 0.75, "easing": "linear"},
+                            {"at": 1, "value": 1.0, "easing": "ease_out"},
+                        ]},
                         {"property": "offset_x", "keyframes": [
                             {"at": 0, "value": 12, "easing": "linear"},
                             {"at": 1, "value": 24, "easing": "ease_in_out"},
@@ -102,8 +110,10 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert "object-fit:contain" in clip["attrs"]["style"]
     channels = json.loads(clip["attrs"]["data-film-keyframes"])
     assert {item["property"] for item in channels} == {
-        "x", "opacity", "camera_x", "camera_y", "camera_scale", "offset_x", "offset_y",
+        "x", "opacity", "camera_x", "camera_y", "camera_scale", "scale_x", "scale_y", "offset_x", "offset_y",
     }
+    assert next(item for item in channels if item["property"] == "scale_x")["keyframes"][1]["value"] == 2.0
+    assert next(item for item in channels if item["property"] == "scale_y")["keyframes"][1]["value"] == 1.0
     assert next(item for item in channels if item["property"] == "offset_x")["keyframes"][1]["value"] == 24
     assert next(item for item in channels if item["property"] == "offset_y")["keyframes"][0]["value"] == -8
     source_snapshot = json.loads(result["pages"]["migration/source-composition.json"])

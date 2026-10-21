@@ -188,13 +188,20 @@ def test_film_runtime_keeps_composition_mask_stationary_while_clip_transform_mov
                         "anchor": "center", "stage_width": 100, "stage_height": 100,
                         "base_width": 20, "base_height": 20, "scale_x": 1.5, "scale_y": 0.75,
                     }, separators=(",", ":")),
-                    "data-film-keyframes": json.dumps([{
-                        "property": "x",
-                        "keyframes": [
+                    "data-film-keyframes": json.dumps([
+                        {"property": "x", "keyframes": [
                             {"at": 0, "value": 0.25, "easing": "linear"},
                             {"at": 1, "value": 0.75, "easing": "linear"},
-                        ],
-                    }], separators=(",", ":")),
+                        ]},
+                        {"property": "scale_x", "keyframes": [
+                            {"at": 0, "value": 1.5, "easing": "linear"},
+                            {"at": 1, "value": 2.0, "easing": "linear"},
+                        ]},
+                        {"property": "scale_y", "keyframes": [
+                            {"at": 0, "value": 0.75, "easing": "linear"},
+                            {"at": 1, "value": 1.0, "easing": "linear"},
+                        ]},
+                    ], separators=(",", ":")),
                 },
                 "src_in": 0,
                 "src_out": 1,
@@ -258,9 +265,9 @@ def test_film_runtime_keeps_composition_mask_stationary_while_clip_transform_mov
                 assert at_zero["mask"] == [0, 0, 50, 0, 50, 100, 0, 100], at_zero
                 assert at_half["mask"] == [25, 0, 75, 0, 75, 100, 25, 100], at_half
                 assert at_one["mask"] == [50, 0, 100, 0, 100, 100, 50, 100], at_one
-                assert [at_zero["left"], at_half["left"], at_one["left"]] == [10, 35, 60]
-                assert at_zero["width"] == at_half["width"] == at_one["width"] == 30
-                assert at_zero["height"] == at_half["height"] == at_one["height"] == 15
+                assert [at_zero["left"], at_half["left"], at_one["left"]] == [10, 32.5, 55]
+                assert [at_zero["width"], at_half["width"], at_one["width"]] == [30, 35, 40]
+                assert [at_zero["height"], at_half["height"], at_one["height"]] == [15, 17.5, 20]
                 assert at_zero["hostLeft"] == at_half["hostLeft"] == at_one["hostLeft"] == "0px"
                 assert at_zero["hostWidth"] == at_half["hostWidth"] == at_one["hostWidth"] == 100
                 assert at_zero["localMask"] == at_half["localMask"] == at_one["localMask"] == ""

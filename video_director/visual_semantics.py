@@ -99,7 +99,7 @@ class Easing(str, Enum):
 #: §23 KeyframeTrack.property 合法值。offset_x/offset_y 是 FilmRuntime
 #: 支持的设计空间像素偏移；其他未实现属性必须先扩展显式语义合同。
 KEYFRAME_PROPERTIES = {
-    "x", "y", "scale", "rotation", "opacity", "blur",
+    "x", "y", "scale", "scale_x", "scale_y", "rotation", "opacity", "blur",
     "volume", "mask_path", "camera_x", "camera_y", "camera_scale",
     "offset_x", "offset_y",
 }

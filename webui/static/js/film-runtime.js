@@ -375,7 +375,8 @@
       bottom_left:[0,1],bottom_center:[0.5,1],bottom_right:[1,1]
     };
     var anchor=anchors[cfg.anchor]||anchors.center;
-    var scaleX=clamp(finite(cfg.scale_x,1),0.1,5),scaleY=clamp(finite(cfg.scale_y,1),0.1,5);
+    var scaleX=clamp(filmKeyframeValue(channels,'scale_x',local,finite(cfg.scale_x,1)),0.1,5);
+    var scaleY=clamp(filmKeyframeValue(channels,'scale_y',local,finite(cfg.scale_y,1)),0.1,5);
     var width=baseW*scale*scaleX,height=baseH*scale*scaleY;
     entry.el.style.left=(x*stageW-anchor[0]*width)+'px';
     entry.el.style.top=(y*stageH-anchor[1]*height)+'px';
