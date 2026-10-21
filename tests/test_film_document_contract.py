@@ -1474,3 +1474,21 @@ def test_parse_rejects_css_values_runtime_would_ignore(style, expected):
     with pytest.raises(fd.FilmError) as error:
         fd.parse_film(source)
     assert expected in str(error.value)
+
+
+@pytest.mark.parametrize("tag", ["video", "audio", "img", "iframe"])
+def test_parse_requires_explicit_source_range_for_every_clip_type(tag):
+    element = (
+        f'<{tag} id="clip" src="assets/source.mp4" at="0"></{tag}>'
+        if tag != "img"
+        else '<img id="clip" src="assets/source.png" at="0">'
+    )
+    source = '<!doctype html><html><head></head><body><section id="track">' + element + '</section></body></html>'
+    with pytest.raises(fd.FilmError, match=r"#t=in,out"):
+        fd.parse_film(source)
+
+
+def test_set_src_rejects_video_or_audio_without_explicit_source_out():
+    doc = fd.parse_film(SAMPLE)
+    with pytest.raises(fd.FilmError, match=r"#t=in,out"):
+        fd.apply_ops(doc, [{"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/new.mp4"}])

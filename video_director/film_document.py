@@ -467,10 +467,12 @@ class _FilmParser(HTMLParser):
                     _validate_src_syntax(src)
                 except FilmError as exc:
                     self.problems.append(str(exc))
-            if tag in {"img", "iframe"} and src:
+            if src:
                 src_in, src_out = _source_range(src)
-                if src_out is None or abs(src_in) > 0.001:
-                    self.problems.append(f"{tag} 必须使用 #t=0,length 指定片段时长")
+                if src_out is None:
+                    self.problems.append(f"第 {line_number} 行：{tag} 必须使用 #t=in,out 指定明确的源区间")
+                elif tag in {"img", "iframe"} and abs(src_in) > 0.001:
+                    self.problems.append(f"第 {line_number} 行：{tag} 必须使用 #t=0,length 指定片段时长")
             at = attr_map.get("at", "0")
             try:
                 _number(at, "at", 0)
@@ -991,10 +993,11 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
     attrs["src"] = _validate_src_syntax(attrs.get("src"))
     at = _number(at_value, "insert at", 0)
     attrs["at"] = _fmt(at)
-    if raw_clip["tag"] in {"img", "iframe"}:
-        source_in, source_out = _source_range(attrs["src"])
-        if source_out is None or abs(source_in) > 0.001:
-            raise FilmError("INVALID_SOURCE_RANGE", f"{raw_clip['tag']} 必须使用 #t=0,length 指定插入片段时长", 422)
+    source_in, source_out = _source_range(attrs["src"])
+    if source_out is None:
+        raise FilmError("INSERT_DURATION_UNKNOWN", "插入素材 src 必须使用 #t=in,out 指定源区间；当前时长未知", 422)
+    if raw_clip["tag"] in {"img", "iframe"} and abs(source_in) > 0.001:
+        raise FilmError("INVALID_SOURCE_RANGE", f"{raw_clip['tag']} 必须使用 #t=0,length 指定插入片段时长", 422)
     if "volume_envelope" in attrs:
         attrs["volume_envelope"] = _normalize_volume_envelope(attrs["volume_envelope"])
     new_clip = {"id": clip_id, "tag": raw_clip["tag"], "attrs": attrs}
@@ -1311,10 +1314,11 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 value = _fmt(_number(value, "at", 0))
             elif field == "src":
                 value = _validate_src_syntax(value)
-                if clip["tag"] in {"img", "iframe"}:
-                    src_in, src_out = _source_range(value)
-                    if src_out is None or abs(src_in) > 0.001:
-                        raise FilmError("INVALID_SOURCE_RANGE", f"{clip['tag']} 必须使用 #t=0,length 指定片段时长")
+                src_in, src_out = _source_range(value)
+                if src_out is None:
+                    raise FilmError("INVALID_SOURCE_RANGE", "所有片段 src 必须使用 #t=in,out 指定明确源区间")
+                if clip["tag"] in {"img", "iframe"} and abs(src_in) > 0.001:
+                    raise FilmError("INVALID_SOURCE_RANGE", f"{clip['tag']} 必须使用 #t=0,length 指定片段时长")
             elif field == "speed":
                 if clip["tag"] not in {"video", "audio"}:
                     raise FilmError("FIELD_NOT_SUPPORTED", f"{clip['tag']} 不支持 speed")
@@ -1418,10 +1422,11 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 raise FilmError("DUPLICATE_CLIP_ID", "新片段必须有未使用的稳定 ID")
             clip["attrs"]["id"] = clip["id"]
             clip["attrs"]["src"] = _validate_src_syntax(clip["attrs"].get("src"))
-            if clip["tag"] in {"img", "iframe"}:
-                src_in, src_out = _source_range(clip["attrs"]["src"])
-                if src_out is None or abs(src_in) > 0.001:
-                    raise FilmError("INVALID_SOURCE_RANGE", f"{clip['tag']} 必须使用 #t=0,length 指定片段时长")
+            src_in, src_out = _source_range(clip["attrs"]["src"])
+            if src_out is None:
+                raise FilmError("INVALID_SOURCE_RANGE", "所有片段 src 必须使用 #t=in,out 指定明确源区间")
+            if clip["tag"] in {"img", "iframe"} and abs(src_in) > 0.001:
+                raise FilmError("INVALID_SOURCE_RANGE", f"{clip['tag']} 必须使用 #t=0,length 指定片段时长")
             _number(clip["attrs"].get("at", 0), "at", 0)
             track["clips"].append(clip)
             normalized.append({"op": "insert", "track_id": track["id"], "clip": clip})
