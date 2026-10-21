@@ -535,6 +535,9 @@
     var sourceFps=finite(clip.source_fps,finite(state.fps,30));
     var timeTolerance=0.5/Math.max(1,sourceFps)+0.002;
     var promise=new Promise(function(resolve,reject){resolvePromise=resolve;rejectPromise=reject;});
+    if(!Number.isFinite(previousPresentedFrames)){
+      finish(new Error('视频片段 '+clip.id+' 无法建立先前的呈现帧计数基线；拒绝确认可能过期的帧'));
+    }
     function cleanup(){
       if(timer)clearTimeout(timer);
       if(callbackId!=null&&typeof el.cancelVideoFrameCallback==='function'){
@@ -557,8 +560,7 @@
       if(done)return;
       var mediaTime=metadata?Number(metadata.mediaTime):NaN;
       var presentedFrames=metadata?Number(metadata.presentedFrames):NaN;
-      var frameAdvanced=!Number.isFinite(previousPresentedFrames)
-        ||!Number.isFinite(presentedFrames)||presentedFrames>previousPresentedFrames;
+      var frameAdvanced=Number.isFinite(presentedFrames)&&presentedFrames>previousPresentedFrames;
       var timeMatches=Number.isFinite(mediaTime)&&Math.abs(mediaTime-desired)<=timeTolerance;
       if(frameAdvanced&&timeMatches){
         finish(null,{mediaTime:mediaTime,presentedFrames:presentedFrames});
@@ -599,6 +601,17 @@
       if(tag==='video'&&needsSeek){
         if(typeof el.requestVideoFrameCallback!=='function'){
           throw new Error('当前浏览器不支持 requestVideoFrameCallback；无法确认视频帧已准确呈现：'+clip.id);
+        }
+        // Establish an actual presented-frame counter before any seek. If the first
+        // frame is still pending, a near-zero seek must not accept it as the target.
+        if(!Number.isFinite(entry.lastPresentedFrames)){
+          var baselineTime=finite(el.currentTime,0);
+          var baseline=await awaitInitialVideoFrame(entry,baselineTime);
+          if(!baseline||!Number.isFinite(Number(baseline.presentedFrames))||!Number.isFinite(Number(baseline.mediaTime))){
+            throw new Error('视频片段 '+clip.id+' 缺少有效初始呈现帧计数，拒绝执行无法验证的 seek');
+          }
+          entry.lastPresentedFrames=Number(baseline.presentedFrames);
+          entry.lastPresentedMediaTime=Number(baseline.mediaTime);
         }
         // Cancel the first-frame callback before the seek so it cannot consume the
         // seek's new presentation event out of order.

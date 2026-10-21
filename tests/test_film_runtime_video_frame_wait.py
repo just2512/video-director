@@ -12,6 +12,11 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "requestVideoFrameCallback" in helper
     assert "metadata.mediaTime" in helper
     assert "metadata.presentedFrames" in helper
+    assert "if(!Number.isFinite(previousPresentedFrames))" in helper
+    assert "var frameAdvanced=Number.isFinite(presentedFrames)&&presentedFrames>previousPresentedFrames;" in helper
+    assert "var baseline=await awaitInitialVideoFrame(entry,baselineTime);" in prepare
+    assert "缺少有效初始呈现帧计数" in prepare
+    assert prepare.index("awaitInitialVideoFrame(entry,baselineTime)") < prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames)")
     assert "function startInitialVideoFrameWait(entry)" in runtime
     assert "function cancelInitialVideoFrameWait(entry)" in runtime
     make_clip = runtime[runtime.index("function makeClip(track,clip)"):runtime.index("function pauseAll()", runtime.index("function makeClip(track,clip)"))]
