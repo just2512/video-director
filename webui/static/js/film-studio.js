@@ -276,6 +276,7 @@
   };
   window.filmStudioAddAsset=async function(assetId){
     if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档，且等待当前编辑完成。','error');return;}
+    if(hasUncommittedInspectorEdits()){showStatus('请先应用 Inspector 属性草稿，或重新载入并确认丢弃，再添加素材。','error');return;}
     var selected=findClip(S.selectedId),request={project_id:S.projectId,base:S.rev,asset_id:assetId,at:S.playhead,still_duration:5};
     if(S.insertMode){
       if(!selected){showStatus('插入编辑模式下，请先选择目标轨道上的片段。','error');return;}
@@ -856,6 +857,11 @@
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return;}
     if(S.busy)return;
     var changed=nextId!==S.projectId;
+    if(changed&&hasUncommittedInspectorEdits()){
+      if(selector&&S.projectId)selector.value=S.projectId;
+      showStatus('当前项目的 Inspector 有未提交草稿。请先应用属性，或重新载入当前项目并确认丢弃，再切换项目。','error');
+      return;
+    }
     if(changed){
       S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
       S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;S.hoveredElement=null;
@@ -913,34 +919,38 @@
   function inspectorFieldDiffersText(id, expected){
     var input=$(id);return !!input&&String(input.value)!==String(expected==null?'':expected);
   }
-  function hasUncommittedInspectorEdits(){
+  function hasUncommittedClipInspectorEdits(){
     if(!S.data||!S.data.exists)return false;
     var clip=findClip(S.selectedId);
-    if(clip){
-      var attrs=clip.attrs||{};
-      if(inspectorFieldDiffersNumber('fs-field-at',attrs.at==null?(clip.at||0):attrs.at))return true;
-      if(inspectorFieldDiffersNumber('fs-field-speed',attrs.speed||1))return true;
-      if(inspectorFieldDiffersNumber('fs-field-volume',attrs.volume==null?1:attrs.volume))return true;
-      if(inspectorFieldDiffersText('fs-field-muted',Object.prototype.hasOwnProperty.call(attrs,'muted')?'true':'false'))return true;
-      var fade=String(attrs.fade||'0,0').split(',');
-      if(inspectorFieldDiffersNumber('fs-field-fade-in',fade[0]||0))return true;
-      if(inspectorFieldDiffersNumber('fs-field-fade-out',fade[1]||0))return true;
-      if(inspectorFieldDiffersText('fs-field-title',attrs.title||''))return true;
-    }
-    var element=S.selectedElement;
-    if(element){
-      var rect=element.localRect||element.rect||{},styles=element.styles||{};
-      if(element.textEditable!==false&&inspectorFieldDiffersText('fs-element-text',element.text||''))return true;
-      if(inspectorFieldDiffersNumber('fs-element-left',num(rect.x,0)))return true;
-      if(inspectorFieldDiffersNumber('fs-element-top',num(rect.y,0)))return true;
-      if(inspectorFieldDiffersNumber('fs-element-width',num(rect.width,1)))return true;
-      if(inspectorFieldDiffersNumber('fs-element-height',num(rect.height,1)))return true;
-      if(inspectorFieldDiffersText('fs-element-color',hexColor(styles.color||'#ffffff')))return true;
-      if(inspectorFieldDiffersNumber('fs-element-font-size',num(parseFloat(styles.fontSize),24)))return true;
-      var rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
-      if(inspectorFieldDiffersNumber('fs-element-rotate',rotateMatch?Number(rotateMatch[0]):0))return true;
-    }
+    if(!clip)return false;
+    var attrs=clip.attrs||{};
+    if(inspectorFieldDiffersNumber('fs-field-at',attrs.at==null?(clip.at||0):attrs.at))return true;
+    if(inspectorFieldDiffersNumber('fs-field-speed',attrs.speed||1))return true;
+    if(inspectorFieldDiffersNumber('fs-field-volume',attrs.volume==null?1:attrs.volume))return true;
+    if(inspectorFieldDiffersText('fs-field-muted',Object.prototype.hasOwnProperty.call(attrs,'muted')?'true':'false'))return true;
+    var fade=String(attrs.fade||'0,0').split(',');
+    if(inspectorFieldDiffersNumber('fs-field-fade-in',fade[0]||0))return true;
+    if(inspectorFieldDiffersNumber('fs-field-fade-out',fade[1]||0))return true;
+    if(inspectorFieldDiffersText('fs-field-title',attrs.title||''))return true;
     return false;
+  }
+  function hasUncommittedCanvasInspectorEdits(){
+    var element=S.selectedElement;
+    if(!element)return false;
+    var rect=element.localRect||element.rect||{},styles=element.styles||{};
+    if(element.textEditable!==false&&inspectorFieldDiffersText('fs-element-text',element.text||''))return true;
+    if(inspectorFieldDiffersNumber('fs-element-left',num(rect.x,0)))return true;
+    if(inspectorFieldDiffersNumber('fs-element-top',num(rect.y,0)))return true;
+    if(inspectorFieldDiffersNumber('fs-element-width',num(rect.width,1)))return true;
+    if(inspectorFieldDiffersNumber('fs-element-height',num(rect.height,1)))return true;
+    if(inspectorFieldDiffersText('fs-element-color',hexColor(styles.color||'#ffffff')))return true;
+    if(inspectorFieldDiffersNumber('fs-element-font-size',num(parseFloat(styles.fontSize),24)))return true;
+    var rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
+    if(inspectorFieldDiffersNumber('fs-element-rotate',rotateMatch?Number(rotateMatch[0]):0))return true;
+    return false;
+  }
+  function hasUncommittedInspectorEdits(){
+    return hasUncommittedClipInspectorEdits()||hasUncommittedCanvasInspectorEdits();
   }
   function resetInspectorDraft(){
     S.selectedElement=null;S.hoveredElement=null;
@@ -979,7 +989,18 @@
     S.pendingExternalRevision='__reload__';
     flushPendingExternalRevision();
   };
-  async function filmStudioCommit(ops) {
+  async function filmStudioCommit(ops, options) {
+    options=options||{};
+    var allowedDraft=options.allowInspectorDraft||'';
+    var hasConflictingDraft=allowedDraft==='clip'
+      ?hasUncommittedCanvasInspectorEdits()
+      :allowedDraft==='canvas'
+        ?hasUncommittedClipInspectorEdits()
+        :hasUncommittedInspectorEdits();
+    if(hasConflictingDraft){
+      showStatus('Inspector 还有另一组未提交草稿。请先应用或重新载入后，再执行其他编辑。','error');
+      return false;
+    }
     if(!S.projectId||!S.data||!S.data.exists)return false;
     if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
     if(S.broken){showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return false;}
@@ -992,7 +1013,7 @@
       var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
       if(!r||!r.ok){
         var failureMessage=(r&&r.error)||'编辑提交失败。';
-        if(S.data&&S.data.exists)render();
+        if(S.data&&S.data.exists&&!allowedDraft)render();
         showStatus(failureMessage,'error');
         return false;
       }
@@ -1008,7 +1029,7 @@
       return true;
     }catch(error){
       var editFailure='编辑提交失败：'+String(error&&error.message||error);
-      if(S.data&&S.data.exists)render();
+      if(S.data&&S.data.exists&&!allowedDraft)render();
       showStatus(editFailure,'error');
       return false;
     }finally{
@@ -1020,6 +1041,10 @@
   }
   async function filmStudioHistory(action) {
     if(!S.data||S.busy)return;
+    if(hasUncommittedInspectorEdits()){
+      showStatus('请先应用 Inspector 属性草稿，或重新载入并确认丢弃，再撤销/重做。','error');
+      return;
+    }
     if(S.broken){showStatus('影片文件无效，暂时不能撤销或重做。','error');return;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     S.busy=true;
@@ -1213,16 +1238,25 @@
     filmStudioLoad(true);
     if(S.poll)clearInterval(S.poll);
     S.poll=setInterval(async function(){
-      if(!S.open||S.busy||S.drag)return;
+      if(!S.open||S.busy||S.drag||S.envelopeDrag)return;
       var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(S.projectId));
       if(r&&r.ok&&r.exists&&r.rev!==S.rev){
         if(S.proposal){appendMessage('影片已被外部修改，旧 AI 提案已作废。','assistant');S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
-        S.data=r;S.rev=r.rev;S.broken=false;S.runtimeRev='';render();showStatus('检测到外部文件修改，已按新 revision 刷新。');
+        S.pendingExternalRevision=r.rev;
+        flushPendingExternalRevision();
       }
-      else if(r&&!r.ok&&r.code==='INVALID_FILM'){S.broken=true;if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}showStatus('film.html 当前无法解析。已暂停编辑；修复后重新载入。','error');}
+      else if(r&&!r.ok&&r.code==='INVALID_FILM'){
+        S.broken=true;
+        if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
+        showStatus('film.html 当前无法解析。已暂停编辑；修复后重新载入。','error');
+      }
     },1600);
   };
   window.filmStudioClose=function(){
+    if(hasUncommittedInspectorEdits()){
+      if(!window.confirm('Inspector 中有未提交的属性草稿。退出 Studio 将放弃这些修改；是否继续？'))return;
+      resetInspectorDraft();
+    }
     S.open=false;if(S.poll){clearInterval(S.poll);S.poll=null;}
     var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
     if(panel){panel.classList.remove('fs-studio-expanded');panel.style.display='none';}
@@ -1300,7 +1334,7 @@
     }
   };
   window.filmStudioShowInspectorError=function(message){showStatus(String(message||''),'error');};
-  window.filmStudioCommitCanvasElement=async function(operation){
+  window.filmStudioCommitCanvasElement=async function(operation,options){
     if(S.busy){showStatus('当前影片正在保存；请等待完成后再提交画布修改。','error');return;}
     var selected=S.selectedElement;
     if(!selected){showStatus('画布选择已经失效，请重新选取元素。','error');return;}
@@ -1312,8 +1346,8 @@
       showStatus('画布编辑目标与当前选择不一致；本次没有写入。','error');return;
     }
     var previousRevision=S.rev;
-    await filmStudioCommit([operation]);
-    if(!S.data||!S.data.exists||S.rev===previousRevision)return;
+    var committed=await filmStudioCommit([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''});
+    if(!committed||!S.data||!S.data.exists||S.rev===previousRevision)return;
     S.selectedElement=null;S.hoveredElement=null;
     var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
     renderInspector();renderAssets();
@@ -1353,7 +1387,7 @@
     var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle};
     if(textInput&&!textInput.disabled&&textInput.value!==null)elementOp.text=textInput.value;
     var previousRevision=S.rev;
-    var committed=await filmStudioCommit([elementOp]);
+    var committed=await filmStudioCommit([elementOp],{allowInspectorDraft:'canvas'});
     if(!committed||S.rev===previousRevision)return;
     // The commit triggers a full, revision-bound reload. Keep selection context
     // visible, but the user can reselect when CSS/structure changes the selector.
@@ -1487,7 +1521,7 @@
     if(!S.projectId||!S.data||!S.data.exists)throw new Error('当前没有可编辑的 film.html。');
     if(S.busy)throw new Error('上一项编辑仍在保存；本次修改未提交，请重试。');
     if(S.broken)throw new Error('film.html 无效，当前不能写入。');
-    var committed=await filmStudioCommit(ops);
+    var committed=await filmStudioCommit(ops,{allowInspectorDraft:'clip'});
     if(!committed){
       var status=$('film-studio-alert');
       throw new Error(status&&status.textContent||'片段属性没有保存，请检查影片状态后重试。');
@@ -1495,7 +1529,7 @@
     return true;
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
-  window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段？此操作可撤销。'))return;await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
+  window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段？此操作可撤销。'))return;var committed=await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));if(!committed)return;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
   window.filmStudioJoinThroughEdit=async function(){
     var clip=findClip(S.selectedId);
     if(!clip){showStatus('请先选择切分后的左段或右段。','error');return;}
@@ -1524,6 +1558,7 @@
   window.filmStudioUndo=function(){filmStudioHistory('undo');};window.filmStudioRedo=function(){filmStudioHistory('redo');};
   window.filmStudioRender=async function(){
     if(!S.projectId||!S.data||!S.data.exists){showStatus('请先载入或初始化 film.html。','error');return;}
+    if(hasUncommittedInspectorEdits()){showStatus('影片有未提交的 Inspector 草稿；先应用属性或重新载入后再导出，避免输出旧 revision。','error');return;}
     if(S.rendering){showStatus('当前已有导出任务。');return;}
     S.rendering=true;
     var pid=S.projectId,revision=S.rev,button=document.querySelector('[data-film-action="render"]');
@@ -1606,6 +1641,7 @@
   };
   window.filmStudioApplyProposal=async function(){
     var proposal=S.proposal;if(!proposal||S.busy)return;
+    if(hasUncommittedInspectorEdits()){showStatus('请先应用 Inspector 属性草稿，或重新载入并确认丢弃，再应用 AI 提案。','error');return;}
     if(S.broken){showStatus('影片文件无效，不能应用 AI 提案。','error');return;}
     if(proposal.project_id!==S.projectId){showStatus('提案所属项目已变化，不能应用。','error');return;}
     S.busy=true;
@@ -1630,6 +1666,7 @@
   window.filmStudioAsk=async function(){
     var input=$('fs-chat-input')||$('fs-static-chat-input');if(!input)return;
     var message=(input.value||'').trim();if(!message||S.busy)return;
+    if(hasUncommittedInspectorEdits()){showStatus('请先应用 Inspector 属性草稿，或重新载入并确认丢弃，再请求 AI 修改。','error');return;}
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
     if(S.broken){showStatus('影片文件无效，已暂停 AI 编辑；修复后重新载入。','error');return;}
     if(S.proposal){window.filmStudioRejectProposal();}

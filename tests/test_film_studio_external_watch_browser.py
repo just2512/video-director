@@ -108,6 +108,39 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert page.locator("#fs-field-speed").input_value() == "2.5"
                 assert film_path.read_text(encoding="utf-8") == changed_again
 
+                # Undo/redo, project switching and export are separate entry
+                # points that must not discard a dirty Inspector form either.
+                page.locator('[data-film-action="undo"]').click()
+                page.wait_for_function(
+                    "() => { const alert = document.querySelector('#film-studio-alert'); "
+                    "return !!alert && alert.textContent.includes('再撤销/重做'); }",
+                    timeout=5000,
+                )
+                assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
+                page.locator('[data-film-action="render"]').click()
+                page.wait_for_function(
+                    "() => { const alert = document.querySelector('#film-studio-alert'); "
+                    "return !!alert && alert.textContent.includes('避免输出旧 revision'); }",
+                    timeout=5000,
+                )
+                assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
+
+                # Attempting a project switch is rejected before S.data is cleared.
+                page.evaluate("""pid => {
+                    const select = document.querySelector('#editor-project');
+                    let option = [...select.options].find(item => item.value === pid);
+                    if (!option) { option = new Option(pid, pid); select.add(option); }
+                    select.value = pid;
+                    select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", "different-unsaved-project")
+                page.wait_for_function(
+                    "pid => document.querySelector('#editor-project').value === pid",
+                    arg=project_id,
+                    timeout=5000,
+                )
+                assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
+                assert fd.read_project_film(project_id)["rev"] == fd.revision_of(changed_again)
+
                 page.once("dialog", lambda dialog: dialog.accept())
                 page.locator('[data-film-action="reload"]').click()
                 page.wait_for_function(

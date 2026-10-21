@@ -95,7 +95,7 @@ declare global {
     filmStudioReactInspector?: CanvasInspectorBridge;
     filmStudioReactToolbar?: FilmStudioReactToolbarBridge;
     filmStudioSaveSelectedElement?: () => Promise<void> | void;
-    filmStudioCommitCanvasElement?: (operation: Extract<FilmOperation, {op:"element_set"}>) => Promise<void> | void;
+    filmStudioCommitCanvasElement?: (operation: Extract<FilmOperation, {op:"element_set"}>, options?: {allowInspectorDraft?: boolean}) => Promise<void> | void;
     filmStudioShowInspectorError?: (message: string) => void;
     filmStudioCommitInspectorOperations?: (ops: FilmOperation[]) => Promise<void> | void;
     filmStudioSetClipLock?: (clipId: string, locked: boolean) => Promise<void> | void;
@@ -744,7 +744,7 @@ window.filmStudioReactInspector = {
     if(!window.filmStudioCommitCanvasElement){
       window.filmStudioShowInspectorError?.("画布编辑提交桥尚未就绪；本次没有写入 film.html。");return;
     }
-    return window.filmStudioCommitCanvasElement(result.operation);
+    return window.filmStudioCommitCanvasElement(result.operation, {allowInspectorDraft:true});
   },
   renderClip(clip, emptyMessage) {
     const mount = document.getElementById("fs-inspector");

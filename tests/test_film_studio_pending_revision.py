@@ -64,3 +64,51 @@ def test_explicit_reload_confirms_discard_and_canvas_save_reports_failure_honest
     assert "var committed=await filmStudioCommit([elementOp]);" in save
     assert "if(!committed||S.rev===previousRevision)return;" in save
     assert "flushPendingExternalRevision();" in save
+
+
+def test_dirty_inspector_blocks_export_history_and_project_switch():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    history = source[source.index("async function filmStudioHistory(action)"):source.index("function onMove(e)")]
+    assert "if(hasUncommittedInspectorEdits())" in history
+    assert "再撤销/重做" in history
+    render = source[source.index("window.filmStudioRender=async function()"):source.index("function renderProposalPanel")]
+    assert "if(hasUncommittedInspectorEdits())" in render
+    assert "避免输出旧 revision" in render
+    load = source[source.index("async function filmStudioLoad(force)"):source.index("async function filmStudioInitialize")]
+    assert "if(changed&&hasUncommittedInspectorEdits())" in load
+    assert "selector.value=S.projectId" in load
+
+
+def test_timeline_remove_preserves_selection_when_dirty_commit_is_rejected():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    remove = source[source.index("window.filmStudioRemove=async function"):source.index("window.filmStudioJoinThroughEdit")]
+    assert "var committed=await filmStudioCommit(" in remove
+    assert "if(!committed)return;" in remove
+
+
+def test_all_document_mutations_respect_unsaved_inspector_drafts():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "if(changed&&hasUncommittedInspectorEdits())" in source
+    assert "async function filmStudioCommit(ops, options)" in source
+    assert "options.allowInspectorDraft||''" in source
+    assert "hasUncommittedClipInspectorEdits()" in source
+    assert "hasUncommittedCanvasInspectorEdits()" in source
+    assert "再撤销/重做" in source
+    assert "再添加素材" in source
+    assert "再应用 AI 提案" in source
+    assert "再请求 AI 修改" in source
+    assert "避免输出旧 revision" in source
+    assert "退出 Studio 将放弃这些修改" in source
+    remove = source[source.index("window.filmStudioRemove=async function"):source.index("window.filmStudioJoinThroughEdit")]
+    assert "if(!committed)return;" in remove
+    poll = source[source.index("S.poll=setInterval(async function"):source.index("},1600);",source.index("S.poll=setInterval(async function"))]
+    assert "S.pendingExternalRevision=r.rev;" in poll
+    assert "S.data=r;S.rev=r.rev;S.broken=false" not in poll
+
+
+def test_only_matching_inspector_can_submit_its_own_dirty_form():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "filmStudioCommit(ops,{allowInspectorDraft:'clip'})" in source
+    assert "options&&options.allowInspectorDraft?'canvas':''" in source
+    tsx = (Path(__file__).resolve().parents[1] / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    assert "result.operation, {allowInspectorDraft:true}" in tsx
