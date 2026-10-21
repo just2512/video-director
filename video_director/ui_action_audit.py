@@ -45,9 +45,11 @@ UI_ONLY_PREFIXES = (
     "editorVerifyContinuity(", "editorOriginalAudioVolume(", "editorLayerOriginalVolume(",
     "editorMultiOriginalVolume(", "edVoicePreview(", "edVoiceFullPreview(",
     "edVoiceRegenerate(", "edVoiceReplaceUpload(", "edVoiceReplaceApply(",
-    "edVoiceTry(", "edLibAudioTry(", "edLibStockSearch(", "assetPickerStockSearch(",
+    "edVoiceTry(", "edVoiceApply(",  # 2026-10-21 音色应用（内部 executeAction('voice.change')）
+    "edLibAudioTry(", "edLibStockSearch(", "assetPickerStockSearch(",
     "assetPickerStockDownload(", "edLibOpenTemplate(", "instantiateTemplate(", "renderTemplateSample(",
     "pickerPreviewStage(", "pickerApply(", "pickerCancel(",
+    "editorExportFreeze(",  # 2026-10-21 定格导出（POST /api/export_freeze 收集器）
     "maskEditorSave(", "maskEditorCancel(", "maskEditorUndo(", "maskEditorRedo(",
     "editorToggleLock(", "editorRunMatting(", "editorRemoveKeyframe(",
     "editorApplyPip(", "editorRemovePip(", "editorPreviewMotionParam(",
