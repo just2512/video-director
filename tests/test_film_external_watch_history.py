@@ -107,3 +107,40 @@ def test_external_write_between_initial_read_and_watcher_registration_is_not_los
     assert history["past"][0]["before"] == initial["text"]
     assert history["past"][0]["after"] == external
     assert events and events[-1][1]["revision"] == fd.revision_of(external)
+
+
+def test_external_edit_then_studio_undo_redo_does_not_corrupt_shared_history(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "external-history-undo-redo"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+
+    events = []
+    watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
+    watcher.watch(project_id, initial["rev"], initial_text=initial["text"])
+    external = FILM.replace('at="0"', 'at="0.4"')
+    film_path.write_text(external, encoding="utf-8")
+    _poll_changed_file(watcher)
+    assert len(fd._history_read(project_id)["past"]) == 1
+
+    # The regular Studio undo handler has already moved the recorded entry to future.
+    events.clear()
+    fd.undo_redo_project_film(project_id, None, "undo")
+    _poll_changed_file(watcher)
+    history_after_undo = fd._history_read(project_id)
+    assert len(history_after_undo["past"]) == 0
+    assert len(history_after_undo["future"]) == 1
+    assert film_path.read_text(encoding="utf-8") == FILM
+    assert events == []
+
+    fd.undo_redo_project_film(project_id, None, "redo")
+    _poll_changed_file(watcher)
+    history_after_redo = fd._history_read(project_id)
+    assert len(history_after_redo["past"]) == 1
+    assert history_after_redo["past"][0]["after"] == external
+    assert history_after_redo["future"] == []
+    assert film_path.read_text(encoding="utf-8") == external
+    assert events == []

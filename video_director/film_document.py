@@ -1804,12 +1804,18 @@ def record_external_film_revision(
 
         history = _history_read(pid)
         past = history["past"]
+        # Studio undo moves an entry from past to future before the file watcher
+        # observes the new file signature. Redo moves it back. Both snapshots
+        # are already journaled and must not be re-added as external edits.
+        for bucket in (history["past"], history["future"]):
+            for entry in bucket:
+                if (
+                    (entry.get("before_rev") == after_revision and entry.get("before") == after_text)
+                    or (entry.get("after_rev") == after_revision and entry.get("after") == after_text)
+                ):
+                    return {"status": "already_recorded", "revision": after_revision}
         if past:
             last = past[-1]
-            if last.get("after_rev") == after_revision and last.get("after") == after_text:
-                # The normal Studio/CLI write path already recorded this exact
-                # document before the watcher observed the changed file signature.
-                return {"status": "already_recorded", "revision": after_revision}
             if last.get("after_rev") != before_revision:
                 # The watcher may have been opened after a direct write happened.
                 # Bridge from the last known journal snapshot to the exact baseline
