@@ -315,3 +315,10 @@ def test_scene_css_resource_promises_are_cached_across_output_frames():
     assert "window.__filmCssResourcePromises" in source
     assert "waits.push(cssResourcePromises[url]);" in source
     assert "cssResourcePromises[url] = new Promise(function (resolve, reject)" in source
+
+
+def test_scene_css_resource_cache_is_owned_by_a_plain_object():
+    source = (Path(__file__).resolve().parents[1] / "video_director" / "film_scene_runtime.py").read_text(encoding="utf-8")
+    assert "var cssResourcePromises = window.__filmCssResourcePromises;" in source
+    assert "typeof cssResourcePromises !== 'object' || Array.isArray(cssResourcePromises)" in source
+    assert "window.__filmCssResourcePromises = cssResourcePromises;" in source

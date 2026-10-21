@@ -166,8 +166,11 @@ _SCENE_BRIDGE = r"""
     // load/decode promise per URL instead of issuing a second Image request for
     // every output frame. A rejected promise stays rejected for this scene page:
     // a missing asset must not turn into a later silent blank frame.
-    var cssResourcePromises = window.__filmCssResourcePromises ||
-      (window.__filmCssResourcePromises = Object.create(null));
+    var cssResourcePromises = window.__filmCssResourcePromises;
+    if (!cssResourcePromises || typeof cssResourcePromises !== 'object' || Array.isArray(cssResourcePromises)) {
+      cssResourcePromises = Object.create(null);
+      window.__filmCssResourcePromises = cssResourcePromises;
+    }
     Object.keys(cssImageUrls).forEach(function (url) {
       if (!cssResourcePromises[url]) {
         cssResourcePromises[url] = new Promise(function (resolve, reject) {

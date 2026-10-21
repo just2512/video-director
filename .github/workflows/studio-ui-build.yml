@@ -100,13 +100,23 @@ jobs:
           set -euo pipefail
           python3 -m pytest -q --tb=short \
             tests/test_film_document_contract.py \
+            tests/test_film_agent_cli.py \
+            tests/test_film_full_pipeline_e2e.py \
             tests/test_film_variant_transform_keyframes.py \
             tests/test_film_variant_migration_api.py \
             tests/test_film_mask_overlay_migration.py \
+            tests/test_film_external_watch_history.py \
+            tests/test_film_external_watch_encoding.py \
             tests/test_film_runtime_mask_keyframes_browser.py \
+            tests/test_film_runtime_video_frame_wait.py \
+            tests/test_film_scene_runtime.py \
+            tests/test_film_render_scene_e2e.py \
             tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_pending_revision.py \
+            tests/test_film_studio_roll_browser.py \
             tests/test_film_studio_react_clip_inspector.py \
             tests/test_film_studio_react_fallback.py \
+            tests/test_film_studio_react_toolbar.py \
             tests/test_film_studio_inspector_renderer.py
 
       - name: Check JavaScript syntax
