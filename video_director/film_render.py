@@ -89,21 +89,40 @@ def _install_scene_resource_failure_monitor(page, base_url: str) -> list[str]:
         seen.add(url)
         failures.append((detail + ": " + url)[:1200])
 
-    def is_project_media_url(value: str) -> bool:
+    def is_local_asset_url(value: str, resource_type: str = "") -> bool:
         item = urlparse(value)
-        return (
+        if not (
             item.scheme == base.scheme
             and item.hostname == base.hostname
             and item.port == base.port
-            and item.path == "/media"
-        )
+        ):
+            return False
+        if item.path == "/favicon.ico":
+            return False
+        if item.path == "/media":
+            return True
+        return resource_type in {
+            "stylesheet", "font", "image", "media", "script", "fetch", "xhr",
+        } or Path(item.path).suffix.lower() in {
+            ".css", ".js", ".mjs", ".png", ".jpg", ".jpeg", ".webp", ".gif",
+            ".svg", ".avif", ".bmp", ".woff", ".woff2", ".ttf", ".otf",
+            ".mp4", ".webm", ".mov", ".mp3", ".wav", ".ogg", ".json",
+        }
 
     def on_response(response) -> None:
-        if is_project_media_url(response.url) and int(response.status) >= 400:
+        try:
+            resource_type = response.request.resource_type
+        except Exception:
+            resource_type = ""
+        if is_local_asset_url(response.url, resource_type) and int(response.status) >= 400:
             record(response.url, "项目资源 HTTP " + str(response.status))
 
     def on_request_failed(request) -> None:
-        if is_project_media_url(request.url):
+        try:
+            resource_type = request.resource_type
+        except Exception:
+            resource_type = ""
+        if is_local_asset_url(request.url, resource_type):
             record(request.url, "项目资源请求失败")
 
     page.on("response", on_response)

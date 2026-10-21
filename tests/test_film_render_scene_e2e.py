@@ -180,26 +180,30 @@ def test_offline_scene_renderer_fails_for_missing_project_local_css_or_media_res
         def on(self, event, handler):
             self.handlers[event] = handler
 
+    class FakeRequest:
+        def __init__(self, url, resource_type="stylesheet"):
+            self.url = url
+            self.resource_type = resource_type
+
     class FakeResponse:
-        def __init__(self, url, status):
+        def __init__(self, url, status, resource_type="stylesheet"):
             self.url = url
             self.status = status
-
-    class FakeRequest:
-        def __init__(self, url):
-            self.url = url
+            self.request = FakeRequest(url, resource_type)
 
     base_url = "http://127.0.0.1:4567"
     page = FakePage()
     failures = _install_scene_resource_failure_monitor(page, base_url)
     page.handlers["response"](FakeResponse(base_url + "/media?src=assets%2Ftheme.css", 404))
     page.handlers["response"](FakeResponse(base_url + "/media?src=assets%2Ffont.woff2", 200))
+    page.handlers["response"](FakeResponse(base_url + "/assets/missing-style.css", 404, "stylesheet"))
     page.handlers["response"](FakeResponse("https://remote.example/font.css", 404))
-    page.handlers["requestfailed"](FakeRequest(base_url + "/media?src=assets%2Fbackground.webp"))
+    page.handlers["requestfailed"](FakeRequest(base_url + "/media?src=assets%2Fbackground.webp", "image"))
 
-    assert len(failures) == 2
+    assert len(failures) == 3
     with pytest.raises(FilmRenderError) as error:
         _raise_for_scene_resource_failures(failures)
     assert error.value.code == "SCENE_RESOURCE_FAILED"
     assert "theme.css" in str(error.value)
+    assert "missing-style.css" in str(error.value)
     assert "background.webp" in str(error.value)
