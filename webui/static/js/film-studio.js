@@ -847,8 +847,10 @@
     if(S.selectedIds.indexOf(S.selectedId)<0&&S.selectedId)S.selectedIds.push(S.selectedId);
     if(!S.selectedIds.length&&S.selectedId)S.selectedIds=[S.selectedId];
     renderAssets();renderTimeline();renderInspector();setPlayheadVisual();previewCurrent();
-    var warnings=S.data.migration&&S.data.migration.warnings||[];
-    if(warnings.length)showStatus('迁移警告：'+warnings.join('；'),'');
+    var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
+    var filmWarnings=S.data.warnings||[];
+    if(migrationWarnings.length)showStatus('迁移警告：'+migrationWarnings.join('；'),'');
+    else if(filmWarnings.length)showStatus('影片格式提示：'+filmWarnings.join('；'),'');
     else{var el=$('film-studio-alert');el.className='fs-alert';el.textContent='';}
   }
   async function filmStudioLoad(force) {
@@ -1436,6 +1438,8 @@
       // "element selected" state after a pointer event has already arrived.
       if(S.elementInspect&&message.enabled&&!S.selectedElement)showStatus('预览中的 HTML 镜头已进入元素选取模式。','success');
       else if(S.elementInspect&&message.enabled===false)showStatus('预览中的 HTML 镜头无法进入元素选取模式：'+String(message.error||'绘制队列未能完成'),'error');
+    }else if(message.type==='film-runtime:override-warning'){
+      showStatus('HTML 镜头 overrides 提示：'+String(message.warning||'存在未执行的遗留修改'),'');
     }else if(['film-runtime:element-selected','film-runtime:element-hover',
                 'film-runtime:element-preview','film-runtime:element-drag-end'].indexOf(message.type)>=0){
       var element={

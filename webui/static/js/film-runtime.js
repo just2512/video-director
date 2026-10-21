@@ -748,7 +748,8 @@
       'film-element-hover':'film-runtime:element-hover',
       'film-element-preview':'film-runtime:element-preview',
       'film-element-drag-end':'film-runtime:element-drag-end',
-      'film-inspect-ready':'film-runtime:inspect-ready'
+      'film-inspect-ready':'film-runtime:inspect-ready',
+      'film-override-warning':'film-runtime:override-warning'
     };
     if(!message||!mappedType[message.type])return false;
     var entry=findEntryForFrame(event.source);
@@ -768,7 +769,8 @@
       },
       // Keep preview-space rect for the selection overlay, but preserve the child document's CSS design-space box for inspector round-tripping.
       localRect:message.localRect||rect,enabled:message.enabled===true,
-      error:typeof message.error==='string'?message.error.slice(0,1000):''
+      error:typeof message.error==='string'?message.error.slice(0,1000):'',
+      warning:typeof message.warning==='string'?message.warning.slice(0,1000):''
     });
     return true;
   }

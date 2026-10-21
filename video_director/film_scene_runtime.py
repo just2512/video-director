@@ -266,6 +266,23 @@ _SCENE_BRIDGE = r"""
   }
   var inspectMode = false;
   var currentOverrides = [];
+  var reportedOverrideWarnings = Object.create(null);
+
+  function reportOverrideWarning(warning, selector) {
+    warning = String(warning || '未知 overrides 警告').slice(0, 1000);
+    selector = typeof selector === 'string' ? selector.slice(0, 500) : '';
+    var key = warning + '\\n' + selector;
+    if (reportedOverrideWarnings[key]) return;
+    reportedOverrideWarnings[key] = true;
+    try {
+      if (window.console && typeof window.console.warn === 'function') {
+        window.console.warn('[film.html overrides] ' + warning + (selector ? ' [' + selector + ']' : ''));
+      }
+    } catch (_) {}
+    try {
+      parent.postMessage({type:'film-override-warning',warning:warning,selector:selector}, '*');
+    } catch (_) {}
+  }
 
   var overrideStyleMap = {
     color: 'color', backgroundColor: 'background-color', fontSize: 'font-size',
@@ -275,14 +292,44 @@ _SCENE_BRIDGE = r"""
     borderRadius: 'border-radius', rotate: 'rotate'
   };
   function parseOverrides(value) {
+    if (value == null || value === '') return [];
     if (typeof value === 'string') {
-      try { value = JSON.parse(value); } catch (_) { return []; }
+      try { value = JSON.parse(value); }
+      catch (error) { throw new Error('overrides 不是有效 JSON：' + String(error && error.message || error)); }
     }
-    if (!Array.isArray(value)) return [];
-    return value.filter(function (item) {
-      return item && typeof item === 'object' && typeof item.selector === 'string'
-        && item.selector.length > 0 && item.selector.length <= 500;
-    }).slice(0, 500);
+    if (!Array.isArray(value)) throw new Error('overrides 必须是 JSON 数组');
+    if (value.length > 500) throw new Error('overrides 超过 500 项限制');
+    var parsed = [];
+    value.forEach(function (item, index) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new Error('overrides 第 ' + (index + 1) + ' 项必须是对象');
+      }
+      if (!Object.prototype.hasOwnProperty.call(item, 'selector')) {
+        reportOverrideWarning('遗留记录不含 selector；已保留原值但当前 Runtime 不执行', '');
+        return;
+      }
+      if (typeof item.selector !== 'string' || !item.selector.trim() || item.selector.length > 500
+          || /[\\x00-\\x1f]/.test(item.selector)) {
+        throw new Error('overrides 第 ' + (index + 1) + ' 项的 CSS selector 无效');
+      }
+      if (Object.prototype.hasOwnProperty.call(item, 'text')
+          && (typeof item.text !== 'string' || item.text.length > 4000)) {
+        throw new Error('overrides selector ' + item.selector + ' 的 text 必须是 4000 字符以内的字符串');
+      }
+      if (item.style != null && (typeof item.style !== 'object' || Array.isArray(item.style))) {
+        throw new Error('overrides selector ' + item.selector + ' 的 style 必须是对象');
+      }
+      var style = item.style && typeof item.style === 'object' ? item.style : {};
+      var executableStyle = Object.keys(style).some(function (key) {
+        return Object.prototype.hasOwnProperty.call(overrideStyleMap, key);
+      });
+      if (!Object.prototype.hasOwnProperty.call(item, 'text') && !executableStyle) {
+        reportOverrideWarning('selector 记录没有当前 Runtime 可执行的 text/style 属性；原值保留但不执行', item.selector);
+        return;
+      }
+      parsed.push(item);
+    });
+    return parsed;
   }
   function styleValueAllowed(key, value) {
     if (typeof value !== 'string' || value.length > 120
@@ -312,16 +359,34 @@ _SCENE_BRIDGE = r"""
   }
   function applyOverrides() {
     currentOverrides.forEach(function (item) {
-      var elements = [];
-      try { elements = document.querySelectorAll(item.selector); } catch (_) { return; }
+      var elements;
+      try {
+        elements = document.querySelectorAll(item.selector);
+      } catch (error) {
+        throw new Error('overrides CSS selector 无效：' + item.selector + '；' +
+          String(error && error.message || error));
+      }
+      if (!elements.length) {
+        throw new Error('overrides CSS selector 没有匹配到场景元素：' + item.selector);
+      }
       elements.forEach(function (element) {
-        if (Object.prototype.hasOwnProperty.call(item, 'text') && typeof item.text === 'string') {
+        if (Object.prototype.hasOwnProperty.call(item, 'text')) {
+          if (typeof item.text !== 'string') {
+            throw new Error('overrides selector ' + item.selector + ' 的 text 不是字符串');
+          }
           element.textContent = item.text;
         }
         var style = item.style && typeof item.style === 'object' ? item.style : {};
         Object.keys(style).forEach(function (key) {
           var cssName = overrideStyleMap[key], value = style[key];
-          if (cssName && styleValueAllowed(key, value)) element.style.setProperty(cssName, value);
+          if (!cssName) {
+            reportOverrideWarning('style 属性 ' + key + ' 当前 Runtime 不支持；原值保留但不执行', item.selector);
+            return;
+          }
+          if (!styleValueAllowed(key, value)) {
+            throw new Error('overrides selector ' + item.selector + ' 的 CSS 属性 ' + key + ' 值无效');
+          }
+          element.style.setProperty(cssName, value);
         });
       });
     });

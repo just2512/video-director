@@ -128,6 +128,7 @@ def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
             window.__frameReply = null;
             window.__snapshot = null;
             window.__dragEnd = null;
+            window.__overrideWarning = null;
             var frame = document.getElementById('scene');
             window.addEventListener('message', function (event) {
               if (event.source !== frame.contentWindow || !event.data) return;
@@ -135,6 +136,7 @@ def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
               if (event.data.type === 'film-frame:ready') window.__frameReply = event.data;
               if (event.data.type === 'scene-snapshot') window.__snapshot = event.data;
               if (event.data.type === 'film-element-drag-end') window.__dragEnd = event.data;
+              if (event.data.type === 'film-override-warning') window.__overrideWarning = event.data;
             });
             frame.addEventListener('load', function () {
               frame.contentWindow.postMessage({type:'film-inspect', enabled:true}, '*');
@@ -181,6 +183,45 @@ def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
         assert snapshot["left"] == "40px"
         assert snapshot["fontSize"] == "32px"
         assert snapshot["frameTime"] == "2.5"
+
+        # Invalid CSS selectors and selectors with no target are errors, not silent no-ops.
+        page.evaluate("""() => {
+          window.__frameReply = null;
+          document.getElementById('scene').contentWindow.postMessage({
+            type:'film-frame', time:2.5, frame:5,
+            overrides:[{selector:'[', text:'must not silently disappear'}]
+          }, '*');
+        }""")
+        page.wait_for_function("window.__frameReply && window.__frameReply.frame === 5", timeout=10000)
+        invalid_selector = page.evaluate("window.__frameReply")
+        assert invalid_selector["error"]
+        assert "overrides CSS selector 无效" in invalid_selector["error"]
+
+        page.evaluate("""() => {
+          window.__frameReply = null;
+          document.getElementById('scene').contentWindow.postMessage({
+            type:'film-frame', time:2.5, frame:6,
+            overrides:[{selector:'#does-not-exist', text:'must not silently disappear'}]
+          }, '*');
+        }""")
+        page.wait_for_function("window.__frameReply && window.__frameReply.frame === 6", timeout=10000)
+        missing_target = page.evaluate("window.__frameReply")
+        assert missing_target["error"]
+        assert "没有匹配到场景元素" in missing_target["error"]
+
+        # An old non-selector record is preserved but produces a visible warning.
+        page.evaluate("""() => {
+          window.__frameReply = null;
+          window.__overrideWarning = null;
+          document.getElementById('scene').contentWindow.postMessage({
+            type:'film-frame', time:2.5, frame:7,
+            overrides:[{n:'.legacy-title', t:'legacy text'}]
+          }, '*');
+        }""")
+        page.wait_for_function("window.__overrideWarning !== null", timeout=10000)
+        warning = page.evaluate("window.__overrideWarning")
+        assert "不含 selector" in warning["warning"]
+        page.wait_for_function("window.__frameReply && window.__frameReply.frame === 7", timeout=10000)
         browser.close()
 
 
@@ -322,3 +363,22 @@ def test_scene_css_resource_cache_is_owned_by_a_plain_object():
     assert "var cssResourcePromises = window.__filmCssResourcePromises;" in source
     assert "typeof cssResourcePromises !== 'object' || Array.isArray(cssResourcePromises)" in source
     assert "window.__filmCssResourcePromises = cssResourcePromises;" in source
+
+
+
+def test_override_metadata_failures_are_reported_instead_of_silently_dropped():
+    from pathlib import Path
+
+    bridge = (Path(__file__).resolve().parents[1] / "video_director" / "film_scene_runtime.py").read_text(encoding="utf-8")
+    outer_runtime = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    studio = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    parser = bridge[bridge.index("function parseOverrides"):bridge.index("function styleValueAllowed")]
+    apply = bridge[bridge.index("function applyOverrides"):bridge.index("function safeSelectorPart")]
+    assert "throw new Error('overrides 不是有效 JSON：" in parser
+    assert "遗留记录不含 selector" in parser
+    assert "querySelectorAll(item.selector)" in apply
+    assert "overrides CSS selector 无效" in apply
+    assert "overrides CSS selector 没有匹配到场景元素" in apply
+    assert "styleValueAllowed(key, value)" in apply
+    assert "'film-override-warning':'film-runtime:override-warning'" in outer_runtime
+    assert "HTML 镜头 overrides 提示：" in studio
