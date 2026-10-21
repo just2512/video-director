@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from video_director import config, film_document as fd
 from video_director.models import CompositionIR
 
