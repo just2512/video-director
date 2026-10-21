@@ -3220,20 +3220,17 @@ def build_film_from_composition(project_id: str, ir) -> dict:
 
     for scene in source_scenes:
         scene_id = str(scene.get("id") or "unknown")
-        if scene.get("selections"):
-            warnings.append(f"场景 {scene_id} 的 selections 语义锚点未映射到 film.html")
-        scene_metadata = [
-            name for name in (
-                "semantic_role", "intent", "visual_intent", "selected_candidate_id",
-                "origin_recipe_id", "origin_recipe_version",
-            ) if scene.get(name)
+        scene_selections = [
+            item for item in (scene.get("selections") or []) if isinstance(item, dict)
         ]
-        if scene_metadata:
-            warnings.append(f"场景 {scene_id} 的创作 lineage 字段未映射：" + ", ".join(scene_metadata))
+        matched_selection_ids: set[str] = set()
         if any(scene.get(name) for name in (
             "entrance_state", "exit_state", "continuity_in", "continuity_out"
         )):
-            warnings.append(f"场景 {scene_id} 的 continuity/state 信息未迁移")
+            warnings.append(
+                f"场景 {scene_id} 的入口/出口状态与 continuity link 已保存在 film.html 的 data-source-* 元数据；"
+                "状态比较、carry/morph 等连续性动作尚未编译为播放行为"
+            )
         scene_start = _number(scene.get("start", 0), "scene start", 0)
 
         # SceneIR.layers are the flattened scene composition. Beat.layers can
@@ -3366,6 +3363,49 @@ def build_film_from_composition(project_id: str, ir) -> dict:
             cid = _safe_id(f"main-{scene.get('id','scene')}-{idx + 1}", "clip")
             layer_timeline_start = scene_start + _number(layer.get("start", 0), "layer start", 0)
             attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(layer_timeline_start), "data-asset-id": str(layer.get("asset_id") or ""), "data-source-id": str(layer.get("id") or layer.get("clip_id") or ""), "data-source-scene-id": str(scene.get("id") or ""), "data-source-track-id": str(layer.get("track_id") or "")}
+            scene_metadata_attrs = {
+                "semantic_role": "data-source-scene-semantic-role",
+                "intent": "data-source-scene-intent",
+                "visual_intent": "data-source-scene-visual-intent",
+                "selected_candidate_id": "data-source-selected-candidate-id",
+                "origin_recipe_id": "data-source-origin-recipe-id",
+                "origin_recipe_version": "data-source-origin-recipe-version",
+            }
+            for source_field, target_attr in scene_metadata_attrs.items():
+                source_value = scene.get(source_field)
+                if source_value not in (None, ""):
+                    attrs[target_attr] = str(source_value)
+            for source_field, target_attr in (
+                ("entrance_state", "data-source-entrance-state"),
+                ("exit_state", "data-source-exit-state"),
+                ("continuity_in", "data-source-continuity-in"),
+                ("continuity_out", "data-source-continuity-out"),
+            ):
+                source_value = scene.get(source_field)
+                if source_value is not None:
+                    attrs[target_attr] = json.dumps(
+                        source_value, ensure_ascii=False, separators=(",", ":")
+                    )
+            clip_timeline_end = layer_timeline_start + d
+            clip_selections = []
+            for selection in scene_selections:
+                selection_id = str(selection.get("id") or "")
+                selection_start = _number(selection.get("start"), f"selection {selection_id}.start", 0)
+                selection_end = _number(selection.get("end"), f"selection {selection_id}.end", selection_start + 0.001)
+                if selection_end <= layer_timeline_start + 1e-6 or selection_start >= clip_timeline_end - 1e-6:
+                    continue
+                clip_selections.append({
+                    "id": selection_id,
+                    "text": str(selection.get("text") or ""),
+                    "start": selection_start,
+                    "end": selection_end,
+                })
+                if selection_id:
+                    matched_selection_ids.add(selection_id)
+            if clip_selections:
+                attrs["data-source-selections"] = json.dumps(
+                    clip_selections, ensure_ascii=False, separators=(",", ":")
+                )
             if layer_entry["beat_ids"]:
                 attrs["data-source-beat-ids"] = json.dumps(layer_entry["beat_ids"], ensure_ascii=False, separators=(",", ":"))
                 attrs["data-source-beat-roles"] = json.dumps(layer_entry["beat_roles"], ensure_ascii=False, separators=(",", ":"))
@@ -3592,6 +3632,16 @@ def build_film_from_composition(project_id: str, ir) -> dict:
                 warnings.append(
                     f"片段 {cid} 字段 " + ", ".join(unsupported_layer_fields) + " 尚未无损迁移"
                 )
+        unmatched_selections = [
+            selection for selection in scene_selections
+            if str(selection.get("id") or "") not in matched_selection_ids
+        ]
+        if unmatched_selections:
+            warnings.append(
+                f"场景 {scene_id} 的 Selection 未与任何可渲染画面区间相交："
+                + ", ".join(str(selection.get("id") or "unknown") for selection in unmatched_selections)
+                + "；原始绝对时间与文本仍保存在 migration/source-composition.json"
+            )
     # Put each overlapping overlay/audio item on its own physical section; OpenFilm tracks may not overlap internally.
     def one_clip_track(track_id, label, clip):
         return {"id": track_id, "attrs": {"id": track_id, "data-label": label}, "clips": [clip]}
