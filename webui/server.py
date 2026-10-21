@@ -1333,16 +1333,21 @@ class Handler(BaseHTTPRequestHandler):
                         for cancelled_key, cancelled_at in list(_FILM_AI_CANCELLED_REQUESTS.items()):
                             if now - cancelled_at > 300:
                                 _FILM_AI_CANCELLED_REQUESTS.pop(cancelled_key, None)
-                        if key in _FILM_AI_CANCELLED_REQUESTS:
+                        was_cancelled = key in _FILM_AI_CANCELLED_REQUESTS
+                        duplicate_request = key in _FILM_AI_ACTIVE_STREAMS
+                        if was_cancelled:
                             _FILM_AI_CANCELLED_REQUESTS.pop(key, None)
-                            self._send_json({"ok": False, "code": "AI_REQUEST_CANCELLED",
-                                             "error": "AI 请求在生成开始前已取消。"}, 409)
-                            return True
-                        if key in _FILM_AI_ACTIVE_STREAMS:
-                            self._send_json({"ok": False, "code": "DUPLICATE_AI_REQUEST_ID",
-                                             "error": "AI request_id 已在使用中。"}, 409)
-                            return True
-                        _FILM_AI_ACTIVE_STREAMS[key] = active_stream
+                        elif not duplicate_request:
+                            _FILM_AI_ACTIVE_STREAMS[key] = active_stream
+                    # Never write an HTTP response while holding the shared registry lock.
+                    if was_cancelled:
+                        self._send_json({"ok": False, "code": "AI_REQUEST_CANCELLED",
+                                         "error": "AI 请求在生成开始前已取消。"}, 409)
+                        return True
+                    if duplicate_request:
+                        self._send_json({"ok": False, "code": "DUPLICATE_AI_REQUEST_ID",
+                                         "error": "AI request_id 已在使用中。"}, 409)
+                        return True
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache, no-transform")
