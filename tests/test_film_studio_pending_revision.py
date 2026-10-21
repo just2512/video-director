@@ -112,3 +112,13 @@ def test_only_matching_inspector_can_submit_its_own_dirty_form():
     assert "options&&options.allowInspectorDraft?'canvas':''" in source
     tsx = (Path(__file__).resolve().parents[1] / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     assert "result.operation, {allowInspectorDraft:true}" in tsx
+
+
+def test_rejected_timeline_commit_rolls_back_dom_without_remounting_inspector():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    start = source.index("if(hasConflictingDraft){", source.index("async function filmStudioCommit(ops, options)"))
+    end = source.index("if(!S.projectId||!S.data||!S.data.exists)return false;", start)
+    rejected = source[start:end]
+    assert "renderTimeline();" in rejected
+    assert "render();" not in rejected
+    assert "return false;" in rejected

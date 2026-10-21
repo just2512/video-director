@@ -998,6 +998,9 @@
         ?hasUncommittedClipInspectorEdits()
         :hasUncommittedInspectorEdits();
     if(hasConflictingDraft){
+      // A completed drag may already have updated transient timeline DOM geometry.
+      // Rebuild only the timeline from S.data; a full render would wipe React form drafts.
+      if(!S.drag&&!S.envelopeDrag&&S.data&&S.data.exists)renderTimeline();
       showStatus('Inspector 还有另一组未提交草稿。请先应用或重新载入后，再执行其他编辑。','error');
       return false;
     }
