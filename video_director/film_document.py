@@ -353,8 +353,9 @@ def _film_style_issues(value: str, *, is_track: bool = False) -> list[str]:
             if not math.isfinite(number) or not 0 <= number <= 1:
                 issues.append("style 属性 'opacity' 必须在 0–1 范围内")
         elif name == "z-index":
-            if not re.fullmatch(r"-?\d{1,6}", raw_value) or abs(int(raw_value)) > 100000:
-                issues.append("style 属性 'z-index' 必须是 -100000–100000 范围内的整数")
+            limit = 1000000 if is_track else 100000
+            if not re.fullmatch(r"-?\d{1,7}", raw_value) or abs(int(raw_value)) > limit:
+                issues.append(f"style 属性 'z-index' 必须是 {-limit}–{limit} 范围内的整数")
         elif name == "clip-path":
             inset = r"inset\(\s*-?(?:\d+(?:\.\d+)?|\.\d+)%(?:\s+-?(?:\d+(?:\.\d+)?|\.\d+)%){0,3}\s*\)"
             ellipse = r"ellipse\(\s*\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%\s+at\s+\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%\s*\)"

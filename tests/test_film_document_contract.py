@@ -1520,3 +1520,23 @@ def test_parse_accepts_safe_inline_border_radius_and_runtime_media_style():
     )
     parsed = fd.parse_film(source)
     assert "border-radius:24px 12px" in parsed["tracks"][0]["clips"][0]["attrs"]["style"]
+
+
+def test_parse_accepts_migrated_overlay_track_z_index_but_rejects_runtime_ignored_clip_z_index():
+    track_source = (
+        '<!doctype html><html><head></head><body>'
+        '<section id="overlay" data-render-z-index="100001" style="z-index:100001">'
+        '<video id="clip" src="assets/video.mp4#t=0,1" at="0"></video>'
+        '</section></body></html>'
+    )
+    parsed = fd.parse_film(track_source)
+    assert parsed["tracks"][0]["attrs"]["style"] == "z-index:100001"
+
+    clip_source = (
+        '<!doctype html><html><head></head><body>'
+        '<section id="track"><video id="clip" src="assets/video.mp4#t=0,1" at="0" '
+        'style="left:0px;top:0px;width:100px;height:100px;z-index:100001"></video>'
+        '</section></body></html>'
+    )
+    with pytest.raises(fd.FilmError, match="100000"):
+        fd.parse_film(clip_source)
