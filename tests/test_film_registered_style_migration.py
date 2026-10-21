@@ -204,7 +204,7 @@ def test_unregistered_variant_style_applies_only_whitelisted_parameters(tmp_path
     )
     assert bgm_track["clips"][0]["attrs"]["volume"] == "0.25"
     warnings = "\n".join(result["warnings"])
-    assert "已应用受支持参数：image_motion_intensity, subtitle_font_size, subtitle_max_lines, subtitle_position" in warnings
+    assert "已应用受支持参数：bgm_volume, image_motion_intensity, subtitle_font_size, subtitle_max_lines, subtitle_position" in warnings
     assert "palette_tokens" in warnings
 
 
