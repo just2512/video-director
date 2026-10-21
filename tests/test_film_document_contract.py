@@ -1420,3 +1420,38 @@ def test_parse_rejects_unknown_track_attribute_with_line_number():
         fd.parse_film(source)
     assert "第 4 行" in str(error.value)
     assert "未知属性 'data-lable'" in str(error.value)
+
+
+def test_parse_rejects_stray_tracks_and_media_outside_body_with_line_numbers():
+    sources = [
+        (
+            '<!doctype html>\n<html><head></head>\n'
+            '<section id="orphan"><video id="clip" src="assets/video.mp4#t=0,1" at="0"></video></section>\n'
+            '<body></body></html>',
+            "第 3 行",
+            "section",
+        ),
+        (
+            '<!doctype html><html><head></head><body></body>\n'
+            '<video id="orphan" src="assets/video.mp4#t=0,1" at="0"></video></html>',
+            "第 2 行",
+            "video",
+        ),
+    ]
+    for source, line_text, tag in sources:
+        with pytest.raises(fd.FilmError) as error:
+            fd.parse_film(source)
+        assert line_text in str(error.value)
+        assert f"<{tag}>" in str(error.value)
+
+
+def test_parse_rejects_unknown_head_element_and_typo_in_meta_attribute():
+    unknown_tag = '<!doctype html><html><head>\n<div>invalid head node</div></head><body><section id="v"><video id="c" src="assets/v.mp4#t=0,1"></video></section></body></html>'
+    with pytest.raises(fd.FilmError) as tag_error:
+        fd.parse_film(unknown_tag)
+    assert "head/html 结构之外" in str(tag_error.value)
+
+    typo_attr = '<!doctype html><html><head><meta charsett="utf-8"></head><body><section id="v"><video id="c" src="assets/v.mp4#t=0,1"></video></section></body></html>'
+    with pytest.raises(fd.FilmError) as attr_error:
+        fd.parse_film(typo_attr)
+    assert "未知属性 'charsett'" in str(attr_error.value)

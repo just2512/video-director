@@ -286,6 +286,18 @@ _FILM_CLIP_ATTRIBUTES = _FILM_GLOBAL_ATTRIBUTES | {
     "data-source-variant-id", "data-source-variant-metadata", "data-source-variant-style",
     "data-source-variant-version", "data-source-watermark-contract", "data-source-watermark-id",
 }
+_FILM_DOCUMENT_ATTRIBUTES = {
+    "id", "class", "lang", "dir", "role", "tabindex",
+    "aria-label", "aria-hidden", "aria-labelledby", "aria-describedby",
+}
+_FILM_HEAD_ATTRIBUTES = {
+    "head": {"id", "class", "lang", "dir"},
+    "meta": {"charset", "name", "content", "http-equiv", "property", "media", "itemprop"},
+    "link": {"id", "class", "rel", "href", "type", "media", "as", "crossorigin",
+             "integrity", "referrerpolicy", "sizes", "title"},
+    "style": {"id", "class", "type", "media", "nonce"},
+    "title": {"id", "class", "lang", "dir"},
+}
 _FILM_TRACK_STYLE_PROPERTIES = {"z-index"}
 _FILM_CLIP_STYLE_PROPERTIES = {
     "left", "top", "width", "height", "rotate", "transform-origin",
@@ -382,10 +394,46 @@ class _FilmParser(HTMLParser):
             attr_map[key] = "" if value is None else value
         parent = self.stack[-1] if self.stack else ""
         if tag == "body":
+            unknown = [key for key in attr_map if key not in _FILM_DOCUMENT_ATTRIBUTES]
+            self.problems.extend(
+                f"第 {line_number} 行：body 不允许未知属性 {key!r}" for key in unknown
+            )
+            if parent != "html":
+                self.problems.append(f"第 {line_number} 行：body 必须是 html 的直接子元素")
             if self.body_seen:
-                self.problems.append("存在多个 body 元素")
+                self.problems.append(f"第 {line_number} 行：存在多个 body 元素")
             self.body_seen, self.in_body = True, True
             self.stack.append(tag)
+            return
+        if not self.in_body:
+            if tag == "html" and not self.body_seen and not parent:
+                unknown = [key for key in attr_map if key not in (_FILM_DOCUMENT_ATTRIBUTES | {"xmlns"})]
+                self.problems.extend(
+                    f"第 {line_number} 行：html 不允许未知属性 {key!r}" for key in unknown
+                )
+                self.stack.append(tag)
+                return
+            if tag == "head" and not self.body_seen and parent == "html":
+                self.problems.extend(
+                    f"第 {line_number} 行：head 不允许未知属性 {key!r}"
+                    for key in attr_map if key not in _FILM_HEAD_ATTRIBUTES["head"]
+                )
+                self.stack.append(tag)
+                return
+            if tag in _FILM_HEAD_ATTRIBUTES and not self.body_seen and "head" in self.stack:
+                self.problems.extend(
+                    f"第 {line_number} 行：{tag} 不允许未知属性 {key!r}"
+                    for key in attr_map if key not in _FILM_HEAD_ATTRIBUTES[tag]
+                )
+                if tag not in VOID_TAGS:
+                    self.stack.append(tag)
+                return
+            self.problems.append(
+                f"第 {line_number} 行：元素 <{tag}> 不允许出现在 head/html 结构之外；"
+                "轨道与媒体片段必须位于 body 的 section 内"
+            )
+            if tag not in VOID_TAGS:
+                self.stack.append(tag)
             return
         if tag == "section" and self.in_body:
             self.problems.extend(
