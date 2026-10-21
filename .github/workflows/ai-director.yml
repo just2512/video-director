@@ -184,7 +184,8 @@ jobs:
             tests/test_film_studio_inspector_renderer.py \
             tests/test_film_runtime_mask_keyframes_browser.py \
             tests/test_film_mask_overlay_migration.py \
-            tests/test_film_variant_transform_keyframes.py
+            tests/test_film_variant_transform_keyframes.py \
+            tests/test_film_registered_style_migration.py
       - name: Run test suite and retain JUnit report
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
