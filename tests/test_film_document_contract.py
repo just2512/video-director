@@ -1371,3 +1371,52 @@ def test_film_fps_metadata_round_trip_and_range_validation():
     text_fps = serialized.replace('content="24"', 'content="24fps"')
     with pytest.raises(fd.FilmError, match="film-fps 元数据必须是 1–60 的整数"):
         fd.parse_film(text_fps)
+
+
+def test_parse_rejects_unknown_clip_attribute_and_reports_line_number():
+    source = '''<!doctype html>
+<html><head></head>
+<body>
+<section id="video">
+  <video id="clip" src="assets/video.mp4#t=0,2" at="0" speeed="1"></video>
+</section>
+</body></html>'''
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(source)
+    assert error.value.code == "INVALID_FILM"
+    assert "第 5 行" in str(error.value)
+    assert "未知属性 'speeed'" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "style, expected",
+    [
+        ("position:absolute;left:0px;top:0px;width:100px;height:100px", "CSS 属性 'position'"),
+        ("transform:scale(2);left:0px;top:0px;width:100px;height:100px", "CSS 属性 'transform'"),
+        ("margin:10px;left:0px;top:0px;width:100px;height:100px", "CSS 属性 'margin'"),
+        ("left:calc(100% - 2px);top:0px;width:100px;height:100px", "必须使用 px 数值"),
+    ],
+)
+def test_parse_rejects_unsupported_clip_layout_css(style, expected):
+    source = (
+        '<!doctype html><html><head></head><body>'
+        '<section id="video"><video id="clip" src="assets/video.mp4#t=0,2" at="0" '
+        + 'style="' + style + '"></video></section></body></html>'
+    )
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(source)
+    assert expected in str(error.value)
+
+
+def test_parse_rejects_unknown_track_attribute_with_line_number():
+    source = '''<!doctype html>
+<html><head></head>
+<body>
+<section id="video" data-lable="typo">
+  <video id="clip" src="assets/video.mp4#t=0,2" at="0"></video>
+</section>
+</body></html>'''
+    with pytest.raises(fd.FilmError) as error:
+        fd.parse_film(source)
+    assert "第 4 行" in str(error.value)
+    assert "未知属性 'data-lable'" in str(error.value)

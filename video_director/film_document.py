@@ -257,6 +257,110 @@ def revision_of(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+_FILM_GLOBAL_ATTRIBUTES = {
+    "id", "class", "title", "style", "lang", "dir", "hidden", "role", "tabindex",
+    "aria-label", "aria-hidden", "aria-labelledby", "aria-describedby", "aria-description",
+    "aria-roledescription", "aria-details",
+}
+_FILM_TRACK_ATTRIBUTES = _FILM_GLOBAL_ATTRIBUTES | {
+    "data-label", "data-kind", "data-render-z-index", "locked", "muted", "sync-lock",
+}
+_FILM_CLIP_ATTRIBUTES = _FILM_GLOBAL_ATTRIBUTES | {
+    "src", "at", "speed", "volume", "volume_envelope", "fade", "muted", "overrides",
+    "alt", "size", "width", "height", "opacity", "src_in", "src_out", "poster",
+    "controls", "autoplay", "loop", "preload", "playsinline", "crossorigin",
+    "target", "rel", "sandbox",
+    "data-asset-id", "data-clip-id", "data-clip-locked", "data-film-keyframes",
+    "data-film-mask-keyframes", "data-film-mask-space", "data-film-transform", "data-kind",
+    "data-label", "data-motion-instance", "data-motion-recipe-id", "data-motion-recipe-version",
+    "data-project-id", "data-render-z-index", "data-role", "data-source-asset-metadata",
+    "data-source-beat-ids", "data-source-beat-layer", "data-source-beat-roles",
+    "data-source-continuity-in", "data-source-continuity-out", "data-source-continuity-links",
+    "data-source-entrance-state", "data-source-exit-state", "data-source-id",
+    "data-source-origin-recipe-id", "data-source-origin-recipe-version",
+    "data-source-origin-template-id", "data-source-origin-template-version", "data-source-reference-graph",
+    "data-source-scene-id", "data-source-scene-intent", "data-source-scene-semantic-role",
+    "data-source-scene-visual-intent", "data-source-selected-candidate-id", "data-source-selections",
+    "data-source-semantic-anchors", "data-source-style-contract", "data-source-style-id",
+    "data-source-track-hidden", "data-source-track-id", "data-source-track-name", "data-source-track-order",
+    "data-source-variant-id", "data-source-variant-metadata", "data-source-variant-style",
+    "data-source-variant-version", "data-source-watermark-contract", "data-source-watermark-id",
+}
+_FILM_TRACK_STYLE_PROPERTIES = {"z-index"}
+_FILM_CLIP_STYLE_PROPERTIES = {
+    "left", "top", "width", "height", "rotate", "transform-origin",
+    "object-fit", "opacity", "clip-path", "z-index",
+}
+
+
+def _film_style_issues(value: str, *, is_track: bool = False) -> list[str]:
+    issues = []
+    allowed = _FILM_TRACK_STYLE_PROPERTIES if is_track else _FILM_CLIP_STYLE_PROPERTIES
+    for declaration in value.split(";"):
+        declaration = declaration.strip()
+        if not declaration:
+            continue
+        if ":" not in declaration:
+            issues.append(f"style 声明无效：{declaration!r}")
+            continue
+        name, raw_value = declaration.split(":", 1)
+        name, raw_value = name.strip().lower(), raw_value.strip()
+        if name not in allowed:
+            issues.append(f"style 不允许 CSS 属性 {name!r}")
+            continue
+        if not raw_value:
+            issues.append(f"style 属性 {name!r} 缺少值")
+            continue
+        if name in {"left", "top", "width", "height"}:
+            if not re.fullmatch(r"-?\d+(?:\.\d+)?px", raw_value, re.I):
+                issues.append(f"style 属性 {name!r} 必须使用 px 数值")
+            elif name in {"width", "height"} and float(raw_value[:-2]) <= 0:
+                issues.append(f"style 属性 {name!r} 必须大于零")
+        elif name == "rotate":
+            if not re.fullmatch(r"-?\d+(?:\.\d+)?deg", raw_value, re.I):
+                issues.append("style 属性 'rotate' 必须使用 deg 数值")
+        elif name == "transform-origin":
+            tokens = raw_value.lower().split()
+            if not 1 <= len(tokens) <= 2 or any(
+                token not in {"left", "center", "right", "top", "bottom"}
+                and not re.fullmatch(r"-?\d+(?:\.\d+)?%", token)
+                for token in tokens
+            ):
+                issues.append("style 属性 'transform-origin' 只接受位置关键字或百分比")
+        elif name == "object-fit":
+            if raw_value not in {"cover", "contain", "fill", "none", "scale-down"}:
+                issues.append(f"style 属性 'object-fit' 的值无效：{raw_value!r}")
+        elif name == "opacity":
+            try:
+                number = float(raw_value)
+            except ValueError:
+                number = math.nan
+            if not math.isfinite(number) or not 0 <= number <= 1:
+                issues.append("style 属性 'opacity' 必须在 0–1 范围内")
+        elif name == "z-index":
+            if not re.fullmatch(r"-?\d+", raw_value):
+                issues.append("style 属性 'z-index' 必须是整数")
+        elif name == "clip-path":
+            if raw_value != "none" and not re.fullmatch(
+                r"(?:inset|ellipse|polygon)\(\s*[^;]+\s*\)", raw_value, re.I
+            ):
+                issues.append("style 属性 'clip-path' 只接受 inset()/ellipse()/polygon()")
+    return issues
+
+
+def _film_attribute_issues(tag: str, attrs: dict[str, str]) -> list[str]:
+    allowed = _FILM_TRACK_ATTRIBUTES if tag == "section" else _FILM_CLIP_ATTRIBUTES
+    issues = [f"{tag} 不允许未知属性 {key!r}" for key in attrs if key not in allowed]
+    style = attrs.get("style")
+    if style:
+        issues.extend(_film_style_issues(style, is_track=tag == "section"))
+    if tag in {"img", "iframe"} and any(key in attrs for key in {"speed", "volume", "volume_envelope", "muted"}):
+        issues.append(f"{tag} 不支持 speed/volume/volume_envelope/muted")
+    if tag not in {"video", "audio"} and any(key in attrs for key in {"speed", "volume", "volume_envelope"}):
+        issues.append(f"{tag} 不支持 speed/volume/volume_envelope")
+    return issues
+
+
 class _FilmParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -270,10 +374,11 @@ class _FilmParser(HTMLParser):
         self.clip_stack = []
 
     def handle_starttag(self, tag, attrs):
+        line_number = self.getpos()[0]
         attr_map = {}
         for key, value in attrs:
             if key in attr_map:
-                self.problems.append(f"重复属性：{key}")
+                self.problems.append(f"第 {line_number} 行：重复属性 {key!r}")
             attr_map[key] = "" if value is None else value
         parent = self.stack[-1] if self.stack else ""
         if tag == "body":
@@ -283,8 +388,11 @@ class _FilmParser(HTMLParser):
             self.stack.append(tag)
             return
         if tag == "section" and self.in_body:
+            self.problems.extend(
+                f"第 {line_number} 行：{issue}" for issue in _film_attribute_issues("section", attr_map)
+            )
             if parent != "body":
-                self.problems.append("section 必须是 body 的直接子元素")
+                self.problems.append(f"第 {line_number} 行：section 必须是 body 的直接子元素")
             if self.current_track is not None:
                 self.problems.append("轨道不能嵌套")
             tid = attr_map.get("id") or f"track-{len(self.tracks) + 1:03d}"
@@ -294,8 +402,11 @@ class _FilmParser(HTMLParser):
             self.stack.append(tag)
             return
         if tag in CLIP_TAGS and self.in_body:
+            self.problems.extend(
+                f"第 {line_number} 行：{issue}" for issue in _film_attribute_issues(tag, attr_map)
+            )
             if parent != "section" or self.current_track is None:
-                self.problems.append(f"{tag} 必须是 section 的直接子元素")
+                self.problems.append(f"第 {line_number} 行：{tag} 必须是 section 的直接子元素")
                 self.stack.append(tag)
                 return
             if self.clip_stack:
@@ -328,7 +439,7 @@ class _FilmParser(HTMLParser):
                 self.stack.append(tag)
             return
         if self.in_body and tag != "html":
-            self.problems.append(f"body 中不允许 {tag}；只接受 section 与媒体片段")
+            self.problems.append(f"第 {line_number} 行：body 中不允许 {tag}；只接受 section 与媒体片段")
         if tag not in VOID_TAGS:
             self.stack.append(tag)
 
@@ -367,8 +478,10 @@ def parse_film(text: str) -> dict:
     if not head_match:
         raise FilmError("INVALID_FILM", "film.html 缺少完整 head 元素", 422)
     head = head_match.group(0)
-    if re.search(r"<script\b", head, re.I):
-        raise FilmError("INVALID_FILM", "film.html 的 head 禁止 script；动态画面应放在 scenes/*.html", 422)
+    script_in_head = re.search(r"<script\b", head, re.I)
+    if script_in_head:
+        line_number = text[:head_match.start() + script_in_head.start()].count("\n") + 1
+        raise FilmError("INVALID_FILM", f"第 {line_number} 行：film.html 的 head 禁止 script；动态画面应放在 scenes/*.html", 422)
     parser = _FilmParser()
     parser.feed(text)
     parser.close()
