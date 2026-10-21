@@ -253,6 +253,36 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert clips["clip-a"]["attrs"]["src"].endswith("#t=2.5,8")
                 assert float(clips["clip-a"]["attrs"]["at"]) == 0
                 assert fd.clip_duration(clips["clip-a"]) == 2.75
+
+                # Same-project keyboard copy/paste must preserve the source range
+                # and speed, allocate a new stable ID, and avoid track overlap.
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
+                before_paste = fd.read_project_film(project_id)
+                before_count = sum(len(track["clips"]) for track in before_paste["doc"]["tracks"])
+                page.keyboard.press("Control+C")
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已复制 1 个片段')",
+                    timeout=5000,
+                )
+                page.keyboard.press("Control+V")
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
+                    timeout=15000,
+                )
+                pasted = fd.read_project_film(project_id)
+                assert sum(len(track["clips"]) for track in pasted["doc"]["tracks"]) == before_count + 1
+                video_track = next(track for track in pasted["doc"]["tracks"] if track["id"] == "video-main")
+                copies = [clip for clip in video_track["clips"]
+                          if clip["id"] != "clip-a" and clip["attrs"].get("src", "").endswith("#t=2.5,8")]
+                assert len(copies) == 1
+                duplicate = copies[0]
+                assert duplicate["attrs"]["speed"] == "2"
+                assert fd.clip_duration(duplicate) == 2.75
+                for existing in video_track["clips"]:
+                    if existing["id"] == duplicate["id"]:
+                        continue
+                    assert not (float(duplicate["attrs"]["at"]) < fd.clip_end(existing) - 0.001
+                                and fd.clip_end(duplicate) > float(existing["attrs"]["at"]) + 0.001)
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:

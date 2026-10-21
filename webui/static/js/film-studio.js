@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -1579,6 +1579,92 @@
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
   window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段？此操作可撤销。'))return;var committed=await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));if(!committed)return;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
+window.filmStudioCopyClips=function(){
+    if(!S.data||!S.data.exists||!S.projectId){showStatus('请先打开一个有效的 film.html 项目。','error');return false;}
+    var ids=(S.selectedIds||[]).filter(function(id,index,all){return !!findClip(id)&&all.indexOf(id)===index;});
+    if(!ids.length&&S.selectedId&&findClip(S.selectedId))ids=[S.selectedId];
+    if(!ids.length){showStatus('请先选择需要复制的时间线片段。','error');return false;}
+    var selected=ids.map(function(id){return findClip(id);});
+    var baseAt=Math.min.apply(null,selected.map(function(clip){return Number(clip.at);}));
+    var items=[];
+    for(var i=0;i<selected.length;i++){
+      var clip=selected[i],duration=Number(clip.duration);
+      if(!Number.isFinite(duration)||duration<=0){
+        showStatus('片段 '+clip.id+' 没有可证明的有限时长，已拒绝复制。','error');return false;
+      }
+      if(!clip.track_id||!clip.attrs||!clip.attrs.src){
+        showStatus('片段 '+clip.id+' 缺少轨道或素材信息，已拒绝复制。','error');return false;
+      }
+      items.push({
+        sourceId:clip.id,trackId:clip.track_id,tag:clip.tag,duration:duration,
+        offset:Math.max(0,Number(clip.at)-baseAt),attrs:Object.assign({},clip.attrs)
+      });
+    }
+    items.sort(function(a,b){return a.offset-b.offset||a.trackId.localeCompare(b.trackId)||a.sourceId.localeCompare(b.sourceId);});
+    S.clipClipboard={projectId:S.projectId,items:items,duration:Math.max.apply(null,items.map(function(item){return item.offset+item.duration;}))};
+    showStatus('已复制 '+items.length+' 个片段。使用 Ctrl/⌘+V 粘贴到播放头；只在当前项目内有效。','success');
+    return true;
+  };
+  window.filmStudioPasteClips=async function(){
+    var clipboard=S.clipClipboard;
+    if(!S.data||!S.data.exists||!S.projectId||S.busy){showStatus('当前没有可写入的有效 film.html 项目。','error');return false;}
+    if(!clipboard||!Array.isArray(clipboard.items)||!clipboard.items.length){showStatus('剪辑板为空；请先选择片段并复制。','error');return false;}
+    if(clipboard.projectId!==S.projectId){showStatus('剪辑板来自另一个项目。为避免引用失效的项目素材，请在来源项目重新复制。','error');return false;}
+    var tracks=Object.create(null),existingIds=Object.create(null);
+    (S.data.tracks||[]).forEach(function(track){tracks[track.id]=track;(track.clips||[]).forEach(function(clip){existingIds[clip.id]=true;});});
+    for(var i=0;i<clipboard.items.length;i++){
+      var item=clipboard.items[i],track=tracks[item.trackId];
+      if(!track){showStatus('原轨道 '+item.trackId+' 已不存在；请重新复制或恢复原轨道。','error');return false;}
+      if(Object.prototype.hasOwnProperty.call(track.attrs||{},'locked')){
+        showStatus('原轨道 '+String((track.attrs||{})['data-label']||track.id)+' 已锁定，不能在该轨道粘贴。请先解锁。','error');return false;
+      }
+      if(!Number.isFinite(item.duration)||item.duration<=0){
+        showStatus('剪辑板中有时长不明确的片段，已拒绝粘贴。','error');return false;
+      }
+      if((track.clips||[]).some(function(clip){return !Number.isFinite(Number(clip.duration))||Number(clip.duration)<=0;})){
+        showStatus('轨道 '+track.id+' 含有未知时长片段，无法证明粘贴不重叠。','error');return false;
+      }
+    }
+    var frameStep=1/Math.max(1,Number((S.data||{}).fps)||30);
+    var candidate=Math.max(0,Number(S.playhead)||0),placementFound=false;
+    for(var attempt=0;attempt<5000;attempt++){
+      var nextCandidate=candidate,blocked=false;
+      for(var ci=0;ci<clipboard.items.length;ci++){
+        var copied=clipboard.items[ci],targetTrack=tracks[copied.trackId];
+        var start=candidate+copied.offset,end=start+copied.duration;
+        for(var ei=0;ei<(targetTrack.clips||[]).length;ei++){
+          var old=targetTrack.clips[ei],oldStart=Number(old.at),oldEnd=oldStart+Number(old.duration);
+          if(start<oldEnd-0.001&&end>oldStart+0.001){
+            blocked=true;
+            nextCandidate=Math.max(nextCandidate,oldEnd-copied.offset+frameStep);
+          }
+        }
+      }
+      if(!blocked){placementFound=true;break;}
+      if(!Number.isFinite(nextCandidate)||nextCandidate<=candidate+0.0001){candidate+=frameStep;}
+      else candidate=nextCandidate;
+    }
+    if(!placementFound){showStatus('无法在现有轨道中找到不重叠的粘贴区间；未写入任何修改。','error');return false;}
+    var ops=[],newIds=Object.create(null),created=[];
+    function createId(){
+      var id='';
+      do{id='clip-copy-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);}
+      while(existingIds[id]||newIds[id]);
+      newIds[id]=true;return id;
+    }
+    clipboard.items.forEach(function(item){
+      var id=createId(),attrs=Object.assign({},item.attrs);
+      attrs.id=id;attrs.at=String(Math.round((candidate+item.offset)*1000)/1000);
+      ops.push({op:'insert',track_id:item.trackId,clip:{id:id,tag:item.tag,attrs:attrs}});
+      created.push(id);
+    });
+    var committed=await filmStudioCommit(ops);
+    if(!committed)return false;
+    S.selectedIds=created.slice();S.selectedId=created[0]||'';S.selectionAnchor=S.selectedId;
+    renderTimeline();syncClipSelectionVisual();renderInspector();renderAssets();
+    showStatus('已粘贴 '+created.length+' 个片段，起始时间 '+fmtTime(candidate)+'；全部修改可作为一个事务撤销。','success');
+    return true;
+  };
   window.filmStudioJoinThroughEdit=async function(){
     var clip=findClip(S.selectedId);
     if(!clip){showStatus('请先选择切分后的左段或右段。','error');return;}
@@ -1750,6 +1836,10 @@
     if(target&&target.matches&&target.matches('input,textarea,select,[contenteditable="true"]'))return;
     if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='a'){
       e.preventDefault();S.selectedIds=clips().map(function(c){return c.id;});S.selectedId=S.selectedIds[0]||'';S.selectionAnchor=S.selectedId;syncClipSelectionVisual();renderInspector();renderAssets();
+    }else if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='c'){
+      e.preventDefault();window.filmStudioCopyClips();
+    }else if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='v'){
+      e.preventDefault();window.filmStudioPasteClips();
     }else if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='z'){
       e.preventDefault();
       if(e.shiftKey)window.filmStudioRedo();else window.filmStudioUndo();
@@ -1933,6 +2023,8 @@
     'frame-next': () => window.filmStudioNudge(1),
     'canvas-inspect': () => window.filmStudioToggleElementInspect(),
     split: () => window.filmStudioSplit(),
+    'copy-clips': () => window.filmStudioCopyClips(),
+    'paste-clips': () => window.filmStudioPasteClips(),
     'join-cut': () => window.filmStudioJoinThroughEdit(),
     remove: () => window.filmStudioRemove(),
     'ripple-delete': () => window.filmStudioRippleDelete(),
