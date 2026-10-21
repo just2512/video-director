@@ -1572,6 +1572,80 @@
     if(typeof locked!=='boolean'){showStatus('锁定状态必须是明确的布尔值。','error');return;}
     await filmStudioCommit([{op:'clip_lock',clip:clip.id,locked:locked}]);
   };
+  window.filmStudioSaveInspector=async function(){
+    // The React inspector owns its own draft state; ask it to run its validated
+    // save path rather than reading stale DOM values from the compatibility form.
+    var reactApply=$('fs-apply-clip-inspector');
+    if(window.filmStudioReactInspector&&reactApply){
+      reactApply.click();
+      return true;
+    }
+    var clip=findClip(S.selectedId);
+    if(!clip){showStatus('请先选择需要应用属性的片段。','error');return false;}
+    var attrs=clip.attrs||{},ops=[];
+    if(clip.trackLocked||Object.prototype.hasOwnProperty.call(attrs,'data-clip-locked')){
+      showStatus('片段或所在轨道已锁定，不能应用属性。','error');return false;
+    }
+    function numberField(id,field,minimum,maximum,fallback,label){
+      var input=$(id);
+      if(!input)return;
+      var raw=input.value,value=Number(raw),previous=attrs[field]==null?fallback:Number(attrs[field]);
+      if(!raw.trim()||!Number.isFinite(value)||value<minimum||(maximum!=null&&value>maximum)){
+        throw new Error(label+'超出允许范围。');
+      }
+      if(!Number.isFinite(previous)||Math.abs(value-previous)>0.00001){
+        ops.push({op:'set',clip:clip.id,field:field,value:value});
+      }
+    }
+    try{
+      numberField('fs-field-at','at',0,null,clip.at||0,'时间位置');
+      if(clip.tag==='video'||clip.tag==='audio'){
+        numberField('fs-field-speed','speed',0.25,4,1,'速度');
+        numberField('fs-field-volume','volume',0,2,1,'音量');
+        var muted=$('fs-field-muted');
+        if(muted&&(muted.value==='true')!==Object.prototype.hasOwnProperty.call(attrs,'muted')){
+          ops.push({op:'set',clip:clip.id,field:'muted',value:muted.value==='true'});
+        }
+      }
+      var title=$('fs-field-title');
+      if(title&&String(title.value)!==String(attrs.title||'')){
+        ops.push({op:'set',clip:clip.id,field:'title',value:title.value||null});
+      }
+      if(clip.duration!=null){
+        var fadeInInput=$('fs-field-fade-in'),fadeOutInput=$('fs-field-fade-out');
+        if(fadeInInput&&fadeOutInput){
+          var fadeIn=Number(fadeInInput.value),fadeOut=Number(fadeOutInput.value);
+          if(!fadeInInput.value.trim()||!fadeOutInput.value.trim()||!Number.isFinite(fadeIn)||!Number.isFinite(fadeOut)
+            ||fadeIn<0||fadeOut<0||fadeIn>60||fadeOut>60||fadeIn+fadeOut>clip.duration+0.001){
+            throw new Error('淡入/淡出必须是有效数字，且时长之和不能超过片段时长。');
+          }
+          var oldFade=String(attrs.fade||'0,0').split(',');
+          if(Math.abs(Number(oldFade[0]||0)-fadeIn)>0.001||Math.abs(Number(oldFade[1]||0)-fadeOut)>0.001){
+            ops.push({op:'set',clip:clip.id,field:'fade',value:fadeIn>0||fadeOut>0?fadeIn.toFixed(3)+','+fadeOut.toFixed(3):null});
+          }
+        }
+      }
+      var keyframeInput=$('fs-field-keyframes');
+      if(keyframeInput&&keyframeInput.value!==String(attrs['data-film-keyframes']||'')){
+        var raw=keyframeInput.value.trim(),channels=null;
+        if(raw){
+          try{channels=JSON.parse(raw);}catch(_){throw new Error('视觉关键帧必须是有效 JSON。');}
+          if(!Array.isArray(channels))throw new Error('视觉关键帧必须是 JSON 数组。');
+        }
+        ops.push({op:'set',clip:clip.id,field:'data-film-keyframes',value:channels});
+      }
+    }catch(error){
+      showStatus(String(error&&error.message||error),'error');
+      return false;
+    }
+    if(!ops.length){showStatus('属性没有变化。');return true;}
+    try{
+      return await window.filmStudioCommitInspectorOperations(ops);
+    }catch(error){
+      showStatus(String(error&&error.message||error),'error');
+      return false;
+    }
+  };
   window.filmStudioCommitInspectorOperations=async function(ops){
     if(!Array.isArray(ops)||!ops.length)return false;
     if(!S.projectId||!S.data||!S.data.exists)throw new Error('当前没有可编辑的 film.html。');
