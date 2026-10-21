@@ -1284,6 +1284,76 @@ class Handler(BaseHTTPRequestHandler):
                             and abs(float(value)) <= 100000
                         } if isinstance(raw_element.get("localRect"), dict) else {},
                     }
+                if payload.get("stream") is True:
+                    # Stream model deltas over the same request. Streaming is feedback only:
+                    # the validated candidate still must be accepted through apply-proposal.
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache, no-transform")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.end_headers()
+                    disconnected = {"value": False}
+
+                    def emit(event_name, data):
+                        if disconnected["value"]:
+                            return
+                        packet = ("event: " + event_name + "\\n" +
+                                  "data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\\n\\n")
+                        try:
+                            self.wfile.write(packet.encode("utf-8"))
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                            disconnected["value"] = True
+
+                    def on_delta(fragment):
+                        if disconnected["value"]:
+                            raise ConnectionAbortedError("AI 客户端已取消流式请求")
+                        emit("token", {"fragment": fragment})
+
+                    try:
+                        operations = fd.plan_film_command(
+                            llm, state, str(payload.get("message") or ""),
+                            selected_clip_id, summary_out=plan_summary,
+                            selected_element=selected_element, on_token=on_delta)
+                        assistant_summary = str(plan_summary.get("summary") or "").strip()
+                        if not operations:
+                            response = {
+                                "ok": True, "no_op": True,
+                                "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
+                                "rev": state["rev"],
+                            }
+                            sse_publish("film_ai", {"phase": "no_op", "project_id": pid, "base_revision": state["rev"]})
+                        else:
+                            candidate_doc, normalized = fd.apply_ops(state["doc"], operations)
+                            candidate_text = fd.serialize_film(candidate_doc)
+                            fd.parse_film(candidate_text)
+                            candidate_state = {"exists": True, "project_id": pid, "text": candidate_text,
+                                               "rev": fd.revision_of(candidate_text), "doc": candidate_doc}
+                            candidate = fd.film_payload(pid, candidate_state)
+                            proposal = {
+                                "id": uuid.uuid4().hex,
+                                "project_id": pid,
+                                "base_revision": state["rev"],
+                                "operations": normalized,
+                                "summary": assistant_summary or "AI 生成了一组待确认的影片编辑操作。",
+                                "candidate": candidate,
+                                "affected_clip_ids": sorted({str(op.get("clip")) for op in normalized if op.get("clip")}),
+                            }
+                            _FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)
+                            sse_publish("film_ai", {"phase": "proposed", "project_id": pid,
+                                                    "base_revision": state["rev"], "proposal_id": proposal["id"],
+                                                    "operation_count": len(normalized)})
+                            response = {"ok": True, "proposal": proposal,
+                                        "message": "已生成并验证候选修改；尚未写入正式影片文档。"}
+                        emit("result", response)
+                    except Exception as exc:
+                        if not disconnected["value"]:
+                            code = getattr(exc, "code", "LLM_PLAN_FAILED")
+                            emit("error", {"ok": False, "code": str(code),
+                                           "error": str(exc) or "AI 流式规划失败"})
+                        sse_publish("film_ai", {"phase": "failed", "project_id": pid, "base_revision": state["rev"]})
+                    return True
+
                 operations = fd.plan_film_command(
                     llm, state, str(payload.get("message") or ""),
                     selected_clip_id, summary_out=plan_summary,
