@@ -447,11 +447,22 @@
     renderTime(state.time,true);state.raf=requestAnimationFrame(frame);
   }
   function waitForEvent(element,eventName,timeoutMs){
-    return new Promise(function(resolve){
-      var done=false;
-      function finish(){if(done)return;done=true;element.removeEventListener(eventName,finish);resolve();}
+    return new Promise(function(resolve,reject){
+      var done=false,timer=0;
+      function cleanup(){
+        if(timer)clearTimeout(timer);
+        element.removeEventListener(eventName,finish);
+      }
+      function finish(){
+        if(done)return;done=true;cleanup();resolve();
+      }
+      function timeout(){
+        if(done)return;done=true;cleanup();
+        var source=String(element.currentSrc||element.src||element.tagName||'media').slice(0,300);
+        reject(new Error('等待媒体事件 '+eventName+' 超时：'+source));
+      }
       element.addEventListener(eventName,finish,{once:true});
-      setTimeout(finish,timeoutMs||8000);
+      timer=setTimeout(timeout,timeoutMs||8000);
     });
   }
   function nextFrame(){return new Promise(function(resolve){requestAnimationFrame(function(){resolve();});});}
@@ -471,12 +482,37 @@
         try{el.currentTime=desired;}catch(error){throw new Error('无法定位素材时间：'+clip.id+' '+error.message);}
         await seeked;
       }
-      if(tag==='video'&&typeof el.requestVideoFrameCallback==='function'){
-        await Promise.race([new Promise(function(resolve){el.requestVideoFrameCallback(function(){resolve();});}),new Promise(function(resolve){setTimeout(resolve,12000);})]);
+      if(tag==='video'){
+        if(typeof el.requestVideoFrameCallback!=='function'){
+          throw new Error('当前浏览器不支持 requestVideoFrameCallback；无法确认视频帧已准确呈现：'+clip.id);
+        }
+        await new Promise(function(resolve,reject){
+          var done=false,timer=0,callbackId=null;
+          function cleanup(){
+            if(timer)clearTimeout(timer);
+            if(callbackId!=null&&typeof el.cancelVideoFrameCallback==='function'){
+              try{el.cancelVideoFrameCallback(callbackId);}catch(_){}
+            }
+          }
+          timer=setTimeout(function(){
+            if(done)return;done=true;cleanup();
+            reject(new Error('视频片段 '+clip.id+' 等待指定源时间的呈现帧超过 12 秒；拒绝使用可能过期的画面'));
+          },12000);
+          try{
+            callbackId=el.requestVideoFrameCallback(function(){
+              if(done)return;done=true;cleanup();resolve();
+            });
+          }catch(error){
+            if(done)return;done=true;cleanup();reject(error);
+          }
+        });
       }
     }else if(tag==='img'){
       if(!el.complete)await waitForEvent(el,'load',12000);
-      if(typeof el.decode==='function')try{await el.decode();}catch(_){}
+      if(!el.complete||!el.naturalWidth||!el.naturalHeight){
+        throw new Error('图片素材未成功解码：'+clip.id+' '+String(el.currentSrc||el.src||''));
+      }
+      if(typeof el.decode==='function')await el.decode();
     }else if(tag==='iframe'){
       var localTime=mediaTime(clip,t);
       if(entry.iframeLoadError)throw new Error('HTML 镜头加载失败：'+clip.id);

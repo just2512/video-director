@@ -6,15 +6,14 @@ on:
   push:
     branches: [main, "feat/unified-director-agent-loop"]
 
-# Isolate runs so later pushes neither interrupt an active regression nor replace
-# the only pending run; each tested SHA retains its own test result.
+# Keep one running regression and the latest pending main update; this
+# repository currently has one self-hosted runner and recent pushes must not
+# accumulate an unbounded backlog while it is offline.
 permissions:
   contents: write
 
-# A unique concurrency key prevents GitHub from replacing an older pending run
-# with a later push. The self-hosted runner serializes the actual work.
 concurrency:
-  group: ai-director-${{ github.run_id }}
+  group: ai-director-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
