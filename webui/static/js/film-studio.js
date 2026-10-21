@@ -827,17 +827,23 @@
       fields+='<label class="fs-inspector-field">淡入（秒）<input id="fs-field-fade-in" type="number" min="0" max="60" step="0.05" value="'+esc(fadeValues[0]||0)+'"></label>';
       fields+='<label class="fs-inspector-field">淡出（秒）<input id="fs-field-fade-out" type="number" min="0" max="60" step="0.05" value="'+esc(fadeValues[1]||0)+'"></label>';
     }
-    fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label></div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
+    fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label>';
+    if(clip.tag!=='audio'&&clip.duration!=null){
+      fields+='<details class="fs-keyframe-editor fs-keyframe-fallback"><summary>视觉关键帧（JSON）</summary>'+
+        '<p class="fs-inspector-description">兼容模式使用同一 data-film-keyframes 契约。at 为剪辑相对秒数；格式错误会被服务端拒绝。</p>'+
+        '<textarea id="fs-field-keyframes" rows="7" spellcheck="false" aria-label="视觉关键帧 JSON">'+esc(a['data-film-keyframes']||'')+'</textarea></details>';
+    }
+    fields+='</div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     var element=S.selectedElement&&S.selectedElement.clipId===clip.id?S.selectedElement:null;
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
-      window.filmStudioReactInspector.renderClip(Object.assign({},clip,{fps:Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)))}));
+      window.filmStudioReactInspector.renderClip(Object.assign({},clip,{fps:Math.max(1,Math.min(60,num(S.data&&S.data.fps,30))),playhead:S.playhead}));
       renderElementInspector(element);
       return;
     }
     $('fs-inspector').innerHTML=fields;
     var clipIsLocked=Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked');
     if(clipIsLocked){
-      $('fs-inspector').querySelectorAll('input,select,button').forEach(function(control){control.disabled=true;});
+      $('fs-inspector').querySelectorAll('input,select,textarea,button').forEach(function(control){control.disabled=true;});
       var lockMessage=document.createElement('div');lockMessage.className='fs-alert fs-visible fs-error';lockMessage.textContent='该片段来自已锁定图层，只读保留其原始时间线位置与画面。';
       $('fs-inspector').appendChild(lockMessage);
     }
@@ -957,6 +963,7 @@
     if(inspectorFieldDiffersNumber('fs-field-fade-in',fade[0]||0))return true;
     if(inspectorFieldDiffersNumber('fs-field-fade-out',fade[1]||0))return true;
     if(inspectorFieldDiffersText('fs-field-title',attrs.title||''))return true;
+    if(inspectorFieldDiffersText('fs-field-keyframes',attrs['data-film-keyframes']||''))return true;
     return false;
   }
   function hasUncommittedCanvasInspectorEdits(){
