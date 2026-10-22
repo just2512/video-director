@@ -16,6 +16,7 @@ on:
       - "video_director/film_watch.py"
       - "video_director/prober.py"
       - "tests/test_film_*.py"
+      - "tests/test_studio_build_contract.py"
   workflow_dispatch:
 
 permissions:
