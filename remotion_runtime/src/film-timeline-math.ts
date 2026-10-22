@@ -13,7 +13,7 @@ export interface FilmTimelineMathBridge {
 const finiteOr = (value: number, fallback: number): number =>
   Number.isFinite(value) ? value : fallback;
 
-export const filmTimelineMath: FilmTimelineMathBridge = Object.freeze({
+export const filmTimelineMath: FilmTimelineMathBridge = {
   secondsToPixels(seconds, pixelsPerSecond) {
     return finiteOr(seconds, 0) * Math.max(0.000001, finiteOr(pixelsPerSecond, 1));
   },
@@ -51,4 +51,4 @@ export const filmTimelineMath: FilmTimelineMathBridge = Object.freeze({
     const safeFps = Math.max(1, Math.min(120, finiteOr(fps, 30)));
     return Math.round(finiteOr(seconds, 0) * safeFps) / safeFps;
   },
-});
+};
