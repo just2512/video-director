@@ -1253,7 +1253,7 @@ class Handler(BaseHTTPRequestHandler):
                         {"op": "track_add", "track_id": track_id, "label": track_label,
                          "kind": clip["tag"], "index": 0},
                         {"op": "insert", "track_id": track_id,
-                         "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"}},
+                         "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}},
                     ]
                 else:
                     raise fd.FilmError("INVALID_PLACEMENT_MODE", "素材放置模式只允许 new-track、ripple 或 overwrite", 422)
