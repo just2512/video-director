@@ -1714,6 +1714,13 @@
     cancelPointerGesture();
   };
   document.addEventListener('pointercancel',function(e){
+    var target=e.target,reactTimeline=window.filmStudioReactTimeline&&
+      typeof window.filmStudioReactTimeline.renderSurface==='function';
+    var reactClip=target&&target.closest?target.closest('[data-react-timeline-clip]'):null;
+    var nativeEnvelope=target&&target.closest?target.closest('[data-envelope-clip]'):null;
+    // React already cancels timeline-clip gestures. Keep the document fallback for
+    // native envelope-canvas gestures, which stop propagation before React sees them.
+    if(reactTimeline&&reactClip&&!nativeEnvelope)return;
     if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     cancelPointerGesture();
   });

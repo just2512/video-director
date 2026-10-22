@@ -39,5 +39,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "window.filmStudioMoveClipGesture = function(e)" in studio
     assert "window.filmStudioCancelClipGesture?.(event.nativeEvent)" in component
     assert "window.filmStudioCancelClipGesture=function(e)" in studio
+    assert "var nativeEnvelope=target&&target.closest?target.closest('[data-envelope-clip]'):null;" in studio
+    assert "if(reactTimeline&&reactClip&&!nativeEnvelope)return;" in studio
     assert "if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;" in studio
     assert "if(S.reactGesturePointerId===e.pointerId)return;" not in studio
