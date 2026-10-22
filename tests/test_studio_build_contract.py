@@ -27,6 +27,7 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "Install Remotion rendering runtime dependencies" in ai_workflow
     assert "working-directory: studio_ui" in ai_workflow
     assert "studio_ui/package-lock.json" in ai_workflow
+    assert 'if "HTTP 404" not in str(exc):' in ai_workflow
     assert "-m playwright install chromium" in workflow
     assert "--with-deps chromium" not in workflow
     assert "build:studio" in package["scripts"]

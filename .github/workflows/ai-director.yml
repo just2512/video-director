@@ -329,7 +329,12 @@ jobs:
 
           changed = []
           for path in paths:
-              remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
+              try:
+                  remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
+              except RuntimeError as exc:
+                  if "HTTP 404" not in str(exc):
+                      raise
+                  remote_file = {}
               built = Path(path).read_bytes()
               git_blob_sha = hashlib.sha1(
                   b"blob " + str(len(built)).encode("ascii") + bytes([0]) + built
@@ -342,7 +347,7 @@ jobs:
               })
               changed.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
           if not changed:
-              print("React Studio bundle and Tailwind CSS are already current; no commit created.")
+              print("React Studio bundle, Tailwind CSS, and dependency lock are already current; no commit created.")
               sys.exit(0)
 
           # Contents API is not reliable for generated bundles over 1 MiB.
