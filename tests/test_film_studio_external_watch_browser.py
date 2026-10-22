@@ -388,9 +388,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 auto_scroll_start = page.evaluate("""() => {
                   const scroll = document.querySelector('#fs-timeline-scroll');
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
-                  const left = Number.parseFloat(clip.style.left);
-                  const maxScroll = Math.max(0, scroll.scrollWidth - scroll.clientWidth);
-                  scroll.scrollLeft = Math.max(0, Math.min(maxScroll, 132 + left - 140));
+                  // Start at the far left so the right-edge drag has scroll headroom.
+                  scroll.scrollLeft = 0;
                   const sr = scroll.getBoundingClientRect();
                   const cr = clip.getBoundingClientRect();
                   return {
