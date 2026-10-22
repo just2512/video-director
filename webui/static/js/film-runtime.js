@@ -377,10 +377,58 @@
     }
     return finite(points[points.length-1].value,fallback);
   }
+  function inferFilmTransformFromLayout(entry){
+    var el=entry.el,stage=state.data&&state.data.stage||{};
+    var stageW=Math.max(1,finite(stage.width,1920)),stageH=Math.max(1,finite(stage.height,1080));
+    var style=el.style||{},width=Math.max(1,finite(el.offsetWidth,parseFloat(style.width)||1));
+    var height=Math.max(1,finite(el.offsetHeight,parseFloat(style.height)||1));
+    var left=finite(el.offsetLeft,parseFloat(style.left)||0),top=finite(el.offsetTop,parseFloat(style.top)||0);
+    var rotationText=String(style.rotate||"");
+    if(!rotationText||rotationText==="none"){
+      try{rotationText=String(window.getComputedStyle(el).rotate||"");}catch(_){}
+    }
+    var rotationMatch=rotationText.match(/-?\\d+(?:\\.\\d+)?/);
+    var rotation=rotationMatch?Number(rotationMatch[0]):0;
+    return {
+      x:clamp((left+width*0.5)/stageW,0,1),
+      y:clamp((top+height*0.5)/stageH,0,1),
+      scale:1,scale_x:1,scale_y:1,rotation:rotation,
+      opacity:entry.baseOpacity,anchor:"center",stage_width:stageW,stage_height:stageH,
+      base_width:width,base_height:height
+    };
+  }
   function applyFilmTransform(entry,t){
     var cfg=entry.filmTransform;
-    if(!cfg)return entry.baseOpacity;
     var channels=entry.filmKeyframes||[],local=Math.max(0,t-finite(entry.clip.at,0));
+    if(!cfg&&channels.length){
+      var hasPose=channels.some(function(channel){
+        return channel&&["x","y","scale","scale_x","scale_y","camera_x","camera_y","camera_scale"].indexOf(channel.property)>=0;
+      });
+      if(hasPose){
+        cfg=inferFilmTransformFromLayout(entry);
+        entry.filmTransform=cfg;
+      }else{
+        // Non-positional animation must work for ordinary authored scene clips too.
+        // Keep the existing box geometry and animate only the requested CSS properties.
+        if(channels.some(function(channel){return channel&&channel.property==="rotation";})){
+          var rotationText=String(entry.el.style.rotate||"");
+          var rotationMatch=rotationText.match(/-?\\d+(?:\\.\\d+)?/);
+          var rotationBase=rotationMatch?Number(rotationMatch[0]):0;
+          entry.el.style.rotate=clamp(filmKeyframeValue(channels,"rotation",local,rotationBase),-3600,3600)+"deg";
+        }
+        if(channels.some(function(channel){return channel&&channel.property==="offset_x"||channel&&channel.property==="offset_y";})){
+          var offsetX=clamp(filmKeyframeValue(channels,"offset_x",local,0),-10000,10000);
+          var offsetY=clamp(filmKeyframeValue(channels,"offset_y",local,0),-10000,10000);
+          entry.el.style.translate=offsetX+"px "+offsetY+"px";
+        }
+        if(channels.some(function(channel){return channel&&channel.property==="blur";})){
+          var blur=clamp(filmKeyframeValue(channels,"blur",local,0),0,100);
+          entry.el.style.filter=blur>0?"blur("+blur+"px)":"none";
+        }
+        return clamp(filmKeyframeValue(channels,"opacity",local,entry.baseOpacity),0,1);
+      }
+    }
+    if(!cfg)return entry.baseOpacity;
     var x=clamp(filmKeyframeValue(channels,'x',local,finite(cfg.x,0.5)),0,1);
     var y=clamp(filmKeyframeValue(channels,'y',local,finite(cfg.y,0.5)),0,1);
     var scale=clamp(filmKeyframeValue(channels,'scale',local,finite(cfg.scale,1)),0.1,5);

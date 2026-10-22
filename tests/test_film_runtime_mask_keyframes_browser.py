@@ -278,3 +278,120 @@ def test_film_runtime_keeps_composition_mask_stationary_while_clip_transform_mov
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_film_runtime_applies_visual_keyframes_without_explicit_transform_metadata():
+    """Ordinary film.html clips can animate without first adding data-film-transform."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+    import webui.server as web_server
+
+    payload = {
+        "exists": True,
+        "rev": "implicit-keyframe-transform",
+        "stage": {"width": 100, "height": 100},
+        "duration": 1,
+        "render_css": "",
+        "tracks": [{
+            "id": "track-visual",
+            "attrs": {},
+            "clips": [
+                {
+                    "id": "opacity-clip", "tag": "img", "at": 0, "end": 1, "duration": 1,
+                    "attrs": {
+                        "id": "opacity-clip", "at": "0",
+                        "style": "position:absolute;left:20px;top:30px;width:20px;height:20px;opacity:1",
+                        "data-film-keyframes": json.dumps([{
+                            "property": "opacity",
+                            "keyframes": [
+                                {"at": 0, "value": 1, "easing": "linear"},
+                                {"at": 1, "value": 0, "easing": "linear"},
+                            ],
+                        }], separators=(",", ":")),
+                    },
+                    "src_in": 0, "src_out": 1, "media_url": None,
+                },
+                {
+                    "id": "position-clip", "tag": "img", "at": 0, "end": 1, "duration": 1,
+                    "attrs": {
+                        "id": "position-clip", "at": "0",
+                        "style": "position:absolute;left:20px;top:30px;width:20px;height:20px",
+                        "data-film-keyframes": json.dumps([{
+                            "property": "x",
+                            "keyframes": [
+                                {"at": 0, "value": 0.25, "easing": "linear"},
+                                {"at": 1, "value": 0.75, "easing": "linear"},
+                            ],
+                        }], separators=(",", ":")),
+                    },
+                    "src_in": 0, "src_out": 1, "media_url": None,
+                },
+            ],
+        }],
+    }
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            page = browser.new_page(viewport={"width": 500, "height": 500})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/static/film-runtime.html",
+                    wait_until="load",
+                )
+                assert response and response.status == 200
+                page.evaluate("""() => {
+                  window.__filmRuntimeMessages = [];
+                  window.addEventListener('message', event => {
+                    if (event.origin === window.location.origin) window.__filmRuntimeMessages.push(event.data);
+                  });
+                }""")
+                page.evaluate(
+                    "(data) => window.postMessage({type:'film-runtime:load',data,rev:'implicit-keyframe-transform'},window.location.origin)",
+                    payload,
+                )
+                page.wait_for_function(
+                    "() => window.__filmRuntimeMessages.some(m => m.type === 'film-runtime:loaded' && m.rev === 'implicit-keyframe-transform')",
+                    timeout=10000,
+                )
+
+                def seek(time_value: float) -> dict:
+                    page.evaluate(
+                        """time => {
+                          window.__filmRuntimeMessages = [];
+                          window.postMessage({type:'film-runtime:seek-pause',time},window.location.origin);
+                        }""",
+                        time_value,
+                    )
+                    page.wait_for_function(
+                        """time => window.__filmRuntimeMessages.some(m =>
+                          m.type === 'film-runtime:paused' && Math.abs(Number(m.time)-time)<0.0001)""",
+                        arg=time_value,
+                        timeout=3000,
+                    )
+                    return page.evaluate("""() => ({
+                      opacity:Number(document.getElementById('opacity-clip').style.opacity),
+                      left:Number.parseFloat(document.getElementById('position-clip').style.left)
+                    })""")
+
+                start = seek(0)
+                middle = seek(0.5)
+                end = seek(1)
+                assert start["opacity"] == pytest.approx(1)
+                assert middle["opacity"] == pytest.approx(0.5)
+                assert end["opacity"] == pytest.approx(0)
+                assert start["left"] == pytest.approx(15)
+                assert middle["left"] == pytest.approx(40)
+                assert end["left"] == pytest.approx(65)
+                assert not errors, f"runtime JavaScript errors: {errors}"
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
