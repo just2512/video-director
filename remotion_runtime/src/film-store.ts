@@ -12,7 +12,10 @@ export interface FilmStudioStoreSnapshot {
   revision: string;
   selectedId: string;
   selectedIds: string[];
+  selectedIdsVersion: number;
   selectionAnchor: string;
+  playhead: number;
+  duration: number;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -28,6 +31,8 @@ export interface FilmStudioStoreSnapshot {
 export interface FilmStudioStoreBridge {
   getSnapshot: () => FilmStudioStoreSnapshot;
   subscribe: (listener: () => void) => () => void;
+  subscribeField<K extends keyof FilmStudioStoreSnapshot>(key: K, listener: () => void): () => void;
+  getField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K];
   bindLegacyState: (target: Record<string, unknown>) => void;
   dispatchTransaction<T>(
     context: FilmStudioPendingTransaction,
@@ -37,6 +42,11 @@ export interface FilmStudioStoreBridge {
 
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : value == null ? "" : String(value);
+
+const asFiniteNumber = (value: unknown, fallback: number): number => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 const asPendingTransaction = (value: unknown): FilmStudioPendingTransaction | null => {
   if (!value || typeof value !== "object") return null;
@@ -65,6 +75,7 @@ const filmTransactionError = (code: FilmTransactionErrorCode): Error & {code: Fi
 
 class FilmStore implements FilmStudioStoreBridge {
   private readonly listeners = new Set<() => void>();
+  private readonly fieldListeners = new Map<keyof FilmStudioStoreSnapshot, Set<() => void>>();
   private readonly selectedIdsTarget: string[] = [];
   private selectedIdsProxy: string[];
   private mutingSelectedIds = false;
@@ -76,14 +87,16 @@ class FilmStore implements FilmStudioStoreBridge {
       set: (target, property, value) => {
         const changed = Reflect.set(target, property, value, target);
         if (changed && !this.mutingSelectedIds) {
-          this.publish({...this.snapshot, selectedIds: this.selectedIdsProxy});
+          this.publish({...this.snapshot, selectedIds: this.selectedIdsProxy,
+            selectedIdsVersion: this.snapshot.selectedIdsVersion + 1});
         }
         return changed;
       },
       deleteProperty: (target, property) => {
         const changed = Reflect.deleteProperty(target, property);
         if (changed && !this.mutingSelectedIds) {
-          this.publish({...this.snapshot, selectedIds: this.selectedIdsProxy});
+          this.publish({...this.snapshot, selectedIds: this.selectedIdsProxy,
+            selectedIdsVersion: this.snapshot.selectedIdsVersion + 1});
         }
         return changed;
       },
@@ -94,7 +107,10 @@ class FilmStore implements FilmStudioStoreBridge {
       revision: "",
       selectedId: "",
       selectedIds: this.selectedIdsProxy,
+      selectedIdsVersion: 0,
       selectionAnchor: "",
+      playhead: 0,
+      duration: 10,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -114,6 +130,25 @@ class FilmStore implements FilmStudioStoreBridge {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+
+  subscribeField<K extends keyof FilmStudioStoreSnapshot>(key: K, listener: () => void): () => void {
+    let listeners = this.fieldListeners.get(key);
+    if (!listeners) {
+      listeners = new Set<() => void>();
+      this.fieldListeners.set(key, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      const current = this.fieldListeners.get(key);
+      if (!current) return;
+      current.delete(listener);
+      if (!current.size) this.fieldListeners.delete(key);
+    };
+  }
+
+  getField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K] {
+    return this.snapshot[key];
+  }
 
   dispatchTransaction<T>(
     context: FilmStudioPendingTransaction,
@@ -141,8 +176,14 @@ class FilmStore implements FilmStudioStoreBridge {
   }
 
   private publish(snapshot: FilmStudioStoreSnapshot): void {
+    const previous = this.snapshot;
     this.snapshot = snapshot;
     for (const listener of Array.from(this.listeners)) listener();
+    for (const [key, listeners] of Array.from(this.fieldListeners.entries())) {
+      if (!Object.is(previous[key], snapshot[key])) {
+        for (const listener of Array.from(listeners)) listener();
+      }
+    }
   }
 
   private replaceSelectedIds(value: unknown, shouldPublish = true): void {
@@ -153,7 +194,8 @@ class FilmStore implements FilmStudioStoreBridge {
     this.selectedIdsTarget.splice(0, this.selectedIdsTarget.length, ...values);
     this.mutingSelectedIds = false;
     if (shouldPublish) {
-      this.publish({...this.snapshot, selectedIds: this.selectedIdsProxy});
+      this.publish({...this.snapshot, selectedIds: this.selectedIdsProxy,
+        selectedIdsVersion: this.snapshot.selectedIdsVersion + 1});
     }
   }
 
@@ -170,6 +212,9 @@ class FilmStore implements FilmStudioStoreBridge {
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
         key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
       normalized = value === true;
+    } else if (key === "playhead" || key === "duration") {
+      const parsed = asFiniteNumber(value, key === "duration" ? 10 : 0);
+      normalized = key === "duration" ? Math.max(0.001, parsed) : Math.max(0, parsed);
     } else if (key === "pendingTransaction") {
       normalized = asPendingTransaction(value);
     } else if (key === "film") {
@@ -202,7 +247,10 @@ class FilmStore implements FilmStudioStoreBridge {
       revision: filmRevision,
       selectedId: asString(target.selectedId),
       selectedIds: this.selectedIdsProxy,
+      selectedIdsVersion: this.snapshot.selectedIdsVersion,
       selectionAnchor: asString(target.selectionAnchor),
+      playhead: asFiniteNumber(target.playhead, 0),
+      duration: Math.max(0.001, asFiniteNumber(target.duration, 10)),
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,
@@ -224,6 +272,8 @@ class FilmStore implements FilmStudioStoreBridge {
       ["selectedId", "selectedId"],
       ["selectedIds", "selectedIds"],
       ["selectionAnchor", "selectionAnchor"],
+      ["playhead", "playhead"],
+      ["duration", "duration"],
       ["pendingExternalRevision", "pendingExternalRevision"],
       ["insertMode", "insertMode"],
       ["overwriteMode", "overwriteMode"],

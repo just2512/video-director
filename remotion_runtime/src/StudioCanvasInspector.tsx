@@ -1,11 +1,26 @@
-import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from "react";
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
 import {filmTimelineMath, type FilmTimelineMathBridge} from "./film-timeline-math";
-import {filmStore, type FilmStudioStoreBridge} from "./film-store";
+import {filmStore, type FilmStudioStoreBridge, type FilmStudioStoreSnapshot} from "./film-store";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
 type Rect = {x?: number; y?: number; width?: number; height?: number};
+
+function useFilmStoreField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K] {
+  const subscribe = useCallback((listener: () => void) => filmStore.subscribeField(key, listener), [key]);
+  const getSnapshot = useCallback(() => filmStore.getField(key), [key]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+const formatFilmTime = (value: number): string => {
+  const time = Math.max(0, Number(value) || 0);
+  const minutes = Math.floor(time / 60);
+  const seconds = time - minutes * 60;
+  return String(minutes).padStart(2, "0") + ":" + seconds.toFixed(3).padStart(6, "0");
+};
+
+
 export interface CanvasElementSelection {
   clipId: string;
   selector: string;
@@ -886,7 +901,10 @@ const StudioToolbar: React.FC = () => (
 );
 
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
-  const filmSnapshot=useSyncExternalStore(filmStore.subscribe,filmStore.getSnapshot,filmStore.getSnapshot);
+  const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
+  const selectedIds=filmStore.getSnapshot().selectedIds;
+  // The version is the scalar subscription token; the array proxy is stable by design.
+  void selectedIdsVersion;
   const activePointerId = useRef<number | null>(null);
   useLayoutEffect(() => {
     const ownsPointer = (pointerId:number) => activePointerId.current === pointerId;
@@ -930,7 +948,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         <div className="fs-track-body" style={{width:model.laneWidth}}>
           {track.clips.map((clip) => (
             <div
-              className={"fs-clip" + (filmSnapshot.selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "")}
+              className={"fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "")}
               data-clip={clip.id}
               data-clip-locked={clip.locked ? "true" : "false"}
               data-track={clip.trackId}
@@ -1060,7 +1078,10 @@ const StudioAssets: React.FC<{model: FilmStudioAssetsModel}> = ({model}) => {
   </div>;
 };
 
-const StudioScrubRow: React.FC = () => (
+const StudioScrubRow: React.FC = () => {
+  const playhead=useFilmStoreField("playhead");
+  const duration=useFilmStoreField("duration");
+  return (
   <>
     <button className="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>
     <button className="fs-btn" type="button" id="fs-play-toggle" data-film-action="play-toggle">播放</button>
@@ -1068,30 +1089,27 @@ const StudioScrubRow: React.FC = () => (
       id="fs-playhead"
       type="range"
       min={0}
-      max={10}
+      max={Math.max(0.001,duration)}
       step={0.033333}
-      defaultValue={0}
-      onInput={(event) => window.filmStudioSeek?.(event.currentTarget.value)}
+      value={Math.max(0,Math.min(duration,playhead))}
+      onChange={(event) => window.filmStudioSeek?.(event.currentTarget.value)}
       aria-label="播放头"
     />
     <button className="fs-btn" type="button" data-film-action="frame-next">下一帧</button>
     <button className="fs-btn" id="fs-element-inspect-toggle" type="button" data-film-action="canvas-inspect" aria-pressed="false" title="在节目监视器中点选 HTML 镜头里的文字或图层">选择画面元素</button>
-    <span id="fs-playhead-value">00:00.000</span>
+    <span id="fs-playhead-value">{formatFilmTime(playhead)}</span>
   </>
-);
-
-type StudioTimelineToolbarProps = {
-  insertMode: boolean;
-  overwriteMode: boolean;
-  snapEnabled: boolean;
-  envelopeMode: boolean;
-  slideMode: boolean;
-  slipMode: boolean;
+  );
 };
 
-const StudioTimelineToolbar: React.FC<StudioTimelineToolbarProps> = ({
-  insertMode, overwriteMode, snapEnabled, envelopeMode, slideMode, slipMode,
-}) => (
+const StudioTimelineToolbar: React.FC = () => {
+  const insertMode=useFilmStoreField("insertMode");
+  const overwriteMode=useFilmStoreField("overwriteMode");
+  const snapEnabled=useFilmStoreField("snapEnabled");
+  const envelopeMode=useFilmStoreField("envelopeMode");
+  const slideMode=useFilmStoreField("slideMode");
+  const slipMode=useFilmStoreField("slipMode");
+  return (
   <>
     <button className={"fs-btn" + (insertMode ? " fs-primary" : "")} type="button" data-film-action="insert-mode" aria-pressed={insertMode} title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：{insertMode ? "开" : "关"}</button>
     <button className={"fs-btn" + (overwriteMode ? " fs-primary" : "")} type="button" data-film-action="overwrite-mode" aria-pressed={overwriteMode} title="覆盖编辑只替换所选轨道的重叠区间，不推移其他片段或音频轨道">覆盖编辑：{overwriteMode ? "开" : "关"}</button>
@@ -1111,7 +1129,8 @@ const StudioTimelineToolbar: React.FC<StudioTimelineToolbarProps> = ({
     <button className="fs-btn" type="button" data-film-action="zoom-in">＋</button>
     <button className="fs-btn fs-primary" type="button" data-film-action="apply-inspector">应用属性</button>
   </>
-);
+  );
+};
 
 const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element}) => {
   const rect = element.localRect || element.rect || {};
@@ -1242,15 +1261,9 @@ const studioPortal = (targetId: string, child: React.ReactNode): React.ReactPort
  * Portals preserve the existing layout slots while preventing independent roots
  * from racing over the same editor state or remounting shared surfaces.
  */
-const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+const FilmStoreDiagnostics: React.FC = () => {
   const filmSnapshot=useSyncExternalStore(filmStore.subscribe,filmStore.getSnapshot,filmStore.getSnapshot);
-  const clip = state.clipInspector;
-  const clipKey = clip
-    ? clip.id + ":" + JSON.stringify(clip.attrs || {})
-    : "empty:" + (state.clipInspectorEmptyMessage || "");
-  const element = state.canvasElement;
   return (
-    <>
       <div id="fs-react-film-store-state" hidden aria-hidden="true"
         data-film-project-id={filmSnapshot.projectId}
         data-film-revision={filmSnapshot.revision}
@@ -1269,17 +1282,22 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
         data-pending-transaction-base={filmSnapshot.pendingTransaction?.baseRevision || ""}
         data-pending-transaction-operation-count={String(filmSnapshot.pendingTransaction?.operationCount || 0)}
       />
+  );
+};
+
+const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+  const clip = state.clipInspector;
+  const clipKey = clip
+    ? clip.id + ":" + JSON.stringify(clip.attrs || {})
+    : "empty:" + (state.clipInspectorEmptyMessage || "");
+  const element = state.canvasElement;
+  return (
+    <>
+      <FilmStoreDiagnostics />
       {state.assets ? studioPortal("fs-assets-list", <StudioAssets model={state.assets} />) : null}
       {state.timeline ? studioPortal("fs-timeline", <TimelineSurface model={state.timeline} />) : null}
       {state.toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
-      {state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar
-        insertMode={filmSnapshot.insertMode}
-        overwriteMode={filmSnapshot.overwriteMode}
-        snapEnabled={filmSnapshot.snapEnabled}
-        envelopeMode={filmSnapshot.envelopeMode}
-        slideMode={filmSnapshot.slideMode}
-        slipMode={filmSnapshot.slipMode}
-      />) : null}
+      {state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
       {state.scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
       {state.aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={state.aiModel} />) : null}
       {state.clipInspectorMounted ? studioPortal(

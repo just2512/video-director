@@ -443,8 +443,12 @@
     syncRuntime();
   }
   function setPlayheadVisual() {
-    var range=$('fs-playhead');if(range){range.max=String(S.duration);range.value=String(Math.min(S.duration,Math.max(0,S.playhead)));}
-    var val=$('fs-playhead-value');if(val)val.textContent=fmtTime(S.playhead);
+    var range=$('fs-playhead'),reactScrub=$('fs-react-scrub-row');
+    var reactOwnsScrub=!!(range&&reactScrub&&reactScrub.contains(range)&&reactScrub.style.display!=='none');
+    if(!reactOwnsScrub){
+      if(range){range.max=String(S.duration);range.value=String(Math.min(S.duration,Math.max(0,S.playhead)));}
+      var val=$('fs-playhead-value');if(val)val.textContent=fmtTime(S.playhead);
+    }
     var monitor=$('fs-monitor-time');if(monitor)monitor.textContent=fmtTime(S.playhead);
     var line=$('fs-playhead-line');if(line)line.style.left=(132+timelineSecondsToPixels(S.playhead,S.pxPerSec))+'px';
   }
