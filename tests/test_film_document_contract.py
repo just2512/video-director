@@ -2330,7 +2330,7 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
 
     first_plan = json.dumps({
         "summary": "调整第一个镜头速度",
-        "operations": [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}],
+        "operations": [{"op": "set", "clip": "clip-a", "field": "speed", "value": 2.5}],
     }, ensure_ascii=False, separators=(",", ":"))
     stale_plan = json.dumps({
         "summary": "调整第二个镜头速度",
@@ -2484,7 +2484,7 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
         ids = {clip["id"] for track in after_rejection["doc"]["tracks"] for clip in track["clips"]}
         assert "clip-b" not in ids
         assert next(clip for track in after_rejection["doc"]["tracks"]
-                    for clip in track["clips"] if clip["id"] == "clip-a")["attrs"]["speed"] == "1.5"
+                    for clip in track["clips"] if clip["id"] == "clip-a")["attrs"]["speed"] == "2.5"
     finally:
         server.shutdown()
         server.server_close()
