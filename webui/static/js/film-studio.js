@@ -4,6 +4,26 @@
   var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   if(window.filmStudioStore&&typeof window.filmStudioStore.bindLegacyState==='function')window.filmStudioStore.bindLegacyState(S);
   var $ = function (id) { return document.getElementById(id); };
+  function dispatchStudioTransaction(kind,baseRevision,operations,submitter){
+    var list=Array.isArray(operations)?operations.map(function(operation){
+      return operation&&typeof operation==='object'?Object.assign({},operation):operation;
+    }):[];
+    var context={
+      kind:String(kind||'film-edit'),
+      baseRevision:String(baseRevision||''),
+      operations:list,
+      operationCount:list.length
+    };
+    var store=window.filmStudioStore;
+    if(store&&typeof store.dispatchTransaction==='function'){
+      return store.dispatchTransaction(context,submitter);
+    }
+    if(S.busy)return Promise.reject(new Error('FILM_TRANSACTION_BUSY'));
+    S.pendingTransaction=context;S.busy=true;
+    return Promise.resolve().then(submitter).finally(function(){
+      S.pendingTransaction=null;S.busy=false;
+    });
+  }
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
   function timelineMath(){return window.filmStudioTimelineMath||null;}
@@ -662,23 +682,24 @@
     }
     var placementMode=request.placement_mode||'new-track';
     var transactionKind=placementMode==='overwrite'?'asset-overwrite':placementMode==='ripple'?'asset-ripple-insert':'asset-insert';
-    S.pendingTransaction={
-      kind:transactionKind,baseRevision:S.rev,
-      operations:[{op:'insert-asset',asset_id:String(assetId),placement_mode:placementMode,at:S.playhead,track_id:request.track_id||null}],
-      operationCount:1
-    };
-    S.busy=true;
     try{
-      var response=await apiPost('/api/editor/film/insert-asset',request);
-      if(!response||!response.ok){showStatus((response&&response.error)||'素材加入时间线失败。','error');return;}
-      S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
-      S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
-      showStatus(response.placement_mode==='overwrite'
-        ?'覆盖编辑已完成：仅替换目标轨道的重叠区间，其他轨道和非重叠片段未被推移。'
-        :response.placement_mode==='ripple'
-          ?'插入编辑已完成：目标轨道及同步锁定轨道已按素材时长推移。'
-          :'已在播放头位置新建轨道并添加素材。', 'success');
-    }finally{S.pendingTransaction=null;S.busy=false;flushPendingExternalRevision();}
+      await dispatchStudioTransaction(transactionKind,S.rev,[{
+        op:'insert-asset',asset_id:String(assetId),placement_mode:placementMode,at:S.playhead,track_id:request.track_id||null
+      }],async function(){
+        var response=await apiPost('/api/editor/film/insert-asset',request);
+        if(!response||!response.ok){showStatus((response&&response.error)||'素材加入时间线失败。','error');return false;}
+        S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
+        S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
+        showStatus(response.placement_mode==='overwrite'
+          ?'覆盖编辑已完成：仅替换目标轨道的重叠区间，其他轨道和非重叠片段未被推移。'
+          :response.placement_mode==='ripple'
+            ?'插入编辑已完成：目标轨道及同步锁定轨道已按素材时长推移。'
+            :'已在播放头位置新建轨道并添加素材。', 'success');
+        return true;
+      });
+    }catch(error){
+      showStatus('素材加入时间线失败：'+String(error&&error.message||error),'error');
+    }finally{flushPendingExternalRevision();}
   };
   function syncPlacementModeButtons(){
     document.querySelectorAll('[data-film-action="insert-mode"]').forEach(function(button){
@@ -1592,37 +1613,35 @@
     if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
     if(S.broken){showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return false;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
-    S.pendingTransaction={kind:'film-edit',baseRevision:S.rev,operations:ops.map(function(op){return Object.assign({},op);}),operationCount:ops.length};
-    S.busy=true;
     var studioPanel=$('film-studio-panel'),busyTimeline=$('fs-timeline');
     if(studioPanel)studioPanel.setAttribute('data-busy','true');
     if(busyTimeline)busyTimeline.style.pointerEvents='none';
     try{
-      var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
-      if(!r||!r.ok){
-        var failureMessage=(r&&r.error)||'编辑提交失败。';
-        if(S.data&&S.data.exists&&!allowedDraft)render();
-        showStatus(failureMessage,'error');
-        return false;
-      }
-      S.data=r;S.rev=r.rev;
-      if(r.rebased){
-        S.selectedElement=null;S.hoveredElement=null;
-        var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
-      }else if(S.selectedElement)S.selectedElement.baseRevision=S.rev;
-      var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。';
-      render();
-      var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
-      showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,r.rebased?'':'success');
-      return true;
+      return await dispatchStudioTransaction('film-edit',S.rev,ops,async function(){
+        var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
+        if(!r||!r.ok){
+          var failureMessage=(r&&r.error)||'编辑提交失败。';
+          if(S.data&&S.data.exists&&!allowedDraft)render();
+          showStatus(failureMessage,'error');
+          return false;
+        }
+        S.data=r;S.rev=r.rev;
+        if(r.rebased){
+          S.selectedElement=null;S.hoveredElement=null;
+          var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
+        }else if(S.selectedElement)S.selectedElement.baseRevision=S.rev;
+        var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。';
+        render();
+        var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
+        showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,r.rebased?'':'success');
+        return true;
+      });
     }catch(error){
       var editFailure='编辑提交失败：'+String(error&&error.message||error);
       if(S.data&&S.data.exists&&!allowedDraft)render();
       showStatus(editFailure,'error');
       return false;
     }finally{
-      S.pendingTransaction=null;
-      S.busy=false;
       if(studioPanel)studioPanel.setAttribute('data-busy','false');
       if(busyTimeline)busyTimeline.style.pointerEvents='';
       flushPendingExternalRevision();
@@ -1636,13 +1655,16 @@
     }
     if(S.broken){showStatus('影片文件无效，暂时不能撤销或重做。','error');return;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
-    S.pendingTransaction={kind:action,baseRevision:S.rev,operations:[],operationCount:0};
-    S.busy=true;
     try{
-      var r=await apiPost('/api/editor/film/'+action,{project_id:S.projectId,base:S.rev});
-      if(!r||!r.ok){showStatus((r&&r.error)||'历史操作失败。','error');return;}
-      S.data=r;S.rev=r.rev;render();showStatus(action==='undo'?'已撤销。':'已重做。','success');
-    }finally{S.pendingTransaction=null;S.busy=false;flushPendingExternalRevision();}
+      await dispatchStudioTransaction(action,S.rev,[],async function(){
+        var r=await apiPost('/api/editor/film/'+action,{project_id:S.projectId,base:S.rev});
+        if(!r||!r.ok){showStatus((r&&r.error)||'历史操作失败。','error');return false;}
+        S.data=r;S.rev=r.rev;render();showStatus(action==='undo'?'已撤销。':'已重做。','success');
+        return true;
+      });
+    }catch(error){
+      showStatus('历史操作失败：'+String(error&&error.message||error),'error');
+    }finally{flushPendingExternalRevision();}
   }
   function onMove(e) {
     if(S.envelopeDrag){
@@ -2757,25 +2779,30 @@ window.filmStudioCopyClips=function(){
     if(hasUncommittedInspectorEdits()){showStatus('请先应用 Inspector 属性草稿，或重新载入并确认丢弃，再应用 AI 提案。','error');return;}
     if(S.broken){showStatus('影片文件无效，不能应用 AI 提案。','error');return;}
     if(proposal.project_id!==S.projectId){showStatus('提案所属项目已变化，不能应用。','error');return;}
-    S.pendingTransaction={kind:'ai-proposal',baseRevision:proposal.base_revision,operations:(proposal.operations||[]).slice(),operationCount:(proposal.operations||[]).length};
-    S.busy=true;
+    var reloadAfterConflict=false;
     try{
-      var result=await apiPost('/api/editor/film/apply-proposal',{
-        project_id:S.projectId,proposal_id:proposal.id,base_revision:proposal.base_revision
-      });
-      if(!result||!result.ok){
-        appendMessage((result&&result.error)||'提案应用失败。','assistant');
-        showStatus((result&&result.error)||'提案应用失败。','error');
-        if(result&&result.code==='REVISION_CONFLICT'){
-          S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
-          S.busy=false;await filmStudioLoad(true);
+      await dispatchStudioTransaction('ai-proposal',proposal.base_revision,proposal.operations||[],async function(){
+        var result=await apiPost('/api/editor/film/apply-proposal',{
+          project_id:S.projectId,proposal_id:proposal.id,base_revision:proposal.base_revision
+        });
+        if(!result||!result.ok){
+          appendMessage((result&&result.error)||'提案应用失败。','assistant');
+          showStatus((result&&result.error)||'提案应用失败。','error');
+          if(result&&result.code==='REVISION_CONFLICT'){
+            S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
+            reloadAfterConflict=true;
+          }
+          return false;
         }
-        return;
-      }
-      S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.data=result;S.rev=result.rev;S.runtimeRev='';
-      appendMessage('已确认并应用提案，提交 '+(result.ops||[]).length+' 项操作。','assistant');
-      render();showStatus('AI 提案已应用并写入 revision '+S.rev+'。','success');
-    }finally{S.pendingTransaction=null;S.busy=false;flushPendingExternalRevision();}
+        S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.data=result;S.rev=result.rev;S.runtimeRev='';
+        appendMessage('已确认并应用提案，提交 '+(result.ops||[]).length+' 项操作。','assistant');
+        render();showStatus('AI 提案已应用并写入 revision '+S.rev+'。','success');
+        return true;
+      });
+      if(reloadAfterConflict)await filmStudioLoad(true);
+    }catch(error){
+      showStatus('AI 提案应用失败：'+String(error&&error.message||error),'error');
+    }finally{flushPendingExternalRevision();}
   };
   function decodeSummaryPrefix(raw){
     var key='"summary"',keyAt=raw.indexOf(key);

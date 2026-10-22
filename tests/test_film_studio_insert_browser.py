@@ -203,6 +203,21 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 assert page.locator('[data-film-action="insert-mode"]:visible').get_attribute("aria-pressed") == "false"
                 page.evaluate("window.filmStudioLoadLibrary()")
                 page.locator('[data-add-asset="fixture-asset"]').wait_for(state="visible")
+                dispatch_audit = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  if (!store || typeof store.dispatchTransaction !== "function") throw new Error("FilmStore dispatcher missing");
+                  const original = store.dispatchTransaction.bind(store);
+                  window.__filmDispatchAudit = [];
+                  store.dispatchTransaction = (context, submitter) => {
+                    window.__filmDispatchAudit.push({
+                      kind: context.kind, baseRevision: context.baseRevision,
+                      operationCount: context.operationCount
+                    });
+                    return original(context, submitter);
+                  };
+                  return true;
+                }""")
+                assert dispatch_audit is True
                 page.locator('[data-add-asset="fixture-asset"]').click()
                 assert asset_insert_started.wait(timeout=5), "asset insert HTTP handler was not reached"
                 try:
@@ -232,6 +247,11 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                     assert pending["domKind"] == "asset-overwrite", pending
                     assert pending["domBase"] == initial["rev"], pending
                     assert pending["domCount"] == "1", pending
+                    dispatch_audit = page.evaluate("window.__filmDispatchAudit")
+                    assert dispatch_audit == [{
+                      "kind": "asset-overwrite", "baseRevision": initial["rev"],
+                      "operationCount": 1
+                    }], dispatch_audit
                 finally:
                     release_asset_insert.set()
 

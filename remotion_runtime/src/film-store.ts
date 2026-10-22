@@ -23,6 +23,10 @@ export interface FilmStudioStoreBridge {
   getSnapshot: () => FilmStudioStoreSnapshot;
   subscribe: (listener: () => void) => () => void;
   bindLegacyState: (target: Record<string, unknown>) => void;
+  dispatchTransaction<T>(
+    context: FilmStudioPendingTransaction,
+    submitter: () => Promise<T> | T,
+  ): Promise<T>;
 }
 
 const asString = (value: unknown): string =>
@@ -86,6 +90,25 @@ class FilmStore implements FilmStudioStoreBridge {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+
+  dispatchTransaction<T>(
+    context: FilmStudioPendingTransaction,
+    submitter: () => Promise<T> | T,
+  ): Promise<T> {
+    if (this.snapshot.busy) {
+      return Promise.reject(new Error("FILM_TRANSACTION_BUSY"));
+    }
+    const pending = asPendingTransaction(context);
+    if (!pending || !pending.kind || !pending.baseRevision) {
+      return Promise.reject(new Error("FILM_TRANSACTION_CONTEXT_INVALID"));
+    }
+    this.publish({...this.snapshot, busy: true, pendingTransaction: pending});
+    return Promise.resolve()
+      .then(submitter)
+      .finally(() => {
+        this.publish({...this.snapshot, busy: false, pendingTransaction: null});
+      });
+  }
 
   private publish(snapshot: FilmStudioStoreSnapshot): void {
     this.snapshot = snapshot;
