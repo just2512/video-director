@@ -19,7 +19,9 @@ def test_studio_discards_timeline_and_envelope_drag_when_external_revision_arriv
     assert "if(S.pendingExternalRevision)" in on_up
     assert "flushPendingExternalRevision();" in on_up
     pointer_cancel = source[source.index("document.addEventListener('pointercancel'"):source.index("window.filmStudioSetSideMode")]
-    assert "flushPendingExternalRevision();" in pointer_cancel
+    assert "cancelPointerGesture();" in pointer_cancel
+    cancel_helper = source[source.index("function cancelPointerGesture()"):source.index("window.filmStudioCancelClipGesture=function")]
+    assert "flushPendingExternalRevision();" in cancel_helper
 
 
 def test_studio_does_not_apply_load_response_mid_drag_or_busy_edit():
