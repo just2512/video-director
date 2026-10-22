@@ -14,6 +14,12 @@ export interface FilmStudioStoreSnapshot {
   selectedIds: string[];
   selectionAnchor: string;
   pendingExternalRevision: string;
+  insertMode: boolean;
+  overwriteMode: boolean;
+  snapEnabled: boolean;
+  envelopeMode: boolean;
+  slideMode: boolean;
+  slipMode: boolean;
   busy: boolean;
   broken: boolean;
   pendingTransaction: FilmStudioPendingTransaction | null;
@@ -90,6 +96,12 @@ class FilmStore implements FilmStudioStoreBridge {
       selectedIds: this.selectedIdsProxy,
       selectionAnchor: "",
       pendingExternalRevision: "",
+      insertMode: false,
+      overwriteMode: false,
+      snapEnabled: true,
+      envelopeMode: false,
+      slideMode: false,
+      slipMode: false,
       busy: false,
       broken: false,
       pendingTransaction: null,
@@ -154,7 +166,9 @@ class FilmStore implements FilmStudioStoreBridge {
     if (key === "projectId" || key === "revision" || key === "selectedId" ||
         key === "selectionAnchor" || key === "pendingExternalRevision") {
       normalized = asString(value);
-    } else if (key === "busy" || key === "broken") {
+    } else if (key === "busy" || key === "broken" ||
+        key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
+        key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
       normalized = value === true;
     } else if (key === "pendingTransaction") {
       normalized = asPendingTransaction(value);
@@ -190,6 +204,12 @@ class FilmStore implements FilmStudioStoreBridge {
       selectedIds: this.selectedIdsProxy,
       selectionAnchor: asString(target.selectionAnchor),
       pendingExternalRevision: asString(target.pendingExternalRevision),
+      insertMode: target.insertMode === true,
+      overwriteMode: target.overwriteMode === true,
+      snapEnabled: target.snapEnabled !== false,
+      envelopeMode: target.envelopeMode === true,
+      slideMode: target.slideMode === true,
+      slipMode: target.slipMode === true,
       busy: target.busy === true,
       broken: target.broken === true,
       pendingTransaction: asPendingTransaction(target.pendingTransaction),
@@ -205,6 +225,12 @@ class FilmStore implements FilmStudioStoreBridge {
       ["selectedIds", "selectedIds"],
       ["selectionAnchor", "selectionAnchor"],
       ["pendingExternalRevision", "pendingExternalRevision"],
+      ["insertMode", "insertMode"],
+      ["overwriteMode", "overwriteMode"],
+      ["snapEnabled", "snapEnabled"],
+      ["envelopeMode", "envelopeMode"],
+      ["slideMode", "slideMode"],
+      ["slipMode", "slipMode"],
       ["busy", "busy"],
       ["broken", "broken"],
       ["pendingTransaction", "pendingTransaction"],

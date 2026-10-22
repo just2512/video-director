@@ -198,6 +198,54 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 page.locator('#fs-timeline .fs-clip[data-clip="video-before"]').wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="video-before"]').click()
                 page.evaluate("window.filmStudioSeek(2)")
+
+                for action, state_key, active_text, inactive_text in [
+                    ("toggle-snap", "snapEnabled", "吸附：关", "吸附：开"),
+                    ("envelope-mode", "envelopeMode", "音量曲线：开", "音量曲线：关"),
+                    ("slide-mode", "slideMode", "滑移修剪：开", "滑移修剪：关"),
+                    ("slip-mode", "slipMode", "源区间滑移：开", "源区间滑移：关"),
+                ]:
+                    button = page.locator(f'[data-film-action="{action}"]:visible')
+                    button.click()
+                    page.wait_for_function(
+                        "(key) => window.filmStudioStore.getSnapshot()[key] === "
+                        "(key === 'snapEnabled' ? false : true)",
+                        arg=state_key, timeout=2000,
+                    )
+                    on_state = page.evaluate("""(selector) => {
+                      const button = document.querySelector(selector);
+                      const snapshot = window.filmStudioStore.getSnapshot();
+                      return {
+                        text: button?.textContent || '',
+                        pressed: button?.getAttribute('aria-pressed'),
+                        snapEnabled: snapshot.snapEnabled,
+                        envelopeMode: snapshot.envelopeMode,
+                        slideMode: snapshot.slideMode,
+                        slipMode: snapshot.slipMode,
+                      };
+                    }""", f'[data-film-action="{action}"]:visible')
+                    assert (active_text in on_state["text"]), (action, on_state)
+                    assert on_state["pressed"] == ("false" if state_key == "snapEnabled" else "true"), (action, on_state)
+                    assert on_state[state_key] is (False if state_key == "snapEnabled" else True), (action, on_state)
+
+                    button.click()
+                    page.wait_for_function(
+                        "(key) => window.filmStudioStore.getSnapshot()[key] === "
+                        "(key === 'snapEnabled' ? true : false)",
+                        arg=state_key, timeout=2000,
+                    )
+                    off_state = page.evaluate("""(selector) => {
+                      const button = document.querySelector(selector);
+                      return {
+                        text: button?.textContent || '',
+                        pressed: button?.getAttribute('aria-pressed'),
+                        snapshot: window.filmStudioStore.getSnapshot(),
+                      };
+                    }""", f'[data-film-action="{action}"]:visible')
+                    assert inactive_text in off_state["text"], (action, off_state)
+                    assert off_state["pressed"] == ("true" if state_key == "snapEnabled" else "false"), (action, off_state)
+                    assert off_state["snapshot"][state_key] is (True if state_key == "snapEnabled" else False), (action, off_state)
+
                 page.locator('[data-film-action="overwrite-mode"]:visible').click()
                 assert page.locator('[data-film-action="overwrite-mode"]:visible').get_attribute("aria-pressed") == "true"
                 assert page.locator('[data-film-action="insert-mode"]:visible').get_attribute("aria-pressed") == "false"

@@ -1080,20 +1080,31 @@ const StudioScrubRow: React.FC = () => (
   </>
 );
 
-const StudioTimelineToolbar: React.FC = () => (
+type StudioTimelineToolbarProps = {
+  insertMode: boolean;
+  overwriteMode: boolean;
+  snapEnabled: boolean;
+  envelopeMode: boolean;
+  slideMode: boolean;
+  slipMode: boolean;
+};
+
+const StudioTimelineToolbar: React.FC<StudioTimelineToolbarProps> = ({
+  insertMode, overwriteMode, snapEnabled, envelopeMode, slideMode, slipMode,
+}) => (
   <>
-    <button className="fs-btn" type="button" data-film-action="insert-mode" aria-pressed="false" title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：关</button>
-    <button className="fs-btn" type="button" data-film-action="overwrite-mode" aria-pressed="false" title="覆盖编辑只替换所选轨道的重叠区间，不推移其他片段或音频轨道">覆盖编辑：关</button>
-    <button className="fs-btn" type="button" data-film-action="toggle-snap" aria-pressed="true" title="吸附到播放头、片头和其他片段边缘；吸附距离按屏幕像素计算">吸附：开</button>
+    <button className={"fs-btn" + (insertMode ? " fs-primary" : "")} type="button" data-film-action="insert-mode" aria-pressed={insertMode} title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：{insertMode ? "开" : "关"}</button>
+    <button className={"fs-btn" + (overwriteMode ? " fs-primary" : "")} type="button" data-film-action="overwrite-mode" aria-pressed={overwriteMode} title="覆盖编辑只替换所选轨道的重叠区间，不推移其他片段或音频轨道">覆盖编辑：{overwriteMode ? "开" : "关"}</button>
+    <button className="fs-btn" type="button" data-film-action="toggle-snap" aria-pressed={snapEnabled} title="吸附到播放头、片头和其他片段边缘；吸附距离按屏幕像素计算">吸附：{snapEnabled ? "开" : "关"}</button>
     <button className="fs-btn" type="button" data-film-action="split" title="在播放头切分（S）">在播放头切分</button>
     <button className="fs-btn" type="button" data-film-action="copy-clips" title="复制选中片段（Ctrl/⌘+C）">复制</button>
     <button className="fs-btn" type="button" data-film-action="paste-clips" title="按原相对布局粘贴到播放头附近的可用区间（Ctrl/⌘+V）">粘贴</button>
     <button className="fs-btn" type="button" data-film-action="join-cut" title="合并同轨相邻、同源连续且属性一致的切分片段">愈合切口</button>
     <button className="fs-btn" type="button" data-film-action="remove">删除片段</button>
     <button className="fs-btn" type="button" data-film-action="ripple-delete" title="删除选中片段对应的时间段，并收拢全部轨道">波纹删除</button>
-    <button className="fs-btn" type="button" data-film-action="envelope-mode" aria-pressed="false" title="切换音量关键帧编辑模式；普通模式下可正常拖动片段">音量曲线：关</button>
-    <button className="fs-btn" type="button" data-film-action="slide-mode" aria-pressed="false" title="切换滑移修剪模式；拖动中间视频/音频片段主体，外侧时间线边界保持不变">滑移修剪：关</button>
-    <button className="fs-btn" type="button" data-film-action="slip-mode" aria-pressed="false" title="切换源区间滑移模式；只改变素材源范围，片段时间线位置与长度不变">源区间滑移：关</button>
+    <button className={"fs-btn" + (envelopeMode ? " fs-envelope-mode-active" : "")} type="button" data-film-action="envelope-mode" aria-pressed={envelopeMode} title="切换音量关键帧编辑模式；普通模式下可正常拖动片段">音量曲线：{envelopeMode ? "开" : "关"}</button>
+    <button className={"fs-btn" + (slideMode ? " fs-slide-mode-active" : "")} type="button" data-film-action="slide-mode" aria-pressed={slideMode} title="切换滑移修剪模式；拖动中间视频/音频片段主体，外侧时间线边界保持不变">滑移修剪：{slideMode ? "开" : "关"}</button>
+    <button className={"fs-btn" + (slipMode ? " fs-slip-mode-active" : "")} type="button" data-film-action="slip-mode" aria-pressed={slipMode} title="切换源区间滑移模式；只改变素材源范围，片段时间线位置与长度不变">源区间滑移：{slipMode ? "开" : "关"}</button>
     <button className="fs-btn" type="button" data-film-action="add-track">＋轨道</button>
     <button className="fs-btn" type="button" data-film-action="remove-empty-track">删空轨</button>
     <button className="fs-btn" type="button" data-film-action="zoom-out">−</button>
@@ -1246,6 +1257,12 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
         data-selected-clip={filmSnapshot.selectedId}
         data-selected-clips={filmSnapshot.selectedIds.join(",")}
         data-pending-revision={filmSnapshot.pendingExternalRevision}
+        data-insert-mode={filmSnapshot.insertMode ? "true" : "false"}
+        data-overwrite-mode={filmSnapshot.overwriteMode ? "true" : "false"}
+        data-snap-enabled={filmSnapshot.snapEnabled ? "true" : "false"}
+        data-envelope-mode={filmSnapshot.envelopeMode ? "true" : "false"}
+        data-slide-mode={filmSnapshot.slideMode ? "true" : "false"}
+        data-slip-mode={filmSnapshot.slipMode ? "true" : "false"}
         data-busy={filmSnapshot.busy ? "true" : "false"}
         data-broken={filmSnapshot.broken ? "true" : "false"}
         data-pending-transaction-kind={filmSnapshot.pendingTransaction?.kind || ""}
@@ -1255,7 +1272,14 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
       {state.assets ? studioPortal("fs-assets-list", <StudioAssets model={state.assets} />) : null}
       {state.timeline ? studioPortal("fs-timeline", <TimelineSurface model={state.timeline} />) : null}
       {state.toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
-      {state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
+      {state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar
+        insertMode={filmSnapshot.insertMode}
+        overwriteMode={filmSnapshot.overwriteMode}
+        snapEnabled={filmSnapshot.snapEnabled}
+        envelopeMode={filmSnapshot.envelopeMode}
+        slideMode={filmSnapshot.slideMode}
+        slipMode={filmSnapshot.slipMode}
+      />) : null}
       {state.scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
       {state.aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={state.aiModel} />) : null}
       {state.clipInspectorMounted ? studioPortal(
