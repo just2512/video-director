@@ -16,6 +16,10 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "PY311_BIN: /home/actions/miniforge3/envs/py311/bin" in workflow
     assert "npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2" in workflow
     assert "working-directory: studio_ui" in workflow
+    assert "Bootstrap Python SOCKS support for the self-hosted proxy" in workflow
+    assert "pysocks-1.7.1.json" in workflow
+    assert "-m playwright install chromium" in workflow
+    assert "--with-deps chromium" not in workflow
     assert "build:studio" in package["scripts"]
     assert "build:studio:css" in package["scripts"]
     assert package["scripts"]["build:studio:css"].startswith("tailwindcss -i film-studio-tailwind.css")
