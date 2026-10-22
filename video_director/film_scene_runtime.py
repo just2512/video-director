@@ -309,7 +309,7 @@ _SCENE_BRIDGE = r"""
         return;
       }
       if (typeof item.selector !== 'string' || !item.selector.trim() || item.selector.length > 500
-          || /[\\x00-\\x1f]/.test(item.selector)) {
+          || /[\x00-\x1f]/.test(item.selector)) {
         throw new Error('overrides 第 ' + (index + 1) + ' 项的 CSS selector 无效');
       }
       if (Object.prototype.hasOwnProperty.call(item, 'text')

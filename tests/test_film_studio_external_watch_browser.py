@@ -142,7 +142,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert fd.read_project_film(project_id)["rev"] == fd.revision_of(changed_again)
 
                 page.once("dialog", lambda dialog: dialog.accept())
-                page.locator('[data-film-action="reload"]').click()
+                page.locator('[data-film-action="reload"]:visible').click()
                 page.wait_for_function(
                     "() => { const speed = document.querySelector('#fs-field-speed'); "
                     "const title = document.querySelector('#fs-field-title'); "

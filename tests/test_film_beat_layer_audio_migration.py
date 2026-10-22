@@ -80,7 +80,7 @@ def test_beat_layers_and_audio_are_migrated_and_tagged_without_duplicate_global_
     # Equal ID/content merges despite the normalized top-level track_id. A
     # same-ID clip with different volume is preserved as a second real clip.
     assert len(audio_matches) == 2
-    original = next(clip for clip in audio_matches if clip["attrs"].get("data-source-id") == "sfx-shared")
+    original = next(clip for clip in audio_matches if clip["attrs"].get("id") == "audio-sfx-shared")
     distinct = next(clip for clip in audio_matches if clip is not original)
     assert original["attrs"]["data-source-beat-ids"] == '["beat-hook"]'
     assert float(original["attrs"]["at"]) == 0.2

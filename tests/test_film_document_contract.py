@@ -773,7 +773,7 @@ def test_slide_trim_alt_shift_drag_and_ai_contract_are_wired():
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert "window.filmStudioToggleSlideMode" in script
-    assert "slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip)" in script
+    assert "slideGesture=!!(!trim&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip)" in script
     assert 'data-film-action="slide-mode"' in index
     assert ".fs-btn.fs-slide-mode-active" in (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     assert "e.altKey&&e.shiftKey" in script

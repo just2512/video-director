@@ -3095,7 +3095,7 @@ def _subtitle_page(width: int, height: int, duration: float, cues: list[dict], s
     if alignment not in {"left", "center", "right"}:
         alignment = "center"
     position = str(opts.get("position") or "bottom")
-    margin = int(max(0, min(height - 10, height * (1.0 - safe_zone) / 2.0)))
+    margin = int(round(max(0, min(height - 10, height * (1.0 - safe_zone) / 2.0))))
     if position == "top":
         position_css, base_transform = f"top:{margin}px;bottom:auto;", "translateX(-50%)"
     elif position == "center":
@@ -4017,6 +4017,8 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
     variant_style = (selected_variant or {}).get("style") or {}
     variant_style_id = str(variant_style.get("style_id") or "") if isinstance(variant_style, dict) else ""
     style_contract_source = raw_ir.get("style_contract") or {}
+    style_contract_palette = style_contract_source.get("palette") or {}
+    style_contract_typography = style_contract_source.get("typography") or {}
     requested_style_id = (
         variant_style_id
         or str(style_contract_source.get("style_id") or "")
@@ -4352,6 +4354,11 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
                 f"Composition 有 {len(variants)} 个 variants 但没有有效 active_variant_id；"
                 "按顶层 scenes/audio 迁移，未隐式合并候选变体"
             )
+    if raw_ir.get("origin_template_id") or raw_ir.get("origin_template_version"):
+        warnings.append(
+            "模板来源 lineage 已保存在最终轨道的 data-source-origin-template-id / "
+            "data-source-origin-template-version；迁移不会反向修改模板"
+        )
     source_fps = project_spec.get("fps", config.DEFAULT_FPS)
     if isinstance(source_fps, bool) or not isinstance(source_fps, int) or not 1 <= source_fps <= 60:
         raise FilmError("INVALID_FPS", f"旧项目帧率 {source_fps!r} 不在支持的 1–60 范围内，拒绝静默限制。", 422)
@@ -4472,8 +4479,6 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
             subtitle_style["position"] = migrated_style["subtitle_position"]
         if migrated_style.get("subtitle_max_lines") is not None:
             subtitle_style["max_lines"] = int(migrated_style["subtitle_max_lines"])
-    style_contract_palette = style_contract_source.get("palette") or {}
-    style_contract_typography = style_contract_source.get("typography") or {}
     if "safe_zone" in style_contract_source:
         try:
             subtitle_style["safe_zone"] = _number(
