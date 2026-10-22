@@ -31,6 +31,7 @@ jobs:
       # download is unreliable over the local network. Everything python
       # goes through this interpreter.
       PY311_BIN: /home/actions/miniforge3/envs/py311/bin
+      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
     steps:
       # This self-hosted WSL runner has intermittently lost GitHub TLS streams
       # during checkout. Force HTTP/1.1 before checkout instead of allowing Git
@@ -122,6 +123,10 @@ jobs:
         run: |
           "$PY311_BIN/python3.11" --version
           "$PY311_BIN/python3.11" -m pip --version
+      - name: Bootstrap Python SOCKS support for the self-hosted proxy
+        if: steps.ensure_checkout.outcome == 'success'
+        shell: bash
+        run: bash tools/bootstrap_python_socks.sh
       - run: '"$PY311_BIN/python3.11" -m pip install --upgrade pip'
         if: steps.ensure_checkout.outcome == 'success'
       - run: '"$PY311_BIN/python3.11" -m pip install -r requirements.txt'
@@ -162,22 +167,33 @@ jobs:
       - name: Compile all test modules before pytest collection
         if: steps.ensure_checkout.outcome == 'success'
         run: '"$PY311_BIN/python3.11" -m compileall -q tests'
+      - name: Install Remotion rendering runtime dependencies
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        working-directory: remotion_runtime
+        run: npm install --no-package-lock --no-audit --no-fund --prefer-offline --fetch-retries=2
+
       - name: Typecheck React 19 / TypeScript render and timeline contracts
         id: react_typecheck
         if: always() && steps.ensure_checkout.outcome == 'success'
-        working-directory: remotion_runtime
+        working-directory: studio_ui
         run: |
-          npm install --no-package-lock
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund --fetch-retries=2
+          fi
+          test -s package-lock.json
+          npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2
           npm run typecheck
+
       - name: Build the React 19 Studio canvas inspector
         id: react_build
         if: always() && steps.ensure_checkout.outcome == 'success'
-        working-directory: remotion_runtime
+        working-directory: studio_ui
         run: npm run build:studio
+
       - name: Build scoped Tailwind 4 CSS for React Studio
         id: tailwind_build
         if: always() && steps.ensure_checkout.outcome == 'success'
-        working-directory: remotion_runtime
+        working-directory: studio_ui
         run: npm run build:studio:css
       - name: Run React Studio integration smoke tests
         id: react_smoke
@@ -284,6 +300,7 @@ jobs:
           paths = [
               "webui/static/js/film-studio-react.js",
               "webui/static/css/film-studio-tailwind.css",
+              "studio_ui/package-lock.json",
           ]
           api = "https://api.github.com"
           headers = {

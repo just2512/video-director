@@ -108,11 +108,11 @@
 ## 本轮落地记录
 
 - 将 Studio UI 构建切换到仓库已有的 self-hosted WSL runner 标签（与 AI Director 工作流共用 runner 约定），不再请求 GitHub-hosted runner。
-- 构建使用 Python 3.11 固定环境；Studio UI 有独立的 `studio_ui/` package，只安装 React、esbuild、TypeScript 与 Tailwind，不安装 Remotion renderer；首次运行生成 `studio_ui/package-lock.json`，后续走 `npm ci`，并将 lockfile 纳入与 bundle/CSS 相同的版本保护发布流程。
+- 构建使用 Python 3.11 固定环境；Studio UI 有独立的 `studio_ui/` package，只安装 React、esbuild、TypeScript 与 Tailwind，不安装 Remotion renderer；渲染端依赖仍在 `remotion_runtime/` 单独安装。两条自托管工作流共用 `tools/bootstrap_python_socks.sh`，先修复 SOCKS5 下 pip 不可用的冷启动，再安装 Python/Playwright 依赖。首次 UI 构建生成 `studio_ui/package-lock.json`，后续走 `npm ci`，并将 lockfile 纳入与 bundle/CSS 相同的版本保护发布流程。
 - 新增构建契约测试，要求工作流使用自托管 runner、保留依赖锁文件，且实际 JS/CSS 不能是占位输出。
 - React Studio 的工具栏、时间线、素材列表、AI 面板、片段检查器和画布检查器改为通过一个 `createRoot()` 管理，并以 portals 挂载到既有布局槽位；这保留了现有 DOM 布局和事件桥接，但消除了多个 React root 独立管理同一个 Studio 的情况。
 - 右侧属性检查器和 AI 导演不再通过 tab 互斥隐藏；二者常驻同一工作区，新增可用鼠标/上下方向键调整比例的分隔条，选择比例存入 `localStorage`。
-- **当前验收状态：** 这些是将提交的实现变更；必须等待对应自托管工作流完成，才能将构建、浏览器和落盘测试标记为 PASS。
+- **当前验收状态：** 自托管 runner 曾通过 React typecheck、JS bundle 与 Tailwind CSS 构建，但此前被 Python SOCKS 支持缺失阻断；两个工作流现统一使用共享 bootstrap，且分别安装 UI 与渲染运行时依赖。仍须等最新自托管构建、Chromium 交互、JS 语法及渲染测试完成后，才能将整条链路标记为 PASS。
 
 ## 本次直接落地
 

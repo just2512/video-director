@@ -17,6 +17,7 @@ on:
       - "video_director/prober.py"
       - "tests/test_film_*.py"
       - "tests/test_studio_build_contract.py"
+      - "tools/bootstrap_python_socks.sh"
   workflow_dispatch:
 
 permissions:
@@ -96,23 +97,12 @@ jobs:
 
       - name: Bootstrap Python SOCKS support for the self-hosted proxy
         shell: bash
-        run: |
-          set -euo pipefail
-          if ! "$PY311_BIN/python3.11" -c "import socks" >/dev/null 2>&1; then
-            metadata="$RUNNER_TEMP/pysocks-1.7.1.json"
-            curl --fail --silent --show-error --location \
-              --retry 2 --retry-all-errors --connect-timeout 15 --max-time 120 \
-              "https://pypi.org/pypi/PySocks/1.7.1/json" -o "$metadata"
-            wheel_url="$("$PY311_BIN/python3.11" -c 'import json,sys; print(next(item["url"] for item in json.load(open(sys.argv[1], encoding="utf-8"))["urls"] if item["filename"].endswith("py3-none-any.whl")))' "$metadata")"
-            wheel="$RUNNER_TEMP/$(basename "$wheel_url")"
-            curl --fail --silent --show-error --location \
-              --retry 2 --retry-all-errors --connect-timeout 15 --max-time 120 \
-              "$wheel_url" -o "$wheel"
-            env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy \
-              -u HTTP_PROXY -u http_proxy \
-              "$PY311_BIN/python3.11" -m pip install --no-index "$wheel"
-          fi
-          "$PY311_BIN/python3.11" -c "import socks; print('Python SOCKS support ready:', socks.__file__)"
+        run: bash tools/bootstrap_python_socks.sh
+
+      - name: Install Remotion render runtime dependencies
+        working-directory: remotion_runtime
+        shell: bash
+        run: npm install --no-package-lock --no-audit --no-fund --prefer-offline --fetch-retries=2
 
       - name: Install focused Python and Chromium test dependencies
         shell: bash

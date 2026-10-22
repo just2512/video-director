@@ -7,6 +7,8 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
     contract = (root / "CONTRACT.md").read_text(encoding="utf-8")
+    ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
+    proxy_bootstrap = (root / "tools" / "bootstrap_python_socks.sh").read_text(encoding="utf-8")
     package_path = root / "studio_ui" / "package.json"
     package = json.loads(package_path.read_text(encoding="utf-8"))
     remotion_package = json.loads((root / "remotion_runtime" / "package.json").read_text(encoding="utf-8"))
@@ -16,10 +18,15 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "PY311_BIN: /home/actions/miniforge3/envs/py311/bin" in workflow
     assert "npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2" in workflow
     assert "working-directory: studio_ui" in workflow
-    assert "Bootstrap Python SOCKS support for the self-hosted proxy" in workflow
-    assert "pysocks-1.7.1.json" in workflow
-    assert 'import json,sys; print(next(item["url"]' in workflow
+    assert "bash tools/bootstrap_python_socks.sh" in workflow
+    assert "bash tools/bootstrap_python_socks.sh" in ai_workflow
+    assert "pysocks-1.7.1.json" in proxy_bootstrap
+    assert 'import json,sys; print(next(item["url"]' in proxy_bootstrap
     assert not any(line.startswith(("import json", "import sys", "from pathlib")) for line in workflow.splitlines())
+    assert "Install Remotion render runtime dependencies" in workflow
+    assert "Install Remotion rendering runtime dependencies" in ai_workflow
+    assert "working-directory: studio_ui" in ai_workflow
+    assert "studio_ui/package-lock.json" in ai_workflow
     assert "-m playwright install chromium" in workflow
     assert "--with-deps chromium" not in workflow
     assert "build:studio" in package["scripts"]
