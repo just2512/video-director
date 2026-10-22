@@ -24723,10 +24723,32 @@
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-head", children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-track-label", title: track.label, children: track.label }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-track-controls", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-lock": track.id, title: track.locked ? "\u89E3\u9501\u8F68\u9053" : "\u9501\u5B9A\u8F68\u9053", children: track.locked ? "\u{1F512}" : "\u9501" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "sync-lock", "data-track-key": track.id, "aria-pressed": track.syncLocked ? "true" : "false", title: track.syncLocked ? "\u53D6\u6D88\u540C\u6B65\u9501\u5B9A" : "\u542F\u7528\u540C\u6B65\u9501\u5B9A", children: track.syncLocked ? "\u21C4" : "\u540C\u6B65" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "hidden", "data-track-key": track.id, title: track.hidden ? "\u663E\u793A\u8F68\u9053" : "\u9690\u85CF\u8F68\u9053", children: track.hidden ? "\u663E" : "\u9690" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "muted", "data-track-key": track.id, title: track.muted ? "\u53D6\u6D88\u9759\u97F3" : "\u9759\u97F3\u8F68\u9053", children: track.muted ? "\u{1F50A}" : "\u{1F507}" })
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: "fs-btn",
+                    "data-track-lock": track.id,
+                    title: track.locked ? "\u89E3\u9501\u8F68\u9053" : "\u9501\u5B9A\u8F68\u9053",
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      void window.filmStudioToggleTrackLock?.(track.id);
+                    },
+                    children: track.locked ? "\u{1F512}" : "\u9501"
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "sync-lock", "data-track-key": track.id, "aria-pressed": track.syncLocked ? "true" : "false", title: track.syncLocked ? "\u53D6\u6D88\u540C\u6B65\u9501\u5B9A" : "\u542F\u7528\u540C\u6B65\u9501\u5B9A", onClick: (event) => {
+                  event.stopPropagation();
+                  void window.filmStudioToggleTrackFlag?.(track.id, "sync-lock");
+                }, children: track.syncLocked ? "\u21C4" : "\u540C\u6B65" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "hidden", "data-track-key": track.id, title: track.hidden ? "\u663E\u793A\u8F68\u9053" : "\u9690\u85CF\u8F68\u9053", onClick: (event) => {
+                  event.stopPropagation();
+                  void window.filmStudioToggleTrackFlag?.(track.id, "hidden");
+                }, children: track.hidden ? "\u663E" : "\u9690" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "muted", "data-track-key": track.id, title: track.muted ? "\u53D6\u6D88\u9759\u97F3" : "\u9759\u97F3\u8F68\u9053", onClick: (event) => {
+                  event.stopPropagation();
+                  void window.filmStudioToggleTrackFlag?.(track.id, "muted");
+                }, children: track.muted ? "\u{1F50A}" : "\u{1F507}" })
               ] })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
