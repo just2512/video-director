@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build:studio": "node build.mjs",
-    "build:studio:css": "tailwindcss -i ../remotion_runtime/src/film-studio-tailwind.css -o ../webui/static/css/film-studio-tailwind.css --minify"
+    "build:studio:css": "tailwindcss -i film-studio-tailwind.css -o ../webui/static/css/film-studio-tailwind.css --minify"
   },
   "dependencies": {
     "react": "19.3.1",

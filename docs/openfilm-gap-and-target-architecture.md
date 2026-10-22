@@ -22,7 +22,7 @@
 |---|---|---|
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
-| React Studio | **React UI 已改为单一 root，但落盘构建尚待自托管 runner 验收**：工具栏、素材、时间线、AI、片段 Inspector 与画布 Inspector 经同一个 root + portals 渲染；原生 JS 仍负责部分手势/编辑状态与兼容 fallback。 | runner 使用 `[self-hosted, linux, x64]`；UI 依赖拆至 `studio_ui/`，与 Remotion renderer 分离，首次成功运行后发布真实 JS/CSS 与 npm lock。产物发布并通过 Chromium / FFmpeg 回归前，不视作完成 |
+| React Studio | **统一 React root 已落地，属性与 AI 侧栏已改为并排同时可见并可拖动分配高度**；手势与 FilmDocument 写入仍经过现有原生交互/服务桥。 | Studio UI 构建使用 self-hosted `[self-hosted, linux, x64]` runner 与独立 `studio_ui/` 包；Tailwind 入口必须位于独立包中才能正确解析本地依赖。实际 bundle、浏览器回归和导出验证以最新 CI 为准 |
 | 页面元素编辑 | 已支持 selector、文本、位置/尺寸、文字色、旋转；后端还支持背景色、不透明度、字重、对齐等受限字段 | Inspector 应暴露常用可编辑字段，并让 React 与无 bundle fallback 同契约；编辑不应意外物化未改字段 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线 | 自定义 Bezier 控制柄尚未实现；完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收 |
@@ -111,6 +111,7 @@
 - 构建使用 Python 3.11 固定环境；Studio UI 有独立的 `studio_ui/` package，只安装 React、esbuild、TypeScript 与 Tailwind，不安装 Remotion renderer；首次运行生成 `studio_ui/package-lock.json`，后续走 `npm ci`，并将 lockfile 纳入与 bundle/CSS 相同的版本保护发布流程。
 - 新增构建契约测试，要求工作流使用自托管 runner、保留依赖锁文件，且实际 JS/CSS 不能是占位输出。
 - React Studio 的工具栏、时间线、素材列表、AI 面板、片段检查器和画布检查器改为通过一个 `createRoot()` 管理，并以 portals 挂载到既有布局槽位；这保留了现有 DOM 布局和事件桥接，但消除了多个 React root 独立管理同一个 Studio 的情况。
+- 右侧属性检查器和 AI 导演不再通过 tab 互斥隐藏；二者常驻同一工作区，新增可用鼠标/上下方向键调整比例的分隔条，选择比例存入 `localStorage`。
 - **当前验收状态：** 这些是将提交的实现变更；必须等待对应自托管工作流完成，才能将构建、浏览器和落盘测试标记为 PASS。
 
 ## 本次直接落地

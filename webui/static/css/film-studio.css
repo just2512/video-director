@@ -144,9 +144,15 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 }
 .film-studio-panel.fs-studio-expanded .fs-assets-pane,
 .film-studio-panel.fs-studio-expanded .fs-inspector-pane{min-height:0;max-height:none;overflow:hidden;display:flex;flex-direction:column}
-.film-studio-panel.fs-studio-expanded .fs-assets-list,
-.film-studio-panel.fs-studio-expanded #fs-side-inspector,
-.film-studio-panel.fs-studio-expanded #fs-side-ai{min-height:0;flex:1 1 auto;overflow:auto}
+.film-studio-panel.fs-studio-expanded .fs-assets-list{min-height:0;flex:1 1 auto;overflow:auto}
+.film-studio-panel.fs-studio-expanded .fs-side-workbench{display:flex;flex:1 1 auto;flex-direction:column;gap:6px;min-height:0;overflow:hidden}
+.film-studio-panel.fs-studio-expanded #fs-side-inspector{flex:0 0 var(--fs-inspector-share,54%);min-height:80px;max-height:none;overflow:auto}
+.film-studio-panel.fs-studio-expanded #fs-side-ai{display:flex;flex:1 1 0;flex-direction:column;min-height:90px;max-height:none;overflow:hidden}
+.film-studio-panel.fs-studio-expanded #fs-static-ai-director,
+.film-studio-panel.fs-studio-expanded #fs-react-ai-director{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden}
+.film-studio-panel.fs-studio-expanded #fs-chat-log{flex:1 1 auto;min-height:80px;max-height:none;overflow-y:auto}
+.film-studio-panel.fs-studio-expanded #fs-static-ai-director .fs-chat-input-row,
+.film-studio-panel.fs-studio-expanded #fs-react-ai-director .fs-chat-input-row{flex:0 0 auto}
 .film-studio-panel.fs-studio-expanded .fs-monitor-pane{min-height:0}
 .film-studio-panel.fs-studio-expanded .fs-monitor-stage{aspect-ratio:auto;min-height:0;flex:1 1 auto}
 .film-studio-panel.fs-studio-expanded .fs-timeline-pane{
@@ -156,15 +162,13 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .film-studio-panel.fs-studio-expanded .fs-timeline-scroll{flex:1 1 auto;min-height:0;max-height:none}
 .film-studio-panel.fs-studio-expanded .fs-timeline{min-height:100%;height:max-content}
 .film-studio-panel.fs-studio-expanded .fs-inspector-description{flex:0 0 auto}
-.film-studio-panel.fs-studio-expanded .fs-chat-log{max-height:none;min-height:120px;flex:1 1 auto}
-.fs-side-tabs{display:flex;gap:4px;flex:0 0 auto;padding:0 0 8px;border-bottom:1px solid #303030;margin-bottom:6px}
-.fs-side-tab{border:1px solid #343434;background:#202020;color:#aaa;border-radius:5px;padding:6px 10px;font-size:11px;cursor:pointer}
-.fs-side-tab:hover{border-color:#555;color:#eee}
-.fs-side-tab-active{background:#203b38;border-color:#39877f;color:#e6fffb}
 .fs-side-view[hidden]{display:none!important}
 .fs-side-ai{display:flex;flex-direction:column;gap:8px}
-.fs-side-ai .fs-chat-input-row{flex:0 0 auto}
-.fs-side-ai .fs-chat-log{overflow:auto}
+.fs-side-divider{flex:0 0 6px;position:relative;min-height:6px;cursor:row-resize;touch-action:none;user-select:none;border-radius:4px;outline-offset:1px}
+.fs-side-divider:before{content:"";position:absolute;inset:2px 0;background:#303030;border-radius:4px}
+.fs-side-divider:hover:before,.fs-side-divider:focus-visible:before,.fs-side-divider.fs-divider-dragging:before{background:#45c2b4}
+.fs-side-divider:after{content:"";position:absolute;inset:-4px 0;z-index:12;background:transparent}
+.film-studio-panel.fs-studio-expanded .fs-inspector-pane .fs-pane-title{flex:0 0 auto}
 .fs-pane-divider:after{content:"";position:absolute;inset:-4px;z-index:12;background:transparent}
 @media(max-height:760px){
   .film-studio-panel.fs-studio-expanded .fs-timeline-pane{flex-basis:32vh;min-height:160px}
@@ -175,7 +179,10 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
   .film-studio-panel.fs-studio-expanded .fs-pane-divider{display:none}
   .film-studio-panel.fs-studio-expanded .fs-assets-pane{grid-column:1}
   .film-studio-panel.fs-studio-expanded .fs-monitor-pane{grid-column:2}
-  .film-studio-panel.fs-studio-expanded .fs-inspector-pane{grid-column:1/-1;display:flex;flex:0 0 190px;min-height:120px}
+  .film-studio-panel.fs-studio-expanded .fs-inspector-pane{grid-column:1/-1;display:flex;flex:0 0 240px;min-height:220px}
+  .film-studio-panel.fs-studio-expanded .fs-side-workbench{--fs-inspector-share:48%}
+  .film-studio-panel.fs-studio-expanded #fs-side-inspector{min-height:72px}
+  .film-studio-panel.fs-studio-expanded #fs-side-ai{min-height:90px}
 }
 
 .fs-clip.fs-clip-selected{outline:2px solid #f1f1f1;outline-offset:-2px;box-shadow:0 0 0 1px #45c2b4}
@@ -326,3 +333,7 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-proposal-operation-list .fs-proposal-before{color:#c9bdbd}
 .fs-proposal-operation-list .fs-proposal-after{color:#b5f0d7}
 .fs-proposal-affected{margin-top:8px;padding-top:6px;border-top:1px solid #3a5551}
+
+/* Attribute Inspector and AI Director remain visible together; users resize their split. */
+.film-studio-panel.fs-studio-expanded .fs-side-workbench{--fs-inspector-share:54%}
+.film-studio-panel.fs-studio-expanded #fs-side-divider{flex-shrink:0}

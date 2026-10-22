@@ -18,6 +18,8 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "working-directory: studio_ui" in workflow
     assert "build:studio" in package["scripts"]
     assert "build:studio:css" in package["scripts"]
+    assert package["scripts"]["build:studio:css"].startswith("tailwindcss -i film-studio-tailwind.css")
+    assert "studio_ui/film-studio-tailwind.css" in str(list((root / "studio_ui").glob("film-studio-tailwind.css")))
     assert not any(name.startswith("@remotion/") for name in package["dependencies"])
     assert "@remotion/renderer" in remotion_package["dependencies"]
     assert "React 19 + Tailwind 4" in contract
@@ -47,6 +49,14 @@ def test_studio_components_share_one_react_root_and_keep_portal_slots():
     assert "createPortal" in component
     assert "const StudioReactOwner: React.FC" in component
     assert 'id="fs-react-root"' in html
+    assert 'id="fs-side-workbench"' in html
+    assert 'id="fs-side-divider"' in html
+    assert 'id="fs-side-ai" aria-label="AI 导演"' in html
+    assert 'id="fs-side-ai" aria-label="AI 导演" role="tabpanel" hidden' not in html
+    runtime = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "film-studio-inspector-share" in runtime
+    assert "if(inspector)inspector.hidden" not in runtime
+    assert "if(ai)ai.hidden" not in runtime
     for surface in (
         "fs-assets-list", "fs-timeline", "fs-react-toolbar",
         "fs-react-timeline-toolbar", "fs-react-scrub-row",

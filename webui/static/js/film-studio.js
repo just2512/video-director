@@ -1655,14 +1655,13 @@
     flushPendingExternalRevision();
   });
   window.filmStudioSetSideMode=function(mode){
+    // Both work surfaces stay mounted and visible. The mode only controls focus
+    // for legacy/context-menu callers; it is not a visibility toggle.
     S.sideMode=mode==='ai'?'ai':'inspector';
-    var inspector=$('fs-side-inspector'),ai=$('fs-side-ai');
-    var inspectorTab=$('fs-side-tab-inspector'),aiTab=$('fs-side-tab-ai');
-    if(inspector)inspector.hidden=S.sideMode!=='inspector';
-    if(ai)ai.hidden=S.sideMode!=='ai';
-    if(inspectorTab){inspectorTab.classList.toggle('fs-side-tab-active',S.sideMode==='inspector');inspectorTab.setAttribute('aria-selected',String(S.sideMode==='inspector'));}
-    if(aiTab){aiTab.classList.toggle('fs-side-tab-active',S.sideMode==='ai');aiTab.setAttribute('aria-selected',String(S.sideMode==='ai'));}
-    if(S.sideMode==='ai'&&$('fs-chat-input'))$('fs-chat-input').focus();
+    if(S.sideMode==='ai'){
+      var input=$('fs-chat-input')||$('fs-static-chat-input');
+      if(input)input.focus();
+    }
   };
   window.filmStudioToggle=function(){
     if(S.open){window.filmStudioClose();return;}
@@ -2778,7 +2777,30 @@ window.filmStudioCopyClips=function(){
       if(studioPanel&&Number.isFinite(timelineHeight)&&timelineHeight>=160){
         studioPanel.style.setProperty('--fs-timeline-height',Math.max(160,Math.min(window.innerHeight*0.45,timelineHeight))+'px');
       }
-    }catch(_){}
+      var sideShare=Number(localStorage.getItem('film-studio-inspector-share'));
+      applySideShare(Number.isFinite(sideShare)&&sideShare>0?sideShare:54,false);
+    }catch(_){applySideShare(54,false);}
+  }
+  function applySideShare(raw,persist){
+    var pane=$('fs-side-workbench');
+    var divider=$('fs-side-divider');
+    if(!pane)return;
+    var height=pane.getBoundingClientRect().height||0;
+    var minShare=height>0?Math.max(25,Math.min(45,80/height*100)):25;
+    var maxShare=height>0?Math.min(75,Math.max(55,1-90/height)*100):75;
+    var share=Math.max(minShare,Math.min(maxShare,Number(raw)||54));
+    pane.style.setProperty('--fs-inspector-share',share.toFixed(2)+'%');
+    if(divider)divider.setAttribute('aria-valuenow',String(Math.round(share)));
+    if(persist!==false){try{localStorage.setItem('film-studio-inspector-share',share.toFixed(2));}catch(_){}}
+  }
+  function beginSideDivider(e){
+    if(e.button!==0)return;
+    var pane=$('fs-side-workbench');
+    if(!pane)return;
+    S.paneDrag={side:'side-split',divider:e.currentTarget,rect:pane.getBoundingClientRect()};
+    e.currentTarget.classList.add('fs-divider-dragging');
+    try{e.currentTarget.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();
   }
   function beginDivider(e){
     var divider=e.currentTarget,side=divider.getAttribute('data-divider');
@@ -2805,6 +2827,12 @@ window.filmStudioCopyClips=function(){
   function moveDivider(e){
     if(!S.paneDrag)return;
     var d=S.paneDrag;
+    if(d.side==='side-split'){
+      var sideHeight=d.rect.height;
+      if(!sideHeight)return;
+      applySideShare((e.clientY-d.rect.top)/sideHeight*100,true);
+      return;
+    }
     if(d.side==='timeline'){
       var panelHeight=studioPanel?studioPanel.getBoundingClientRect().height:d.panelHeight;
       var maxHeight=Math.max(160,Math.min(window.innerHeight*0.45,panelHeight*0.45));
@@ -2846,6 +2874,22 @@ window.filmStudioCopyClips=function(){
       try{localStorage.setItem(side==='left'?'film-studio-left-pane':'film-studio-right-pane',String(next));}catch(_){}
     });
   });
+  var sideDivider=$('fs-side-divider');
+  if(sideDivider){
+    sideDivider.addEventListener('pointerdown',beginSideDivider);
+    sideDivider.addEventListener('pointermove',moveDivider);
+    sideDivider.addEventListener('pointerup',endDivider);
+    sideDivider.addEventListener('pointercancel',endDivider);
+    sideDivider.addEventListener('lostpointercapture',endDivider);
+    sideDivider.addEventListener('keydown',function(e){
+      if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+      e.preventDefault();
+      var pane=$('fs-side-workbench');
+      if(!pane)return;
+      var current=parseFloat(getComputedStyle(pane).getPropertyValue('--fs-inspector-share'))||54;
+      applySideShare(current+(e.key==='ArrowDown'?1:-1)*(e.shiftKey?8:3),true);
+    });
+  }
   var timelineDivider=$('fs-timeline-divider');
   if(timelineDivider){
     timelineDivider.addEventListener('pointerdown',beginTimelineDivider);
