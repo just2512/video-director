@@ -18,8 +18,8 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "working-directory: studio_ui" in workflow
     assert "Bootstrap Python SOCKS support for the self-hosted proxy" in workflow
     assert "pysocks-1.7.1.json" in workflow
-    assert "import json,sys; print(next(item[\"url\"]" in workflow
-    assert "\\nimport json\\nimport sys\\nfrom pathlib Path\\nmetadata =" not in workflow
+    assert 'import json,sys; print(next(item["url"]' in workflow
+    assert not any(line.startswith(("import json", "import sys", "from pathlib")) for line in workflow.splitlines())
     assert "-m playwright install chromium" in workflow
     assert "--with-deps chromium" not in workflow
     assert "build:studio" in package["scripts"]
