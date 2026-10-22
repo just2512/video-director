@@ -2305,3 +2305,186 @@ def test_audio_clips_reject_visual_keyframes_but_keep_volume_envelopes():
     audio = next(c for track in updated["tracks"] for c in track["clips"] if c["id"] == "audio-1")
     assert "volume_envelope" in audio["attrs"]
     assert "data-film-keyframes" not in audio["attrs"]
+
+
+
+def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(tmp_path, monkeypatch):
+    """Exercise the real HTTP/SSE route with a streaming model double and revision conflict."""
+    import http.client
+    import importlib
+    from http.server import ThreadingHTTPServer
+    import threading
+
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-ai-stream-integration"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film(project_id)
+    assert original["exists"]
+
+    first_plan = json.dumps({
+        "summary": "调整第一个镜头速度",
+        "operations": [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}],
+    }, ensure_ascii=False, separators=(",", ":"))
+    stale_plan = json.dumps({
+        "summary": "调整第二个镜头速度",
+        "operations": [{"op": "set", "clip": "clip-b", "field": "speed", "value": 1.25}],
+    }, ensure_ascii=False, separators=(",", ":"))
+
+    class FakeStreamingModel:
+        supports_stream_cancellation = True
+
+        def __init__(self):
+            self.plans = [first_plan, stale_plan]
+            self.closed = False
+
+        def generate_stream(self, prompt, system=None, on_delta=None,
+                            on_stream_open=None, cancel_event=None):
+            text = self.plans.pop(0)
+            self.closed = False
+            if callable(on_stream_open):
+                on_stream_open(self)
+            try:
+                for start in range(0, len(text), 17):
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise RuntimeError("cancelled")
+                    fragment = text[start:start + 17]
+                    if callable(on_delta):
+                        on_delta(fragment)
+                return text
+            finally:
+                self.closed = True
+
+        def close(self):
+            self.closed = True
+
+    model = FakeStreamingModel()
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: model)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def post_json(pathname, payload):
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        try:
+            connection.request(
+                "POST", pathname,
+                body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Connection": "close"},
+            )
+            response = connection.getresponse()
+            body = response.read()
+            return response.status, json.loads(body.decode("utf-8")) if body else {}
+        finally:
+            connection.close()
+
+    def post_stream(base_revision, request_id):
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        try:
+            connection.request(
+                "POST", "/api/editor/film/command",
+                body=json.dumps({
+                    "project_id": project_id,
+                    "base": base_revision,
+                    "message": "按计划修改指定镜头速度",
+                    "selected_clip_id": "",
+                    "stream": True,
+                    "request_id": request_id,
+                }, ensure_ascii=False).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Connection": "close"},
+            )
+            response = connection.getresponse()
+            assert response.status == 200, (response.status, response.read().decode("utf-8", "replace"))
+            assert response.getheader("Content-Type", "").startswith("text/event-stream")
+
+            events = []
+            event_name = ""
+            data_lines = []
+            while True:
+                raw_line = response.fp.readline()
+                if not raw_line:
+                    break
+                line = raw_line.decode("utf-8").rstrip("\r\n")
+                if not line:
+                    if event_name and data_lines:
+                        packet = (event_name, json.loads("\n".join(data_lines)))
+                        events.append(packet)
+                        if event_name in {"result", "error"}:
+                            break
+                    event_name, data_lines = "", []
+                elif line.startswith("event:"):
+                    event_name = line[len("event:"):].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line[len("data:"):].lstrip())
+            return events
+        finally:
+            connection.close()
+
+    try:
+        events = post_stream(original["rev"], "stream-request-0001")
+        event_names = [name for name, _payload in events]
+        token_fragments = [payload["fragment"] for name, payload in events if name == "token"]
+        result_packets = [payload for name, payload in events if name == "result"]
+        assert len(token_fragments) > 1, event_names
+        assert "".join(token_fragments) == first_plan
+        assert event_names.index("token") < event_names.index("result")
+        assert len(result_packets) == 1
+        first_response = result_packets[0]
+        assert first_response["ok"] is True
+        proposal = first_response["proposal"]
+        assert proposal["base_revision"] == original["rev"]
+        assert proposal["operations"] == [{
+            "op": "set", "clip": "clip-a", "field": "speed", "value": "1.5"
+        }]
+        # Streaming is feedback only: generating a proposal must not write film.html.
+        assert fd.read_project_film(project_id)["rev"] == original["rev"]
+
+        status, applied = post_json("/api/editor/film/apply-proposal", {
+            "project_id": project_id,
+            "proposal_id": proposal["id"],
+            "base_revision": proposal["base_revision"],
+        })
+        assert status == 200, applied
+        assert applied["ok"] is True
+        assert len(applied["ops"]) == 1
+        committed = fd.read_project_film(project_id)
+        clip_a = next(clip for track in committed["doc"]["tracks"]
+                      for clip in track["clips"] if clip["id"] == "clip-a")
+        assert clip_a["attrs"]["speed"] == "1.5"
+
+        stale_events = post_stream(committed["rev"], "stream-request-0002")
+        stale_result = next(payload for name, payload in stale_events if name == "result")
+        stale_proposal = stale_result["proposal"]
+        before_external_change = fd.read_project_film(project_id)
+        assert before_external_change["rev"] == committed["rev"]
+
+        # Simulate an external Agent deleting the exact target after AI preview.
+        fd.edit_project_film(
+            project_id, before_external_change["rev"],
+            [{"op": "remove", "clip": "clip-b"}],
+        )
+        changed = fd.read_project_film(project_id)
+        status, rejected = post_json("/api/editor/film/apply-proposal", {
+            "project_id": project_id,
+            "proposal_id": stale_proposal["id"],
+            "base_revision": stale_proposal["base_revision"],
+        })
+        assert status == 409, rejected
+        assert rejected.get("ok") is False
+        after_rejection = fd.read_project_film(project_id)
+        assert after_rejection["rev"] == changed["rev"]
+        ids = {clip["id"] for track in after_rejection["doc"]["tracks"] for clip in track["clips"]}
+        assert "clip-b" not in ids
+        assert next(clip for track in after_rejection["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-a")["attrs"]["speed"] == "1.5"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
