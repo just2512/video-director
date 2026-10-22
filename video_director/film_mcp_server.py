@@ -24,12 +24,27 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": "Read the authoritative film.html revision, stage, duration, tracks, and stable clip IDs.",
         "inputSchema": {
             "type": "object",
-            "properties": {"project_id": {"type": "string", "minLength": 1}},
+            "properties": {"project_id": {"type": "string", "minLength": 1}, "selected_variant_id": {"type": "string", "minLength": 1}},
             "required": ["project_id"],
             "additionalProperties": False,
         },
     },
     {
+    {
+        "name": "film.initialize",
+        "description": "Initialize the authoritative film.html timeline from the current CompositionIR snapshot. Requires the exact source_composition_version returned by film.status. Migration warnings are fail-closed until explicitly accepted.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "minLength": 1},
+                "expected_composition_version": {"type": "integer", "minimum": 1},
+                "selected_variant_id": {"type": "string", "minLength": 1},
+                "accept_warnings": {"type": "boolean", "default": false}
+            },
+            "required": ["project_id", "expected_composition_version"],
+            "additionalProperties": False
+        },
+    },
         "name": "film.validate",
         "description": "Strictly parse the film document and verify local media references and migration source snapshot integrity. This does not prove frame(t) determinism.",
         "inputSchema": {
@@ -102,7 +117,14 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
-]
+]def tool_definitions() -> list[dict[str, Any]]:
+    """Return defensive copies of this server's MCP schemas for gateway composition."""
+    from copy import deepcopy
+    return deepcopy(_TOOL_DEFINITIONS)
+
+
+def _json_result(payload: dict[str, Any], is_error: bool = False) -> dict[str, Any]:
+    return _text_result(json.dumps(payload, ensure_ascii=False), is_error)
 
 
 def _text_result(text: str, is_error: bool = False) -> dict[str, Any]:
@@ -154,6 +176,64 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
 
     try:
         project_id = _validate_project_id_arg(arguments)
+
+        if name == "film.initialize":
+            from video_director import editor as vd_editor
+            from video_director import film_document as fd
+
+            expected = arguments.get("expected_composition_version")
+            selected_variant_id = arguments.get("selected_variant_id")
+            accept_warnings = arguments.get("accept_warnings", False)
+            if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+                raise ValueError("expected_composition_version 必须是 film.status 返回的正整数。")
+            if selected_variant_id is not None and (not isinstance(selected_variant_id, str) or not selected_variant_id.strip()):
+                raise ValueError("selected_variant_id 必须是非空字符串。")
+            if not isinstance(accept_warnings, bool):
+                raise ValueError("accept_warnings 必须是布尔值。")
+            pid = fd.validate_project_id(project_id)
+            try:
+                ir = vd_editor.load_composition(pid)
+            except Exception as exc:
+                return _json_result({"ok": False, "code": getattr(exc, "code", "COMPOSITION_NOT_FOUND"),
+                                     "error": str(exc)}, True)
+            current_version = vd_editor.composition_version(pid)
+            if current_version != expected:
+                return _json_result({
+                    "ok": False, "code": "COMPOSITION_CHANGED",
+                    "error": "初始化前 Composition 已变化，请重新调用 film.status 并检查迁移预览。",
+                    "source_composition_version": current_version,
+                }, True)
+            try:
+                plan = fd.build_film_from_composition(pid, ir, selected_variant_id=selected_variant_id)
+            except Exception as exc:
+                return _json_result({"ok": False, "code": getattr(exc, "code", "MIGRATION_PLAN_FAILED"),
+                                     "error": str(exc), "source_composition_version": current_version}, True)
+            warnings = list(plan.get("warnings") or [])
+            if warnings and not accept_warnings:
+                return _json_result({
+                    "ok": False, "code": "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION",
+                    "error": "迁移存在警告；必须先审阅 warnings，再以 accept_warnings=true 明确接受。",
+                    "warnings": warnings,
+                    "migration_preview": {
+                        "duration": plan["duration"], "track_count": plan["track_count"],
+                        "clip_count": plan["clip_count"],
+                        "source_composition_version": current_version,
+                        "selected_variant_id": plan.get("selected_variant_id"),
+                    },
+                }, True)
+            try:
+                initialized = fd.initialize_project_film(
+                    pid, plan["document"], plan["pages"], current_version, warnings,
+                    selected_variant_id=plan.get("selected_variant_id"),
+                )
+                state = fd.read_project_film(pid)
+                payload = {**fd.film_payload(pid, state), "initialized": True,
+                           "warnings": initialized["warnings"], "migration": initialized["migration"]}
+                return _json_result(payload)
+            except Exception as exc:
+                return _json_result({"ok": False, "code": getattr(exc, "code", "FILM_INITIALIZE_FAILED"),
+                                     "error": str(exc)}, True)
+
         args = ["film", name.split(".", 1)[1], "--project-id", project_id]
         timeout = 60
 
@@ -210,7 +290,45 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
                 args += ["--fps", str(fps)]
             timeout = 3600
 
-        return _run_cli(args, timeout=timeout)
+        result = _run_cli(args, timeout=timeout)
+        if name != "film.status" or result.get("isError"):
+            return result
+        try:
+            status = json.loads(result["content"][0]["text"])
+        except (KeyError, TypeError, json.JSONDecodeError):
+            return result
+        if not status.get("exists"):
+            from video_director import editor as vd_editor
+            from video_director import film_document as fd
+            selected_variant_id = arguments.get("selected_variant_id")
+            if selected_variant_id is not None and (not isinstance(selected_variant_id, str) or not selected_variant_id.strip()):
+                raise ValueError("selected_variant_id 必须是非空字符串。")
+            try:
+                pid = fd.validate_project_id(project_id)
+                ir = vd_editor.load_composition(pid)
+                source_version = vd_editor.composition_version(pid)
+                status["source_composition_available"] = True
+                status["source_composition_version"] = source_version
+                try:
+                    plan = fd.build_film_from_composition(pid, ir, selected_variant_id=selected_variant_id)
+                    status["migration_preview"] = {
+                        "duration": plan["duration"], "track_count": plan["track_count"],
+                        "clip_count": plan["clip_count"], "warnings": list(plan.get("warnings") or []),
+                        "selected_variant_id": plan.get("selected_variant_id"),
+                        "source_composition_version": source_version,
+                    }
+                except Exception as exc:
+                    status["migration_issue"] = {
+                        "code": getattr(exc, "code", "MIGRATION_PLAN_FAILED"),
+                        "error": str(exc), "source_composition_version": source_version,
+                    }
+            except Exception as exc:
+                status["source_composition_available"] = False
+                status["migration_issue"] = {
+                    "code": getattr(exc, "code", "COMPOSITION_NOT_FOUND"),
+                    "error": str(exc),
+                }
+        return _json_result(status)
     except (ValueError, TypeError, OverflowError) as exc:
         return _text_result(str(exc), True)
 

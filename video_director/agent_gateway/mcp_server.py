@@ -216,6 +216,8 @@ def _handle(req: dict) -> dict:
             for name, fn in dispatch.__globals__["HIGH_LEVEL_TOOLS"].items():
                 tools.append({"name": name, "description": (fn.__doc__ or "").strip().split("\n")[0],
                               "inputSchema": _tool_schema_for(name)})
+            from video_director import film_mcp_server
+            tools.extend(film_mcp_server.tool_definitions())
             return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools}}
         if method == "tools/call":
             params = req.get("params") or {}
@@ -224,6 +226,9 @@ def _handle(req: dict) -> dict:
             if not isinstance(args, dict):
                 return {"jsonrpc": "2.0", "id": req_id, "error": {
                     "code": -32602, "message": "Tool arguments must be an object"}}
+            if name.startswith("film."):
+                from video_director import film_mcp_server
+                return {"jsonrpc": "2.0", "id": req_id, "result": film_mcp_server.call_tool(name, args)}
             result = dispatch(name, **args)
             return {"jsonrpc": "2.0", "id": req_id, "result": {
                 "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}],
