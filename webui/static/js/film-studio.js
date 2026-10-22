@@ -28,6 +28,241 @@
     return Object.keys(grouped).map(function(key){return {at:Number(key),properties:grouped[key]};})
       .sort(function(a,b){return a.at-b.at;}).slice(0,500);
   }
+  var FALLBACK_KEYFRAME_PROPERTIES=[
+    {value:'x',label:'水平位置 X',min:0,max:1,initial:0.5},
+    {value:'y',label:'垂直位置 Y',min:0,max:1,initial:0.5},
+    {value:'scale',label:'整体缩放',min:0.1,max:5,initial:1},
+    {value:'scale_x',label:'水平缩放',min:0.1,max:5,initial:1},
+    {value:'scale_y',label:'垂直缩放',min:0.1,max:5,initial:1},
+    {value:'rotation',label:'旋转角度',min:-3600,max:3600,initial:0},
+    {value:'opacity',label:'不透明度',min:0,max:1,initial:1},
+    {value:'blur',label:'模糊',min:0,max:100,initial:0},
+    {value:'camera_x',label:'镜头中心 X',min:0,max:1,initial:0.5},
+    {value:'camera_y',label:'镜头中心 Y',min:0,max:1,initial:0.5},
+    {value:'camera_scale',label:'镜头缩放',min:0.1,max:5,initial:1},
+    {value:'offset_x',label:'水平偏移',min:-10000,max:10000,initial:0},
+    {value:'offset_y',label:'垂直偏移',min:-10000,max:10000,initial:0}
+  ];
+  function fallbackKeyframeInfo(property){
+    return FALLBACK_KEYFRAME_PROPERTIES.find(function(item){return item.value===property;})||FALLBACK_KEYFRAME_PROPERTIES[0];
+  }
+  function parseFallbackKeyframeChannels(raw){
+    if(!raw)return [];
+    var input=typeof raw==='string'?JSON.parse(raw):raw;
+    if(!Array.isArray(input))throw new Error('视觉关键帧必须是 JSON 数组。');
+    var result=[];
+    input.forEach(function(channel){
+      if(!channel||typeof channel!=='object'||!Array.isArray(channel.keyframes))throw new Error('视觉关键帧通道格式无效。');
+      var info=FALLBACK_KEYFRAME_PROPERTIES.find(function(item){return item.value===channel.property;});
+      if(!info)throw new Error('不支持的视觉关键帧属性：'+String(channel.property||'未知'));
+      if(result.some(function(item){return item.property===channel.property;}))throw new Error('同一属性不能存在重复关键帧通道。');
+      var points=channel.keyframes.map(function(point){
+        if(!point||!Number.isFinite(Number(point.at))||!Number.isFinite(Number(point.value)))throw new Error('关键帧时间和值必须是有限数字。');
+        var easing=point.easing||'linear';
+        if(typeof easing==='string'){
+          if(['linear','ease_in','ease_out','ease_in_out'].indexOf(easing)<0)throw new Error('关键帧缓动类型无效。');
+        }else if(!easing||easing.type!=='window'||['linear','ease_in','ease_out','ease_in_out'].indexOf(easing.preset)<0||
+          !Number.isFinite(Number(easing.start))||!Number.isFinite(Number(easing.end))||Number(easing.start)<0||Number(easing.end)>1||Number(easing.end)<=Number(easing.start)){
+          throw new Error('关键帧曲线分段格式无效。');
+        }else{
+          easing={type:'window',preset:easing.preset,start:Number(easing.start),end:Number(easing.end)};
+        }
+        var at=Number(point.at),value=Number(point.value);
+        if(at<0||value<info.min||value>info.max)throw new Error('属性 '+info.label+' 的关键帧时间或数值超出范围。');
+        return {at:at,value:value,easing:easing};
+      }).sort(function(a,b){return a.at-b.at;});
+      for(var i=1;i<points.length;i++)if(points[i].at<=points[i-1].at)throw new Error('同一通道的关键帧时间必须严格递增。');
+      result.push({property:info.value,keyframes:points});
+    });
+    return result;
+  }
+  function fallbackKeyframeEase(ratio,easing){
+    var x=Math.max(0,Math.min(1,ratio));
+    function base(t,preset){
+      t=Math.max(0,Math.min(1,t));
+      if(preset==='ease_in')return t*t;
+      if(preset==='ease_out')return 1-(1-t)*(1-t);
+      if(preset==='ease_in_out')return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+      return t;
+    }
+    if(typeof easing==='string')return base(x,easing);
+    var start=Math.max(0,Math.min(1,Number(easing.start))),end=Math.max(0,Math.min(1,Number(easing.end)));
+    if(end<=start)return x;
+    var low=base(start,easing.preset),high=base(end,easing.preset);
+    if(Math.abs(high-low)<1e-12)return x;
+    return Math.max(0,Math.min(1,(base(start+(end-start)*x,easing.preset)-low)/(high-low)));
+  }
+  function fallbackKeyframeValue(points,at){
+    if(!points.length||at<points[0].at)return 0;
+    if(Math.abs(at-points[0].at)<1e-9)return points[0].value;
+    for(var i=1;i<points.length;i++){
+      var left=points[i-1],right=points[i];
+      if(at<=right.at+1e-9){
+        var span=right.at-left.at;if(span<=1e-12)return right.value;
+        var eased=fallbackKeyframeEase((at-left.at)/span,right.easing);
+        return left.value+(right.value-left.value)*eased;
+      }
+    }
+    return points[points.length-1].value;
+  }
+  function fallbackKeyframeCurve(channel,duration,info){
+    if(!channel||channel.keyframes.length<2||duration<=0)return '';
+    var x=function(t){return 8+Math.max(0,Math.min(1,t/duration))*344;};
+    var y=function(v){return 8+(1-(Math.max(info.min,Math.min(info.max,v))-info.min)/Math.max(1e-9,info.max-info.min))*72;};
+    var commands=[];
+    for(var i=1;i<channel.keyframes.length;i++){
+      var a=channel.keyframes[i-1],b=channel.keyframes[i],span=b.at-a.at;if(span<=0)continue;
+      for(var j=0;j<=12;j++){
+        if(i>1&&j===0)continue;
+        var t=j/12,e=fallbackKeyframeEase(t,b.easing);
+        commands.push((commands.length?'L':'M')+x(a.at+span*t).toFixed(2)+' '+y(a.value+(b.value-a.value)*e).toFixed(2));
+      }
+    }
+    return commands.join(' ');
+  }
+  function renderFallbackKeyframeControls(clip){
+    var panel=$('fs-keyframe-fallback-controls');if(!panel)return;
+    var textarea=$('fs-field-keyframes');
+    var raw=textarea?textarea.value:String((clip.attrs||{})['data-film-keyframes']||'');
+    var channels=[];
+    try{channels=parseFallbackKeyframeChannels(raw);}catch(error){
+      panel.innerHTML='<div class="fs-alert fs-visible fs-error" role="status">'+esc(String(error&&error.message||error))+'</div>';
+      return;
+    }
+    var available=FALLBACK_KEYFRAME_PROPERTIES;
+    var property=S.keyframeSelectedProperty||'opacity';
+    if(!available.some(function(item){return item.value===property;}))property='opacity';
+    S.keyframeSelectedProperty=property;
+    var info=fallbackKeyframeInfo(property);
+    var channel=channels.find(function(item){return item.property===property;})||{property:property,keyframes:[]};
+    var duration=Number(clip.duration)||0,frameStep=1/Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)));
+    var html='<label class="fs-inspector-field">动画属性<select id="fs-keyframe-fallback-property">'+
+      available.map(function(item){return '<option value="'+esc(item.value)+'"'+(item.value===property?' selected':'')+'>'+esc(item.label)+'</option>';}).join('')+
+      '</select></label><div class="fs-keyframe-range"><span>'+info.min+' 至 '+info.max+'</span><span>'+duration.toFixed(3)+' 秒</span></div>';
+    html+='<svg id="fs-keyframe-fallback-graph" class="fs-keyframe-graph" viewBox="0 0 360 96" preserveAspectRatio="none" role="img" aria-label="'+esc(info.label)+' 关键帧曲线，可拖动节点修改">';
+    [0,.25,.5,.75,1].forEach(function(ratio){
+      html+='<line class="fs-keyframe-grid" x1="8" x2="352" y1="'+(8+ratio*72)+'" y2="'+(8+ratio*72)+'"></line>';
+      html+='<line class="fs-keyframe-grid" x1="'+(8+ratio*344)+'" x2="'+(8+ratio*344)+'" y1="8" y2="80"></line>';
+    });
+    html+='<line class="fs-keyframe-playhead" x1="'+(8+Math.max(0,Math.min(1,(S.playhead-clip.at)/duration))*344)+'" x2="'+(8+Math.max(0,Math.min(1,(S.playhead-clip.at)/duration))*344)+'" y1="4" y2="84"></line>';
+    var path=fallbackKeyframeCurve(channel,duration,info);
+    if(path)html+='<path class="fs-keyframe-curve" d="'+path+'" fill="none"></path>';
+    channel.keyframes.forEach(function(point,index){
+      var cx=8+Math.max(0,Math.min(1,point.at/duration))*344;
+      var cy=8+(1-(Math.max(info.min,Math.min(info.max,point.value))-info.min)/Math.max(1e-9,info.max-info.min))*72;
+      html+='<circle class="fs-keyframe-point" data-fallback-kf-point="'+index+'" cx="'+cx+'" cy="'+cy+'" r="4.5" tabindex="0" role="slider" aria-label="关键帧 '+(index+1)+'"></circle>';
+    });
+    html+='</svg><div class="fs-keyframe-labels"><span>0.000s</span><span>'+duration.toFixed(3)+'s</span></div>';
+    html+='<div class="fs-keyframe-list">';
+    if(channel.keyframes.length){
+      channel.keyframes.forEach(function(point,index){
+        var easingValue=typeof point.easing==='string'?point.easing:'window';
+        html+='<div class="fs-keyframe-row"><label>时间<input type="number" min="0" max="'+duration+'" step="'+frameStep+'" data-fallback-kf-at="'+index+'" value="'+point.at.toFixed(3)+'"></label>'+
+          '<label>数值<input type="number" min="'+info.min+'" max="'+info.max+'" step="0.01" data-fallback-kf-value="'+index+'" value="'+point.value+'"></label>'+
+          '<label>缓动<select data-fallback-kf-easing="'+index+'" aria-label="关键帧 '+(index+1)+' 缓动">'+
+          '<option value="linear"'+(easingValue==='linear'?' selected':'')+'>线性</option>'+
+          '<option value="ease_in"'+(easingValue==='ease_in'?' selected':'')+'>缓入</option>'+
+          '<option value="ease_out"'+(easingValue==='ease_out'?' selected':'')+'>缓出</option>'+
+          '<option value="ease_in_out"'+(easingValue==='ease_in_out'?' selected':'')+'>缓入缓出</option>'+
+          '<option value="window" disabled'+(easingValue==='window'?' selected':'')+'>裁剪保真的曲线分段</option></select></label>'+
+          '<button type="button" class="fs-btn" data-fallback-kf-remove="'+index+'" aria-label="删除关键帧 '+(index+1)+'">删除</button></div>';
+      });
+    }else html+='<div class="fs-empty">该属性还没有关键帧。</div>';
+    html+='</div><div class="fs-keyframe-add">'+
+      '<label class="fs-inspector-field">时间（相对秒）<input id="fs-keyframe-fallback-new-at" type="number" min="0" max="'+duration+'" step="'+frameStep+'" value="'+Math.max(0,Math.min(duration,S.playhead-clip.at)).toFixed(3)+'"></label>'+
+      '<label class="fs-inspector-field">数值<input id="fs-keyframe-fallback-new-value" type="number" min="'+info.min+'" max="'+info.max+'" step="0.01" value="'+info.initial+'"></label>'+
+      '<label class="fs-inspector-field">缓动<select id="fs-keyframe-fallback-new-easing"><option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option></select></label>'+
+      '<button type="button" class="fs-btn" data-fallback-kf-add>添加关键帧</button></div>'+
+      '<button type="button" class="fs-btn" data-fallback-kf-clear'+(channels.length?'':' disabled')+'>清空全部视觉关键帧</button>';
+    panel.innerHTML=html;
+  }
+  function fallbackKeyframeSetDraft(clip,channels){
+    var textarea=$('fs-field-keyframes');
+    if(!textarea)return;
+    textarea.value=channels&&channels.length?JSON.stringify(channels):'';
+    renderFallbackKeyframeControls(clip);
+  }
+  function bindFallbackKeyframeEditor(clip){
+    var panel=$('fs-keyframe-fallback-controls');if(!panel||panel.__filmStudioKeyframeBound)return;
+    panel.__filmStudioKeyframeBound=true;
+    function getDraft(){
+      var textarea=$('fs-field-keyframes');
+      return parseFallbackKeyframeChannels(textarea?textarea.value:'');
+    }
+    function updatePoint(index,patch){
+      var channels=getDraft(),property=S.keyframeSelectedProperty||'opacity';
+      var channel=channels.find(function(item){return item.property===property;});
+      if(!channel||!channel.keyframes[index])return;
+      var point=channel.keyframes[index],info=fallbackKeyframeInfo(property),step=1/Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)));
+      if(typeof patch.value==='number')point.value=Math.max(info.min,Math.min(info.max,patch.value));
+      if(patch.easing)point.easing=patch.easing;
+      if(typeof patch.at==='number'){
+        var lower=index>0?channel.keyframes[index-1].at+step:0;
+        var upper=index<channel.keyframes.length-1?channel.keyframes[index+1].at-step:Number(clip.duration);
+        if(upper<lower){showStatus('相邻关键帧间隔不足一帧，不能移动该节点。','error');return;}
+        point.at=Math.max(lower,Math.min(upper,Math.round(patch.at/step)*step));
+      }
+      fallbackKeyframeSetDraft(clip,channels);
+    }
+    panel.addEventListener('change',function(event){
+      var target=event.target;if(!target)return;
+      if(target.id==='fs-keyframe-fallback-property'){
+        S.keyframeSelectedProperty=target.value;renderFallbackKeyframeControls(clip);return;
+      }
+      var match=target.getAttribute&&target.getAttribute('data-fallback-kf-at');
+      if(match!=null){var at=Number(target.value);if(target.value.trim()&&Number.isFinite(at))updatePoint(Number(match),{at:at});return;}
+      match=target.getAttribute&&target.getAttribute('data-fallback-kf-value');
+      if(match!=null){var value=Number(target.value);if(target.value.trim()&&Number.isFinite(value))updatePoint(Number(match),{value:value});return;}
+      match=target.getAttribute&&target.getAttribute('data-fallback-kf-easing');
+      if(match!=null&&target.value!=='window')updatePoint(Number(match),{easing:target.value});
+    });
+    panel.addEventListener('click',function(event){
+      var target=event.target&&event.target.closest?event.target.closest('[data-fallback-kf-add],[data-fallback-kf-remove],[data-fallback-kf-clear]'):null;
+      if(!target)return;
+      event.preventDefault();
+      var channels;try{channels=getDraft();}catch(error){showStatus(String(error&&error.message||error),'error');return;}
+      var property=S.keyframeSelectedProperty||'opacity',info=fallbackKeyframeInfo(property),channel=channels.find(function(item){return item.property===property;});
+      if(target.hasAttribute('data-fallback-kf-clear')){fallbackKeyframeSetDraft(clip,[]);return;}
+      if(target.hasAttribute('data-fallback-kf-remove')){
+        var index=Number(target.getAttribute('data-fallback-kf-remove'));
+        if(!channel)return;
+        channel.keyframes.splice(index,1);
+        if(!channel.keyframes.length)channels=channels.filter(function(item){return item.property!==property;});
+        fallbackKeyframeSetDraft(clip,channels);return;
+      }
+      var atInput=$('fs-keyframe-fallback-new-at'),valueInput=$('fs-keyframe-fallback-new-value'),easingInput=$('fs-keyframe-fallback-new-easing');
+      var at=Number(atInput&&atInput.value),value=Number(valueInput&&valueInput.value),duration=Number(clip.duration);
+      if(!atInput||!valueInput||!atInput.value.trim()||!valueInput.value.trim()||!Number.isFinite(at)||!Number.isFinite(value)||at<0||at>duration||value<info.min||value>info.max){
+        showStatus('关键帧时间或数值超出当前片段/属性范围。','error');return;
+      }
+      var step=1/Math.max(1,Math.min(60,num(S.data&&S.data.fps,30))),snapped=Math.round(at/step)*step;
+      if(channel&&channel.keyframes.some(function(point){return Math.abs(point.at-snapped)<step*0.5;})){
+        showStatus('该时间点已经存在关键帧。','error');return;
+      }
+      if(!channel){channel={property:property,keyframes:[]};channels.push(channel);}
+      channel.keyframes.push({at:snapped,value:value,easing:easingInput?easingInput.value:'linear'});
+      channel.keyframes.sort(function(a,b){return a.at-b.at;});
+      fallbackKeyframeSetDraft(clip,channels);
+    });
+    var dragging=null;
+    panel.addEventListener('pointerdown',function(event){
+      var point=event.target&&event.target.closest?event.target.closest('[data-fallback-kf-point]'):null;
+      if(!point)return;
+      event.preventDefault();event.stopPropagation();dragging=Number(point.getAttribute('data-fallback-kf-point'));
+      try{panel.setPointerCapture(event.pointerId);}catch(_){}
+    });
+    panel.addEventListener('pointermove',function(event){
+      if(dragging==null)return;
+      var graph=$('fs-keyframe-fallback-graph');if(!graph)return;
+      var rect=graph.getBoundingClientRect();if(!rect.width||!rect.height)return;
+      var info=fallbackKeyframeInfo(S.keyframeSelectedProperty||'opacity'),duration=Number(clip.duration),step=1/Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)));
+      var x=(event.clientX-rect.left)/rect.width*360,y=(event.clientY-rect.top)/rect.height*96;
+      updatePoint(dragging,{at:Math.max(0,Math.min(duration,(x-8)/344*duration)),value:info.max-(y-8)/72*(info.max-info.min)});
+      event.preventDefault();
+    });
+    panel.addEventListener('pointerup',function(){dragging=null;});
+    panel.addEventListener('pointercancel',function(){dragging=null;});
+  }
   function showStatus(message, kind) { var el=$('film-studio-alert'); if(!el)return; el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':''); el.textContent=message||''; }
   function renderAiDirector() {
     var bridge=window.filmStudioReactAi,root=$('fs-react-ai-director'),legacy=$('fs-static-ai-director');
@@ -954,9 +1189,11 @@
     }
     fields+='<label class="fs-inspector-field">片段标题<input id="fs-field-title" type="text" maxlength="200" value="'+esc(a.title||'')+'"></label>';
     if(clip.tag!=='audio'&&clip.duration!=null){
-      fields+='<details class="fs-keyframe-editor fs-keyframe-fallback"><summary>视觉关键帧（JSON）</summary>'+
-        '<p class="fs-inspector-description">兼容模式使用同一 data-film-keyframes 契约。at 为剪辑相对秒数；格式错误会被服务端拒绝。</p>'+
-        '<textarea id="fs-field-keyframes" rows="7" spellcheck="false" aria-label="视觉关键帧 JSON">'+esc(a['data-film-keyframes']||'')+'</textarea></details>';
+      fields+='<section class="fs-keyframe-editor fs-keyframe-fallback-editor"><h4>视觉关键帧</h4>'+
+        '<p class="fs-inspector-description">时间使用片段相对秒数。可拖动曲线节点、编辑时间和值、添加/删除节点；保存仍经 FilmDocument 版本校验。</p>'+
+        '<div id="fs-keyframe-fallback-controls"></div>'+
+        '<details class="fs-keyframe-fallback"><summary>高级 JSON</summary>'+
+        '<textarea id="fs-field-keyframes" rows="7" spellcheck="false" aria-label="视觉关键帧 JSON">'+esc(a['data-film-keyframes']||'')+'</textarea></details></section>';
     }
     fields+='</div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     var element=S.selectedElement&&S.selectedElement.clipId===clip.id?S.selectedElement:null;
@@ -966,10 +1203,14 @@
       return;
     }
     $('fs-inspector').innerHTML=fields;
-    var clipIsLocked=Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked');
+    if(clip.tag!=='audio'&&clip.duration!=null){
+      renderFallbackKeyframeControls(clip);
+      bindFallbackKeyframeEditor(clip);
+    }
+    var clipIsLocked=Boolean(clip.trackLocked)||Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked');
     if(clipIsLocked){
       $('fs-inspector').querySelectorAll('input,select,textarea,button').forEach(function(control){control.disabled=true;});
-      var lockMessage=document.createElement('div');lockMessage.className='fs-alert fs-visible fs-error';lockMessage.textContent='该片段来自已锁定图层，只读保留其原始时间线位置与画面。';
+      var lockMessage=document.createElement('div');lockMessage.className='fs-alert fs-visible fs-error';lockMessage.textContent=clip.trackLocked?'所在轨道已锁定；解锁后才能编辑该片段。':'该片段来自已锁定图层，只读保留其原始时间线位置与画面。';
       $('fs-inspector').appendChild(lockMessage);
     }
     var clipLockButton=document.createElement('button');
