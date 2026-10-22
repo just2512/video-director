@@ -2079,8 +2079,8 @@ def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim_l
     channels = [{
         "property": "opacity",
         "keyframes": [
-            {"at": 0, "value": 0, "easing": "ease_in"},
-            {"at": 4, "value": 1, "easing": "ease_out"},
+            {"at": 0, "value": 0, "easing": "linear"},
+            {"at": 4, "value": 1, "easing": "ease_in"},
             {"at": 8, "value": 0.5, "easing": "linear"},
             {"at": 12, "value": 1, "easing": "ease_in_out"},
         ],
@@ -2118,8 +2118,8 @@ def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim()
     channels = [{
         "property": "opacity",
         "keyframes": [
-            {"at": 0, "value": 0, "easing": "ease_in"},
-            {"at": 4, "value": 1, "easing": "ease_out"},
+            {"at": 0, "value": 0, "easing": "linear"},
+            {"at": 4, "value": 1, "easing": "ease_in"},
             {"at": 8, "value": 0.5, "easing": "linear"},
             {"at": 10, "value": 1, "easing": "ease_in_out"},
         ],

@@ -51,7 +51,8 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "return false;" in studio[studio.index("async function filmStudioCommit(ops, options)"):studio.index("async function filmStudioHistory(action)")]
     runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
     assert "localRect:message.localRect||rect" in runtime
-    assert 'field: "title" | "fade"; value: string | null' in contract
+    assert '| "src" | "title" | "fade" |' in contract
+    assert '{ op: "set"; clip: string; field: FilmStringField; value: string | null }' in contract
     assert 'field: "muted"; value: boolean' in contract
     assert "c.trackLocked = Object.prototype.hasOwnProperty.call(t.attrs || {}, 'locked')" in studio
     assert "trackLocked?: boolean" in component

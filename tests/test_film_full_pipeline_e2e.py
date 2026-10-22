@@ -117,13 +117,36 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     split = fd.edit_project_film(project_id, inserted["rev"], [
         {"op": "split", "clip": "footage", "at": 0.5, "new_id": "footage-right"}
     ])
+    split_state = fd.read_project_film(project_id)
+    split_video_track = next(track for track in split_state["doc"]["tracks"] if track["id"] == "video-track")
+    assert split["ok"] is True
+    assert [clip["id"] for clip in split_video_track["clips"]] == ["footage", "footage-right"]
+    assert fd.clip_duration(split_video_track["clips"][0]) == pytest.approx(0.5)
+    assert fd.clip_duration(split_video_track["clips"][1]) == pytest.approx(0.5)
+    assert split_state["rev"] == split["rev"]
+
+    # Verify the Agent-facing diff records the source-aware split before restoring
+    # a single active decoder element for the full browser render.
+    repo_root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(tmp_path / "composer")
+    diff = subprocess.run(
+        [sys.executable, "-m", "video_director", "film", "diff",
+         "--project-id", project_id, "--from-revision", initial["rev"]],
+        cwd=repo_root, env=environment, capture_output=True, text=True, timeout=60
+    )
+    assert diff.returncode == 0, diff.stdout + diff.stderr
+    assert "footage-right" in diff.stdout
+
+    joined = fd.edit_project_film(project_id, split["rev"], [
+        {"op": "join", "clip": "footage", "other_clip": "footage-right"}
+    ])
+    assert joined["ok"] is True, joined
     reloaded = fd.read_project_film(project_id)
     video_track = next(track for track in reloaded["doc"]["tracks"] if track["id"] == "video-track")
-    assert split["ok"] is True
-    assert [clip["id"] for clip in video_track["clips"]] == ["footage", "footage-right"]
-    assert fd.clip_duration(video_track["clips"][0]) == pytest.approx(0.5)
-    assert fd.clip_duration(video_track["clips"][1]) == pytest.approx(0.5)
-    assert reloaded["rev"] == split["rev"]
+    assert [clip["id"] for clip in video_track["clips"]] == ["footage"]
+    assert fd.clip_duration(video_track["clips"][0]) == pytest.approx(1.0)
+    assert reloaded["rev"] == joined["rev"]
 
     # CLI validation is part of the Agent contract and must see the same saved revision.
     repo_root = Path(__file__).resolve().parents[1]
@@ -137,7 +160,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     assert status.returncode == 0, status.stdout + status.stderr
     status_json = json.loads(status.stdout)
     assert status_json["revision"] == reloaded["rev"]
-    assert status_json["clip_count"] == 8
+    assert status_json["clip_count"] == 7
     assert status_json["track_count"] == 7
 
     validation = subprocess.run(
@@ -149,15 +172,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     validation_json = json.loads(validation.stdout)
     assert validation_json["ok"] is True
     assert validation_json["revision"] == reloaded["rev"]
-    assert validation_json["assets_checked"] == 8
-
-    diff = subprocess.run(
-        [sys.executable, "-m", "video_director", "film", "diff",
-         "--project-id", project_id, "--from-revision", initial["rev"]],
-        cwd=repo_root, env=environment, capture_output=True, text=True, timeout=60
-    )
-    assert diff.returncode == 0, diff.stdout + diff.stderr
-    assert "footage-right" in diff.stdout
+    assert validation_json["assets_checked"] == 7
 
     look = subprocess.run(
         [sys.executable, "-m", "video_director", "film", "look",
