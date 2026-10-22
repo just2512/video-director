@@ -176,6 +176,7 @@ type FilmStudioAiProposal = {
   summary: string; operationCount: number; baseRevision: string;
   operationPreviews: FilmStudioAiOperationPreview[];
   affectedClips: string[];
+  affectedTruncatedCount: number;
   truncatedCount: number;
 } | null;
 type FilmStudioAiDirectorModel = {messages: FilmStudioAiMessage[]; proposal: FilmStudioAiProposal};
@@ -695,6 +696,7 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
             </ol>
             {proposal.truncatedCount ? <p>另有 {proposal.truncatedCount} 项操作未在此展开。</p> : null}
             {proposal.affectedClips.length ? <p className="fs-proposal-affected">影响对象：{proposal.affectedClips.join("；")}</p> : null}
+            {proposal.affectedTruncatedCount ? <p>另有 {proposal.affectedTruncatedCount} 个受影响对象未列出。</p> : null}
           </details>
           <div className="fs-proposal-actions">
             <button className="fs-btn" type="button" data-film-action="preview-proposal">重新预览</button>

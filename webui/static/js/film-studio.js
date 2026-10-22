@@ -2128,13 +2128,38 @@ window.filmStudioCopyClips=function(){
   function proposalOperationPreviews(proposal){
     var operations=Array.isArray(proposal&&proposal.operations)?proposal.operations:[];
     var shown=operations.slice(0,30),affected=[],affectedSet=Object.create(null);
-    function affect(id){
+    function snapshotMap(payload){
+      var map=Object.create(null);
+      (payload&&payload.tracks||[]).forEach(function(track){
+        (track.clips||[]).forEach(function(clip){map[String(clip.id)]={clip:clip,track:track};});
+      });
+      return map;
+    }
+    function signature(found){
+      if(!found)return '';
+      var c=found.clip;
+      return JSON.stringify({track:String(found.track.id),tag:c.tag,at:c.at,end:c.end,duration:c.duration,attrs:c.attrs||{}});
+    }
+    function affect(id,label){
       if(!id)return;
       var key=String(id);if(affectedSet[key])return;
-      affectedSet[key]=true;affected.push(proposalClipLabel(S.data,key));
+      affectedSet[key]=true;affected.push(label||proposalClipLabel(S.data,key));
     }
+    // Show effects after comparing complete before/after snapshots, not only the
+    // explicitly named operation IDs; ripple delete and insert can affect many clips.
+    var beforeMap=snapshotMap(S.data),afterMap=snapshotMap(proposal&&proposal.candidate);
+    var allIds=Object.create(null);
+    Object.keys(beforeMap).forEach(function(id){allIds[id]=true;});
+    Object.keys(afterMap).forEach(function(id){allIds[id]=true;});
+    Object.keys(allIds).forEach(function(id){
+      if(!beforeMap[id])affect(id,'新增：'+proposalClipLabel(proposal.candidate,id));
+      else if(!afterMap[id])affect(id,'删除：'+proposalClipLabel(S.data,id));
+      else if(signature(beforeMap[id])!==signature(afterMap[id]))affect(id,'修改：'+proposalClipLabel(proposal.candidate,id));
+    });
     shown.forEach(function(op){affect(op.clip);affect(op.other_clip);});
     (proposal&&proposal.affected_clip_ids||[]).forEach(affect);
+    var completeAffectedCount=affected.length;
+    var shownAffected=affected.slice(0,20);
     var entries=shown.map(function(op,index){
       var kind=String(op.op||'operation'),id=String(op.clip||''),current=findProposalClip(S.data,id);
       var candidate=findProposalClip(proposal.candidate,id),target=proposalClipLabel(S.data,id),action='修改片段',detail='',before='',after='';
@@ -2191,7 +2216,8 @@ window.filmStudioCopyClips=function(){
       }
       return {id:String(index),action:action,target:target,detail:detail,before:before,after:after};
     });
-    return {entries:entries,affected:affected,truncatedCount:Math.max(0,operations.length-shown.length),operationCount:operations.length};
+    return {entries:entries,affected:shownAffected,affectedTruncatedCount:Math.max(0,completeAffectedCount-shownAffected.length),
+      truncatedCount:Math.max(0,operations.length-shown.length),operationCount:operations.length};
   }
   function renderProposalPanel(){
     if(renderAiDirector())return;
@@ -2213,6 +2239,7 @@ window.filmStudioCopyClips=function(){
           '</li>';}).join('')+'</ol>'+
         (preview.truncatedCount?'<p>另有 '+preview.truncatedCount+' 项操作未在此展开。</p>':'')+
         (preview.affected.length?'<p class="fs-proposal-affected">影响对象：'+preview.affected.map(esc).join('；')+'</p>':'')+
+        (preview.affectedTruncatedCount?'<p>另有 '+preview.affectedTruncatedCount+' 个受影响对象未列出。</p>':'')+
         '</details>';
     }
   }

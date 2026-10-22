@@ -14,6 +14,9 @@ def test_react_ai_director_keeps_the_existing_action_and_message_contract():
     assert "window.filmStudioReactAi" in studio
     assert "proposalOperationPreviews" in studio
     assert "operationPreviews:proposalPreview.entries" in studio
+    assert "snapshotMap(payload)" in studio
+    assert "signature(beforeMap[id])!==signature(afterMap[id])" in studio
+    assert "affectedTruncatedCount" in component
     assert 'data-react-proposal-details="true"' in component
     assert 'id="fs-proposal-operations"' in html
     assert "修改前：" in component and "修改后：" in component
