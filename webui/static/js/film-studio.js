@@ -782,7 +782,7 @@
         members.forEach(function(member){member.element.classList.add('fs-dragging');});
         if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
         e.preventDefault();
-    if(S.drag&&S.drag.element===el&&e&&Number.isInteger(e.pointerId))S.reactGesturePointerId=e.pointerId;
+    return Boolean(S.drag&&S.drag.element===el&&e&&Number.isInteger(e.pointerId));
   };
 
   function renderTimeline() {
@@ -1660,27 +1660,24 @@
   // The React timeline owns move/up dispatch for clips that captured the pointer.
   // Native document listeners remain a fallback and still serve audio-envelope drags.
   window.filmStudioMoveClipGesture = function(e){
-    if(!e||S.reactGesturePointerId!==e.pointerId)return;
+    if(!e||!window.filmStudioOwnsClipGesturePointer||
+       !window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     onMove(e);
   };
   window.filmStudioEndClipGesture = function(e){
-    if(!e||S.reactGesturePointerId!==e.pointerId)return;
-    var pointerId=e.pointerId;
-    var pending=onUp(e);
-    var clear=function(){if(S.reactGesturePointerId===pointerId)S.reactGesturePointerId=null;};
-    Promise.resolve(pending).then(clear,clear);
-    return pending;
+    if(!e||!window.filmStudioOwnsClipGesturePointer||
+       !window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
+    return onUp(e);
   };
   document.addEventListener('pointermove',function(e){
-    if(S.reactGesturePointerId===e.pointerId)return;
+    if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     onMove(e);
   });
   document.addEventListener('pointerup',function(e){
-    if(S.reactGesturePointerId===e.pointerId)return;
+    if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     onUp(e);
   });
   document.addEventListener('pointercancel',function(){
-    S.reactGesturePointerId=null;
     clearDragAutoScroll();
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){

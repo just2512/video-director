@@ -82,6 +82,6 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     assert "window.filmStudioOpenIfCurrentProjectHasFilm = async function()" in studio
     assert "selector.addEventListener('change'" in studio
     assert "统一影片工作台" in html
-    assert "onPointerDown={event => window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget)}" in component
-    assert "onPointerMove={event => window.filmStudioMoveClipGesture?.(event.nativeEvent)}" in component
-    assert "onPointerUp={event => window.filmStudioEndClipGesture?.(event.nativeEvent)}" in component
+    assert "activePointerId = useRef<number | null>(null)" in component
+    assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component
+    assert "window.filmStudioOwnsClipGesturePointer(e.pointerId)" in studio

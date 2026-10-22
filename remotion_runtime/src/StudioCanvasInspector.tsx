@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useLayoutEffect, useRef, useState} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
@@ -200,9 +200,10 @@ declare global {
     filmStudioAsk?: () => Promise<void> | void;
     filmStudioSelectClip?: (clipId: string) => void;
     filmStudioClickClip?: (clipId: string, event: MouseEvent) => void;
-    filmStudioBeginClipDrag?: (event: PointerEvent, element: HTMLElement) => void;
+    filmStudioBeginClipDrag?: (event: PointerEvent, element: HTMLElement) => boolean | void;
     filmStudioMoveClipGesture?: (event: PointerEvent) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
+    filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
     filmStudioShowAssetMode?: (mode: string) => void;
     filmStudioAddAsset?: (assetId: string) => Promise<void> | void;
   }
@@ -742,7 +743,18 @@ const StudioToolbar: React.FC = () => (
   </>
 );
 
-const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => (
+const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
+  const activePointerId = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const ownsPointer = (pointerId:number) => activePointerId.current === pointerId;
+    window.filmStudioOwnsClipGesturePointer = ownsPointer;
+    return () => {
+      if (window.filmStudioOwnsClipGesturePointer === ownsPointer) {
+        window.filmStudioOwnsClipGesturePointer = undefined;
+      }
+    };
+  }, []);
+  return (
   <>
     <div className="fs-ruler" style={{width:model.totalWidth}} data-react-timeline-surface="true">
       <div className="fs-ruler-head">时码</div>
@@ -782,9 +794,23 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               title={clip.title}
               key={clip.id}
               onClick={event => window.filmStudioClickClip?.(clip.id,event.nativeEvent)}
-              onPointerDown={event => window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget)}
-              onPointerMove={event => window.filmStudioMoveClipGesture?.(event.nativeEvent)}
-              onPointerUp={event => window.filmStudioEndClipGesture?.(event.nativeEvent)}
+              onPointerDown={event => {
+                const started=window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget);
+                if(started)activePointerId.current=event.nativeEvent.pointerId;
+              }}
+              onPointerMove={event => {
+                if(activePointerId.current===event.nativeEvent.pointerId)window.filmStudioMoveClipGesture?.(event.nativeEvent);
+              }}
+              onPointerUp={event => {
+                const pointerId=event.nativeEvent.pointerId;
+                if(activePointerId.current!==pointerId)return;
+                const pending=window.filmStudioEndClipGesture?.(event.nativeEvent);
+                const clear=()=>{if(activePointerId.current===pointerId)activePointerId.current=null;};
+                Promise.resolve(pending).then(clear,clear);
+              }}
+              onPointerCancel={event => {
+                if(activePointerId.current===event.nativeEvent.pointerId)activePointerId.current=null;
+              }}
             >
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
               {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}
@@ -815,7 +841,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     ))}
     <div className="fs-playhead" id="fs-playhead-line" />
   </>
-);
+  );
+};
 
 const StudioAssets: React.FC<{model: FilmStudioAssetsModel}> = ({model}) => {
   if (model.mode === "library") {

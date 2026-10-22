@@ -76,8 +76,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   let option = [...select.options].find(item => item.value === pid);
                   if (!option) { option = new Option(pid, pid); select.add(option); }
                   select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles: true}));
                 }""", project_id)
-                page.evaluate("window.filmStudioToggle()")
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
                 page.evaluate("window.filmStudioSelectClip('clip-a')")

@@ -26,10 +26,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "var bridge=window.filmStudioReactToolbar" in studio
     assert "bridge.renderTimeline();" in studio
     assert "onClick={event => window.filmStudioClickClip?.(clip.id,event.nativeEvent)}" in component
-    assert "onPointerDown={event => window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget)}" in component
+    assert "activePointerId = useRef<number | null>(null)" in component
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioBeginClipDrag = function(e,el)" in studio
-    assert "onPointerMove={event => window.filmStudioMoveClipGesture?.(event.nativeEvent)}" in component
-    assert "onPointerUp={event => window.filmStudioEndClipGesture?.(event.nativeEvent)}" in component
+    assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component
+    assert "window.filmStudioOwnsClipGesturePointer(e.pointerId)" in studio
     assert "window.filmStudioMoveClipGesture = function(e)" in studio
-    assert "S.reactGesturePointerId===e.pointerId" in studio
+    assert "if(S.reactGesturePointerId===e.pointerId)return;" not in studio
