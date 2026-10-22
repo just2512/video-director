@@ -55,8 +55,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             page = context.new_page()
             page_errors: list[str] = []
             event_requests: list[str] = []
+            film_edit_responses: list[str] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", lambda request: event_requests.append(request.url) if request.url.endswith("/api/events") else None)
+            page.on("response", lambda response: film_edit_responses.append(f"{response.status} {response.url}") if response.url.endswith("/api/editor/film/edit") else None)
             try:
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 tracing = True
@@ -254,6 +256,18 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.mouse.move(p1_x - 10, p1_y - 7, steps=4)
                 page.mouse.up()
                 page.get_by_label("关键帧 1 y1").fill("0.33")
+                page.wait_for_function(
+                    """() => {
+                      const field = document.querySelector('#fs-field-keyframes');
+                      if (!field) return false;
+                      try {
+                        const channels = JSON.parse(field.value || '[]');
+                        const channel = channels.find(item => item.property === 'x');
+                        const easing = channel?.keyframes?.[0]?.easing;
+                        return easing?.type === 'bezier' && Math.abs(Number(easing.y1) - 0.33) < 0.005;
+                      } catch (_) { return false; }
+                    }"""
+                )
                 page.locator("#fs-apply-clip-inspector").click()
                 persisted_keyframes = None
                 for _ in range(40):
@@ -266,13 +280,19 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                         channels = json.loads(clip_a["attrs"]["data-film-keyframes"])
                         channel_x = next(item for item in channels if item["property"] == "x")
                         easing = channel_x["keyframes"][0]["easing"]
-                        if easing.get("type") == "bezier" and abs(float(easing["y1"]) - 0.33) < 0.005:
+                        if isinstance(easing, dict) and easing.get("type") == "bezier" and abs(float(easing["y1"]) - 0.33) < 0.005:
                             persisted_keyframes = easing
                             break
                     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                         pass
                     page.wait_for_timeout(100)
-                assert persisted_keyframes is not None, clip_a.get("attrs", {}).get("data-film-keyframes")
+                assert persisted_keyframes is not None, {
+                    "stored_keyframes": clip_a.get("attrs", {}).get("data-film-keyframes"),
+                    "local_form": page.locator("#fs-field-keyframes").input_value(),
+                    "inspector_feedback": page.locator("#fs-clip-inspector-feedback").inner_text() if page.locator("#fs-clip-inspector-feedback").count() else "",
+                    "studio_status": page.locator("#film-studio-alert").inner_text() if page.locator("#film-studio-alert").count() else "",
+                    "edit_responses": film_edit_responses,
+                }
                 assert 0 <= persisted_keyframes["x1"] <= persisted_keyframes["x2"] <= 1, persisted_keyframes
                 assert 0 <= persisted_keyframes["y1"] <= 1 and 0 <= persisted_keyframes["y2"] <= 1, persisted_keyframes
 
