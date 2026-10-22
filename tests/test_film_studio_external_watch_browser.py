@@ -84,6 +84,33 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
 
+                # Shared typed timeline math is used by React rendering and the
+                # gesture adapter. Zoom keeps the same time under the pointer.
+                math = page.evaluate("""() => {
+                  const m = window.filmStudioTimelineMath;
+                  if (!m) return null;
+                  return {
+                    pixels: m.secondsToPixels(1.5, 48),
+                    seconds: m.pixelsToSeconds(72, 48),
+                    left: m.clipLeft(-1, 48),
+                    unknownWidth: m.clipWidth(null, 48, 24, 2),
+                    frame: m.snapToFrame(1.01, 30),
+                    zoom: m.zoomScale(48, 1),
+                    anchor: m.zoomAnchorTime(400, 150, 50, 132),
+                    scroll: m.zoomScrollLeft(8, 150, 75, 132),
+                  };
+                }""")
+                assert math == {
+                    "pixels": 72,
+                    "seconds": 1.5,
+                    "left": 0,
+                    "unknownWidth": 96,
+                    "frame": 1,
+                    "zoom": 60,
+                    "anchor": 8.36,
+                    "scroll": 582,
+                }
+
                 # The legacy Director surfaces must remain usable after film.html
                 # takes timeline authority; moving DOM nodes must not create a second editor.
                 page.locator("#fs-mode-director").click()
