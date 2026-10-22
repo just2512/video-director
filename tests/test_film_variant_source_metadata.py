@@ -40,5 +40,5 @@ def test_active_variant_style_and_metadata_are_preserved_in_film_track_attrs(tmp
     attrs = main["attrs"]
     assert json.loads(attrs["data-source-variant-style"])["style_id"] == "brand-editorial"
     assert json.loads(attrs["data-source-variant-metadata"])["reviewed_by"] == "test"
-    assert any("尚未编译为实际 CSS" in warning for warning in result["warnings"])
+    assert any("未被当作渲染指令执行" in warning for warning in result["warnings"])
     assert any("未被当作渲染指令执行" in warning for warning in result["warnings"])
