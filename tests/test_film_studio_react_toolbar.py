@@ -80,6 +80,10 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     assert "window.filmStudioOpenIfCurrentProjectHasFilm = async function()" in studio
+    workspace = (root / "webui" / "static" / "js" / "workspace.js").read_text(encoding="utf-8")
+    assert "const filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));" in workspace
+    assert "if (openedStudio) return {ok: true, mode: 'film'};" in workspace
+    assert "Legacy projects without film.html keep the CompositionIR workspace/migration path." in workspace
     assert "selector.addEventListener('change'" in studio
     assert "统一影片工作台" in html
     assert "activePointerId = useRef<number | null>(null)" in component

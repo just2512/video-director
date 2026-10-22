@@ -45,7 +45,16 @@ async function workspaceOpen(pid, target){
       }
       selEl.value = pid;
     }
-    // 2. 装载 Composition
+    // 2. Existing film.html projects enter the authoritative Film Studio directly.
+    // Legacy projects without film.html keep the CompositionIR workspace/migration path.
+    const filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));
+    if (filmDocument && filmDocument.ok && filmDocument.exists &&
+        typeof window.filmStudioOpenIfCurrentProjectHasFilm === 'function') {
+      if (typeof directorLoadLatestRun === 'function') await directorLoadLatestRun(pid);
+      const openedStudio = await window.filmStudioOpenIfCurrentProjectHasFilm();
+      if (openedStudio) return {ok: true, mode: 'film'};
+    }
+    // 3. Load Composition only for projects that still use the legacy workflow.
     const r = await editorLoad();
     if (!r || !r.ok) return r || {ok: false};
     if (typeof directorLoadLatestRun === 'function') {
