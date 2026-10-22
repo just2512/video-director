@@ -103,18 +103,7 @@ jobs:
             curl --fail --silent --show-error --location \
               --retry 2 --retry-all-errors --connect-timeout 15 --max-time 120 \
               "https://pypi.org/pypi/PySocks/1.7.1/json" -o "$metadata"
-            wheel_url="$("$PY311_BIN/python3.11" - "$metadata" <<'PY'
-import json
-import sys
-from pathlib import Path
-metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-wheels = [item["url"] for item in metadata["urls"]
-          if item["filename"].endswith("py3-none-any.whl")]
-if not wheels:
-    raise SystemExit("PySocks 1.7.1 universal wheel was not found in PyPI metadata")
-print(wheels[0])
-PY
-)"
+            wheel_url="$("$PY311_BIN/python3.11" -c 'import json,sys; print(next(item["url"] for item in json.load(open(sys.argv[1], encoding="utf-8"))["urls"] if item["filename"].endswith("py3-none-any.whl")))' "$metadata")"
             wheel="$RUNNER_TEMP/$(basename "$wheel_url")"
             curl --fail --silent --show-error --location \
               --retry 2 --retry-all-errors --connect-timeout 15 --max-time 120 \
