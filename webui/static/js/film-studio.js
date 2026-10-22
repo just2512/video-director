@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -378,6 +378,44 @@
   function clearDragTrackTarget(d){
     if(d&&d.targetRow)d.targetRow.classList.remove('fs-track-drop-target');
     if(d)d.targetRow=null;
+  }
+  function stopDragAutoScroll(){
+    if(S.dragAutoScrollTimer){clearInterval(S.dragAutoScrollTimer);S.dragAutoScrollTimer=null;}
+    S.dragScrollDirection=0;
+  }
+  function clearDragAutoScroll(){
+    stopDragAutoScroll();
+    S.dragPointer=null;
+  }
+  function updateDragAutoScroll(event){
+    if(event.skipAutoScroll)return;
+    var scroll=$('fs-timeline-scroll');
+    if(!scroll){stopDragAutoScroll();return;}
+    S.dragPointer={clientX:event.clientX,clientY:event.clientY};
+    var rect=scroll.getBoundingClientRect(),direction=0;
+    if(event.clientX<rect.left+28)direction=-1;
+    else if(event.clientX>rect.right-28)direction=1;
+    S.dragScrollDirection=direction;
+    if(!direction){stopDragAutoScroll();return;}
+    if(S.dragAutoScrollTimer)return;
+    S.dragAutoScrollTimer=setInterval(function(){
+      if(!S.drag||!S.drag.active||!S.dragPointer||!S.dragScrollDirection){
+        stopDragAutoScroll();return;
+      }
+      var node=$('fs-timeline-scroll');
+      if(!node){stopDragAutoScroll();return;}
+      var before=node.scrollLeft,maxScroll=Math.max(0,node.scrollWidth-node.clientWidth);
+      node.scrollLeft=Math.max(0,Math.min(maxScroll,before+S.dragScrollDirection*16));
+      if(Math.abs(node.scrollLeft-before)<0.5){
+        if((S.dragScrollDirection<0&&node.scrollLeft<=0)||(S.dragScrollDirection>0&&node.scrollLeft>=maxScroll)){
+          stopDragAutoScroll();return;
+        }
+      }
+      onMove({
+        clientX:S.dragPointer.clientX,clientY:S.dragPointer.clientY,
+        skipAutoScroll:true,preventDefault:function(){}
+      });
+    },24);
   }
   function findTimelineSnap(rawAt, excludedIds, thresholdPx){
     if(!S.snapEnabled)return null;
@@ -1187,11 +1225,14 @@
     }
     var d=S.drag;if(!d)return;
     var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
-    if(e.clientX<rect.left+28)scroll.scrollLeft=Math.max(0,scroll.scrollLeft-18);
-    else if(e.clientX>rect.right-28)scroll.scrollLeft=Math.min(scroll.scrollWidth,scroll.scrollLeft+18);
+    if(!e.skipAutoScroll){
+      if(e.clientX<rect.left+28)scroll.scrollLeft=Math.max(0,scroll.scrollLeft-18);
+      else if(e.clientX>rect.right-28)scroll.scrollLeft=Math.min(Math.max(0,scroll.scrollWidth-scroll.clientWidth),scroll.scrollLeft+18);
+    }
     var dx=e.clientX-d.startX+(scroll.scrollLeft-d.startScrollLeft);
     if(!d.active&&Math.sqrt(dx*dx+(e.clientY-d.startY)*(e.clientY-d.startY))<5)return;
     d.active=true;
+    updateDragAutoScroll(e);
     // Only plain clip moves can change tracks. Trim/roll/slip/slide gestures
     // must remain bound to their original track even if the pointer crosses rows.
     if(d.mode==='move'){
@@ -1209,7 +1250,8 @@
       var slideSnap=findTimelineSnap(d.centerAt+deltaSlide,slideIds,8);
       if(slideSnap)deltaSlide=slideSnap.at-d.centerAt;
       deltaSlide=Math.max(slideMin,Math.min(slideMax,deltaSlide));
-      showTimelineSnapGuide(slideSnap?slideSnap.at:null,slideSnap&&slideSnap.kind);
+      var slideSnapUsed=slideSnap&&Math.abs(d.centerAt+deltaSlide-slideSnap.at)<0.001;
+      showTimelineSnapGuide(slideSnapUsed?slideSnap.at:null,slideSnapUsed&&slideSnap.kind);
       d.slideElements[0].style.width=Math.max(3,(d.leftDuration+deltaSlide)*S.pxPerSec)+'px';
       d.slideElements[1].style.left=Math.max(0,(d.centerAt+deltaSlide)*S.pxPerSec)+'px';
       d.slideElements[2].style.left=Math.max(0,(d.rightAt+deltaSlide)*S.pxPerSec)+'px';
@@ -1221,7 +1263,8 @@
       var rollSnap=findTimelineSnap(d.rightAt+deltaRoll,[d.leftClipId,d.rightClipId],8);
       if(rollSnap)deltaRoll=rollSnap.at-d.rightAt;
       deltaRoll=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,deltaRoll));
-      showTimelineSnapGuide(rollSnap?rollSnap.at:null,rollSnap&&rollSnap.kind);
+      var rollSnapUsed=rollSnap&&Math.abs(d.rightAt+deltaRoll-rollSnap.at)<0.001;
+      showTimelineSnapGuide(rollSnapUsed?rollSnap.at:null,rollSnapUsed&&rollSnap.kind);
       d.rollElements[0].style.width=Math.max(3,(d.leftDuration+deltaRoll)*S.pxPerSec)+'px';
       d.rollElements[1].style.left=Math.max(0,(d.rightAt+deltaRoll)*S.pxPerSec)+'px';
       d.rollElements[1].style.width=Math.max(3,(d.rightDuration-deltaRoll)*S.pxPerSec)+'px';
@@ -1251,11 +1294,13 @@
       d.element.style.width=Math.max(3,(newEnd-d.originalAt)*S.pxPerSec)+'px';
     }else{
       var chosenIds=(d.members||[]).map(function(member){return member.id;});
-      var lead=(d.members||[]).find(function(member){return member.id===d.id;})||(d.members||[])[0];
-      var rawMoveAt=lead?lead.originalAt+dx/S.pxPerSec:dx/S.pxPerSec;
+      var minStart=(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity);
+      var rawMoveAt=Number.isFinite(minStart)?minStart+dx/S.pxPerSec:dx/S.pxPerSec;
       var moveSnap=findTimelineSnap(rawMoveAt,chosenIds,8);
-      var snappedDelta=moveSnap&&lead?moveSnap.at-lead.originalAt:dx/S.pxPerSec;
-      showTimelineSnapGuide(moveSnap?moveSnap.at:null,moveSnap&&moveSnap.kind);
+      var snappedDelta=moveSnap&&Number.isFinite(minStart)?moveSnap.at-minStart:dx/S.pxPerSec;
+      snappedDelta=Math.max(-Math.max(0,minStart),snappedDelta);
+      var moveSnapUsed=moveSnap&&Math.abs(minStart+snappedDelta-moveSnap.at)<0.001;
+      showTimelineSnapGuide(moveSnapUsed?moveSnap.at:null,moveSnapUsed&&moveSnap.kind);
       (d.members||[]).forEach(function(member){member.element.style.left=Math.max(0,(member.originalAt+snappedDelta)*S.pxPerSec)+'px';});
     }
   }
@@ -1280,8 +1325,8 @@
       return;
     }
     var d=S.drag;
-    if(!d){S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
-    S.drag=null;S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
+    if(!d){clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    S.drag=null;clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
     showTimelineSnapGuide(null);clearDragTrackTarget(d);
     (d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
     if(S.pendingExternalRevision){
@@ -1334,13 +1379,11 @@
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:Number(trimEnd.toFixed(3))}]);return;
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
-    var lead=(d.members||[]).find(function(member){return member.id===d.id;})||d.members[0];
-    var rawAt=Math.max(0,lead.originalAt+deltaPx/S.pxPerSec);
+    var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));
+    var rawAt=Math.max(0,minStart+deltaPx/S.pxPerSec);
     var finalSnap=findTimelineSnap(rawAt,chosen,8);
     var targetAt=finalSnap?finalSnap.at:rawAt;
-    var delta=targetAt-lead.originalAt;
-    var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));
-    delta=Math.max(-minStart,delta);
+    var delta=Math.max(-minStart,targetAt-minStart);
     var targetIndex=d.trackOrder.indexOf(d.targetTrackId||d.trackId);
     if(targetIndex<0)targetIndex=d.originalTrackIndex;
     var trackDelta=targetIndex-d.originalTrackIndex,operations=[];
@@ -1354,6 +1397,7 @@
   }
   document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);
   document.addEventListener('pointercancel',function(){
+    clearDragAutoScroll();
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){
       var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);

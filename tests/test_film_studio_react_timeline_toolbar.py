@@ -14,6 +14,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
         assert f'data-film-action="{action}"' in component
     assert "renderTimeline(): void" in component
     assert "findTimelineSnap" in studio
+    assert "updateDragAutoScroll" in studio
+    assert "setInterval(function()" in studio
+    assert "var minStart=(d.members||[]).reduce" in studio
     assert "fs-snap-guide" in studio
     assert "contextmenu" in studio
     assert "window.filmStudioDuplicateClips" in studio
