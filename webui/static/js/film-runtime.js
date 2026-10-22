@@ -550,7 +550,7 @@
     if(eventName==='loadedmetadata')return finite(element&&element.readyState,0)>=1;
     if(eventName==='loadeddata')return finite(element&&element.readyState,0)>=2;
     // Image load may finish between the caller's complete check and listener registration.
-    if(eventName==='load'&&element&&element.tagName==='IMG')return element.complete===true;
+    if(eventName==='load'&&element&&element.tagName==='IMG')return element.complete===true&&element.naturalWidth>0;
     // 'seeked' is deliberately not inferred from !seeking: the listener is
     // registered before assigning currentTime, so that state is not a completion signal.
     return false;
@@ -573,6 +573,13 @@
         fail('媒体元素触发 error，无法等待事件 '+eventName+'：');
       }
       function timeout(){
+        // Browser media pipelines may reach HAVE_CURRENT_DATA / HAVE_ENOUGH_DATA
+        // without delivering the event to a listener attached during a source
+        // transition. Readiness is the contract; the event is only the signal.
+        if(eventAlreadySatisfied(element,eventName)){
+          finish();
+          return;
+        }
         fail('等待媒体事件 '+eventName+' 超时：');
       }
       if(element.error){
