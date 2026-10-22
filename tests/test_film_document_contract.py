@@ -277,7 +277,7 @@ def test_film_proposal_store_is_project_scoped_single_use_and_expires():
 
     now = [100.0]
     store = FilmProposalStore(ttl_seconds=15, clock=lambda: now[0])
-    operations = [{"op": "set", "clip": "clip-a", "field": "speed", "value": 2.5}]
+    operations = [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}]
     store.put("proposal-1", "project-a", "rev-1", operations)
     operations[0]["value"] = 3.0
 
