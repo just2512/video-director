@@ -64,6 +64,13 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     for field_id in ("fs-keyframe-property", "fs-keyframe-add", "fs-keyframe-clear"):
         assert f'id="{field_id}"' in component
     assert "keyframePath" in component
+    assert "type FilmKeyframeBezier" in component
+    assert "parseBezierEasing" in component
+    assert "const bezierValue=" in component
+    assert 'option value="bezier">自定义贝塞尔</option>' in component
+    assert 'data-bezier-handle="p1"' in component and 'data-bezier-handle="p2"' in component
+    assert "updateBezierControl" in component
+    assert "fs-keyframe-bezier-graph" in component
     assert '"data-film-keyframes"' in contract
     assert 'field: FilmStringField; value: string | null' in contract
     assert "keyframes" in component

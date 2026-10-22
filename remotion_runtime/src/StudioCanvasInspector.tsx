@@ -36,8 +36,12 @@ export interface FilmClipInspectorModel {
 }
 type FilmKeyframeProperty = "x"|"y"|"scale"|"scale_x"|"scale_y"|"rotation"|"opacity"|"blur"|"camera_x"|"camera_y"|"camera_scale"|"offset_x"|"offset_y";
 type FilmKeyframePreset = "linear"|"ease_in"|"ease_out"|"ease_in_out";
-type FilmKeyframeWindow = {type:"window";preset:FilmKeyframePreset;start:number;end:number};
-type FilmKeyframeEasing = FilmKeyframePreset|FilmKeyframeWindow;
+type FilmKeyframeBezier = {type:"bezier";x1:number;y1:number;x2:number;y2:number};
+type FilmKeyframeWindow =
+  | {type:"window";preset:FilmKeyframePreset;start:number;end:number}
+  | {type:"window";curve:FilmKeyframeBezier;start:number;end:number};
+type FilmKeyframeEasing = FilmKeyframePreset|FilmKeyframeBezier|FilmKeyframeWindow;
+const DEFAULT_FILM_BEZIER: Omit<FilmKeyframeBezier,"type"> = {x1:.25,y1:.1,x2:.25,y2:1};
 type FilmKeyframePoint = {at:number;value:number;easing:FilmKeyframeEasing};
 type FilmKeyframeChannel = {property:FilmKeyframeProperty;keyframes:FilmKeyframePoint[]};
 const FILM_KEYFRAME_PROPERTIES: Array<{value:FilmKeyframeProperty;label:string;min:number;max:number;initial:number}> = [
@@ -56,6 +60,17 @@ const FILM_KEYFRAME_PROPERTIES: Array<{value:FilmKeyframeProperty;label:string;m
   {value:"offset_y",label:"垂直偏移",min:-10000,max:10000,initial:0},
 ];
 const keyframeInfo = (property:FilmKeyframeProperty) => FILM_KEYFRAME_PROPERTIES.find(item=>item.value===property)!;
+const parseBezierEasing = (raw:any):FilmKeyframeBezier|null => {
+  if(!raw||typeof raw!=="object"||raw.type!=="bezier")return null;
+  const values={x1:Number(raw.x1),y1:Number(raw.y1),x2:Number(raw.x2),y2:Number(raw.y2)};
+  if(Object.values(values).some(value=>!Number.isFinite(value)||value<0||value>1)||values.x1>values.x2)return null;
+  return {type:"bezier",x1:values.x1,y1:values.y1,x2:values.x2,y2:values.y2};
+};
+const bezierCurveFor = (easing:FilmKeyframeEasing):FilmKeyframeBezier|null => {
+  if(typeof easing==="string")return null;
+  if(easing.type==="bezier")return easing;
+  return "curve" in easing ? easing.curve : null;
+};
 const parseFilmKeyframes = (raw:string):FilmKeyframeChannel[] => {
   if(!raw)return [];
   try {
@@ -70,11 +85,17 @@ const parseFilmKeyframes = (raw:string):FilmKeyframeChannel[] => {
           let easing:FilmKeyframeEasing="linear";
           if(typeof rawEasing==="string"&&["linear","ease_in","ease_out","ease_in_out"].includes(rawEasing)){
             easing=rawEasing as FilmKeyframePreset;
+          }else if(rawEasing&&typeof rawEasing==="object"&&rawEasing.type==="bezier"){
+            easing=parseBezierEasing(rawEasing)||"linear";
           }else if(rawEasing&&typeof rawEasing==="object"&&rawEasing.type==="window"
-            &&["linear","ease_in","ease_out","ease_in_out"].includes(rawEasing.preset)
             &&Number.isFinite(Number(rawEasing.start))&&Number.isFinite(Number(rawEasing.end))
             &&Number(rawEasing.start)>=0&&Number(rawEasing.end)<=1&&Number(rawEasing.end)>Number(rawEasing.start)){
-            easing={type:"window",preset:rawEasing.preset as FilmKeyframePreset,start:Number(rawEasing.start),end:Number(rawEasing.end)};
+            const curve=parseBezierEasing(rawEasing.curve);
+            if(curve){
+              easing={type:"window",curve,start:Number(rawEasing.start),end:Number(rawEasing.end)};
+            }else if(["linear","ease_in","ease_out","ease_in_out"].includes(rawEasing.preset)){
+              easing={type:"window",preset:rawEasing.preset as FilmKeyframePreset,start:Number(rawEasing.start),end:Number(rawEasing.end)};
+            }
           }
           return {at:Number(point.at),value:Number(point.value),easing};
         })
@@ -87,19 +108,37 @@ const parseFilmKeyframes = (raw:string):FilmKeyframeChannel[] => {
 const clampKeyframe = (value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
 const keyframeEase = (t:number,easing:FilmKeyframeEasing):number=>{
   const x=clampKeyframe(t,0,1);
-  const base=(value:number,preset:FilmKeyframePreset):number=>{
+  const presetValue=(value:number,preset:FilmKeyframePreset):number=>{
     const v=clampKeyframe(value,0,1);
     if(preset==="ease_in")return v*v;
     if(preset==="ease_out")return 1-(1-v)*(1-v);
     if(preset==="ease_in_out")return v<.5?2*v*v:1-Math.pow(-2*v+2,2)/2;
     return v;
   };
-  if(typeof easing==="string")return base(x,easing);
+  const bezierValue=(value:number,curve:FilmKeyframeBezier):number=>{
+    const target=clampKeyframe(value,0,1);
+    const cubic=(u:number,a:number,b:number)=>{
+      const inverse=1-u;
+      return 3*inverse*inverse*u*a+3*inverse*u*u*b+u*u*u;
+    };
+    if(target<=0||target>=1)return target;
+    let low=0,high=1;
+    for(let i=0;i<28;i++){
+      const middle=(low+high)*.5;
+      if(cubic(middle,curve.x1,curve.x2)<target)low=middle;else high=middle;
+    }
+    return clampKeyframe(cubic((low+high)*.5,curve.y1,curve.y2),0,1);
+  };
+  const baseValue=(value:number,spec:FilmKeyframePreset|FilmKeyframeBezier)=>
+    typeof spec==="string"?presetValue(value,spec):bezierValue(value,spec);
+  if(typeof easing==="string")return presetValue(x,easing);
+  if(easing.type==="bezier")return bezierValue(x,easing);
   const start=clampKeyframe(easing.start,0,1),end=clampKeyframe(easing.end,0,1);
   if(end<=start)return x;
-  const low=base(start,easing.preset),high=base(end,easing.preset);
+  const spec:FilmKeyframePreset|FilmKeyframeBezier="curve" in easing?easing.curve:easing.preset;
+  const low=baseValue(start,spec),high=baseValue(end,spec);
   if(Math.abs(high-low)<1e-12)return x;
-  return clampKeyframe((base(start+(end-start)*x,easing.preset)-low)/(high-low),0,1);
+  return clampKeyframe((baseValue(start+(end-start)*x,spec)-low)/(high-low),0,1);
 };
 const keyframePath = (channel:FilmKeyframeChannel,duration:number,min:number,max:number)=>{
   if(duration<=0||channel.keyframes.length<2)return "";
@@ -439,8 +478,10 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
   const [animationProperty,setAnimationProperty] = useState<FilmKeyframeProperty>("opacity");
   const [newKeyframeAt,setNewKeyframeAt] = useState("0");
   const [newKeyframeValue,setNewKeyframeValue] = useState("1");
-  const [newKeyframeEasing,setNewKeyframeEasing] = useState<FilmKeyframePreset>("linear");
+  const [newKeyframeEasing,setNewKeyframeEasing] = useState<FilmKeyframePreset|"bezier">("linear");
+  const [newBezierCurve,setNewBezierCurve] = useState<Omit<FilmKeyframeBezier,"type">>({...DEFAULT_FILM_BEZIER});
   const [draggingKeyframe,setDraggingKeyframe] = useState<number|null>(null);
+  const [draggingBezier,setDraggingBezier] = useState<{index:number;handle:"p1"|"p2"}|null>(null);
   const [keyframeFeedback,setKeyframeFeedback] = useState("");
   const [form, setForm] = useState<FilmClipInspectorValues>(() => ({...clipFormDefaults}));
   const update = <K extends keyof FilmClipInspectorValues>(field: K, value: FilmClipInspectorValues[K]) => {
@@ -458,6 +499,8 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
     const relative=clip&&typeof clip.playhead==="number"?clip.playhead-clip.at:0;
     setNewKeyframeAt((duration!=null&&duration>0?clampKeyframe(relative,0,duration):0).toFixed(3));
     setNewKeyframeValue(String(keyframeInfo(animationProperty).initial));
+    setNewKeyframeEasing("linear");setNewBezierCurve({...DEFAULT_FILM_BEZIER});
+    setDraggingBezier(null);
   },[clip?.id,clipFormSignature,keyframesAttribute]);
   if (!clip) {
     return <div className="fs-empty" data-react-clip-inspector-empty="true">{emptyMessage || "选择时间线片段后编辑属性。"}</div>;
@@ -489,6 +532,39 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
     }));
     setKeyframeFeedback("");
   };
+  const updateBezierControl=(index:number,handle:"p1"|"p2",axis:"x"|"y",rawValue:number)=>{
+    if(!Number.isFinite(rawValue))return;
+    const field=(handle==="p1"?(axis==="x"?"x1":"y1"):(axis==="x"?"x2":"y2"));
+    const value=clampKeyframe(rawValue,0,1);
+    setKeyframeChannels(current=>current.map(channel=>{
+      if(channel.property!==animationProperty)return channel;
+      const points=channel.keyframes.map(point=>({...point})),point=points[index];
+      if(!point)return channel;
+      const curve=bezierCurveFor(point.easing)||{type:"bezier" as const,...DEFAULT_FILM_BEZIER};
+      const next={...curve,[field]:value};
+      if(next.x1>next.x2){
+        if(field==="x1")next.x1=next.x2;
+        if(field==="x2")next.x2=next.x1;
+      }
+      point.easing=typeof point.easing!=="string"&&point.easing.type==="window"
+        ? {...point.easing,curve:next,preset:undefined} as FilmKeyframeWindow
+        : next;
+      return {...channel,keyframes:points};
+    }));
+    setKeyframeDirty(true);setKeyframeFeedback("");
+  };
+  const updateNewBezierControl=(handle:"p1"|"p2",axis:"x"|"y",rawValue:number)=>{
+    if(!Number.isFinite(rawValue))return;
+    const field=(handle==="p1"?(axis==="x"?"x1":"y1"):(axis==="x"?"x2":"y2"));
+    setNewBezierCurve(current=>{
+      const next={...current,[field]:clampKeyframe(rawValue,0,1)};
+      if(next.x1>next.x2){
+        if(field==="x1")next.x1=next.x2;
+        if(field==="x2")next.x2=next.x1;
+      }
+      return next;
+    });
+  };
   const addKeyframe=()=>{
     if(clip.duration==null||clip.duration<=0){setKeyframeFeedback("片段时长未知，不能安全添加关键帧。");return;}
     const at=Number(newKeyframeAt),value=Number(newKeyframeValue);
@@ -499,7 +575,10 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
     if(channel?.keyframes.some(point=>Math.abs(point.at-snapped)<frameStep*0.5)){setKeyframeFeedback("该时间点已经存在关键帧；请编辑已有节点。");return;}
     setKeyframeChannels(current=>{
       const existing=current.find(item=>item.property===animationProperty);
-      const points=[...(existing?.keyframes||[]),{at:snapped,value,easing:newKeyframeEasing}].sort((a,b)=>a.at-b.at);
+      const easing:FilmKeyframeEasing=newKeyframeEasing==="bezier"
+        ? {type:"bezier",...newBezierCurve}
+        : newKeyframeEasing;
+      const points=[...(existing?.keyframes||[]),{at:snapped,value,easing}].sort((a,b)=>a.at-b.at);
       const nextChannel:FilmKeyframeChannel={property:animationProperty,keyframes:points};
       return existing?current.map(item=>item.property===animationProperty?nextChannel:item):[...current,nextChannel];
     });
@@ -522,6 +601,18 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
       at:clampKeyframe((x-8)/344*clip.duration,0,clip.duration),
       value:animationInfo.max-(y-8)/72*(animationInfo.max-animationInfo.min)
     });
+    event.preventDefault();
+  };
+  const handleBezierPointerMove=(event:React.PointerEvent<SVGSVGElement>)=>{
+    if(!draggingBezier)return;
+    const rect=event.currentTarget.getBoundingClientRect();
+    if(!rect.width||!rect.height)return;
+    const x=clampKeyframe((event.clientX-rect.left)/rect.width*100,10,90);
+    const y=clampKeyframe((event.clientY-rect.top)/rect.height*100,10,90);
+    const controlX=clampKeyframe((x-10)/80,0,1);
+    const controlY=clampKeyframe((90-y)/80,0,1);
+    updateBezierControl(draggingBezier.index,draggingBezier.handle,"x",controlX);
+    updateBezierControl(draggingBezier.index,draggingBezier.handle,"y",controlY);
     event.preventDefault();
   };
   return (
@@ -619,25 +710,68 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
           </svg>
           <div className="fs-keyframe-labels"><span>0.000s</span><span>{clip.duration.toFixed(3)}s</span></div>
           <div className="fs-keyframe-list">
-            {activeChannel?activeChannel.keyframes.map((point,index)=><div className="fs-keyframe-row" key={point.at}>
-              <label>时间<input type="number" min={0} max={clipDuration} step={frameStep} value={point.at.toFixed(3)} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 时间"}
-                onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{at:value});}}/></label>
-              <label>数值<input type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={point.value} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 数值"}
-                onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{value});}}/></label>
-              <label>缓动<select value={typeof point.easing==="string"?point.easing:"window"} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 缓动"}
-                onChange={event=>{if(event.currentTarget.value!=="window")updateKeyframePoint(index,{easing:event.currentTarget.value as FilmKeyframePreset});}}>
-                <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option>
-                <option value="window" disabled>裁剪保真的曲线分段</option>
-              </select></label>
-              <button type="button" className="fs-btn" aria-label={"删除关键帧 "+(index+1)} disabled={readOnly} onClick={()=>removeKeyframe(index)}>删除</button>
-            </div>):<div className="fs-empty">该属性还没有关键帧。</div>}
+            {activeChannel?activeChannel.keyframes.map((point,index)=>{
+              const bezier=bezierCurveFor(point.easing);
+              const pointEasingValue=typeof point.easing==="string"?point.easing:(bezier?"bezier":"window");
+              const pointWindow=typeof point.easing!=="string"&&point.easing.type==="window";
+              return <div className="fs-keyframe-point-editor" key={point.at}>
+                <div className="fs-keyframe-row">
+                  <label>时间<input type="number" min={0} max={clipDuration} step={frameStep} value={point.at.toFixed(3)} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 时间"}
+                    onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{at:value});}}/></label>
+                  <label>数值<input type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={point.value} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 数值"}
+                    onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{value});}}/></label>
+                  <label>缓动<select value={pointEasingValue} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 缓动"}
+                    onChange={event=>{
+                      const selected=event.currentTarget.value;
+                      if(selected==="bezier"){
+                        if(!bezier)updateKeyframePoint(index,{easing:{type:"bezier",...DEFAULT_FILM_BEZIER}});
+                      }else if(selected!=="window")updateKeyframePoint(index,{easing:selected as FilmKeyframePreset});
+                    }}>
+                    <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option>
+                    <option value="bezier">自定义贝塞尔</option>
+                    <option value="window" disabled>裁剪保真的曲线分段</option>
+                  </select></label>
+                  <button type="button" className="fs-btn" aria-label={"删除关键帧 "+(index+1)} disabled={readOnly} onClick={()=>removeKeyframe(index)}>删除</button>
+                </div>
+                {bezier?<div className="fs-keyframe-bezier-editor" data-bezier-editor={"keyframe-"+(index+1)}>
+                  <svg className="fs-keyframe-bezier-graph" viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
+                    aria-label={"关键帧 "+(index+1)+" 贝塞尔控制柄"}
+                    onPointerMove={handleBezierPointerMove} onPointerUp={()=>setDraggingBezier(null)} onPointerCancel={()=>setDraggingBezier(null)}>
+                    <line x1="10" y1="90" x2="90" y2="10" className="fs-keyframe-bezier-diagonal"/>
+                    <line x1="10" y1="90" x2={10+80*bezier.x1} y2={90-80*bezier.y1} className="fs-keyframe-bezier-handle-line"/>
+                    <line x1="90" y1="10" x2={10+80*bezier.x2} y2={90-80*bezier.y2} className="fs-keyframe-bezier-handle-line"/>
+                    <path d={"M 10 90 C "+(10+80*bezier.x1)+" "+(90-80*bezier.y1)+", "+(10+80*bezier.x2)+" "+(90-80*bezier.y2)+", 90 10"} className="fs-keyframe-bezier-curve"/>
+                    <circle data-bezier-handle="p1" cx={10+80*bezier.x1} cy={90-80*bezier.y1} r="4.5" className="fs-keyframe-bezier-handle"
+                      tabIndex={readOnly?-1:0} role="slider" aria-label={"关键帧 "+(index+1)+" 控制柄 1"}
+                      onPointerDown={event=>{if(readOnly)return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);setDraggingBezier({index,handle:"p1"});}}/>
+                    <circle data-bezier-handle="p2" cx={10+80*bezier.x2} cy={90-80*bezier.y2} r="4.5" className="fs-keyframe-bezier-handle"
+                      tabIndex={readOnly?-1:0} role="slider" aria-label={"关键帧 "+(index+1)+" 控制柄 2"}
+                      onPointerDown={event=>{if(readOnly)return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);setDraggingBezier({index,handle:"p2"});}}/>
+                  </svg>
+                  <div className="fs-keyframe-bezier-values">
+                    {(["x1","y1","x2","y2"] as const).map(field=><label key={field}>{field}
+                      <input type="number" min="0" max="1" step="0.01" value={bezier[field]} disabled={readOnly}
+                        aria-label={"关键帧 "+(index+1)+" "+field}
+                        onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateBezierControl(index,field==="x1"||field==="y1"?"p1":"p2",field==="x1"||field==="x2"?"x":"y",value);}}/>
+                    </label>)}
+                  </div>
+                  {pointWindow?<span className="fs-keyframe-bezier-note">此曲线保留了分割/修剪前的窗口区间；调整控制柄会继续保留该区间。</span>:null}
+                </div>:null}
+              </div>;
+            }):<div className="fs-empty">该属性还没有关键帧。</div>}
           </div>
           <div className="fs-keyframe-add">
             <label className="fs-inspector-field">时间（相对秒）<input id="fs-keyframe-new-at" type="number" min={0} max={clip.duration} step={frameStep} value={newKeyframeAt} disabled={readOnly} onChange={event=>setNewKeyframeAt(event.currentTarget.value)}/></label>
             <label className="fs-inspector-field">数值<input id="fs-keyframe-new-value" type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={newKeyframeValue} disabled={readOnly} onChange={event=>setNewKeyframeValue(event.currentTarget.value)}/></label>
-            <label className="fs-inspector-field">缓动<select id="fs-keyframe-new-easing" value={newKeyframeEasing} disabled={readOnly} onChange={event=>setNewKeyframeEasing(event.currentTarget.value as FilmKeyframePreset)}>
-              <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option>
+            <label className="fs-inspector-field">缓动<select id="fs-keyframe-new-easing" value={newKeyframeEasing} disabled={readOnly} onChange={event=>setNewKeyframeEasing(event.currentTarget.value as FilmKeyframePreset|"bezier")}>
+              <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option><option value="bezier">自定义贝塞尔</option>
             </select></label>
+            {newKeyframeEasing==="bezier"?<div className="fs-keyframe-bezier-values fs-keyframe-new-bezier">
+              {(["x1","y1","x2","y2"] as const).map(field=><label key={field}>{field}
+                <input type="number" min="0" max="1" step="0.01" value={newBezierCurve[field]} disabled={readOnly} aria-label={"新关键帧 "+field}
+                  onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateNewBezierControl(field==="x1"||field==="y1"?"p1":"p2",field==="x1"||field==="x2"?"x":"y",value);}}/>
+              </label>)}
+            </div>:null}
             <button type="button" className="fs-btn" id="fs-keyframe-add" disabled={readOnly} onClick={addKeyframe}>添加关键帧</button>
           </div>
         </>:<div className="fs-empty">该片段没有可验证的明确时长，暂不能编辑动画关键帧。</div>}

@@ -238,6 +238,43 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
 
+                # Edit cubic Bezier handles in the real React Inspector and verify FilmDocument persistence.
+                page.locator("#fs-keyframe-property").select_option("x")
+                easing_select = page.get_by_label("关键帧 1 缓动")
+                easing_select.select_option("bezier")
+                page.locator('[data-bezier-editor="keyframe-1"]').wait_for(state="visible")
+                p1 = page.locator('[data-bezier-handle="p1"]')
+                p1_box = p1.bounding_box()
+                assert p1_box and p1_box["width"] > 0, p1_box
+                p1_x = p1_box["x"] + p1_box["width"] / 2
+                p1_y = p1_box["y"] + p1_box["height"] / 2
+                page.mouse.move(p1_x, p1_y)
+                page.mouse.down()
+                page.mouse.move(p1_x - 10, p1_y - 7, steps=4)
+                page.mouse.up()
+                page.get_by_label("关键帧 1 y1").fill("0.33")
+                page.locator("#fs-apply-clip-inspector").click()
+                persisted_keyframes = None
+                for _ in range(40):
+                    doc_after_bezier = fd.read_project_film(project_id)["doc"]
+                    clip_a = next(
+                        item for track in doc_after_bezier["tracks"]
+                        for item in track["clips"] if item["id"] == "clip-a"
+                    )
+                    try:
+                        channels = json.loads(clip_a["attrs"]["data-film-keyframes"])
+                        channel_x = next(item for item in channels if item["property"] == "x")
+                        easing = channel_x["keyframes"][0]["easing"]
+                        if easing.get("type") == "bezier" and abs(float(easing["y1"]) - 0.33) < 0.005:
+                            persisted_keyframes = easing
+                            break
+                    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                        pass
+                    page.wait_for_timeout(100)
+                assert persisted_keyframes is not None, clip_a.get("attrs", {}).get("data-film-keyframes")
+                assert 0 <= persisted_keyframes["x1"] <= persisted_keyframes["x2"] <= 1, persisted_keyframes
+                assert 0 <= persisted_keyframes["y1"] <= 1 and 0 <= persisted_keyframes["y2"] <= 1, persisted_keyframes
+
                 changed = SAMPLE.replace('speed="2"', 'speed="2.5"')
                 film_path.write_text(changed, encoding="utf-8")
                 page.wait_for_function(
