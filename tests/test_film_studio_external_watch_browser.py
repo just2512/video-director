@@ -211,6 +211,26 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 after_cancel = fd.read_project_film(project_id)
                 assert after_cancel["rev"] == before_cancel["rev"]
 
+                # The native envelope canvas must still be cancelled by the document fallback.
+                envelope = page.locator('canvas[data-envelope-clip="audio-1"]')
+                envelope.wait_for(state="visible")
+                before_envelope_cancel = fd.read_project_film(project_id)
+                page.evaluate("""() => {
+                  const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');
+                  if (!canvas) throw new Error('audio envelope canvas missing');
+                  const rect = canvas.getBoundingClientRect();
+                  const point = {bubbles:true,cancelable:true,pointerId:78,button:0,buttons:1,
+                    clientX:Math.round(rect.left + rect.width * 0.55),
+                    clientY:Math.round(rect.top + rect.height * 0.4)};
+                  canvas.dispatchEvent(new PointerEvent('pointerdown', point));
+                  document.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 12}));
+                  canvas.dispatchEvent(new PointerEvent('pointercancel', {...point, buttons:0}));
+                  document.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 24}));
+                  document.dispatchEvent(new PointerEvent('pointerup', {...point, buttons:0}));
+                }""")
+                page.wait_for_timeout(50)
+                after_envelope_cancel = fd.read_project_film(project_id)
+                assert after_envelope_cancel["rev"] == before_envelope_cancel["rev"]
                 # The drag selected clip-b. Restore clip-a so the existing
                 # external-write assertion observes the field that is changed next.
                 page.evaluate("window.filmStudioSelectClip('clip-a')")
