@@ -199,6 +199,8 @@ declare global {
     filmStudioReactAi?: FilmStudioReactAiBridge;
     filmStudioAsk?: () => Promise<void> | void;
     filmStudioSelectClip?: (clipId: string) => void;
+    filmStudioClickClip?: (clipId: string, event: MouseEvent) => void;
+    filmStudioBeginClipDrag?: (event: PointerEvent, element: HTMLElement) => void;
     filmStudioShowAssetMode?: (mode: string) => void;
     filmStudioAddAsset?: (assetId: string) => Promise<void> | void;
   }
@@ -777,6 +779,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               style={{left:clip.left,width:clip.width}}
               title={clip.title}
               key={clip.id}
+              onClick={event => window.filmStudioClickClip?.(clip.id,event.nativeEvent)}
+              onPointerDown={event => window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget)}
             >
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
               {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}

@@ -697,6 +697,93 @@
     if(!S.snapEnabled)showTimelineSnapGuide(null);
     showStatus(S.snapEnabled?'时间线吸附已开启（阈值 8 屏幕像素）。':'时间线吸附已关闭。','success');
   };
+  // Shared gesture logic; React owns event dispatch in the built Studio while
+  // the same functions preserve behavior for the native fallback.
+  window.filmStudioClickClip = function(id,e){
+    if(e&&typeof e.stopPropagation==='function')e.stopPropagation();
+    if(S.skipNextClipClick){S.skipNextClipClick=false;return;}
+    if(selectClipWithModifiers(id,e)){
+      var selected=findClip(id);
+      if(selected){S.playhead=selected.at;setPlayheadVisual();previewCurrent();}
+    }
+  };
+  window.filmStudioBeginClipDrag = function(e,el){
+        if(e.button!==0||e.target.closest('button'))return;
+        if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
+        var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
+        if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
+          selectClipWithModifiers(clip.id,e);
+          S.playhead=clip.at;setPlayheadVisual();previewCurrent();renderInspector();renderAssets();
+          e.preventDefault();showStatus('该片段已锁定，只能查看属性；如需编辑，请在属性栏显式解锁。');return;
+        }
+        var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
+            mediaCanSlip=(clip.tag==='video'||clip.tag==='audio'),
+            slideGesture=!!(!trim&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip),
+            slipGesture=!!(!trim&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip),canDrag;
+        if(rollGesture||slideGesture||slipGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
+        else{canDrag=selectClipWithModifiers(clip.id,e);}
+        if(!canDrag){e.preventDefault();return;}
+        S.playhead=clip.at;setPlayheadVisual();previewCurrent();
+        var mode=trim?(rollGesture?'roll':(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'))
+          :(slideGesture?'slide':(slipGesture?'slip':'move'));
+        if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
+        var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
+        var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
+        var members=chosen.map(function(id){
+          var selected=findClip(id);if(!selected)return null;
+          var element=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(node){return node.getAttribute('data-clip')===id;});
+          return selected&&element?{id:id,originalAt:selected.at,originalEnd:selected.end==null?selected.at+num(selected.duration,2):selected.end,
+            trackId:selected.track_id,trackIndex:trackOrder.indexOf(selected.track_id),element:element}:null;
+        }).filter(Boolean);
+        if(!members.length)return;
+        if(mode==='slide'){
+          var slideTrack=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
+          var slideClips=(slideTrack&&slideTrack.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
+          var slideIndex=slideClips.findIndex(function(item){return item.id===clip.id;});
+          var leftClip=slideIndex>0?slideClips[slideIndex-1]:null;
+          var rightClip=slideIndex>=0&&slideIndex+1<slideClips.length?slideClips[slideIndex+1]:null;
+          if(!leftClip||!rightClip||leftClip.end==null||clip.end==null
+             ||Math.abs(leftClip.end-clip.at)>0.001||Math.abs(clip.end-rightClip.at)>0.001){
+            showStatus('Alt+Shift 滑移式修剪要求所选片段左右都有时间上连续的邻接片段。','error');e.preventDefault();return;
+          }
+          var elements=Array.from($('fs-timeline').querySelectorAll('[data-clip]'));
+          var leftElement=elements.find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
+          var rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
+          if(!leftElement||!rightElement){showStatus('无法定位滑移式修剪的邻接片段。','error');return;}
+          S.drag={id:clip.id,mode:'slide',startX:e.clientX,startY:e.clientY,
+            leftClipId:leftClip.id,centerClipId:clip.id,rightClipId:rightClip.id,
+            leftDuration:leftClip.duration,centerDuration:clip.duration,rightDuration:rightClip.duration,
+            centerAt:clip.at,rightAt:rightClip.at,pxPerSec:S.pxPerSec,
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,
+            slideElements:[leftElement,el,rightElement],members:members,targetTrackId:clip.track_id,targetRow:null};
+        }else if(mode==='roll'){
+          var trackData=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
+          var ordered=(trackData&&trackData.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
+          var index=ordered.findIndex(function(item){return item.id===clip.id;}),leftClip=null,rightClip=null;
+          var edge=trim.getAttribute('data-trim');
+          if(edge==='end'&&index>=0&&index+1<ordered.length&&clip.end!=null&&Math.abs(clip.end-ordered[index+1].at)<=0.001){leftClip=clip;rightClip=ordered[index+1];}
+          else if(edge==='start'&&index>0&&ordered[index-1].end!=null&&Math.abs(ordered[index-1].end-clip.at)<=0.001){leftClip=ordered[index-1];rightClip=clip;}
+          else{showStatus('Ctrl 拖动切口只支持同轨相邻片段共用的切口。','error');e.preventDefault();return;}
+          var leftElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
+          var rightElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
+          if(!leftElement||!rightElement){showStatus('无法定位切口两侧片段。','error');return;}
+          S.drag={id:clip.id,mode:'roll',startX:e.clientX,startY:e.clientY,leftClipId:leftClip.id,rightClipId:rightClip.id,
+            rightAt:rightClip.at,leftDuration:leftClip.duration,rightDuration:rightClip.duration,pxPerSec:S.pxPerSec,
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,rollElements:[leftElement,rightElement],
+            members:members,targetTrackId:clip.track_id,targetRow:null};
+        }else{
+          if(mode!=='move')members=members.filter(function(m){return m.id===clip.id;});
+          S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,originalAt:clip.at,
+            originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
+            originalTrackIndex:trackOrder.indexOf(clip.track_id),trackOrder:trackOrder,
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,members:members,
+            targetTrackId:clip.track_id,targetRow:null};
+        }
+        members.forEach(function(member){member.element.classList.add('fs-dragging');});
+        if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
+        e.preventDefault();
+  };
+
   function renderTimeline() {
     if(!S.data||!S.data.exists)return;
     var laneWidth=Math.max(720,Math.ceil(S.duration*S.pxPerSec)),ticks=Math.min(240,Math.ceil(S.duration/5));
@@ -781,92 +868,18 @@
       },true);
     }
     $('fs-timeline').querySelectorAll('[data-clip]').forEach(function(el){
-      // React keeps keyed clip nodes between renders. Bind native handlers once;
-      // the legacy fallback replaces innerHTML, which naturally creates fresh nodes.
+      // React owns clip selection and gesture initiation when the verified bundle
+      // is present; the native binding remains only for the no-bundle fallback.
       if(el.__filmStudioClipBound)return;
       el.__filmStudioClipBound=true;
-      el.addEventListener('click',function(e){
-        e.stopPropagation();
-        if(S.skipNextClipClick){S.skipNextClipClick=false;return;}
-        var id=el.getAttribute('data-clip');
-        if(selectClipWithModifiers(id,e)){var selected=findClip(id);if(selected){S.playhead=selected.at;setPlayheadVisual();previewCurrent();}}
-      });
-      el.addEventListener('pointerdown',function(e){
-        if(e.button!==0||e.target.closest('button'))return;
-        if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
-        var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
-        if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
-          selectClipWithModifiers(clip.id,e);
-          S.playhead=clip.at;setPlayheadVisual();previewCurrent();renderInspector();renderAssets();
-          e.preventDefault();showStatus('该片段已锁定，只能查看属性；如需编辑，请在属性栏显式解锁。');return;
-        }
-        var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
-            mediaCanSlip=(clip.tag==='video'||clip.tag==='audio'),
-            slideGesture=!!(!trim&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip),
-            slipGesture=!!(!trim&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip),canDrag;
-        if(rollGesture||slideGesture||slipGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();canDrag=true;}
-        else{canDrag=selectClipWithModifiers(clip.id,e);}
-        if(!canDrag){e.preventDefault();return;}
-        S.playhead=clip.at;setPlayheadVisual();previewCurrent();
-        var mode=trim?(rollGesture?'roll':(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'))
-          :(slideGesture?'slide':(slipGesture?'slip':'move'));
-        if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
-        var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
-        var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
-        var members=chosen.map(function(id){
-          var selected=findClip(id);if(!selected)return null;
-          var element=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(node){return node.getAttribute('data-clip')===id;});
-          return selected&&element?{id:id,originalAt:selected.at,originalEnd:selected.end==null?selected.at+num(selected.duration,2):selected.end,
-            trackId:selected.track_id,trackIndex:trackOrder.indexOf(selected.track_id),element:element}:null;
-        }).filter(Boolean);
-        if(!members.length)return;
-        if(mode==='slide'){
-          var slideTrack=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
-          var slideClips=(slideTrack&&slideTrack.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
-          var slideIndex=slideClips.findIndex(function(item){return item.id===clip.id;});
-          var leftClip=slideIndex>0?slideClips[slideIndex-1]:null;
-          var rightClip=slideIndex>=0&&slideIndex+1<slideClips.length?slideClips[slideIndex+1]:null;
-          if(!leftClip||!rightClip||leftClip.end==null||clip.end==null
-             ||Math.abs(leftClip.end-clip.at)>0.001||Math.abs(clip.end-rightClip.at)>0.001){
-            showStatus('Alt+Shift 滑移式修剪要求所选片段左右都有时间上连续的邻接片段。','error');e.preventDefault();return;
-          }
-          var elements=Array.from($('fs-timeline').querySelectorAll('[data-clip]'));
-          var leftElement=elements.find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
-          var rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
-          if(!leftElement||!rightElement){showStatus('无法定位滑移式修剪的邻接片段。','error');return;}
-          S.drag={id:clip.id,mode:'slide',startX:e.clientX,startY:e.clientY,
-            leftClipId:leftClip.id,centerClipId:clip.id,rightClipId:rightClip.id,
-            leftDuration:leftClip.duration,centerDuration:clip.duration,rightDuration:rightClip.duration,
-            centerAt:clip.at,rightAt:rightClip.at,pxPerSec:S.pxPerSec,
-            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,
-            slideElements:[leftElement,el,rightElement],members:members,targetTrackId:clip.track_id,targetRow:null};
-        }else if(mode==='roll'){
-          var trackData=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
-          var ordered=(trackData&&trackData.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
-          var index=ordered.findIndex(function(item){return item.id===clip.id;}),leftClip=null,rightClip=null;
-          var edge=trim.getAttribute('data-trim');
-          if(edge==='end'&&index>=0&&index+1<ordered.length&&clip.end!=null&&Math.abs(clip.end-ordered[index+1].at)<=0.001){leftClip=clip;rightClip=ordered[index+1];}
-          else if(edge==='start'&&index>0&&ordered[index-1].end!=null&&Math.abs(ordered[index-1].end-clip.at)<=0.001){leftClip=ordered[index-1];rightClip=clip;}
-          else{showStatus('Ctrl 拖动切口只支持同轨相邻片段共用的切口。','error');e.preventDefault();return;}
-          var leftElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
-          var rightElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
-          if(!leftElement||!rightElement){showStatus('无法定位切口两侧片段。','error');return;}
-          S.drag={id:clip.id,mode:'roll',startX:e.clientX,startY:e.clientY,leftClipId:leftClip.id,rightClipId:rightClip.id,
-            rightAt:rightClip.at,leftDuration:leftClip.duration,rightDuration:rightClip.duration,pxPerSec:S.pxPerSec,
-            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,rollElements:[leftElement,rightElement],
-            members:members,targetTrackId:clip.track_id,targetRow:null};
-        }else{
-          if(mode!=='move')members=members.filter(function(m){return m.id===clip.id;});
-          S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,originalAt:clip.at,
-            originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
-            originalTrackIndex:trackOrder.indexOf(clip.track_id),trackOrder:trackOrder,
-            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,members:members,
-            targetTrackId:clip.track_id,targetRow:null};
-        }
-        members.forEach(function(member){member.element.classList.add('fs-dragging');});
-        if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
-        e.preventDefault();
-      });
+      if(!reactTimeline){
+        el.addEventListener('click',function(e){
+          window.filmStudioClickClip(el.getAttribute('data-clip'),e);
+        });
+        el.addEventListener('pointerdown',function(e){
+          window.filmStudioBeginClipDrag(e,el);
+        });
+      }
     });
     $('fs-timeline').querySelectorAll('[data-track-lock]').forEach(function(el){
       if(el.__filmStudioTrackLockBound)return;
