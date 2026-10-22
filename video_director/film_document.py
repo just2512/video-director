@@ -2322,6 +2322,104 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
     return out, normalized
 
 
+
+def build_overwrite_operations(doc: dict, track_id: str, raw_clip: dict, at_value: Any) -> list[dict]:
+    """Prepare one atomic overwrite on a single target track without shifting other tracks."""
+    target_track_id = str(track_id or "").strip()
+    track = _find_track(doc, target_track_id)
+    _ensure_unlocked(track)
+    start_at = _number(at_value, "overwrite at", 0)
+
+    if (not isinstance(raw_clip, dict) or raw_clip.get("tag") not in CLIP_TAGS
+            or not isinstance(raw_clip.get("attrs"), dict)):
+        raise FilmError("INVALID_INSERT", "overwrite 需要带 tag、id 和 attrs 的 clip 对象")
+    clip_id = str(raw_clip.get("id") or "").strip()
+    used_ids = {str(item.get("id") or "") for item_track in doc["tracks"] for item in item_track["clips"]}
+    if not clip_id or clip_id in used_ids:
+        raise FilmError("DUPLICATE_CLIP_ID", "覆盖素材必须使用未使用的稳定片段 ID")
+
+    attrs = copy.deepcopy(raw_clip["attrs"])
+    attrs["id"] = clip_id
+    attrs["at"] = _fmt(start_at)
+    attrs["src"] = _validate_src_syntax(attrs.get("src"))
+    src_in, src_out = _source_range(attrs["src"])
+    if src_out is None:
+        raise FilmError("INVALID_SOURCE_RANGE", "覆盖素材必须使用 #t=in,out 指定明确源区间")
+    if raw_clip["tag"] in {"img", "iframe"} and abs(src_in) > 0.001:
+        raise FilmError("INVALID_SOURCE_RANGE", f"{raw_clip['tag']} 必须使用 #t=0,length 指定片段时长")
+    inserted = {"id": clip_id, "tag": raw_clip["tag"], "attrs": attrs}
+    duration = clip_duration(inserted)
+    if duration is None or not math.isfinite(float(duration)) or float(duration) <= 0.001:
+        raise FilmError("INVALID_SOURCE_RANGE", "覆盖素材时长必须大于一毫秒且可确定")
+    overwrite_end = start_at + float(duration)
+    operations: list[dict] = []
+
+    seed_text = f"{target_track_id}|{clip_id}|{_fmt(start_at)}|{_fmt(overwrite_end)}"
+    seed = hashlib.sha1(seed_text.encode("utf-8")).hexdigest()[:10]
+    used_ids.add(clip_id)
+
+    def allocate_split_id(source_id: str, suffix: str) -> str:
+        stem = _safe_id(f"ow-{seed}-{str(source_id)[:28]}-{suffix}", "overwrite")
+        candidate, counter = stem, 2
+        while candidate in used_ids:
+            candidate = _safe_id(f"{stem}-{counter}", "overwrite")
+            counter += 1
+        used_ids.add(candidate)
+        return candidate
+
+    epsilon = 0.001
+    for existing in list(track.get("clips") or []):
+        existing_id = str(existing.get("id") or "")
+        existing_attrs = existing.get("attrs") or {}
+        existing_start = _number(existing_attrs.get("at", 0), "clip at", 0)
+        if existing_start >= overwrite_end - epsilon:
+            continue
+        existing_end = clip_end(existing)
+        if existing_end is None:
+            if existing_start < overwrite_end:
+                raise FilmError(
+                    "OVERWRITE_UNKNOWN_DURATION",
+                    f"无法确定片段 {existing_id} 的结束时间；请先修复源区间后再覆盖。",
+                    422,
+                )
+            continue
+        existing_end = float(existing_end)
+        if existing_end <= start_at + epsilon:
+            continue
+
+        _ensure_unlocked(track, existing)
+        if existing_start < start_at:
+            if existing_start >= start_at - epsilon or existing_end <= start_at + epsilon:
+                raise FilmError("OVERWRITE_BOUNDARY_TOO_CLOSE", f"覆盖起点太靠近片段 {existing_id} 的剪切边缘", 422)
+            if existing_end > overwrite_end + epsilon:
+                middle_id = allocate_split_id(existing_id, "middle")
+                right_id = allocate_split_id(existing_id, "right")
+                operations.append({"op": "split", "clip": existing_id, "at": start_at, "new_id": middle_id})
+                operations.append({"op": "split", "clip": middle_id, "at": overwrite_end, "new_id": right_id})
+                operations.append({"op": "remove", "clip": middle_id})
+            else:
+                operations.append({"op": "trim", "clip": existing_id, "edge": "end", "end": start_at})
+        elif existing_end <= overwrite_end + epsilon:
+            operations.append({"op": "remove", "clip": existing_id})
+        else:
+            if overwrite_end <= existing_start + epsilon or overwrite_end >= existing_end - epsilon:
+                raise FilmError("OVERWRITE_BOUNDARY_TOO_CLOSE", f"覆盖终点太靠近片段 {existing_id} 的剪切边缘", 422)
+            operations.append({"op": "trim", "clip": existing_id, "edge": "start", "at": overwrite_end})
+
+    operations.append({
+        "op": "insert", "track_id": target_track_id,
+        "clip": {"id": inserted["id"], "tag": inserted["tag"], "attrs": inserted["attrs"]},
+    })
+    if len(operations) > MAX_OPERATIONS:
+        raise FilmError(
+            "TOO_MANY_OVERWRITE_OPERATIONS",
+            f"此次覆盖将产生 {len(operations)} 项操作，超过单事务限制 {MAX_OPERATIONS}",
+            422,
+        )
+    # Preflight the whole sequence; the caller will commit it as one revision/undo step.
+    apply_ops(doc, operations)
+    return operations
+
 def _project_root(project_id: str) -> Path:
     pid = validate_project_id(project_id)
     composer_root = config.composer_storage_root().resolve()
