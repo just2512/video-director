@@ -204,6 +204,8 @@ declare global {
     filmStudioMoveClipGesture?: (event: PointerEvent) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
+    filmStudioToggleTrackLock?: (trackId: string) => Promise<boolean> | void;
+    filmStudioToggleTrackFlag?: (trackId: string, field: string) => Promise<boolean> | void;
     filmStudioShowAssetMode?: (mode: string) => void;
     filmStudioAddAsset?: (assetId: string) => Promise<void> | void;
   }
@@ -775,10 +777,13 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         <div className="fs-track-head">
           <span className="fs-track-label" title={track.label}>{track.label}</span>
           <span className="fs-track-controls">
-            <button type="button" className="fs-btn" data-track-lock={track.id} title={track.locked ? "解锁轨道" : "锁定轨道"}>{track.locked ? "🔒" : "锁"}</button>
-            <button type="button" className="fs-btn" data-track-flag="sync-lock" data-track-key={track.id} aria-pressed={track.syncLocked ? "true" : "false"} title={track.syncLocked ? "取消同步锁定" : "启用同步锁定"}>{track.syncLocked ? "⇄" : "同步"}</button>
-            <button type="button" className="fs-btn" data-track-flag="hidden" data-track-key={track.id} title={track.hidden ? "显示轨道" : "隐藏轨道"}>{track.hidden ? "显" : "隐"}</button>
-            <button type="button" className="fs-btn" data-track-flag="muted" data-track-key={track.id} title={track.muted ? "取消静音" : "静音轨道"}>{track.muted ? "🔊" : "🔇"}</button>
+            <button type="button" className="fs-btn" data-track-lock={track.id}
+              title={track.locked ? "解锁轨道" : "锁定轨道"}
+              onClick={(event) => { event.stopPropagation(); void window.filmStudioToggleTrackLock?.(track.id); }}
+            >{track.locked ? "🔒" : "锁"}</button>
+            <button type="button" className="fs-btn" data-track-flag="sync-lock" data-track-key={track.id} aria-pressed={track.syncLocked ? "true" : "false"} title={track.syncLocked ? "取消同步锁定" : "启用同步锁定"} onClick={(event) => { event.stopPropagation(); void window.filmStudioToggleTrackFlag?.(track.id, "sync-lock"); }}>{track.syncLocked ? "⇄" : "同步"}</button>
+            <button type="button" className="fs-btn" data-track-flag="hidden" data-track-key={track.id} title={track.hidden ? "显示轨道" : "隐藏轨道"} onClick={(event) => { event.stopPropagation(); void window.filmStudioToggleTrackFlag?.(track.id, "hidden"); }}>{track.hidden ? "显" : "隐"}</button>
+            <button type="button" className="fs-btn" data-track-flag="muted" data-track-key={track.id} title={track.muted ? "取消静音" : "静音轨道"} onClick={(event) => { event.stopPropagation(); void window.filmStudioToggleTrackFlag?.(track.id, "muted"); }}>{track.muted ? "🔊" : "🔇"}</button>
           </span>
         </div>
         <div className="fs-track-body" style={{width:model.laneWidth}}>

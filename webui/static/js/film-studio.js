@@ -785,6 +785,22 @@
     return Boolean(S.drag&&S.drag.element===el&&e&&Number.isInteger(e.pointerId));
   };
 
+  window.filmStudioToggleTrackLock = function(trackId){
+    var track=(S.data&&S.data.tracks||[]).find(function(item){return item.id===String(trackId);});
+    if(!track)return Promise.resolve(false);
+    var locked=Object.prototype.hasOwnProperty.call(track.attrs||{},'locked');
+    return filmStudioCommit([{op:'track',track_id:track.id,field:'locked',value:!locked}]);
+  };
+  window.filmStudioToggleTrackFlag = function(trackId,field){
+    if(['sync-lock','hidden','muted'].indexOf(field)<0){
+      showStatus('不支持的轨道标志：'+String(field),'error');
+      return Promise.resolve(false);
+    }
+    var track=(S.data&&S.data.tracks||[]).find(function(item){return item.id===String(trackId);});
+    if(!track)return Promise.resolve(false);
+    var enabled=Object.prototype.hasOwnProperty.call(track.attrs||{},field);
+    return filmStudioCommit([{op:'track',track_id:track.id,field:field,value:!enabled}]);
+  };
   function renderTimeline() {
     if(!S.data||!S.data.exists)return;
     var laneWidth=Math.max(720,Math.ceil(S.duration*S.pxPerSec)),ticks=Math.min(240,Math.ceil(S.duration/5));
@@ -882,6 +898,7 @@
         });
       }
     });
+    if(!reactTimeline){
     $('fs-timeline').querySelectorAll('[data-track-lock]').forEach(function(el){
       if(el.__filmStudioTrackLockBound)return;
       el.__filmStudioTrackLockBound=true;
@@ -902,6 +919,7 @@
         filmStudioCommit([{op:'track',track_id:track.id,field:field,value:!on}]);
       });
     });
+    }
     $('fs-ruler-body').querySelectorAll('[data-at]').forEach(function(el){
       if(el.__filmStudioRulerBound)return;
       el.__filmStudioRulerBound=true;
