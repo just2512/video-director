@@ -96,7 +96,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').is_visible()
                 assert page.locator("#fs-director-planning-host").is_hidden()
 
-                page.evaluate("window.filmStudioSelectClip('clip-a')")
+                with page.expect_response("**/api/director/context") as director_context_response:
+                    page.evaluate("window.filmStudioSelectClip('clip-a')")
+                director_context = director_context_response.value.json()
+                assert director_context["context"]["authority"] == "film.html"
+                assert director_context["context"]["revision"] == fd.read_project_film(project_id)["rev"]
+                assert director_context["context"]["selection"]["id"] == "clip-a"
+                assert director_context["context"]["selection"]["ids"] == ["clip-a"]
                 page.wait_for_function(
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
