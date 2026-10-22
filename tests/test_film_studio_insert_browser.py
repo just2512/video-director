@@ -205,7 +205,7 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                     ("slide-mode", "slideMode", "滑移修剪：开", "滑移修剪：关"),
                     ("slip-mode", "slipMode", "源区间滑移：开", "源区间滑移：关"),
                 ]:
-                    button = page.locator(f'[data-film-action="{action}"]')
+                    button = page.locator(f'[data-film-action="{action}"]:visible')
                     button.click()
                     page.wait_for_function(
                         "(key) => window.filmStudioStore.getSnapshot()[key] === "
