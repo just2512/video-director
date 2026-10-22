@@ -57,7 +57,6 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
-            pending_insert_states: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.route("**/api/assets_library*", lambda route: route.fulfill(
                 status=200, content_type="application/json",
@@ -90,17 +89,6 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                 page.evaluate("window.filmStudioLoadLibrary()")
                 page.locator('[data-add-asset="fixture-asset"]').wait_for(state="visible")
                 page.locator('[data-add-asset="fixture-asset"]').click()
-                assert len(pending_insert_states) == 1, pending_insert_states
-                pending = pending_insert_states[0]
-                assert pending["busy"] is True, pending
-                assert pending["revision"] == initial["rev"], pending
-                assert pending["transaction"]["kind"] == "asset-overwrite", pending
-                assert pending["transaction"]["baseRevision"] == initial["rev"], pending
-                assert pending["transaction"]["operationCount"] == 1, pending
-                assert pending["transaction"]["operation"]["placement_mode"] == "overwrite", pending
-                assert pending["domKind"] == "asset-overwrite", pending
-                assert pending["domBase"] == initial["rev"], pending
-                assert pending["domCount"] == "1", pending
 
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
@@ -177,6 +165,7 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
+            pending_insert_states: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.route("**/api/assets_library*", lambda route: route.fulfill(
                 status=200, content_type="application/json",
@@ -231,6 +220,17 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 page.evaluate("window.filmStudioLoadLibrary()")
                 page.locator('[data-add-asset="fixture-asset"]').wait_for(state="visible")
                 page.locator('[data-add-asset="fixture-asset"]').click()
+                assert len(pending_insert_states) == 1, pending_insert_states
+                pending = pending_insert_states[0]
+                assert pending["busy"] is True, pending
+                assert pending["revision"] == initial["rev"], pending
+                assert pending["transaction"]["kind"] == "asset-overwrite", pending
+                assert pending["transaction"]["baseRevision"] == initial["rev"], pending
+                assert pending["transaction"]["operationCount"] == 1, pending
+                assert pending["transaction"]["operation"]["placement_mode"] == "overwrite", pending
+                assert pending["domKind"] == "asset-overwrite", pending
+                assert pending["domBase"] == initial["rev"], pending
+                assert pending["domCount"] == "1", pending
 
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
