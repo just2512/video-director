@@ -91,6 +91,7 @@ def _dir_meta(project_id: str) -> dict:
         return {
             "dir_exists": d.is_dir(),
             "has_composition": (d / "plans" / "composition.json").is_file(),
+            "has_film": (d / "film.html").is_file(),
             "has_graphic_plan": (d / "plans" / "graphic_plan.json").is_file(),
             "has_storyboard": (d / "plans" / "storyboard.json").is_file(),
             "has_draft": (d / "output" / "draft.mp4").is_file(),
@@ -98,7 +99,7 @@ def _dir_meta(project_id: str) -> dict:
             "mtime": mtime,
         }
     except OSError:
-        return {"dir_exists": False, "has_composition": False,
+        return {"dir_exists": False, "has_composition": False, "has_film": False,
                 "has_graphic_plan": False, "has_storyboard": False,
                 "has_draft": False, "has_final": False, "mtime": 0}
 
@@ -114,8 +115,10 @@ def _resolve_name(project_id: str, row: Optional[dict], params: dict) -> str:
     return project_id
 
 
-def _scene_count_duration(project_id: str, meta: dict) -> tuple:
-    """场景数/时长：storyboard.json → composition.json → (0, 0.0)。"""
+def _scene_count_duration(project_id: str, meta: dict, timeline: dict | None = None) -> tuple:
+    """返回活动时间线的场景数/时长；仅未迁移项目才回退到规划文件。"""
+    if timeline and timeline.get("authority") in {"film.html", "composition.json"}:
+        return int(timeline.get("scene_count") or 0), float(timeline.get("duration") or 0)
     d = config.composer_storage_root() / project_id
     for fname in ("plans/storyboard.json", "plans/composition.json"):
         p = d / fname
@@ -135,6 +138,80 @@ def _scene_count_duration(project_id: str, meta: dict) -> tuple:
                                       sum(float(s.get("duration") or 0) for s in scenes))
         break
     return 0, 0.0
+
+
+def _timeline_snapshot(project_id: str, meta: dict) -> dict:
+    """Project Index 中的时间线状态必须与当前唯一权威文档一致。"""
+    root = config.composer_storage_root() / project_id
+
+    if meta.get("has_film"):
+        from video_director import film_document as fd
+
+        path = root / fd.FILM_NAME
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 保留存在态，绝不回退到 CompositionIR
+            return {
+                "authority": "film.html", "revision": None, "valid": False,
+                "error": {"code": "FILM_READ_FAILED", "message": str(exc)},
+                "scene_count": 0, "duration": 0.0, "clip_count": 0, "track_count": 0,
+            }
+        revision = fd.revision_of(raw)
+        try:
+            document = fd.parse_film(raw)
+        except Exception as exc:  # noqa: BLE001 损坏 film.html 仍然是权威文档
+            return {
+                "authority": "film.html", "revision": revision, "valid": False,
+                "error": {"code": getattr(exc, "code", "INVALID_FILM"), "message": str(exc)},
+                "scene_count": 0, "duration": 0.0, "clip_count": 0, "track_count": 0,
+            }
+
+        tracks = document.get("tracks") or []
+        clips = [clip for track in tracks for clip in (track.get("clips") or [])]
+        ends = []
+        for clip in clips:
+            try:
+                end = fd.clip_end(clip)
+            except Exception:
+                end = None
+            if end is not None:
+                ends.append(float(end))
+        visual_count = sum(1 for clip in clips if clip.get("tag") in {"iframe", "video", "img"})
+        return {
+            "authority": "film.html", "revision": revision, "valid": True, "error": None,
+            "scene_count": visual_count, "duration": max(ends, default=0.0),
+            "clip_count": len(clips), "track_count": len(tracks),
+        }
+
+    if meta.get("has_composition"):
+        from video_director import editor
+
+        try:
+            composition = editor.load_composition(project_id)
+            try:
+                revision = editor.composition_version(project_id)
+            except Exception:
+                revision = None
+            visual_count = sum(1 for scene in composition.scenes for layer in scene.layers
+                               if getattr(layer.type, "value", layer.type) in {"video", "image"})
+            clip_count = sum(len(scene.layers) for scene in composition.scenes) + len(composition.audio)
+            return {
+                "authority": "composition.json", "revision": revision, "valid": True, "error": None,
+                "scene_count": len(composition.scenes), "duration": float(composition.project.duration),
+                "clip_count": clip_count, "track_count": len(composition.audio) + (1 if visual_count else 0),
+            }
+        except Exception as exc:  # noqa: BLE001 文件存在但无效时不从旧 storyboard 伪造状态
+            return {
+                "authority": "composition.json", "revision": None, "valid": False,
+                "error": {"code": "COMPOSITION_READ_FAILED", "message": str(exc)},
+                "scene_count": 0, "duration": 0.0, "clip_count": 0, "track_count": 0,
+            }
+
+    return {
+        "authority": "storyboard.json" if meta.get("has_storyboard") else None,
+        "revision": None, "valid": None, "error": None,
+        "scene_count": 0, "duration": 0.0, "clip_count": 0, "track_count": 0,
+    }
 
 
 def _actions_for(status: str, editable: bool, legacy: bool,
@@ -241,9 +318,10 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
     """单项目索引条目；WorkflowRun 是运行态事实源，Project stage 仅作持久化快照。"""
     params = _read_params(row)
     meta = _dir_meta(pid)
+    timeline = _timeline_snapshot(pid, meta)
     stage = (row and row.get("stage")) or "UNKNOWN"
-    legacy = (not meta["has_composition"]) and meta["has_graphic_plan"]
-    editable = meta["has_composition"]
+    legacy = (not meta["has_composition"]) and (not meta["has_film"]) and meta["has_graphic_plan"]
+    editable = meta["has_composition"] or meta["has_film"]
     archived = bool(params.get("archived"))
     wf = _workflow_snapshot(pid)
     wf_status = wf.get("status") or ""
@@ -265,7 +343,7 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
         steps = wf.get("steps") or []
         done = sum(1 for s in steps if s.get("status") in ("DONE", "SKIPPED"))
         progress = int(round(done * 100 / len(steps))) if steps else progress
-    scene_count, duration = _scene_count_duration(pid, meta)
+    scene_count, duration = _scene_count_duration(pid, meta, timeline)
     return {
         "project_id": pid,
         "name": _resolve_name(pid, row, params),
@@ -281,6 +359,14 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
         "checkpoint": (wf.get("result") or {}).get("checkpoint") or "",
         "scene_count": scene_count,
         "duration": round(duration, 2),
+        "timeline_authority": timeline.get("authority"),
+        "revision": timeline.get("revision"),
+        "timeline_valid": timeline.get("valid"),
+        "timeline_error": timeline.get("error"),
+        "film_exists": meta.get("has_film", False),
+        "film_valid": timeline.get("valid") if meta.get("has_film") else None,
+        "clip_count": timeline.get("clip_count", 0),
+        "track_count": timeline.get("track_count", 0),
         "has_draft": meta["has_draft"],
         "has_final": meta["has_final"],
         "updated_at": meta["mtime"] or (row and row.get("updated_at")) or 0,

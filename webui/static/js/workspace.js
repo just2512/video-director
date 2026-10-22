@@ -48,7 +48,7 @@ async function workspaceOpen(pid, target){
     // 2. Existing film.html projects enter the authoritative Film Studio directly.
     // Legacy projects without film.html keep the CompositionIR workspace/migration path.
     const filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));
-    if (filmDocument && filmDocument.ok && filmDocument.exists &&
+    if (filmDocument && filmDocument.exists === true &&
         typeof window.filmStudioOpenIfCurrentProjectHasFilm === 'function') {
       if (typeof directorLoadLatestRun === 'function') await directorLoadLatestRun(pid);
       const openedStudio = await window.filmStudioOpenIfCurrentProjectHasFilm();

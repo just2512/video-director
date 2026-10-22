@@ -1097,7 +1097,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "exists": False, "project_id": pid, "rev": state["rev"], **preview})
                 return True
             except fd.FilmError as exc:
-                self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
+                error_payload = {"ok": False, "code": exc.code, "error": str(exc)}
+                # The presence of film.html establishes authority even when parsing fails.
+                # Returning exists=true prevents the client from reopening stale CompositionIR.
+                if route == "/api/editor/film":
+                    try:
+                        valid_pid = fd.validate_project_id(pid)
+                        film_path = fd._film_path(valid_pid)
+                        if film_path.is_file():
+                            error_payload.update({"exists": True, "project_id": valid_pid})
+                            try:
+                                error_payload["rev"] = fd.revision_of(film_path.read_text(encoding="utf-8"))
+                            except UnicodeDecodeError:
+                                error_payload["revision_unavailable"] = True
+                    except Exception:
+                        pass
+                self._send_json(error_payload, exc.status)
                 return True
             except Exception as exc:
                 self._send_json({"ok": False, "code": "FILM_READ_FAILED", "error": str(exc)}, 500)

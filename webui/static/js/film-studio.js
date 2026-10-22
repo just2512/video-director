@@ -1357,6 +1357,29 @@
     else if(filmWarnings.length)showStatus('影片格式提示：'+filmWarnings.join('；'),'');
     else{var el=$('film-studio-alert');el.className='fs-alert';el.textContent='';}
   }
+  function renderBrokenFilmState(result){
+    var message=String(result&&result.error||'film.html 无法读取或解析。');
+    S.broken=true;
+    S.data={exists:true,project_id:S.projectId,tracks:[],duration:10,fps:30,
+      stage:{width:1920,height:1080},warnings:[]};
+    S.rev=String(result&&result.rev||'');
+    S.runtimeRev='';S.runtimeCommand='';S.migration={
+      migration_available:false,
+      migration_error:'film.html 存在但无效；旧 CompositionIR 时间线已被权威门禁禁用。请修复 film.html 后重新载入。'+message,
+      migration_error_code:String(result&&result.code||'INVALID_FILM'),
+      migration_preview:{warnings:[]},variants:[]
+    };
+    S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
+    S.selectedElement=null;S.hoveredElement=null;
+    S.proposal=null;S.previewProposalActive=false;
+    renderMigration();
+    $('fs-project-label').textContent=S.projectId+' · film.html 无效';
+    $('fs-clip-count').textContent='0';
+    $('fs-timeline-meta').textContent='影片文档无效';
+    $('fs-assets-list').innerHTML='<div class="fs-empty">film.html 存在但无法使用。旧时间线已禁用；修复文档后点“重新载入”。</div>';
+    $('fs-timeline').innerHTML='<div class="fs-empty">剪辑已暂停：film.html 校验失败。不会加载或写入旧 CompositionIR 时间线。</div>';
+    showStatus('影片文档无效，已阻止回退到旧时间线。'+message,'error');
+  }
   async function filmStudioLoad(force) {
     if(!S.open&&!force)return;
     var selector=$('editor-project'),nextId=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||S.projectId;
@@ -1395,6 +1418,7 @@
       S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();
     }
     else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';window.filmStudioPlaying=false;S.migration=r;renderMigration();}
+    else if(r&&!r.ok&&r.exists===true){renderBrokenFilmState(r);}
     else {if(r&&r.code==='INVALID_FILM')S.broken=true;S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
   }
   async function filmStudioInitialize(acceptWarnings) {
@@ -1828,10 +1852,8 @@
         S.pendingExternalRevision=r.rev;
         flushPendingExternalRevision();
       }
-      else if(r&&!r.ok&&r.code==='INVALID_FILM'){
-        S.broken=true;
-        if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
-        showStatus('film.html 当前无法解析。已暂停编辑；修复后重新载入。','error');
+      else if(r&&!r.ok&&r.exists===true){
+        if(!S.broken||(r.rev&&r.rev!==S.rev))renderBrokenFilmState(r);
       }
     },1600);
   };
@@ -1845,7 +1867,7 @@
     try{
       result=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));
     }catch(_){return false;}
-    if(!result||!result.ok||!result.exists||!selector||selector.value!==projectId||S.open)return false;
+    if(!result||result.exists!==true||!selector||selector.value!==projectId||S.open)return false;
     window.filmStudioToggle();
     return true;
   };
