@@ -47,7 +47,8 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "MEDIA_ERR_DECODE" in event_helpers
     assert event_wait.index("element.addEventListener(eventName,finish") < event_wait.index("if(eventAlreadySatisfied(element,eventName))") < event_wait.index("timer=setTimeout(timeout")
     assert "function timeout(){" in event_wait
-    assert event_wait.index("if(eventAlreadySatisfied(element,eventName))", event_wait.index("function timeout(){")) < event_wait.index("fail('等待媒体事件 "+'"+eventName+" + "' 超时：')", event_wait.index("function timeout(){"))
+    timeout_body = event_wait[event_wait.index("function timeout(){"):]
+    assert timeout_body.index("if(eventAlreadySatisfied(element,eventName))") < timeout_body.index("fail('等待媒体事件 '+eventName+' 超时：');")
     assert 'clip["source_fps"] = _source_video_fps(project_id, raw_path)' in render
     assert "def _source_video_fps(project_id: str, raw_path: str)" in render
     assert "Promise.race" not in prepare
