@@ -140,6 +140,27 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert director_context["context"]["revision"] == fd.read_project_film(project_id)["rev"]
                 assert director_context["context"]["selection"]["id"] == "clip-a"
                 assert director_context["context"]["selection"]["ids"] == ["clip-a"]
+                store_state = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const snapshot = store && store.getSnapshot();
+                  const node = document.querySelector("#fs-react-film-store-state");
+                  return {
+                    projectId: snapshot?.projectId,
+                    revision: snapshot?.revision,
+                    selectedId: snapshot?.selectedId,
+                    selectedIds: snapshot?.selectedIds,
+                    domRevision: node?.dataset.filmRevision,
+                    domSelectedId: node?.dataset.selectedClip,
+                    transactionKind: node?.dataset.pendingTransactionKind,
+                  };
+                }""")
+                assert store_state["projectId"] == project_id, store_state
+                assert store_state["revision"] == fd.read_project_film(project_id)["rev"], store_state
+                assert store_state["domRevision"] == store_state["revision"], store_state
+                assert store_state["selectedId"] == "clip-a", store_state
+                assert store_state["selectedIds"] == ["clip-a"], store_state
+                assert store_state["domSelectedId"] == "clip-a", store_state
+                assert store_state["transactionKind"] == "", store_state
                 page.wait_for_function(
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )

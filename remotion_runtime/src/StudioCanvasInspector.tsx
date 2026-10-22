@@ -1,6 +1,7 @@
-import React, {useEffect, useLayoutEffect, useRef, useState} from "react";
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
 import {filmTimelineMath, type FilmTimelineMathBridge} from "./film-timeline-math";
+import {filmStore, type FilmStudioStoreBridge} from "./film-store";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
@@ -236,6 +237,7 @@ declare global {
     filmStudioSeek?: (value: string | number) => void;
     filmStudioJumpToKeyframe?: (clipId: string, at: number) => void;
     filmStudioTimelineMath?: FilmTimelineMathBridge;
+    filmStudioStore?: FilmStudioStoreBridge;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
     filmStudioReactTimeline?: FilmStudioReactTimelineBridge;
     filmStudioReactAi?: FilmStudioReactAiBridge;
@@ -884,6 +886,7 @@ const StudioToolbar: React.FC = () => (
 );
 
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
+  const filmSnapshot=useSyncExternalStore(filmStore.subscribe,filmStore.getSnapshot,filmStore.getSnapshot);
   const activePointerId = useRef<number | null>(null);
   useLayoutEffect(() => {
     const ownsPointer = (pointerId:number) => activePointerId.current === pointerId;
@@ -927,7 +930,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         <div className="fs-track-body" style={{width:model.laneWidth}}>
           {track.clips.map((clip) => (
             <div
-              className={"fs-clip" + (clip.selected ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "")}
+              className={"fs-clip" + (filmSnapshot.selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "")}
               data-clip={clip.id}
               data-clip-locked={clip.locked ? "true" : "false"}
               data-track={clip.trackId}
@@ -1229,6 +1232,7 @@ const studioPortal = (targetId: string, child: React.ReactNode): React.ReactPort
  * from racing over the same editor state or remounting shared surfaces.
  */
 const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+  const filmSnapshot=useSyncExternalStore(filmStore.subscribe,filmStore.getSnapshot,filmStore.getSnapshot);
   const clip = state.clipInspector;
   const clipKey = clip
     ? clip.id + ":" + JSON.stringify(clip.attrs || {})
@@ -1236,6 +1240,18 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
   const element = state.canvasElement;
   return (
     <>
+      <div id="fs-react-film-store-state" hidden aria-hidden="true"
+        data-film-project-id={filmSnapshot.projectId}
+        data-film-revision={filmSnapshot.revision}
+        data-selected-clip={filmSnapshot.selectedId}
+        data-selected-clips={filmSnapshot.selectedIds.join(",")}
+        data-pending-revision={filmSnapshot.pendingExternalRevision}
+        data-busy={filmSnapshot.busy ? "true" : "false"}
+        data-broken={filmSnapshot.broken ? "true" : "false"}
+        data-pending-transaction-kind={filmSnapshot.pendingTransaction?.kind || ""}
+        data-pending-transaction-base={filmSnapshot.pendingTransaction?.baseRevision || ""}
+        data-pending-transaction-operation-count={String(filmSnapshot.pendingTransaction?.operationCount || 0)}
+      />
       {state.assets ? studioPortal("fs-assets-list", <StudioAssets model={state.assets} />) : null}
       {state.timeline ? studioPortal("fs-timeline", <TimelineSurface model={state.timeline} />) : null}
       {state.toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
