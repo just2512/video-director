@@ -2107,3 +2107,109 @@ def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim()
     assert keyframes[-1]["at"] == 5
     assert all(point["at"] <= 5 for point in keyframes)
     assert not fd.validate_film(fd.serialize_film(trimmed))
+
+
+def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim():
+    doc = fd.parse_film(SAMPLE)
+    channels = [{
+        "property": "opacity",
+        "keyframes": [
+            {"at": 0, "value": 0, "easing": "ease_in"},
+            {"at": 4, "value": 1, "easing": "ease_out"},
+            {"at": 8, "value": 0.5, "easing": "linear"},
+            {"at": 10, "value": 1, "easing": "ease_in_out"},
+        ],
+    }]
+    source, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
+    ])
+    split, _ = fd.apply_ops(source, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-keyframe-right"},
+    ])
+    by_id = {clip["id"]: clip for track in split["tracks"] for clip in track["clips"]}
+    left = json.loads(by_id["clip-a"]["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    right = json.loads(by_id["clip-a-keyframe-right"]["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    assert left[0]["at"] == 0 and left[-1]["at"] == 2
+    assert right[0]["at"] == 0 and right[0]["value"] == pytest.approx(0.25)
+    assert any(isinstance(point.get("easing"), dict) and point["easing"].get("type") == "window" for point in right)
+    assert not fd.validate_film(fd.serialize_film(split))
+
+    trimmed, _ = fd.apply_ops(source, [
+        {"op": "trim", "clip": "clip-a", "edge": "start", "at": 2},
+        {"op": "trim", "clip": "clip-a", "edge": "end", "end": 7},
+    ])
+    clip = next(c for track in trimmed["tracks"] for c in track["clips"] if c["id"] == "clip-a")
+    keyframes = json.loads(clip["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    assert keyframes[0]["at"] == 0 and keyframes[0]["value"] == pytest.approx(0.25)
+    assert keyframes[-1]["at"] == 5
+    assert all(point["at"] <= 5 for point in keyframes)
+    assert not fd.validate_film(fd.serialize_film(trimmed))
+
+
+def test_keyframe_window_easing_is_endpoint_normalized_and_roundtrips():
+    window = {"type": "window", "preset": "ease_in", "start": 0.5, "end": 1.0}
+    # E(t)=t², normalized to the residual interval [0.5, 1]: at half progress,
+    # (E(0.75)-E(0.5))/(E(1)-E(0.5)) = (0.5625-0.25)/0.75.
+    assert fd._film_keyframe_ease(0.5, window) == pytest.approx(5 / 12)
+    doc = fd.parse_film(SAMPLE)
+    updated, _ = fd.apply_ops(doc, [{
+        "op": "set", "clip": "clip-a", "field": "data-film-keyframes",
+        "value": [{"property": "opacity", "keyframes": [
+            {"at": 0, "value": 0, "easing": "linear"},
+            {"at": 4, "value": 1, "easing": window},
+        ]}],
+    }])
+    text_value = fd.serialize_film(updated)
+    assert not fd.validate_film(text_value)
+    assert window == json.loads(
+        next(c for t in fd.parse_film(text_value)["tracks"] for c in t["clips"] if c["id"] == "clip-a")
+        ["attrs"]["data-film-keyframes"]
+    )[0]["keyframes"][1]["easing"]
+
+
+def test_visual_keyframes_stay_inside_clip_after_roll_and_slide_trim():
+    doc = fd.parse_film(SAMPLE)
+    channels = [{
+        "property": "opacity",
+        "keyframes": [
+            {"at": 0, "value": 1, "easing": "linear"},
+            {"at": 2, "value": 0.5, "easing": "ease_in"},
+            {"at": 4, "value": 0.25, "easing": "ease_out"},
+            {"at": 8, "value": 1, "easing": "linear"},
+            {"at": 10, "value": 1, "easing": "linear"},
+        ],
+    }]
+    with_keys, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
+    ])
+    split, _ = fd.apply_ops(with_keys, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-keyframe-right"},
+    ])
+    rolled, _ = fd.apply_ops(split, [
+        {"op": "roll", "clip": "clip-a", "other_clip": "clip-a-keyframe-right", "delta": 0.5},
+    ])
+    right = next(c for t in rolled["tracks"] for c in t["clips"] if c["id"] == "clip-a-keyframe-right")
+    right_points = json.loads(right["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    assert max(point["at"] for point in right_points) <= fd.clip_duration(right) + 1e-6
+    assert not fd.validate_film(fd.serialize_film(rolled))
+
+    slide_doc = fd.parse_film(SLIDE_SAMPLE)
+    slide_keys, _ = fd.apply_ops(slide_doc, [
+        {"op": "set", "clip": "slide-left", "field": "data-film-keyframes",
+         "value": [{"property": "opacity", "keyframes": [
+             {"at": 0, "value": 1}, {"at": 2, "value": 0.5}, {"at": 4, "value": 0.8},
+         ]}]},
+        {"op": "set", "clip": "slide-right", "field": "data-film-keyframes",
+         "value": [{"property": "opacity", "keyframes": [
+             {"at": 0, "value": 0.2}, {"at": 2, "value": 0.8}, {"at": 4, "value": 1},
+         ]}]},
+    ])
+    slid, _ = fd.apply_ops(slide_keys, [
+        {"op": "slide", "clip": "slide-middle", "delta": 0.5},
+    ])
+    clips = {c["id"]: c for t in slid["tracks"] for c in t["clips"]}
+    for clip_id in ("slide-left", "slide-right"):
+        clip = clips[clip_id]
+        points = json.loads(clip["attrs"]["data-film-keyframes"])[0]["keyframes"]
+        assert max(point["at"] for point in points) <= fd.clip_duration(clip) + 1e-6
+    assert not fd.validate_film(fd.serialize_film(slid))
