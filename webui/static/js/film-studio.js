@@ -773,8 +773,11 @@
         event.preventDefault();event.stopPropagation();
         var clipId=marker.getAttribute('data-film-keyframe-marker'),clip=findClip(clipId);
         if(!clip)return;
-        if(window.filmStudioSelectClip)window.filmStudioSelectClip(clipId);
-        window.filmStudioSeek(Math.max(0,Number(clip.at)+Number(marker.getAttribute('data-keyframe-at')||0)));
+        var seekTo=Math.max(0,Number(clip.at)+Number(marker.getAttribute('data-keyframe-at')||0));
+        S.selectedId=clipId;S.selectedIds=[clipId];S.selectionAnchor=clipId;
+        syncClipSelectionVisual();renderInspector();renderAssets();
+        // Avoid a full Studio render while the native marker click is being dispatched.
+        window.filmStudioSeek(seekTo);
       },true);
     }
     $('fs-timeline').querySelectorAll('[data-clip]').forEach(function(el){

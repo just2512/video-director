@@ -69,15 +69,13 @@ def test_insert_ripple_rejects_locked_sync_tracks_unknown_crossing_duration_and_
             "op": "insert_ripple", "track_id": "video-main", "at": 2,
             "clip": {"id": "new-locked", "tag": "video", "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "0"}},
         }])
-    unknown = fd.parse_film(INSERT_SAMPLE.replace(
+    unknown_source = INSERT_SAMPLE.replace(
         '<video id="video-before" src="../assets/a.mp4#t=0,4" at="0"></video>',
         '<video id="video-before" src="../assets/a.mp4" at="0"></video>'
-    ))
-    with pytest.raises(fd.FilmError, match="时长未知"):
-        fd.apply_ops(unknown, [{
-            "op": "insert_ripple", "track_id": "video-main", "at": 2,
-            "clip": {"id": "new-unknown", "tag": "video", "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "0"}},
-        }])
+    )
+    # Unknown-duration clips fail document validation before insert-ripple can run.
+    with pytest.raises(fd.FilmError, match="必须使用 #t=in,out"):
+        fd.parse_film(unknown_source)
     with pytest.raises(fd.FilmError, match="时长"):
         fd.apply_ops(doc, [{
             "op": "insert_ripple", "track_id": "video-main", "at": 2,
@@ -453,7 +451,8 @@ def test_server_registers_external_film_watcher_for_open_projects():
     server = (root / "webui" / "server.py").read_text(encoding="utf-8")
     watcher = (root / "video_director" / "film_watch.py").read_text(encoding="utf-8")
     assert "_FILM_REVISION_WATCHER = get_film_watcher(sse_publish)" in server
-    assert '_FILM_REVISION_WATCHER.watch(pid, state.get("rev"))' in server
+    assert '_FILM_REVISION_WATCHER.watch(' in server
+    assert 'initial_text=state.get("text")' in server
     assert "settle_seconds" in watcher
     assert '"phase": phase' in watcher
 
@@ -774,7 +773,7 @@ def test_slide_trim_alt_shift_drag_and_ai_contract_are_wired():
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert "window.filmStudioToggleSlideMode" in script
-    assert "slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))" in script
+    assert "slideGesture=!!(!trim&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip)" in script
     assert 'data-film-action="slide-mode"' in index
     assert ".fs-btn.fs-slide-mode-active" in (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     assert "e.altKey&&e.shiftKey" in script
@@ -913,7 +912,7 @@ def test_slip_and_speed_preset_controls_are_wired_into_timeline():
     styles = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
-    assert "e.altKey&&(clip.tag==='video'||clip.tag==='audio')" in script
+    assert "slipGesture=!!(!trim&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip)" in script
     assert "field == \"slip\"" not in module  # slip is a first-class operation, not an inspector field
     assert 'data-speed-preset="'+"" in script
     assert ".fs-speed-chip-active" in styles
@@ -970,8 +969,10 @@ def test_film_studio_is_fullscreen_and_ai_dock_shares_inspector_column():
     assert 'id="fs-workspace-dock"' in index
     assert 'id="fs-side-inspector"' in index
     assert 'id="fs-side-ai"' in index
-    assert 'data-film-action="show-ai"' in index
-    assert 'data-film-action="show-inspector"' in index
+    assert 'id="fs-side-workbench"' in index
+    assert 'id="fs-side-divider"' in index
+    assert 'id="fs-side-inspector" role="region" aria-label="属性检查器"' in index
+    assert 'id="fs-side-ai" role="region" aria-label="AI 导演"' in index
     assert "fs-studio-expanded" in script
     assert "filmStudioSetSideMode" in script
     assert "position:fixed;inset:0" in styles
@@ -1373,8 +1374,10 @@ def test_canvas_inspector_submits_the_validated_element_set_operation():
     root = Path(__file__).resolve().parents[1]
     studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     document = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
-    assert "var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle}" in studio
-    assert "await filmStudioCommit([elementOp]);" in studio
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    assert "window.filmStudioCommitCanvasElement=async function(operation,options)" in studio
+    assert "result.operation, {allowInspectorDraft:true}" in component
+    assert "await filmStudioCommit([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''})" in studio
     assert 'if kind == "element_set":' in document
     assert "field:'overrides',value:JSON.stringify(overrides)" not in studio
 
@@ -1702,7 +1705,7 @@ def test_corrupt_non_utf8_history_is_reported_as_history_corrupt(tmp_path, monke
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "history-invalid-utf8"
     project = fd.config.project_dir(project_id)
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     history_path = fd._history_path(project_id)
     history_path.write_bytes(b"{\xff}")
     with pytest.raises(fd.FilmError) as error:
@@ -2083,6 +2086,7 @@ def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim_l
         ],
     }]
     source, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/a.mp4#t=2,26"},
         {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
     ])
     split, _ = fd.apply_ops(source, [
@@ -2120,6 +2124,7 @@ def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim()
         ],
     }]
     source, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/a.mp4#t=2,26"},
         {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
     ])
     split, _ = fd.apply_ops(source, [
@@ -2179,6 +2184,7 @@ def test_visual_keyframes_stay_inside_clip_after_roll_and_slide_trim():
         ],
     }]
     with_keys, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/a.mp4#t=2,22"},
         {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
     ])
     split, _ = fd.apply_ops(with_keys, [

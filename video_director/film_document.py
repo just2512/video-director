@@ -546,10 +546,10 @@ _FILM_HEAD_ATTRIBUTES = {
     "style": {"id", "class", "type", "media", "nonce"},
     "title": {"id", "class", "lang", "dir"},
 }
-_FILM_TRACK_STYLE_PROPERTIES = {"z-index"}
+_FILM_TRACK_STYLE_PROPERTIES = {"z-index", "pointer-events"}
 _FILM_CLIP_STYLE_PROPERTIES = {
     "left", "top", "width", "height", "rotate", "transform-origin",
-    "object-fit", "opacity", "clip-path", "z-index", "border-radius",
+    "object-fit", "opacity", "clip-path", "z-index", "border-radius", "pointer-events",
 }
 
 
@@ -571,7 +571,10 @@ def _film_style_issues(value: str, *, is_track: bool = False) -> list[str]:
         if not raw_value:
             issues.append(f"style 属性 {name!r} 缺少值")
             continue
-        if name in {"left", "top", "width", "height"}:
+        if name == "pointer-events":
+            if raw_value not in {"none", "auto"}:
+                issues.append("style 属性 'pointer-events' 只允许 none 或 auto")
+        elif name in {"left", "top", "width", "height"}:
             if not re.fullmatch(r"-?\d+(?:\.\d+)?px", raw_value, re.I):
                 issues.append(f"style 属性 {name!r} 必须使用 px 数值")
             elif name in {"width", "height"} and float(raw_value[:-2]) <= 0:
@@ -3449,20 +3452,23 @@ def _film_motion_recipe_keyframes(layer: dict, clip_duration: float) -> tuple[li
 
             easing = keyframe.easing or {"type": "linear", "mode": "in"}
             if isinstance(easing, dict):
-                easing = dict(easing)
                 easing_type = str(easing.get("type") or "linear")
                 easing_mode = str(easing.get("mode") or "in").lower().replace("_", "")
-                if easing_type not in {
-                    "linear", "quad", "cubic", "quart", "quint", "sine",
-                    "expo", "circ", "back", "elastic"
-                } or easing_mode not in {"in", "out", "inout"}:
+                mode_to_preset = {"in": "ease_in", "out": "ease_out", "inout": "ease_in_out"}
+                if easing_type == "linear" and easing_mode in {"in", "out", "inout"}:
+                    easing = "linear"
+                elif easing_type in {"quad", "cubic", "quart", "quint", "sine", "expo", "circ", "back", "elastic"} and easing_mode in mode_to_preset:
+                    easing = mode_to_preset[easing_mode]
+                    if easing_type not in {"quad"}:
+                        warnings.append(
+                            f"动效 {recipe_id} 的缓动曲线族 {easing_type}/{easing_mode} 超出 FilmRuntime 四种预设；"
+                            f"保留方向并近似为 {easing}"
+                        )
+                else:
                     warnings.append(
                         f"动效 {recipe_id} 的缓动 {easing_type}/{easing_mode} 不支持，改用线性"
                     )
                     easing = "linear"
-                elif easing_type == "back" and "overshoot" in parameters:
-                    easing["parameters"] = dict(easing.get("parameters") or {})
-                    easing["parameters"]["overshoot"] = parameters["overshoot"]
             elif easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
                 warnings.append(f"动效 {recipe_id} 的 easing 格式无效，改用线性")
                 easing = "linear"
@@ -4364,7 +4370,7 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
         mapped_contract_parts = []
         if contract_motion_temper in {"calm", "energetic", "cinematic"}:
             mapped_contract_parts.append("motion_temper")
-        if "safe_zone" in style_contract_source and "safe_zone" in subtitle_style:
+        if "safe_zone" in style_contract_source:
             mapped_contract_parts.append("safe_zone subtitle margins")
         if not raw_ir.get("subtitle_style"):
             if isinstance(style_contract_palette, dict) and any(
