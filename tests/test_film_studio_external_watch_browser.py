@@ -56,8 +56,16 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             page_errors: list[str] = []
             event_requests: list[str] = []
             film_edit_responses: list[str] = []
+            film_edit_requests: list[dict] = []
+            def capture_film_edit_request(request):
+                if request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        film_edit_requests.append(json.loads(request.post_data or "{}"))
+                    except (TypeError, ValueError):
+                        film_edit_requests.append({"_invalid_json": True})
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", lambda request: event_requests.append(request.url) if request.url.endswith("/api/events") else None)
+            page.on("request", capture_film_edit_request)
             page.on("response", lambda response: film_edit_responses.append(f"{response.status} {response.url}") if response.url.endswith("/api/editor/film/edit") else None)
             try:
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
@@ -221,6 +229,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 start_y = box["y"] + box["height"] * 0.5
                 # clip-b is five seconds long, so one fifth of its width is one timeline second.
                 delta_x = box["width"] / 5
+                edit_count_before_gesture = len(film_edit_requests)
                 page.mouse.move(start_x, start_y)
                 page.mouse.down()
                 page.mouse.move(start_x + delta_x, start_y, steps=6)
@@ -239,6 +248,39 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     for item in track["clips"] if item["id"] == "clip-b"
                 )
                 assert abs(float(moved_clip["attrs"]["at"]) - 6.0) < 0.15, moved_clip
+                gesture_requests = film_edit_requests[edit_count_before_gesture:]
+                assert len(gesture_requests) == 1, gesture_requests
+                assert len(gesture_requests[0].get("ops") or []) == 1, gesture_requests
+                assert gesture_requests[0]["ops"][0].get("op") == "move", gesture_requests
+                moved_left = clip.evaluate("(element) => element.style.left")
+
+                # A completed drag is exactly one history step: undo and redo
+                # must restore both authoritative film time and rendered geometry.
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function(
+                    "(expected) => { const node = document.querySelector('#fs-timeline .fs-clip[data-clip=\"clip-b\"]'); return !!node && node.style.left === expected; }",
+                    arg=original_left,
+                    timeout=10000,
+                )
+                undone_document = fd.read_project_film(project_id)
+                undone_clip = next(
+                    item for track in undone_document["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                assert abs(float(undone_clip["attrs"]["at"]) - 5.0) < 0.001, undone_clip
+
+                page.evaluate("window.filmStudioRedo()")
+                page.wait_for_function(
+                    "(expected) => { const node = document.querySelector('#fs-timeline .fs-clip[data-clip=\"clip-b\"]'); return !!node && node.style.left === expected; }",
+                    arg=moved_left,
+                    timeout=10000,
+                )
+                redone_document = fd.read_project_film(project_id)
+                redone_clip = next(
+                    item for track in redone_document["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                assert abs(float(redone_clip["attrs"]["at"]) - 6.0) < 0.15, redone_clip
 
                 # React pointercancel must clear the active gesture without committing.
                 before_cancel = fd.read_project_film(project_id)
