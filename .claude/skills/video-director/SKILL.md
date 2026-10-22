@@ -8,7 +8,7 @@ description: Create, inspect, recover, preview, render, and verify video-directo
 ## Operating rules
 
 - Work from the repository root and the Python environment used by the project.
-- Prefer the shared MCP Director tools for a new mixed-input creation request. Use CLI capabilities for existing-project edits; do not assume the legacy Python auto command is equivalent to the WebUI mixed-input Director flow.
+- Prefer the unified video-director MCP gateway for Director creation and active film.html editing. Use film.status / film.edit / film.validate / film.look / film.render for the authoritative film timeline; use the revision-checked CLI only as a fallback. Do not assume the legacy Python auto command is equivalent to the WebUI mixed-input Director flow.
 - Never report completion based only on a status string. Verify the output file exists, is non-empty, and the project's verification result supports delivery.
 - Preserve user input and provenance. Do not silently substitute generated visuals when the chosen source policy forbids generation or stock.
 - Use a human confirmation checkpoint when the request is ambiguous, references need interpretation, or the user asks to review a storyboard before rendering.
@@ -83,3 +83,26 @@ Do not call browser-only `ui.*` actions from the headless MCP server. These requ
 ## Existing-project editing
 
 Use creative.inspect to get project state, creative.plan to prepare an edit plan, creative.execute for a specific supported capability, creative.preview for draft rendering, creative.render for final rendering, and creative.verify before delivery. Avoid destructive edits without an explicit user request.
+
+
+## Authoritative film.html editing through the unified MCP gateway
+
+Register one local MCP server for both the Director workflow and the Studio film tools:
+
+    claude mcp add --transport stdio video-director -- python -m video_director.agent_gateway.mcp_server
+    codex mcp add video-director -- python -m video_director.agent_gateway.mcp_server
+
+The gateway advertises director.*, creative.*, and film.* tools. The standalone video-director-film MCP server is optional; do not require users to register both.
+
+For a new Director project:
+1. Call director.create, retain project_id and run_id, then poll director.status until the creation run reaches a terminal state. A returned project ID is not proof that film.html already exists.
+2. Call film.status. If exists is true, use the returned revision. If false and source_composition_available is true, inspect migration_preview and retain source_composition_version.
+3. Call film.initialize with the exact expected_composition_version. For multiple variants pass the explicitly chosen selected_variant_id. If it returns MIGRATION_WARNINGS_REQUIRE_CONFIRMATION, review the warnings first and retry with accept_warnings: true only when those limitations are acceptable. Never invent a variant or accept warnings blindly.
+
+For each edit to an active film:
+1. Call film.status immediately before planning the edit. Use stable IDs from its returned tracks/clips and the exact returned revision as base_revision.
+2. Submit the smallest film.edit operation batch. Keep original media immutable; use source-range/time attributes for trim, split, slip, roll, slide, and speed edits where supported.
+3. If the tool returns REVISION_CONFLICT, re-read status and rebuild the operation against the latest document. Never retry stale operations unchanged or overwrite the whole file to bypass a conflict.
+4. Call film.diff when the change needs inspection. For scene code changes, edit only the relevant project-local scenes/*.html file and honor the window.film.frame(t) / window.film.ready contract.
+
+Before delivery, run film.validate, then film.look and inspect its contact sheet and warnings, then film.render. Report the actual output path, rendered_revision, and QC warnings. Do not claim the export represents the latest timeline unless its revision matches a fresh film.status; a technical QC result does not replace human review of the video and audio.

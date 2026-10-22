@@ -1,6 +1,7 @@
 # Agent instructions for video-director
 
 Before editing a film project, read [docs/FILM_AGENT_MANUAL.md](docs/FILM_AGENT_MANUAL.md).
+- For MCP use, register python -m video_director.agent_gateway.mcp_server once; it exposes both Director tools and film.* timeline tools. Follow docs/agent-access.md for the revision-checked film.status → film.initialize (when needed) → film.edit → film.validate → film.look → film.render loop.
 
 - When `film.html` exists, it is the authoritative edit timeline. Do not create a second timeline or silently write changes back to CompositionIR.
 - Preserve stable clip IDs, original media files, and unrelated HTML text/comments.
