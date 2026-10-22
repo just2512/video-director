@@ -115,6 +115,7 @@ jobs:
           set -euo pipefail
           "$PY311_BIN/python3.11" -m pytest -q --tb=short \
             tests/test_film_document_contract.py \
+            tests/test_film_fps_metadata.py \
             tests/test_film_volume_keyframe_migration.py \
             tests/test_film_agent_cli.py \
             tests/test_film_full_pipeline_e2e.py \
