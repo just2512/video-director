@@ -72,3 +72,16 @@ def test_stable_react_timeline_nodes_do_not_accumulate_native_event_handlers():
     assert "if(el.__filmStudioRulerBound)return;" in studio
     assert "if(canvas.__filmStudioEnvelopeBound)return;" in studio
     assert "var clip=findClip(canvas.getAttribute('data-envelope-clip'));" in studio
+
+
+def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_studio():
+    root = Path(__file__).resolve().parents[1]
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "window.filmStudioOpenIfCurrentProjectHasFilm = async function()" in studio
+    assert "selector.addEventListener('change'" in studio
+    assert "统一影片工作台" in html
+    assert "onPointerDown={event => window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget)}" in component
+    assert "onPointerMove={event => window.filmStudioMoveClipGesture?.(event.nativeEvent)}" in component
+    assert "onPointerUp={event => window.filmStudioEndClipGesture?.(event.nativeEvent)}" in component

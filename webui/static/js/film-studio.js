@@ -1729,6 +1729,28 @@
       }
     },1600);
   };
+  // A project with film.html has one authoritative editor. Selecting it opens
+  // Studio directly; legacy projects without film.html remain in the migration workspace.
+  window.filmStudioOpenIfCurrentProjectHasFilm = async function(){
+    var selector=$('editor-project');
+    var projectId=selector&&String(selector.value||'').trim();
+    if(!projectId||S.open||document.documentElement.classList.contains('fs-studio-open'))return false;
+    var result;
+    try{
+      result=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));
+    }catch(_){return false;}
+    if(!result||!result.ok||!result.exists||!selector||selector.value!==projectId||S.open)return false;
+    window.filmStudioToggle();
+    return true;
+  };
+  (function bindAuthoritativeProjectEntry(){
+    var selector=$('editor-project');
+    if(!selector||selector.__filmStudioAutoOpenBound)return;
+    selector.__filmStudioAutoOpenBound=true;
+    selector.addEventListener('change',function(){
+      void window.filmStudioOpenIfCurrentProjectHasFilm();
+    });
+  })();
   window.filmStudioClose=function(){
     if(hasUncommittedInspectorEdits()){
       if(!window.confirm('Inspector 中有未提交的属性草稿。退出 Studio 将放弃这些修改；是否继续？'))return;
