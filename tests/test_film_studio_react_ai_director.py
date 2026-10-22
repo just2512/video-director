@@ -27,6 +27,7 @@ def test_react_ai_director_keeps_the_existing_action_and_message_contract():
     assert "_FILM_AI_ACTIVE_STREAMS" in server
     assert "on_stream_open=on_stream_open, cancel_event=cancel_event" in server
     assert "stream.close()" in server
+    assert "len(_FILM_AI_CANCELLED_REQUESTS) > 2048" in server
     assert "request_id:requestId" in studio
     assert "window.filmStudioCancelAi({preserveSteer:true})" in studio
     assert "S.messages.push({text:String(text),role:role});" in studio

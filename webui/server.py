@@ -1139,6 +1139,13 @@ class Handler(BaseHTTPRequestHandler):
                         stream = active.get("stream")
                     else:
                         _FILM_AI_CANCELLED_REQUESTS[key] = now
+                        # A cancel can arrive before the generation request is registered.
+                        # Keep short-lived tombstones for that race, but cap memory even if
+                        # a local client repeatedly sends fresh cancellation IDs.
+                        if len(_FILM_AI_CANCELLED_REQUESTS) > 2048:
+                            oldest = sorted(_FILM_AI_CANCELLED_REQUESTS.items(), key=lambda item: item[1])
+                            for expired_key, _ in oldest[:len(_FILM_AI_CANCELLED_REQUESTS) - 2048]:
+                                _FILM_AI_CANCELLED_REQUESTS.pop(expired_key, None)
                 if stream is not None:
                     try:
                         stream.close()
