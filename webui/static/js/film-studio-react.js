@@ -23931,6 +23931,19 @@
       this.listeners.add(listener);
       return () => this.listeners.delete(listener);
     };
+    dispatchTransaction(context, submitter) {
+      if (this.snapshot.busy) {
+        return Promise.reject(new Error("FILM_TRANSACTION_BUSY"));
+      }
+      const pending = asPendingTransaction(context);
+      if (!pending || !pending.kind || !pending.baseRevision) {
+        return Promise.reject(new Error("FILM_TRANSACTION_CONTEXT_INVALID"));
+      }
+      this.publish({ ...this.snapshot, busy: true, pendingTransaction: pending });
+      return Promise.resolve().then(submitter).finally(() => {
+        this.publish({ ...this.snapshot, busy: false, pendingTransaction: null });
+      });
+    }
     publish(snapshot) {
       this.snapshot = snapshot;
       for (const listener of Array.from(this.listeners)) listener();
