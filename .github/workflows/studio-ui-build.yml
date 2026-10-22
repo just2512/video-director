@@ -141,6 +141,7 @@ jobs:
             tests/test_film_studio_canvas_history_browser.py \
             tests/test_film_studio_pending_revision.py \
             tests/test_film_studio_roll_browser.py \
+            tests/test_film_studio_insert_browser.py \
             tests/test_film_studio_external_watch_browser.py \
             tests/test_film_studio_react_clip_inspector.py \
             tests/test_film_studio_react_fallback.py \
