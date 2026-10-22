@@ -332,12 +332,18 @@ async function edLibLoad(){
       const kind = sub;
       const lib = await apiGet(kind === 'bgm' ? '/api/bgm' : '/api/sfx');
       const list = Array.isArray(lib) ? lib : [];
-      box.innerHTML = list.length ? list.map(a =>
+      // 差距 2a：BGM 面板接「自动配乐」→ music.auto_match Action（后端
+      // _execute_music_match 真实存在：按项目风格选本地 BGM 入轨）。
+      const autoMatchBtn = kind === 'bgm'
+        ? '<div class="btn-row" style="margin-bottom:6px"><button class="btn-sm" onclick="edLibAutoMatchBgm()">自动配乐</button>' +
+          '<span class="hint">按项目风格从本地音乐库自动选一首并加入时间线</span></div>'
+        : '';
+      box.innerHTML = autoMatchBtn + (list.length ? list.map(a =>
         `<div class="proj-row"><span><b>${esc(a.label || a.id)}</b><span class="hint">${esc(a.id)}</span></span>`+
         `<span class="btn-row">`+
         `<button class="btn-secondary btn-sm" onclick="edLibAudioTry('${esc(a.id)}')">试听</button>`+
         `<button class="btn-sm" onclick="edLibAudioApply('${kind}','${esc(a.id)}')">应用</button></span></div>`).join('')
-        : '<div class="hint">音频库为空（可在设置上传本地音乐）</div>';
+        : '<div class="hint">音频库为空（可在设置上传本地音乐）</div>');
     }
     // ---- 参考域 ----
     else if (sub === 'references') {
@@ -384,6 +390,15 @@ async function edLibBulkDeleteAssets(){
   editorToast('已删除 '+(r.deleted||ids).length+' 个未使用素材');
 }
 
+async function edLibAutoMatchBgm(){
+  // 差距 2a：BGM 面板「自动配乐」→ music.auto_match（后端 _execute_music_match
+  // 按项目风格选本地 BGM 入轨）；音乐库为空时后端返回 MUSIC_UNAVAILABLE 诚实报错。
+  const r = await executeAction('music.auto_match', {}, 'project');
+  if (r && r.ok) {
+    const aid = ((r.result || {}).asset_id) || '';
+    if (aid) editorToast('已自动配乐：' + aid + '（可在「整体调音」调整音量）');
+  }
+}
 function edLibApplyAsset(assetId){
   // §82 唯一通路：Asset Picker「应用到选中层」→ executeAction(asset.replace)
   if (!SEL.selection || SEL.selection.type !== 'layer') {
@@ -869,7 +884,7 @@ async function editorApplyShot(sceneId, recipeId){
 Object.assign(window, {
   LIB_DOMAINS, edLibDomain, edLibSub, edLibNav, edLibLoad,
   pickerOpen, pickerPreviewStage, pickerCancel, pickerApply,
-  edLibApplyAsset, edLibApplyMotion, applyTransitionToPair, applyRegistryStyle,
+  edLibAutoMatchBgm, edLibApplyAsset, edLibApplyMotion, applyTransitionToPair, applyRegistryStyle,
   edLibStockSearch,
   edLibOpenTemplate, instantiateTemplate, AP,
   directorRefreshContext, directorLoadCapCount, directorRenderPlan, directorLoadRun, directorLoadLatestRun, directorExecute,

@@ -71,7 +71,7 @@ UI_ONLY_PREFIXES = (
     # Inspector 表单收集器（读输入框收集 → 内部 executeAction）
     "editorApplyMask(", "editorSubtitleWhiteOnBlack(",
     # Library Picker 采用按钮（收集器：内部 executeAction）
-    "edLibApplyAsset(", "edLibAudioApply(",
+    "edLibApplyAsset(", "edLibAutoMatchBgm(", "edLibAudioApply(",
     # 项目域 ··· 菜单/发布变体/版本对比（UI 状态，无 Composition 业务）
     "pmRowMenu(", "publishVariants(", "verCompareSelected(",
     # ··· 菜单项 = pmCloseRowMenu() + 已白名单项目域动作（关闭浮层 + 委托）

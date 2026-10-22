@@ -437,6 +437,12 @@ def _execute_material_motion(project_id: str, tool: str, payload: dict, target_i
 
 def _execute_generation(project_id: str, tool: str, payload: dict, target_id) -> dict:
     """生成域能力：统一走 generation.generate（§28 单一 Generation Provider）。"""
+    # 差距 2a：generation.sfx 没有合成音 provider（generation.py 诚实不可用），
+    # 但 openverse_sfx 有真实搜索+下载+入库链（freesound CC0，免 Key）。
+    # sfx 走这条已上生产链的通道实现「搜索音效」，不伪造 AI 生成；
+    # 网络/限频失败如实报错，前端文案明确写「搜索」不写「AI 生成」。
+    if tool == "generation.sfx":
+        return _execute_sfx_search(project_id, payload)
     from video_director import generation as gen
     gen_type = tool.split(".")[-1]  # image / video / sfx / music
     prompt = payload.get("prompt", "")
@@ -488,6 +494,54 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
                            error=f"生成成功，但采用到时间线失败：{exc}")
     return _result(tool, True, "APPLIED",
                    result={"results": records, "adopted": adopted})
+
+
+def _execute_sfx_search(project_id: str, payload: dict) -> dict:
+    """差距 2a：音效「生成」→ Openverse CC0 真实搜索下载入库（诚实边界）。
+
+    系统没有音效合成 provider（generation.py SUPPORTED_TYPES 不含 sfx），
+    这里的实现是搜索（freesound CC0，免 Key），不是 AI 生成——前端/Agent
+    声明一律写「搜索音效」。查询词走 payload.prompt（如「whoosh 转场」），
+    语义类别映射沿用 openverse_sfx.CATEGORY_QUERY（whoosh/impact/click），
+    命中已知类别词时走 ensure_sfx_for_category 的既有入库链。
+    """
+    from video_director import openverse_sfx as ov
+    prompt = str(payload.get("prompt") or "").strip()
+    if not prompt:
+        return _result("generation.sfx", False, "INVALID_PAYLOAD",
+                       error="搜索音效缺关键词（prompt）")
+    # 提示词 → 已知语义类别（英文类别词直接命中；中文提示词原样作为自由查询
+    # 交给 search_sfx——Openverse 索引以英文为主，中文无结果时诚实报无结果）
+    lowered = prompt.lower()
+    category = None
+    for known in ov.CATEGORY_QUERY:
+        if known in lowered:
+            category = known
+            break
+    matched_id = None
+    try:
+        if category:
+            matched_id = ov.ensure_sfx_for_category(category)
+        else:
+            candidates = ov.search_sfx(prompt)
+            usable = [c for c in candidates
+                      if c["duration_sec"] is None or 0.2 <= c["duration_sec"] <= 15.0]
+            for cand in (usable or candidates)[:3]:
+                # 自由查询没有语义类别，category 位置放提示词首词作 manifest tag
+                tag = (prompt.split()[0] if prompt.split() else "sfx")[:20]
+                matched_id = ov.download_sfx(cand, tag)
+                if matched_id:
+                    break
+    except ov.OpenverseError as exc:
+        return _result("generation.sfx", False, "SFX_SEARCH_UNAVAILABLE",
+                       error=f"音效搜索不可用（免 Key 限频/网络）：{exc}")
+    if not matched_id:
+        return _result("generation.sfx", False, "NO_RESULT",
+                       error=f"未搜到可用 CC0 音效：{prompt}")
+    return _result("generation.sfx", True, "APPLIED",
+                   result={"asset_id": matched_id, "query": prompt,
+                           "searched": True, "note": "来自 Openverse/freesound CC0 搜索，非 AI 合成"},
+                   verify={"ok": True, "note": f"音效已入库：{matched_id}"})
 
 
 def _execute_render(project_id: str, tool: str, payload: dict, target_id) -> dict:

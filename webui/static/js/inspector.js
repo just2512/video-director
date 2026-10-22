@@ -314,6 +314,7 @@ function _sceneGenBox(sceneId){
             <option value="graphic">图形（程序化）</option>
             <option value="video">视频</option>
             <option value="motion">艺术动画</option>
+            <option value="sfx">音效（搜索）</option>
           </select>
           <select id="gen-grammar" style="width:150px;display:none"
                   onchange="onMotionGrammarChanged()"></select>

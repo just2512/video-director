@@ -3938,6 +3938,27 @@ class Handler(BaseHTTPRequestHandler):
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
+            # 差距 2a：音效类型 → 走 Openverse CC0 搜索链（tool_executor
+            # _execute_sfx_search），generation.generate 对 sfx 诚实不可用。
+            # 诚实边界：这是搜索下载，不是 AI 合成——前端文案同为「搜索音效」。
+            if payload.get("type") == "sfx":
+                from video_director import tool_executor as vd_te
+                res = vd_te.execute_tool(pid, {
+                    "tool": "generation.sfx",
+                    "targetId": "",
+                    "payload": {"prompt": payload.get("prompt", "")},
+                })
+                if res.get("ok"):
+                    self._send_json({"ok": True, "results": [{
+                        "asset_id": (res.get("result") or {}).get("asset_id", ""),
+                        "variant": "A", "type": "sfx",
+                        "file": "", "input_fingerprint": "",
+                        "output_fingerprint": "", "provider_id": "openverse-search",
+                    }], "note": (res.get("result") or {}).get("note", "")})
+                else:
+                    self._send_json({"ok": False, "error": res.get("error") or "音效搜索失败",
+                                     "code": res.get("status")}, 503)
+                return
             try:
                 from video_director import generation as vd_generation
                 results = vd_generation.generate(

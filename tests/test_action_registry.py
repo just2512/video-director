@@ -168,11 +168,15 @@ class TestSystemContext:
     def test_system_context_hides_unwired_actions(self):
         """三层注册但前端/服务端零入口的能力不得向 Agent 声明——
         否则 Agent 读 system_context 会派发全部打空的能力。
-        已接线的 generate.image 必须保留（防止过度过滤）。"""
+        差距 2a：generate.sfx（Openverse 搜索链）与 music.auto_match（BGM 面板
+        按钮）已接真实入口，恢复声明并锁住；delivery.generate_metadata 仍占位
+        （capability=system.capabilities.list，真无实现），保持摘除。"""
         actions = ar.system_context()["actions"]
-        for unwired in ("generate.sfx", "music.auto_match",
-                        "delivery.generate_metadata"):
-            assert unwired not in actions, f"{unwired} 零接线，不应暴露给 Agent"
+        assert "delivery.generate_metadata" not in actions, \
+            "delivery.generate_metadata 无真实实现，不应暴露给 Agent"
+        # 恢复锁：已接线能力不得被误过滤
+        for wired in ("generate.sfx", "music.auto_match"):
+            assert wired in actions, f"{wired} 已接线，必须暴露给 Agent"
         assert "generate.image" in actions, "已接线能力不得被误过滤"
 
     def test_unwired_actions_still_registered_for_frontend(self):
