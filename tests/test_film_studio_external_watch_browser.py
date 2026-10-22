@@ -57,6 +57,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             event_requests: list[str] = []
             film_edit_responses: list[str] = []
             film_edit_requests: list[dict] = []
+            film_render_requests: list[str] = []
             def capture_film_edit_request(request):
                 if request.url.endswith("/api/editor/film/edit"):
                     try:
@@ -66,6 +67,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", lambda request: event_requests.append(request.url) if request.url.endswith("/api/events") else None)
             page.on("request", capture_film_edit_request)
+            page.on("request", lambda request: film_render_requests.append(request.url) if request.url.endswith("/api/editor/film/render") else None)
             page.on("response", lambda response: film_edit_responses.append(f"{response.status} {response.url}") if response.url.endswith("/api/editor/film/edit") else None)
             try:
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
@@ -419,12 +421,15 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 # Exercise the same delegated render action deterministically after
                 # verifying the dirty-form gate above; a React toolbar rerender must
                 # not make this assertion depend on which visible toolbar node won.
-                page.evaluate("window.filmStudioRender()")
-                page.wait_for_function(
-                    "() => { const alert = document.querySelector('#film-studio-alert'); "
-                    "return !!alert && alert.textContent.includes('避免输出旧 revision'); }",
-                    timeout=5000,
-                )
+                render_status = page.evaluate("""() => {
+                  window.filmStudioRender();
+                  return document.querySelector('#film-studio-alert')?.textContent || '';
+                }""")
+                assert "避免输出旧 revision" in render_status, {
+                    "status": render_status,
+                    "render_requests": film_render_requests,
+                }
+                assert film_render_requests == [], film_render_requests
                 assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
 
                 # Attempting a project switch is rejected before S.data is cleared.
