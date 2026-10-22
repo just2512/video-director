@@ -315,6 +315,23 @@
     }
     target.style.clipPath=polygonFromVertices(vertices);
   }
+  function filmBezierEase(progress,curve){
+    var x=clamp(progress,0,1),x1=clamp(finite(curve&&curve.x1,0.25),0,1),
+        y1=clamp(finite(curve&&curve.y1,0.1),0,1),
+        x2=clamp(finite(curve&&curve.x2,0.25),0,1),
+        y2=clamp(finite(curve&&curve.y2,1),0,1);
+    function cubic(t,a,b){
+      var inverse=1-t;
+      return 3*inverse*inverse*t*a+3*inverse*t*t*b+t*t*t;
+    }
+    if(x<=0||x>=1)return x;
+    var low=0,high=1;
+    for(var i=0;i<28;i++){
+      var middle=(low+high)*0.5;
+      if(cubic(middle,x1,x2)<x)low=middle;else high=middle;
+    }
+    return clamp(cubic((low+high)*0.5,y1,y2),0,1);
+  }
   function filmEase(value,mode){
     var x=clamp(value,0,1);
     if(typeof mode==='string'){
@@ -325,13 +342,16 @@
     }
     if(!mode||typeof mode!=='object')return x;
     var type=String(mode.type||'linear');
+    if(type==='bezier'){
+      return filmBezierEase(x,mode);
+    }
     if(type==='window'){
-      var preset=String(mode.preset||'linear');
+      var base=mode.curve&&mode.curve.type==='bezier'?mode.curve:String(mode.preset||'linear');
       var windowStart=clamp(finite(mode.start,0),0,1),windowEnd=clamp(finite(mode.end,1),0,1);
       if(windowEnd<=windowStart)return x;
-      var low=filmEase(windowStart,preset),high=filmEase(windowEnd,preset);
+      var low=filmEase(windowStart,base),high=filmEase(windowEnd,base);
       if(Math.abs(high-low)<1e-12)return x;
-      return clamp((filmEase(windowStart+(windowEnd-windowStart)*x,preset)-low)/(high-low),0,1);
+      return clamp((filmEase(windowStart+(windowEnd-windowStart)*x,base)-low)/(high-low),0,1);
     }
     var direction=String(mode.mode||'in').toLowerCase().replace(/_/g,'');
     var params=mode.parameters||{};

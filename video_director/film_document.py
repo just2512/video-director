@@ -361,7 +361,7 @@ def _slice_volume_envelope(attrs: dict, old_start: float, old_end: float) -> Non
 
 
 def _film_keyframe_ease(value: float, easing: Any) -> float:
-    """Evaluate a keyframe easing preset, including a preserved sub-window."""
+    """Evaluate preset, cubic Bezier, and curve-preserving window keyframe easing."""
     x = min(1.0, max(0.0, float(value)))
 
     def preset_eval(progress: float, preset: str) -> float:
@@ -374,15 +374,43 @@ def _film_keyframe_ease(value: float, easing: Any) -> float:
             return 2.0 * t * t if t < 0.5 else 1.0 - ((-2.0 * t + 2.0) ** 2) / 2.0
         return t
 
+    def bezier_eval(progress: float, curve: dict) -> float:
+        target = min(1.0, max(0.0, float(progress)))
+        x1, y1, x2, y2 = (float(curve[key]) for key in ("x1", "y1", "x2", "y2"))
+
+        def cubic(t: float, first: float, second: float) -> float:
+            inverse = 1.0 - t
+            return 3.0 * inverse * inverse * t * first + 3.0 * inverse * t * t * second + t * t * t
+
+        if target <= 0.0 or target >= 1.0:
+            return target
+        low, high = 0.0, 1.0
+        # Fixed bisection count matches the browser runtime and avoids Newton overshoot.
+        for _ in range(28):
+            middle = (low + high) * 0.5
+            if cubic(middle, x1, x2) < target:
+                low = middle
+            else:
+                high = middle
+        return min(1.0, max(0.0, cubic((low + high) * 0.5, y1, y2)))
+
+    def base_eval(progress: float, spec: Any) -> float:
+        if isinstance(spec, dict) and spec.get("type") == "bezier":
+            return bezier_eval(progress, spec)
+        return preset_eval(progress, str(spec or "linear"))
+
+    if isinstance(easing, dict) and easing.get("type") == "bezier":
+        return bezier_eval(x, easing)
     if isinstance(easing, dict) and easing.get("type") == "window":
-        preset = str(easing.get("preset") or "linear")
+        curve = easing.get("curve")
+        spec: Any = curve if isinstance(curve, dict) else str(easing.get("preset") or "linear")
         start = min(1.0, max(0.0, float(easing.get("start", 0.0))))
         end = min(1.0, max(0.0, float(easing.get("end", 1.0))))
-        left = preset_eval(start, preset)
-        right = preset_eval(end, preset)
+        left = base_eval(start, spec)
+        right = base_eval(end, spec)
         if end <= start or abs(right - left) <= 1e-12:
             return x
-        return min(1.0, max(0.0, (preset_eval(start + (end - start) * x, preset) - left) / (right - left)))
+        return min(1.0, max(0.0, (base_eval(start + (end - start) * x, spec) - left) / (right - left)))
     return preset_eval(x, str(easing or "linear"))
 
 
@@ -404,25 +432,28 @@ def _film_keyframe_value(points: list[dict], at: float) -> float:
 
 
 def _film_keyframe_window(easing: Any, start_ratio: float, end_ratio: float) -> Any:
-    """Represent a subinterval of an easing curve without changing its shape."""
+    """Represent a subinterval of a preset or cubic Bezier curve without changing it."""
     if end_ratio <= start_ratio + 1e-12:
         return "linear"
     if start_ratio <= 1e-9 and end_ratio >= 1.0 - 1e-9:
         return copy.deepcopy(easing if easing is not None else "linear")
     if isinstance(easing, dict) and easing.get("type") == "window":
-        preset = str(easing.get("preset") or "linear")
         base_start = float(easing.get("start", 0.0))
         base_end = float(easing.get("end", 1.0))
+        base_spec: Any = copy.deepcopy(easing.get("curve")) if isinstance(easing.get("curve"), dict) else str(easing.get("preset") or "linear")
+    elif isinstance(easing, dict) and easing.get("type") == "bezier":
+        base_start, base_end, base_spec = 0.0, 1.0, copy.deepcopy(easing)
     else:
-        preset = str(easing or "linear")
-        base_start, base_end = 0.0, 1.0
-    if preset == "linear":
+        base_start, base_end, base_spec = 0.0, 1.0, str(easing or "linear")
+    if base_spec == "linear":
         return "linear"
     start = base_start + (base_end - base_start) * start_ratio
     end = base_start + (base_end - base_start) * end_ratio
     if start <= 1e-9 and end >= 1.0 - 1e-9:
-        return preset
-    return {"type": "window", "preset": preset, "start": round(start, 9), "end": round(end, 9)}
+        return copy.deepcopy(base_spec)
+    if isinstance(base_spec, dict) and base_spec.get("type") == "bezier":
+        return {"type": "window", "curve": base_spec, "start": round(start, 9), "end": round(end, 9)}
+    return {"type": "window", "preset": base_spec, "start": round(start, 9), "end": round(end, 9)}
 
 
 def _slice_film_keyframes(attrs: dict, old_start: float, old_end: float) -> None:
@@ -793,14 +824,34 @@ def _film_runtime_metadata_issues(clip: dict) -> list[str]:
                         if raw_easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
                             raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 不支持缓动 " + raw_easing, 422)
                     elif isinstance(raw_easing, dict):
-                        if set(raw_easing) != {"type", "preset", "start", "end"} or raw_easing.get("type") != "window":
-                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动结构无效", 422)
-                        if raw_easing.get("preset") not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
-                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动预设无效", 422)
-                        window_start = _number(raw_easing.get("start"), prop + ".easing.start", 0, 1)
-                        window_end = _number(raw_easing.get("end"), prop + ".easing.end", 0, 1)
-                        if window_end <= window_start:
-                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动区间必须递增", 422)
+                        easing_type = raw_easing.get("type")
+                        if easing_type == "bezier":
+                            if set(raw_easing) != {"type", "x1", "y1", "x2", "y2"}:
+                                raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的贝塞尔缓动结构无效", 422)
+                            controls = {key: _number(raw_easing.get(key), prop + ".easing." + key, 0, 1)
+                                       for key in ("x1", "y1", "x2", "y2")}
+                            if controls["x1"] > controls["x2"]:
+                                raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的贝塞尔控制点必须满足 x1 <= x2", 422)
+                        elif easing_type == "window":
+                            if set(raw_easing) == {"type", "curve", "start", "end"}:
+                                curve = raw_easing.get("curve")
+                                if not isinstance(curve, dict) or curve.get("type") != "bezier" or set(curve) != {"type", "x1", "y1", "x2", "y2"}:
+                                    raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的贝塞尔曲线分段结构无效", 422)
+                                controls = {key: _number(curve.get(key), prop + ".easing.curve." + key, 0, 1)
+                                            for key in ("x1", "y1", "x2", "y2")}
+                                if controls["x1"] > controls["x2"]:
+                                    raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的贝塞尔控制点必须满足 x1 <= x2", 422)
+                            elif set(raw_easing) == {"type", "preset", "start", "end"}:
+                                if raw_easing.get("preset") not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                                    raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动预设无效", 422)
+                            else:
+                                raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动结构无效", 422)
+                            window_start = _number(raw_easing.get("start"), prop + ".easing.start", 0, 1)
+                            window_end = _number(raw_easing.get("end"), prop + ".easing.end", 0, 1)
+                            if window_end <= window_start:
+                                raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动区间必须递增", 422)
+                        else:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的缓动结构类型无效", 422)
                     else:
                         raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的缓动格式无效", 422)
                     last_at = at
@@ -5481,7 +5532,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
-        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。film_keyframes 是当前片段 data-film-keyframes 的完整通用视觉通道；set data-film-keyframes 会覆盖整组通道，因此修改时必须保留所有未被用户要求变更的现有 property 通道及其关键帧，不得静默清空其他动画。data-film-keyframes 是仅用于 video/img/iframe 视觉片段的通用属性关键帧数组，形如 [{property:'opacity',keyframes:[{at:0,value:0,easing:'ease_in'},{at:1,value:1,easing:'ease_out'}]}]；audio 片段不能写此字段，音频自动化必须使用 volume_envelope；at 是剪辑相对秒数，属性仅限 x/y（0–1）、scale/scale_x/scale_y/camera_scale（0.1–5）、rotation（-3600–3600）、opacity（0–1）、blur（0–100）、camera_x/camera_y（0–1）、offset_x/offset_y（-10000–10000）；easing 仅 linear/ease_in/ease_out/ease_in_out。切入/切出 eased segment 时，后端可能生成 {type:'window',preset,start,end} 的裁切保真缓动对象；未要求改变曲线时必须原样保留。仅在用户明确要求视觉属性关键帧时修改，不要把关键帧时间当成全局时间。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
+        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。film_keyframes 是当前片段 data-film-keyframes 的完整通用视觉通道；set data-film-keyframes 会覆盖整组通道，因此修改时必须保留所有未被用户要求变更的现有 property 通道及其关键帧，不得静默清空其他动画。data-film-keyframes 是仅用于 video/img/iframe 视觉片段的通用属性关键帧数组，形如 [{property:'opacity',keyframes:[{at:0,value:0,easing:'ease_in'},{at:1,value:1,easing:'ease_out'}]}]；audio 片段不能写此字段，音频自动化必须使用 volume_envelope；at 是剪辑相对秒数，属性仅限 x/y（0–1）、scale/scale_x/scale_y/camera_scale（0.1–5）、rotation（-3600–3600）、opacity（0–1）、blur（0–100）、camera_x/camera_y（0–1）、offset_x/offset_y（-10000–10000）；easing 支持 linear/ease_in/ease_out/ease_in_out、三次贝塞尔 {type:'bezier',x1,y1,x2,y2}（控制值 0–1 且 x1<=x2），以及裁剪保真分段 {type:'window',preset,start,end} 或 {type:'window',curve:{type:'bezier',x1,y1,x2,y2},start,end}。切入/切出 eased segment 时，后端可能生成 window 曲线对象；未要求改变曲线时必须原样保留。仅在用户明确要求视觉属性关键帧时修改，不要把关键帧时间当成全局时间。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
         f"\n当前选中画布元素（只可操作这一项）：{json.dumps(selected_element, ensure_ascii=False, separators=(',', ':')) if selected_element else '无；不得使用 element_set'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"
