@@ -2213,3 +2213,37 @@ def test_visual_keyframes_stay_inside_clip_after_roll_and_slide_trim():
         points = json.loads(clip["attrs"]["data-film-keyframes"])[0]["keyframes"]
         assert max(point["at"] for point in points) <= fd.clip_duration(clip) + 1e-6
     assert not fd.validate_film(fd.serialize_film(slid))
+
+
+def test_ai_planner_context_includes_existing_visual_keyframe_channels():
+    doc = fd.parse_film(HTML_SCENE_SAMPLE)
+    channels = [{
+        "property": "opacity",
+        "keyframes": [
+            {"at": 0, "value": 0.2, "easing": "linear"},
+            {"at": 1, "value": 0.9, "easing": {
+                "type": "window", "preset": "ease_out", "start": 0.25, "end": 1.0,
+            }},
+        ],
+    }]
+    edited, _ = fd.apply_ops(doc, [{
+        "op": "set", "clip": "scene", "field": "data-film-keyframes", "value": channels,
+    }])
+    state = {"exists": True, "doc": edited}
+
+    class CaptureLLM:
+        prompt = ""
+
+        def generate(self, prompt):
+            self.prompt = prompt
+            return '{"summary":"保留现有动画","operations":[]}'
+
+    llm = CaptureLLM()
+    summary = {}
+    operations = fd.plan_film_command(llm, state, "不要改变现有关键帧", "scene", summary_out=summary)
+    clips_text = llm.prompt.split("\n当前片段：", 1)[1].split("\n用户指令：", 1)[0]
+    clips = json.loads(clips_text)
+    current = next(item for item in clips if item["id"] == "scene")
+    assert json.loads(current["film_keyframes"]) == channels
+    assert operations == []
+    assert summary["summary"] == "保留现有动画"
