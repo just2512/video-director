@@ -36,8 +36,10 @@ def test_blank_film_to_multitrack_mp4_with_html_scene_and_audio_mix(tmp_path, mo
     # Chromium builds on Linux are not guaranteed to ship an H.264 decoder;
     # VP8 is the broadest WebM baseline and keeps the browser seek path real.
     generate("-f", "lavfi", "-i", "color=c=0x203050:s=160x90:r=10:d=1",
-             "-an", "-c:v", "libvpx", "-pix_fmt", "yuv420p",
-             "-deadline", "realtime", "-cpu-used", "8", str(assets / "footage.webm"))
+             "-an", "-c:v", "libvpx", "-pix_fmt", "yuv420p", "-f", "webm",
+             "-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0",
+             "-auto-alt-ref", "0", "-g", "1", "-keyint_min", "1",
+             str(assets / "footage.webm"))
     for name, frequency in (("narration", 440), ("music", 110), ("sfx", 880)):
         generate("-f", "lavfi", "-i",
                  f"sine=frequency={frequency}:sample_rate=44100:duration=1",
