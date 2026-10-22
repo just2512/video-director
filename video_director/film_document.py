@@ -1583,6 +1583,8 @@ def _slide_trim(doc: dict, clip_id: str, delta: Any) -> dict:
             extended = [{"t": 0.0, "v": points[0]["v"]}]
             extended.extend({"t": point["t"] + extension, "v": point["v"]} for point in points)
             attrs[2]["volume_envelope"] = _normalize_volume_envelope(extended)
+    _slice_film_keyframes(attrs[0], 0.0, left_duration + amount)
+    _slice_film_keyframes(attrs[2], 0.0, right_duration - amount)
     return {"clip": clip_id, "left_clip": left["id"], "right_clip": right["id"], "delta": _fmt(amount)}
 
 
@@ -1645,6 +1647,8 @@ def _roll_trim(doc: dict, left_id: str, right_id: str, delta: Any) -> dict:
             extended = [{"t": 0.0, "v": points[0]["v"]}]
             extended.extend({"t": point["t"] + extension, "v": point["v"]} for point in points)
             right_attrs["volume_envelope"] = _normalize_volume_envelope(extended)
+    _slice_film_keyframes(left_attrs, 0.0, left_duration + amount)
+    _slice_film_keyframes(right_attrs, 0.0, right_duration - amount)
     return {"clip": left_id, "other_clip": right_id, "delta": _fmt(amount)}
 
 
