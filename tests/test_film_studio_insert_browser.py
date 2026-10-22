@@ -252,6 +252,34 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                       "kind": "asset-overwrite", "baseRevision": initial["rev"],
                       "operationCount": 1
                     }], dispatch_audit
+                    concurrent_attempt = page.evaluate("""async () => {
+                      const store = window.filmStudioStore;
+                      let submitterRan = false;
+                      try {
+                        await store.dispatchTransaction({
+                          kind: "concurrent-probe",
+                          baseRevision: store.getSnapshot().revision,
+                          operations: [],
+                          operationCount: 0,
+                        }, async () => {
+                          submitterRan = true;
+                          return true;
+                        });
+                        return {error: "", submitterRan, busy: store.getSnapshot().busy};
+                      } catch (error) {
+                        const snapshot = store.getSnapshot();
+                        return {
+                          error: String(error?.message || error),
+                          submitterRan,
+                          busy: snapshot.busy,
+                          pendingKind: snapshot.pendingTransaction?.kind || "",
+                        };
+                      }
+                    }""")
+                    assert concurrent_attempt["error"] == "FILM_TRANSACTION_BUSY", concurrent_attempt
+                    assert concurrent_attempt["submitterRan"] is False, concurrent_attempt
+                    assert concurrent_attempt["busy"] is True, concurrent_attempt
+                    assert concurrent_attempt["pendingKind"] == "asset-overwrite", concurrent_attempt
                 finally:
                     release_asset_insert.set()
 
@@ -290,6 +318,34 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 assert tracks["audio-bed"] == audio_before
                 assert float(audio["audio-before"]["attrs"]["at"]) == 0
                 assert float(audio["audio-later"]["attrs"]["at"]) == 3
+
+                failed_transaction = page.evaluate("""async () => {
+                  const store = window.filmStudioStore;
+                  const baseRevision = store.getSnapshot().revision;
+                  try {
+                    await store.dispatchTransaction({
+                      kind: "failure-cleanup-probe",
+                      baseRevision,
+                      operations: [],
+                      operationCount: 0,
+                    }, async () => {
+                      throw new Error("EXPECTED_SUBMITTER_FAILURE");
+                    });
+                    return {error: "", busy: store.getSnapshot().busy};
+                  } catch (error) {
+                    const snapshot = store.getSnapshot();
+                    return {
+                      error: String(error?.message || error),
+                      busy: snapshot.busy,
+                      pending: snapshot.pendingTransaction,
+                      revision: snapshot.revision,
+                    };
+                  }
+                }""")
+                assert failed_transaction["error"] == "EXPECTED_SUBMITTER_FAILURE", failed_transaction
+                assert failed_transaction["busy"] is False, failed_transaction
+                assert failed_transaction["pending"] is None, failed_transaction
+                assert failed_transaction["revision"] == final["rev"], failed_transaction
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()
