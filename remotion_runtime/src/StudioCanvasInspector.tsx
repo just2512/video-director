@@ -35,7 +35,9 @@ export interface FilmClipInspectorModel {
   trackLocked?: boolean;
 }
 type FilmKeyframeProperty = "x"|"y"|"scale"|"scale_x"|"scale_y"|"rotation"|"opacity"|"blur"|"camera_x"|"camera_y"|"camera_scale"|"offset_x"|"offset_y";
-type FilmKeyframeEasing = "linear"|"ease_in"|"ease_out"|"ease_in_out";
+type FilmKeyframePreset = "linear"|"ease_in"|"ease_out"|"ease_in_out";
+type FilmKeyframeWindow = {type:"window";preset:FilmKeyframePreset;start:number;end:number};
+type FilmKeyframeEasing = FilmKeyframePreset|FilmKeyframeWindow;
 type FilmKeyframePoint = {at:number;value:number;easing:FilmKeyframeEasing};
 type FilmKeyframeChannel = {property:FilmKeyframeProperty;keyframes:FilmKeyframePoint[]};
 const FILM_KEYFRAME_PROPERTIES: Array<{value:FilmKeyframeProperty;label:string;min:number;max:number;initial:number}> = [
@@ -63,7 +65,19 @@ const parseFilmKeyframes = (raw:string):FilmKeyframeChannel[] => {
     for(const channel of input){
       if(!channel||!FILM_KEYFRAME_PROPERTIES.some(item=>item.value===channel.property)||!Array.isArray(channel.keyframes)||result.some(item=>item.property===channel.property))continue;
       const points:FilmKeyframePoint[]=channel.keyframes.filter((point:any)=>point&&Number.isFinite(Number(point.at))&&Number.isFinite(Number(point.value)))
-        .map((point:any)=>({at:Number(point.at),value:Number(point.value),easing:(["linear","ease_in","ease_out","ease_in_out"].includes(point.easing)?point.easing:"linear") as FilmKeyframeEasing}))
+        .map((point:any)=>{
+          const rawEasing=point.easing||"linear";
+          let easing:FilmKeyframeEasing="linear";
+          if(typeof rawEasing==="string"&&["linear","ease_in","ease_out","ease_in_out"].includes(rawEasing)){
+            easing=rawEasing as FilmKeyframePreset;
+          }else if(rawEasing&&typeof rawEasing==="object"&&rawEasing.type==="window"
+            &&["linear","ease_in","ease_out","ease_in_out"].includes(rawEasing.preset)
+            &&Number.isFinite(Number(rawEasing.start))&&Number.isFinite(Number(rawEasing.end))
+            &&Number(rawEasing.start)>=0&&Number(rawEasing.end)<=1&&Number(rawEasing.end)>Number(rawEasing.start)){
+            easing={type:"window",preset:rawEasing.preset as FilmKeyframePreset,start:Number(rawEasing.start),end:Number(rawEasing.end)};
+          }
+          return {at:Number(point.at),value:Number(point.value),easing};
+        })
         .sort((a:FilmKeyframePoint,b:FilmKeyframePoint)=>a.at-b.at);
       if(points.length)result.push({property:channel.property,keyframes:points});
     }
@@ -71,12 +85,21 @@ const parseFilmKeyframes = (raw:string):FilmKeyframeChannel[] => {
   } catch { return []; }
 };
 const clampKeyframe = (value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
-const keyframeEase = (t:number,easing:FilmKeyframeEasing)=>{
+const keyframeEase = (t:number,easing:FilmKeyframeEasing):number=>{
   const x=clampKeyframe(t,0,1);
-  if(easing==="ease_in")return x*x;
-  if(easing==="ease_out")return 1-(1-x)*(1-x);
-  if(easing==="ease_in_out")return x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
-  return x;
+  const base=(value:number,preset:FilmKeyframePreset):number=>{
+    const v=clampKeyframe(value,0,1);
+    if(preset==="ease_in")return v*v;
+    if(preset==="ease_out")return 1-(1-v)*(1-v);
+    if(preset==="ease_in_out")return v<.5?2*v*v:1-Math.pow(-2*v+2,2)/2;
+    return v;
+  };
+  if(typeof easing==="string")return base(x,easing);
+  const start=clampKeyframe(easing.start,0,1),end=clampKeyframe(easing.end,0,1);
+  if(end<=start)return x;
+  const low=base(start,easing.preset),high=base(end,easing.preset);
+  if(Math.abs(high-low)<1e-12)return x;
+  return clampKeyframe((base(start+(end-start)*x,easing.preset)-low)/(high-low),0,1);
 };
 const keyframePath = (channel:FilmKeyframeChannel,duration:number,min:number,max:number)=>{
   if(duration<=0||channel.keyframes.length<2)return "";
@@ -583,9 +606,10 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
                 onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{at:value});}}/></label>
               <label>数值<input type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={point.value} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 数值"}
                 onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{value});}}/></label>
-              <label>缓动<select value={point.easing} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 缓动"}
-                onChange={event=>updateKeyframePoint(index,{easing:event.currentTarget.value as FilmKeyframeEasing})}>
+              <label>缓动<select value={typeof point.easing==="string"?point.easing:"window"} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 缓动"}
+                onChange={event=>{if(event.currentTarget.value!=="window")updateKeyframePoint(index,{easing:event.currentTarget.value as FilmKeyframePreset});}}>
                 <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option>
+                <option value="window" disabled>裁剪保真的曲线分段</option>
               </select></label>
               <button type="button" className="fs-btn" aria-label={"删除关键帧 "+(index+1)} disabled={readOnly} onClick={()=>removeKeyframe(index)}>删除</button>
             </div>):<div className="fs-empty">该属性还没有关键帧。</div>}
