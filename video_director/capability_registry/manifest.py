@@ -97,6 +97,15 @@ def _build_manifest() -> List[Capability]:
     caps.append(_cap("content.rewrite_script", "ai",
         "在保持事实与原意的前提下润色文案", input_schema="ScriptRewriteRequest",
         outputs=("Script",), side_effect="", examples=("把文案口语化一点",)))
+    # ---- 交付元数据（发布文案 = 标题/简介/标签；写 params_json.delivery_metadata）
+    # kind=command（非只读：真生成 + 真落盘）；此前是占位（capability 误指
+    # system.capabilities.list，Agent 调它只拿到能力列表、假成功）。
+    caps.append(_cap("delivery.generate_metadata", "ai",
+        "生成视频发布文案（标题/简介/话题标签），写入项目交付参数",
+        input_schema="DeliveryMetadataRequest",
+        outputs=("DeliveryMetadata",), side_effect="runtime",
+        provider_required=True,
+        examples=("生成发布文案", "写个标题", "写描述和标签")))
 
     # ---- CAP-EDIT（§85/§18/§19/§34：AI 最基本的"手"）----
     caps.append(_cap("timeline.query", "edit",

@@ -80,6 +80,8 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
             return _execute_content(project_id, tool, payload, target_id)
         if _is_tts_voice(tool):
             return _execute_tts_voice(project_id, tool, payload)
+        if _is_delivery_metadata(tool):
+            return _execute_delivery_metadata(project_id, tool, payload)
         return _execute_editor_command(project_id, tool, payload, target_id)
     except ToolExecutorError as exc:
         return _result(tool, False, exc.code, error=str(exc))
@@ -158,6 +160,11 @@ _PROJECT_MGMT = {"version.create", "project.reopen", "project.save", "project.cr
 # 音色应用（写项目级参数，非编辑域命令）——必须走 _execute_tts_voice，
 # 不能落到 _execute_editor_command（那里按 _COMMAND_MAP 查表会 KeyError）。
 _TTS_VOICE = {"tts.set_voice"}
+# 发布文案生成（读项目文案 → LLM 一次生成 title/description/tags）——
+# 同样不是编辑域命令，必须走 _execute_delivery_metadata。曾长期占位：
+# capability 误指 system.capabilities.list，Agent/前端调它只拿到能力列表、
+# 返回 ok=True 却什么都没生成——比静默丢失更糟的假成功。
+_DELIVERY_METADATA = {"delivery.generate_metadata"}
 
 _CONTENT = {"content.generate_script", "content.rewrite_script"}
 
@@ -166,6 +173,10 @@ _VERIFY = {"timeline.verify", "audio.verify", "asset.verify", "render.verify", "
 
 def _is_tts_voice(tool: str) -> bool:
     return tool in _TTS_VOICE
+
+
+def _is_delivery_metadata(tool: str) -> bool:
+    return tool in _DELIVERY_METADATA
 
 
 def _is_verify(tool: str) -> bool:
@@ -239,6 +250,115 @@ def _execute_tts_voice(project_id: str, tool: str, payload: dict) -> dict:
     cfg = make_narration_config(voice=voice_id)
     return _result(tool, True, "OK",
                    result={"voice": voice_id, "narration_config": cfg.to_dict()})
+
+
+def _execute_delivery_metadata(project_id: str, tool: str, payload: dict) -> dict:
+    """发布文案：读项目 script/scene 文本 → LLM 一次生成 title/description/tags。
+
+    输入 project_id（payload 或 tool_call 已带），输出三字段：
+      {"title": str, "description": str, "tags": [str, ...]}
+    写 projects.params_json["delivery_metadata"]（发布期参数，不住 IR，
+    与 tts.set_voice 的 params_json.voice 同构）。
+
+    LLM 不可用/调用失败/解析失败 → 诚实降级（ok=False + 稳定 code），
+    不返回假成功、不用空串伪装已生成。
+    """
+    import json as _json
+
+    from video_director import config as _cfg
+    from video_director import llm_provider
+    from video_director import store as store_mod
+
+    base = _cfg.project_dir(project_id)
+    # 1) 文案来源：优先 script.txt（用户脚本），回落 scenes.json 的旁白文本
+    script = ""
+    script_path = base / "input" / "script.txt"
+    if script_path.is_file():
+        script = script_path.read_text(encoding="utf-8", errors="replace").strip()
+    if not script:
+        scenes_path = base / "plans" / "scenes.json"
+        if scenes_path.is_file():
+            try:
+                scenes = _json.loads(scenes_path.read_text(encoding="utf-8"))
+                script = " ".join(
+                    str(s.get("text") or "") for s in scenes if s.get("text")).strip()
+            except Exception as exc:  # noqa: BLE001 读坏不猜，继续走缺文案分支
+                logger.info(f"delivery_metadata: scenes.json 读取失败: {exc}")
+    if not script:
+        return _result(tool, False, "MISSING_REQUIREMENT",
+                       error="项目还没有可用的文案（script.txt 与 scenes.json 均为空）")
+
+    # 2) LLM 可用性：无 key → 诚实降级（不生成、不伪造）
+    try:
+        provider = llm_provider.get_llm()
+    except Exception as exc:  # noqa: BLE001 构造期异常同等于不可用
+        logger.warning(f"delivery_metadata: LLM 获取失败，降级: {exc}")
+        provider = None
+    if provider is None:
+        return _result(tool, False, "METADATA_LLM_UNAVAILABLE",
+                       error="未配置文本大模型，无法生成发布文案（配置后重试）")
+
+    # 3) 一次调用生成三字段（JSON 契约，禁止 LLM 输出解释/markdown 代码块）
+    system = (
+        "你是短视频发布文案撰写器。根据给定文案，只输出一个 JSON 对象，"
+        '键为 "title"（20 字以内标题，不带标号/话题前缀）、'
+        '"description"（100 字以内简介，口语化，不含链接）、'
+        '"tags"（5-8 个话题标签字符串，不带 # 号）。'
+        "不要输出解释，不要输出 markdown 代码块。"
+    )
+    prompt = "视频文案：\n" + script[:2000]
+    try:
+        raw = provider.generate(prompt, system=system)
+    except Exception as exc:  # noqa: BLE001 网络/限额等一律降级
+        logger.warning(f"delivery_metadata: LLM 调用失败，降级: {exc}")
+        return _result(tool, False, "METADATA_LLM_UNAVAILABLE",
+                       error=f"大模型调用失败，无法生成发布文案：{str(exc)[:120]}")
+
+    # 4) 解析：去 fence → {…} 切片 → json.loads（与 director_intent 同构）
+    raw = (raw or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        logger.warning(f"delivery_metadata: LLM 返回非 JSON（前80字符）: {raw[:80]}")
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回的不是 JSON，未能解析出发布文案")
+    try:
+        parsed = _json.loads(raw[start:end + 1])
+    except (ValueError, TypeError):
+        logger.warning(f"delivery_metadata: JSON 解析失败（前80字符）: {raw[:80]}")
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回的 JSON 无法解析，未能生成发布文案")
+    if not isinstance(parsed, dict):
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回不是 JSON 对象，未能生成发布文案")
+
+    # 5) 字段清洗：类型不对/缺失 → 降级，不用空串掩盖
+    title = str(parsed.get("title") or "").strip()
+    description = str(parsed.get("description") or "").strip()
+    tags_raw = parsed.get("tags")
+    tags = ([str(t).lstrip("#").strip() for t in tags_raw
+             if str(t).strip()] if isinstance(tags_raw, list) else [])
+    if not title:
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回缺少 title 字段，未能生成发布文案")
+    metadata = {"title": title, "description": description, "tags": tags}
+
+    # 6) 落盘（读-改-写，只动 delivery_metadata 键）
+    params = store_mod.read_project_params(project_id)
+    params["delivery_metadata"] = metadata
+    try:
+        store_mod.write_project_params(project_id, params)
+    except Exception as exc:  # noqa: BLE001 落盘失败要报，不能假装已保存
+        logger.warning(f"delivery_metadata: params 落盘失败: {exc}")
+        return _result(tool, False, "METADATA_PERSIST_FAILED",
+                       error=f"文案已生成但保存失败：{str(exc)[:120]}")
+    logger.info(f"tool_executor: {project_id} 发布文案已生成（title={title[:20]}…）")
+    return _result(tool, True, "OK",
+                   result={"artifactType": "DeliveryMetadata",
+                           "metadata": metadata})
 
 
 def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id) -> dict:

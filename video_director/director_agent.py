@@ -8,8 +8,9 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -666,17 +667,22 @@ def _tool_material(spec: dict, state: dict) -> dict:
                 gen_rw = int(spec.get("width") or config.DEFAULT_RESOLUTION[0])
                 gen_rh = int(spec.get("height") or config.DEFAULT_RESOLUTION[1])
                 generated_files: List[tuple] = []
-                for sid in _gen_missing:
-                    sel_id = selected_candidate_by_scene.get(sid, "")
-                    cand = next(
-                        (c for c in (candidate_sets_by_scene.get(sid) or [])
-                         if isinstance(c, dict) and c.get("id") == sel_id),
-                        None,
-                    )
+
+                # ---- 节点 12 并行素材生产（2026-10-23 文档落地）----
+                # 单场景生成提为纯函数；线程池并行执行（生成是网络 IO 密集——
+                # 生图/生视频 API 调用，GIL 不挡）。4 并发上限：防供应商配额
+                # 瞬时打爆 + API 限流（文档节点 14「资源占用」检查的最小实现）。
+                # 失败隔离契约保留：单场景失败只回退该镜头兜底链，不影响其他
+                # 镜头（文档节点 12「单个任务失败只回到该镜头的备用路径」）。
+                # 变量名不得用 order：外层 order 是 asset_order（List[str]），
+                # 遮蔽后 state["asset_order"] 会拿到 None/tuple → planner
+                # TypeError 整片崩（对抗审查 CRITICAL 1，已实测复现）。
+
+                def _gen_one_scene(sid: str, cand: Optional[dict]) -> tuple:
+                    """单场景生成：逐 fallback 路线尝试到首个有产物为止。
+                    返回 (sid, fpath|None, used_gt|None, prompt, scene_warns)。"""
+                    scene_warns: List[str] = []
                     gt = (cand or {}).get("generation_type") or ""
-                    # 变量名不得用 order：外层 order 是 asset_order（List[str]），
-                    # 遮蔽后 state["asset_order"] 会拿到 None/tuple → planner
-                    # TypeError 整片崩（对抗审查 CRITICAL 1，已实测复现）。
                     # 差距 5：候选自带 fallback_routes 优先（镜头级契约），
                     # 旧数据（无该字段）回落全局默认表——行为不回归。
                     fallback_chain = (
@@ -685,41 +691,71 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         or list(creative_candidates.GEN_FALLBACK_ROUTES.get(gt) or ())
                     )
                     if not fallback_chain:
-                        continue
+                        return (sid, None, None, "", scene_warns)
                     prompt = str((cand or {}).get("generation_prompt")
                                  or next((s["text"] for s in state["narration_scenes"]
                                           if s.get("id") == sid), ""))
-                    res = None
                     used_gt = None
+                    fpath = ""
                     for try_gt in fallback_chain:
                         try:
                             results = gen_mod.generate(
                                 state["project_id"], prompt, try_gt,
                                 width=gen_rw, height=gen_rh, variant="A",
                             )
-                        except Exception as exc:
-                            warnings.append(f"生成路线 {try_gt} 失败（{sid}）：{exc}")
+                        except Exception as exc:  # noqa: BLE001 单路线失败换下一条
+                            scene_warns.append(f"生成路线 {try_gt} 失败（{sid}）：{exc}")
                             continue
                         res = results[0] if results else None
-                        fpath = getattr(res, "file", "",) if res else ""
-                        if fpath and Path(fpath).is_file():
+                        _fp = getattr(res, "file", "") if res else ""
+                        if _fp and Path(_fp).is_file():
                             used_gt = try_gt
+                            fpath = _fp
                             break
-                        warnings.append(f"生成路线 {try_gt} 无产物（{sid}）")
-                    if not used_gt:
-                        # 兜底链走尽仍失败 → NEEDS_HUMAN（诚实暴露缺项，不伪装成功）
-                        if isinstance(cand, dict):
-                            cand["status"] = "NEEDS_HUMAN"
-                        warnings.append(f"镜头 {sid} 所有生产路线均失败，标记 NEEDS_HUMAN")
+                        scene_warns.append(f"生成路线 {try_gt} 无产物（{sid}）")
+                    return (sid, fpath or None, used_gt, prompt, scene_warns)
+
+                # 主线程预查候选（candidate_sets_by_scene 只读，无锁竞争）
+                _jobs: List[tuple] = []
+                for sid in _gen_missing:
+                    sel_id = selected_candidate_by_scene.get(sid, "")
+                    cand = next(
+                        (c for c in (candidate_sets_by_scene.get(sid) or [])
+                         if isinstance(c, dict) and c.get("id") == sel_id),
+                        None,
+                    )
+                    _jobs.append((sid, cand))
+
+                _MAX_GEN_PARALLEL = 4  # 资源上限：4 并发
+                with ThreadPoolExecutor(
+                        max_workers=min(_MAX_GEN_PARALLEL, len(_jobs))) as _pool:
+                    _futures = [_pool.submit(_gen_one_scene, sid, cand)
+                                for sid, cand in _jobs]
+                    for _fut in as_completed(_futures):
+                        sid, fpath, used_gt, prompt, scene_warns = _fut.result()
+                        warnings.extend(scene_warns)
+                        if not used_gt:
+                            # 兜底链走尽仍失败 → NEEDS_HUMAN（诚实暴露缺项，
+                            # 不伪装成功）。candidates 读写回到主线程统一做。
+                            _cand = dict(candidate_sets_by_scene.get(sid) or [])
+                            continue
+                        if used_gt in ("video", "motion"):
+                            videos.append(fpath)  # motion（Huashu 动效）产物是视频
+                        else:
+                            images.append(fpath)
+                        # 血缘透传：把实际采用的 generation_prompt 一并带进
+                        # generated_files，后面建 AssetRef 时写入 prompt 字段——
+                        # 不传则「按原 prompt 重生成」/「这画面凭什么生成」无据可查。
+                        generated_files.append((sid, fpath, used_gt, prompt))
+                # NEEDS_HUMAN 标记在并行收集后统一回写（主线程，无锁）：
+                # 成功场景不算失败；全失败场景把候选标 NEEDS_HUMAN + 警告。
+                _succeeded = {gf[0] for gf in generated_files}
+                for sid, cand in _jobs:
+                    if sid in _succeeded:
                         continue
-                    if used_gt in ("video", "motion"):
-                        videos.append(fpath)  # motion（Huashu 动效）产物是视频
-                    else:
-                        images.append(fpath)
-                    # 血缘透传：把实际采用的 generation_prompt 一并带进
-                    # generated_files，后面建 AssetRef 时写入 prompt 字段——
-                    # 不传则「按原 prompt 重生成」/「这画面凭什么生成」无据可查。
-                    generated_files.append((sid, fpath, used_gt, prompt))
+                    if isinstance(cand, dict):
+                        cand["status"] = "NEEDS_HUMAN"
+                    warnings.append(f"镜头 {sid} 所有生产路线均失败，标记 NEEDS_HUMAN")
                 if generated_files:
                     # 只把生成物**追加**进现有素材表，不整体重建——整体重建会让
                     # build_manifest 重新编号，既有 assignments 变幽灵 id，静默毁掉
@@ -1245,11 +1281,6 @@ def _tool_composition(spec: dict, state: dict) -> dict:
                 duration=round(lay.duration, 3),
                 source_in=round(lay.source_in, 3),
                 source_out=round(lay.source_out, 3),
-                # 必须跟随画面速度：变速片段（如 3.13× 把 8s 压成 2.56s）若原声
-                # 仍按 1× 播，渲染器按 span/speed 算可用时长 → 音画整段不同步，
-                # 且 span/speed < duration 的片段尾部静音（实测：8 条原声全中）。
-                # 编辑器提升路径（_cmd_promote_layer_to_visual_track）本就同步
-                # speed，此前只有流水线这条创建路径漏了。
                 # 必须跟随画面速度：变速片段（如 3.13× 把 8s 压成 2.56s）若原声
                 # 仍按 1× 播，渲染器按 span/speed 算可用时长 → 音画整段不同步，
                 # 且 span/speed < duration 的片段尾部静音（实测：8 条原声全中）。

@@ -77,13 +77,18 @@ class TestSystemContextRestoredDeclarations:
         assert "generate.sfx" in actions
         assert "music.auto_match" in actions
 
-    def test_delivery_generate_metadata_still_hidden(self):
-        """capability 仍是 system.capabilities.list 占位——保持摘除，不伪造。"""
+    def test_delivery_generate_metadata_declared_after_real_impl(self):
+        """2026-10-23 翻转：真实现落地（tool_executor LLM 发布文案）→ 声明恢复。
+
+        此前的「保持摘除」锁已完成使命——占位期防假能力暴露给 Agent；
+        现在 capability 改指 delivery.generate_metadata 真能力，
+        断言随之翻转：声明必须在、capability 必须是真能力。
+        """
         from video_director import action_registry as ar
         spec = ar.get_action("delivery.generate_metadata")
-        assert spec is not None  # _ACTIONS 注册表不动（前端面板索引用）
-        assert spec.capability == "system.capabilities.list"
-        assert "delivery.generate_metadata" not in ar.system_context()["actions"]
+        assert spec is not None
+        assert spec.capability == "delivery.generate_metadata", spec.capability
+        assert "delivery.generate_metadata" in ar.system_context()["actions"]
 
     def test_sfx_frontend_entry_is_honest_search(self):
         """前端文案写「搜索音效」，不伪造 AI 生成。"""

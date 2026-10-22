@@ -50,6 +50,7 @@ UI_ONLY_PREFIXES = (
     "assetPickerStockDownload(", "edLibOpenTemplate(", "instantiateTemplate(", "renderTemplateSample(",
     "pickerPreviewStage(", "pickerApply(", "pickerCancel(",
     "editorExportFreeze(",  # 2026-10-21 定格导出（POST /api/export_freeze 收集器）
+    "edGenerateMetadata(",  # 2026-10-23 发布文案（内部 executeAction('delivery.generate_metadata')）
     "maskEditorSave(", "maskEditorCancel(", "maskEditorUndo(", "maskEditorRedo(",
     "editorToggleLock(", "editorRunMatting(", "editorRemoveKeyframe(",
     "editorApplyPip(", "editorRemovePip(", "editorPreviewMotionParam(",
@@ -146,6 +147,11 @@ def audit_ui() -> dict:
 
     report = {"pass": 0, "missing_action": [], "missing_executor": [],
               "orphan_button": [], "scanned_files": len(files)}
+    # §82 附注观测：前端直连 executeCommand( 的调用点分布（含定义处 commands.js 自身）。
+    # 纯增字段，不动 orphan_button / missing_action 语义——executeCommand 是
+    # 命令级 Action 通道（ActionSpec.command 直发），不是旁路，故不判违规，
+    # 只回答「命令级通道还被哪些模块在用」。
+    direct_command_callsites = {}
 
     for f in files:
         try:
@@ -183,6 +189,13 @@ def audit_ui() -> dict:
                 continue
             report["orphan_button"].append(f"{rel}: onclick={call[:60]}")
 
+        # §82 观测：本文件内 executeCommand( 调用点数（定义处 commands.js 自身也计入，
+        # 由文件名单列自解释，不做特判——统计全部静态调用点）
+        _n_cmd_calls = len(re.findall(r"executeCommand\(", src))
+        if _n_cmd_calls:
+            direct_command_callsites[rel] = _n_cmd_calls
+
+    report["direct_command_callsites"] = direct_command_callsites
     return report
 
 
@@ -195,6 +208,13 @@ def format_report(r: dict) -> str:
         lines.append(f"  {label}: {len(items)}")
         for x in items[:20]:
             lines.append(f"    - {x}")
+    # §82 附注观测（不影响 PASS/违规语义）：命令级 Action 通道调用点分布
+    callsites = r.get("direct_command_callsites") or {}
+    if callsites:
+        total = sum(callsites.values())
+        lines.append(f"  DIRECT_COMMAND_CALLSITES（§82 观测，非违规）: {len(callsites)} 文件 / {total} 处")
+        for f, n in sorted(callsites.items(), key=lambda kv: -kv[1])[:20]:
+            lines.append(f"    - {f}: {n}")
     return "\n".join(lines)
 
 

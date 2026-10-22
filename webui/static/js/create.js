@@ -198,6 +198,7 @@ function _createPanelHtml(){
             <option value="subtitle">先生成字幕</option>
             <option value="audio">先生成旁白</option>
             <option value="script">先完成文案</option>
+            <option value="terms">先完成分镜（审分镜后再继续）</option>
           </select>
         </div>
       </div>

@@ -406,7 +406,11 @@ _ACTIONS: List[ActionSpec] = [
                targets=["project"], undo=False,
                aliases=["多条视频", "批量生成"]),
     # ---- §66 交付元数据 ----
-    ActionSpec("delivery.generate_metadata", "生成发布文案", "system.capabilities.list",
+    # 2026-10-22 真实现：tool_executor._execute_delivery_metadata 读项目文案
+    # → LLM 生成 title/description/tags → params_json.delivery_metadata。
+    # 此前 capability 误指 system.capabilities.list（Agent 调它只拿到能力
+    # 列表、假成功）——现改指同名真能力。
+    ActionSpec("delivery.generate_metadata", "生成发布文案", "delivery.generate_metadata",
                "noop", targets=["project"], undo=False,
                aliases=["写标题", "生成描述", "生成标签"]),
     # ---- UI 交互型（§58：本地 UI 行为，无后端执行）----
@@ -998,12 +1002,11 @@ def system_context() -> dict:
     # action-dispatcher 均零入口的能力——Agent 读 system_context 会当成可调能力
     # 派发，实际全部打空。从这里摘掉，等真实接线后再移除本集合。
     # 注意：_ACTIONS 本身不动（前端面板按 target 索引，过滤只影响 Agent 面）。
-    # 差距 2a（2026-10-22）：generate.sfx 已接真实链（inspector 生成框「音效（搜索）」
-    # → /api/editor/generate → tool_executor → Openverse CC0 搜索入库）；声明文案是
-    # 「搜索」不是「AI 生成」。music.auto_match 已接 BGM 面板按钮 → executeAction。
-    # delivery.generate_metadata 的 capability 仍是 system.capabilities.list 占位——
-    # 真无实现，保持摘除。
-    _FRONTEND_UNWIRED = {"delivery.generate_metadata"}
+    # 2026-10-22 三能力全部真接线完成，本集合清空（generate.sfx → Openverse
+    # CC0 搜索；music.auto_match → BGM 面板按钮；delivery.generate_metadata →
+    # tool_executor LLM 发布文案 + 成片完成框按钮）。保留过滤机制本身，
+    # 未来新占位能力仍走这里摘除。
+    _FRONTEND_UNWIRED: set = set()
     caps = sorted(_mf().keys())
     return {
         "build_id": BUILD_ID,

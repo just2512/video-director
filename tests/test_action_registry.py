@@ -165,15 +165,18 @@ class TestSystemContext:
         assert s["build_id"], "§42 build_id 必须非空"
         assert "local" in s["asset_sources"] and "generated" in s["asset_sources"]
 
-    def test_system_context_hides_unwired_actions(self):
+    def test_system_context_all_wireable_actions_declared(self):
         """三层注册但前端/服务端零入口的能力不得向 Agent 声明——
         否则 Agent 读 system_context 会派发全部打空的能力。
-        差距 2a：generate.sfx（Openverse 搜索链）与 music.auto_match（BGM 面板
-        按钮）已接真实入口，恢复声明并锁住；delivery.generate_metadata 仍占位
-        （capability=system.capabilities.list，真无实现），保持摘除。"""
+        2026-10-23 三能力全部真接线后此锁翻转：generate.sfx（Openverse
+        搜索）、music.auto_match（BGM 按钮）、delivery.generate_metadata
+        （tool_executor LLM 发布文案）都必须声明。_FRONTEND_UNWIRED 集合
+        已清空——机制保留给未来占位能力。"""
         actions = ar.system_context()["actions"]
-        assert "delivery.generate_metadata" not in actions, \
-            "delivery.generate_metadata 无真实实现，不应暴露给 Agent"
+        assert "delivery.generate_metadata" in actions, \
+            "真实现落地后必须恢复声明（capability=delivery.generate_metadata）"
+        assert "generate.sfx" in actions
+        assert "music.auto_match" in actions
         # 恢复锁：已接线能力不得被误过滤
         for wired in ("generate.sfx", "music.auto_match"):
             assert wired in actions, f"{wired} 已接线，必须暴露给 Agent"

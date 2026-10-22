@@ -221,6 +221,10 @@ SCHEMAS: Dict[str, InputSchema] = {
     "ScriptRewriteRequest": InputSchema("ScriptRewriteRequest", {
         "script": FieldSpec("str", required=True),
     }),
+    # 交付元数据：project_id 为主入口（前端按钮带 project_id）；无强约束参数
+    "DeliveryMetadataRequest": InputSchema("DeliveryMetadataRequest", {
+        "projectId": FieldSpec("str"),
+    }),
     "ReviewRequest": InputSchema("ReviewRequest", {
         "projectId": FieldSpec("str", required=True),
         "issue": FieldSpec("str", required=True),

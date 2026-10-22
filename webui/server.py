@@ -53,6 +53,33 @@ import queue as _queue_mod
 #: 全局 SSE 事件队列（多订阅者各持一个 Queue；无订阅者时事件即丢，不积压）
 _SSE_SUBSCRIBERS: list = []
 _SSE_LOCK = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# §82 Action 通路统一治理：命令级 Action 通道计数（后端视角）
+# ---------------------------------------------------------------------------
+#: 前端 executeCommand（= ActionSpec.command 直发）经 /api/editor/command 落到此处的
+#: 进程级计数。回答「哪些 command 通道在被谁用」，与前端 window.__cmdChannelStats
+#: 同源不同侧：前端是窗口级快照，这里是进程级累计。只观测，不拦截，不影响写路径。
+_CMD_CHANNEL_STATS: dict = {"total": 0, "byCommand": {}}
+_CMD_CHANNEL_LOCK = threading.Lock()
+
+
+def _bump_command_stat(cmd) -> None:
+    """命令通道计数 +1（byCommand 按 command 名分桶）。线程安全，永不抛错。"""
+    key = cmd if isinstance(cmd, str) and cmd else "unknown"
+    with _CMD_CHANNEL_LOCK:
+        _CMD_CHANNEL_STATS["total"] += 1
+        _CMD_CHANNEL_STATS["byCommand"][key] = (
+            _CMD_CHANNEL_STATS["byCommand"].get(key, 0) + 1)
+
+
+def _command_stats() -> dict:
+    """计数快照副本（调用方改动不影响内部状态）。"""
+    with _CMD_CHANNEL_LOCK:
+        return {"total": _CMD_CHANNEL_STATS["total"],
+                "byCommand": dict(_CMD_CHANNEL_STATS["byCommand"])}
+
+
 # §23/§46 前端 Selection 上报（Command Bar 上下文；单机单用户内存态）
 _DIRECTOR_SELECTION: dict = {}
 
@@ -1102,6 +1129,10 @@ class Handler(BaseHTTPRequestHandler):
                 } for r in results])
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/action_channel_stats":
+            # §82 命令级 Action 通道计数（后端视角）。只读观测端点：
+            # 与前端 window.__cmdChannelStats 同源不同侧（进程级累计 vs 窗口级快照）。
+            self._send_json(_command_stats())
         elif route == "/api/capabilities":
             try:
                 caps = vd_caps.registry()
@@ -1295,6 +1326,15 @@ class Handler(BaseHTTPRequestHandler):
                             }
                     except (OSError, json.JSONDecodeError):
                         pass
+                # §66 交付元数据出口：params_json.delivery_metadata（成片完成框
+                # edMetadataMaybeShow 消费——有历史文案直接展示，不必重复生成）。
+                try:
+                    from video_director import store as _vd_store
+                    _params = _vd_store.read_project_params(pid)
+                    if isinstance(_params.get("delivery_metadata"), dict):
+                        detail["delivery_metadata"] = _params["delivery_metadata"]
+                except Exception:
+                    pass
                 self._send_json(detail)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
@@ -3848,6 +3888,8 @@ class Handler(BaseHTTPRequestHandler):
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
+            # §82 命令通道计数：集中分发点（所有 editor command 必经此处）
+            _bump_command_stat(payload.get("command"))
             try:
                 from video_director import editor as vd_editor
                 result = vd_editor.execute_command(pid, {

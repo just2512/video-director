@@ -18,8 +18,27 @@ async function editorCmd(command, payload = {}, targetId = null, refresh = true)
 // §20/FE-002 commands.js：所有前端正式写操作的统一入口。
 // executeCommand 自动附加 projectId / expectedVersion / commandId；
 // 统一处理 APPLIED / CONFLICT / VALIDATION_ERROR / CAPABILITY_UNAVAILABLE / DEPENDENCY_ERROR。
+//
+// §82 Action 通路统一治理（2026-10-22）——两条前端写入口的契约：
+//   executeCommand = 命令级 Action 通道（ActionSpec.command 的直发形态，不带参数适配）；
+//   executeAction = 语义级 Action 通道（带 resolve_step 参数适配与动作审计）。
+// 两者同源：都落到同一个后端 command + revision，不是双轨、不是旁路。
+// 新代码优先 executeAction（获得参数适配与动作审计语义）；存量 executeCommand 调用点
+// 不做逐处改造，改由通道统计观测（window.__cmdChannelStats / GET /api/action_channel_stats）。
 
 let _cmdSeq = 0;
+
+// §82 命令级 Action 通道计数：回答「哪些 command 通道在被谁用」（可观测，不影响写路径）。
+// 窗口级快照；服务端同源计数见 GET /api/action_channel_stats。
+window.__cmdChannelStats = window.__cmdChannelStats || {count: 0, byCommand: {}};
+
+/** 通道计数（executeCommand 入口命中即 +1；byCommand 按 command 名分桶）。 */
+function _bumpChannelStat(command) {
+  const st = window.__cmdChannelStats;
+  st.count++;
+  const c = command || 'unknown';
+  st.byCommand[c] = (st.byCommand[c] || 0) + 1;
+}
 
 /** 版本冲突 → resync composition（读回最新，刷新时间线）。§20 禁止静默覆盖。 */
 async function resyncComposition(){
@@ -57,6 +76,8 @@ async function executeBatch(spec) {
 async function executeCommand(spec) {
   const pid = ED.pid;
   if (!pid) throw new Error('先打开项目');
+  // §82 命令级 Action 通道计数（Failure 前不落：projectId 缺失直接抛错，不计入通道）
+  _bumpChannelStat(spec && spec.command);
   const body = {
     project_id: pid,
     command: spec.command,
@@ -125,4 +146,5 @@ Object.assign(window, {
   resyncComposition,
   handleConflict,
   friendlyError,
+  cmdChannelStats: () => window.__cmdChannelStats,
 });
