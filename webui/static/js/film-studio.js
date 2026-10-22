@@ -660,6 +660,13 @@
       if(!selected){showStatus((S.overwriteMode?'覆盖':'插入')+'编辑模式下，请先选择目标轨道上的片段。','error');return;}
       request.placement_mode=S.overwriteMode?'overwrite':'ripple';request.track_id=selected.track_id;
     }
+    var placementMode=request.placement_mode||'new-track';
+    var transactionKind=placementMode==='overwrite'?'asset-overwrite':placementMode==='ripple'?'asset-ripple-insert':'asset-insert';
+    S.pendingTransaction={
+      kind:transactionKind,baseRevision:S.rev,
+      operations:[{op:'insert-asset',asset_id:String(assetId),placement_mode:placementMode,at:S.playhead,track_id:request.track_id||null}],
+      operationCount:1
+    };
     S.busy=true;
     try{
       var response=await apiPost('/api/editor/film/insert-asset',request);
@@ -671,7 +678,7 @@
         :response.placement_mode==='ripple'
           ?'插入编辑已完成：目标轨道及同步锁定轨道已按素材时长推移。'
           :'已在播放头位置新建轨道并添加素材。', 'success');
-    }finally{S.busy=false;flushPendingExternalRevision();}
+    }finally{S.pendingTransaction=null;S.busy=false;flushPendingExternalRevision();}
   };
   function syncPlacementModeButtons(){
     document.querySelectorAll('[data-film-action="insert-mode"]').forEach(function(button){

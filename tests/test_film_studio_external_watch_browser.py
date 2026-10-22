@@ -58,6 +58,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             film_edit_responses: list[str] = []
             film_edit_requests: list[dict] = []
             film_render_requests: list[str] = []
+            film_history_requests: list[str] = []
             def capture_film_edit_request(request):
                 if request.url.endswith("/api/editor/film/edit"):
                     try:
@@ -68,6 +69,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             page.on("request", lambda request: event_requests.append(request.url) if request.url.endswith("/api/events") else None)
             page.on("request", capture_film_edit_request)
             page.on("request", lambda request: film_render_requests.append(request.url) if request.url.endswith("/api/editor/film/render") else None)
+            page.on("request", lambda request: film_history_requests.append(request.url) if request.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")) else None)
             page.on("response", lambda response: film_edit_responses.append(f"{response.status} {response.url}") if response.url.endswith("/api/editor/film/edit") else None)
             try:
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
@@ -430,15 +432,46 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert page.locator("#fs-field-speed").input_value() == "2.5"
                 assert film_path.read_text(encoding="utf-8") == changed_again
 
-                # Undo/redo, project switching and export are separate entry
-                # points that must not discard a dirty Inspector form either.
+                # Undo/redo, project switching and export are separate entry points.
+                # The watcher can refresh the alert while the dirty draft is held, so
+                # assert the hard gate (no history request) and preserve the active snapshot.
+                before_undo_gate = page.evaluate("""() => {
+                  const snapshot = window.filmStudioStore?.getSnapshot();
+                  const alert = document.querySelector('#film-studio-alert');
+                  window.__undoGateClickCount = 0;
+                  document.addEventListener('click', event => {
+                    if (event.target?.closest?.('[data-film-action="undo"]')) window.__undoGateClickCount += 1;
+                  }, true);
+                  return {
+                    selectedId: snapshot?.selectedId,
+                    selectedIds: snapshot?.selectedIds,
+                    revision: snapshot?.revision,
+                    alert: alert?.textContent || '',
+                  };
+                }""")
+                assert before_undo_gate["selectedId"] == "clip-a", before_undo_gate
+                assert before_undo_gate["selectedIds"] == ["clip-a"], before_undo_gate
+                active_revision_before_undo = before_undo_gate["revision"]
+                history_count_before_undo = len(film_history_requests)
                 page.locator('[data-film-action="undo"]:visible').click()
-                page.wait_for_function(
-                    "() => { const alert = document.querySelector('#film-studio-alert'); "
-                    "return !!alert && alert.textContent.includes('再撤销/重做'); }",
-                    timeout=5000,
-                )
-                assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
+                page.wait_for_function("window.__undoGateClickCount > 0", timeout=2000)
+                page.wait_for_timeout(100)
+                assert len(film_history_requests) == history_count_before_undo, {
+                    "before": before_undo_gate, "history_requests": film_history_requests,
+                }
+                gate_state = page.evaluate("""() => ({
+                  title: document.querySelector('#fs-field-title')?.value,
+                  speed: document.querySelector('#fs-field-speed')?.value,
+                  alert: document.querySelector('#film-studio-alert')?.textContent || '',
+                  revision: window.filmStudioStore?.getSnapshot()?.revision,
+                })""")
+                assert gate_state["title"] == "Local unsaved draft", gate_state
+                assert gate_state["speed"] == "2.5", gate_state
+                assert gate_state["revision"] == active_revision_before_undo, gate_state
+                assert fd.read_project_film(project_id)["rev"] == fd.revision_of(changed_again)
+                assert ("再撤销/重做" in gate_state["alert"] or
+                        "未提交的属性草稿" in gate_state["alert"] or
+                        "暂存" in gate_state["alert"]), gate_state
                 # Exercise the same delegated render action deterministically after
                 # verifying the dirty-form gate above; a React toolbar rerender must
                 # not make this assertion depend on which visible toolbar node won.
