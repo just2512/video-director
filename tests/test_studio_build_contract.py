@@ -1,4 +1,5 @@
 """Hard gates for the real React Studio build and its self-hosted runner contract."""
+import json
 from pathlib import Path
 
 

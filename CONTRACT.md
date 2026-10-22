@@ -22,7 +22,7 @@
 
 原适配表中的“禁止引入 React/Vite/npm 栈”与已经进入仓库的 React 19 Studio、Tailwind 4 源码和构建流程冲突。该限制现明确变更为：
 
-- React 19 是 Studio 可见 UI 的唯一实现；Tailwind 4 只在构建时生成 CSS，不要求终端用户安装 Node.js。
+- React 19 是 Studio 正常运行时的可见 UI 所有者；Tailwind 4 只在构建时生成 CSS，不要求终端用户安装 Node.js。静态 fallback 仅用于构建/运行故障时恢复同一 FilmDocument 服务，不具备独立影片状态或写盘通道，正常 React 构建运行时必须隐藏。
 - Python 标准库 WebUI 服务与现有 FilmDocument/渲染能力保留；React 不建立第二份影片状态、剪辑时间线或独立写盘路径。
 - Studio UI 构建与浏览器回归使用项目已存在的 self-hosted runner 标签 `[self-hosted, linux, x64]`，与 `.github/workflows/ai-director.yml` 一致，不再依赖 GitHub-hosted runner 计费额度。
 - 构建依赖通过 `package-lock.json` 固定；只有 typecheck、bundle/CSS 非占位检查和指定浏览器测试通过，构建产物才允许由工作流发布回 `main`。

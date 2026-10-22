@@ -22,7 +22,7 @@
 |---|---|---|
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
-| React Studio | **源码存在但实际构建尚未通过验收**：React TSX 已含检查器、时间线工具栏/曲线和 AI 提案界面；原生 JS 仍拥有主要状态与手势，兼容 fallback 继续存在。bundle 与 Tailwind CSS 当前还是占位产物 | Studio UI 工作流现改用已有的 `[self-hosted, linux, x64]` runner，并使用仓库的 Python 3.11 环境；首次执行必须成功生成并检查真实 bundle/CSS。构建产物未发布且浏览器回归未 PASS 前，不视作 React 接管完成 |
+| React Studio | **React UI 已改为单一 root，但落盘构建尚待自托管 runner 验收**：工具栏、素材、时间线、AI、片段 Inspector 与画布 Inspector 经同一个 root + portals 渲染；原生 JS 仍负责部分手势/编辑状态与兼容 fallback。 | runner 使用 `[self-hosted, linux, x64]`；UI 依赖拆至 `studio_ui/`，与 Remotion renderer 分离，首次成功运行后发布真实 JS/CSS 与 npm lock。产物发布并通过 Chromium / FFmpeg 回归前，不视作完成 |
 | 页面元素编辑 | 已支持 selector、文本、位置/尺寸、文字色、旋转；后端还支持背景色、不透明度、字重、对齐等受限字段 | Inspector 应暴露常用可编辑字段，并让 React 与无 bundle fallback 同契约；编辑不应意外物化未改字段 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线 | 自定义 Bezier 控制柄尚未实现；完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收 |
