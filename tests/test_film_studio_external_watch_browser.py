@@ -85,6 +85,60 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
 
+                # Exercise React-owned track controls against the authoritative FilmDocument.
+                def track_attrs(track_id: str) -> dict:
+                    document = fd.read_project_film(project_id)["doc"]
+                    track = next(item for item in document["tracks"] if item["id"] == track_id)
+                    return track["attrs"]
+
+                lock_button = page.locator('button[data-track-lock="video-main"]')
+                lock_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-lock=\"video-main\"]')?.textContent.trim() === '🔒'"
+                )
+                assert "locked" in track_attrs("video-main")
+                lock_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-lock=\"video-main\"]')?.textContent.trim() === '锁'"
+                )
+                assert "locked" not in track_attrs("video-main")
+
+                sync_button = page.locator('button[data-track-flag="sync-lock"][data-track-key="video-main"]')
+                sync_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-flag=\"sync-lock\"][data-track-key=\"video-main\"]')?.textContent.trim() === '⇄'"
+                )
+                assert "sync-lock" in track_attrs("video-main")
+                sync_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-flag=\"sync-lock\"][data-track-key=\"video-main\"]')?.textContent.trim() === '同步'"
+                )
+                assert "sync-lock" not in track_attrs("video-main")
+
+                hide_button = page.locator('button[data-track-flag="hidden"][data-track-key="video-main"]')
+                hide_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-flag=\"hidden\"][data-track-key=\"video-main\"]')?.textContent.trim() === '显'"
+                )
+                assert "hidden" in track_attrs("video-main")
+                hide_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-flag=\"hidden\"][data-track-key=\"video-main\"]')?.textContent.trim() === '隐'"
+                )
+                assert "hidden" not in track_attrs("video-main")
+
+                mute_button = page.locator('button[data-track-flag="muted"][data-track-key="audio-bed"]')
+                mute_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-flag=\"muted\"][data-track-key=\"audio-bed\"]')?.textContent.trim() === '🔊'"
+                )
+                assert "muted" in track_attrs("audio-bed")
+                mute_button.click()
+                page.wait_for_function(
+                    "() => document.querySelector('button[data-track-flag=\"muted\"][data-track-key=\"audio-bed\"]')?.textContent.trim() === '🔇'"
+                )
+                assert "muted" not in track_attrs("audio-bed")
+
                 # Exercise a real React-owned pointer gesture in Chromium, not only a static contract.
                 clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
                 box = clip.bounding_box()
