@@ -78,7 +78,7 @@
 - 以纯函数统一时间换算、帧吸附、剪辑边界吸附和 source range 运算；拖动过程中只画 preview/ghost，pointerup 才提交一次事务。
 - 已实现同项目多片段 Ctrl/⌘+C、Ctrl/⌘+V 和右键“重复”：保留片段相对布局与属性，在原轨道寻找可证明不重叠的区间，并作为一个 FilmDocument 事务提交；跨项目粘贴、覆盖式粘贴和拖入覆盖仍不支持。
 - 时间线吸附现已覆盖片头、播放头与其他片段入/出点，按 8 个屏幕像素阈值计算；拖动期间显示吸附参考线，移动、修剪、滚动修剪和滑移式修剪的预览与提交都重新计算同一吸附目标。工具栏可关闭/启用吸附；右键菜单提供复制、重复、粘贴、切分、删除、波纹删除和打开属性检查器。
-- Ctrl/⌘+滚轮以指针位置为锚点缩放、拖拽到时间线左右边缘时自动滚动，代码已实现；仍需真实浏览器回归验证。跨轨多选拖动虽可形成同批移动操作，但对多轨同步关系的预览和失败恢复仍需补强。
+- Ctrl/⌘+滚轮以指针位置为锚点缩放、拖拽到时间线左右边缘时自动滚动，已通过构建后的 React Studio Chromium 回归验证：测试确认浏览器默认缩放被阻止、缩放后指针下的时间位置保持，以及右边缘拖动期间 scrollLeft 增加并将片段新入点写回 FilmDocument（Studio 工作流： https://github.com/just2512/video-director/actions/runs/39782935217）。跨轨多选拖动虽可形成同批移动操作，但对多轨同步关系的预览和失败恢复仍需补强。
 - 清楚区分 Lift（留下空隙）与 Ripple Delete（关闭所有相关轨道上的空隙）；插入编辑仅在参与轨道/sync-lock 规则明确时推移片段。
 - 所有操作在锁轨、未知媒体时长、越界 source range、相交片段与 stale revision 场景下都要有硬门和可读错误。范围不明就拒绝，不做静默近似。
 
@@ -87,7 +87,7 @@
 - 通用视觉属性写入 `data-film-keyframes`，音频增益仍使用 `volume_envelope`，不混用两种语义。
 - 关键帧时间是 clip-relative。split、trim、roll、slide 按新片段时长切片/重基准；切入/切出 eased segment 时用后端校验的 `window` 表达式保留插值形状。回归用例分别覆盖两个源时长的切分/修剪与 roll/slide。
 - React Inspector 源码和可运行 fallback 都有曲线、节点拖动、帧步进时间/数值编辑、缓动、增加/删除/清空；时间线上显示关键帧标记，点击跳到影片绝对时间。fallback JSON 高级编辑仍共用同一 FilmDocument operation。
-- 自定义 cubic Bezier 控制柄尚未实现；完整浏览器/导出逐帧一致性仍需在 React 构建产物生成后跑通真实 Chromium 与 FFmpeg 验收。截至 2026-10-22，最新自托管回归已验证 React/Tailwind 构建、选定 Chromium/FilmDocument 回归、JavaScript 语法与 bundle/CSS 发布；完整 AI Director 回归 1256 项通过。该结果不覆盖自定义 Bezier 控制柄、全部专业剪辑组合或所有网页场景的逐帧确定性。
+- 自定义 cubic Bezier 控制柄尚未实现；完整预览/导出逐帧一致性仍需独立的 Chromium + FFmpeg 验收。截至 2026-10-22，真实 Studio Chromium 回归覆盖时间线拖动/写回、轨道标志、关键帧跳转、pointercancel、Ctrl/⌘+滚轮锚点缩放和右边缘自动滚动；完整 AI Director 回归为 1256 passed、0 failed。该证据不覆盖自定义 Bezier 控制柄、全部专业剪辑操作排列或所有网页场景的逐帧确定性。
 
 ### D. 最后强化媒体生成与导出
 
