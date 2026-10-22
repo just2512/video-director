@@ -4370,8 +4370,8 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
             )
         elif not builtin_style:
             warnings.append(
-                "style_id 已保存在最终轨道的 data-source-style-id；未匹配到内置 Style Registry，"
-                "自定义视觉样式不会被猜测执行"
+                "style_id 已保存在最终轨道的 data-source-style-id；不会自动应用 Style Registry："
+                "未匹配到内置风格，自定义视觉样式不会被猜测执行"
             )
     if raw_ir.get("style_contract"):
         mapped_contract_parts = []
