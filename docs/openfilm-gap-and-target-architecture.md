@@ -4,7 +4,7 @@
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
-最重要的差距不是“还少几个按钮”，而是：**导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；Studio 是渐进式 React/原生 DOM 混合；通用属性动画和若干专业剪辑交互仍不完整；frame(t) 的确定性范围小于任意网页；AI 目前提供操作提案与生命周期事件，不承诺模型 token 逐字流式输出或多人 CRDT 协作。**
+最重要的差距不是“还少几个按钮”，而是：**导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；Studio 仍由 React 视图与原生 DOM/Pointer Events 共同承担，主状态和手势尚未整体迁入 React；通用视觉关键帧、剪辑吸附和右键上下文操作已补到源代码及兼容界面，但还缺可运行构建产物下的真实浏览器验收；frame(t) 的确定性范围小于任意网页；AI 已支持 SSE 增量反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。**
 
 ## 目前已有的可复用基础
 
@@ -20,7 +20,7 @@
 |---|---|---|
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
-| React Studio | **混合架构**：部分工具栏、Inspector、资产、AI 与时间线表面由 React 承载，指针手势和主状态桥仍在原生 JS | 持续迁移组件所有权，不做“一次性全重写”；同一控件不得同时由 React 与静态实现双重渲染/绑定 |
+| React Studio | **源代码已扩充，实际构建未验收**：React TSX 已含关键帧曲线 Inspector、时间线标记、吸附开关、AI 停止/转向；原生 JS 仍掌握主状态/手势，并提供可编辑曲线的 fallback。仓库内 React bundle 和 Tailwind 产物仍是占位/空壳 | CI 作业没有分配 runner（runner_id=0、无步骤），所以当前部署不能声称 React 已接管；需要恢复构建 runner，生成真实 bundle/CSS，再完成 typecheck、浏览器测试和落盘验收 |
 | 页面元素编辑 | 已支持 selector、文本、位置/尺寸、文字色、旋转；后端还支持背景色、不透明度、字重、对齐等受限字段 | Inspector 应暴露常用可编辑字段，并让 React 与无 bundle fallback 同契约；编辑不应意外物化未改字段 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线 | 自定义 Bezier 控制柄尚未实现；完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收 |
@@ -80,12 +80,12 @@
 - 清楚区分 Lift（留下空隙）与 Ripple Delete（关闭所有相关轨道上的空隙）；插入编辑仅在参与轨道/sync-lock 规则明确时推移片段。
 - 所有操作在锁轨、未知媒体时长、越界 source range、相交片段与 stale revision 场景下都要有硬门和可读错误。范围不明就拒绝，不做静默近似。
 
-### C. 把音量包络升级成通用关键帧系统
+### C. 通用关键帧系统已落地，剩余边界
 
-- 将“属性—关键帧列表—插值”作为统一模型，而不是给 opacity/scale/rotation/volume 各自发明字段。通用视觉关键帧统一存放在 `data-film-keyframes`，音频增益继续使用 `volume_envelope`。
-- 关键帧时间使用 clip-relative 语义。split、trim、roll、slide 已按新片段时长裁切/重基准；切入/切出 easing 区间使用受校验的 `window` 表达式保留曲线形状，而不是简单减去时间戳。
-- UI 至少支持添加、选择、移动、删除、数值编辑、播放头激活态；插值先覆盖 linear/ease-in/ease-out/ease-in-out，再评估 cubic Bezier 控制柄。
-- 浏览器预览和 FFmpeg 输出必须共用一份曲线求值契约，用参数化测试验证；未支持的 easing/属性要明确拒绝或生成迁移 warning。
+- 通用视觉属性写入 `data-film-keyframes`，音频增益仍使用 `volume_envelope`，不混用两种语义。
+- 关键帧时间是 clip-relative。split、trim、roll、slide 按新片段时长切片/重基准；切入/切出 eased segment 时用后端校验的 `window` 表达式保留插值形状。回归用例分别覆盖两个源时长的切分/修剪与 roll/slide。
+- React Inspector 源码和可运行 fallback 都有曲线、节点拖动、帧步进时间/数值编辑、缓动、增加/删除/清空；时间线上显示关键帧标记，点击跳到影片绝对时间。fallback JSON 高级编辑仍共用同一 FilmDocument operation。
+- 自定义 cubic Bezier 控制柄尚未实现；完整浏览器/导出逐帧一致性仍需在 React 构建产物生成后跑通真实 Chromium 与 FFmpeg 验收。当前 GitHub Actions 在 runner 分配前失败，不能把这些新增测试描述为已通过。
 
 ### D. 最后强化媒体生成与导出
 
@@ -105,4 +105,5 @@
 
 ## 本次直接落地
 
-画布 Inspector 已补齐背景填色开关/背景色、不透明度、字重和文字对齐；背景透明语义被显式保留，额外属性只在确有变化时写入 overrides。React 实现、无构建时 fallback、浏览器回归断言与架构文档同步更新。后续能力按上述统一契约继续吸收，不再按功能名重复造轮子。
+画布 Inspector 已补齐背景填色开关/背景色、不透明度、字重和文字对齐；背景透明语义被显式保留，额外属性只在确有变化时写入 overrides。时间线已加入帧吸附开关/参考线、右键上下文菜单、重复片段和关键帧跳转；AI 规划已加入 SSE token 增量反馈、停止和“取消当前请求后按新要求重规划”。React 源码与无构建时 fallback 均有关键帧曲线编辑入口，且共享 FilmDocument 校验与写盘路径。  
+**未完成的验收门禁：** React bundle/CSS 仍是占位产物；最新 Studio Build 作业的 runner_id 为 0、steps 为空，完整 typecheck/Chromium/渲染回归没有执行。因此这里记录的是源码和兼容运行时的落地情况，不把未执行的构建/浏览器测试描述为 PASS。
