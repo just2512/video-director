@@ -38,7 +38,7 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "project_id": {"type": "string", "minLength": 1},
                 "expected_composition_version": {"type": "integer", "minimum": 1},
                 "selected_variant_id": {"type": "string", "minLength": 1},
-                "accept_warnings": {"type": "boolean", "default": false}
+                "accept_warnings": {"type": "boolean", "default": False}
             },
             "required": ["project_id", "expected_composition_version"],
             "additionalProperties": False
