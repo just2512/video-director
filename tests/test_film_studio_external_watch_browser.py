@@ -191,6 +191,26 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert abs(float(moved_clip["attrs"]["at"]) - 6.0) < 0.15, moved_clip
 
+                # React pointercancel must clear the active gesture without committing.
+                before_cancel = fd.read_project_film(project_id)
+                cancelled = page.evaluate("""() => {
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  if (!clip) throw new Error('clip-b missing before cancellation');
+                  const base = {bubbles:true,cancelable:true,pointerId:77,button:0,buttons:1,clientX:Math.round(clip.getBoundingClientRect().x + 8),clientY:Math.round(clip.getBoundingClientRect().y + 8)};
+                  clip.dispatchEvent(new PointerEvent('pointerdown', base));
+                  const ownedAtStart = window.filmStudioOwnsClipGesturePointer?.(77) === true;
+                  clip.dispatchEvent(new PointerEvent('pointercancel', {...base, buttons:0}));
+                  return {ownedAtStart};
+                }""")
+                assert cancelled["ownedAtStart"] is True, cancelled
+                page.wait_for_function("""() => {
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  return !!clip && !clip.classList.contains('fs-dragging') &&
+                    window.filmStudioOwnsClipGesturePointer?.(77) !== true;
+                }""")
+                after_cancel = fd.read_project_film(project_id)
+                assert after_cancel["rev"] == before_cancel["rev"]
+
                 # The drag selected clip-b. Restore clip-a so the existing
                 # external-write assertion observes the field that is changed next.
                 page.evaluate("window.filmStudioSelectClip('clip-a')")

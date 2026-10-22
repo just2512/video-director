@@ -37,4 +37,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "window.filmStudioJumpToKeyframe" in studio and "renderSurface" in studio
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioMoveClipGesture = function(e)" in studio
+    assert "window.filmStudioCancelClipGesture?.(event.nativeEvent)" in component
+    assert "window.filmStudioCancelClipGesture=function(e)" in studio
+    assert "if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;" in studio
     assert "if(S.reactGesturePointerId===e.pointerId)return;" not in studio

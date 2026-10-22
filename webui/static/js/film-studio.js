@@ -1695,7 +1695,7 @@
     if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     onUp(e);
   });
-  document.addEventListener('pointercancel',function(){
+  function cancelPointerGesture(){
     clearDragAutoScroll();
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){
@@ -1707,6 +1707,15 @@
     }
     if(S.data&&S.data.exists)renderTimeline();
     flushPendingExternalRevision();
+  }
+  window.filmStudioCancelClipGesture=function(e){
+    if(!e||!window.filmStudioOwnsClipGesturePointer||
+       !window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
+    cancelPointerGesture();
+  };
+  document.addEventListener('pointercancel',function(e){
+    if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
+    cancelPointerGesture();
   });
   window.filmStudioSetSideMode=function(mode){
     // Both work surfaces stay mounted and visible. The mode only controls focus

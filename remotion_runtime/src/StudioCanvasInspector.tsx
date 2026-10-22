@@ -204,6 +204,7 @@ declare global {
     filmStudioBeginClipDrag?: (event: PointerEvent, element: HTMLElement) => boolean | void;
     filmStudioMoveClipGesture?: (event: PointerEvent) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
+    filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
     filmStudioToggleTrackLock?: (trackId: string) => Promise<boolean> | void;
     filmStudioToggleTrackFlag?: (trackId: string, field: string) => Promise<boolean> | void;
@@ -815,7 +816,12 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 Promise.resolve(pending).then(clear,clear);
               }}
               onPointerCancel={event => {
-                if(activePointerId.current===event.nativeEvent.pointerId)activePointerId.current=null;
+                const pointerId=event.nativeEvent.pointerId;
+                if(activePointerId.current!==pointerId)return;
+                window.filmStudioCancelClipGesture?.(event.nativeEvent);
+                Promise.resolve().then(() => {
+                  if(activePointerId.current===pointerId)activePointerId.current=null;
+                });
               }}
             >
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
