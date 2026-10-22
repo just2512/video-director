@@ -32,10 +32,14 @@
   function renderAiDirector() {
     var bridge=window.filmStudioReactAi,root=$('fs-react-ai-director'),legacy=$('fs-static-ai-director');
     if(bridge&&typeof bridge.render==='function'&&root){
+      var proposalPreview=S.proposal?proposalOperationPreviews(S.proposal):null;
       var proposal=S.proposal?{
         summary:String(S.proposal.summary||'AI 候选修改'),
         operationCount:(S.proposal.operations||[]).length,
-        baseRevision:String(S.proposal.base_revision||'')
+        baseRevision:String(S.proposal.base_revision||''),
+        operationPreviews:proposalPreview.entries,
+        affectedClips:proposalPreview.affected,
+        truncatedCount:proposalPreview.truncatedCount
       }:null;
       try{
         bridge.render({
@@ -2064,6 +2068,131 @@ window.filmStudioCopyClips=function(){
       showStatus('MP4 导出请求失败：'+String(error&&error.message||error),'error');
     }
   };
+  function findProposalClip(payload,clipId){
+    if(!payload||!Array.isArray(payload.tracks))return null;
+    for(var ti=0;ti<payload.tracks.length;ti++){
+      var track=payload.tracks[ti],items=track.clips||[];
+      for(var ci=0;ci<items.length;ci++){
+        if(String(items[ci].id)===String(clipId))return {clip:items[ci],track:track};
+      }
+    }
+    return null;
+  }
+  function proposalClipLabel(payload,clipId){
+    if(!clipId)return '未指定片段';
+    var found=findProposalClip(payload,clipId);
+    if(!found)return String(clipId);
+    var attrs=found.clip.attrs||{},label=String(attrs.title||found.clip.id);
+    var trackAttrs=found.track.attrs||{},trackLabel=String(trackAttrs['data-label']||found.track.id);
+    return label+' · '+found.clip.id+'（'+trackLabel+'）';
+  }
+  function proposalFieldLabel(field){
+    return ({
+      at:'时间位置',src:'素材源区间',speed:'播放速度',volume:'音量',volume_envelope:'音量关键帧',
+      fade:'淡入/淡出',muted:'静音状态',style:'样式',class:'CSS 类',title:'片段标题',
+      'data-film-keyframes':'视觉关键帧',alt:'替代文本',lang:'语言',dir:'文字方向',size:'尺寸',overrides:'画面覆盖参数'
+    })[field]||String(field||'属性');
+  }
+  function summarizeProposalValue(field,value){
+    if(value==null)return '未设置';
+    if(field==='muted')return 'muted'===String(value)||value===''?'已静音':'未静音';
+    if(field==='at')return Number.isFinite(Number(value))?fmtTime(Number(value)):String(value);
+    if(field==='speed')return Number.isFinite(Number(value))?Number(value).toFixed(2)+'×':String(value);
+    if(field==='volume')return Number.isFinite(Number(value))?Number(value).toFixed(2):String(value);
+    if(field==='fade'){
+      var parts=String(value||'0,0').split(',');
+      return '淡入 '+(Number(parts[0]||0).toFixed(2))+'s / 淡出 '+(Number(parts[1]||0).toFixed(2))+'s';
+    }
+    if(field==='volume_envelope'||field==='data-film-keyframes'){
+      var values=value;
+      if(typeof values==='string'){try{values=JSON.parse(values);}catch(_){return '已修改（内容需要复核）';}}
+      if(Array.isArray(values)){
+        if(field==='data-film-keyframes'){
+          var keys=values.reduce(function(total,channel){return total+(Array.isArray(channel&&channel.keyframes)?channel.keyframes.length:0);},0);
+          return values.length+' 个属性通道 / '+keys+' 个关键帧';
+        }
+        return values.length+' 个音量关键帧';
+      }
+      return '已修改';
+    }
+    var text=typeof value==='string'?value:JSON.stringify(value);
+    if(text.length>140)text=text.slice(0,137)+'…';
+    return text||'未设置';
+  }
+  function proposalClipRange(found){
+    if(!found)return '片段不存在';
+    var clip=found.clip,at=Number(clip.at),end=clip.end;
+    if(!Number.isFinite(at))return '时间未知';
+    return fmtTime(at)+' – '+(end==null?'出点未知':fmtTime(Number(end)));
+  }
+  function proposalOperationPreviews(proposal){
+    var operations=Array.isArray(proposal&&proposal.operations)?proposal.operations:[];
+    var shown=operations.slice(0,30),affected=[],affectedSet=Object.create(null);
+    function affect(id){
+      if(!id)return;
+      var key=String(id);if(affectedSet[key])return;
+      affectedSet[key]=true;affected.push(proposalClipLabel(S.data,key));
+    }
+    shown.forEach(function(op){affect(op.clip);affect(op.other_clip);});
+    (proposal&&proposal.affected_clip_ids||[]).forEach(affect);
+    var entries=shown.map(function(op,index){
+      var kind=String(op.op||'operation'),id=String(op.clip||''),current=findProposalClip(S.data,id);
+      var candidate=findProposalClip(proposal.candidate,id),target=proposalClipLabel(S.data,id),action='修改片段',detail='',before='',after='';
+      if(kind==='set'){
+        action='修改属性';detail=proposalFieldLabel(op.field);
+        var oldValue=current?(op.field==='at'?current.clip.at:(current.clip.attrs||{})[op.field]):undefined;
+        var newValue=candidate?(op.field==='at'?candidate.clip.at:(candidate.clip.attrs||{})[op.field]):op.value;
+        before=summarizeProposalValue(op.field,oldValue);
+        after=summarizeProposalValue(op.field,newValue);
+      }else if(kind==='move'){
+        action='移动片段';detail='目标轨道 '+proposalClipLabel(proposal.candidate,id);
+        before=proposalClipRange(current);
+        after=fmtTime(Number(op.at))+' · '+proposalClipLabel(proposal.candidate,id);
+      }else if(kind==='trim'){
+        action=op.edge==='start'?'修剪入点':'修剪出点';
+        detail=op.edge==='start'?'调整片段入点':'调整片段出点';
+        before=proposalClipRange(current);after=proposalClipRange(candidate);
+      }else if(kind==='split'){
+        action='切分片段';detail='切分点 '+fmtTime(Number(op.at))+'；新片段 ID：'+String(op.new_id||'自动生成');
+        before=proposalClipRange(current);after=candidate?'左段 '+proposalClipRange(candidate)+'；右段由新 ID 表示':'将在 '+fmtTime(Number(op.at))+' 处分为两段';
+      }else if(kind==='remove'){
+        action='删除片段';detail='删除后可通过撤销恢复';
+        before=proposalClipRange(current);after='已删除';
+      }else if(kind==='ripple_delete'){
+        action='波纹删除';detail='范围：'+(op.scope==='all'?'全部轨道':'指定轨道');
+        before=proposalClipRange(current);after='删除时间段并收拢受影响轨道';
+      }else if(kind==='slip'){
+        action='滑移素材源区间';detail='保持时间线位置和片段长度不变';
+        before=current?String((current.clip.attrs||{}).src||'未知源区间'):'未知源区间';
+        after=candidate?String((candidate.clip.attrs||{}).src||'未知源区间'):'候选源区间已变更';
+      }else if(kind==='roll'){
+        action='滚动修剪';detail='相邻切口位移 '+Number(op.delta||0).toFixed(3)+'s；总时长不变';
+        target=proposalClipLabel(S.data,id)+' ↔ '+proposalClipLabel(S.data,op.other_clip);
+        var otherBefore=findProposalClip(S.data,op.other_clip),otherAfter=findProposalClip(proposal.candidate,op.other_clip);
+        before=proposalClipRange(current)+' / '+proposalClipRange(otherBefore);
+        after=proposalClipRange(candidate)+' / '+proposalClipRange(otherAfter);
+      }else if(kind==='slide'){
+        action='滑移式修剪';detail='中间片段位移 '+Number(op.delta||0).toFixed(3)+'s；保持三段外侧边界';
+        before=proposalClipRange(current);after=proposalClipRange(candidate);
+      }else if(kind==='join'){
+        action='愈合切口';detail='合并同源连续的相邻片段';
+        target=proposalClipLabel(S.data,id)+' + '+proposalClipLabel(S.data,op.other_clip);
+        before=proposalClipRange(current)+' / '+proposalClipRange(findProposalClip(S.data,op.other_clip));
+        after=candidate?proposalClipRange(candidate):'合并后的片段待确认';
+      }else if(kind==='element_set'){
+        action='修改画面元素';detail='选择器：'+String(op.selector||'当前选中元素');
+        before='当前选中元素';after=op.text!=null?'文本：'+String(op.text).slice(0,100):('样式字段：'+Object.keys(op.style||{}).join(', '));
+      }else if(kind==='track_add'){
+        action='新增轨道';detail='新轨道 ID：'+String(op.track_id||'');
+      }else if(kind==='track_remove'){
+        action='删除空轨道';detail='轨道 ID：'+String(op.track_id||'');
+      }else{
+        action=kind;detail='FilmDocument 操作';
+      }
+      return {id:String(index),action:action,target:target,detail:detail,before:before,after:after};
+    });
+    return {entries:entries,affected:affected,truncatedCount:Math.max(0,operations.length-shown.length),operationCount:operations.length};
+  }
   function renderProposalPanel(){
     if(renderAiDirector())return;
     var panel=$('fs-proposal-panel'),proposal=S.proposal;
@@ -2073,6 +2202,19 @@ window.filmStudioCopyClips=function(){
     var summary=$('fs-proposal-summary'),detail=$('fs-proposal-detail');
     if(summary)summary.textContent=proposal.summary||'AI 候选修改';
     if(detail)detail.textContent=(proposal.operations||[]).length+' 项操作 · 基于 revision '+proposal.base_revision+' · 尚未写入正式文档';
+    var operationsRoot=$('fs-proposal-operations');
+    if(operationsRoot){
+      var preview=proposalOperationPreviews(proposal);
+      operationsRoot.innerHTML='<details class="fs-proposal-operation-list"><summary>查看具体改动（'+preview.operationCount+' 项）</summary>'+
+        '<ol>'+preview.entries.map(function(item){return '<li><strong>'+esc(item.action)+'</strong> · '+esc(item.target)+
+          '<p>'+esc(item.detail)+'</p>'+
+          (item.before?'<p class="fs-proposal-before">修改前：'+esc(item.before)+'</p>':'')+
+          (item.after?'<p class="fs-proposal-after">修改后：'+esc(item.after)+'</p>':'')+
+          '</li>';}).join('')+'</ol>'+
+        (preview.truncatedCount?'<p>另有 '+preview.truncatedCount+' 项操作未在此展开。</p>':'')+
+        (preview.affected.length?'<p class="fs-proposal-affected">影响对象：'+preview.affected.map(esc).join('；')+'</p>':'')+
+        '</details>';
+    }
   }
   window.filmStudioPreviewProposal=function(){
     var proposal=S.proposal,frame=$('fs-preview-composition');

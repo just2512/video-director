@@ -169,7 +169,15 @@ interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
 }
 type FilmStudioAiMessage = {text: string; role: string};
-type FilmStudioAiProposal = {summary: string; operationCount: number; baseRevision: string} | null;
+type FilmStudioAiOperationPreview = {
+  id: string; action: string; target: string; detail: string; before: string; after: string;
+};
+type FilmStudioAiProposal = {
+  summary: string; operationCount: number; baseRevision: string;
+  operationPreviews: FilmStudioAiOperationPreview[];
+  affectedClips: string[];
+  truncatedCount: number;
+} | null;
 type FilmStudioAiDirectorModel = {messages: FilmStudioAiMessage[]; proposal: FilmStudioAiProposal};
 interface FilmStudioReactAiBridge {
   render(model: FilmStudioAiDirectorModel): void;
@@ -673,6 +681,21 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
         <div className="fs-proposal-panel" id="fs-proposal-panel" data-react-ai-proposal="true">
           <strong id="fs-proposal-summary">{proposal.summary || "AI 候选修改"}</strong>
           <p id="fs-proposal-detail">{proposal.operationCount} 项操作 · 基于 revision {proposal.baseRevision} · 尚未写入正式文档</p>
+          <details className="fs-proposal-operation-list" data-react-proposal-details="true">
+            <summary>查看具体改动（{proposal.operationCount} 项）</summary>
+            <ol>
+              {proposal.operationPreviews.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.action}</strong> · {item.target}
+                  <p>{item.detail}</p>
+                  {item.before ? <p className="fs-proposal-before">修改前：{item.before}</p> : null}
+                  {item.after ? <p className="fs-proposal-after">修改后：{item.after}</p> : null}
+                </li>
+              ))}
+            </ol>
+            {proposal.truncatedCount ? <p>另有 {proposal.truncatedCount} 项操作未在此展开。</p> : null}
+            {proposal.affectedClips.length ? <p className="fs-proposal-affected">影响对象：{proposal.affectedClips.join("；")}</p> : null}
+          </details>
           <div className="fs-proposal-actions">
             <button className="fs-btn" type="button" data-film-action="preview-proposal">重新预览</button>
             <button className="fs-btn" type="button" data-film-action="reject-proposal">拒绝</button>

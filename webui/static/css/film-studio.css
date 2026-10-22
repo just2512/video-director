@@ -316,3 +316,13 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-clip-keyframe-marker{position:absolute;bottom:3px;z-index:6;width:7px;height:7px;min-width:0;padding:0;border:1px solid #fff1a8;border-radius:1px;background:#f4d57a;transform:translateX(-50%) rotate(45deg);box-shadow:0 0 0 1px rgba(0,0,0,.45);cursor:pointer;pointer-events:auto}
 .fs-clip-keyframe-marker:hover,.fs-clip-keyframe-marker:focus-visible{outline:2px solid #f4d57a;outline-offset:3px}
 .fs-clip-keyframe-marker:active{background:#fff}
+
+.fs-proposal-operation-list{margin:7px 0 9px;padding:6px 7px;border:1px solid #3a5551;border-radius:5px;background:rgba(0,0,0,.12)}
+.fs-proposal-operation-list summary{cursor:pointer;font-size:11px;color:#d9fbf5;padding:3px 0}
+.fs-proposal-operation-list ol{margin:8px 0 0;padding-left:22px;display:grid;gap:8px}
+.fs-proposal-operation-list li{padding-left:2px;color:#dfece9;font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.fs-proposal-operation-list li strong{display:inline;color:#eafcf7;font-size:11px}
+.fs-proposal-operation-list p{margin:3px 0;color:#b8ceca;font-size:10px;line-height:1.45;overflow-wrap:anywhere}
+.fs-proposal-operation-list .fs-proposal-before{color:#c9bdbd}
+.fs-proposal-operation-list .fs-proposal-after{color:#b5f0d7}
+.fs-proposal-affected{margin-top:8px;padding-top:6px;border-top:1px solid #3a5551}

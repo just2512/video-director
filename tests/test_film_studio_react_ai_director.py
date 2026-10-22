@@ -12,6 +12,11 @@ def test_react_ai_director_keeps_the_existing_action_and_message_contract():
     assert "const StudioAiDirector: React.FC" in component
     assert "window.filmStudioReactAi = {" in component
     assert "window.filmStudioReactAi" in studio
+    assert "proposalOperationPreviews" in studio
+    assert "operationPreviews:proposalPreview.entries" in studio
+    assert 'data-react-proposal-details="true"' in component
+    assert 'id="fs-proposal-operations"' in html
+    assert "修改前：" in component and "修改后：" in component
     assert "function renderAiDirector()" in studio
     assert "renderAiDirector()" in studio
     assert 'id="fs-chat-log"' in component
