@@ -1,9 +1,40 @@
 """The FilmDocument keeps FPS authoritative across parse/serialize operations."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from video_director import config, film_document as fd
+
+
+SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2" volume="1"></video>
+<video id="clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>
+</section>
+<section id="audio-bed" data-label="BGM">
+<audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio>
+</section>
+</body></html>'''
+
+SLIDE_SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
+<body><section id="video-main" data-label="主画面">
+<video id="slide-left" src="../assets/a.mp4#t=0,2" at="0" speed="1" volume="1"></video>
+<video id="slide-middle" src="../assets/a.mp4#t=2,5" at="2" speed="1" volume="1"></video>
+<video id="slide-right" src="../assets/a.mp4#t=5,9" at="5" speed="1" volume="1"></video>
+</section></body></html>'''
+
+HTML_SCENE_SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head>
+<body>
+<section id="scene-track" data-label="网页镜头">
+<iframe id="scene" src="scenes/title.html#t=0,4" at="0"></iframe>
+</section>
+</body></html>'''
 
 
 def test_film_fps_metadata_round_trip_and_range_validation():
