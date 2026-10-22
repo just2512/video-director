@@ -161,7 +161,9 @@ class FrameVisionProvider(VisionProvider):
         payload = json.dumps({
             "model": self._model,
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": 500,
+            # 500 在生产（同窗口两类假阴性）反复截断 description+tags 后的
+            # concepts/usable_for——1500 覆盖四字段全量输出，成本可忽略。
+            "max_tokens": 1500,
         }).encode()
         req = urllib.request.Request(
             f"{self._base_url}/chat/completions",
@@ -197,6 +199,9 @@ class FrameVisionProvider(VisionProvider):
         # 过滤/截断）→ NoneType.find；花括号切片非 JSON → 裸 json.loads 崩。
         # 全部换成带原始响应摘要的诚实报错，调用方仍按 provider 失败降级。
         choices = data.get("choices") or []
+        # finish_reason=length 是截断的确定性信号（部分供应商截断时还返回
+        # None content），带上它报错才不误导成「无 JSON」。
+        finish_reason = choices[0].get("finish_reason") if choices else None
         content = (choices[0].get("message") or {}).get("content") if choices else None
         if content is None or not str(content).strip():
             err = data.get("error")
@@ -205,6 +210,10 @@ class FrameVisionProvider(VisionProvider):
         raw = str(content).strip()
         start, end = raw.find("{"), raw.rfind("}")
         if start < 0 or end <= start:
+            if finish_reason == "length":
+                raise VisionError(
+                    f"视觉 LLM 输出被 max_tokens 截断（finish_reason=length，"
+                    f"响应 key: {sorted(data.keys())[:6]}）: {raw[:160]}")
             raise VisionError(f"视觉 LLM 输出无 JSON: {raw[:200]}")
         try:
             parsed = json.loads(raw[start : end + 1])

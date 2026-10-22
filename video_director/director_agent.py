@@ -655,12 +655,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
     # 逐级尝试生成画面补位——复用现有生成链，不新建 Agent。
     # 差距 2：首选路线失败按顺序降级（视频→图片运动→代码画面）；全失败标记
     # NEEDS_HUMAN（诚实，不伪装成功、不静默整片失败）。
-    _GEN_FALLBACK = {
-        "video": ("video", "image", "graphic"),
-        "image": ("image", "graphic"),
-        "graphic": ("graphic",),
-        "motion": ("motion", "graphic"),
-    }
+    # 差距 5：兜底链默认表上移到 creative_candidates.GEN_FALLBACK_ROUTES
+    #（候选构造时已带 fallback_routes 字段）；这里只做旧数据（无该字段）
+    # 的回落，避免两处维护同一事实。
     if missing and match_enabled:
         _gen_missing = [m for m in missing if m not in assignments]
         if _gen_missing:
@@ -680,7 +677,13 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     # 变量名不得用 order：外层 order 是 asset_order（List[str]），
                     # 遮蔽后 state["asset_order"] 会拿到 None/tuple → planner
                     # TypeError 整片崩（对抗审查 CRITICAL 1，已实测复现）。
-                    fallback_chain = _GEN_FALLBACK.get(gt)
+                    # 差距 5：候选自带 fallback_routes 优先（镜头级契约），
+                    # 旧数据（无该字段）回落全局默认表——行为不回归。
+                    fallback_chain = (
+                        [str(x) for x in (cand or {}).get("fallback_routes") or []
+                         if str(x or "").strip()]
+                        or list(creative_candidates.GEN_FALLBACK_ROUTES.get(gt) or ())
+                    )
                     if not fallback_chain:
                         continue
                     prompt = str((cand or {}).get("generation_prompt")
@@ -1178,6 +1181,15 @@ def _tool_composition(spec: dict, state: dict) -> dict:
             ir.scenes[i].transition_out = TransitionOut(type="crossfade", duration=0.5)
         transition_budget = 0  # 已执行，不再重复提案
         logger.info(f"transition_mode={transition_mode}（用户指定）：{len(ir.scenes)-1} 处 crossfade 已写入 IR")
+    # 校验预算必须与执行预算同源（2026-10-22 生产实锚 web-8fd0ff30/run-d1812b798424）：
+    # 用户显式指定转场时，执行点写满全部边界是合法的（用户指令不受风格预算约束），
+    # 校验上限=边界数；未显式时校验上限=风格预算（与上方提案预算同一来源）。
+    # 此前校验漏传第五参回落全局默认 3，用户显式 crossfade 写满 4 边界被
+    # TRANSITION_BUDGET_EXCEEDED 恒 REJECT——执行与校验自相矛盾，retry 也不可能过。
+    validate_budget = (
+        max(0, len(ir.scenes) - 1) if transition_mode in ("fade", "crossfade")
+        else transition_budget
+    )
     proposal_path = dirs["plans"] / "transition_proposals.json"
     proposals = []
     if transition_budget > 0:
@@ -1300,8 +1312,10 @@ def _tool_composition(spec: dict, state: dict) -> dict:
         {"version": 1, "fingerprint": build_fingerprint},
     )
 
+    # 第五参与执行点预算同源：见上方 validate_budget 契约注释
     check = validator.validate_composition(
-        ir, render_assets, duration, state.get("subtitle_entries")
+        ir, render_assets, duration, state.get("subtitle_entries"),
+        transition_budget=validate_budget,
     )
     if not check.ok:
         return {
