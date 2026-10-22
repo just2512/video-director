@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import pytest
 from PIL import Image
@@ -207,3 +208,58 @@ def test_offline_scene_renderer_fails_for_missing_project_local_css_or_media_res
     assert "theme.css" in str(error.value)
     assert "missing-style.css" in str(error.value)
     assert "background.webp" in str(error.value)
+
+
+
+def test_film_render_marks_old_revision_when_document_changes_during_export(tmp_path, monkeypatch):
+    pytest.importorskip("playwright.sync_api")
+    from video_director import film_document as fd, film_render, renderer
+
+    try:
+        renderer._ffmpeg()
+    except Exception as exc:  # pragma: no cover - environment-dependent binary
+        pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
+
+    project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
+    original_audio_specs = film_render._audio_specs
+    external_change_done = False
+
+    def change_film_after_frames(pid, doc, duration):
+        nonlocal external_change_done
+        specs = original_audio_specs(pid, doc, duration)
+        if not external_change_done:
+            current = fd.read_project_film(project_id)
+            assert current["rev"] == revision
+            fd.edit_project_film(
+                project_id,
+                current["rev"],
+                [{"op": "set", "clip": "moving-red", "field": "title",
+                  "value": "由外部 Agent 在导出期间修改"}],
+            )
+            external_change_done = True
+        return specs
+
+    monkeypatch.setattr(film_render, "_audio_specs", change_film_after_frames)
+    result = film_render.render_project_film(
+        project_id, fd.read_project_film(project_id)["rev"], fps=2
+    )
+
+    current = fd.read_project_film(project_id)
+    output = Path(result["mp4_path"])
+    assert external_change_done is True
+    assert result["ok"] is True
+    assert result["rendered_revision"] == revision
+    assert result["current_revision"] == current["rev"]
+    assert result["current_revision"] != revision
+    assert result["current"] is False
+    assert output.name == f"film-final-{revision}.mp4"
+    assert output.is_file() and output.stat().st_size > 0
+    assert any("导出期间影片文档已变化" in warning for warning in result["warnings"])
+
+    qc_path = Path(result["qc_report_path"])
+    report = json.loads(qc_path.read_text(encoding="utf-8"))
+    assert report["source_revision"] == revision
+    assert report["current_revision"] == current["rev"]
+    assert report["current_revision_match"] is False
+    assert any("rendered_revision" in warning or "导出期间影片文档已变化" in warning
+               for warning in report["warnings"])
