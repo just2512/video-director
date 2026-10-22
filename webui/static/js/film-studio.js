@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -655,9 +655,9 @@
     if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档，且等待当前编辑完成。','error');return;}
     if(hasUncommittedInspectorEdits()){showStatus('请先应用 Inspector 属性草稿，或重新载入并确认丢弃，再添加素材。','error');return;}
     var selected=findClip(S.selectedId),request={project_id:S.projectId,base:S.rev,asset_id:assetId,at:S.playhead,still_duration:5};
-    if(S.insertMode){
-      if(!selected){showStatus('插入编辑模式下，请先选择目标轨道上的片段。','error');return;}
-      request.placement_mode='ripple';request.track_id=selected.track_id;
+    if(S.insertMode||S.overwriteMode){
+      if(!selected){showStatus((S.overwriteMode?'覆盖':'插入')+'编辑模式下，请先选择目标轨道上的片段。','error');return;}
+      request.placement_mode=S.overwriteMode?'overwrite':'ripple';request.track_id=selected.track_id;
     }
     S.busy=true;
     try{
@@ -665,14 +665,36 @@
       if(!response||!response.ok){showStatus((response&&response.error)||'素材加入时间线失败。','error');return;}
       S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
       S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
-      showStatus(S.insertMode?'插入编辑已完成：目标轨道及同步锁定轨道已按素材时长推移。':'已在播放头位置新建轨道并添加素材。', 'success');
+      showStatus(response.placement_mode==='overwrite'
+        ?'覆盖编辑已完成：仅替换目标轨道的重叠区间，其他轨道和非重叠片段未被推移。'
+        :response.placement_mode==='ripple'
+          ?'插入编辑已完成：目标轨道及同步锁定轨道已按素材时长推移。'
+          :'已在播放头位置新建轨道并添加素材。', 'success');
     }finally{S.busy=false;flushPendingExternalRevision();}
   };
+  function syncPlacementModeButtons(){
+    document.querySelectorAll('[data-film-action="insert-mode"]').forEach(function(button){
+      button.textContent='插入编辑：'+(S.insertMode?'开':'关');
+      button.classList.toggle('fs-primary',S.insertMode);
+      button.setAttribute('aria-pressed',S.insertMode?'true':'false');
+    });
+    document.querySelectorAll('[data-film-action="overwrite-mode"]').forEach(function(button){
+      button.textContent='覆盖编辑：'+(S.overwriteMode?'开':'关');
+      button.classList.toggle('fs-primary',S.overwriteMode);
+      button.setAttribute('aria-pressed',S.overwriteMode?'true':'false');
+    });
+  }
   window.filmStudioToggleInsertMode=function(){
     S.insertMode=!S.insertMode;
-    var button=document.querySelector('[data-film-action="insert-mode"]');
-    if(button){button.textContent='插入编辑：'+(S.insertMode?'开':'关');button.classList.toggle('fs-primary',S.insertMode);button.setAttribute('aria-pressed',S.insertMode?'true':'false');}
-    showStatus(S.insertMode?'插入编辑已开启：选择目标轨道上的片段，再从素材库添加素材。':'插入编辑已关闭。','success');
+    if(S.insertMode)S.overwriteMode=false;
+    syncPlacementModeButtons();
+    showStatus(S.insertMode?'插入编辑已开启：选择目标轨道上的片段，再从素材库添加素材；后续片段会推移。':'插入编辑已关闭。','success');
+  };
+  window.filmStudioToggleOverwriteMode=function(){
+    S.overwriteMode=!S.overwriteMode;
+    if(S.overwriteMode)S.insertMode=false;
+    syncPlacementModeButtons();
+    showStatus(S.overwriteMode?'覆盖编辑已开启：素材只替换所选轨道的重叠区间，不推移其他片段或音频轨道。':'覆盖编辑已关闭。','success');
   };
   function syncClipSelectionVisual(){
     var selected=S.selectedIds||[];
@@ -3173,6 +3195,7 @@ window.filmStudioCopyClips=function(){
     'slide-mode': () => window.filmStudioToggleSlideMode(),
     'slip-mode': () => window.filmStudioToggleSlipMode(),
     'insert-mode': () => window.filmStudioToggleInsertMode(),
+    'overwrite-mode': () => window.filmStudioToggleOverwriteMode(),
     'add-track': () => window.filmStudioAddTrack(),
     'remove-empty-track': () => window.filmStudioRemoveEmptyTrack(),
     'zoom-out': () => window.filmStudioZoom(-1),

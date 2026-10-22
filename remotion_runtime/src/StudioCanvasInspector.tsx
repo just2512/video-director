@@ -1080,6 +1080,7 @@ const StudioScrubRow: React.FC = () => (
 const StudioTimelineToolbar: React.FC = () => (
   <>
     <button className="fs-btn" type="button" data-film-action="insert-mode" aria-pressed="false" title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：关</button>
+    <button className="fs-btn" type="button" data-film-action="overwrite-mode" aria-pressed="false" title="覆盖编辑只替换所选轨道的重叠区间，不推移其他片段或音频轨道">覆盖编辑：关</button>
     <button className="fs-btn" type="button" data-film-action="toggle-snap" aria-pressed="true" title="吸附到播放头、片头和其他片段边缘；吸附距离按屏幕像素计算">吸附：开</button>
     <button className="fs-btn" type="button" data-film-action="split" title="在播放头切分（S）">在播放头切分</button>
     <button className="fs-btn" type="button" data-film-action="copy-clips" title="复制选中片段（Ctrl/⌘+C）">复制</button>

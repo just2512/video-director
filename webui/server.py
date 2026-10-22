@@ -1225,16 +1225,27 @@ class Handler(BaseHTTPRequestHandler):
                 state = fd.read_project_film(pid)
                 if not state["exists"]:
                     raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html", 409)
+                placement_mode = str(payload.get("placement_mode") or "new-track")
+                if placement_mode == "overwrite" and payload.get("base") != state["rev"]:
+                    raise fd.FilmError("REVISION_CONFLICT", "影片文档已变化；请刷新后重新执行覆盖编辑。", 409)
                 clip = fd.library_asset_clip(
                     pid, str(payload.get("asset_id") or ""),
                     payload.get("at", 0), payload.get("still_duration", 5))
-                placement_mode = str(payload.get("placement_mode") or "new-track")
                 if placement_mode == "ripple":
                     track_id = str(payload.get("track_id") or "")
                     if not track_id:
                         raise fd.FilmError("INSERT_TRACK_REQUIRED", "插入编辑必须明确选择目标轨道", 422)
                     operations = [{"op": "insert_ripple", "track_id": track_id, "at": payload.get("at", 0),
                                    "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}}]
+                elif placement_mode == "overwrite":
+                    track_id = str(payload.get("track_id") or "")
+                    if not track_id:
+                        raise fd.FilmError("INSERT_TRACK_REQUIRED", "覆盖编辑必须明确选择目标轨道", 422)
+                    operations = fd.build_overwrite_operations(
+                        state["doc"], track_id,
+                        {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]},
+                        payload.get("at", 0),
+                    )
                 elif placement_mode == "new-track":
                     track_id = "track-added-" + uuid.uuid4().hex[:10]
                     track_label = "新增音轨" if clip["tag"] == "audio" else "新增画面"
@@ -1242,11 +1253,14 @@ class Handler(BaseHTTPRequestHandler):
                         {"op": "track_add", "track_id": track_id, "label": track_label,
                          "kind": clip["tag"], "index": 0},
                         {"op": "insert", "track_id": track_id,
-                         "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}},
+                         "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"}},
                     ]
                 else:
-                    raise fd.FilmError("INVALID_PLACEMENT_MODE", "素材放置模式只允许 new-track 或 ripple", 422)
-                result = fd.edit_project_film(pid, payload.get("base"), operations)
+                    raise fd.FilmError("INVALID_PLACEMENT_MODE", "素材放置模式只允许 new-track、ripple 或 overwrite", 422)
+                result = fd.edit_project_film(
+                    pid, payload.get("base"), operations,
+                    require_base=placement_mode == "overwrite",
+                )
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
                              "inserted_clip_id": clip["id"], "inserted_track_id": track_id,
