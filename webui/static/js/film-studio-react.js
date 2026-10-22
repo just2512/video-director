@@ -23833,6 +23833,49 @@
 
   // ../remotion_runtime/src/StudioCanvasInspector.tsx
   var import_react = __toESM(require_react(), 1);
+
+  // ../remotion_runtime/src/film-timeline-math.ts
+  var finiteOr = (value, fallback) => Number.isFinite(value) ? value : fallback;
+  var filmTimelineMath = {
+    secondsToPixels(seconds, pixelsPerSecond) {
+      return finiteOr(seconds, 0) * Math.max(1e-6, finiteOr(pixelsPerSecond, 1));
+    },
+    pixelsToSeconds(pixels, pixelsPerSecond) {
+      return finiteOr(pixels, 0) / Math.max(1e-6, finiteOr(pixelsPerSecond, 1));
+    },
+    clipLeft(at, pixelsPerSecond) {
+      return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));
+    },
+    clipWidth(duration, pixelsPerSecond, minWidth = 24, unknownDuration = 2, maxWidth = 0, roundUp = false) {
+      const seconds = duration == null ? unknownDuration : Math.max(0, finiteOr(duration, 0));
+      let width = filmTimelineMath.secondsToPixels(seconds, pixelsPerSecond);
+      if (roundUp) width = Math.ceil(width);
+      const ceiling = maxWidth > 0 ? maxWidth : Number.POSITIVE_INFINITY;
+      return Math.max(minWidth, Math.min(ceiling, width));
+    },
+    zoomScale(current, direction, min = 12, max = 120) {
+      const next = finiteOr(current, min) * (direction > 0 ? 1.25 : 0.8);
+      return Math.max(min, Math.min(max, next));
+    },
+    zoomAnchorTime(scrollLeft, localX, pixelsPerSecond, headerWidth) {
+      return Math.max(0, filmTimelineMath.pixelsToSeconds(
+        finiteOr(scrollLeft, 0) + finiteOr(localX, 0) - finiteOr(headerWidth, 0),
+        pixelsPerSecond
+      ));
+    },
+    zoomScrollLeft(anchorTime, localX, pixelsPerSecond, headerWidth) {
+      return Math.max(
+        0,
+        finiteOr(headerWidth, 0) + filmTimelineMath.secondsToPixels(anchorTime, pixelsPerSecond) - finiteOr(localX, 0)
+      );
+    },
+    snapToFrame(seconds, fps) {
+      const safeFps = Math.max(1, Math.min(120, finiteOr(fps, 30)));
+      return Math.round(finiteOr(seconds, 0) * safeFps) / safeFps;
+    }
+  };
+
+  // ../remotion_runtime/src/StudioCanvasInspector.tsx
   var import_react_dom = __toESM(require_react_dom(), 1);
   var import_client = __toESM(require_client(), 1);
   var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -24959,7 +25002,10 @@
                 "data-track": clip.trackId,
                 "data-kind": clip.tag,
                 "data-react-timeline-clip": clip.id,
-                style: { left: clip.left, width: clip.width },
+                style: {
+                  left: filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                  width: filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
+                },
                 title: clip.title,
                 onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
                 onPointerDown: (event) => {
@@ -25266,6 +25312,7 @@
       studioRoot?.render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioReactOwner, { state: snapshot }));
     });
   }
+  window.filmStudioTimelineMath = filmTimelineMath;
   window.filmStudioReactAssets = {
     render(model) {
       renderStudioReactOwner({ assets: model });
