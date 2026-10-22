@@ -158,17 +158,17 @@
         <aside class="fs-pane fs-inspector-pane">
           <div class="fs-pane-title">导演 / 检查器 <span id="fs-side-context">当前片段</span></div>
           <div class="fs-side-workbench" id="fs-side-workbench" aria-label="属性与 AI 导演工作区">
-            <div class="fs-side-view" id="fs-side-inspector" aria-label="属性检查器">
+            <div class="fs-side-view" id="fs-side-inspector" role="region" aria-label="属性检查器">
               <div id="fs-inspector"><div class="fs-empty">选择时间线片段后编辑属性。</div></div>
               <div id="fs-react-canvas-inspector"></div>
             </div>
             <div id="fs-side-divider" class="fs-side-divider" role="separator"
                  aria-orientation="horizontal" aria-valuemin="25" aria-valuemax="75" aria-valuenow="54"
                  tabindex="0" title="拖动调整属性检查器与 AI 导演的空间比例；上下方向键调整"></div>
-            <div class="fs-side-view fs-side-ai" id="fs-side-ai" aria-label="AI 导演">
+            <div class="fs-side-view fs-side-ai" id="fs-side-ai" role="region" aria-label="AI 导演">
               <div id="fs-react-ai-director" class="fs-ai-director-root" style="display:none" aria-label="React AI 导演面板"></div>
               <div id="fs-static-ai-director">
-              <div class="fs-proposal-panel" id="fs-proposal-panel" hidden>
+                <div class="fs-proposal-panel" id="fs-proposal-panel" hidden>
                 <strong id="fs-proposal-summary">待确认修改</strong>
                 <p id="fs-proposal-detail"></p>
                 <div id="fs-proposal-operations"></div>
@@ -178,12 +178,12 @@
                   <button class="fs-btn fs-primary" type="button" data-film-action="apply-proposal">确认应用</button>
                 </div>
               </div>
-              <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。</div></div>
-              <div class="fs-chat-input-row">
-                <input id="fs-static-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
-                <button class="fs-btn" type="button" data-film-action="cancel-ai" title="停止本轮生成；生成中再次发送新指令会中止并按新方向重新规划">停止 / 转向</button>
-                <button class="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
-              </div>
+                <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。</div></div>
+                <div class="fs-chat-input-row">
+                  <input id="fs-static-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
+                  <button class="fs-btn" type="button" data-film-action="cancel-ai" title="停止本轮生成；生成中再次发送新指令会中止并按新方向重新规划">停止 / 转向</button>
+                  <button class="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
+                </div>
               </div>
             </div>
           </div>

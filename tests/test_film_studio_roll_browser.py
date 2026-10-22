@@ -93,6 +93,29 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 }""", project_id)
                 page.evaluate("window.filmStudioToggle()")
                 page.locator('#film-studio-panel.fs-studio-expanded').wait_for(state="visible")
+                # Attribute inspection and AI direction must be visible at the same
+                # time; resizing their divider must persist the user-selected split.
+                inspector = page.locator("#fs-side-inspector")
+                ai_panel = page.locator("#fs-side-ai")
+                side_divider = page.locator("#fs-side-divider")
+                inspector.wait_for(state="visible")
+                ai_panel.wait_for(state="visible")
+                before_inspector_height = inspector.bounding_box()["height"]
+                side_box = side_divider.bounding_box()
+                assert side_box and before_inspector_height > 0
+                page.mouse.move(side_box["x"] + side_box["width"] / 2,
+                                side_box["y"] + side_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(side_box["x"] + side_box["width"] / 2,
+                                side_box["y"] + side_box["height"] / 2 + 28,
+                                steps=4)
+                page.mouse.up()
+                after_inspector_height = inspector.bounding_box()["height"]
+                assert after_inspector_height >= before_inspector_height + 12, "Inspector/AI seam should resize the inspector"
+                saved_share = page.evaluate("localStorage.getItem('film-studio-inspector-share')")
+                assert saved_share and float(saved_share) > 54, "Inspector split should persist the changed share"
+                assert inspector.is_visible() and ai_panel.is_visible(), "AI and Inspector must not hide each other"
+
                 # Exercise the actual horizontal dock seam, not only its DOM presence.
                 timeline_pane = page.locator('.fs-timeline-pane')
                 divider = page.locator('#fs-timeline-divider')

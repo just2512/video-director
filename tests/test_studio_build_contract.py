@@ -53,8 +53,9 @@ def test_studio_components_share_one_react_root_and_keep_portal_slots():
     assert 'id="fs-react-root"' in html
     assert 'id="fs-side-workbench"' in html
     assert 'id="fs-side-divider"' in html
-    assert 'id="fs-side-ai" aria-label="AI 导演"' in html
-    assert 'id="fs-side-ai" aria-label="AI 导演" role="tabpanel" hidden' not in html
+    assert 'id="fs-side-ai" role="region" aria-label="AI 导演"' in html
+    assert 'id="fs-side-inspector" role="region" aria-label="属性检查器"' in html
+    assert 'id="fs-side-ai" aria-label="AI 导演" hidden' not in html
     runtime = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     assert "film-studio-inspector-share" in runtime
     assert "if(inspector)inspector.hidden" not in runtime
