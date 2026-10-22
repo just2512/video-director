@@ -165,7 +165,7 @@ def test_set_data_film_keyframes_roundtrips_and_rejects_invalid_channels():
             "value": [{"property": "opacity", "keyframes": [
                 {"at": 0, "value": 0}, {"at": 4, "value": 2.0},
             ]}],
-        })
+        }])
 
 
 def test_unknown_id_and_non_whitelisted_field_fail_closed():
