@@ -117,7 +117,10 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
-]def tool_definitions() -> list[dict[str, Any]]:
+]
+
+
+def tool_definitions() -> list[dict[str, Any]]:
     """Return defensive copies of this server's MCP schemas for gateway composition."""
     from copy import deepcopy
     return deepcopy(_TOOL_DEFINITIONS)
