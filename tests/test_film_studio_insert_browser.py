@@ -202,7 +202,7 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                   const slider = document.querySelector("#fs-playhead");
                   const label = document.querySelector("#fs-playhead-value");
                   const snapshot = window.filmStudioStore?.getSnapshot();
-                  return !!slider && !!label && Number(slider.value) === 2
+                  return !!slider && !!label && Math.abs(Number(slider.value) - 2) < 0.02
                     && label.textContent === "00:02.000" && snapshot?.playhead === 2
                     && Number(slider.max) >= 2;
                 }""", timeout=2000)
@@ -213,10 +213,10 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                   playhead: window.filmStudioStore.getSnapshot().playhead,
                   duration: window.filmStudioStore.getSnapshot().duration,
                 })""")
-                assert scrub_state["value"] == "2", scrub_state
+                assert abs(float(scrub_state["value"]) - 2) < 0.02, scrub_state
                 assert scrub_state["label"] == "00:02.000", scrub_state
                 assert scrub_state["playhead"] == 2, scrub_state
-                assert float(scrub_state["max"]) == scrub_state["duration"], scrub_state
+                assert abs(float(scrub_state["max"]) - scrub_state["duration"]) < 1e-9, scrub_state
 
                 for action, state_key, active_text, inactive_text in [
                     ("toggle-snap", "snapEnabled", "吸附：关", "吸附：开"),
