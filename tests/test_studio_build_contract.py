@@ -6,14 +6,19 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
     contract = (root / "CONTRACT.md").read_text(encoding="utf-8")
-    package = (root / "remotion_runtime" / "package.json").read_text(encoding="utf-8")
+    package_path = root / "studio_ui" / "package.json"
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    remotion_package = json.loads((root / "remotion_runtime" / "package.json").read_text(encoding="utf-8"))
 
     assert "runs-on: [self-hosted, linux, x64]" in workflow
     assert "runs-on: ubuntu-latest" not in workflow
     assert "PY311_BIN: /home/actions/miniforge3/envs/py311/bin" in workflow
     assert "npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2" in workflow
-    assert '"build:studio"' in package
-    assert '"build:studio:css"' in package
+    assert "working-directory: studio_ui" in workflow
+    assert "build:studio" in package["scripts"]
+    assert "build:studio:css" in package["scripts"]
+    assert not any(name.startswith("@remotion/") for name in package["dependencies"])
+    assert "@remotion/renderer" in remotion_package["dependencies"]
     assert "React 19 + Tailwind 4" in contract
     assert "第二份权威影片状态" in contract
 
@@ -22,7 +27,7 @@ def test_studio_published_assets_are_real_build_outputs():
     root = Path(__file__).resolve().parents[1]
     bundle = root / "webui" / "static" / "js" / "film-studio-react.js"
     css = root / "webui" / "static" / "css" / "film-studio-tailwind.css"
-    lock = root / "remotion_runtime" / "package-lock.json"
+    lock = root / "studio_ui" / "package-lock.json"
 
     assert bundle.is_file(), "React Studio bundle must exist after build"
     assert css.is_file(), "Tailwind output must exist after build"

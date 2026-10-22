@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/studio-ui-build.yml"
       - "remotion_runtime/**"
+      - "studio_ui/**"
       - "webui/static/**"
       - "webui/server.py"
       - "video_director/film_document.py"
@@ -68,7 +69,7 @@ jobs:
           "$PY311_BIN/python3.11" -m pip --version
 
       - name: Typecheck and build React 19 Studio with Tailwind 4
-        working-directory: remotion_runtime
+        working-directory: studio_ui
         shell: bash
         run: |
           set -euo pipefail
@@ -155,7 +156,7 @@ jobs:
           paths = [
               "webui/static/js/film-studio-react.js",
               "webui/static/css/film-studio-tailwind.css",
-              "remotion_runtime/package-lock.json",
+              "studio_ui/package-lock.json",
           ]
           api = "https://api.github.com"
           headers = {
