@@ -396,7 +396,8 @@ def test_film_timeline_supports_group_selection_drag_and_pointer_anchored_zoom()
     assert "selectClipWithModifiers" in script
     assert "operations.push({op:'move',clip:member.id" in script
     assert "ids.map(function(id){return {op:'remove',clip:id};})" in script
-    assert "scrollLeft+localX-132" in script
+    assert "timelineZoomAnchorTime(scroll.scrollLeft,localX,S.pxPerSec,132)" in script
+    assert "timelineZoomScrollLeft(anchorTime,localX,S.pxPerSec,132)" in script
     assert "scroll.addEventListener('wheel'" in script
     assert "{passive:false}" in script
     assert ".fs-track.fs-track-drop-target" in styles

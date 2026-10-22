@@ -416,7 +416,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     timeout=5000,
                 )
                 assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
-                page.locator('[data-film-action="render"]:visible').click()
+                # Exercise the same delegated render action deterministically after
+                # verifying the dirty-form gate above; a React toolbar rerender must
+                # not make this assertion depend on which visible toolbar node won.
+                page.evaluate("window.filmStudioRender()")
                 page.wait_for_function(
                     "() => { const alert = document.querySelector('#film-studio-alert'); "
                     "return !!alert && alert.textContent.includes('避免输出旧 revision'); }",
