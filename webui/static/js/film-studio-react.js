@@ -23889,6 +23889,11 @@
       operationCount: Number.isFinite(count) && count >= 0 ? count : operations.length
     };
   };
+  var filmTransactionError = (code) => {
+    const error = new Error(code);
+    error.code = code;
+    return error;
+  };
   var FilmStore = class {
     listeners = /* @__PURE__ */ new Set();
     selectedIdsTarget = [];
@@ -23932,12 +23937,18 @@
       return () => this.listeners.delete(listener);
     };
     dispatchTransaction(context, submitter) {
-      if (this.snapshot.busy) {
-        return Promise.reject(new Error("FILM_TRANSACTION_BUSY"));
-      }
       const pending = asPendingTransaction(context);
       if (!pending || !pending.kind || !pending.baseRevision) {
-        return Promise.reject(new Error("FILM_TRANSACTION_CONTEXT_INVALID"));
+        return Promise.reject(filmTransactionError("FILM_TRANSACTION_CONTEXT_INVALID"));
+      }
+      if (this.snapshot.busy) {
+        return Promise.reject(filmTransactionError("FILM_TRANSACTION_BUSY"));
+      }
+      if (this.snapshot.pendingExternalRevision) {
+        return Promise.reject(filmTransactionError("FILM_EXTERNAL_REVISION_PENDING"));
+      }
+      if (pending.baseRevision !== this.snapshot.revision) {
+        return Promise.reject(filmTransactionError("FILM_REVISION_CONFLICT"));
       }
       this.publish({ ...this.snapshot, busy: true, pendingTransaction: pending });
       return Promise.resolve().then(submitter).finally(() => {
