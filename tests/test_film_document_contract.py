@@ -91,7 +91,7 @@ def test_sync_lock_and_insert_mode_are_exposed_in_the_studio_and_api():
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert 'data-track-flag="sync-lock"' in script
     assert 'data-film-action="insert-mode"' in index
-    assert "request.placement_mode='ripple'" in script
+    assert "request.placement_mode=S.overwriteMode?'overwrite':'ripple'" in script
     assert 'elif kind == "insert_ripple"' in module
     assert 'if placement_mode == "ripple"' in server
 
@@ -2434,6 +2434,7 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
         result_packets = [payload for name, payload in events if name == "result"]
         assert len(token_fragments) > 1, event_names
         assert "".join(token_fragments) == first_plan
+        assert "result" in event_names, {"events": events, "event_names": event_names}
         assert event_names.index("token") < event_names.index("result")
         assert len(result_packets) == 1
         first_response = result_packets[0]
