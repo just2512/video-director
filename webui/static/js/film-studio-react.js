@@ -24780,7 +24780,12 @@
                   Promise.resolve(pending).then(clear, clear);
                 },
                 onPointerCancel: (event) => {
-                  if (activePointerId.current === event.nativeEvent.pointerId) activePointerId.current = null;
+                  const pointerId = event.nativeEvent.pointerId;
+                  if (activePointerId.current !== pointerId) return;
+                  window.filmStudioCancelClipGesture?.(event.nativeEvent);
+                  Promise.resolve().then(() => {
+                    if (activePointerId.current === pointerId) activePointerId.current = null;
+                  });
                 },
                 children: [
                   clip.thumbnail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "fs-clip-thumb", src: clip.thumbnail, loading: "lazy", alt: "", onError: (event) => {
