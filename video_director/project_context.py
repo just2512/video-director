@@ -1,23 +1,20 @@
-"""MPT 吸收方案 §6 ProjectContextService：Director 的"当前状态"快照。
+"""Unified project context for the Director, Studio and external coding agents.
 
-方案 §6 的 JSON 示例字段（project/selection/timeline/assets/
-activeFeatures/providers）逐一对齐。Director 每次收到用户要求，第一步
-不是回答，而是读这份上下文 + Capability Manifest（§4）。
-
-provider 可用性来自 video_director.model_config（roles 配置）与
-video_director.capabilities（环境级检测）——Director 据此知道
-"现在能调用哪些 TTS/Stock/生成 Provider"，而不是背 API。
+CompositionIR is authoritative only before a film document is initialized. The
+presence of film.html switches the project to FilmDocument authority, including
+when film.html is malformed: context inspection must never fall back to stale IR.
 """
-
 from __future__ import annotations
 
+import json
+import math
 from typing import Any, Dict, List, Optional
 
+from video_director import config, editor
 from video_director.editor import load_composition
 
 
 def _ratio_of(w: int, h: int) -> str:
-    """宽高比映射（对 mp 方案 §43 的 16:9/9:16/1:1 三档）。"""
     if w <= 0 or h <= 0:
         return "unknown"
     r = w / h
@@ -31,22 +28,22 @@ def _ratio_of(w: int, h: int) -> str:
 
 
 def _provider_availability() -> Dict[str, List[str]]:
-    """按 §6 providers 结构汇总各 Provider 可用性（诚实，缺 key 不进列表）。"""
+    """Report configured providers only; never infer readiness from missing keys."""
     import os
     from video_director import model_config as mc
-    providers: Dict[str, List[str]] = {"tts": [], "stock": [], "video_generation": [], "image": []}
-    # TTS：edge-tts 免费无 key 默认可用（系统现有 /api/voice_preview 即基于此）
+
+    providers: Dict[str, List[str]] = {
+        "tts": [], "stock": [], "video_generation": [], "image": [],
+    }
     try:
         import edge_tts  # noqa: F401
         providers["tts"].append("edge-tts")
     except Exception:
         pass
-    # Stock：pexels/pixabay/coverr 需 API key（§25 商业安全：缺 key 不枚举）
     for name, env in (("pexels", "PEXELS_API_KEY"), ("pixabay", "PIXABAY_API_KEY"),
                       ("coverr", "COVERR_API_KEY")):
         if os.environ.get(env):
             providers["stock"].append(name)
-    # 生成：video/image 角色是否配置（§28 Generation Provider 统一）
     for key, slot in (("video", "video_generation"), ("image", "image")):
         if mc.is_role_enabled(key):
             cfg = mc.get_role_config(key)
@@ -54,80 +51,274 @@ def _provider_availability() -> Dict[str, List[str]]:
     return providers
 
 
-def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]] = None) -> dict:
-    """生成 §6 结构的项目上下文快照。读失败时返回 {}（诚实：不编造状态）。"""
-    try:
-        ir = load_composition(project_id)
-    except Exception:
-        return {}
-
-    video = sum(1 for sc in ir.scenes for l in sc.layers if l.type.value == "video")
-    image = sum(1 for sc in ir.scenes for l in sc.layers if l.type.value == "image")
-    audio_n = len(ir.audio)
-
-    # timeline 轨（§6：Narration/OriginalAudio/MainVisual/Broll/Subtitle/BGM）
-    track_types: List[str] = []
-    for t in ir.audio:
-        name = {"narration": "Narration", "original": "OriginalAudio", "bgm": "BGM",
-                "sfx": "SFX", "ambient": "Ambient", "ambience": "Ambience",
-                "dialogue": "Dialogue", "original": "OriginalAudio"}.get(t.type.value, t.type.value)
-        if name not in track_types:
-            track_types.append(name)
-    if any(l.type.value in ("video", "image") for sc in ir.scenes for l in sc.layers):
-        track_types.extend(["MainVisual"] if not track_types else [])
-    track_types.append("Subtitle")  # 字幕轨默认存在（§31 Track 化）
-
-    # MPT 融合上下文：检索意图、source-window 台账、构建指纹都属于项目事实，
-    # 供 Director 与 Inspector 共用；文件缺失时返回空结构，不猜状态。
-    mpt = {
+def _empty_mpt_context() -> dict:
+    return {
         "material_intents": [],
         "material_usage": [],
         "build_fingerprint": "",
         "creative_candidates": [],
         "source_usage_policy": {},
     }
-    try:
-        from pathlib import Path
-        from video_director import config as vd_config
-        base = vd_config.project_dir(project_id)
-        intent_path = base / "plans" / "material_intents.json"
-        usage_path = base / "plans" / "material_usage.json"
-        fingerprint_path = base / "plans" / "mpt_build_fingerprint.json"
-        candidate_path = base / "plans" / "creative_candidates.json"
-        policy_path = base / "plans" / "source_usage_policy.json"
-        if intent_path.is_file():
-            import json
-            data = json.loads(intent_path.read_text(encoding="utf-8"))
-            mpt["material_intents"] = data.get("scenes") or []
-        if usage_path.is_file():
-            import json
-            data = json.loads(usage_path.read_text(encoding="utf-8"))
-            mpt["material_usage"] = data if isinstance(data, list) else []
-        if fingerprint_path.is_file():
-            import json
-            data = json.loads(fingerprint_path.read_text(encoding="utf-8"))
-            mpt["build_fingerprint"] = str(data.get("fingerprint") or "")
-        if candidate_path.is_file():
-            import json
-            data = json.loads(candidate_path.read_text(encoding="utf-8"))
-            mpt["creative_candidates"] = data.get("scenes") or []
-        if policy_path.is_file():
-            import json
-            data = json.loads(policy_path.read_text(encoding="utf-8"))
-            mpt["source_usage_policy"] = data if isinstance(data, dict) else {}
-    except Exception:
-        pass
 
-    # activeFeatures（§6：subtitle/original_audio/bgm 是否启用）
-    active: List[str] = []
-    if any(t.type.value == "original" for t in ir.audio):
-        active.append("original_audio")
-    if any(t.type.value == "bgm" for t in ir.audio):
-        active.append("bgm")
-    if any(sc.selections for sc in ir.scenes):
-        active.append("subtitle")  # 有语义锚点即具备字幕轨基础
+
+def _mpt_context(project_id: str) -> dict:
+    """Read optional planning ledgers independently so one bad file cannot hide others."""
+    from pathlib import Path
+
+    base = config.composer_storage_root() / project_id
+    result = _empty_mpt_context()
+    paths = {
+        "material_intents": (base / "plans" / "material_intents.json", "scenes"),
+        "material_usage": (base / "plans" / "material_usage.json", None),
+        "build_fingerprint": (base / "plans" / "mpt_build_fingerprint.json", "fingerprint"),
+        "creative_candidates": (base / "plans" / "creative_candidates.json", "scenes"),
+        "source_usage_policy": (base / "plans" / "source_usage_policy.json", None),
+    }
+    for key, (path, member) in paths.items():
+        if not path.is_file():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if member:
+                value = value.get(member) if isinstance(value, dict) else None
+            if key in {"material_usage"}:
+                result[key] = value if isinstance(value, list) else []
+            elif key == "source_usage_policy":
+                result[key] = value if isinstance(value, dict) else {}
+            elif key == "build_fingerprint":
+                result[key] = str(value or "")
+            else:
+                result[key] = value if isinstance(value, list) else []
+        except Exception:
+            # Context inspection is read-only. A malformed optional ledger is an
+            # explicit empty context field, not grounds to hide the current project.
+            continue
+    return result
+
+
+def _normalize_selection(selection: Optional[Dict[str, Any]]) -> dict:
+    if not isinstance(selection, dict):
+        return {"type": None, "ids": []}
+    value = dict(selection)
+    if "ids" not in value:
+        current_id = value.get("id")
+        value["ids"] = [current_id] if current_id not in (None, "") else []
+    return value
+
+
+def _invalid_film_context(project_id: str, selection: Optional[Dict[str, Any]], error: Exception) -> dict:
+    """Return a fail-closed context for a present but unreadable film.html."""
+    from video_director import film_document
+    from video_director.project_lock import validate_project_id
+
+    try:
+        pid = validate_project_id(project_id)
+        path = config.composer_storage_root() / pid / film_document.FILM_NAME
+        if not path.is_file():
+            return {}
+        raw = path.read_text(encoding="utf-8")
+        revision = film_document.revision_of(raw)
+    except Exception:
+        return {}
 
     return {
+        "authority": "film.html",
+        "revision": revision,
+        "project": {"id": project_id, "duration": None, "ratio": "unknown",
+                    "width": None, "height": None},
+        "selection": _normalize_selection(selection),
+        "timeline": {"tracks": [], "scene_count": 0, "clip_count": 0, "valid": False},
+        "assets": {"video": 0, "image": 0, "audio": 0},
+        "activeFeatures": [],
+        "providers": _provider_availability(),
+        "mpt": _mpt_context(project_id),
+        "film": {
+            "exists": True, "valid": False, "revision": revision,
+            "error": {
+                "code": getattr(error, "code", "FILM_CONTEXT_ERROR"),
+                "message": str(error),
+            },
+        },
+    }
+
+
+def _active_film_context(project_id: str, selection: Optional[Dict[str, Any]]) -> Optional[dict]:
+    """Read FilmDocument first and never leak stale CompositionIR as current state."""
+    from video_director import film_document
+    from video_director.project_lock import validate_project_id
+
+    try:
+        state = film_document.read_project_film(project_id)
+    except Exception as exc:
+        return _invalid_film_context(project_id, selection, exc)
+    if not state.get("exists"):
+        return None
+
+    document = state["doc"]
+    tracks = document.get("tracks") or []
+    track_summaries = []
+    counts = {"video": 0, "image": 0, "audio": 0}
+    active_features: List[str] = []
+    flat_clips = []
+    visual_clip_count = 0
+    known_ends = []
+
+    for track in tracks:
+        attrs = track.get("attrs") or {}
+        track_id = str(track.get("id") or "")
+        label = str(attrs.get("data-label") or attrs.get("aria-label") or track_id)
+        track_clips = []
+        for clip in track.get("clips") or []:
+            clip_attrs = clip.get("attrs") or {}
+            tag = str(clip.get("tag") or "unknown").lower()
+            clip_id = str(clip.get("id") or "")
+            try:
+                at = float(clip_attrs.get("at", 0) or 0)
+            except (TypeError, ValueError):
+                at = 0.0
+            try:
+                duration = film_document.clip_duration(clip)
+            except Exception:
+                duration = None
+            if duration is not None and math.isfinite(float(duration)) and duration >= 0:
+                duration = float(duration)
+                end = at + duration
+                known_ends.append(end)
+            else:
+                duration = None
+            summary = {
+                "id": clip_id,
+                "track_id": track_id,
+                "type": tag,
+                "at": round(at, 6),
+                "duration": round(duration, 6) if duration is not None else None,
+                "title": str(clip_attrs.get("title") or clip_attrs.get("data-role") or clip_id),
+                "src": str(clip_attrs.get("src") or ""),
+            }
+            track_clips.append(summary)
+            flat_clips.append(summary)
+            if tag == "video":
+                counts["video"] += 1
+                visual_clip_count += 1
+            elif tag == "img":
+                counts["image"] += 1
+                visual_clip_count += 1
+            elif tag == "iframe":
+                visual_clip_count += 1
+            elif tag == "audio":
+                counts["audio"] += 1
+
+        track_summaries.append({
+            "id": track_id,
+            "label": label,
+            "locked": "locked" in attrs,
+            "hidden": "hidden" in attrs,
+            "muted": "muted" in attrs,
+            "sync_locked": "sync-lock" in attrs,
+            "clip_count": len(track_clips),
+            "clips": track_clips[:200],
+            "clips_truncated": len(track_clips) > 200,
+        })
+        folded = label.casefold()
+        if any(token in folded for token in ("bgm", "music", "配乐", "背景音乐")):
+            active_features.append("bgm")
+        if any(token in folded for token in ("original", "原声")):
+            active_features.append("original_audio")
+        if any(token in folded for token in ("subtitle", "caption", "字幕")):
+            active_features.append("subtitle")
+
+    stage = document.get("stage") or {}
+    width, height = int(stage.get("width") or 0), int(stage.get("height") or 0)
+    duration = max(known_ends) if known_ends else None
+    revision = str(state.get("rev") or "")
+    return {
+        "authority": "film.html",
+        "revision": revision,
+        "project": {
+            "id": project_id,
+            "duration": round(duration, 6) if duration is not None else None,
+            "ratio": _ratio_of(width, height),
+            "width": width,
+            "height": height,
+        },
+        "selection": _normalize_selection(selection),
+        "timeline": {
+            "tracks": [item["label"] for item in track_summaries],
+            "scene_count": visual_clip_count,
+            "clip_count": len(flat_clips),
+            "valid": True,
+        },
+        "assets": counts,
+        "activeFeatures": list(dict.fromkeys(active_features)),
+        "providers": _provider_availability(),
+        "mpt": _mpt_context(project_id),
+        "film": {
+            "exists": True,
+            "valid": True,
+            "revision": revision,
+            "fps": int(document.get("fps") or config.DEFAULT_FPS),
+            "stage": {"width": width, "height": height},
+            "track_count": len(track_summaries),
+            "clip_count": len(flat_clips),
+            "tracks": track_summaries,
+            "clips": flat_clips[:500],
+            "clips_truncated": len(flat_clips) > 500,
+        },
+    }
+
+
+def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]] = None) -> dict:
+    """Return one revision-pinned context; film.html is checked before CompositionIR."""
+    film_context = _active_film_context(project_id, selection)
+    if film_context is not None:
+        return film_context
+
+    try:
+        ir = load_composition(project_id)
+    except Exception:
+        return {}
+
+    video = sum(1 for sc in ir.scenes for layer in sc.layers if layer.type.value == "video")
+    image = sum(1 for sc in ir.scenes for layer in sc.layers if layer.type.value == "image")
+    audio_count = len(ir.audio)
+
+    track_types: List[str] = []
+    for track in ir.audio:
+        name = {
+            "narration": "Narration", "original": "OriginalAudio", "bgm": "BGM",
+            "sfx": "SFX", "ambient": "Ambient", "ambience": "Ambience",
+            "dialogue": "Dialogue",
+        }.get(track.type.value, track.type.value)
+        if name not in track_types:
+            track_types.append(name)
+    if any(layer.type.value in ("video", "image")
+           for scene in ir.scenes for layer in scene.layers):
+        if "MainVisual" not in track_types:
+            track_types.append("MainVisual")
+    if "Subtitle" not in track_types:
+        track_types.append("Subtitle")
+
+    version = None
+    try:
+        version = int(editor.composition_version(project_id))
+    except Exception:
+        try:
+            version = len(editor.load_revisions(project_id)) + 1
+        except Exception:
+            version = None
+
+    active: List[str] = []
+    if any(track.type.value == "original" for track in ir.audio):
+        active.append("original_audio")
+    if any(track.type.value == "bgm" for track in ir.audio):
+        active.append("bgm")
+    if any(scene.selections for scene in ir.scenes):
+        active.append("subtitle")
+
+    return {
+        "authority": "composition.json",
+        "revision": version,
+        "composition_version": version,
         "project": {
             "id": project_id,
             "duration": round(ir.project.duration, 2),
@@ -135,13 +326,11 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
             "width": ir.project.width,
             "height": ir.project.height,
         },
-        "selection": selection or {"type": None, "ids": []},
-        "timeline": {
-            "tracks": track_types,
-            "scene_count": len(ir.scenes),
-        },
-        "assets": {"video": video, "image": image, "audio": audio_n},
+        "selection": _normalize_selection(selection),
+        "timeline": {"tracks": track_types, "scene_count": len(ir.scenes)},
+        "assets": {"video": video, "image": image, "audio": audio_count},
         "activeFeatures": active,
         "providers": _provider_availability(),
-        "mpt": mpt,
+        "mpt": _mpt_context(project_id),
+        "film": {"exists": False, "valid": None, "revision": None},
     }
