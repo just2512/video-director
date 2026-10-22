@@ -2197,7 +2197,7 @@ def test_visual_keyframes_stay_inside_clip_after_roll_and_slide_trim():
     slide_keys, _ = fd.apply_ops(slide_doc, [
         {"op": "set", "clip": "slide-left", "field": "data-film-keyframes",
          "value": [{"property": "opacity", "keyframes": [
-             {"at": 0, "value": 1}, {"at": 2, "value": 0.5}, {"at": 4, "value": 0.8},
+             {"at": 0, "value": 1}, {"at": 1, "value": 0.5}, {"at": 2, "value": 0.8},
          ]}]},
         {"op": "set", "clip": "slide-right", "field": "data-film-keyframes",
          "value": [{"property": "opacity", "keyframes": [
