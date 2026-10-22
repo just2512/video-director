@@ -2247,3 +2247,21 @@ def test_ai_planner_context_includes_existing_visual_keyframe_channels():
     assert json.loads(current["film_keyframes"]) == channels
     assert operations == []
     assert summary["summary"] == "保留现有动画"
+
+
+def test_audio_clips_reject_visual_keyframes_but_keep_volume_envelopes():
+    doc = fd.parse_film(SAMPLE)
+    with pytest.raises(fd.FilmError, match="音频片段不支持视觉属性关键帧"):
+        fd.apply_ops(doc, [{
+            "op": "set", "clip": "audio-1", "field": "data-film-keyframes",
+            "value": [{"property": "opacity", "keyframes": [
+                {"at": 0, "value": 1}, {"at": 1, "value": 0},
+            ]}],
+        }])
+    updated, _ = fd.apply_ops(doc, [{
+        "op": "set", "clip": "audio-1", "field": "volume_envelope",
+        "value": [{"t": 0, "v": 1}, {"t": 1, "v": 0.5}],
+    }])
+    audio = next(c for track in updated["tracks"] for c in track["clips"] if c["id"] == "audio-1")
+    assert "volume_envelope" in audio["attrs"]
+    assert "data-film-keyframes" not in audio["attrs"]
