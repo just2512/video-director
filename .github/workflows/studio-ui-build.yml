@@ -14,6 +14,7 @@ on:
       - "video_director/film_scene_runtime.py"
       - "video_director/film_render.py"
       - "video_director/film_watch.py"
+      - "video_director/film_mcp_server.py"
       - "video_director/prober.py"
       - "tests/test_film_*.py"
       - "tests/test_studio_build_contract.py"
@@ -123,6 +124,7 @@ jobs:
             tests/test_film_document_contract.py \
             tests/test_film_volume_keyframe_migration.py \
             tests/test_film_agent_cli.py \
+            tests/test_film_mcp_server.py \
             tests/test_film_full_pipeline_e2e.py \
             tests/test_film_variant_transform_keyframes.py \
             tests/test_film_variant_migration_api.py \

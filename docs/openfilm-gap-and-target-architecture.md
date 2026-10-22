@@ -112,9 +112,9 @@
 - 新增构建契约测试，要求工作流使用自托管 runner、保留依赖锁文件，且实际 JS/CSS 不能是占位输出。
 - React Studio 的工具栏、时间线、素材列表、AI 面板、片段检查器和画布检查器改为通过一个 `createRoot()` 管理，并以 portals 挂载到既有布局槽位；这保留了现有 DOM 布局和事件桥接，但消除了多个 React root 独立管理同一个 Studio 的情况。
 - 右侧属性检查器和 AI 导演不再通过 tab 互斥隐藏；二者常驻同一工作区，新增可用鼠标/上下方向键调整比例的分隔条，选择比例存入 `localStorage`。
-- **当前验收状态：** 自托管 runner 曾通过 React typecheck、JS bundle 与 Tailwind CSS 构建，但此前被 Python SOCKS 支持缺失阻断；两个工作流现统一使用共享 bootstrap，且分别安装 UI 与渲染运行时依赖。仍须等最新自托管构建、Chromium 交互、JS 语法及渲染测试完成后，才能将整条链路标记为 PASS。
+- **当前验收状态（2026-10-22）：** `Studio UI build and browser smoke` 自托管工作流已成功完成 React typecheck、React/Tailwind 构建、选定的 FilmDocument/迁移/Studio Chromium 回归、JavaScript 语法检查和构建产物发布。此结果只证明该工作流列出的测试范围通过，不代表完整仓库测试、所有剪辑组合或所有场景的确定性均已通过。
 
 ## 本次直接落地
 
 画布 Inspector 已补齐背景填色开关/背景色、不透明度、字重和文字对齐；背景透明语义被显式保留，额外属性只在确有变化时写入 overrides。时间线已加入帧吸附开关/参考线、右键上下文菜单、重复片段和关键帧跳转；AI 规划已加入 SSE token 增量反馈、停止和“取消当前请求后按新要求重规划”。React 源码与无构建时 fallback 均有关键帧曲线编辑入口，且共享 FilmDocument 校验与写盘路径。  
-**未完成的验收门禁：** React bundle/CSS 仍是占位产物；最新 Studio Build 作业的 runner_id 为 0、steps 为空，完整 typecheck/Chromium/渲染回归没有执行。因此这里记录的是源码和兼容运行时的落地情况，不把未执行的构建/浏览器测试描述为 PASS。
+**当前仍未关闭的验收门禁：** React 已有可运行构建产物，且选定的 Chromium/FilmDocument 回归已通过；但 React 尚未完全拥有时间线状态和手势，导演与 Studio 的产品入口仍未完全收敛，自定义 Bezier 控制柄及部分专业 NLE 交互仍有边界，多种网页动画/异步资源仍不能宣称必然确定性。后续必须以具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
