@@ -1,5 +1,6 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
+import {filmTimelineMath, type FilmTimelineMathBridge} from "./film-timeline-math";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
@@ -234,6 +235,7 @@ declare global {
     filmStudioSetClipLock?: (clipId: string, locked: boolean) => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
     filmStudioJumpToKeyframe?: (clipId: string, at: number) => void;
+    filmStudioTimelineMath?: FilmTimelineMathBridge;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
     filmStudioReactTimeline?: FilmStudioReactTimelineBridge;
     filmStudioReactAi?: FilmStudioReactAiBridge;
@@ -931,7 +933,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               data-track={clip.trackId}
               data-kind={clip.tag}
               data-react-timeline-clip={clip.id}
-              style={{left:clip.left,width:clip.width}}
+              style={{
+                left:filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
+                width:filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
+              }}
               title={clip.title}
               key={clip.id}
               onClick={event => window.filmStudioClickClip?.(clip.id,event.nativeEvent)}
@@ -1261,6 +1266,8 @@ function renderStudioReactOwner(patch: Partial<StudioReactState>): void {
     studioRoot?.render(<StudioReactOwner state={snapshot} />);
   });
 }
+
+window.filmStudioTimelineMath = filmTimelineMath;
 
 window.filmStudioReactAssets = {
   render(model) {
