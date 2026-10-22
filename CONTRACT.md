@@ -12,10 +12,23 @@
 | 原文条款 | 本仓库执行口径 |
 |---|---|
 | 后端 `composer/` 目录结构 | `video_director/` 包（registries/ 子包已按方案落位） |
-| 前端 React+Zustand+TanStack | 自建零框架 WebUI（webui/static/index.html + webui/server.py，Python stdlib http.server）。**禁止引入 React/Vite/npm 栈**——方案 Task Card §0.3 原文明确"如果现有项目已有同等文件，应扩展而不是重复创建" |
+| 前端 UI 与构建 | Studio UI 使用 React 19 + Tailwind 4，构建产物由仓库既有 self-hosted Linux/WSL runner 编译、测试和发布；`webui/server.py` 仍使用 Python 标准库提供本地服务。禁止维护第二套可见编辑 UI 或第二份权威影片状态。 |
 | `npm run typecheck / test / build` | `python -m pytest tests/ -q`（单测/契约）+ `python tools/test_webui_*.py`（Playwright DOM 断言 E2E） |
 | 验收证据 "screenshot" | **禁止截图**（Jerry 全局规则）。UI Gate 证据 = Playwright DOM 断言输出（断言文本 + 元素存在性） |
 | frontend/src/api/client.ts | WebUI 内 `fetch()` 统一走 `webui/server.py` 端点；前端不直接拼第三方 URL |
+
+
+### 0.1 Studio 前端契约变更（2026-10-22）
+
+原适配表中的“禁止引入 React/Vite/npm 栈”与已经进入仓库的 React 19 Studio、Tailwind 4 源码和构建流程冲突。该限制现明确变更为：
+
+- React 19 是 Studio 可见 UI 的唯一实现；Tailwind 4 只在构建时生成 CSS，不要求终端用户安装 Node.js。
+- Python 标准库 WebUI 服务与现有 FilmDocument/渲染能力保留；React 不建立第二份影片状态、剪辑时间线或独立写盘路径。
+- Studio UI 构建与浏览器回归使用项目已存在的 self-hosted runner 标签 `[self-hosted, linux, x64]`，与 `.github/workflows/ai-director.yml` 一致，不再依赖 GitHub-hosted runner 计费额度。
+- 构建依赖通过 `package-lock.json` 固定；只有 typecheck、bundle/CSS 非占位检查和指定浏览器测试通过，构建产物才允许由工作流发布回 `main`。
+- 原生 `film-studio.js` 在迁移阶段仅作为编辑服务/运行时桥接与兼容路径；后续工作必须持续收敛 UI 与手势所有权，不能以“React 已有组件”为由宣称完成接管。
+
+该变更影响前端构建、Studio DOM 所有权、React 与 fallback 的交互契约及 CI：由本次工作流测试新增 `tests/test_studio_build_contract.py` 固定 runner、锁文件和真实构建产物约束。未由实际 runner 验收的能力仍标记为待验证。
 
 其余条款按原文执行，逐条如下。
 

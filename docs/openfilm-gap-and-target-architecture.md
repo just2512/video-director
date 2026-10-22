@@ -2,6 +2,8 @@
 
 ## 结论
 
+**执行顺序已确定：先恢复真实 Studio 构建，再统一 React UI 所有权，然后收敛 AI 提案/人机编辑事务，最后进行真实浏览器与导出验收。当前操作直接提交到 main，不开新分支或 PR。**
+
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
 最重要的差距不是“还少几个按钮”，而是：**导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；Studio 仍由 React 视图与原生 DOM/Pointer Events 共同承担，主状态和手势尚未整体迁入 React；通用视觉关键帧、剪辑吸附和右键上下文操作已补到源代码及兼容界面，但还缺可运行构建产物下的真实浏览器验收；frame(t) 的确定性范围小于任意网页；AI 已支持 SSE 增量反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。**
@@ -20,7 +22,7 @@
 |---|---|---|
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
-| React Studio | **源代码已扩充，实际构建未验收**：React TSX 已含关键帧曲线 Inspector、时间线标记、吸附开关、AI 停止/转向；原生 JS 仍掌握主状态/手势，并提供可编辑曲线的 fallback。仓库内 React bundle 和 Tailwind 产物仍是占位/空壳 | CI 作业没有分配 runner（runner_id=0、无步骤），所以当前部署不能声称 React 已接管；需要恢复构建 runner，生成真实 bundle/CSS，再完成 typecheck、浏览器测试和落盘验收 |
+| React Studio | **源码存在但实际构建尚未通过验收**：React TSX 已含检查器、时间线工具栏/曲线和 AI 提案界面；原生 JS 仍拥有主要状态与手势，兼容 fallback 继续存在。bundle 与 Tailwind CSS 当前还是占位产物 | Studio UI 工作流现改用已有的 `[self-hosted, linux, x64]` runner，并使用仓库的 Python 3.11 环境；首次执行必须成功生成并检查真实 bundle/CSS。构建产物未发布且浏览器回归未 PASS 前，不视作 React 接管完成 |
 | 页面元素编辑 | 已支持 selector、文本、位置/尺寸、文字色、旋转；后端还支持背景色、不透明度、字重、对齐等受限字段 | Inspector 应暴露常用可编辑字段，并让 React 与无 bundle fallback 同契约；编辑不应意外物化未改字段 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线 | 自定义 Bezier 控制柄尚未实现；完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收 |
@@ -102,6 +104,13 @@
 - **Render**：先 validate，再 look，最后导出；校验失败要带具体 clip ID/资源 URI。
 - **UI**：React 与 fallback 使用同一表单/operation contract；真实浏览器测试覆盖交互和文件落盘，不以静态字符串断言替代用户路径。
 - **Honesty**：未实测支持的复杂网页效果、转场、曲线或媒体格式应显示为 unsupported/warning，不以“OpenFilm 兼容”或“剪映级”名义模糊带过。
+
+## 本轮落地记录
+
+- 将 Studio UI 构建切换到仓库已有的 self-hosted WSL runner 标签（与 AI Director 工作流共用 runner 约定），不再请求 GitHub-hosted runner。
+- 构建使用 Python 3.11 固定环境；首次运行生成 npm lockfile，后续走 `npm ci`，并将 lockfile 纳入与 bundle/CSS 相同的版本保护发布流程。
+- 新增构建契约测试，要求工作流使用自托管 runner、保留依赖锁文件，且实际 JS/CSS 不能是占位输出。
+- **当前验收状态：** 这些是将提交的实现变更；必须等待对应自托管工作流完成，才能将构建、浏览器和落盘测试标记为 PASS。
 
 ## 本次直接落地
 

@@ -1,6 +1,6 @@
 name: Studio UI build and browser smoke
 
-# Keep the hosted Studio build/browser smoke separate from full self-hosted WSL tests.
+# Build and browser-smoke the Studio on the repository's existing self-hosted WSL runner.
 on:
   push:
     branches: [main]
@@ -26,10 +26,12 @@ concurrency:
 
 jobs:
   build-and-smoke:
-    runs-on: ubuntu-latest
+    # Same confirmed label contract used by ai-director.yml.
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
     env:
       GITHUB_TOKEN: ${{ github.token }}
+      PY311_BIN: /home/actions/miniforge3/envs/py311/bin
     steps:
       # Avoid external checkout/setup action downloads. Restore the exact source
       # revision through the authenticated GitHub archive API using shell tools.
@@ -61,15 +63,20 @@ jobs:
         run: |
           node --version
           npm --version
-          python3 --version
-          python3 -m pip --version
+          test -x "$PY311_BIN/python3.11"
+          "$PY311_BIN/python3.11" --version
+          "$PY311_BIN/python3.11" -m pip --version
 
       - name: Typecheck and build React 19 Studio with Tailwind 4
         working-directory: remotion_runtime
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-package-lock
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund --fetch-retries=2
+          fi
+          test -s package-lock.json
+          npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2
           npm run typecheck
           npm run build:studio
           npm run build:studio:css
@@ -88,17 +95,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --upgrade pip
-          python3 -m pip install \
+          "$PY311_BIN/python3.11" -m pip install --upgrade pip
+          "$PY311_BIN/python3.11" -m pip install \
             "pydantic>=2.5" "loguru>=0.7" "edge-tts>=7.0" pillow imageio-ffmpeg \
             openai pyyaml "playwright>=1.40" "pytest>=7.4"
-          python3 -m playwright install --with-deps chromium
+          "$PY311_BIN/python3.11" -m playwright install --with-deps chromium
 
       - name: Run FilmDocument, migration, and Studio browser regressions
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pytest -q --tb=short \
+          "$PY311_BIN/python3.11" -m pytest -q --tb=short \
             tests/test_film_document_contract.py \
             tests/test_film_volume_keyframe_migration.py \
             tests/test_film_agent_cli.py \
@@ -120,6 +127,7 @@ jobs:
             tests/test_film_studio_react_toolbar.py \
             tests/test_film_studio_react_timeline_toolbar.py \
             tests/test_film_studio_react_ai_director.py \
+            tests/test_studio_build_contract.py \
             tests/test_film_studio_inspector_renderer.py
 
       - name: Check JavaScript syntax
@@ -132,7 +140,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          "$PY311_BIN/python3.11" - <<'PY'
           import base64
           import hashlib
           import json
@@ -147,6 +155,7 @@ jobs:
           paths = [
               "webui/static/js/film-studio-react.js",
               "webui/static/css/film-studio-tailwind.css",
+              "remotion_runtime/package-lock.json",
           ]
           api = "https://api.github.com"
           headers = {
@@ -175,7 +184,12 @@ jobs:
 
           changed = []
           for path in paths:
-              remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
+              try:
+                  remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
+              except RuntimeError as exc:
+                  if "HTTP 404" not in str(exc):
+                      raise
+                  remote_file = {}
               built = Path(path).read_bytes()
               blob_sha = hashlib.sha1(
                   b"blob " + str(len(built)).encode("ascii") + bytes([0]) + built
@@ -189,7 +203,7 @@ jobs:
               changed.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
 
           if not changed:
-              print("React Studio bundle and Tailwind CSS are already current; no commit created.")
+              print("Studio bundle, Tailwind CSS, and dependency lock are already current; no commit created.")
               raise SystemExit(0)
 
           current_ref = request(f"/repos/{repo}/git/ref/heads/main")
