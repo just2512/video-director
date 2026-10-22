@@ -88,7 +88,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 # The React ruler must route seek through the shared playhead bridge.
                 page.locator('#fs-ruler-body .fs-ruler-mark[data-at="5"]').click()
                 page.wait_for_function(
-                    "() => document.querySelector('#fs-playhead')?.value === '5'"
+                    """() => {
+                      const slider = document.querySelector('#fs-playhead');
+                      const monitor = document.querySelector('#fs-monitor-time');
+                      return !!slider && Math.abs(Number(slider.value) - 5) < 0.02 &&
+                        !!monitor && monitor.textContent.trim() === '00:05.000';
+                    }"""
                 )
                 assert page.locator("#fs-monitor-time").inner_text() == "00:05.000"
 
