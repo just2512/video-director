@@ -23877,6 +23877,10 @@
 
   // ../remotion_runtime/src/film-store.ts
   var asString = (value) => typeof value === "string" ? value : value == null ? "" : String(value);
+  var asFiniteNumber = (value, fallback) => {
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
   var asPendingTransaction = (value) => {
     if (!value || typeof value !== "object") return null;
     const raw = value;
@@ -23896,6 +23900,7 @@
   };
   var FilmStore = class {
     listeners = /* @__PURE__ */ new Set();
+    fieldListeners = /* @__PURE__ */ new Map();
     selectedIdsTarget = [];
     selectedIdsProxy;
     mutingSelectedIds = false;
@@ -23906,14 +23911,22 @@
         set: (target, property, value) => {
           const changed = Reflect.set(target, property, value, target);
           if (changed && !this.mutingSelectedIds) {
-            this.publish({ ...this.snapshot, selectedIds: this.selectedIdsProxy });
+            this.publish({
+              ...this.snapshot,
+              selectedIds: this.selectedIdsProxy,
+              selectedIdsVersion: this.snapshot.selectedIdsVersion + 1
+            });
           }
           return changed;
         },
         deleteProperty: (target, property) => {
           const changed = Reflect.deleteProperty(target, property);
           if (changed && !this.mutingSelectedIds) {
-            this.publish({ ...this.snapshot, selectedIds: this.selectedIdsProxy });
+            this.publish({
+              ...this.snapshot,
+              selectedIds: this.selectedIdsProxy,
+              selectedIdsVersion: this.snapshot.selectedIdsVersion + 1
+            });
           }
           return changed;
         }
@@ -23924,7 +23937,10 @@
         revision: "",
         selectedId: "",
         selectedIds: this.selectedIdsProxy,
+        selectedIdsVersion: 0,
         selectionAnchor: "",
+        playhead: 0,
+        duration: 10,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -23942,6 +23958,23 @@
       this.listeners.add(listener);
       return () => this.listeners.delete(listener);
     };
+    subscribeField(key, listener) {
+      let listeners = this.fieldListeners.get(key);
+      if (!listeners) {
+        listeners = /* @__PURE__ */ new Set();
+        this.fieldListeners.set(key, listeners);
+      }
+      listeners.add(listener);
+      return () => {
+        const current = this.fieldListeners.get(key);
+        if (!current) return;
+        current.delete(listener);
+        if (!current.size) this.fieldListeners.delete(key);
+      };
+    }
+    getField(key) {
+      return this.snapshot[key];
+    }
     dispatchTransaction(context, submitter) {
       const pending = asPendingTransaction(context);
       if (!pending || !pending.kind || !pending.baseRevision) {
@@ -23962,8 +23995,14 @@
       });
     }
     publish(snapshot) {
+      const previous = this.snapshot;
       this.snapshot = snapshot;
       for (const listener of Array.from(this.listeners)) listener();
+      for (const [key, listeners] of Array.from(this.fieldListeners.entries())) {
+        if (!Object.is(previous[key], snapshot[key])) {
+          for (const listener of Array.from(listeners)) listener();
+        }
+      }
     }
     replaceSelectedIds(value, shouldPublish = true) {
       const values = Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
@@ -23971,7 +24010,11 @@
       this.selectedIdsTarget.splice(0, this.selectedIdsTarget.length, ...values);
       this.mutingSelectedIds = false;
       if (shouldPublish) {
-        this.publish({ ...this.snapshot, selectedIds: this.selectedIdsProxy });
+        this.publish({
+          ...this.snapshot,
+          selectedIds: this.selectedIdsProxy,
+          selectedIdsVersion: this.snapshot.selectedIdsVersion + 1
+        });
       }
     }
     setValue(key, value) {
@@ -23984,6 +24027,9 @@
         normalized = asString(value);
       } else if (key === "busy" || key === "broken" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
         normalized = value === true;
+      } else if (key === "playhead" || key === "duration") {
+        const parsed = asFiniteNumber(value, key === "duration" ? 10 : 0);
+        normalized = key === "duration" ? Math.max(1e-3, parsed) : Math.max(0, parsed);
       } else if (key === "pendingTransaction") {
         normalized = asPendingTransaction(value);
       } else if (key === "film") {
@@ -24010,7 +24056,10 @@
         revision: filmRevision,
         selectedId: asString(target.selectedId),
         selectedIds: this.selectedIdsProxy,
+        selectedIdsVersion: this.snapshot.selectedIdsVersion,
         selectionAnchor: asString(target.selectionAnchor),
+        playhead: asFiniteNumber(target.playhead, 0),
+        duration: Math.max(1e-3, asFiniteNumber(target.duration, 10)),
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -24031,6 +24080,8 @@
         ["selectedId", "selectedId"],
         ["selectedIds", "selectedIds"],
         ["selectionAnchor", "selectionAnchor"],
+        ["playhead", "playhead"],
+        ["duration", "duration"],
         ["pendingExternalRevision", "pendingExternalRevision"],
         ["insertMode", "insertMode"],
         ["overwriteMode", "overwriteMode"],
@@ -24059,6 +24110,17 @@
   var import_react_dom = __toESM(require_react_dom(), 1);
   var import_client = __toESM(require_client(), 1);
   var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+  function useFilmStoreField(key) {
+    const subscribe = (0, import_react.useCallback)((listener) => filmStore.subscribeField(key, listener), [key]);
+    const getSnapshot = (0, import_react.useCallback)(() => filmStore.getField(key), [key]);
+    return (0, import_react.useSyncExternalStore)(subscribe, getSnapshot, getSnapshot);
+  }
+  var formatFilmTime = (value) => {
+    const time = Math.max(0, Number(value) || 0);
+    const minutes = Math.floor(time / 60);
+    const seconds = time - minutes * 60;
+    return String(minutes).padStart(2, "0") + ":" + seconds.toFixed(3).padStart(6, "0");
+  };
   var DEFAULT_FILM_BEZIER = { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 };
   var FILM_KEYFRAME_PROPERTIES = [
     { value: "x", label: "\u6C34\u5E73\u4F4D\u7F6E X", min: 0, max: 1, initial: 0.5 },
@@ -25121,7 +25183,9 @@
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
   ] });
   var TimelineSurface = ({ model }) => {
-    const filmSnapshot = (0, import_react.useSyncExternalStore)(filmStore.subscribe, filmStore.getSnapshot, filmStore.getSnapshot);
+    const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
+    const selectedIds = filmStore.getSnapshot().selectedIds;
+    void selectedIdsVersion;
     const activePointerId = (0, import_react.useRef)(null);
     (0, import_react.useLayoutEffect)(() => {
       const ownsPointer = (pointerId) => activePointerId.current === pointerId;
@@ -25177,7 +25241,7 @@
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
               "div",
               {
-                className: "fs-clip" + (filmSnapshot.selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : ""),
+                className: "fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : ""),
                 "data-clip": clip.id,
                 "data-clip-locked": clip.locked ? "true" : "false",
                 "data-track": clip.trackId,
@@ -25310,70 +25374,75 @@
       clip.id
     )) });
   };
-  var StudioScrubRow = () => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "frame-prev", children: "\u4E0A\u4E00\u5E27" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", id: "fs-play-toggle", "data-film-action": "play-toggle", children: "\u64AD\u653E" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      "input",
-      {
-        id: "fs-playhead",
-        type: "range",
-        min: 0,
-        max: 10,
-        step: 0.033333,
-        defaultValue: 0,
-        onInput: (event) => window.filmStudioSeek?.(event.currentTarget.value),
-        "aria-label": "\u64AD\u653E\u5934"
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "frame-next", children: "\u4E0B\u4E00\u5E27" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", id: "fs-element-inspect-toggle", type: "button", "data-film-action": "canvas-inspect", "aria-pressed": "false", title: "\u5728\u8282\u76EE\u76D1\u89C6\u5668\u4E2D\u70B9\u9009 HTML \u955C\u5934\u91CC\u7684\u6587\u5B57\u6216\u56FE\u5C42", children: "\u9009\u62E9\u753B\u9762\u5143\u7D20" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { id: "fs-playhead-value", children: "00:00.000" })
-  ] });
-  var StudioTimelineToolbar = ({
-    insertMode,
-    overwriteMode,
-    snapEnabled,
-    envelopeMode,
-    slideMode,
-    slipMode
-  }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (insertMode ? " fs-primary" : ""), type: "button", "data-film-action": "insert-mode", "aria-pressed": insertMode, title: "\u5F00\u542F\u540E\uFF0C\u7D20\u6750\u63D2\u5165\u6240\u9009\u8F68\u9053\u5E76\u63A8\u79FB\u540E\u7EED\u7247\u6BB5\u53CA\u540C\u6B65\u9501\u5B9A\u8F68\u9053", children: [
-      "\u63D2\u5165\u7F16\u8F91\uFF1A",
-      insertMode ? "\u5F00" : "\u5173"
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (overwriteMode ? " fs-primary" : ""), type: "button", "data-film-action": "overwrite-mode", "aria-pressed": overwriteMode, title: "\u8986\u76D6\u7F16\u8F91\u53EA\u66FF\u6362\u6240\u9009\u8F68\u9053\u7684\u91CD\u53E0\u533A\u95F4\uFF0C\u4E0D\u63A8\u79FB\u5176\u4ED6\u7247\u6BB5\u6216\u97F3\u9891\u8F68\u9053", children: [
-      "\u8986\u76D6\u7F16\u8F91\uFF1A",
-      overwriteMode ? "\u5F00" : "\u5173"
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn", type: "button", "data-film-action": "toggle-snap", "aria-pressed": snapEnabled, title: "\u5438\u9644\u5230\u64AD\u653E\u5934\u3001\u7247\u5934\u548C\u5176\u4ED6\u7247\u6BB5\u8FB9\u7F18\uFF1B\u5438\u9644\u8DDD\u79BB\u6309\u5C4F\u5E55\u50CF\u7D20\u8BA1\u7B97", children: [
-      "\u5438\u9644\uFF1A",
-      snapEnabled ? "\u5F00" : "\u5173"
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "split", title: "\u5728\u64AD\u653E\u5934\u5207\u5206\uFF08S\uFF09", children: "\u5728\u64AD\u653E\u5934\u5207\u5206" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "copy-clips", title: "\u590D\u5236\u9009\u4E2D\u7247\u6BB5\uFF08Ctrl/\u2318+C\uFF09", children: "\u590D\u5236" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "paste-clips", title: "\u6309\u539F\u76F8\u5BF9\u5E03\u5C40\u7C98\u8D34\u5230\u64AD\u653E\u5934\u9644\u8FD1\u7684\u53EF\u7528\u533A\u95F4\uFF08Ctrl/\u2318+V\uFF09", children: "\u7C98\u8D34" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "join-cut", title: "\u5408\u5E76\u540C\u8F68\u76F8\u90BB\u3001\u540C\u6E90\u8FDE\u7EED\u4E14\u5C5E\u6027\u4E00\u81F4\u7684\u5207\u5206\u7247\u6BB5", children: "\u6108\u5408\u5207\u53E3" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove", children: "\u5220\u9664\u7247\u6BB5" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "ripple-delete", title: "\u5220\u9664\u9009\u4E2D\u7247\u6BB5\u5BF9\u5E94\u7684\u65F6\u95F4\u6BB5\uFF0C\u5E76\u6536\u62E2\u5168\u90E8\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (envelopeMode ? " fs-envelope-mode-active" : ""), type: "button", "data-film-action": "envelope-mode", "aria-pressed": envelopeMode, title: "\u5207\u6362\u97F3\u91CF\u5173\u952E\u5E27\u7F16\u8F91\u6A21\u5F0F\uFF1B\u666E\u901A\u6A21\u5F0F\u4E0B\u53EF\u6B63\u5E38\u62D6\u52A8\u7247\u6BB5", children: [
-      "\u97F3\u91CF\u66F2\u7EBF\uFF1A",
-      envelopeMode ? "\u5F00" : "\u5173"
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (slideMode ? " fs-slide-mode-active" : ""), type: "button", "data-film-action": "slide-mode", "aria-pressed": slideMode, title: "\u5207\u6362\u6ED1\u79FB\u4FEE\u526A\u6A21\u5F0F\uFF1B\u62D6\u52A8\u4E2D\u95F4\u89C6\u9891/\u97F3\u9891\u7247\u6BB5\u4E3B\u4F53\uFF0C\u5916\u4FA7\u65F6\u95F4\u7EBF\u8FB9\u754C\u4FDD\u6301\u4E0D\u53D8", children: [
-      "\u6ED1\u79FB\u4FEE\u526A\uFF1A",
-      slideMode ? "\u5F00" : "\u5173"
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (slipMode ? " fs-slip-mode-active" : ""), type: "button", "data-film-action": "slip-mode", "aria-pressed": slipMode, title: "\u5207\u6362\u6E90\u533A\u95F4\u6ED1\u79FB\u6A21\u5F0F\uFF1B\u53EA\u6539\u53D8\u7D20\u6750\u6E90\u8303\u56F4\uFF0C\u7247\u6BB5\u65F6\u95F4\u7EBF\u4F4D\u7F6E\u4E0E\u957F\u5EA6\u4E0D\u53D8", children: [
-      "\u6E90\u533A\u95F4\u6ED1\u79FB\uFF1A",
-      slipMode ? "\u5F00" : "\u5173"
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "add-track", children: "\uFF0B\u8F68\u9053" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove-empty-track", children: "\u5220\u7A7A\u8F68" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "zoom-out", children: "\u2212" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "zoom-in", children: "\uFF0B" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn fs-primary", type: "button", "data-film-action": "apply-inspector", children: "\u5E94\u7528\u5C5E\u6027" })
-  ] });
+  var StudioScrubRow = () => {
+    const playhead = useFilmStoreField("playhead");
+    const duration = useFilmStoreField("duration");
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "frame-prev", children: "\u4E0A\u4E00\u5E27" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", id: "fs-play-toggle", "data-film-action": "play-toggle", children: "\u64AD\u653E" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "input",
+        {
+          id: "fs-playhead",
+          type: "range",
+          min: 0,
+          max: Math.max(1e-3, duration),
+          step: 0.033333,
+          value: Math.max(0, Math.min(duration, playhead)),
+          onChange: (event) => window.filmStudioSeek?.(event.currentTarget.value),
+          "aria-label": "\u64AD\u653E\u5934"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "frame-next", children: "\u4E0B\u4E00\u5E27" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", id: "fs-element-inspect-toggle", type: "button", "data-film-action": "canvas-inspect", "aria-pressed": "false", title: "\u5728\u8282\u76EE\u76D1\u89C6\u5668\u4E2D\u70B9\u9009 HTML \u955C\u5934\u91CC\u7684\u6587\u5B57\u6216\u56FE\u5C42", children: "\u9009\u62E9\u753B\u9762\u5143\u7D20" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { id: "fs-playhead-value", children: formatFilmTime(playhead) })
+    ] });
+  };
+  var StudioTimelineToolbar = () => {
+    const insertMode = useFilmStoreField("insertMode");
+    const overwriteMode = useFilmStoreField("overwriteMode");
+    const snapEnabled = useFilmStoreField("snapEnabled");
+    const envelopeMode = useFilmStoreField("envelopeMode");
+    const slideMode = useFilmStoreField("slideMode");
+    const slipMode = useFilmStoreField("slipMode");
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (insertMode ? " fs-primary" : ""), type: "button", "data-film-action": "insert-mode", "aria-pressed": insertMode, title: "\u5F00\u542F\u540E\uFF0C\u7D20\u6750\u63D2\u5165\u6240\u9009\u8F68\u9053\u5E76\u63A8\u79FB\u540E\u7EED\u7247\u6BB5\u53CA\u540C\u6B65\u9501\u5B9A\u8F68\u9053", children: [
+        "\u63D2\u5165\u7F16\u8F91\uFF1A",
+        insertMode ? "\u5F00" : "\u5173"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (overwriteMode ? " fs-primary" : ""), type: "button", "data-film-action": "overwrite-mode", "aria-pressed": overwriteMode, title: "\u8986\u76D6\u7F16\u8F91\u53EA\u66FF\u6362\u6240\u9009\u8F68\u9053\u7684\u91CD\u53E0\u533A\u95F4\uFF0C\u4E0D\u63A8\u79FB\u5176\u4ED6\u7247\u6BB5\u6216\u97F3\u9891\u8F68\u9053", children: [
+        "\u8986\u76D6\u7F16\u8F91\uFF1A",
+        overwriteMode ? "\u5F00" : "\u5173"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn", type: "button", "data-film-action": "toggle-snap", "aria-pressed": snapEnabled, title: "\u5438\u9644\u5230\u64AD\u653E\u5934\u3001\u7247\u5934\u548C\u5176\u4ED6\u7247\u6BB5\u8FB9\u7F18\uFF1B\u5438\u9644\u8DDD\u79BB\u6309\u5C4F\u5E55\u50CF\u7D20\u8BA1\u7B97", children: [
+        "\u5438\u9644\uFF1A",
+        snapEnabled ? "\u5F00" : "\u5173"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "split", title: "\u5728\u64AD\u653E\u5934\u5207\u5206\uFF08S\uFF09", children: "\u5728\u64AD\u653E\u5934\u5207\u5206" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "copy-clips", title: "\u590D\u5236\u9009\u4E2D\u7247\u6BB5\uFF08Ctrl/\u2318+C\uFF09", children: "\u590D\u5236" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "paste-clips", title: "\u6309\u539F\u76F8\u5BF9\u5E03\u5C40\u7C98\u8D34\u5230\u64AD\u653E\u5934\u9644\u8FD1\u7684\u53EF\u7528\u533A\u95F4\uFF08Ctrl/\u2318+V\uFF09", children: "\u7C98\u8D34" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "join-cut", title: "\u5408\u5E76\u540C\u8F68\u76F8\u90BB\u3001\u540C\u6E90\u8FDE\u7EED\u4E14\u5C5E\u6027\u4E00\u81F4\u7684\u5207\u5206\u7247\u6BB5", children: "\u6108\u5408\u5207\u53E3" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove", children: "\u5220\u9664\u7247\u6BB5" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "ripple-delete", title: "\u5220\u9664\u9009\u4E2D\u7247\u6BB5\u5BF9\u5E94\u7684\u65F6\u95F4\u6BB5\uFF0C\u5E76\u6536\u62E2\u5168\u90E8\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (envelopeMode ? " fs-envelope-mode-active" : ""), type: "button", "data-film-action": "envelope-mode", "aria-pressed": envelopeMode, title: "\u5207\u6362\u97F3\u91CF\u5173\u952E\u5E27\u7F16\u8F91\u6A21\u5F0F\uFF1B\u666E\u901A\u6A21\u5F0F\u4E0B\u53EF\u6B63\u5E38\u62D6\u52A8\u7247\u6BB5", children: [
+        "\u97F3\u91CF\u66F2\u7EBF\uFF1A",
+        envelopeMode ? "\u5F00" : "\u5173"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (slideMode ? " fs-slide-mode-active" : ""), type: "button", "data-film-action": "slide-mode", "aria-pressed": slideMode, title: "\u5207\u6362\u6ED1\u79FB\u4FEE\u526A\u6A21\u5F0F\uFF1B\u62D6\u52A8\u4E2D\u95F4\u89C6\u9891/\u97F3\u9891\u7247\u6BB5\u4E3B\u4F53\uFF0C\u5916\u4FA7\u65F6\u95F4\u7EBF\u8FB9\u754C\u4FDD\u6301\u4E0D\u53D8", children: [
+        "\u6ED1\u79FB\u4FEE\u526A\uFF1A",
+        slideMode ? "\u5F00" : "\u5173"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (slipMode ? " fs-slip-mode-active" : ""), type: "button", "data-film-action": "slip-mode", "aria-pressed": slipMode, title: "\u5207\u6362\u6E90\u533A\u95F4\u6ED1\u79FB\u6A21\u5F0F\uFF1B\u53EA\u6539\u53D8\u7D20\u6750\u6E90\u8303\u56F4\uFF0C\u7247\u6BB5\u65F6\u95F4\u7EBF\u4F4D\u7F6E\u4E0E\u957F\u5EA6\u4E0D\u53D8", children: [
+        "\u6E90\u533A\u95F4\u6ED1\u79FB\uFF1A",
+        slipMode ? "\u5F00" : "\u5173"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "add-track", children: "\uFF0B\u8F68\u9053" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove-empty-track", children: "\u5220\u7A7A\u8F68" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "zoom-out", children: "\u2212" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "zoom-in", children: "\uFF0B" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn fs-primary", type: "button", "data-film-action": "apply-inspector", children: "\u5E94\u7528\u5C5E\u6027" })
+    ] });
+  };
   var CanvasInspector = ({ element }) => {
     const rect = element.localRect || element.rect || {};
     const styles = element.styles || {};
@@ -25485,50 +25554,43 @@
     const target = document.getElementById(targetId);
     return target ? (0, import_react_dom.createPortal)(child, target, targetId) : null;
   };
-  var StudioReactOwner = ({ state }) => {
+  var FilmStoreDiagnostics = () => {
     const filmSnapshot = (0, import_react.useSyncExternalStore)(filmStore.subscribe, filmStore.getSnapshot, filmStore.getSnapshot);
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "div",
+      {
+        id: "fs-react-film-store-state",
+        hidden: true,
+        "aria-hidden": "true",
+        "data-film-project-id": filmSnapshot.projectId,
+        "data-film-revision": filmSnapshot.revision,
+        "data-selected-clip": filmSnapshot.selectedId,
+        "data-selected-clips": filmSnapshot.selectedIds.join(","),
+        "data-pending-revision": filmSnapshot.pendingExternalRevision,
+        "data-insert-mode": filmSnapshot.insertMode ? "true" : "false",
+        "data-overwrite-mode": filmSnapshot.overwriteMode ? "true" : "false",
+        "data-snap-enabled": filmSnapshot.snapEnabled ? "true" : "false",
+        "data-envelope-mode": filmSnapshot.envelopeMode ? "true" : "false",
+        "data-slide-mode": filmSnapshot.slideMode ? "true" : "false",
+        "data-slip-mode": filmSnapshot.slipMode ? "true" : "false",
+        "data-busy": filmSnapshot.busy ? "true" : "false",
+        "data-broken": filmSnapshot.broken ? "true" : "false",
+        "data-pending-transaction-kind": filmSnapshot.pendingTransaction?.kind || "",
+        "data-pending-transaction-base": filmSnapshot.pendingTransaction?.baseRevision || "",
+        "data-pending-transaction-operation-count": String(filmSnapshot.pendingTransaction?.operationCount || 0)
+      }
+    );
+  };
+  var StudioReactOwner = ({ state }) => {
     const clip = state.clipInspector;
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
     const element = state.canvasElement;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "div",
-        {
-          id: "fs-react-film-store-state",
-          hidden: true,
-          "aria-hidden": "true",
-          "data-film-project-id": filmSnapshot.projectId,
-          "data-film-revision": filmSnapshot.revision,
-          "data-selected-clip": filmSnapshot.selectedId,
-          "data-selected-clips": filmSnapshot.selectedIds.join(","),
-          "data-pending-revision": filmSnapshot.pendingExternalRevision,
-          "data-insert-mode": filmSnapshot.insertMode ? "true" : "false",
-          "data-overwrite-mode": filmSnapshot.overwriteMode ? "true" : "false",
-          "data-snap-enabled": filmSnapshot.snapEnabled ? "true" : "false",
-          "data-envelope-mode": filmSnapshot.envelopeMode ? "true" : "false",
-          "data-slide-mode": filmSnapshot.slideMode ? "true" : "false",
-          "data-slip-mode": filmSnapshot.slipMode ? "true" : "false",
-          "data-busy": filmSnapshot.busy ? "true" : "false",
-          "data-broken": filmSnapshot.broken ? "true" : "false",
-          "data-pending-transaction-kind": filmSnapshot.pendingTransaction?.kind || "",
-          "data-pending-transaction-base": filmSnapshot.pendingTransaction?.baseRevision || "",
-          "data-pending-transaction-operation-count": String(filmSnapshot.pendingTransaction?.operationCount || 0)
-        }
-      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmStoreDiagnostics, {}),
       state.assets ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: state.assets })) : null,
       state.timeline ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: state.timeline })) : null,
       state.toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
-      state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        StudioTimelineToolbar,
-        {
-          insertMode: filmSnapshot.insertMode,
-          overwriteMode: filmSnapshot.overwriteMode,
-          snapEnabled: filmSnapshot.snapEnabled,
-          envelopeMode: filmSnapshot.envelopeMode,
-          slideMode: filmSnapshot.slideMode,
-          slipMode: filmSnapshot.slipMode
-        }
-      )) : null,
+      state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
       state.scrubVisible ? studioPortal("fs-react-scrub-row", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioScrubRow, {})) : null,
       state.aiModel ? studioPortal("fs-react-ai-director", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAiDirector, { model: state.aiModel }, "ai-director")) : null,
       state.clipInspectorMounted ? studioPortal(
