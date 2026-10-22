@@ -34,7 +34,8 @@ def test_blank_film_to_multitrack_mp4_with_html_scene_and_audio_mix(tmp_path, mo
         assert completed.returncode == 0, completed.stderr[-2000:]
 
     generate("-f", "lavfi", "-i", "color=c=0x203050:s=160x90:r=10:d=1",
-             "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(assets / "footage.mp4"))
+             "-an", "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+             str(assets / "footage.webm"))
     for name, frequency in (("narration", 440), ("music", 110), ("sfx", 880)):
         generate("-f", "lavfi", "-i",
                  f"sine=frequency={frequency}:sample_rate=44100:duration=1",
@@ -98,7 +99,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
          "attrs": {"src": "assets/still.png#t=0,1", "at": "0",
                    "style": "left:4px;top:4px;width:20px;height:20px"}}},
         {"op": "insert", "track_id": "video-track", "clip": {"id": "footage", "tag": "video",
-         "attrs": {"src": "assets/footage.mp4#t=0,1", "at": "0",
+         "attrs": {"src": "assets/footage.webm#t=0,1", "at": "0",
                    "style": "left:0px;top:0px;width:160px;height:90px"}}},
         {"op": "insert", "track_id": "narration-track", "clip": {"id": "narration", "tag": "audio",
          "attrs": {"src": "assets/narration.wav#t=0,1", "at": "0", "volume": "0.9"}}},

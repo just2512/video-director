@@ -110,14 +110,14 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
 
                 # Undo/redo, project switching and export are separate entry
                 # points that must not discard a dirty Inspector form either.
-                page.locator('[data-film-action="undo"]').click()
+                page.locator('[data-film-action="undo"]:visible').click()
                 page.wait_for_function(
                     "() => { const alert = document.querySelector('#film-studio-alert'); "
                     "return !!alert && alert.textContent.includes('再撤销/重做'); }",
                     timeout=5000,
                 )
                 assert page.locator("#fs-field-title").input_value() == "Local unsaved draft"
-                page.locator('[data-film-action="render"]').click()
+                page.locator('[data-film-action="render"]:visible').click()
                 page.wait_for_function(
                     "() => { const alert = document.querySelector('#film-studio-alert'); "
                     "return !!alert && alert.textContent.includes('避免输出旧 revision'); }",

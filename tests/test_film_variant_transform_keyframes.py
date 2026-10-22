@@ -132,7 +132,7 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     warnings_text = "\n".join(result["warnings"])
     assert "CompositionIR.variants[0].scenes[0].layers[0].transform.scale_x" not in warnings_text
     assert "CompositionIR.variants[0].scenes[0].layers[0].transform.scale_y" not in warnings_text
-    assert "metadata 字段未映射" in warnings_text
+    assert "未建模字段" in warnings_text
     assert "转场 type=dissolve" in warnings_text
     assert not any(
         f"keyframes:{name}" in warning
@@ -264,24 +264,32 @@ def test_scene_local_camera_track_is_shifted_to_global_timeline_before_migration
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 5},
         "assets": [{"id": "asset-scene", "file": "assets/scene.png", "type": "image"}],
-        "scenes": [{
-            "id": "late-scene", "start": 4, "duration": 1, "text": "late",
-            "camera": {
-                "id": "scene-camera",
-                "projection": "orthographic",
-                "keyframes": [
-                    {"at": 0, "position": [0.5, 0.5, 1], "target": [0.5, 0.5, 0]},
-                    {"at": 1, "position": [0.2, 0.7, 1], "target": [0.2, 0.7, 0]},
-                ],
+        "scenes": [
+            {
+                "id": "opening-scene", "start": 0, "duration": 4, "text": "opening",
+                "layers": [{
+                    "type": "image", "asset_id": "asset-scene", "start": 0, "duration": 4,
+                }],
             },
-            "layers": [{
-                "type": "image", "asset_id": "asset-scene", "start": 0, "duration": 1,
-            }],
-        }],
+            {
+                "id": "late-scene", "start": 4, "duration": 1, "text": "late",
+                "camera": {
+                    "id": "scene-camera",
+                    "projection": "orthographic",
+                    "keyframes": [
+                        {"at": 0, "position": [0.5, 0.5, 1], "target": [0.5, 0.5, 0]},
+                        {"at": 1, "position": [0.2, 0.7, 1], "target": [0.2, 0.7, 0]},
+                    ],
+                },
+                "layers": [{
+                    "type": "image", "asset_id": "asset-scene", "start": 0, "duration": 1,
+                }],
+            },
+        ],
     })
     result = fd.build_film_from_composition(project_id, ir)
     main_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
-    clip = main_track["clips"][0]
+    clip = next(item for item in main_track["clips"] if item["attrs"].get("data-source-scene-id") == "late-scene")
     assert clip["attrs"]["at"] == "4"
     channels = json.loads(clip["attrs"]["data-film-keyframes"])
     camera_x = next(channel for channel in channels if channel["property"] == "camera_x")
@@ -303,7 +311,7 @@ def test_multi_variant_migration_requires_explicit_choice_and_uses_selected_cut(
         {"id": "asset-base", "file": "assets/base.png", "type": "image"},
     ]), encoding="utf-8")
     ir = CompositionIR.model_validate({
-        "project": {"width": 320, "height": 180, "fps": 30, "duration": 3},
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
         "scenes": [{
             "id": "legacy-fallback", "start": 0, "duration": 1, "text": "fallback",
             "layers": [{"type": "image", "asset_id": "asset-base", "start": 0, "duration": 1}],

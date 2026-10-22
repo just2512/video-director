@@ -26,8 +26,8 @@ def test_film_migration_api_requires_and_persists_explicit_variant_selection(tmp
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 3},
         "assets": [{"id": "asset-still", "file": "assets/still.png", "type": "image"}],
         "scenes": [{
-            "id": "legacy-scene", "start": 0, "duration": 1, "text": "fallback",
-            "layers": [{"type": "image", "asset_id": "asset-still", "start": 0, "duration": 1}],
+            "id": "legacy-scene", "start": 0, "duration": 3, "text": "fallback",
+            "layers": [{"type": "image", "asset_id": "asset-still", "start": 0, "duration": 3}],
         }],
         "variants": [
             {"id": "cut-a", "version": 1, "metadata": {"name": "Cut A"}, "scenes": [{

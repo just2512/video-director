@@ -158,8 +158,10 @@ def test_unregistered_variant_style_applies_only_whitelisted_parameters(tmp_path
     assets = root / "assets"
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "music.wav").write_bytes(b"not-decoded-by-migration")
     (assets / "manifest.json").write_text(json.dumps([
         {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+        {"id": "asset-music", "file": "assets/music.wav", "type": "audio"},
     ]), encoding="utf-8")
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},

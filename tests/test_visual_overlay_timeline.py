@@ -2027,10 +2027,12 @@ def test_promote_main_image_preserves_static_transform_in_real_mp4(tmp_path, mon
     saved = load_composition(project_id)
     overlay = saved.visual_overlays[0]
     assert overlay.transform is not None
-    assert overlay.transform.model_dump() == {
+    transform_data = overlay.transform.model_dump(mode="json")
+    assert {key: transform_data[key] for key in ("x", "y", "scale", "rotation", "opacity", "anchor")} == {
         "x": 0.25, "y": 0.5, "scale": 0.5, "rotation": 0.0,
         "opacity": 0.75, "anchor": "center",
     }
+    assert transform_data["scale_x"] == 1.0 and transform_data["scale_y"] == 1.0
     assert saved.scenes[0].layers[0].type == LayerType.gap
 
     assets = {item.id: item for item in saved.assets}
@@ -2107,10 +2109,12 @@ def test_promote_main_video_preserves_static_transform_in_real_mp4(tmp_path, mon
     saved = load_composition(project_id)
     transform = saved.visual_overlays[0].transform
     assert transform is not None
-    assert transform.model_dump() == {
+    transform_data = transform.model_dump(mode="json")
+    assert {key: transform_data[key] for key in ("x", "y", "scale", "rotation", "opacity", "anchor")} == {
         "x": 0.25, "y": 0.5, "scale": 0.5, "rotation": 0.0,
         "opacity": 1.0, "anchor": "center",
     }
+    assert transform_data["scale_x"] == 1.0 and transform_data["scale_y"] == 1.0
 
     assets = {item.id: item for item in saved.assets}
     result = renderer.render_composition(saved, assets, tmp_path / "transform-lift-video-render")
