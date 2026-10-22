@@ -26,9 +26,9 @@
     mod
   ));
 
-  // node_modules/react/cjs/react.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "node_modules/react/cjs/react.development.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // node_modules/react/index.js
+  // ../remotion_runtime/node_modules/react/index.js
   var require_react = __commonJS({
-    "node_modules/react/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // node_modules/react-dom/index.js
+  // ../remotion_runtime/node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "node_modules/react-dom/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // node_modules/scheduler/cjs/scheduler.development.js
+  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // node_modules/scheduler/index.js
+  // ../remotion_runtime/node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "node_modules/scheduler/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom-client.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // node_modules/react-dom/client.js
+  // ../remotion_runtime/node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "node_modules/react-dom/client.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // node_modules/react/cjs/react-jsx-runtime.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // node_modules/react/jsx-runtime.js
+  // ../remotion_runtime/node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "node_modules/react/jsx-runtime.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -23836,6 +23836,7 @@
   var import_react_dom = __toESM(require_react_dom(), 1);
   var import_client = __toESM(require_client(), 1);
   var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+  var DEFAULT_FILM_BEZIER = { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 };
   var FILM_KEYFRAME_PROPERTIES = [
     { value: "x", label: "\u6C34\u5E73\u4F4D\u7F6E X", min: 0, max: 1, initial: 0.5 },
     { value: "y", label: "\u5782\u76F4\u4F4D\u7F6E Y", min: 0, max: 1, initial: 0.5 },
@@ -23852,6 +23853,17 @@
     { value: "offset_y", label: "\u5782\u76F4\u504F\u79FB", min: -1e4, max: 1e4, initial: 0 }
   ];
   var keyframeInfo = (property) => FILM_KEYFRAME_PROPERTIES.find((item) => item.value === property);
+  var parseBezierEasing = (raw) => {
+    if (!raw || typeof raw !== "object" || raw.type !== "bezier") return null;
+    const values = { x1: Number(raw.x1), y1: Number(raw.y1), x2: Number(raw.x2), y2: Number(raw.y2) };
+    if (Object.values(values).some((value) => !Number.isFinite(value) || value < 0 || value > 1) || values.x1 > values.x2) return null;
+    return { type: "bezier", x1: values.x1, y1: values.y1, x2: values.x2, y2: values.y2 };
+  };
+  var bezierCurveFor = (easing) => {
+    if (typeof easing === "string") return null;
+    if (easing.type === "bezier") return easing;
+    return "curve" in easing ? easing.curve : null;
+  };
   var parseFilmKeyframes = (raw) => {
     if (!raw) return [];
     try {
@@ -23865,8 +23877,15 @@
           let easing = "linear";
           if (typeof rawEasing === "string" && ["linear", "ease_in", "ease_out", "ease_in_out"].includes(rawEasing)) {
             easing = rawEasing;
-          } else if (rawEasing && typeof rawEasing === "object" && rawEasing.type === "window" && ["linear", "ease_in", "ease_out", "ease_in_out"].includes(rawEasing.preset) && Number.isFinite(Number(rawEasing.start)) && Number.isFinite(Number(rawEasing.end)) && Number(rawEasing.start) >= 0 && Number(rawEasing.end) <= 1 && Number(rawEasing.end) > Number(rawEasing.start)) {
-            easing = { type: "window", preset: rawEasing.preset, start: Number(rawEasing.start), end: Number(rawEasing.end) };
+          } else if (rawEasing && typeof rawEasing === "object" && rawEasing.type === "bezier") {
+            easing = parseBezierEasing(rawEasing) || "linear";
+          } else if (rawEasing && typeof rawEasing === "object" && rawEasing.type === "window" && Number.isFinite(Number(rawEasing.start)) && Number.isFinite(Number(rawEasing.end)) && Number(rawEasing.start) >= 0 && Number(rawEasing.end) <= 1 && Number(rawEasing.end) > Number(rawEasing.start)) {
+            const curve = parseBezierEasing(rawEasing.curve);
+            if (curve) {
+              easing = { type: "window", curve, start: Number(rawEasing.start), end: Number(rawEasing.end) };
+            } else if (["linear", "ease_in", "ease_out", "ease_in_out"].includes(rawEasing.preset)) {
+              easing = { type: "window", preset: rawEasing.preset, start: Number(rawEasing.start), end: Number(rawEasing.end) };
+            }
           }
           return { at: Number(point.at), value: Number(point.value), easing };
         }).sort((a, b) => a.at - b.at);
@@ -23880,19 +23899,37 @@
   var clampKeyframe = (value, min, max) => Math.max(min, Math.min(max, value));
   var keyframeEase = (t, easing) => {
     const x = clampKeyframe(t, 0, 1);
-    const base = (value, preset) => {
+    const presetValue = (value, preset) => {
       const v = clampKeyframe(value, 0, 1);
       if (preset === "ease_in") return v * v;
       if (preset === "ease_out") return 1 - (1 - v) * (1 - v);
       if (preset === "ease_in_out") return v < 0.5 ? 2 * v * v : 1 - Math.pow(-2 * v + 2, 2) / 2;
       return v;
     };
-    if (typeof easing === "string") return base(x, easing);
+    const bezierValue = (value, curve) => {
+      const target = clampKeyframe(value, 0, 1);
+      const cubic = (u, a, b) => {
+        const inverse = 1 - u;
+        return 3 * inverse * inverse * u * a + 3 * inverse * u * u * b + u * u * u;
+      };
+      if (target <= 0 || target >= 1) return target;
+      let low2 = 0, high2 = 1;
+      for (let i = 0; i < 28; i++) {
+        const middle = (low2 + high2) * 0.5;
+        if (cubic(middle, curve.x1, curve.x2) < target) low2 = middle;
+        else high2 = middle;
+      }
+      return clampKeyframe(cubic((low2 + high2) * 0.5, curve.y1, curve.y2), 0, 1);
+    };
+    const baseValue = (value, spec2) => typeof spec2 === "string" ? presetValue(value, spec2) : bezierValue(value, spec2);
+    if (typeof easing === "string") return presetValue(x, easing);
+    if (easing.type === "bezier") return bezierValue(x, easing);
     const start = clampKeyframe(easing.start, 0, 1), end = clampKeyframe(easing.end, 0, 1);
     if (end <= start) return x;
-    const low = base(start, easing.preset), high = base(end, easing.preset);
+    const spec = "curve" in easing ? easing.curve : easing.preset;
+    const low = baseValue(start, spec), high = baseValue(end, spec);
     if (Math.abs(high - low) < 1e-12) return x;
-    return clampKeyframe((base(start + (end - start) * x, easing.preset) - low) / (high - low), 0, 1);
+    return clampKeyframe((baseValue(start + (end - start) * x, spec) - low) / (high - low), 0, 1);
   };
   var keyframePath = (channel, duration, min, max) => {
     if (duration <= 0 || channel.keyframes.length < 2) return "";
@@ -24123,7 +24160,9 @@
     const [newKeyframeAt, setNewKeyframeAt] = (0, import_react.useState)("0");
     const [newKeyframeValue, setNewKeyframeValue] = (0, import_react.useState)("1");
     const [newKeyframeEasing, setNewKeyframeEasing] = (0, import_react.useState)("linear");
+    const [newBezierCurve, setNewBezierCurve] = (0, import_react.useState)({ ...DEFAULT_FILM_BEZIER });
     const [draggingKeyframe, setDraggingKeyframe] = (0, import_react.useState)(null);
+    const [draggingBezier, setDraggingBezier] = (0, import_react.useState)(null);
     const [keyframeFeedback, setKeyframeFeedback] = (0, import_react.useState)("");
     const [form, setForm] = (0, import_react.useState)(() => ({ ...clipFormDefaults }));
     const update = (field, value) => {
@@ -24140,6 +24179,9 @@
       const relative = clip && typeof clip.playhead === "number" ? clip.playhead - clip.at : 0;
       setNewKeyframeAt((duration != null && duration > 0 ? clampKeyframe(relative, 0, duration) : 0).toFixed(3));
       setNewKeyframeValue(String(keyframeInfo(animationProperty).initial));
+      setNewKeyframeEasing("linear");
+      setNewBezierCurve({ ...DEFAULT_FILM_BEZIER });
+      setDraggingBezier(null);
     }, [clip?.id, clipFormSignature, keyframesAttribute]);
     if (!clip) {
       return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-empty", "data-react-clip-inspector-empty": "true", children: emptyMessage || "\u9009\u62E9\u65F6\u95F4\u7EBF\u7247\u6BB5\u540E\u7F16\u8F91\u5C5E\u6027\u3002" });
@@ -24171,6 +24213,38 @@
       }));
       setKeyframeFeedback("");
     };
+    const updateBezierControl = (index, handle, axis, rawValue) => {
+      if (!Number.isFinite(rawValue)) return;
+      const field = handle === "p1" ? axis === "x" ? "x1" : "y1" : axis === "x" ? "x2" : "y2";
+      const value = clampKeyframe(rawValue, 0, 1);
+      setKeyframeChannels((current) => current.map((channel) => {
+        if (channel.property !== animationProperty) return channel;
+        const points = channel.keyframes.map((point2) => ({ ...point2 })), point = points[index];
+        if (!point) return channel;
+        const curve = bezierCurveFor(point.easing) || { type: "bezier", ...DEFAULT_FILM_BEZIER };
+        const next = { ...curve, [field]: value };
+        if (next.x1 > next.x2) {
+          if (field === "x1") next.x1 = next.x2;
+          if (field === "x2") next.x2 = next.x1;
+        }
+        point.easing = typeof point.easing !== "string" && point.easing.type === "window" ? { ...point.easing, curve: next, preset: void 0 } : next;
+        return { ...channel, keyframes: points };
+      }));
+      setKeyframeDirty(true);
+      setKeyframeFeedback("");
+    };
+    const updateNewBezierControl = (handle, axis, rawValue) => {
+      if (!Number.isFinite(rawValue)) return;
+      const field = handle === "p1" ? axis === "x" ? "x1" : "y1" : axis === "x" ? "x2" : "y2";
+      setNewBezierCurve((current) => {
+        const next = { ...current, [field]: clampKeyframe(rawValue, 0, 1) };
+        if (next.x1 > next.x2) {
+          if (field === "x1") next.x1 = next.x2;
+          if (field === "x2") next.x2 = next.x1;
+        }
+        return next;
+      });
+    };
     const addKeyframe = () => {
       if (clip.duration == null || clip.duration <= 0) {
         setKeyframeFeedback("\u7247\u6BB5\u65F6\u957F\u672A\u77E5\uFF0C\u4E0D\u80FD\u5B89\u5168\u6DFB\u52A0\u5173\u952E\u5E27\u3002");
@@ -24193,7 +24267,8 @@
       }
       setKeyframeChannels((current) => {
         const existing = current.find((item) => item.property === animationProperty);
-        const points = [...existing?.keyframes || [], { at: snapped, value, easing: newKeyframeEasing }].sort((a, b) => a.at - b.at);
+        const easing = newKeyframeEasing === "bezier" ? { type: "bezier", ...newBezierCurve } : newKeyframeEasing;
+        const points = [...existing?.keyframes || [], { at: snapped, value, easing }].sort((a, b) => a.at - b.at);
         const nextChannel = { property: animationProperty, keyframes: points };
         return existing ? current.map((item) => item.property === animationProperty ? nextChannel : item) : [...current, nextChannel];
       });
@@ -24218,6 +24293,18 @@
         at: clampKeyframe((x - 8) / 344 * clip.duration, 0, clip.duration),
         value: animationInfo.max - (y - 8) / 72 * (animationInfo.max - animationInfo.min)
       });
+      event.preventDefault();
+    };
+    const handleBezierPointerMove = (event) => {
+      if (!draggingBezier) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const x = clampKeyframe((event.clientX - rect.left) / rect.width * 100, 10, 90);
+      const y = clampKeyframe((event.clientY - rect.top) / rect.height * 100, 10, 90);
+      const controlX = clampKeyframe((x - 10) / 80, 0, 1);
+      const controlY = clampKeyframe((90 - y) / 80, 0, 1);
+      updateBezierControl(draggingBezier.index, draggingBezier.handle, "x", controlX);
+      updateBezierControl(draggingBezier.index, draggingBezier.handle, "y", controlY);
       event.preventDefault();
     };
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { "data-react-clip-inspector": "true", children: [
@@ -24448,68 +24535,160 @@
               "s"
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-keyframe-list", children: activeChannel ? activeChannel.keyframes.map((point, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-keyframe-row", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-              "\u65F6\u95F4",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "input",
-                {
-                  type: "number",
-                  min: 0,
-                  max: clipDuration,
-                  step: frameStep,
-                  value: point.at.toFixed(3),
-                  disabled: readOnly,
-                  "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u65F6\u95F4",
-                  onChange: (event) => {
-                    const value = Number(event.currentTarget.value);
-                    if (Number.isFinite(value)) updateKeyframePoint(index, { at: value });
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-keyframe-list", children: activeChannel ? activeChannel.keyframes.map((point, index) => {
+            const bezier = bezierCurveFor(point.easing);
+            const pointEasingValue = typeof point.easing === "string" ? point.easing : bezier ? "bezier" : "window";
+            const pointWindow = typeof point.easing !== "string" && point.easing.type === "window";
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-keyframe-point-editor", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-keyframe-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
+                  "\u65F6\u95F4",
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                    "input",
+                    {
+                      type: "number",
+                      min: 0,
+                      max: clipDuration,
+                      step: frameStep,
+                      value: point.at.toFixed(3),
+                      disabled: readOnly,
+                      "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u65F6\u95F4",
+                      onChange: (event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (Number.isFinite(value)) updateKeyframePoint(index, { at: value });
+                      }
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
+                  "\u6570\u503C",
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                    "input",
+                    {
+                      type: "number",
+                      min: animationInfo.min,
+                      max: animationInfo.max,
+                      step: "0.01",
+                      value: point.value,
+                      disabled: readOnly,
+                      "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u6570\u503C",
+                      onChange: (event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (Number.isFinite(value)) updateKeyframePoint(index, { value });
+                      }
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
+                  "\u7F13\u52A8",
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                    "select",
+                    {
+                      value: pointEasingValue,
+                      disabled: readOnly,
+                      "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u7F13\u52A8",
+                      onChange: (event) => {
+                        const selected = event.currentTarget.value;
+                        if (selected === "bezier") {
+                          if (!bezier) updateKeyframePoint(index, { easing: { type: "bezier", ...DEFAULT_FILM_BEZIER } });
+                        } else if (selected !== "window") updateKeyframePoint(index, { easing: selected });
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "linear", children: "\u7EBF\u6027" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_in", children: "\u7F13\u5165" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_out", children: "\u7F13\u51FA" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_in_out", children: "\u7F13\u5165\u7F13\u51FA" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "bezier", children: "\u81EA\u5B9A\u4E49\u8D1D\u585E\u5C14" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "window", disabled: true, children: "\u88C1\u526A\u4FDD\u771F\u7684\u66F2\u7EBF\u5206\u6BB5" })
+                      ]
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "aria-label": "\u5220\u9664\u5173\u952E\u5E27 " + (index + 1), disabled: readOnly, onClick: () => removeKeyframe(index), children: "\u5220\u9664" })
+              ] }),
+              bezier ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-keyframe-bezier-editor", "data-bezier-editor": "keyframe-" + (index + 1), children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                  "svg",
+                  {
+                    className: "fs-keyframe-bezier-graph",
+                    viewBox: "0 0 100 100",
+                    preserveAspectRatio: "none",
+                    role: "img",
+                    "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u8D1D\u585E\u5C14\u63A7\u5236\u67C4",
+                    onPointerMove: handleBezierPointerMove,
+                    onPointerUp: () => setDraggingBezier(null),
+                    onPointerCancel: () => setDraggingBezier(null),
+                    children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: "10", y1: "90", x2: "90", y2: "10", className: "fs-keyframe-bezier-diagonal" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: "10", y1: "90", x2: 10 + 80 * bezier.x1, y2: 90 - 80 * bezier.y1, className: "fs-keyframe-bezier-handle-line" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: "90", y1: "10", x2: 10 + 80 * bezier.x2, y2: 90 - 80 * bezier.y2, className: "fs-keyframe-bezier-handle-line" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M 10 90 C " + (10 + 80 * bezier.x1) + " " + (90 - 80 * bezier.y1) + ", " + (10 + 80 * bezier.x2) + " " + (90 - 80 * bezier.y2) + ", 90 10", className: "fs-keyframe-bezier-curve" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                        "circle",
+                        {
+                          "data-bezier-handle": "p1",
+                          cx: 10 + 80 * bezier.x1,
+                          cy: 90 - 80 * bezier.y1,
+                          r: "4.5",
+                          className: "fs-keyframe-bezier-handle",
+                          tabIndex: readOnly ? -1 : 0,
+                          role: "slider",
+                          "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u63A7\u5236\u67C4 1",
+                          onPointerDown: (event) => {
+                            if (readOnly) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                            setDraggingBezier({ index, handle: "p1" });
+                          }
+                        }
+                      ),
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                        "circle",
+                        {
+                          "data-bezier-handle": "p2",
+                          cx: 10 + 80 * bezier.x2,
+                          cy: 90 - 80 * bezier.y2,
+                          r: "4.5",
+                          className: "fs-keyframe-bezier-handle",
+                          tabIndex: readOnly ? -1 : 0,
+                          role: "slider",
+                          "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u63A7\u5236\u67C4 2",
+                          onPointerDown: (event) => {
+                            if (readOnly) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                            setDraggingBezier({ index, handle: "p2" });
+                          }
+                        }
+                      )
+                    ]
                   }
-                }
-              )
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-              "\u6570\u503C",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "input",
-                {
-                  type: "number",
-                  min: animationInfo.min,
-                  max: animationInfo.max,
-                  step: "0.01",
-                  value: point.value,
-                  disabled: readOnly,
-                  "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u6570\u503C",
-                  onChange: (event) => {
-                    const value = Number(event.currentTarget.value);
-                    if (Number.isFinite(value)) updateKeyframePoint(index, { value });
-                  }
-                }
-              )
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-              "\u7F13\u52A8",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-                "select",
-                {
-                  value: typeof point.easing === "string" ? point.easing : "window",
-                  disabled: readOnly,
-                  "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " \u7F13\u52A8",
-                  onChange: (event) => {
-                    if (event.currentTarget.value !== "window") updateKeyframePoint(index, { easing: event.currentTarget.value });
-                  },
-                  children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "linear", children: "\u7EBF\u6027" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_in", children: "\u7F13\u5165" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_out", children: "\u7F13\u51FA" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_in_out", children: "\u7F13\u5165\u7F13\u51FA" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "window", disabled: true, children: "\u88C1\u526A\u4FDD\u771F\u7684\u66F2\u7EBF\u5206\u6BB5" })
-                  ]
-                }
-              )
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "aria-label": "\u5220\u9664\u5173\u952E\u5E27 " + (index + 1), disabled: readOnly, onClick: () => removeKeyframe(index), children: "\u5220\u9664" })
-          ] }, point.at)) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-empty", children: "\u8BE5\u5C5E\u6027\u8FD8\u6CA1\u6709\u5173\u952E\u5E27\u3002" }) }),
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-keyframe-bezier-values", children: ["x1", "y1", "x2", "y2"].map((field) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
+                  field,
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                    "input",
+                    {
+                      type: "number",
+                      min: "0",
+                      max: "1",
+                      step: "0.01",
+                      value: bezier[field],
+                      disabled: readOnly,
+                      "aria-label": "\u5173\u952E\u5E27 " + (index + 1) + " " + field,
+                      onChange: (event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (Number.isFinite(value)) updateBezierControl(index, field === "x1" || field === "y1" ? "p1" : "p2", field === "x1" || field === "x2" ? "x" : "y", value);
+                      }
+                    }
+                  )
+                ] }, field)) }),
+                pointWindow ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-keyframe-bezier-note", children: "\u6B64\u66F2\u7EBF\u4FDD\u7559\u4E86\u5206\u5272/\u4FEE\u526A\u524D\u7684\u7A97\u53E3\u533A\u95F4\uFF1B\u8C03\u6574\u63A7\u5236\u67C4\u4F1A\u7EE7\u7EED\u4FDD\u7559\u8BE5\u533A\u95F4\u3002" }) : null
+              ] }) : null
+            ] }, point.at);
+          }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-empty", children: "\u8BE5\u5C5E\u6027\u8FD8\u6CA1\u6709\u5173\u952E\u5E27\u3002" }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-keyframe-add", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "fs-inspector-field", children: [
               "\u65F6\u95F4\uFF08\u76F8\u5BF9\u79D2\uFF09",
@@ -24525,9 +24704,29 @@
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "linear", children: "\u7EBF\u6027" }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_in", children: "\u7F13\u5165" }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_out", children: "\u7F13\u51FA" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_in_out", children: "\u7F13\u5165\u7F13\u51FA" })
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "ease_in_out", children: "\u7F13\u5165\u7F13\u51FA" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "bezier", children: "\u81EA\u5B9A\u4E49\u8D1D\u585E\u5C14" })
               ] })
             ] }),
+            newKeyframeEasing === "bezier" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-keyframe-bezier-values fs-keyframe-new-bezier", children: ["x1", "y1", "x2", "y2"].map((field) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
+              field,
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                "input",
+                {
+                  type: "number",
+                  min: "0",
+                  max: "1",
+                  step: "0.01",
+                  value: newBezierCurve[field],
+                  disabled: readOnly,
+                  "aria-label": "\u65B0\u5173\u952E\u5E27 " + field,
+                  onChange: (event) => {
+                    const value = Number(event.currentTarget.value);
+                    if (Number.isFinite(value)) updateNewBezierControl(field === "x1" || field === "y1" ? "p1" : "p2", field === "x1" || field === "x2" ? "x" : "y", value);
+                  }
+                }
+              )
+            ] }, field)) }) : null,
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", id: "fs-keyframe-add", disabled: readOnly, onClick: addKeyframe, children: "\u6DFB\u52A0\u5173\u952E\u5E27" })
           ] })
         ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-empty", children: "\u8BE5\u7247\u6BB5\u6CA1\u6709\u53EF\u9A8C\u8BC1\u7684\u660E\u786E\u65F6\u957F\uFF0C\u6682\u4E0D\u80FD\u7F16\u8F91\u52A8\u753B\u5173\u952E\u5E27\u3002" }),
