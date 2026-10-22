@@ -319,6 +319,37 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 assert float(audio["audio-before"]["attrs"]["at"]) == 0
                 assert float(audio["audio-later"]["attrs"]["at"]) == 3
 
+                stale_transaction = page.evaluate("""async () => {
+                  const store = window.filmStudioStore;
+                  let submitterRan = false;
+                  try {
+                    await store.dispatchTransaction({
+                      kind: "stale-revision-probe",
+                      baseRevision: "definitely-stale-revision",
+                      operations: [],
+                      operationCount: 0,
+                    }, async () => {
+                      submitterRan = true;
+                      return true;
+                    });
+                    return {error: "", submitterRan, busy: store.getSnapshot().busy};
+                  } catch (error) {
+                    const snapshot = store.getSnapshot();
+                    return {
+                      error: String(error?.code || error?.message || error),
+                      submitterRan,
+                      busy: snapshot.busy,
+                      pending: snapshot.pendingTransaction,
+                      revision: snapshot.revision,
+                    };
+                  }
+                }""")
+                assert stale_transaction["error"] == "FILM_REVISION_CONFLICT", stale_transaction
+                assert stale_transaction["submitterRan"] is False, stale_transaction
+                assert stale_transaction["busy"] is False, stale_transaction
+                assert stale_transaction["pending"] is None, stale_transaction
+                assert stale_transaction["revision"] == final["rev"], stale_transaction
+
                 failed_transaction = page.evaluate("""async () => {
                   const store = window.filmStudioStore;
                   const baseRevision = store.getSnapshot().revision;

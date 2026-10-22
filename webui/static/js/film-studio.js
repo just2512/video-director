@@ -2801,7 +2801,13 @@ window.filmStudioCopyClips=function(){
       });
       if(reloadAfterConflict)await filmStudioLoad(true);
     }catch(error){
-      showStatus('AI 提案应用失败：'+String(error&&error.message||error),'error');
+      var proposalErrorCode=error&&error.code||'';
+      if(proposalErrorCode==='FILM_REVISION_CONFLICT'||proposalErrorCode==='FILM_EXTERNAL_REVISION_PENDING'){
+        S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
+        await filmStudioLoad(true);
+      }else{
+        showStatus('AI 提案应用失败：'+String(error&&error.message||error),'error');
+      }
     }finally{flushPendingExternalRevision();}
   };
   function decodeSummaryPrefix(raw){

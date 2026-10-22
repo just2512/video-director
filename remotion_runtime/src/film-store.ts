@@ -45,6 +45,18 @@ const asPendingTransaction = (value: unknown): FilmStudioPendingTransaction | nu
   };
 };
 
+type FilmTransactionErrorCode =
+  | "FILM_TRANSACTION_BUSY"
+  | "FILM_TRANSACTION_CONTEXT_INVALID"
+  | "FILM_EXTERNAL_REVISION_PENDING"
+  | "FILM_REVISION_CONFLICT";
+
+const filmTransactionError = (code: FilmTransactionErrorCode): Error & {code: FilmTransactionErrorCode} => {
+  const error = new Error(code) as Error & {code: FilmTransactionErrorCode};
+  error.code = code;
+  return error;
+};
+
 class FilmStore implements FilmStudioStoreBridge {
   private readonly listeners = new Set<() => void>();
   private readonly selectedIdsTarget: string[] = [];
@@ -95,12 +107,18 @@ class FilmStore implements FilmStudioStoreBridge {
     context: FilmStudioPendingTransaction,
     submitter: () => Promise<T> | T,
   ): Promise<T> {
-    if (this.snapshot.busy) {
-      return Promise.reject(new Error("FILM_TRANSACTION_BUSY"));
-    }
     const pending = asPendingTransaction(context);
     if (!pending || !pending.kind || !pending.baseRevision) {
-      return Promise.reject(new Error("FILM_TRANSACTION_CONTEXT_INVALID"));
+      return Promise.reject(filmTransactionError("FILM_TRANSACTION_CONTEXT_INVALID"));
+    }
+    if (this.snapshot.busy) {
+      return Promise.reject(filmTransactionError("FILM_TRANSACTION_BUSY"));
+    }
+    if (this.snapshot.pendingExternalRevision) {
+      return Promise.reject(filmTransactionError("FILM_EXTERNAL_REVISION_PENDING"));
+    }
+    if (pending.baseRevision !== this.snapshot.revision) {
+      return Promise.reject(filmTransactionError("FILM_REVISION_CONFLICT"));
     }
     this.publish({...this.snapshot, busy: true, pendingTransaction: pending});
     return Promise.resolve()
