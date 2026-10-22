@@ -2087,6 +2087,7 @@ def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim_l
     }]
     source, _ = fd.apply_ops(doc, [
         {"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/a.mp4#t=2,26"},
+        {"op": "move", "clip": "clip-b", "at": 12},
         {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
     ])
     split, _ = fd.apply_ops(source, [
@@ -2125,6 +2126,7 @@ def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim()
     }]
     source, _ = fd.apply_ops(doc, [
         {"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/a.mp4#t=2,26"},
+        {"op": "move", "clip": "clip-b", "at": 12},
         {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
     ])
     split, _ = fd.apply_ops(source, [
@@ -2185,6 +2187,7 @@ def test_visual_keyframes_stay_inside_clip_after_roll_and_slide_trim():
     }]
     with_keys, _ = fd.apply_ops(doc, [
         {"op": "set", "clip": "clip-a", "field": "src", "value": "../assets/a.mp4#t=2,22"},
+        {"op": "move", "clip": "clip-b", "at": 12},
         {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
     ])
     split, _ = fd.apply_ops(with_keys, [
