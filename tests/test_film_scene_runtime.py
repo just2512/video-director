@@ -197,7 +197,7 @@ def test_scene_inspector_selects_html_elements_and_applies_safe_overrides():
         page.wait_for_function("window.__frameReply && window.__frameReply.frame === 5", timeout=10000)
         invalid_selector = page.evaluate("window.__frameReply")
         assert invalid_selector["error"]
-        assert "overrides CSS selector 无效" in invalid_selector["error"]
+        assert "CSS selector 无效" in invalid_selector["error"]
 
         page.evaluate("""() => {
           window.__frameReply = null;

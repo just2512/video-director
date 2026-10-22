@@ -38,7 +38,8 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames)") < prepare.index("el.currentTime=desired")
     assert "await frameWait.promise" in prepare
     assert "等待新的呈现帧超时" in helper
-    assert 'clip["source_fps"] = float(probe.fps)' in render
+    assert 'clip["source_fps"] = _source_video_fps(project_id, raw_path)' in render
+    assert "def _source_video_fps(project_id: str, raw_path: str)" in render
     assert "Promise.race" not in prepare
     assert "setTimeout(resolve,12000)" not in prepare
 

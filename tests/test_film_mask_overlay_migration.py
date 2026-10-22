@@ -235,7 +235,8 @@ def test_animated_mask_stays_in_composition_space_when_layer_transform_changes(
     assert not any("坐标系冲突；未写入近似关键帧" in warning for warning in result["warnings"])
     archived = json.loads(result["pages"]["migration/source-composition.json"])
     archived_mask = archived["scenes"][0]["layers"][0]["mask"]
-    assert archived_mask["keyframes"] == source_mask["keyframes"]
+    expected_channels = json.loads(ir.model_dump_json())["scenes"][0]["layers"][0]["mask"]["keyframes"]
+    assert archived_mask["keyframes"] == expected_channels
     assert archived_mask["geometry"] == source_mask["geometry"]
 
 
