@@ -30,7 +30,6 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
-    {
         "name": "film.initialize",
         "description": "Initialize the authoritative film.html timeline from the current CompositionIR snapshot. Requires the exact source_composition_version returned by film.status. Migration warnings are fail-closed until explicitly accepted.",
         "inputSchema": {
@@ -45,6 +44,7 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "additionalProperties": False
         },
     },
+    {
         "name": "film.validate",
         "description": "Strictly parse the film document and verify local media references and migration source snapshot integrity. This does not prove frame(t) determinism.",
         "inputSchema": {
