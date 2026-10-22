@@ -92,3 +92,74 @@ def test_repo_loguru_calls_no_percent_format():
                     if "%" in first.value:
                         offenders.append(f"{py.name}:{node.lineno} {first.value[:60]}")
     assert not offenders, "loguru printf 风格残留（吞异常实锤）: " + "; ".join(offenders)
+
+
+def test_openai_compatible_provider_streams_deltas_and_returns_full_text():
+    from types import SimpleNamespace
+
+    class FakeCompletions:
+        def __init__(self):
+            self.kwargs = None
+
+        def create(self, **kwargs):
+            self.kwargs = kwargs
+            return iter([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content='{"summary":'))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content='"缩短镜头",'))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content='"operations":[]}'))]),
+                SimpleNamespace(choices=[]),
+            ])
+
+    completions = FakeCompletions()
+    provider = OpenAICompatibleProvider.__new__(OpenAICompatibleProvider)
+    provider._model = "test-model"
+    provider._client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    fragments = []
+    result = provider.generate_stream("prompt", on_delta=fragments.append)
+    assert result == ''.join(fragments)
+    assert result == '{"summary":"缩短镜头","operations":[]}'
+    assert completions.kwargs["stream"] is True
+
+
+def test_openai_compatible_provider_closes_upstream_stream_on_cancel():
+    import threading
+    from types import SimpleNamespace
+    import pytest
+
+    class FakeStream:
+        def __init__(self):
+            self.closed = False
+            self.items = [
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="part-1"))]),
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="part-2"))]),
+            ]
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self.closed or not self.items:
+                raise StopIteration
+            return self.items.pop(0)
+
+        def close(self):
+            self.closed = True
+
+    stream = FakeStream()
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            assert kwargs["stream"] is True
+            return stream
+
+    provider = OpenAICompatibleProvider.__new__(OpenAICompatibleProvider)
+    provider._model = "test-model"
+    provider._client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    cancel_event = threading.Event()
+
+    def receive(fragment):
+        cancel_event.set()
+
+    with pytest.raises(RuntimeError, match="已取消"):
+        provider.generate_stream("prompt", on_delta=receive, cancel_event=cancel_event)
+    assert stream.closed is True

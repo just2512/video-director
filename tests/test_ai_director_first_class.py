@@ -205,3 +205,14 @@ def test_bgm_semantics_do_not_claim_ai_generation():
     create = (root / "webui" / "static" / "js" / "create.js").read_text(encoding="utf-8")
     assert "AI 自动匹配" not in create
     assert "匹配现有音乐" in create
+
+
+
+def test_director_context_refresh_clears_selection_cache_when_nothing_is_selected():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "library.js").read_text(encoding="utf-8")
+    start = source.index("async function directorRefreshContext(){")
+    end = source.index("async function directorLoadCapCount(){", start)
+    function_body = source[start:end]
+    assert "const ctx = getSelectionContext();" in function_body
+    assert "await apiPost('/api/director/context', {project_id: ED.pid, selection: ctx});" in function_body
+    assert "if (ctx.type !== 'none')" not in function_body

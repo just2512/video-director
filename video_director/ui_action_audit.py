@@ -120,6 +120,11 @@ def _extract_data_actions(src: str) -> set:
     return set(re.findall(r'data-action="([^"]+)"', src))
 
 
+def _extract_film_actions(src: str) -> set:
+    """Explicit action IDs handled by the file-backed film Studio dispatcher."""
+    return set(re.findall(r'data-film-action="([^"]+)"', src))
+
+
 def _extract_onclicks(src: str) -> list:
     out = []
     for m in re.finditer(r'onclick="([^"]+)"', src):
@@ -145,12 +150,24 @@ def audit_ui() -> dict:
     report = {"pass": 0, "missing_action": [], "missing_executor": [],
               "orphan_button": [], "scanned_files": len(files)}
 
+    # The film-document editor has its own document-transaction dispatcher. Its
+    # action IDs are audited explicitly rather than exempted as inline onclicks.
+    film_js = (ROOT / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    film_map = re.search(r"const FILM_STUDIO_ACTIONS\s*=\s*\{([^}]*)\}", film_js)
+    film_action_ids = set(re.findall(r"['\"]?([a-z][a-z0-9-]*)['\"]?\s*:", film_map.group(1))) if film_map else set()
+
     for f in files:
         try:
             src = f.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
         rel = str(f.relative_to(ROOT))
+        # Film Studio actions use an explicit, local dispatcher and are checked against its map.
+        for action_id in _extract_film_actions(src):
+            if action_id not in film_action_ids:
+                report["missing_executor"].append(f"{rel}: data-film-action={action_id}")
+            else:
+                report["pass"] += 1
         # 1) data-action 全部在 Registry
         for aid in _extract_data_actions(src):
             if aid not in registry_ids:

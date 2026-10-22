@@ -42,16 +42,21 @@ def _ir(**scene_extra) -> CompositionIR:
 class TestTransform:
     def test_fields_fingerprint(self):
         """§72.1 字段指纹：x/y/scale/rotation/opacity/anchor。"""
-        t = vs.Transform(x=0.3, y=0.7, scale=1.2, rotation=15.0, opacity=0.9)
+        t = vs.Transform(x=0.3, y=0.7, scale=1.2, scale_x=1.5, scale_y=0.75,
+                         rotation=15.0, opacity=0.9)
         assert t.x == 0.3 and t.y == 0.7
         assert t.scale == 1.2 and t.rotation == 15.0
+        assert t.scale_x == 1.5 and t.scale_y == 0.75
         assert t.opacity == 0.9
         assert t.anchor == vs.Anchor.center
 
     def test_defaults_are_identity(self):
         """默认=恒等变换（旧层无 transform 语义不变）。"""
         t = vs.Transform()
-        assert (t.x, t.y, t.scale, t.rotation, t.opacity) == (0.5, 0.5, 1.0, 0.0, 1.0)
+        assert (t.x, t.y, t.scale, t.scale_x, t.scale_y, t.rotation, t.opacity) == (
+            0.5, 0.5, 1.0, 1.0, 1.0, 0.0, 1.0
+        )
+        assert t.model_dump()["scale_x"] == t.model_dump()["scale_y"] == 1.0
 
     def test_bounds_fail_closed(self):
         """越界必须 fail-closed。"""
@@ -61,6 +66,10 @@ class TestTransform:
             vs.Transform(opacity=1.5)
         with pytest.raises(ValidationError):
             vs.Transform(scale=0.01)
+        with pytest.raises(ValidationError):
+            vs.Transform(scale_x=5.01)
+        with pytest.raises(ValidationError):
+            vs.Transform(scale_y=0.09)
 
     def test_with_update_immutable(self):
         """with_update 返回新副本，不改原对象。"""

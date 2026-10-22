@@ -62,7 +62,9 @@ class Transform(BaseModel):
 
     x: float = 0.5            # 锚点相对画幅 width 的归一水平位置 [0,1]
     y: float = 0.5            # 锚点相对画幅 height 的归一垂直位置 [0,1]
-    scale: float = 1.0        # 缩放（>1 放大）
+    scale: float = 1.0        # 等比缩放（>1 放大）
+    scale_x: float = 1.0      # 水平非等比缩放 [0.1,5]，默认恒等
+    scale_y: float = 1.0      # 垂直非等比缩放 [0.1,5]，默认恒等
     rotation: float = 0.0     # 旋转角度（度）
     opacity: float = 1.0      # 不透明度 [0,1]
     anchor: Anchor = Anchor.center
@@ -75,6 +77,10 @@ class Transform(BaseModel):
             raise ValueError(f"transform: y {self.y} 越界 [0,1]")
         if not (0.1 <= self.scale <= 5.0):
             raise ValueError(f"transform: scale {self.scale} 越界 [0.1,5.0]")
+        if not (0.1 <= self.scale_x <= 5.0):
+            raise ValueError(f"transform: scale_x {self.scale_x} 越界 [0.1,5.0]")
+        if not (0.1 <= self.scale_y <= 5.0):
+            raise ValueError(f"transform: scale_y {self.scale_y} 越界 [0.1,5.0]")
         if not (0.0 <= self.opacity <= 1.0):
             raise ValueError(f"transform: opacity {self.opacity} 越界 [0,1]")
         return self
@@ -96,11 +102,12 @@ class Easing(str, Enum):
     ease_in_out = "ease_in_out"
 
 
-#: §23 KeyframeTrack.property 合法值（x/y/scale/rotation/opacity/blur/volume/
-#: maskPath/cameraX/cameraY/cameraScale）
+#: §23 KeyframeTrack.property 合法值。offset_x/offset_y 是 FilmRuntime
+#: 支持的设计空间像素偏移；其他未实现属性必须先扩展显式语义合同。
 KEYFRAME_PROPERTIES = {
-    "x", "y", "scale", "rotation", "opacity", "blur",
+    "x", "y", "scale", "scale_x", "scale_y", "rotation", "opacity", "blur",
     "volume", "mask_path", "camera_x", "camera_y", "camera_scale",
+    "offset_x", "offset_y",
 }
 
 

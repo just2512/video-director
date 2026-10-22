@@ -102,6 +102,24 @@ class TestVisualTransformCommand:
         assert lay.transform.scale == 2.0
 
 
+
+    def test_set_transform_supports_non_uniform_scale(self, project):
+        r = _run(project, "set_visual_transform", {"scale_x": 1.5, "scale_y": 0.75})
+        assert r.status == "APPLIED" and r.revision_id
+        transform = _layer(project).transform
+        assert transform is not None
+        assert transform.scale_x == 1.5 and transform.scale_y == 0.75
+        legacy = _layer(project).motion_instance["parameters"]["transform"]
+        assert legacy["scale_x"] == 1.5 and legacy["scale_y"] == 0.75
+
+    def test_non_uniform_scale_rejects_out_of_bounds(self, project):
+        r = editor.execute_command(project, {
+            "command": "set_visual_transform", "targetId": "s1#0",
+            "payload": {"scale_x": 6.0},
+        })
+        assert r.status == "REJECTED"
+        assert any(e["code"] == "INVALID_PARAMETER" for e in r.errors)
+
 class TestKeyframeCommands:
     def test_add_keyframe_creates_track(self, project):
         _run(project, "add_keyframe", {"property": "opacity", "at": 0.0, "value": 0.0})

@@ -107,6 +107,11 @@ def load_composition(project_id: str) -> CompositionIR:
 
 def save_composition(project_id: str, ir: CompositionIR) -> None:
     """Atomically replace the persisted IR so a crash cannot leave partial JSON."""
+    from video_director import film_document as fd
+    try:
+        fd.assert_legacy_composition_access(project_id, "保存 CompositionIR")
+    except fd.FilmError as exc:
+        raise EditorError(exc.code, str(exc), recoverable=False) from exc
     p = config.project_dir(project_id) / "plans" / "composition.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
@@ -457,7 +462,7 @@ SUPPORTED_COMMANDS = (
     "set_subtitle_style",        # 字幕样式（§32 SubtitleStyle 入 IR）
     "set_subtitle_track",        # 字幕轨（§31/§33 SubtitleTrack：句级/逐词 cues 入 IR）,
     # ---- 视觉语义归一（§72 六 Contract 可执行化）----
-    "set_visual_transform",       # 结构化层变换（x/y/scale/rotation/opacity/anchor）
+    "set_visual_transform",       # 结构化层变换（x/y/scale/scale_x/scale_y/rotation/opacity/anchor）
     "add_keyframe",               # 层属性关键帧（§23 KeyframeTrack）
     "remove_keyframe",            # 删关键帧
     "join_through_edits",         # 愈合同源连续切口（filmcraft Join Through Edits）
@@ -910,6 +915,13 @@ def execute_command(project_id: str, command: dict) -> CommandResult:
             "code": "INVALID_PROJECT_ID", "message": str(exc), "recoverable": False,
         }])
     with project_lock(project_id):
+        from video_director import film_document as fd
+        try:
+            fd.assert_legacy_composition_access(project_id, "执行旧时间线命令")
+        except fd.FilmError as exc:
+            return CommandResult(status="REJECTED", errors=[{
+                "code": exc.code, "message": str(exc), "recoverable": False,
+            }])
         return _execute_command_unlocked(project_id, command)
 
 
@@ -3251,7 +3263,7 @@ def _cmd_set_visual_overlay(ir: CompositionIR, target_id: str, payload: dict) ->
     patch = {key: payload[key] for key in allowed if key in payload}
     if "transform" in patch:
         raw_transform = patch["transform"]
-        transform_fields = {"x", "y", "scale", "rotation", "opacity", "anchor"}
+        transform_fields = {"x", "y", "scale", "scale_x", "scale_y", "rotation", "opacity", "anchor"}
         if not isinstance(raw_transform, dict) or set(raw_transform) - transform_fields:
             raise EditorError("INVALID_PARAMETER", "transform 必须是合法的结构化静态变换对象")
         try:
@@ -5313,15 +5325,16 @@ def _cmd_set_subtitle_track(ir: CompositionIR, target_id: str, payload: dict) ->
 def _cmd_set_visual_transform(ir: CompositionIR, target_id: str, payload: dict) -> Tuple[List[str], List[str]]:
     """§72.1 结构化层变换：写 Layer.transform（替代 motion_instance.parameters 松散 dict）。
 
-    payload 可含 x/y/scale/rotation/opacity/anchor 任意子集（增量更新，不覆盖未给字段）。
+    payload 可含 x/y/scale/scale_x/scale_y/rotation/opacity/anchor 任意子集（增量更新）。
     """
     scene, idx, layer = _find_layer(ir, target_id)
     _ensure_layer_unlocked(layer)
-    patch = {k: payload[k] for k in ("x", "y", "scale", "rotation", "opacity", "anchor")
-             if k in payload}
+    patch = {k: payload[k] for k in (
+        "x", "y", "scale", "scale_x", "scale_y", "rotation", "opacity", "anchor"
+    ) if k in payload}
     if not patch:
         raise EditorError("INVALID_PAYLOAD",
-                          "set_visual_transform 需 x/y/scale/rotation/opacity/anchor 至少一项")
+                          "set_visual_transform 需 x/y/scale/scale_x/scale_y/rotation/opacity/anchor 至少一项")
     try:
         base = layer.transform
         if base is None:
@@ -5331,7 +5344,7 @@ def _cmd_set_visual_transform(ir: CompositionIR, target_id: str, payload: dict) 
             base_data = Transform().model_dump()
             legacy_params = (layer.motion_instance or {}).get("parameters") or {}
             legacy_transform = legacy_params.get("transform") or {}
-            for key in ("scale", "opacity"):
+            for key in ("scale", "scale_x", "scale_y", "opacity"):
                 if key in legacy_transform:
                     base_data[key] = legacy_transform[key]
             base = Transform.model_validate(base_data)
@@ -5342,11 +5355,16 @@ def _cmd_set_visual_transform(ir: CompositionIR, target_id: str, payload: dict) 
     # Keep legacy consumers in sync for both scale-only and opacity-only edits.
     # Rendering and live preview consume Layer.transform as the canonical source.
     inst = dict(layer.motion_instance or {})
-    if {"scale", "opacity"}.intersection(patch):
+    if {"scale", "scale_x", "scale_y", "opacity"}.intersection(patch):
         params = dict(inst.get("parameters") or {})
         if "opacity" in patch:
             params["opacity"] = float(new_transform.opacity)
-        params["transform"] = {"scale": new_transform.scale, "opacity": new_transform.opacity}
+        params["transform"] = {
+            "scale": new_transform.scale,
+            "scale_x": new_transform.scale_x,
+            "scale_y": new_transform.scale_y,
+            "opacity": new_transform.opacity,
+        }
         inst["parameters"] = params
     scene.layers[idx] = layer.model_copy(update={"transform": new_transform,
                                                  "motion_instance": inst or None})

@@ -20,6 +20,80 @@ def _collect_files(d: str, exts: tuple) -> list:
     return sorted(str(x) for x in p.iterdir() if x.suffix.lower() in exts)
 
 
+def _validate_migration_source_snapshot(project_id: str):
+    """Verify the source-IR archive linked from film-migration.json.
+
+    Returns (True, []) when a declared archive is intact, (None, []) when this
+    is not a migrated project or has no archive metadata, and (False, issues)
+    when the manifest/archive is malformed, missing, or has a bad digest.
+    """
+    import hashlib
+
+    from video_director import film_document as fd
+
+    root = fd._project_root(fd.validate_project_id(project_id)).resolve()
+    manifest_candidate = (root / fd.MIGRATION_NAME).resolve()
+    try:
+        manifest_candidate.relative_to(root)
+    except ValueError:
+        return False, [{"code": "INVALID_MIGRATION_MANIFEST_PATH",
+                        "message": "film-migration.json 的解析路径超出项目目录"}]
+    if not manifest_candidate.is_file():
+        return None, []
+    try:
+        manifest = json.loads(manifest_candidate.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return False, [{"code": "MIGRATION_MANIFEST_INVALID",
+                        "message": f"迁移清单不可读取或不是合法 JSON：{exc}"}]
+    if not isinstance(manifest, dict):
+        return False, [{"code": "MIGRATION_MANIFEST_INVALID",
+                        "message": "迁移清单必须是 JSON 对象"}]
+
+    archive_relative = manifest.get("source_snapshot_path")
+    expected_digest = manifest.get("source_snapshot_sha256")
+    if archive_relative is None and expected_digest is None:
+        return None, []
+    if not isinstance(archive_relative, str) or not archive_relative.strip() or not isinstance(expected_digest, str):
+        return False, [{"code": "SOURCE_SNAPSHOT_METADATA_INCOMPLETE",
+                        "message": "迁移清单缺少有效的 source_snapshot_path 或 source_snapshot_sha256"}]
+    relative = Path(archive_relative)
+    if relative.is_absolute() or "\\" in archive_relative or any(part in {"", ".", ".."} for part in relative.parts):
+        return False, [{"code": "INVALID_SOURCE_SNAPSHOT_PATH",
+                        "message": "来源快照路径必须是项目目录内的相对路径"}]
+    snapshot_candidate = (root / relative).resolve()
+    try:
+        snapshot_candidate.relative_to(root)
+    except ValueError:
+        return False, [{"code": "INVALID_SOURCE_SNAPSHOT_PATH",
+                        "message": "来源快照路径超出项目目录"}]
+    if not snapshot_candidate.is_file():
+        return False, [{"code": "SOURCE_SNAPSHOT_MISSING",
+                        "path": archive_relative,
+                        "message": "迁移清单引用的来源快照文件不存在"}]
+    try:
+        snapshot_bytes = snapshot_candidate.read_bytes()
+    except OSError as exc:
+        return False, [{"code": "SOURCE_SNAPSHOT_UNREADABLE",
+                        "path": archive_relative, "message": f"来源快照不可读取：{exc}"}]
+    actual_digest = hashlib.sha256(snapshot_bytes).hexdigest()
+    if actual_digest != expected_digest:
+        return False, [{"code": "SOURCE_SNAPSHOT_DIGEST_MISMATCH",
+                        "path": archive_relative,
+                        "expected_sha256": expected_digest,
+                        "actual_sha256": actual_digest,
+                        "message": "来源快照 SHA-256 与迁移清单不一致"}]
+    try:
+        snapshot = json.loads(snapshot_bytes.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        return False, [{"code": "SOURCE_SNAPSHOT_INVALID_JSON",
+                        "path": archive_relative, "message": f"来源快照不是有效 UTF-8 JSON：{exc}"}]
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("project"), dict):
+        return False, [{"code": "SOURCE_SNAPSHOT_INVALID_SCHEMA",
+                        "path": archive_relative,
+                        "message": "来源快照不是带有 project 对象的 CompositionIR JSON"}]
+    return True, []
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser("video_director", description="AI Video Director")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -89,7 +163,196 @@ def main(argv=None):
 
     caps = sub.add_parser("capabilities", help="能力清单与 preflight 报告")
 
+    film = sub.add_parser("film", help="读取、验证、编辑、检查或导出权威 film.html 工程")
+    film_sub = film.add_subparsers(dest="film_cmd", required=True)
+    for command, help_text in (
+        ("status", "显示 film.html revision、画幅、轨道和片段摘要"),
+        ("validate", "验证 film.html 协议、媒体引用和源区间声明"),
+        ("edit", "按指定 base revision 原子提交 JSON 编辑操作并记录历史"),
+        ("diff", "将指定历史 revision 与当前 film.html 比较"),
+        ("look", "生成真实浏览器画面接触表并反序验证确定性"),
+        ("render", "把固定 revision 的 film.html 导出为 MP4"),
+    ):
+        command_parser = film_sub.add_parser(command, help=help_text)
+        command_parser.add_argument("--project-id", required=True)
+        if command == "edit":
+            command_parser.add_argument("--base-revision", required=True,
+                                        help="从 film status 读取的精确 revision；过期时拒绝写入")
+            command_parser.add_argument("--ops-file", required=True,
+                                        help="UTF-8 JSON 文件，顶层必须是操作对象数组")
+        if command == "diff":
+            command_parser.add_argument("--from-revision", default=None,
+                                        help="历史 revision；省略时比较最近一次编辑前的版本")
+        if command == "look":
+            command_parser.add_argument("--revision", default=None,
+                                        help="要求当前 revision 必须精确匹配")
+            command_parser.add_argument("--times", default=None,
+                                        help="逗号分隔的秒数，例如 0,1.5,4")
+        if command == "render":
+            command_parser.add_argument("--fps", type=int, default=None,
+                                        help="覆盖 film.html 保存的帧率；省略则使用项目帧率")
+    
     a = ap.parse_args(argv)
+
+    if a.cmd == "film":
+        from difflib import unified_diff
+        from video_director import film_document as fd
+
+        def emit(payload, exit_code=0):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            sys.exit(exit_code)
+
+        try:
+            pid = fd.validate_project_id(a.project_id)
+            state = fd.read_project_film(pid)
+            if a.film_cmd == "status":
+                if not state.get("exists"):
+                    emit({"ok": True, "exists": False, "project_id": pid,
+                          "message": "尚未初始化 film.html"})
+                doc = state["doc"]
+                clips = [clip for track in doc["tracks"] for clip in track["clips"]]
+                duration = max((fd.clip_end(clip) or 0.0 for clip in clips), default=0.0)
+                emit({
+                    "ok": True, "exists": True, "project_id": pid,
+                    "revision": state["rev"], "stage": doc["stage"],
+                    "track_count": len(doc["tracks"]), "clip_count": len(clips),
+                    "duration": round(duration, 6),
+                    "tracks": [{"id": track["id"], "flags": sorted(track["attrs"].keys()),
+                                "clip_ids": [clip["id"] for clip in track["clips"]]}
+                               for track in doc["tracks"]],
+                })
+
+            if a.film_cmd == "edit":
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                try:
+                    operations = json.loads(Path(a.ops_file).read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    emit({"ok": False, "code": "INVALID_OPERATIONS_FILE",
+                          "error": "无法读取编辑操作 JSON；请提供 UTF-8、合法 JSON 文件。",
+                          "detail": str(exc)[:500]}, 2)
+                if (not isinstance(operations, list) or not operations
+                        or len(operations) > fd.MAX_OPERATIONS
+                        or any(not isinstance(operation, dict) for operation in operations)):
+                    emit({"ok": False, "code": "INVALID_OPERATIONS",
+                          "error": f"编辑操作必须是 1–{fd.MAX_OPERATIONS} 个 JSON 对象组成的数组。"}, 2)
+                # External agents go through exactly the same document validator,
+                # locking, operation history and revision guard as the Studio.
+                # Never use the UI's best-effort rebase behavior for an agent write.
+                result = fd.edit_project_film(
+                    pid, a.base_revision, operations, require_base=True
+                )
+                emit({
+                    "ok": True, "project_id": pid,
+                    "base_revision": a.base_revision,
+                    "revision": result["rev"],
+                    "operation_count": len(result["ops"]),
+                    "operations": result["ops"],
+                    "rebased": False,
+                })
+
+            if a.film_cmd == "validate":
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                # read_project_film has already run the strict document parser. This
+                # second parse keeps the command's contract explicit and fail-closed.
+                doc = fd.parse_film(state["text"])
+                issues = []
+                source_snapshot_checked, snapshot_issues = _validate_migration_source_snapshot(pid)
+                issues.extend(snapshot_issues)
+                checked_assets = 0
+                for track in doc["tracks"]:
+                    for clip in track["clips"]:
+                        src = str((clip.get("attrs") or {}).get("src") or "")
+                        try:
+                            asset_path = fd.media_path_for_src(pid, src)
+                            checked_assets += 1
+                            if not asset_path.is_file():
+                                issues.append({"code": "MISSING_ASSET", "clip": clip["id"],
+                                               "src": src, "message": "素材文件不存在"})
+                        except Exception as exc:
+                            issues.append({"code": getattr(exc, "code", "INVALID_MEDIA_PATH"),
+                                           "clip": clip["id"], "src": src, "message": str(exc)})
+                clips = [clip for track in doc["tracks"] for clip in track["clips"]]
+                duration = max((fd.clip_end(clip) or 0.0 for clip in clips), default=0.0)
+                payload = {
+                    "ok": not issues, "project_id": pid, "revision": state["rev"],
+                    "stage": doc["stage"], "track_count": len(doc["tracks"]),
+                    "clip_count": len(clips), "duration": round(duration, 6),
+                    "assets_checked": checked_assets,
+                    "source_snapshot_checked": source_snapshot_checked,
+                    "issues": issues,
+                    "note": "素材存在性和迁移来源快照摘要会在此检查；frame(t) 页面能力与实际逐帧确定性仍由 film look / film render 的真实浏览器验收。",
+                }
+                emit(payload, 0 if not issues else 1)
+
+            if a.film_cmd == "diff":
+                import json as _json
+                from pathlib import Path as _Path
+                history_path = fd.config.project_dir(pid) / fd.HISTORY_NAME
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                if history_path.is_file():
+                    history = _json.loads(history_path.read_text(encoding="utf-8"))
+                else:
+                    history = {"past": [], "future": []}
+                entries = list(history.get("past", [])) + list(history.get("future", []))
+                requested = getattr(a, "from_revision", None)
+                candidate = None
+                if requested is None and history.get("past"):
+                    candidate = (history["past"][-1].get("before_rev"),
+                                 history["past"][-1].get("before"))
+                else:
+                    for entry in entries:
+                        if entry.get("before_rev") == requested:
+                            candidate = (entry.get("before_rev"), entry.get("before"))
+                            break
+                        if entry.get("after_rev") == requested:
+                            candidate = (entry.get("after_rev"), entry.get("after"))
+                            break
+                if not candidate or not isinstance(candidate[1], str):
+                    emit({"ok": False, "code": "REVISION_NOT_IN_HISTORY",
+                          "error": "找不到指定 revision 的历史快照；历史窗口最多保留最近 200 次编辑。",
+                          "current_revision": state["rev"]}, 2)
+                old_rev, old_text = candidate
+                diff = "".join(unified_diff(
+                    old_text.splitlines(keepends=True), state["text"].splitlines(keepends=True),
+                    fromfile="film.html@" + str(old_rev),
+                    tofile="film.html@" + str(state["rev"]),
+                ))
+                print(diff if diff else "无差异。")
+                sys.exit(0)
+
+            if a.film_cmd == "look":
+                from video_director import film_render as film_render_mod
+                requested_times = None
+                if a.times:
+                    try:
+                        requested_times = [float(part.strip()) for part in a.times.split(",") if part.strip()]
+                    except ValueError:
+                        emit({"ok": False, "code": "INVALID_LOOK_TIMES",
+                              "error": "--times 必须是逗号分隔的秒数。"}, 2)
+                result = film_render_mod.look_project_film(
+                    pid, expected_revision=a.revision, times=requested_times
+                )
+                emit(result)
+
+            if a.film_cmd == "render":
+                from video_director import film_render as film_render_mod
+                if not state.get("exists"):
+                    emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
+                          "error": "当前项目尚未初始化 film.html。"}, 2)
+                result = film_render_mod.render_project_film(pid, state["rev"], fps=a.fps)
+                emit(result)
+
+        except SystemExit:
+            raise
+        except Exception as exc:
+            emit({"ok": False, "code": getattr(exc, "code", "FILM_COMMAND_FAILED"),
+                  "error": str(exc)}, 1)
 
     if a.cmd == "capabilities":
         from video_director import capabilities as caps_mod

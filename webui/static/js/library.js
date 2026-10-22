@@ -566,9 +566,9 @@ async function directorRefreshContext(){
   try {
     // §46 Selection Context 上报 Director（失败不阻塞输入）
     const ctx = getSelectionContext();
-    if (ctx.type !== 'none') {
-      await apiPost('/api/director/context', {project_id: ED.pid, selection: ctx});
-    }
+    // Always publish selection state, including "none". Otherwise the server retains
+    // the previous layer/scene and the next natural-language command edits a stale target.
+    await apiPost('/api/director/context', {project_id: ED.pid, selection: ctx});
   } catch (e) { /* 上下文上报失败静默 */ }
 }
 

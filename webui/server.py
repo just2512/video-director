@@ -85,6 +85,19 @@ def sse_unsubscribe(q) -> None:
             _SSE_SUBSCRIBERS.remove(q)
 
 
+from video_director.film_watch import get_film_watcher
+from video_director.film_proposals import FilmProposalStore
+
+# Watch only projects actively opened in Studio; publish validated changes on the existing SSE bus.
+_FILM_REVISION_WATCHER = get_film_watcher(sse_publish)
+_FILM_PROPOSALS = FilmProposalStore()
+# Active model streams are keyed by (project_id, request_id). A separate cancellation
+# tombstone handles the race where the user stops immediately before the stream starts.
+_FILM_AI_ACTIVE_STREAMS: dict[tuple[str, str], dict] = {}
+_FILM_AI_CANCELLED_REQUESTS: dict[tuple[str, str], float] = {}
+_FILM_AI_STREAM_LOCK = threading.Lock()
+
+
 # §三十四：通用 Registry 类别（shots/motions/templates/provenance 之外的 8 类）。
 # route → kind（registry item kind 字段值）；kind → 子目录名（LayeredRegistryLoader）。
 GENERIC_REGISTRY_KINDS = {
@@ -557,6 +570,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self._send_json({"ok": False, "code": "INVALID_REQUEST", "error": "请求体必须是 JSON 对象。"}, 400)
             return
+        if self._reject_legacy_composition_access(payload.get("project_id", ""), "生成旧时间线风格样片"):
+            return
         try:
             result = render_style_sample(payload.get("project_id", ""), payload.get("style_id", ""), COMPOSER_ROOT / "style-samples")
             self._send_json(result)
@@ -911,8 +926,593 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+
+    def _reject_legacy_composition_access(self, project_id, operation):
+        """Block old CompositionIR writes/renders once film.html owns the project."""
+        from video_director import film_document as fd
+        try:
+            fd.assert_legacy_composition_access(project_id, operation)
+        except fd.FilmError as exc:
+            self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
+            return True
+        except ValueError as exc:
+            self._send_json({"ok": False, "code": "INVALID_PROJECT_ID", "error": str(exc)}, 400)
+            return True
+        return False
+
+    def _film_document_api(self, method, parsed):
+        """OpenFilm-inspired film.html API with explicit migration and revision-safe edits."""
+        route = parsed.path
+        get_routes = {"/api/editor/film", "/api/editor/film/media"}
+        post_routes = {"/api/editor/film/initialize", "/api/editor/film/insert-asset", "/api/editor/film/edit",
+                       "/api/editor/film/undo", "/api/editor/film/redo",
+                       "/api/editor/film/command", "/api/editor/film/command/cancel",
+                       "/api/editor/film/apply-proposal", "/api/editor/film/render"}
+        if method == "GET" and route not in get_routes:
+            return False
+        if method == "POST" and route not in post_routes:
+            return False
+        if method not in {"GET", "POST"}:
+            return False
+
+        from video_director import film_document as fd
+
+        if method == "GET":
+            qs = parse_qs(parsed.query)
+            pid = (qs.get("project_id", [""])[0] or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "code": "PROJECT_ID_REQUIRED", "error": "缺少 project_id"}, 400)
+                return True
+            try:
+                pid = fd.validate_project_id(pid)
+                if route == "/api/editor/film/media":
+                    media_src = qs.get("src", [""])[0]
+                    media_path = fd.media_path_for_src(pid, media_src)
+                    # HTML scenes are served with a small frame(t) bridge injected
+                    # before authored scripts; relative resources stay inside the
+                    # same project-scoped media endpoint.
+                    if media_path.suffix.lower() in {".html", ".htm"}:
+                        from video_director.film_scene_runtime import inject_scene_runtime
+                        try:
+                            scene_text = media_path.read_text(encoding="utf-8")
+                        except UnicodeDecodeError as exc:
+                            raise fd.FilmError("SCENE_ENCODING_UNSUPPORTED", "HTML 镜头必须使用 UTF-8 编码。", 422) from exc
+                        rendered = inject_scene_runtime(
+                            scene_text, pid, media_src, "/api/editor/film/media"
+                        ).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(rendered)))
+                        self.send_header("Cache-Control", "no-cache")
+                        self.end_headers()
+                        self.wfile.write(rendered)
+                        return True
+                    if media_path.suffix.lower() == ".css":
+                        from video_director.film_scene_runtime import inject_scene_css
+                        try:
+                            css_text = media_path.read_text(encoding="utf-8")
+                        except UnicodeDecodeError as exc:
+                            raise fd.FilmError("SCENE_ENCODING_UNSUPPORTED", "CSS 镜头资源必须使用 UTF-8 编码。", 422) from exc
+                        rendered = inject_scene_css(
+                            css_text, pid, media_src, "/api/editor/film/media"
+                        ).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/css; charset=utf-8")
+                        self.send_header("Content-Length", str(len(rendered)))
+                        self.send_header("Cache-Control", "no-cache")
+                        self.end_headers()
+                        self.wfile.write(rendered)
+                        return True
+                    total = media_path.stat().st_size
+                    start, end, status = 0, max(0, total - 1), 200
+                    range_header = self.headers.get("Range", "")
+                    if range_header:
+                        match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
+                        if not match or (not match.group(1) and not match.group(2)):
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{total}")
+                            self.end_headers()
+                            return True
+                        if not match.group(1):
+                            start = max(0, total - int(match.group(2)))
+                        else:
+                            start = int(match.group(1))
+                            end = int(match.group(2)) if match.group(2) else total - 1
+                        if start >= total or end < start:
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{total}")
+                            self.end_headers()
+                            return True
+                        end, status = min(end, total - 1), 206
+                    self.send_response(status)
+                    self.send_header("Content-Type", mimetypes.guess_type(str(media_path))[0] or "application/octet-stream")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Content-Length", str(max(0, end - start + 1)))
+                    self.send_header("Cache-Control", "no-cache")
+                    if status == 206:
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+                    self.end_headers()
+                    with media_path.open("rb") as stream:
+                        stream.seek(start)
+                        remaining = max(0, end - start + 1)
+                        while remaining:
+                            chunk = stream.read(min(65536, remaining))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            remaining -= len(chunk)
+                    return True
+
+                state = fd.read_project_film(pid)
+                _FILM_REVISION_WATCHER.watch(
+                    pid, state.get("rev"), initial_text=state.get("text")
+                )
+                if state["exists"]:
+                    self._send_json(fd.film_payload(pid, state))
+                    return True
+                preview = {
+                    "migration_available": False,
+                    "migration_error": "项目没有可编辑的 CompositionIR",
+                    "migration_error_code": None,
+                    "source_composition_version": None,
+                    "active_variant_id": None,
+                    "variants": [],
+                }
+                try:
+                    from video_director import editor as vd_editor
+                    ir = vd_editor.load_composition(pid)
+                    version = vd_editor.composition_version(pid)
+                    raw_variants = getattr(ir, "variants", []) or []
+                    variant_options = []
+                    for variant in raw_variants:
+                        metadata = getattr(variant, "metadata", None)
+                        metadata = metadata if isinstance(metadata, dict) else {}
+                        variant_id = str(getattr(variant, "id", "") or "")
+                        variant_options.append({
+                            "id": variant_id,
+                            "label": str(metadata.get("name") or metadata.get("label") or variant_id),
+                            "version": int(getattr(variant, "version", 1) or 1),
+                        })
+                    active_variant_id = getattr(ir, "active_variant_id", None)
+                    selected_variant_id = (qs.get("selected_variant_id", [""])[0] or "").strip() or None
+                    preview.update({
+                        "source_composition_version": version,
+                        "active_variant_id": active_variant_id,
+                        "variants": variant_options,
+                    })
+                    plan = fd.build_film_from_composition(pid, ir, selected_variant_id=selected_variant_id)
+                    preview.update({
+                        "migration_available": True,
+                        "migration_error": None,
+                        "migration_error_code": None,
+                        "migration_preview": {
+                            "duration": plan["duration"], "track_count": plan["track_count"],
+                            "clip_count": plan["clip_count"], "warnings": plan["warnings"],
+                            "selected_variant_id": plan.get("selected_variant_id"),
+                        },
+                    })
+                except Exception as exc:
+                    preview["migration_error"] = str(exc)
+                    preview["migration_error_code"] = getattr(exc, "code", None)
+                self._send_json({"ok": True, "exists": False, "project_id": pid, "rev": state["rev"], **preview})
+                return True
+            except fd.FilmError as exc:
+                self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
+                return True
+            except Exception as exc:
+                self._send_json({"ok": False, "code": "FILM_READ_FAILED", "error": str(exc)}, 500)
+                return True
+
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length <= 0 or length > 1024 * 1024:
+            self._send_json({"ok": False, "code": "INVALID_REQUEST_SIZE", "error": "请求体为空或超过 1 MiB"}, 400)
+            return True
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8", errors="strict"))
+            if not isinstance(payload, dict):
+                raise ValueError("请求体必须是 JSON 对象")
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            self._send_json({"ok": False, "code": "INVALID_JSON", "error": f"请求体不是合法 UTF-8 JSON：{exc}"}, 400)
+            return True
+        pid = str(payload.get("project_id") or "").strip()
+        if not pid:
+            self._send_json({"ok": False, "code": "PROJECT_ID_REQUIRED", "error": "缺少 project_id"}, 400)
+            return True
+        try:
+            pid = fd.validate_project_id(pid)
+            if route == "/api/editor/film/command/cancel":
+                request_id = str(payload.get("request_id") or "").strip()
+                if not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", request_id):
+                    self._send_json({"ok": False, "code": "INVALID_AI_REQUEST_ID",
+                                     "error": "AI 取消请求缺少有效的 request_id"}, 400)
+                    return True
+                key = (pid, request_id)
+                stream = None
+                with _FILM_AI_STREAM_LOCK:
+                    now = time.time()
+                    for cancelled_key, cancelled_at in list(_FILM_AI_CANCELLED_REQUESTS.items()):
+                        if now - cancelled_at > 300:
+                            _FILM_AI_CANCELLED_REQUESTS.pop(cancelled_key, None)
+                    active = _FILM_AI_ACTIVE_STREAMS.get(key)
+                    if active:
+                        active["cancel_event"].set()
+                        stream = active.get("stream")
+                    else:
+                        _FILM_AI_CANCELLED_REQUESTS[key] = now
+                        # A cancel can arrive before the generation request is registered.
+                        # Keep short-lived tombstones for that race, but cap memory even if
+                        # a local client repeatedly sends fresh cancellation IDs.
+                        if len(_FILM_AI_CANCELLED_REQUESTS) > 2048:
+                            oldest = sorted(_FILM_AI_CANCELLED_REQUESTS.items(), key=lambda item: item[1])
+                            for expired_key, _ in oldest[:len(_FILM_AI_CANCELLED_REQUESTS) - 2048]:
+                                _FILM_AI_CANCELLED_REQUESTS.pop(expired_key, None)
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+                self._send_json({"ok": True, "cancel_requested": True, "stream_found": bool(active)}, 200)
+                return True
+            if route == "/api/editor/film/initialize":
+                from video_director import editor as vd_editor
+                expected = payload.get("expected_composition_version")
+                current_version = vd_editor.composition_version(pid)
+                if expected is None or int(expected) != current_version:
+                    self._send_json({"ok": False, "code": "COMPOSITION_CHANGED",
+                                     "error": "初始化前项目 Composition 已变化，请重新载入迁移预览",
+                                     "source_composition_version": current_version}, 409)
+                    return True
+                ir = vd_editor.load_composition(pid)
+                selected_variant_id = str(payload.get("selected_variant_id") or "").strip() or None
+                plan = fd.build_film_from_composition(pid, ir, selected_variant_id=selected_variant_id)
+                if plan["warnings"] and not payload.get("accept_warnings", False):
+                    self._send_json({
+                        "ok": False, "code": "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION",
+                        "error": "旧项目包含暂未无损迁移的字段；确认接受警告后才会写入 film.html",
+                        "warnings": plan["warnings"], "migration_preview": {
+                            "duration": plan["duration"], "track_count": plan["track_count"],
+                            "clip_count": plan["clip_count"], "source_composition_version": current_version,
+                        }}, 409)
+                    return True
+                result = fd.initialize_project_film(
+                    pid, plan["document"], plan["pages"], current_version, plan["warnings"],
+                    selected_variant_id=plan.get("selected_variant_id"),
+                )
+                state = fd.read_project_film(pid)
+                self._send_json({**fd.film_payload(pid, state), "warnings": result["warnings"],
+                                 "migration": result["migration"]}, 201)
+                return True
+
+            if route == "/api/editor/film/render":
+                state = fd.read_project_film(pid)
+                if not state.get("exists"):
+                    raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html。", 409)
+                expected_revision = payload.get("expected_revision")
+                if not isinstance(expected_revision, str) or expected_revision != state["rev"]:
+                    self._send_json({
+                        "ok": False, "code": "REVISION_CONFLICT",
+                        "error": "影片文档已变化；请重新载入并确认当前时间线后再导出。",
+                        "current_revision": state["rev"],
+                    }, 409)
+                    return True
+                raw_fps = payload.get("fps")
+                if raw_fps is None:
+                    raw_fps = int(state["doc"].get("fps", 30))
+                if isinstance(raw_fps, bool) or not isinstance(raw_fps, int) or not 1 <= raw_fps <= 60:
+                    raise fd.FilmError("INVALID_FPS", "帧率必须是 1–60 的整数。", 422)
+                from video_director import workflow_run as vd_wf
+                run_id = vd_wf.run_film_render_async(pid, expected_revision, fps=raw_fps)
+                self._send_json({"ok": True, "run_id": run_id, "project_id": pid,
+                                 "expected_revision": expected_revision}, 202)
+                return True
+
+            if route == "/api/editor/film/insert-asset":
+                state = fd.read_project_film(pid)
+                if not state["exists"]:
+                    raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html", 409)
+                clip = fd.library_asset_clip(
+                    pid, str(payload.get("asset_id") or ""),
+                    payload.get("at", 0), payload.get("still_duration", 5))
+                placement_mode = str(payload.get("placement_mode") or "new-track")
+                if placement_mode == "ripple":
+                    track_id = str(payload.get("track_id") or "")
+                    if not track_id:
+                        raise fd.FilmError("INSERT_TRACK_REQUIRED", "插入编辑必须明确选择目标轨道", 422)
+                    operations = [{"op": "insert_ripple", "track_id": track_id, "at": payload.get("at", 0),
+                                   "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}}]
+                elif placement_mode == "new-track":
+                    track_id = "track-added-" + uuid.uuid4().hex[:10]
+                    track_label = "新增音轨" if clip["tag"] == "audio" else "新增画面"
+                    operations = [
+                        {"op": "track_add", "track_id": track_id, "label": track_label,
+                         "kind": clip["tag"], "index": 0},
+                        {"op": "insert", "track_id": track_id,
+                         "clip": {"id": clip["id"], "tag": clip["tag"], "attrs": clip["attrs"]}},
+                    ]
+                else:
+                    raise fd.FilmError("INVALID_PLACEMENT_MODE", "素材放置模式只允许 new-track 或 ripple", 422)
+                result = fd.edit_project_film(pid, payload.get("base"), operations)
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data.update({"ops": result["ops"], "rebased": result["rebased"],
+                             "inserted_clip_id": clip["id"], "inserted_track_id": track_id,
+                             "placement_mode": placement_mode})
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
+                                     "source": "asset_insert", "operations": result["ops"]})
+                self._send_json(data)
+                return True
+
+            if route == "/api/editor/film/edit":
+                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"))
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"]})
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
+                                     "source": "manual_edit", "operations": result["ops"]})
+                self._send_json(data)
+                return True
+
+            if route in {"/api/editor/film/undo", "/api/editor/film/redo"}:
+                action = "undo" if route.endswith("/undo") else "redo"
+                fd.undo_redo_project_film(pid, payload.get("base"), action)
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data["action"] = action
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
+                                     "source": action})
+                self._send_json(data)
+                return True
+
+            if route == "/api/editor/film/command":
+                # AI edits are proposals, never direct writes. The candidate is validated
+                # against a snapshot and remains in memory until explicit user approval.
+                state = fd.read_project_film(pid)
+                if not state.get("exists"):
+                    raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html。", 409)
+                requested_base = payload.get("base")
+                if not isinstance(requested_base, str) or requested_base != state["rev"]:
+                    self._send_json({"ok": False, "code": "REVISION_CONFLICT",
+                                     "error": "影片已变化；请重新载入后再提出 AI 编辑。", "current_revision": state["rev"]}, 409)
+                    return True
+                llm = vd_llm.get_llm()
+                if llm is None:
+                    self._send_json({"ok": False, "code": "LLM_UNAVAILABLE",
+                                     "error": "当前未配置可用文本模型；影片文档的手动编辑仍可使用"}, 503)
+                    return True
+                sse_publish("film_ai", {"phase": "planning", "project_id": pid, "base_revision": state["rev"]})
+                plan_summary = {}
+                selected_clip_id = str(payload.get("selected_clip_id") or "")
+                selected_element = None
+                raw_element = payload.get("selected_element")
+                if raw_element is not None:
+                    if not isinstance(raw_element, dict):
+                        raise fd.FilmError("INVALID_SELECTED_ELEMENT", "selected_element 必须是对象", 400)
+                    if raw_element.get("base_revision") != state["rev"]:
+                        self._send_json({"ok": False, "code": "REVISION_CONFLICT",
+                                         "error": "画布元素上下文已过期，请在当前预览中重新选中元素。",
+                                         "current_revision": state["rev"]}, 409)
+                        return True
+                    element_clip_id = str(raw_element.get("clip_id") or "")
+                    selector = raw_element.get("selector")
+                    target_clip = next((clip for track in state["doc"]["tracks"] for clip in track["clips"]
+                                        if clip.get("id") == element_clip_id), None)
+                    if (element_clip_id != selected_clip_id or target_clip is None
+                            or target_clip.get("tag") != "iframe"
+                            or not isinstance(selector, str) or not selector.strip() or len(selector) > 500):
+                        raise fd.FilmError("INVALID_SELECTED_ELEMENT",
+                                           "画布选中元素必须属于当前选中的 HTML 镜头片段", 422)
+                    raw_styles = raw_element.get("styles") or {}
+                    if not isinstance(raw_styles, dict):
+                        raw_styles = {}
+                    allowed_context_styles = {
+                        "color", "backgroundColor", "fontSize", "fontWeight", "textAlign",
+                        "lineHeight", "letterSpacing", "left", "top", "width", "height",
+                        "position", "opacity", "borderRadius", "rotate"
+                    }
+                    selected_element = {
+                        "clip_id": element_clip_id,
+                        "selector": selector.strip(),
+                        "tag": str(raw_element.get("tag") or "")[:32],
+                        "text": str(raw_element.get("text") or "")[:4000],
+                        "textEditable": raw_element.get("textEditable") is not False,
+                        "styles": {
+                            key: str(value)[:120] for key, value in raw_styles.items()
+                            if key in allowed_context_styles and isinstance(value, (str, int, float))
+                        },
+                        "rect": {
+                            key: value for key, value in (raw_element.get("localRect") or {}).items()
+                            if key in {"x", "y", "width", "height"}
+                            and isinstance(value, (int, float)) and not isinstance(value, bool)
+                            and abs(float(value)) <= 100000
+                        } if isinstance(raw_element.get("localRect"), dict) else {},
+                    }
+                if payload.get("stream") is True:
+                    # Stream model deltas over the same request. Streaming is feedback only:
+                    # the validated candidate still must be accepted through apply-proposal.
+                    request_id = str(payload.get("request_id") or "").strip()
+                    if not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", request_id):
+                        self._send_json({"ok": False, "code": "INVALID_AI_REQUEST_ID",
+                                         "error": "流式 AI 请求必须包含有效的 request_id"}, 400)
+                        return True
+                    key = (pid, request_id)
+                    cancel_event = threading.Event()
+                    active_stream = {"project_id": pid, "request_id": request_id,
+                                     "cancel_event": cancel_event, "stream": None}
+                    with _FILM_AI_STREAM_LOCK:
+                        now = time.time()
+                        for cancelled_key, cancelled_at in list(_FILM_AI_CANCELLED_REQUESTS.items()):
+                            if now - cancelled_at > 300:
+                                _FILM_AI_CANCELLED_REQUESTS.pop(cancelled_key, None)
+                        was_cancelled = key in _FILM_AI_CANCELLED_REQUESTS
+                        duplicate_request = key in _FILM_AI_ACTIVE_STREAMS
+                        if was_cancelled:
+                            _FILM_AI_CANCELLED_REQUESTS.pop(key, None)
+                        elif not duplicate_request:
+                            _FILM_AI_ACTIVE_STREAMS[key] = active_stream
+                    # Never write an HTTP response while holding the shared registry lock.
+                    if was_cancelled:
+                        self._send_json({"ok": False, "code": "AI_REQUEST_CANCELLED",
+                                         "error": "AI 请求在生成开始前已取消。"}, 409)
+                        return True
+                    if duplicate_request:
+                        self._send_json({"ok": False, "code": "DUPLICATE_AI_REQUEST_ID",
+                                         "error": "AI request_id 已在使用中。"}, 409)
+                        return True
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache, no-transform")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.end_headers()
+                    disconnected = {"value": False}
+
+                    def emit(event_name, data):
+                        if disconnected["value"]:
+                            return
+                        packet = ("event: " + event_name + "\n" +
+                                  "data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n")
+                        try:
+                            self.wfile.write(packet.encode("utf-8"))
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                            disconnected["value"] = True
+
+                    def on_stream_open(stream):
+                        with _FILM_AI_STREAM_LOCK:
+                            current = _FILM_AI_ACTIVE_STREAMS.get(key)
+                            if current is active_stream:
+                                current["stream"] = stream
+                            cancelled = cancel_event.is_set()
+                        if cancelled:
+                            try:
+                                stream.close()
+                            except Exception:
+                                pass
+
+                    def on_delta(fragment):
+                        if disconnected["value"] or cancel_event.is_set():
+                            raise ConnectionAbortedError("AI 客户端已取消流式请求")
+                        emit("token", {"fragment": fragment})
+
+                    try:
+                        operations = fd.plan_film_command(
+                            llm, state, str(payload.get("message") or ""),
+                            selected_clip_id, summary_out=plan_summary,
+                            selected_element=selected_element, on_token=on_delta,
+                            on_stream_open=on_stream_open, cancel_event=cancel_event)
+                        if cancel_event.is_set():
+                            raise ConnectionAbortedError("AI 请求已取消")
+                        assistant_summary = str(plan_summary.get("summary") or "").strip()
+                        if not operations:
+                            response = {
+                                "ok": True, "no_op": True,
+                                "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
+                                "rev": state["rev"],
+                            }
+                            sse_publish("film_ai", {"phase": "no_op", "project_id": pid, "base_revision": state["rev"]})
+                        else:
+                            candidate_doc, normalized = fd.apply_ops(state["doc"], operations)
+                            candidate_text = fd.serialize_film(candidate_doc)
+                            fd.parse_film(candidate_text)
+                            candidate_state = {"exists": True, "project_id": pid, "text": candidate_text,
+                                               "rev": fd.revision_of(candidate_text), "doc": candidate_doc}
+                            candidate = fd.film_payload(pid, candidate_state)
+                            proposal = {
+                                "id": uuid.uuid4().hex,
+                                "project_id": pid,
+                                "base_revision": state["rev"],
+                                "operations": normalized,
+                                "summary": assistant_summary or "AI 生成了一组待确认的影片编辑操作。",
+                                "candidate": candidate,
+                                "affected_clip_ids": sorted({str(op.get("clip")) for op in normalized if op.get("clip")}),
+                            }
+                            _FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)
+                            sse_publish("film_ai", {"phase": "proposed", "project_id": pid,
+                                                    "base_revision": state["rev"], "proposal_id": proposal["id"],
+                                                    "operation_count": len(normalized)})
+                            response = {"ok": True, "proposal": proposal,
+                                        "message": "已生成并验证候选修改；尚未写入正式影片文档。"}
+                        emit("result", response)
+                    except Exception as exc:
+                        cancelled = cancel_event.is_set()
+                        if not disconnected["value"] and not cancelled:
+                            code = getattr(exc, "code", "LLM_PLAN_FAILED")
+                            emit("error", {"ok": False, "code": str(code),
+                                           "error": str(exc) or "AI 流式规划失败"})
+                        sse_publish("film_ai", {"phase": "cancelled" if cancelled else "failed",
+                                                "project_id": pid, "base_revision": state["rev"]})
+                    finally:
+                        with _FILM_AI_STREAM_LOCK:
+                            if _FILM_AI_ACTIVE_STREAMS.get(key) is active_stream:
+                                _FILM_AI_ACTIVE_STREAMS.pop(key, None)
+                    return True
+
+                operations = fd.plan_film_command(
+                    llm, state, str(payload.get("message") or ""),
+                    selected_clip_id, summary_out=plan_summary,
+                    selected_element=selected_element)
+                assistant_summary = str(plan_summary.get("summary") or "").strip()
+                if not operations:
+                    self._send_json({"ok": True, "no_op": True,
+                                     "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
+                                     "rev": state["rev"]})
+                    sse_publish("film_ai", {"phase": "no_op", "project_id": pid, "base_revision": state["rev"]})
+                    return True
+                candidate_doc, normalized = fd.apply_ops(state["doc"], operations)
+                candidate_text = fd.serialize_film(candidate_doc)
+                fd.parse_film(candidate_text)
+                candidate_state = {"exists": True, "project_id": pid, "text": candidate_text,
+                                   "rev": fd.revision_of(candidate_text), "doc": candidate_doc}
+                candidate = fd.film_payload(pid, candidate_state)
+                proposal = {
+                    "id": uuid.uuid4().hex,
+                    "project_id": pid,
+                    "base_revision": state["rev"],
+                    "operations": normalized,
+                    "summary": assistant_summary or "AI 生成了一组待确认的影片编辑操作。",
+                    "candidate": candidate,
+                    "affected_clip_ids": sorted({str(op.get("clip")) for op in normalized if op.get("clip")}),
+                }
+                _FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)
+                sse_publish("film_ai", {"phase": "proposed", "project_id": pid,
+                                        "base_revision": state["rev"], "proposal_id": proposal["id"],
+                                        "operation_count": len(normalized)})
+                self._send_json({"ok": True, "proposal": proposal,
+                                 "message": "已生成并验证候选修改；尚未写入正式影片文档。"})
+                return True
+
+            if route == "/api/editor/film/apply-proposal":
+                base_revision = payload.get("base_revision")
+                proposal_id = str(payload.get("proposal_id") or "")
+                if not proposal_id or not isinstance(base_revision, str):
+                    raise fd.FilmError("PROPOSAL_ID_REQUIRED", "确认操作缺少提案 ID 或基线 revision。", 400)
+                # The browser can only name a proposal; operation content is authoritative
+                # in this process-local registry and cannot be replaced by request JSON.
+                approved = _FILM_PROPOSALS.take(pid, proposal_id, base_revision)
+                if approved is None:
+                    raise fd.FilmError("PROPOSAL_NOT_FOUND_OR_STALE",
+                                       "提案不存在、已过期、属于其他项目或基线 revision 不匹配；请重新生成。", 409)
+                result = fd.edit_project_film(
+                    pid, approved["base_revision"], approved["operations"], require_base=True
+                )
+                data = fd.film_payload(pid, fd.read_project_film(pid))
+                data.update({"ops": result["ops"], "rebased": result["rebased"],
+                             "base": approved["base_revision"], "applied_proposal": proposal_id})
+                sse_publish("film", {"phase": "revision_changed", "project_id": pid,
+                                     "revision": data["rev"], "source": "ai_proposal",
+                                     "proposal_id": payload.get("proposal_id"),
+                                     "operations": result["ops"]})
+                self._send_json(data)
+                return True
+        except fd.FilmError as exc:
+            self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
+            return True
+        except Exception as exc:
+            self._send_json({"ok": False, "code": "FILM_OPERATION_FAILED", "error": str(exc)}, 500)
+            return True
+        return False
+
+
     def do_GET(self):
         parsed = urlparse(self.path)
+        if self._film_document_api("GET", parsed):
+            return
         route = parsed.path
 
         if route == "/" or route == "/index.html":
@@ -1861,6 +2461,8 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
     def do_POST(self):
         parsed = urlparse(self.path)
+        if self._film_document_api("POST", parsed):
+            return
 
         if parsed.path == "/api/styles/sample_render":
             self._style_sample_render()
@@ -1889,6 +2491,8 @@ class Handler(BaseHTTPRequestHandler):
                     pid = payload.get("project_id", "")
                     if not pid:
                         self._send_json({"error": "缺少 project_id"}, 400)
+                        return
+                    if self._reject_legacy_composition_access(pid, "启动旧时间线渲染"):
                         return
                     # 信任边界：成片渲染前要求 Shotbook 已通过服务端确认
                     # （用过 Shotbook 的项目才受门约束；legacy 项目兼容放行）。
@@ -2592,6 +3196,8 @@ class Handler(BaseHTTPRequestHandler):
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
+            if self._reject_legacy_composition_access(pid, "生成旧时间线草稿"):
+                return
             try:
                 from video_director import confirm as confirm_mod
                 draft_path = confirm_mod.render_draft(pid)
@@ -2930,6 +3536,8 @@ class Handler(BaseHTTPRequestHandler):
             edits = payload.get("edits") or None
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            if self._reject_legacy_composition_access(pid, "导出旧时间线成片"):
                 return
             from video_director import confirm as confirm_mod
             try:

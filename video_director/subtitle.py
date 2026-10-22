@@ -194,6 +194,33 @@ def _ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+def build_ass_bilingual(
+    cues: List[dict],
+    width: int = 1080,
+    height: int = 1920,
+    font_size: int = 56,
+) -> str:
+    """双语字幕 ASS：每条 cue 用相同时间显示原文与译文两行。"""
+    bilingual_size = max(20, int(round(font_size * 0.82)))
+    header = ASS_PLAIN_HEADER.format(
+        width=width, height=height, font_size=bilingual_size,
+        margin_v=max(40, int(height * 0.08)),
+    )
+    events: List[str] = []
+    for cue in cues:
+        start = float(cue.get("start", 0))
+        end = float(cue.get("end", start))
+        original = str(cue.get("text") or "").replace("\r", " ").replace("\n", " ").strip()
+        translation = str(cue.get("translation") or "").replace("\r", " ").replace("\n", " ").strip()
+        if not original or not translation or end <= start:
+            continue
+        display = f"{original}\\N{translation}"
+        events.append(
+            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Sub,,0,0,0,,{display}"
+        )
+    return header + "\n".join(events) + "\n"
+
+
 #: 卡拉OK默认样式（ASS Style 行参数；与普通字幕的烧录位置保持一致：底部安全区）
 ASS_KARAOKE_HEADER = """[Script Info]
 ScriptType: v4.00+

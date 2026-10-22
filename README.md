@@ -10,7 +10,7 @@
 
 | 概念 | 含义 | 为什么独特 |
 |---|---|---|
-| **Composition IR** | AI 规划的唯一产物，结构化 JSON | AI 只产出时间轴契约，禁止直接生成 FFmpeg 命令——AI 做决策，确定性引擎做执行 |
+| **Composition IR** | AI 导演的结构化规划契约 | AI 只规划，不生成 FFmpeg 命令；迁移为影片工程后，`film.html` 是最终剪辑的唯一权威时间线 |
 | **Narration 主轴** | 旁白是唯一主时间轴 | 画面、转场、字幕全部服从旁白节奏，不是反过来 |
 | **语义匹配** | 场景↔画面内容匹配 | 打"焚烧"配焚烧画面，"出征"配军队画面；不是随机选段（SVF 就纯随机） |
 | **Style Contract** | 风格是结构化契约不是名字 | 四风格各绑定字幕/动效/转场/音频参数；AUTO 按文案特征选，绝不评分 |
@@ -22,8 +22,7 @@
 
 1. **零成本起步**：核心全链路不需要任何 API key、不需要本地模型。TTS 用 EdgeTTS(免费)、
    内容匹配用文件名语义+概念桥接、画面用 FFmpeg。Vision API 只是可选增强。
-2. **AI 决策，引擎执行**：AI（或有朝一日的 LLM）只产出 Composition IR；渲染、校验、QC
-   全部是确定性 Python，可复现可审计。
+2. **AI 决策，引擎执行**：导演规划通过 Composition IR 表达，经过验证的规划再落到 `film.html`；影片工程初始化后，人工和 AI 编辑只改这份权威时间线，不维护与最终成片竞争的第二份时间轴。渲染、校验与 QC 由确定性引擎执行并记录 revision。
 3. **诚实降级**：素材不足报 MISSING、音效没有报 NO_SFX、风格不认识回退 AUTO 并提示。
    绝不编造、绝不假装成功。
 
@@ -35,7 +34,18 @@ python run_webui.py
 
 # CLI
 python -m video_director auto --script 文案.txt --videos 素材目录/
+
+# film.html 智能体工作流（项目已初始化影片文档后）
+python -m video_director film status --project-id PROJECT_ID
+python -m video_director film validate --project-id PROJECT_ID
+python -m video_director film look --project-id PROJECT_ID
+python -m video_director film diff --project-id PROJECT_ID
+python -m video_director film render --project-id PROJECT_ID
 ```
+
+外部编程智能体可以直接读取和修改项目内的 `film.html`、`scenes/*.html` 与 `assets/*`；Studio 通过文件监视实时刷新。HTML 镜头如需参与逐帧导出，应实现 `window.film.frame(t)`，并可通过 `window.film.ready` 暴露异步资源就绪状态。执行 `film look` 会生成真实浏览器接触表并反序检查重复时刻的一致性。
+
+编程智能体的完整文件协议、`frame(t)` 约定、冲突规则、离线资源边界与验收步骤见 [Film Agent Manual](docs/FILM_AGENT_MANUAL.md)。仓库根目录的 [AGENTS.md](AGENTS.md) 要求 Claude Code、Codex 等 Agent 在修改影片前读取同一份手册。
 
 ## 三个关键能力现在就能用（无需 key）
 

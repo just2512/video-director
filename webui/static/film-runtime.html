@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Film Runtime</title>
+<style>
+html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#050505;color:#ddd;font:12px system-ui,sans-serif}
+#viewport{position:absolute;inset:0;overflow:hidden;background:#050505}
+#stage{position:absolute;left:50%;top:50%;overflow:hidden;transform-origin:center center;background:#090909}
+.fs-runtime-track{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.fs-runtime-media{position:absolute;display:none;pointer-events:none;box-sizing:border-box}
+#notice{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:#8d8d8d;line-height:1.6;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="viewport"><div id="stage"></div><div id="notice">等待 Studio 影片文档</div></div>
+<script src="/static/js/film-runtime.js"></script>
+</body>
+</html>

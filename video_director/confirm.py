@@ -620,8 +620,9 @@ def render_draft(project_id: str, scale: float = DRAFT_SCALE, profile: Optional[
     profile（§43）：草案也支持 4K profile（target 分辨率从 profile 取，
     缩 scale 后输出）；默认 None 走原 IR 尺寸。
     """
-    from video_director import config, pipeline, renderer
+    from video_director import config, pipeline, renderer, film_document as fd
     from video_director.models import CompositionIR, AssetRef
+    fd.assert_legacy_composition_access(project_id, "生成旧时间线草稿")
 
     base = config.project_dir(project_id)
     dirs = config.init_project_dirs(base)
@@ -893,6 +894,8 @@ def finalize_after_review(project_id: str, edits: Optional[dict] = None, profile
     明确的分镜 edits 仍走旧的规划恢复流程；时间线编辑则必须以保存后的 IR 为
     唯一事实源，不能在导出时重新运行 planner 覆盖手工调整。
     """
+    from video_director import film_document as fd
+    fd.assert_legacy_composition_access(project_id, "导出旧时间线成片")
     if edits:
         from video_director import pipeline
         return pipeline.resume_after_confirm(project_id, edits=edits, profile=profile)

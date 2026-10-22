@@ -35,7 +35,7 @@ const easingFor = (type?: string, mode?: string) => {
     type === "quart" ? Easing.poly(4) :
     type === "expo" ? Easing.exp :
     type === "circ" ? Easing.circle :
-    type === "back" ? Easing.back : Easing.cubic;
+    type === "back" ? Easing.back() : Easing.cubic;
   if (mode === "in") return Easing.in(base);
   if (mode === "inOut") return Easing.inOut(base);
   return Easing.out(base);

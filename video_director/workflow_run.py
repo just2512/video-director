@@ -751,8 +751,67 @@ def _execute_compose(spec: dict, run_id: str, *, track_steps: bool = True) -> di
         vd_store.set_stage = orig_set_stage
 
 
+def run_film_render_async(project_id: str, expected_revision: str, fps: int | None = None) -> str:
+    """Render a pinned film.html revision in the background; never invoke the legacy IR renderer."""
+    from video_director import film_document as fd
+    pid = fd.validate_project_id(project_id)
+    if not isinstance(expected_revision, str) or not expected_revision.strip():
+        raise fd.FilmError("REVISION_REQUIRED", "导出请求缺少 film.html revision。", 400)
+    state = fd.read_project_film(pid)
+    if not state.get("exists"):
+        raise fd.FilmError("FILM_NOT_INITIALIZED", "当前项目尚未初始化 film.html。", 409)
+    if state["rev"] != expected_revision:
+        raise fd.FilmError("REVISION_CONFLICT", "film.html 已发生变化；请重新载入后再导出。", 409)
+    if fps is None:
+        fps = int(state["doc"].get("fps", 30))
+    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
+        raise fd.FilmError("INVALID_FPS", "导出帧率必须是 1–60 的整数。", 422)
+    run_id = start_run("film_render_final", project_id=pid, steps=["render", "verify"])
+    thread = threading.Thread(
+        target=_film_render_worker, args=(run_id, pid, expected_revision, fps),
+        daemon=True, name=f"film-render-{pid}",
+    )
+    thread.start()
+    return run_id
+
+
+def _film_render_worker(run_id: str, project_id: str, expected_revision: str, fps: int) -> None:
+    active_step = "render"
+    try:
+        step_update(run_id, "render", "RUNNING")
+        from video_director.film_render import render_project_film
+        result = render_project_film(project_id, expected_revision=expected_revision, fps=fps)
+        step_update(run_id, "render", "DONE")
+        active_step = "verify"
+        step_update(run_id, "verify", "RUNNING")
+        path = Path(result["mp4_path"])
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise RuntimeError("film renderer did not produce a non-empty MP4")
+        from video_director import prober
+        probe = prober.probe_media(str(path))
+        if not probe.has_video_stream:
+            raise RuntimeError("export artifact has no video stream")
+        if probe.duration is not None and abs(float(probe.duration) - float(result["duration"])) > max(0.15, 2.0 / max(1, int(fps))):
+            raise RuntimeError(
+                f"export duration mismatch: expected {result['duration']:.3f}s, actual {float(probe.duration):.3f}s"
+            )
+        result["verified"] = True
+        result["actual_duration"] = probe.duration
+        step_update(run_id, "verify", "DONE")
+        finish_run(run_id, COMPLETED, result=result)
+    except Exception as exc:
+        logger.exception(f"film document render {run_id} failed")
+        try:
+            step_update(run_id, active_step, "FAILED", detail=str(exc)[:200])
+        except Exception:
+            pass
+        finish_run(run_id, FAILED, error=str(exc)[:1200])
+
+
 def run_render_async(project_id: str, kind: str = "draft") -> str:
     """渲染也走 WorkflowRun（§70-4 一个流程一个 run）。kind: draft|final。"""
+    from video_director import film_document as fd
+    fd.assert_legacy_composition_access(project_id, f"渲染 {kind}")
     run_id = start_run("render_" + kind, project_id=project_id,
                        steps=["render", "verify"])
     t = threading.Thread(target=_render_worker, args=(run_id, project_id, kind),

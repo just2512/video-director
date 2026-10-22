@@ -354,8 +354,14 @@ def _normalize_value(field: str, value: str) -> Optional[str]:
     if field == "style":
         return _normalize_style(v)
     if field == "transition_mode":
-        # fade/淡入淡出 → fade；其余透传（cut 等）
-        return "fade" if any(w in v for w in ("淡入", "淡出", "fade", "溶解")) else v
+        lowered = v.lower()
+        if any(w in lowered for w in ("淡入", "淡出", "fade", "crossfade", "溶解")):
+            return "fade"
+        if lowered in ("cut", "hard cut", "none", "off", "disabled") or any(
+            w in v for w in ("硬切", "直接切", "不要转场", "无转场")
+        ):
+            return "cut"
+        return v
     if field == "fit_mode":
         return "cover" if any(w in v for w in ("填满", "裁剪", "cover", "铺满")) else \
                ("contain" if any(w in v for w in ("黑边", "完整", "contain", "适应")) else v)

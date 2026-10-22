@@ -101,10 +101,52 @@ def create_director_run(payload: dict) -> dict:
     merged["director_inputs"] = merged_inputs
 
     bundle = di.build_bundle(merged)
-    plan = di.build_plan(bundle, brief or script or "AI Director 创作")
 
-    resolution = str(payload.get("resolution") or "").strip()
-    platform = str(payload.get("platform") or "").strip()
+    # Resolve language intent before choosing dimensions or rebuilding the final input bundle.
+    # The current WebUI sends select defaults too; _explicit_fields distinguishes defaults
+    # from settings the user deliberately changed.
+    from video_director import director_intent
+    intent = director_intent.resolve_director_intents(brief)
+    raw_explicit_fields = payload.get("_explicit_fields")
+    explicit_fields_known = isinstance(raw_explicit_fields, list)
+    explicit_fields = {
+        str(item) for item in raw_explicit_fields
+        if isinstance(item, str) and item.strip()
+    } if explicit_fields_known else set()
+
+    def choose_setting(field: str, raw_value: Any, intent_field: str | None = None,
+                       default: Any = None) -> Any:
+        key = intent_field or field
+        if explicit_fields_known:
+            if field in explicit_fields:
+                return raw_value if raw_value is not None else default
+            parsed = intent.get(key)
+            if parsed is not None and parsed != "":
+                return parsed
+            return raw_value if raw_value is not None and raw_value != "" else default
+        # Compatibility for existing MCP/CLI/API clients which do not send field provenance.
+        if raw_value is not None and raw_value != "":
+            return raw_value
+        parsed = intent.get(key)
+        if parsed is not None and parsed != "":
+            return parsed
+        return default
+
+    raw_resolution = str(payload.get("resolution") or "").strip()
+    raw_platform = str(payload.get("platform") or "").strip()
+    if explicit_fields_known:
+        if "resolution" in explicit_fields:
+            resolution = raw_resolution
+        elif "platform" in explicit_fields:
+            # The platform selection updates the resolution control programmatically;
+            # that derived value must not be mistaken for a separate resolution choice.
+            resolution = ""
+        else:
+            resolution = str(intent.get("resolution") or "").strip()
+        platform = raw_platform if "platform" in explicit_fields else ""
+    else:
+        resolution = raw_resolution or str(intent.get("resolution") or "").strip()
+        platform = raw_platform
     platform_dims = {
         "douyin": (1080, 1920),
         "video_channel": (1080, 1920),
@@ -150,8 +192,10 @@ def create_director_run(payload: dict) -> dict:
             "INVALID_CONFIRM_MODE", "confirm_mode 仅支持 preview 或 direct"
         )
     raw_fps = payload.get("fps")
-    raw_bgm_volume = payload.get("bgm_volume")
-    raw_narration_volume = payload.get("narration_volume")
+    raw_bgm_volume = choose_setting("bgm_volume", payload.get("bgm_volume"), default=0.3)
+    raw_narration_volume = choose_setting(
+        "narration_volume", payload.get("narration_volume"), default=1.0
+    )
     try:
         fps = int(30 if raw_fps is None or raw_fps == "" else raw_fps)
         bgm_volume = float(0.3 if raw_bgm_volume is None or raw_bgm_volume == "" else raw_bgm_volume)
@@ -174,53 +218,80 @@ def create_director_run(payload: dict) -> dict:
             "INVALID_VISUAL_SOURCE", "visual_source 仅支持 auto、mixed、online、local"
         )
 
-    # 2026-10-18 系统性修复：自然语言 brief → 导演参数。此前用户说「加水印」
-    # 「40 秒以上」「放慢配音速度」都只存在 brief 文本里，从不进 spec——AI 导演
-    # 「看不到」这些要求。这里用能力目录驱动解析，结果只回填 payload 未显式给的
-    # 字段（显式前端选择永远优先，用户意图是兜底不是覆盖）。
-    from video_director import director_intent
-    intent = director_intent.resolve_director_intents(brief)
-    import logging as _logging
-    _logging.getLogger(__name__).info(
-        "自然语言意图解析结果（brief=%.60s）: %s", brief or "", intent or {}
+    # Rebuild the input bundle and plan from the same normalized settings the executor receives.
+    effective_duration = choose_setting(
+        "duration", inputs.get("duration") or payload.get("duration") or "", default=""
     )
-    # 意图解析出的分辨率走与显式 resolution 相同的校验/归一路径
-    if not resolution and intent.get("resolution"):
-        resolution = intent.get("resolution")
-        rw, rh = (int(part) for part in resolution.split("x", 1))
+    effective_style = choose_setting(
+        "style",
+        inputs.get("style") or payload.get("style") or payload.get("style_intent") or "",
+        intent_field="style",
+        default="",
+    )
+    effective_platform = platform
+    merged["platform"] = effective_platform
+    merged["duration"] = effective_duration
+    merged["style"] = effective_style
+    merged_inputs["platform"] = effective_platform
+    merged_inputs["duration"] = effective_duration
+    merged_inputs["style"] = effective_style
+    merged["director_inputs"] = merged_inputs
+    bundle = di.build_bundle(merged)
+    plan = di.build_plan(bundle, brief or script or "AI Director 创作")
 
+    raw_sfx = payload.get("sfx")
+    if explicit_fields_known and "sfx" in explicit_fields:
+        sfx_value = raw_sfx
+    else:
+        sfx_value = raw_sfx or payload.get("sfx_choice")
+    clip_duration_value = choose_setting(
+        "clip_duration", payload.get("clip_duration"), default=None
+    )
+    clip_speed_value = choose_setting("clip_speed", payload.get("clip_speed"), default=None)
+    try:
+        clip_duration_value = (
+            float(clip_duration_value) if clip_duration_value not in (None, "") else None
+        )
+        clip_speed_value = float(clip_speed_value) if clip_speed_value not in (None, "") else None
+    except (TypeError, ValueError):
+        raise DirectorServiceError(
+            "INVALID_SETTINGS", "单镜头时长和画面速度必须是数字"
+        ) from None
+    if clip_duration_value is not None and clip_duration_value <= 0:
+        raise DirectorServiceError("INVALID_SETTINGS", "单镜头时长必须大于 0")
+    if clip_speed_value is not None and clip_speed_value <= 0:
+        raise DirectorServiceError("INVALID_SETTINGS", "画面速度必须大于 0")
     spec = {
         "project_id": pid, "script": script, "creative_brief": brief, "brief": brief,
         "mode": payload.get("mode") or "auto",
-        "voice": payload.get("voice") or intent.get("voice") or "zh-CN-XiaoxiaoNeural",
-        "voice_mode": payload.get("voice_mode") or intent.get("voice_mode") or "auto",
-        "voice_rate": payload.get("voice_rate") or intent.get("voice_rate") or "1.0",
-        "style_intent": payload.get("style_intent") or inputs.get("style") or intent.get("style") or "",
+        "voice": choose_setting("voice", payload.get("voice"), default="zh-CN-XiaoxiaoNeural"),
+        "voice_mode": choose_setting("voice_mode", payload.get("voice_mode"), default="auto"),
+        "voice_rate": choose_setting("voice_rate", payload.get("voice_rate"), default="1.0"),
+        "style_intent": effective_style,
         "width": rw, "height": rh, "fps": fps,
-        "bgm": payload.get("bgm") or intent.get("bgm") or "auto",
-        # 2026-10-19 意图链修复（审计：合并层丢弃4字段）：音量/镜头参数的
-        # 显式 payload 优先，意图解析值兜底——「音乐小声」「每个镜头3秒」不再被扔。
-        "bgm_volume": bgm_volume if bgm_volume != 0.3 else float(intent.get("bgm_volume") or bgm_volume),
-        "narration_volume": narration_volume if narration_volume != 1.0 else float(intent.get("narration_volume") or narration_volume),
+        "bgm": choose_setting("bgm", payload.get("bgm"), default="auto"),
+        "bgm_volume": bgm_volume,
+        "narration_volume": narration_volume,
         "sfx_plan": payload.get("sfx_plan"),
         # 音效自动搜索（Openverse 免 Key：freesound 源 CC0，本地未命中自动搜）
         "auto_sfx_search": bool(payload.get("auto_sfx_search", False)),
         # 具体音效选择（前端 cf-sfx；'openverse-auto' 由 workflow_run 归一）
-        "sfx": payload.get("sfx") or payload.get("sfx_choice") or intent.get("sfx") or "auto",
-        "subtitle_mode": payload.get("subtitle_mode") or intent.get("subtitle_mode") or "plain",
-        "fit_mode": payload.get("fit_mode") or intent.get("fit_mode") or "cover",
-        "clip_duration": payload.get("clip_duration") or intent.get("clip_duration"),
-        "clip_speed": payload.get("clip_speed") or intent.get("clip_speed"),
-        "concat_mode": payload.get("concat_mode") or "sequential",
-        "transition_mode": payload.get("transition_mode") or intent.get("transition_mode") or "cut",
+        "sfx": choose_setting("sfx", sfx_value, default="auto"),
+        "subtitle_mode": choose_setting("subtitle_mode", payload.get("subtitle_mode"), default="plain"),
+        "fit_mode": choose_setting("fit_mode", payload.get("fit_mode"), default="cover"),
+        "clip_duration": clip_duration_value,
+        "clip_speed": clip_speed_value,
+        "concat_mode": choose_setting("concat_mode", payload.get("concat_mode"), default="sequential"),
+        "transition_mode": choose_setting("transition_mode", payload.get("transition_mode"), default="cut"),
         "match_materials_to_script": bool(payload.get("match_materials_to_script", True)),
         "stop_at": str(payload.get("stop_at") or "video"),
-        "watermark": payload.get("watermark") or intent.get("watermark") or "",
-        "title": payload.get("title") or intent.get("title") or "",
-        "lower_third_name": payload.get("lower_third_name") or intent.get("lower_third_name") or "",
-        "lower_third_role": payload.get("lower_third_role") or intent.get("lower_third_role") or "",
+        "watermark": choose_setting("watermark", payload.get("watermark"), default=""),
+        "title": choose_setting("title", payload.get("title"), default=""),
+        "lower_third_name": choose_setting("lower_third_name", payload.get("lower_third_name"), default=""),
+        "lower_third_role": choose_setting("lower_third_role", payload.get("lower_third_role"), default=""),
         "confirm_mode": confirm_mode, "auto_confirm": confirm_mode == "direct",
         "visual_source": visual_source,
+        "duration": effective_duration,
         "video_paths": payload.get("video_paths") or [],
         "image_paths": payload.get("image_paths") or [],
         "narration_upload": payload.get("narration_upload") or "",
@@ -228,7 +299,7 @@ def create_director_run(payload: dict) -> dict:
         # 意图解析出的目标时长（秒）——脚本生成时注入 constraints 控制文案长度。
         # 挂在 spec 上而非 dirinputs（dirinputs 的 creative_settings.duration 语义是
         # 「总时长」字符串，意图值是秒的规范化结果，二者不要混同）。
-        "_intent_duration_s": intent.get("duration") or "",
+        "_intent_duration_s": str(effective_duration or ""),
         "_unresolved": intent.get("_unresolved") or "",
     }
     run_id = wf.run_director_create_async(spec, plan=plan)

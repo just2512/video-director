@@ -14,6 +14,8 @@
 <link rel="stylesheet" href="/static/css/shotbook-storyboard.css">
 <link rel="stylesheet" href="/static/css/shotbook-sfx.css">
 <link rel="stylesheet" href="/static/css/editor-enhanced.css">
+<link rel="stylesheet" href="/static/css/film-studio.css">
+<link rel="stylesheet" href="/static/css/film-studio-tailwind.css">
 <link rel="stylesheet" href="/static/css/creative-plan.css">
 </head>
 <body>
@@ -102,6 +104,121 @@
       <button class="btn-secondary btn-sm" onclick="editorLoad()">打开</button>
       <span class="hint" id="editor-lib-hint">选中场景/图层后，Inspector 会给出对应的修改项</span>
     </div>
+    <div class="film-studio-launch panel">
+      <div>
+        <strong>OpenFilm 多轨影片工作台</strong>
+        <p>以项目 film.html 为编辑文档，按稳定片段 ID 修改；支持多轨时间线、属性编辑、撤销重做和 AI 指令。</p>
+      </div>
+      <button class="btn-sm" id="film-studio-toggle" type="button" data-film-action="toggle">打开多轨工作台</button>
+    </div>
+    <section id="film-studio-panel" class="film-studio-panel" style="display:none" aria-label="OpenFilm 多轨影片工作台">
+      <header class="fs-topbar">
+        <div><strong>影片 Studio</strong><span class="fs-project-label" id="fs-project-label">尚未载入项目</span></div>
+        <div id="fs-react-toolbar" class="fs-toolbar" style="display:none" aria-label="React Studio 工具栏"></div>
+        <div id="fs-static-toolbar" class="fs-toolbar" aria-label="兼容工具栏">
+          <button class="fs-btn" type="button" data-film-action="undo">撤销</button>
+          <button class="fs-btn" type="button" data-film-action="redo">重做</button>
+          <button class="fs-btn" type="button" data-film-action="reload">重新载入</button>
+          <button class="fs-btn fs-primary" type="button" data-film-action="render">导出 MP4</button>
+          <button class="fs-btn" type="button" data-film-action="close" title="退出全屏 Studio，不切回旧编辑状态">退出 Studio</button>
+        </div>
+      </header>
+      <div id="film-studio-alert" class="fs-alert" role="status" aria-live="polite">载入项目后显示影片文档。</div>
+      <div class="fs-alert fs-visible" id="fs-render-warning" style="border-left:3px solid #b08b4b">中央监视器和 MP4 导出都读取同一 film.html revision；导出期间如时间线发生变化，成片会标明对应版本。</div>
+      <div class="fs-render-result" id="fs-render-result" hidden>
+        <span id="fs-render-result-text"></span>
+        <a id="fs-render-download" class="fs-btn fs-primary" href="#" target="_blank" rel="noopener">打开 MP4</a>
+        <a id="fs-qc-download" class="fs-btn" href="#" target="_blank" rel="noopener" hidden>打开 QC 记录</a>
+      </div>
+      <div class="fs-workspace" id="fs-workspace-dock">
+        <aside class="fs-pane fs-assets-pane">
+          <div class="fs-pane-title">素材 / 片段 <span id="fs-clip-count">0</span></div>
+          <div class="fs-asset-tabs"><button class="fs-asset-tab fs-asset-tab-active" id="fs-mode-clips" type="button" data-film-action="clips-mode">时间线片段</button><button class="fs-asset-tab" id="fs-mode-library" type="button" data-film-action="library-mode">素材库</button></div>
+          <div class="fs-assets-list" id="fs-assets-list"><div class="fs-empty">还没有影片文档。</div></div>
+        </aside>
+        <div class="fs-pane-divider" data-divider="left" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整素材栏宽度"></div>
+        <section class="fs-pane fs-monitor-pane">
+          <div class="fs-pane-title">节目监视器 <span id="fs-monitor-time">00:00.000</span></div>
+          <div class="fs-monitor-stage" id="fs-monitor-stage">
+            <div class="fs-monitor-placeholder">选择项目并初始化影片文档</div>
+            <iframe id="fs-preview-composition" title="多轨影片预览" src="/static/film-runtime.html" style="display:none" aria-label="多轨影片预览"></iframe>
+            <div id="fs-element-selection" class="fs-element-selection" aria-hidden="true" hidden></div>
+          </div>
+          <div id="fs-react-scrub-row" class="fs-scrub-row" style="display:none" aria-label="React 播放控制"></div>
+          <div id="fs-static-scrub-row" class="fs-scrub-row" aria-label="兼容播放控制">
+            <button class="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>
+            <button class="fs-btn" type="button" id="fs-play-toggle" data-film-action="play-toggle">播放</button>
+            <input id="fs-playhead" type="range" min="0" max="10" step="0.033333" value="0" oninput="filmStudioSeek(this.value)" aria-label="播放头">
+            <button class="fs-btn" type="button" data-film-action="frame-next">下一帧</button>
+            <button class="fs-btn" id="fs-element-inspect-toggle" type="button" data-film-action="canvas-inspect" aria-pressed="false" title="在节目监视器中点选 HTML 镜头里的文字或图层">选择画面元素</button>
+            <span id="fs-playhead-value">00:00.000</span>
+          </div>
+        </section>
+        <div class="fs-pane-divider" data-divider="right" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整属性栏宽度"></div>
+        <aside class="fs-pane fs-inspector-pane">
+          <div class="fs-pane-title">导演 / 检查器 <span id="fs-side-context">当前片段</span></div>
+          <div class="fs-side-tabs" role="tablist" aria-label="右侧工作面板">
+            <button class="fs-side-tab fs-side-tab-active" id="fs-side-tab-inspector" type="button" role="tab" aria-selected="true" data-film-action="show-inspector">属性</button>
+            <button class="fs-side-tab" id="fs-side-tab-ai" type="button" role="tab" aria-selected="false" data-film-action="show-ai">AI 导演</button>
+          </div>
+          <div class="fs-side-view" id="fs-side-inspector" role="tabpanel">
+            <div id="fs-inspector"><div class="fs-empty">选择时间线片段后编辑属性。</div></div>
+            <div id="fs-react-canvas-inspector"></div>
+          </div>
+          <div class="fs-side-view fs-side-ai" id="fs-side-ai" role="tabpanel" hidden>
+            <div id="fs-react-ai-director" class="fs-ai-director-root" style="display:none" aria-label="React AI 导演面板"></div>
+            <div id="fs-static-ai-director">
+              <div class="fs-proposal-panel" id="fs-proposal-panel" hidden>
+                <strong id="fs-proposal-summary">待确认修改</strong>
+                <p id="fs-proposal-detail"></p>
+                <div id="fs-proposal-operations"></div>
+                <div class="fs-proposal-actions">
+                  <button class="fs-btn" type="button" data-film-action="preview-proposal">重新预览</button>
+                  <button class="fs-btn" type="button" data-film-action="reject-proposal">拒绝</button>
+                  <button class="fs-btn fs-primary" type="button" data-film-action="apply-proposal">确认应用</button>
+                </div>
+              </div>
+              <div id="fs-chat-log" class="fs-chat-log"><div class="fs-chat-message fs-assistant">可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。</div></div>
+              <div class="fs-chat-input-row">
+                <input id="fs-static-chat-input" type="text" placeholder="描述你要修改的影片……" onkeydown="if(event.key==='Enter')filmStudioAsk()">
+                <button class="fs-btn" type="button" data-film-action="cancel-ai" title="停止本轮生成；生成中再次发送新指令会中止并按新方向重新规划">停止 / 转向</button>
+                <button class="fs-btn fs-primary" type="button" data-film-action="ask">发送指令</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <div id="fs-timeline-divider" class="fs-timeline-divider" role="separator"
+           aria-orientation="horizontal" tabindex="0" title="拖动调整时间线高度；上下方向键调整"></div>
+      <section class="fs-pane fs-timeline-pane">
+        <div class="fs-timeline-toolbar">
+          <div><strong>多轨时间线</strong><span id="fs-timeline-meta" title="Ctrl/⌘ 点击多选，Shift 范围选择；Alt 拖动滑移源区间；滑移修剪模式或 Alt+Shift 拖动滑移式修剪；Ctrl 拖动切口滚动修剪；Ctrl/⌘+滚轮缩放">— · 支持多选</span></div>
+          <div id="fs-react-timeline-toolbar" class="fs-toolbar" style="display:none" aria-label="React 时间线工具栏"></div>
+          <div id="fs-static-timeline-toolbar" class="fs-toolbar" aria-label="兼容时间线工具栏">
+            <button class="fs-btn" type="button" data-film-action="insert-mode" aria-pressed="false" title="开启后，素材插入所选轨道并推移后续片段及同步锁定轨道">插入编辑：关</button>
+            <button class="fs-btn" type="button" data-film-action="toggle-snap" aria-pressed="true" title="吸附到播放头、片头和其他片段边缘；吸附距离按屏幕像素计算">吸附：开</button>
+            <button class="fs-btn" type="button" data-film-action="split" title="在播放头切分（S）">在播放头切分</button>
+            <button class="fs-btn" type="button" data-film-action="copy-clips" title="复制选中片段（Ctrl/⌘+C）">复制</button>
+            <button class="fs-btn" type="button" data-film-action="paste-clips" title="按原相对布局粘贴到播放头附近的可用区间（Ctrl/⌘+V）">粘贴</button>
+            <button class="fs-btn" type="button" data-film-action="join-cut" title="合并同轨相邻、同源连续且属性一致的切分片段">愈合切口</button>
+            <button class="fs-btn" type="button" data-film-action="remove">删除片段</button>
+            <button class="fs-btn" type="button" data-film-action="ripple-delete" title="删除选中片段对应的时间段，并收拢全部轨道">波纹删除</button>
+            <button class="fs-btn" type="button" data-film-action="envelope-mode" aria-pressed="false" title="切换音量关键帧编辑模式；普通模式下可正常拖动片段">音量曲线：关</button>
+            <button class="fs-btn" type="button" data-film-action="slide-mode" aria-pressed="false" title="切换滑移修剪模式；拖动中间视频/音频片段主体，外侧时间线边界保持不变">滑移修剪：关</button>
+            <button class="fs-btn" type="button" data-film-action="slip-mode" aria-pressed="false" title="切换源区间滑移模式；只改变素材源范围，片段时间线位置与长度不变">源区间滑移：关</button>
+            <button class="fs-btn" type="button" data-film-action="add-track">＋轨道</button>
+            <button class="fs-btn" type="button" data-film-action="remove-empty-track">删空轨</button>
+            <button class="fs-btn" type="button" data-film-action="zoom-out">−</button>
+            <button class="fs-btn" type="button" data-film-action="zoom-in">＋</button>
+            <button class="fs-btn fs-primary" type="button" data-film-action="apply-inspector">应用属性</button>
+          </div>
+        </div>
+        <div class="fs-timeline-scroll" id="fs-timeline-scroll">
+          <div id="fs-timeline" class="fs-timeline"><div class="fs-empty">初始化影片文档后显示多轨时间线。</div></div>
+        </div>
+      </section>
+
+    </section>
     <!-- 无项目态 -->
     <div id="editor-empty" class="panel empty-state">
       <div>还没有打开的项目</div>
@@ -456,5 +573,7 @@
 <script src="/static/js/editor-enhanced.js"></script>
 <script src="/static/js/clip-clipboard.js"></script>
 <script src="/static/js/audio-track-asset-picker.js"></script>
+  <script src="/static/js/film-studio-react.js"></script>
+  <script src="/static/js/film-studio.js"></script>
 </body>
 </html>

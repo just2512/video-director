@@ -9,7 +9,50 @@
 window.CF = {
   state: 'idle',          // idle|editing|submitting|planning|awaiting_confirm|failed
   source: 'script',       // UI picker only; never changes the Director workflow
+  explicitFields: new Set(),
 };
+
+// A control's markup value is a default, not necessarily a user decision. Track only
+// genuine UI input so natural-language intent can override untouched defaults.
+const CF_EXPLICIT_CONTROL_FIELDS = {
+  'cf-platform': 'platform',
+  'cf-duration': 'duration',
+  'cf-style': 'style',
+  'cf-resolution': 'resolution',
+  'cf-voice': 'voice',
+  'cf-voice-mode': 'voice_mode',
+  'cf-voice-rate': 'voice_rate',
+  'cf-voice-volume': 'narration_volume',
+  'cf-bgm': 'bgm',
+  'cf-bgm-volume': 'bgm_volume',
+  'cf-sfx': 'sfx',
+  'cf-subtitle': 'subtitle_mode',
+  'cf-fit-mode': 'fit_mode',
+  'cf-clip-duration': 'clip_duration',
+  'cf-clip-speed': 'clip_speed',
+  'cf-concat-mode': 'concat_mode',
+  'cf-transition-mode': 'transition_mode',
+  'cf-watermark': 'watermark',
+  'cf-lower-name': 'lower_third_name',
+  'cf-lower-role': 'lower_third_role'
+};
+
+function cfMarkExplicitControl(event) {
+  const target = event.target;
+  if (!target || !target.id || !CF_EXPLICIT_CONTROL_FIELDS[target.id]) return;
+  if (CF.state !== 'editing') return;
+  CF.explicitFields.add(CF_EXPLICIT_CONTROL_FIELDS[target.id]);
+}
+document.addEventListener('input', cfMarkExplicitControl, true);
+document.addEventListener('change', cfMarkExplicitControl, true);
+document.addEventListener('click', function(event) {
+  // Style cards set the text field programmatically, so mark the choice explicitly too.
+  const styleButton = event.target && event.target.closest
+    ? event.target.closest('[data-studio-style]') : null;
+  if (styleButton && CF.state === 'editing') {
+    CF.explicitFields.add('style');
+  }
+});
 
 /** 打开创建面板（顶栏「+ 新建项目」唯一入口 §3.1）。 */
 function openCreate(){
@@ -26,6 +69,7 @@ function openCreate(){
   mask.addEventListener('click', ev => { if (ev.target === mask) closeCreate(); });
   document.body.appendChild(mask);
   CF.state = 'editing';
+  CF.explicitFields = new Set();
   createLoadDefaults();
   cfRestoreArticleSourceUI();
   const ta = document.getElementById('cf-script');
@@ -831,7 +875,8 @@ async function createProject(){
     platform: (tp || {}).value || '',
     duration: (td || {}).value || '',
     style: (st || {}).value || '',
-    director_inputs: directorInputs
+    director_inputs: directorInputs,
+    _explicit_fields: Array.from(CF.explicitFields || [])
   });
   if (!wfResp.ok || !wfResp.run_id) {
     CF.state = 'failed';

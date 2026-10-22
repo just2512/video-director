@@ -170,6 +170,58 @@ class OpenAICompatibleProvider:
         raise RuntimeError(
             f"LLM generate 失败（重试 {LLM_MAX_RETRIES} 次后）: {last_exc}") from last_exc
 
+    supports_stream_cancellation = True
+
+    def generate_stream(self, prompt: str, system: Optional[str] = None,
+                        on_delta=None, on_stream_open=None, cancel_event=None) -> str:
+        """Stream deltas, expose the active upstream stream, and close it on cancellation."""
+        self._ensure_client()
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        parts: list[str] = []
+        stream = None
+        try:
+            stream = self._client.chat.completions.create(
+                model=self._model, messages=messages, stream=True,
+            )
+            if callable(on_stream_open):
+                on_stream_open(stream)
+            for event in stream:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("LLM stream 已取消")
+                choices = getattr(event, "choices", None) or []
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                content = getattr(delta, "content", None)
+                if isinstance(content, str) and content:
+                    parts.append(content)
+                    if on_delta is not None:
+                        on_delta(content)
+                elif isinstance(content, list):
+                    for item in content:
+                        fragment = getattr(item, "text", None)
+                        if isinstance(fragment, str) and fragment:
+                            parts.append(fragment)
+                            if on_delta is not None:
+                                on_delta(fragment)
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("LLM stream 已取消")
+        except Exception as exc:
+            reason = "已取消" if cancel_event is not None and cancel_event.is_set() else f"失败: {exc}"
+            logger.warning(f"LLM stream {reason} (model={self._model})")
+            raise RuntimeError(f"LLM stream {reason}") from exc
+        finally:
+            closer = getattr(stream, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:
+                    pass
+        return "".join(parts)
+
 
 # ---------------------------------------------------------------------------
 # 工厂：有 key 返真实 provider，无 key 返 None（诚实）

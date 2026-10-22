@@ -1,0 +1,235 @@
+name: Studio UI build and browser smoke
+
+# Studio build now runs on the self-hosted WSL2 runner (same machine as the
+# AI Director regression) to avoid GitHub-hosted billing/limits entirely.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/studio-ui-build.yml"
+      - "remotion_runtime/**"
+      - "webui/static/**"
+      - "webui/server.py"
+      - "video_director/film_document.py"
+      - "video_director/film_scene_runtime.py"
+      - "video_director/film_render.py"
+      - "video_director/film_watch.py"
+      - "video_director/prober.py"
+      - "tests/test_film_*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: studio-ui-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    # Self-hosted runner: WSL2 Ubuntu on the local Windows machine.
+    # Kept online by the WSLUbuntuKeepAlive scheduled task; outbound GitHub
+    # access rides the host v2rayN mixed proxy (see proxy env below).
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 45
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      # GitHub direct connections are unreliable from this network; route all
+      # job traffic (archive recovery, npm/pip fallbacks, publication API)
+      # through the host's v2rayN mixed (HTTP CONNECT + SOCKS) port.
+      http_proxy: http://172.24.128.1:10808
+      https_proxy: http://172.24.128.1:10808
+      HTTP_PROXY: http://172.24.128.1:10808
+      HTTPS_PROXY: http://172.24.128.1:10808
+      no_proxy: localhost,127.0.0.1,::1
+      NO_PROXY: localhost,127.0.0.1,::1
+      # Python 3.11 conda interpreter (runner image standard, see ai-director).
+      PY311_BIN: /home/actions/miniforge3/envs/py311/bin
+    steps:
+      # Avoid external checkout/setup action downloads. Restore the exact source
+      # revision through the authenticated GitHub archive API using shell tools.
+      - name: Recover exact source revision from GitHub archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$GITHUB_SHA"
+          archive="$RUNNER_TEMP/video-director-${expected}.tar.gz"
+          source_tmp="$(mktemp -d "$RUNNER_TEMP/video-director-source.XXXXXX")"
+          curl --fail --silent --show-error --location \
+            --retry 2 --retry-all-errors --connect-timeout 15 --max-time 180 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${expected}" \
+            -o "$archive"
+          tar -xzf "$archive" -C "$source_tmp"
+          source_root="$(find "$source_tmp" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$source_root"
+          test -f "$source_root/README.md"
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          cp -a "$source_root"/. "$GITHUB_WORKSPACE"/
+          printf '%s\n' "$expected" > "$GITHUB_WORKSPACE/.workflow-source-sha"
+          test "$(cat "$GITHUB_WORKSPACE/.workflow-source-sha")" = "$expected"
+          echo "Restored exact source revision $expected without external checkout actions."
+
+      - name: Verify preinstalled toolchain
+        run: |
+          node --version
+          npm --version
+          "$PY311_BIN/python3.11" --version
+          "$PY311_BIN/python3.11" -m pip --version
+
+      - name: Typecheck and build React 19 Studio with Tailwind 4
+        working-directory: remotion_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-package-lock
+          npm run typecheck
+          npm run build:studio
+          npm run build:studio:css
+          test -s ../webui/static/js/film-studio-react.js
+          test -s ../webui/static/css/film-studio-tailwind.css
+          if grep -q "Build output placeholder" ../webui/static/js/film-studio-react.js; then
+            echo "React Studio bundle is still a placeholder" >&2
+            exit 1
+          fi
+          if [ "$(wc -c < ../webui/static/css/film-studio-tailwind.css)" -lt 1000 ]; then
+            echo "Tailwind CSS output is unexpectedly small" >&2
+            exit 1
+          fi
+
+      - name: Install focused Python and Chromium test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$PY311_BIN/python3.11" -m pip install --upgrade pip
+          "$PY311_BIN/python3.11" -m pip install \
+            "pydantic>=2.5" "loguru>=0.7" "edge-tts>=7.0" pillow imageio-ffmpeg \
+            openai pyyaml "playwright>=1.40" "pytest>=7.4"
+          # Chromium system .so deps are preinstalled on the runner image and
+          # the browser binary lives in the actions user's playwright cache.
+          "$PY311_BIN/python3.11" -m playwright install chromium
+
+      - name: Run FilmDocument, migration, and Studio browser regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$PY311_BIN/python3.11" -m pytest -q --tb=short \
+            tests/test_film_document_contract.py \
+            tests/test_film_volume_keyframe_migration.py \
+            tests/test_film_agent_cli.py \
+            tests/test_film_full_pipeline_e2e.py \
+            tests/test_film_variant_transform_keyframes.py \
+            tests/test_film_variant_migration_api.py \
+            tests/test_film_mask_overlay_migration.py \
+            tests/test_film_external_watch_history.py \
+            tests/test_film_external_watch_encoding.py \
+            tests/test_film_runtime_mask_keyframes_browser.py \
+            tests/test_film_runtime_video_frame_wait.py \
+            tests/test_film_scene_runtime.py \
+            tests/test_film_render_scene_e2e.py \
+            tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_pending_revision.py \
+            tests/test_film_studio_roll_browser.py \
+            tests/test_film_studio_react_clip_inspector.py \
+            tests/test_film_studio_react_fallback.py \
+            tests/test_film_studio_react_toolbar.py \
+            tests/test_film_studio_react_timeline_toolbar.py \
+            tests/test_film_studio_react_ai_director.py \
+            tests/test_film_studio_inspector_renderer.py
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in webui/static/js/*.js; do node --check "$file"; done
+
+      - name: Publish built Studio assets without overwriting newer main
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$PY311_BIN/python3.11" - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          expected = os.environ["GITHUB_SHA"]
+          token = os.environ["GITHUB_TOKEN"]
+          paths = [
+              "webui/static/js/film-studio-react.js",
+              "webui/static/css/film-studio-tailwind.css",
+          ]
+          api = "https://api.github.com"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer " + token,
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "video-director-studio-ci",
+          }
+
+          def request(route, method="GET", payload=None):
+              url = route if route.startswith("https://") else api + route
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      raw = response.read()
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as exc:
+                  details = exc.read().decode("utf-8", "replace")[:2000]
+                  raise RuntimeError(f"GitHub API {method} {route}: HTTP {exc.code}: {details}") from exc
+
+          current = request(f"/repos/{repo}/commits/main").get("sha")
+          if current != expected:
+              print(f"::warning::main advanced during build; publication skipped (tested={expected}, current={current}).")
+              raise SystemExit(0)
+
+          changed = []
+          for path in paths:
+              remote_file = request(f"/repos/{repo}/contents/{path}?ref=main")
+              built = Path(path).read_bytes()
+              blob_sha = hashlib.sha1(
+                  b"blob " + str(len(built)).encode("ascii") + bytes([0]) + built
+              ).hexdigest()
+              if blob_sha == remote_file.get("sha"):
+                  continue
+              blob = request(f"/repos/{repo}/git/blobs", "POST", {
+                  "content": base64.b64encode(built).decode("ascii"),
+                  "encoding": "base64",
+              })
+              changed.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
+
+          if not changed:
+              print("React Studio bundle and Tailwind CSS are already current; no commit created.")
+              raise SystemExit(0)
+
+          current_ref = request(f"/repos/{repo}/git/ref/heads/main")
+          parent_sha = current_ref["object"]["sha"]
+          if parent_sha != expected:
+              print(f"::warning::main moved before publication; no update (tested={expected}, current={parent_sha}).")
+              raise SystemExit(0)
+          parent = request(f"/repos/{repo}/git/commits/{parent_sha}")
+          tree = request(f"/repos/{repo}/git/trees", "POST", {
+              "base_tree": parent["tree"]["sha"],
+              "tree": changed,
+          })
+          commit = request(f"/repos/{repo}/git/commits", "POST", {
+              "message": "build: publish verified React Studio assets",
+              "tree": tree["sha"],
+              "parents": [parent_sha],
+          })
+          current_latest = request(f"/repos/{repo}/git/ref/heads/main")["object"]["sha"]
+          if current_latest != expected:
+              print("::warning::main moved during publication; generated blobs left unreferenced.")
+              raise SystemExit(0)
+          updated = request(f"/repos/{repo}/git/refs/heads/main", "PATCH", {
+              "sha": commit["sha"], "force": False,
+          })
+          print(f"Published verified Studio assets at {updated['object']['sha']}")
+          PY

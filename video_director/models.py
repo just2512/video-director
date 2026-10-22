@@ -266,6 +266,11 @@ class Layer(BaseModel):
     """
 
     type: LayerType
+    # Preserve caller identity and track lineage through Pydantic validation.
+    # Extra fields are otherwise discarded, silently breaking FilmDocument migration.
+    id: Optional[str] = None
+    clip_id: Optional[str] = None
+    track_id: Optional[str] = None
     asset_id: Optional[str] = None
     start: float = 0.0
     duration: float
@@ -362,18 +367,20 @@ class SceneIR(BaseModel):
             raise ValueError(f"scene {self.id}: duration must be positive")
         if not self.layers:
             raise ValueError(f"scene {self.id}: 无视觉层")
-        # layers 必须无缝铺满场景（排序后逐段衔接）
+        # Visual layers are allowed to overlap: a scene is a compositing stack,
+        # not a single serial lane. Their union must still cover the scene without gaps.
+        # Overlaps are resolved later into physical FilmDocument tracks with stable z-order.
         cursor = 0.0
-        for layer in sorted(self.layers, key=lambda x: x.start):
-            if abs(layer.start - cursor) > config.ITEM_DURATION_TOLERANCE:
+        for layer in sorted(self.layers, key=lambda x: (x.start, x.duration)):
+            if layer.start > cursor + config.ITEM_DURATION_TOLERANCE:
                 raise ValueError(
                     f"scene {self.id}: layer@{layer.start:.3f} 与前层末尾 {cursor:.3f} "
-                    f"存在 gap/overlap"
+                    f"存在 gap"
                 )
-            cursor = layer.start + layer.duration
+            cursor = max(cursor, layer.start + layer.duration)
         if abs(cursor - self.duration) > config.ITEM_DURATION_TOLERANCE:
             raise ValueError(
-                f"scene {self.id}: layers 总长 {cursor:.3f} 与场景时长 {self.duration} 不符"
+                f"scene {self.id}: layers 覆盖范围 {cursor:.3f} 与场景时长 {self.duration} 不符"
             )
         # selections 必须落在场景区间内
         for sel in self.selections:
