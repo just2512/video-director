@@ -505,8 +505,13 @@
     el.volume=clamp(baseVolume*volumeEnvelopeAt(entry.volumeEnvelope,localTime)*fadeFactor,0,1);
     el.muted=state.renderMode||muted;
     var drift=Math.abs(finite(el.currentTime,0)-desired);
-    if(forceSeek||!entry.active||drift>(state.playing?0.45:0.04)){try{el.currentTime=desired;}catch(_){}}
-    if(state.playing){
+    // In deterministic offline capture, prepareFrameEntry owns source-time seeking
+    // and presentation verification. Seeking here makes currentTime look correct
+    // before the decoder has actually presented the requested frame.
+    if(!state.renderMode&&(forceSeek||!entry.active||drift>(state.playing?0.45:0.04))){
+      try{el.currentTime=desired;}catch(_){}
+    }
+    if(state.playing&&!state.renderMode){
       if(el.paused){var promise=el.play();if(promise&&promise.catch)promise.catch(function(){});}
       else if(drift>0.8){try{el.currentTime=desired;}catch(_){}}
     }else{try{el.pause();}catch(_){}}

@@ -7,8 +7,12 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
     render = (root / "video_director" / "film_render.py").read_text(encoding="utf-8")
 
+    sync_media = runtime[runtime.index("function syncMedia"):runtime.index("function renderTime", runtime.index("function syncMedia"))]
+    assert "if(!state.renderMode&&(forceSeek||!entry.active||drift>(state.playing?0.45:0.04)))" in sync_media
     helper = runtime[runtime.index("function waitForPresentedVideoFrame"):runtime.index("function nextFrame()", runtime.index("function waitForPresentedVideoFrame"))]
     prepare = runtime[runtime.index("async function prepareFrameEntry"):runtime.index("function renderFrame", runtime.index("async function prepareFrameEntry"))]
+    assert "frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames);" in prepare
+    assert "el.currentTime=desired;" in prepare
     assert "requestVideoFrameCallback" in helper
     assert "metadata.mediaTime" in helper
     assert "metadata.presentedFrames" in helper
