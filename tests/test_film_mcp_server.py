@@ -29,7 +29,7 @@ def test_mcp_initialize_and_tool_catalog_are_protocol_valid():
 
     listed = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     names = {tool["name"] for tool in listed["result"]["tools"]}
-    assert names == {"film.status", "film.validate", "film.edit", "film.diff", "film.look", "film.render"}
+    assert names == {"film.status", "film.initialize", "film.validate", "film.edit", "film.diff", "film.look", "film.render"}
     assert mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
 
 
