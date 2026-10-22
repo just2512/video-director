@@ -277,7 +277,7 @@ def test_film_proposal_store_is_project_scoped_single_use_and_expires():
 
     now = [100.0]
     store = FilmProposalStore(ttl_seconds=15, clock=lambda: now[0])
-    operations = [{"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5}]
+    operations = [{"op": "set", "clip": "clip-a", "field": "speed", "value": 2.5}]
     store.put("proposal-1", "project-a", "rev-1", operations)
     operations[0]["value"] = 3.0
 
@@ -2442,7 +2442,7 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
         proposal = first_response["proposal"]
         assert proposal["base_revision"] == original["rev"]
         assert proposal["operations"] == [{
-            "op": "set", "clip": "clip-a", "field": "speed", "value": "1.5"
+            "op": "set", "clip": "clip-a", "field": "speed", "value": "2.5"
         }]
         # Streaming is feedback only: generating a proposal must not write film.html.
         assert fd.read_project_film(project_id)["rev"] == original["rev"]
@@ -2458,7 +2458,7 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
         committed = fd.read_project_film(project_id)
         clip_a = next(clip for track in committed["doc"]["tracks"]
                       for clip in track["clips"] if clip["id"] == "clip-a")
-        assert clip_a["attrs"]["speed"] == "1.5"
+        assert clip_a["attrs"]["speed"] == "2.5"
 
         stale_events = post_stream(committed["rev"], "stream-request-0002")
         stale_result = next(payload for name, payload in stale_events if name == "result")
