@@ -23926,6 +23926,12 @@
         selectedIds: this.selectedIdsProxy,
         selectionAnchor: "",
         pendingExternalRevision: "",
+        insertMode: false,
+        overwriteMode: false,
+        snapEnabled: true,
+        envelopeMode: false,
+        slideMode: false,
+        slipMode: false,
         busy: false,
         broken: false,
         pendingTransaction: null
@@ -23976,7 +23982,7 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
-      } else if (key === "busy" || key === "broken") {
+      } else if (key === "busy" || key === "broken" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
         normalized = value === true;
       } else if (key === "pendingTransaction") {
         normalized = asPendingTransaction(value);
@@ -24006,6 +24012,12 @@
         selectedIds: this.selectedIdsProxy,
         selectionAnchor: asString(target.selectionAnchor),
         pendingExternalRevision: asString(target.pendingExternalRevision),
+        insertMode: target.insertMode === true,
+        overwriteMode: target.overwriteMode === true,
+        snapEnabled: target.snapEnabled !== false,
+        envelopeMode: target.envelopeMode === true,
+        slideMode: target.slideMode === true,
+        slipMode: target.slipMode === true,
         busy: target.busy === true,
         broken: target.broken === true,
         pendingTransaction: asPendingTransaction(target.pendingTransaction)
@@ -24020,6 +24032,12 @@
         ["selectedIds", "selectedIds"],
         ["selectionAnchor", "selectionAnchor"],
         ["pendingExternalRevision", "pendingExternalRevision"],
+        ["insertMode", "insertMode"],
+        ["overwriteMode", "overwriteMode"],
+        ["snapEnabled", "snapEnabled"],
+        ["envelopeMode", "envelopeMode"],
+        ["slideMode", "slideMode"],
+        ["slipMode", "slipMode"],
         ["busy", "busy"],
         ["broken", "broken"],
         ["pendingTransaction", "pendingTransaction"]
@@ -25312,19 +25330,44 @@
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", id: "fs-element-inspect-toggle", type: "button", "data-film-action": "canvas-inspect", "aria-pressed": "false", title: "\u5728\u8282\u76EE\u76D1\u89C6\u5668\u4E2D\u70B9\u9009 HTML \u955C\u5934\u91CC\u7684\u6587\u5B57\u6216\u56FE\u5C42", children: "\u9009\u62E9\u753B\u9762\u5143\u7D20" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { id: "fs-playhead-value", children: "00:00.000" })
   ] });
-  var StudioTimelineToolbar = () => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "insert-mode", "aria-pressed": "false", title: "\u5F00\u542F\u540E\uFF0C\u7D20\u6750\u63D2\u5165\u6240\u9009\u8F68\u9053\u5E76\u63A8\u79FB\u540E\u7EED\u7247\u6BB5\u53CA\u540C\u6B65\u9501\u5B9A\u8F68\u9053", children: "\u63D2\u5165\u7F16\u8F91\uFF1A\u5173" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "overwrite-mode", "aria-pressed": "false", title: "\u8986\u76D6\u7F16\u8F91\u53EA\u66FF\u6362\u6240\u9009\u8F68\u9053\u7684\u91CD\u53E0\u533A\u95F4\uFF0C\u4E0D\u63A8\u79FB\u5176\u4ED6\u7247\u6BB5\u6216\u97F3\u9891\u8F68\u9053", children: "\u8986\u76D6\u7F16\u8F91\uFF1A\u5173" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "toggle-snap", "aria-pressed": "true", title: "\u5438\u9644\u5230\u64AD\u653E\u5934\u3001\u7247\u5934\u548C\u5176\u4ED6\u7247\u6BB5\u8FB9\u7F18\uFF1B\u5438\u9644\u8DDD\u79BB\u6309\u5C4F\u5E55\u50CF\u7D20\u8BA1\u7B97", children: "\u5438\u9644\uFF1A\u5F00" }),
+  var StudioTimelineToolbar = ({
+    insertMode,
+    overwriteMode,
+    snapEnabled,
+    envelopeMode,
+    slideMode,
+    slipMode
+  }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (insertMode ? " fs-primary" : ""), type: "button", "data-film-action": "insert-mode", "aria-pressed": insertMode, title: "\u5F00\u542F\u540E\uFF0C\u7D20\u6750\u63D2\u5165\u6240\u9009\u8F68\u9053\u5E76\u63A8\u79FB\u540E\u7EED\u7247\u6BB5\u53CA\u540C\u6B65\u9501\u5B9A\u8F68\u9053", children: [
+      "\u63D2\u5165\u7F16\u8F91\uFF1A",
+      insertMode ? "\u5F00" : "\u5173"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (overwriteMode ? " fs-primary" : ""), type: "button", "data-film-action": "overwrite-mode", "aria-pressed": overwriteMode, title: "\u8986\u76D6\u7F16\u8F91\u53EA\u66FF\u6362\u6240\u9009\u8F68\u9053\u7684\u91CD\u53E0\u533A\u95F4\uFF0C\u4E0D\u63A8\u79FB\u5176\u4ED6\u7247\u6BB5\u6216\u97F3\u9891\u8F68\u9053", children: [
+      "\u8986\u76D6\u7F16\u8F91\uFF1A",
+      overwriteMode ? "\u5F00" : "\u5173"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn", type: "button", "data-film-action": "toggle-snap", "aria-pressed": snapEnabled, title: "\u5438\u9644\u5230\u64AD\u653E\u5934\u3001\u7247\u5934\u548C\u5176\u4ED6\u7247\u6BB5\u8FB9\u7F18\uFF1B\u5438\u9644\u8DDD\u79BB\u6309\u5C4F\u5E55\u50CF\u7D20\u8BA1\u7B97", children: [
+      "\u5438\u9644\uFF1A",
+      snapEnabled ? "\u5F00" : "\u5173"
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "split", title: "\u5728\u64AD\u653E\u5934\u5207\u5206\uFF08S\uFF09", children: "\u5728\u64AD\u653E\u5934\u5207\u5206" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "copy-clips", title: "\u590D\u5236\u9009\u4E2D\u7247\u6BB5\uFF08Ctrl/\u2318+C\uFF09", children: "\u590D\u5236" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "paste-clips", title: "\u6309\u539F\u76F8\u5BF9\u5E03\u5C40\u7C98\u8D34\u5230\u64AD\u653E\u5934\u9644\u8FD1\u7684\u53EF\u7528\u533A\u95F4\uFF08Ctrl/\u2318+V\uFF09", children: "\u7C98\u8D34" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "join-cut", title: "\u5408\u5E76\u540C\u8F68\u76F8\u90BB\u3001\u540C\u6E90\u8FDE\u7EED\u4E14\u5C5E\u6027\u4E00\u81F4\u7684\u5207\u5206\u7247\u6BB5", children: "\u6108\u5408\u5207\u53E3" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove", children: "\u5220\u9664\u7247\u6BB5" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "ripple-delete", title: "\u5220\u9664\u9009\u4E2D\u7247\u6BB5\u5BF9\u5E94\u7684\u65F6\u95F4\u6BB5\uFF0C\u5E76\u6536\u62E2\u5168\u90E8\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "envelope-mode", "aria-pressed": "false", title: "\u5207\u6362\u97F3\u91CF\u5173\u952E\u5E27\u7F16\u8F91\u6A21\u5F0F\uFF1B\u666E\u901A\u6A21\u5F0F\u4E0B\u53EF\u6B63\u5E38\u62D6\u52A8\u7247\u6BB5", children: "\u97F3\u91CF\u66F2\u7EBF\uFF1A\u5173" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "slide-mode", "aria-pressed": "false", title: "\u5207\u6362\u6ED1\u79FB\u4FEE\u526A\u6A21\u5F0F\uFF1B\u62D6\u52A8\u4E2D\u95F4\u89C6\u9891/\u97F3\u9891\u7247\u6BB5\u4E3B\u4F53\uFF0C\u5916\u4FA7\u65F6\u95F4\u7EBF\u8FB9\u754C\u4FDD\u6301\u4E0D\u53D8", children: "\u6ED1\u79FB\u4FEE\u526A\uFF1A\u5173" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "slip-mode", "aria-pressed": "false", title: "\u5207\u6362\u6E90\u533A\u95F4\u6ED1\u79FB\u6A21\u5F0F\uFF1B\u53EA\u6539\u53D8\u7D20\u6750\u6E90\u8303\u56F4\uFF0C\u7247\u6BB5\u65F6\u95F4\u7EBF\u4F4D\u7F6E\u4E0E\u957F\u5EA6\u4E0D\u53D8", children: "\u6E90\u533A\u95F4\u6ED1\u79FB\uFF1A\u5173" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (envelopeMode ? " fs-envelope-mode-active" : ""), type: "button", "data-film-action": "envelope-mode", "aria-pressed": envelopeMode, title: "\u5207\u6362\u97F3\u91CF\u5173\u952E\u5E27\u7F16\u8F91\u6A21\u5F0F\uFF1B\u666E\u901A\u6A21\u5F0F\u4E0B\u53EF\u6B63\u5E38\u62D6\u52A8\u7247\u6BB5", children: [
+      "\u97F3\u91CF\u66F2\u7EBF\uFF1A",
+      envelopeMode ? "\u5F00" : "\u5173"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (slideMode ? " fs-slide-mode-active" : ""), type: "button", "data-film-action": "slide-mode", "aria-pressed": slideMode, title: "\u5207\u6362\u6ED1\u79FB\u4FEE\u526A\u6A21\u5F0F\uFF1B\u62D6\u52A8\u4E2D\u95F4\u89C6\u9891/\u97F3\u9891\u7247\u6BB5\u4E3B\u4F53\uFF0C\u5916\u4FA7\u65F6\u95F4\u7EBF\u8FB9\u754C\u4FDD\u6301\u4E0D\u53D8", children: [
+      "\u6ED1\u79FB\u4FEE\u526A\uFF1A",
+      slideMode ? "\u5F00" : "\u5173"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (slipMode ? " fs-slip-mode-active" : ""), type: "button", "data-film-action": "slip-mode", "aria-pressed": slipMode, title: "\u5207\u6362\u6E90\u533A\u95F4\u6ED1\u79FB\u6A21\u5F0F\uFF1B\u53EA\u6539\u53D8\u7D20\u6750\u6E90\u8303\u56F4\uFF0C\u7247\u6BB5\u65F6\u95F4\u7EBF\u4F4D\u7F6E\u4E0E\u957F\u5EA6\u4E0D\u53D8", children: [
+      "\u6E90\u533A\u95F4\u6ED1\u79FB\uFF1A",
+      slipMode ? "\u5F00" : "\u5173"
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "add-track", children: "\uFF0B\u8F68\u9053" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove-empty-track", children: "\u5220\u7A7A\u8F68" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "zoom-out", children: "\u2212" }),
@@ -25459,6 +25502,12 @@
           "data-selected-clip": filmSnapshot.selectedId,
           "data-selected-clips": filmSnapshot.selectedIds.join(","),
           "data-pending-revision": filmSnapshot.pendingExternalRevision,
+          "data-insert-mode": filmSnapshot.insertMode ? "true" : "false",
+          "data-overwrite-mode": filmSnapshot.overwriteMode ? "true" : "false",
+          "data-snap-enabled": filmSnapshot.snapEnabled ? "true" : "false",
+          "data-envelope-mode": filmSnapshot.envelopeMode ? "true" : "false",
+          "data-slide-mode": filmSnapshot.slideMode ? "true" : "false",
+          "data-slip-mode": filmSnapshot.slipMode ? "true" : "false",
           "data-busy": filmSnapshot.busy ? "true" : "false",
           "data-broken": filmSnapshot.broken ? "true" : "false",
           "data-pending-transaction-kind": filmSnapshot.pendingTransaction?.kind || "",
@@ -25469,7 +25518,17 @@
       state.assets ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: state.assets })) : null,
       state.timeline ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: state.timeline })) : null,
       state.toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
-      state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
+      state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        StudioTimelineToolbar,
+        {
+          insertMode: filmSnapshot.insertMode,
+          overwriteMode: filmSnapshot.overwriteMode,
+          snapEnabled: filmSnapshot.snapEnabled,
+          envelopeMode: filmSnapshot.envelopeMode,
+          slideMode: filmSnapshot.slideMode,
+          slipMode: filmSnapshot.slipMode
+        }
+      )) : null,
       state.scrubVisible ? studioPortal("fs-react-scrub-row", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioScrubRow, {})) : null,
       state.aiModel ? studioPortal("fs-react-ai-director", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAiDirector, { model: state.aiModel }, "ai-director")) : null,
       state.clipInspectorMounted ? studioPortal(
