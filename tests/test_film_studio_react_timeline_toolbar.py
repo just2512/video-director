@@ -32,6 +32,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component
     assert "window.filmStudioOwnsClipGesturePointer(e.pointerId)" in studio
     assert "onClick={() => window.filmStudioSeek?.(tick.at)}" in component
+    assert "window.filmStudioJumpToKeyframe?.(clip.id, mark.at)" in component
+    assert "window.filmStudioJumpToKeyframe=function(clipId,at)" in studio
+    assert "window.filmStudioJumpToKeyframe" in studio and "renderSurface" in studio
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioMoveClipGesture = function(e)" in studio
     assert "if(S.reactGesturePointerId===e.pointerId)return;" not in studio

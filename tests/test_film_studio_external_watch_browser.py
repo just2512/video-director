@@ -16,7 +16,7 @@ SAMPLE = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
 <body>
 <section id="video-main" data-label="主画面">
-<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2" volume="1"></video>
+<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2" volume="1" data-film-keyframes='[{"property":"x","keyframes":[{"at":1,"value":0.25,"easing":"linear"}]}]'></video>
 <video id="clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>
 </section>
 <section id="audio-bed" data-label="BGM">
@@ -84,6 +84,18 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.wait_for_function(
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
+
+                # Keyframe markers select their clip and seek using clip-relative time.
+                page.locator('button[data-film-keyframe-marker="clip-a"][data-keyframe-at="1"]').click()
+                page.wait_for_function(
+                    """() => {
+                      const slider = document.querySelector('#fs-playhead');
+                      const monitor = document.querySelector('#fs-monitor-time');
+                      return !!slider && Math.abs(Number(slider.value) - 1) < 0.02 &&
+                        !!monitor && monitor.textContent.trim() === '00:01.000';
+                    }"""
+                )
+                assert page.locator('#fs-field-speed').input_value() == '2'
 
                 # The React ruler must route seek through the shared playhead bridge.
                 page.locator('#fs-ruler-body .fs-ruler-mark[data-at="5"]').click()

@@ -874,14 +874,12 @@
       timelineRoot.addEventListener('click',function(event){
         var marker=event.target&&event.target.closest?event.target.closest('[data-film-keyframe-marker]'):null;
         if(!marker)return;
+        if(window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==="function")return;
         event.preventDefault();event.stopPropagation();
-        var clipId=marker.getAttribute('data-film-keyframe-marker'),clip=findClip(clipId);
-        if(!clip)return;
-        var seekTo=Math.max(0,Number(clip.at)+Number(marker.getAttribute('data-keyframe-at')||0));
-        S.selectedId=clipId;S.selectedIds=[clipId];S.selectionAnchor=clipId;
-        syncClipSelectionVisual();renderInspector();renderAssets();
-        // Avoid a full Studio render while the native marker click is being dispatched.
-        window.filmStudioSeek(seekTo);
+        window.filmStudioJumpToKeyframe(
+          marker.getAttribute('data-film-keyframe-marker'),
+          Number(marker.getAttribute('data-keyframe-at')||0)
+        );
       },true);
     }
     $('fs-timeline').querySelectorAll('[data-clip]').forEach(function(el){
@@ -1790,6 +1788,14 @@
     var wasPlaying=!!window.filmStudioPlaying;
     S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));window.filmStudioPlaying=false;setPlayheadVisual();
     syncRuntime(wasPlaying?'seek-pause':undefined);
+  };
+  window.filmStudioJumpToKeyframe=function(clipId,at){
+    var clip=findClip(String(clipId||''));
+    if(!clip)return;
+    var seekTo=Math.max(0,Number(clip.at)+Number(at||0));
+    S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;
+    syncClipSelectionVisual();renderInspector();renderAssets();
+    window.filmStudioSeek(seekTo);
   };
   window.filmStudioNudge=function(direction){window.filmStudioSeek(S.playhead+direction/30);};
   window.filmStudioTogglePlayback=function(){

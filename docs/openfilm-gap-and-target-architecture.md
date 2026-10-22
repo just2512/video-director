@@ -6,7 +6,7 @@
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
-最重要的差距不是“还少几个按钮”，而是：**导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；Studio 仍由 React 视图与原生 DOM/Pointer Events 共同承担，主状态和手势尚未整体迁入 React；通用视觉关键帧、剪辑吸附和右键上下文操作已补到源代码及兼容界面，但还缺可运行构建产物下的真实浏览器验收；frame(t) 的确定性范围小于任意网页；AI 已支持 SSE 增量反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。**
+最重要的剩余差距不是按钮数量，而是所有权边界：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是最终时间线，但其编辑状态与剪辑数学仍通过原生 JS 服务桥驱动，React 已拥有单一根、轨道开关、时码尺 seek、片段指针生命周期与关键帧跳转，音量包络/波形/部分上下文菜单仍保留原生事件入口；frame(t) 的确定性范围小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
 
 ## 目前已有的可复用基础
 
@@ -22,7 +22,7 @@
 |---|---|---|
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
-| React Studio | **统一 React root 已落地，属性与 AI 侧栏已改为并排同时可见并可拖动分配高度**；手势与 FilmDocument 写入仍经过现有原生交互/服务桥。 | Studio UI 构建使用 self-hosted `[self-hosted, linux, x64]` runner 与独立 `studio_ui/` 包；Tailwind 入口必须位于独立包中才能正确解析本地依赖。实际 bundle、浏览器回归和导出验证以最新 CI 为准 |
+| React Studio | **单一 React root；AI 与 Inspector 并排；轨道锁/同步锁/隐藏/静音、时码尺 seek、片段选择/指针生命周期、关键帧跳转由 React 分发**；业务状态、source-aware 剪辑数学与部分 canvas/context-menu 交互仍走既有原生 JS/FilmDocument 桥。 | Studio 构建使用 self-hosted `[self-hosted, linux, x64]` runner 与独立 `studio_ui/` 包；React/Tailwind 构建、选定 Chromium 回归、JS 语法检查与产物发布均通过最新 CI，但不是全部剪辑组合或逐帧渲染一致性的证明 |
 | 页面元素编辑 | 已支持 selector、文本、位置/尺寸、文字色、旋转；后端还支持背景色、不透明度、字重、对齐等受限字段 | Inspector 应暴露常用可编辑字段，并让 React 与无 bundle fallback 同契约；编辑不应意外物化未改字段 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线 | 自定义 Bezier 控制柄尚未实现；完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收 |
@@ -87,7 +87,7 @@
 - 通用视觉属性写入 `data-film-keyframes`，音频增益仍使用 `volume_envelope`，不混用两种语义。
 - 关键帧时间是 clip-relative。split、trim、roll、slide 按新片段时长切片/重基准；切入/切出 eased segment 时用后端校验的 `window` 表达式保留插值形状。回归用例分别覆盖两个源时长的切分/修剪与 roll/slide。
 - React Inspector 源码和可运行 fallback 都有曲线、节点拖动、帧步进时间/数值编辑、缓动、增加/删除/清空；时间线上显示关键帧标记，点击跳到影片绝对时间。fallback JSON 高级编辑仍共用同一 FilmDocument operation。
-- 自定义 cubic Bezier 控制柄尚未实现；完整浏览器/导出逐帧一致性仍需在 React 构建产物生成后跑通真实 Chromium 与 FFmpeg 验收。当前 GitHub Actions 在 runner 分配前失败，不能把这些新增测试描述为已通过。
+- 自定义 cubic Bezier 控制柄尚未实现；完整浏览器/导出逐帧一致性仍需在 React 构建产物生成后跑通真实 Chromium 与 FFmpeg 验收。截至 2026-10-22，最新自托管回归已验证 React/Tailwind 构建、选定 Chromium/FilmDocument 回归、JavaScript 语法与 bundle/CSS 发布；完整 AI Director 回归 1256 项通过。该结果不覆盖自定义 Bezier 控制柄、全部专业剪辑组合或所有网页场景的逐帧确定性。
 
 ### D. 最后强化媒体生成与导出
 
@@ -112,7 +112,7 @@
 - 新增构建契约测试，要求工作流使用自托管 runner、保留依赖锁文件，且实际 JS/CSS 不能是占位输出。
 - React Studio 的工具栏、时间线、素材列表、AI 面板、片段检查器和画布检查器改为通过一个 `createRoot()` 管理，并以 portals 挂载到既有布局槽位；这保留了现有 DOM 布局和事件桥接，但消除了多个 React root 独立管理同一个 Studio 的情况。
 - 右侧属性检查器和 AI 导演不再通过 tab 互斥隐藏；二者常驻同一工作区，新增可用鼠标/上下方向键调整比例的分隔条，选择比例存入 `localStorage`。
-- **当前验收状态（2026-10-22）：** `Studio UI build and browser smoke` 自托管工作流已成功完成 React typecheck、React/Tailwind 构建、选定的 FilmDocument/迁移/Studio Chromium 回归、JavaScript 语法检查和构建产物发布。此结果只证明该工作流列出的测试范围通过，不代表完整仓库测试、所有剪辑组合或所有场景的确定性均已通过。
+- **当前验收状态（2026-10-22）：** 当前 `main` 的 React Studio bundle/CSS 已由自托管工作流构建并发布；定向 Studio 工作流和完整 AI Director 回归均通过（1256 passed、0 failed）。验证范围仍不包含所有媒体编解码组合、所有时间线操作排列、自定义 cubic Bezier 手柄与任意 HTML/WebGL 场景的逐帧确定性。
 
 ## 本次直接落地
 
