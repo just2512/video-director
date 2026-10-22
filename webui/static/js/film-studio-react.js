@@ -26,9 +26,9 @@
     mod
   ));
 
-  // node_modules/react/cjs/react.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "node_modules/react/cjs/react.development.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // node_modules/react/index.js
+  // ../remotion_runtime/node_modules/react/index.js
   var require_react = __commonJS({
-    "node_modules/react/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // node_modules/react-dom/index.js
+  // ../remotion_runtime/node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "node_modules/react-dom/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // node_modules/scheduler/cjs/scheduler.development.js
+  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // node_modules/scheduler/index.js
+  // ../remotion_runtime/node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "node_modules/scheduler/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom-client.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // node_modules/react-dom/client.js
+  // ../remotion_runtime/node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "node_modules/react-dom/client.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // node_modules/react/cjs/react-jsx-runtime.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // node_modules/react/jsx-runtime.js
+  // ../remotion_runtime/node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "node_modules/react/jsx-runtime.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -23874,6 +23874,144 @@
       return Math.round(finiteOr(seconds, 0) * safeFps) / safeFps;
     }
   };
+
+  // ../remotion_runtime/src/film-store.ts
+  var asString = (value) => typeof value === "string" ? value : value == null ? "" : String(value);
+  var asPendingTransaction = (value) => {
+    if (!value || typeof value !== "object") return null;
+    const raw = value;
+    const operations = Array.isArray(raw.operations) ? raw.operations.slice() : [];
+    const count = Number(raw.operationCount);
+    return {
+      kind: asString(raw.kind) || "unknown",
+      baseRevision: asString(raw.baseRevision),
+      operations,
+      operationCount: Number.isFinite(count) && count >= 0 ? count : operations.length
+    };
+  };
+  var FilmStore = class {
+    listeners = /* @__PURE__ */ new Set();
+    selectedIdsTarget = [];
+    selectedIdsProxy;
+    mutingSelectedIds = false;
+    boundLegacyTarget = null;
+    snapshot;
+    constructor() {
+      this.selectedIdsProxy = new Proxy(this.selectedIdsTarget, {
+        set: (target, property, value) => {
+          const changed = Reflect.set(target, property, value, target);
+          if (changed && !this.mutingSelectedIds) {
+            this.publish({ ...this.snapshot, selectedIds: this.selectedIdsProxy });
+          }
+          return changed;
+        },
+        deleteProperty: (target, property) => {
+          const changed = Reflect.deleteProperty(target, property);
+          if (changed && !this.mutingSelectedIds) {
+            this.publish({ ...this.snapshot, selectedIds: this.selectedIdsProxy });
+          }
+          return changed;
+        }
+      });
+      this.snapshot = {
+        projectId: "",
+        film: null,
+        revision: "",
+        selectedId: "",
+        selectedIds: this.selectedIdsProxy,
+        selectionAnchor: "",
+        pendingExternalRevision: "",
+        busy: false,
+        broken: false,
+        pendingTransaction: null
+      };
+    }
+    getSnapshot = () => this.snapshot;
+    subscribe = (listener) => {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    };
+    publish(snapshot) {
+      this.snapshot = snapshot;
+      for (const listener of Array.from(this.listeners)) listener();
+    }
+    replaceSelectedIds(value, shouldPublish = true) {
+      const values = Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+      this.mutingSelectedIds = true;
+      this.selectedIdsTarget.splice(0, this.selectedIdsTarget.length, ...values);
+      this.mutingSelectedIds = false;
+      if (shouldPublish) {
+        this.publish({ ...this.snapshot, selectedIds: this.selectedIdsProxy });
+      }
+    }
+    setValue(key, value) {
+      if (key === "selectedIds") {
+        this.replaceSelectedIds(value);
+        return;
+      }
+      let normalized = value;
+      if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
+        normalized = asString(value);
+      } else if (key === "busy" || key === "broken") {
+        normalized = value === true;
+      } else if (key === "pendingTransaction") {
+        normalized = asPendingTransaction(value);
+      } else if (key === "film") {
+        normalized = value ?? null;
+        if (normalized && typeof normalized === "object" && typeof normalized.rev === "string") {
+          const revision = normalized.rev;
+          if (revision !== this.snapshot.revision) {
+            this.publish({ ...this.snapshot, film: normalized, revision });
+            return;
+          }
+        }
+      }
+      if (Object.is(this.snapshot[key], normalized)) return;
+      this.publish({ ...this.snapshot, [key]: normalized });
+    }
+    bindLegacyState(target) {
+      if (this.boundLegacyTarget === target) return;
+      this.replaceSelectedIds(target.selectedIds, false);
+      const film = target.data ?? null;
+      const filmRevision = film && typeof film === "object" && typeof film.rev === "string" ? film.rev : asString(target.rev);
+      this.snapshot = {
+        projectId: asString(target.projectId),
+        film,
+        revision: filmRevision,
+        selectedId: asString(target.selectedId),
+        selectedIds: this.selectedIdsProxy,
+        selectionAnchor: asString(target.selectionAnchor),
+        pendingExternalRevision: asString(target.pendingExternalRevision),
+        busy: target.busy === true,
+        broken: target.broken === true,
+        pendingTransaction: asPendingTransaction(target.pendingTransaction)
+      };
+      this.boundLegacyTarget = target;
+      this.publish(this.snapshot);
+      const bindings = [
+        ["projectId", "projectId"],
+        ["data", "film"],
+        ["rev", "revision"],
+        ["selectedId", "selectedId"],
+        ["selectedIds", "selectedIds"],
+        ["selectionAnchor", "selectionAnchor"],
+        ["pendingExternalRevision", "pendingExternalRevision"],
+        ["busy", "busy"],
+        ["broken", "broken"],
+        ["pendingTransaction", "pendingTransaction"]
+      ];
+      for (const [legacyKey, storeKey] of bindings) {
+        Object.defineProperty(target, legacyKey, {
+          configurable: true,
+          enumerable: true,
+          get: () => this.snapshot[storeKey],
+          set: (nextValue) => this.setValue(storeKey, nextValue)
+        });
+      }
+    }
+  };
+  var filmStore = new FilmStore();
+  window.filmStudioStore = filmStore;
 
   // ../remotion_runtime/src/StudioCanvasInspector.tsx
   var import_react_dom = __toESM(require_react_dom(), 1);
@@ -24941,6 +25079,7 @@
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
   ] });
   var TimelineSurface = ({ model }) => {
+    const filmSnapshot = (0, import_react.useSyncExternalStore)(filmStore.subscribe, filmStore.getSnapshot, filmStore.getSnapshot);
     const activePointerId = (0, import_react.useRef)(null);
     (0, import_react.useLayoutEffect)(() => {
       const ownsPointer = (pointerId) => activePointerId.current === pointerId;
@@ -24996,7 +25135,7 @@
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
               "div",
               {
-                className: "fs-clip" + (clip.selected ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : ""),
+                className: "fs-clip" + (filmSnapshot.selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : ""),
                 "data-clip": clip.id,
                 "data-clip-locked": clip.locked ? "true" : "false",
                 "data-track": clip.trackId,
@@ -25280,10 +25419,29 @@
     return target ? (0, import_react_dom.createPortal)(child, target, targetId) : null;
   };
   var StudioReactOwner = ({ state }) => {
+    const filmSnapshot = (0, import_react.useSyncExternalStore)(filmStore.subscribe, filmStore.getSnapshot, filmStore.getSnapshot);
     const clip = state.clipInspector;
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
     const element = state.canvasElement;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "div",
+        {
+          id: "fs-react-film-store-state",
+          hidden: true,
+          "aria-hidden": "true",
+          "data-film-project-id": filmSnapshot.projectId,
+          "data-film-revision": filmSnapshot.revision,
+          "data-selected-clip": filmSnapshot.selectedId,
+          "data-selected-clips": filmSnapshot.selectedIds.join(","),
+          "data-pending-revision": filmSnapshot.pendingExternalRevision,
+          "data-busy": filmSnapshot.busy ? "true" : "false",
+          "data-broken": filmSnapshot.broken ? "true" : "false",
+          "data-pending-transaction-kind": filmSnapshot.pendingTransaction?.kind || "",
+          "data-pending-transaction-base": filmSnapshot.pendingTransaction?.baseRevision || "",
+          "data-pending-transaction-operation-count": String(filmSnapshot.pendingTransaction?.operationCount || 0)
+        }
+      ),
       state.assets ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: state.assets })) : null,
       state.timeline ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: state.timeline })) : null,
       state.toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
