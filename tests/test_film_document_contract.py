@@ -2072,7 +2072,7 @@ def test_streaming_planner_forwards_cancel_event_and_upstream_handle():
     assert summary["summary"] == "调整画面关键帧"
 
 
-def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim():
+def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim_longer_source():
     doc = fd.parse_film(SAMPLE)
     channels = [{
         "property": "opacity",
