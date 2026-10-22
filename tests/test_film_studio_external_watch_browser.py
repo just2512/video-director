@@ -286,13 +286,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                         pass
                     page.wait_for_timeout(100)
-                assert persisted_keyframes is not None, {
-                    "stored_keyframes": clip_a.get("attrs", {}).get("data-film-keyframes"),
-                    "local_form": page.locator("#fs-field-keyframes").input_value(),
-                    "inspector_feedback": page.locator("#fs-clip-inspector-feedback").inner_text() if page.locator("#fs-clip-inspector-feedback").count() else "",
-                    "studio_status": page.locator("#film-studio-alert").inner_text() if page.locator("#film-studio-alert").count() else "",
-                    "edit_responses": film_edit_responses,
-                }
+                if persisted_keyframes is None:
+                    print("BEZIER_STORED=" + str(clip_a.get("attrs", {}).get("data-film-keyframes")))
+                    print("BEZIER_LOCAL=" + page.locator("#fs-field-keyframes").input_value())
+                    print("BEZIER_INSPECTOR_FEEDBACK=" + (page.locator("#fs-clip-inspector-feedback").inner_text() if page.locator("#fs-clip-inspector-feedback").count() else ""))
+                    print("BEZIER_STUDIO_STATUS=" + (page.locator("#film-studio-alert").inner_text() if page.locator("#film-studio-alert").count() else ""))
+                    print("BEZIER_EDIT_RESPONSES=" + repr(film_edit_responses))
+                assert persisted_keyframes is not None, clip_a.get("attrs", {}).get("data-film-keyframes")
                 assert 0 <= persisted_keyframes["x1"] <= persisted_keyframes["x2"] <= 1, persisted_keyframes
                 assert 0 <= persisted_keyframes["y1"] <= 1 and 0 <= persisted_keyframes["y2"] <= 1, persisted_keyframes
 
