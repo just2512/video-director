@@ -205,7 +205,7 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                     ("slide-mode", "slideMode", "滑移修剪：开", "滑移修剪：关"),
                     ("slip-mode", "slipMode", "源区间滑移：开", "源区间滑移：关"),
                 ]:
-                    button = page.locator(f'[data-film-action="{action}"]:visible')
+                    button = page.locator(f'[data-film-action="{action}"])
                     button.click()
                     page.wait_for_function(
                         "(key) => window.filmStudioStore.getSnapshot()[key] === "
@@ -213,7 +213,8 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                         arg=state_key, timeout=2000,
                     )
                     on_state = page.evaluate("""(selector) => {
-                      const button = document.querySelector(selector);
+                      const button = Array.from(document.querySelectorAll(selector))
+                    .find(candidate => candidate.getClientRects().length > 0);
                       const snapshot = window.filmStudioStore.getSnapshot();
                       return {
                         text: button?.textContent || '',
@@ -223,7 +224,7 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                         slideMode: snapshot.slideMode,
                         slipMode: snapshot.slipMode,
                       };
-                    }""", f'[data-film-action="{action}"]:visible')
+                    }""", f'[data-film-action="{action}"])
                     assert (active_text in on_state["text"]), (action, on_state)
                     assert on_state["pressed"] == ("false" if state_key == "snapEnabled" else "true"), (action, on_state)
                     assert on_state[state_key] is (False if state_key == "snapEnabled" else True), (action, on_state)
@@ -235,13 +236,14 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                         arg=state_key, timeout=2000,
                     )
                     off_state = page.evaluate("""(selector) => {
-                      const button = document.querySelector(selector);
+                      const button = Array.from(document.querySelectorAll(selector))
+                    .find(candidate => candidate.getClientRects().length > 0);
                       return {
                         text: button?.textContent || '',
                         pressed: button?.getAttribute('aria-pressed'),
                         snapshot: window.filmStudioStore.getSnapshot(),
                       };
-                    }""", f'[data-film-action="{action}"]:visible')
+                    }""", f'[data-film-action="{action}"])
                     assert inactive_text in off_state["text"], (action, off_state)
                     assert off_state["pressed"] == ("true" if state_key == "snapEnabled" else "false"), (action, off_state)
                     assert off_state["snapshot"][state_key] is (True if state_key == "snapEnabled" else False), (action, off_state)
