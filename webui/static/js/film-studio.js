@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var $ = function (id) { return document.getElementById(id); };
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -550,8 +550,41 @@
       el.addEventListener('click',function(e){e.stopPropagation();window.filmStudioAddAsset(el.getAttribute('data-add-asset'));});
     });
   }
+  function syncAssetPaneMode(){
+    var mode=S.assetMode==='director'?'director':(S.assetMode==='library'?'library':'clips');
+    var list=$('fs-assets-list'),director=$('fs-director-planning-host');
+    if(list)list.style.display=mode==='director'?'none':'flex';
+    if(director)director.style.display=mode==='director'?'block':'none';
+    [['clips',$('fs-mode-clips')],['library',$('fs-mode-library')],['director',$('fs-mode-director')]].forEach(function(entry){
+      if(entry[1])entry[1].className='fs-asset-tab'+(mode===entry[0]?' fs-asset-tab-active':'');
+    });
+  }
+  function mountDirectorPlanning(){
+    var host=$('fs-director-planning-host');
+    if(!host)return;
+    ['director-plan-card','director-control-grid','director-bar-card'].forEach(function(id){
+      var node=$(id);
+      if(!node||host.contains(node))return;
+      if(!S.directorNodes.some(function(item){return item.node===node;})){
+        S.directorNodes.push({node:node,parent:node.parentNode,nextSibling:node.nextSibling});
+      }
+      host.appendChild(node);
+    });
+    syncAssetPaneMode();
+  }
+  function restoreDirectorPlanning(){
+    S.directorNodes.slice().reverse().forEach(function(item){
+      if(!item.node||!item.parent)return;
+      var anchor=item.nextSibling&&item.nextSibling.parentNode===item.parent?item.nextSibling:null;
+      item.parent.insertBefore(item.node,anchor);
+    });
+    S.directorNodes=[];
+    syncAssetPaneMode();
+  }
   function renderAssets() {
     var all=clips();$('fs-clip-count').textContent=String(all.length);
+    if(S.assetMode==='director'){syncAssetPaneMode();return;}
+    syncAssetPaneMode();
     if(window.filmStudioReactAssets&&typeof window.filmStudioReactAssets.render==='function'){
       var assetClips=all.map(function(c){
         var attrs=c.attrs||{},aid=attrs['data-asset-id']||'',label=attrs.title||attrs['data-role']||c.id;
@@ -583,10 +616,9 @@
     $('fs-assets-list').querySelectorAll('[data-clip]').forEach(function(el){el.addEventListener('click',function(){window.filmStudioSelectClip(el.getAttribute('data-clip'));});});
   }
   window.filmStudioShowAssetMode=function(mode){
-    S.assetMode=mode==='library'?'library':'clips';
-    var clipTab=$('fs-mode-clips'),libTab=$('fs-mode-library');
-    if(clipTab)clipTab.className='fs-asset-tab'+(S.assetMode==='clips'?' fs-asset-tab-active':'');
-    if(libTab)libTab.className='fs-asset-tab'+(S.assetMode==='library'?' fs-asset-tab-active':'');
+    S.assetMode=mode==='library'?'library':(mode==='director'?'director':'clips');
+    syncAssetPaneMode();
+    if(S.assetMode==='director')return;
     renderAssets();
   };
   window.filmStudioLoadLibrary=async function(){
@@ -1778,6 +1810,7 @@
   window.filmStudioToggle=function(){
     if(S.open){window.filmStudioClose();return;}
     S.open=true;
+    mountDirectorPlanning();
     var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
     panel.classList.add('fs-studio-expanded');panel.style.display='flex';
     document.documentElement.classList.add('fs-studio-open');
@@ -1835,6 +1868,7 @@
     document.documentElement.classList.remove('fs-studio-open');
     if(launcher)launcher.style.display='flex';
     $('film-studio-toggle').textContent='重新打开 Studio';
+    restoreDirectorPlanning();
     // Exiting the Studio never resumes the old CompositionIR editor for an active film.html project.
     var migrated=!!(S.data&&S.data.exists);
     $('editor-body').style.display=migrated?'none':((typeof ED!=='undefined'&&ED.pid)?'':'none');
@@ -3078,6 +3112,7 @@ window.filmStudioCopyClips=function(){
     close: () => window.filmStudioClose(),
     'clips-mode': () => window.filmStudioShowAssetMode('clips'),
     'library-mode': () => window.filmStudioLoadLibrary(),
+    'director-mode': () => window.filmStudioShowAssetMode('director'),
     'frame-prev': () => window.filmStudioNudge(-1),
     'play-toggle': () => window.filmStudioTogglePlayback(),
     'frame-next': () => window.filmStudioNudge(1),

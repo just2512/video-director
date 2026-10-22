@@ -133,8 +133,18 @@
       <div class="fs-workspace" id="fs-workspace-dock">
         <aside class="fs-pane fs-assets-pane">
           <div class="fs-pane-title">素材 / 片段 <span id="fs-clip-count">0</span></div>
-          <div class="fs-asset-tabs"><button class="fs-asset-tab fs-asset-tab-active" id="fs-mode-clips" type="button" data-film-action="clips-mode">时间线片段</button><button class="fs-asset-tab" id="fs-mode-library" type="button" data-film-action="library-mode">素材库</button></div>
+          <div class="fs-asset-tabs">
+            <button class="fs-asset-tab fs-asset-tab-active" id="fs-mode-clips" type="button" data-film-action="clips-mode">时间线片段</button>
+            <button class="fs-asset-tab" id="fs-mode-library" type="button" data-film-action="library-mode">素材库</button>
+            <button class="fs-asset-tab" id="fs-mode-director" type="button" data-film-action="director-mode">导演规划</button>
+          </div>
           <div class="fs-assets-list" id="fs-assets-list"><div class="fs-empty">还没有影片文档。</div></div>
+          <div class="fs-director-planning-host" id="fs-director-planning-host" style="display:none" aria-label="导演规划与准备">
+            <div class="fs-director-planning-note">
+              <strong>导演规划与素材准备</strong>
+              <p>在同一项目工作环境内查看导演任务、能力操作和规划指令。影片初始化后，时间线仍以 film.html revision 为准；旧 Composition 写入若与影片文档冲突会被服务端拒绝。</p>
+            </div>
+          </div>
         </aside>
         <div class="fs-pane-divider" data-divider="left" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整素材栏宽度"></div>
         <section class="fs-pane fs-monitor-pane">

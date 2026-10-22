@@ -352,3 +352,15 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 /* Attribute Inspector and AI Director remain visible together; users resize their split. */
 .film-studio-panel.fs-studio-expanded .fs-side-workbench{--fs-inspector-share:54%}
 .film-studio-panel.fs-studio-expanded #fs-side-divider{flex-shrink:0}
+
+
+/* Director planning stays available inside the same active Film Studio project. */
+.fs-director-planning-host{max-height:380px;overflow:auto;padding:2px;color:#e7e7e7}
+.fs-director-planning-host>.panel{background:#202020;border:1px solid #353535;border-radius:5px;color:#e7e7e7;margin:7px 0;padding:8px}
+.fs-director-planning-host .hint{color:#aaa}
+.fs-director-planning-host input,.fs-director-planning-host select,.fs-director-planning-host textarea{background:#111;color:#eee;border-color:#414141;max-width:100%;box-sizing:border-box}
+.fs-director-planning-note{padding:8px 9px;border:1px solid #343434;border-radius:5px;background:#1e2525;margin:0 0 8px}
+.fs-director-planning-note strong{font-size:12px;color:#d9e6e4}
+.fs-director-planning-note p{font-size:11px;line-height:1.5;color:#a8b8b6;margin:5px 0 0}
+#fs-director-planning-host #director-control-grid{background:transparent;border:0}
+#fs-director-planning-host #director-control-grid>*{max-width:100%;box-sizing:border-box}
