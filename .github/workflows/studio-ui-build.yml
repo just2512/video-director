@@ -37,12 +37,10 @@ jobs:
       # GitHub direct connections are unreliable from this network; route all
       # job traffic (archive recovery, npm/pip fallbacks, publication API)
       # through the host's v2rayN mixed (HTTP CONNECT + SOCKS) port.
+      # Lowercase only: Actions rejects case-insensitive duplicate env keys.
       http_proxy: http://172.24.128.1:10808
       https_proxy: http://172.24.128.1:10808
-      HTTP_PROXY: http://172.24.128.1:10808
-      HTTPS_PROXY: http://172.24.128.1:10808
       no_proxy: localhost,127.0.0.1,::1
-      NO_PROXY: localhost,127.0.0.1,::1
       # Python 3.11 conda interpreter (runner image standard, see ai-director).
       PY311_BIN: /home/actions/miniforge3/envs/py311/bin
     steps:
