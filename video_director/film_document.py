@@ -780,7 +780,9 @@ def _film_runtime_metadata_issues(clip: dict) -> list[str]:
                     if not isinstance(point, dict) or set(point) - {"at", "value", "easing"}:
                         raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的关键帧结构无效", 422)
                     at = _number(point.get("at"), prop + ".at", 0, duration)
-                    _number(point.get("value"), prop + ".value")
+                    keyframe_value = _number(point.get("value"), prop + ".value")
+                    if prop == "opacity" and not 0.0 <= keyframe_value <= 1.0:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", "opacity.value 必须在 0–1 范围内", 422)
                     if at <= last_at:
                         raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的关键帧时间必须严格递增且不能重复", 422)
                     raw_easing = point.get("easing") or "linear"
@@ -1101,6 +1103,19 @@ def parse_film(text: str) -> dict:
     if head_locator.head_start is None or head_locator.head_end is None:
         raise FilmError("INVALID_FILM", "film.html 缺少完整 head 元素", 422)
     head = text[head_locator.head_start:head_locator.head_end]
+    # HTMLParser treats <title> contents as raw text, so catch malformed head-only
+    # tags there before the parser loses their structural meaning.
+    for container in re.finditer(r"<(title|style)\b[^>]*>(.*?)</\1\s*>", head, re.I | re.S):
+        nested = re.search(r"<(meta|link|style|title)\b", container.group(2), re.I)
+        if nested:
+            head_open = re.search(r"<head\b[^>]*>", text, re.I)
+            offset = (head_open.end() if head_open else 0) + container.start(2) + nested.start()
+            line_number = text.count("\n", 0, offset) + 1
+            raise FilmError(
+                "INVALID_FILM",
+                f"第 {line_number} 行：{nested.group(1)} 必须是 head 的直接子元素",
+                422,
+            )
     if head_locator.script_line is not None:
         line_number = head_locator.script_line
         raise FilmError("INVALID_FILM", f"第 {line_number} 行：film.html 的 head 禁止 script；动态画面应放在 scenes/*.html", 422)
@@ -1318,6 +1333,16 @@ def _find_track(doc: dict, track_id: str) -> dict:
             return track
     raise FilmError("TRACK_NOT_FOUND", f"轨道不存在：{track_id}", 409)
 
+def validate_film(text: str) -> list[str]:
+    """Return validation diagnostics; an empty list means the film is structurally valid."""
+    try:
+        parse_film(text)
+    except FilmError as exc:
+        return [str(exc)]
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        return [f"film.html 无法验证：{exc}"]
+    return []
+
 
 def _ensure_unlocked(track: dict, clip: dict | None = None):
     if "locked" in (track.get("attrs") or {}):
@@ -1340,6 +1365,12 @@ def _validate_doc(doc: dict):
         end_seen = None
         for clip in sorted(track["clips"], key=lambda c: _number(c["attrs"].get("at", 0), "at", 0)):
             attrs = clip["attrs"]
+            for metadata_issue in _film_runtime_metadata_issues(clip):
+                raise FilmError(
+                    "INVALID_FILM_METADATA",
+                    f"片段 {clip['id']} 的运行时元数据无效：{metadata_issue}",
+                    422,
+                )
             _number(attrs.get("at", 0), "at", 0)
             if clip["tag"] in {"video", "audio"}:
                 if "speed" in attrs:
