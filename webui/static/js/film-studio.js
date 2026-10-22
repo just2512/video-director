@@ -1392,6 +1392,7 @@
     $('fs-assets-list').innerHTML='<div class="fs-empty">film.html 存在但无法使用。旧时间线已禁用；修复文档后点“重新载入”。</div>';
     $('fs-timeline').innerHTML='<div class="fs-empty">剪辑已暂停：film.html 校验失败。不会加载或写入旧 CompositionIR 时间线。</div>';
     showStatus('影片文档无效，已阻止回退到旧时间线。'+message,'error');
+    syncDirectorSelection();
   }
   async function filmStudioLoad(force) {
     if(!S.open&&!force)return;
@@ -1910,7 +1911,7 @@
     $('editor-empty').style.display=migrated?'none':((typeof ED!=='undefined'&&ED.pid)?'none':'');
   };
   window.filmStudioLoad=filmStudioLoad;window.filmStudioInitialize=filmStudioInitialize;
-  window.filmStudioSelectClip=function(id){S.selectedId=id;S.selectedIds=id?[id]:[];S.selectionAnchor=id;var c=findClip(id);if(c)S.playhead=c.at;render();syncDirectorSelection();};
+  window.filmStudioSelectClip=function(id){S.selectedId=id;S.selectedIds=id?[id]:[];S.selectionAnchor=id;var c=findClip(id);if(c)S.playhead=c.at;render();};
   window.filmStudioSeek=function(value){
     var wasPlaying=!!window.filmStudioPlaying;
     S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));window.filmStudioPlaying=false;setPlayheadVisual();
