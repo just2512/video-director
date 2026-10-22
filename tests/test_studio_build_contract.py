@@ -30,3 +30,20 @@ def test_studio_published_assets_are_real_build_outputs():
     assert bundle.stat().st_size > 1000, "React Studio bundle is still too small"
     assert css.stat().st_size > 1000, "Tailwind output is still too small"
     assert "Build output placeholder" not in bundle.read_text(encoding="utf-8")
+
+
+def test_studio_components_share_one_react_root_and_keep_portal_slots():
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+
+    assert component.count("createRoot(") == 1
+    assert "createPortal" in component
+    assert "const StudioReactOwner: React.FC" in component
+    assert 'id="fs-react-root"' in html
+    for surface in (
+        "fs-assets-list", "fs-timeline", "fs-react-toolbar",
+        "fs-react-timeline-toolbar", "fs-react-scrub-row",
+        "fs-react-ai-director", "fs-inspector", "fs-react-canvas-inspector",
+    ):
+        assert f'"{surface}"' in component

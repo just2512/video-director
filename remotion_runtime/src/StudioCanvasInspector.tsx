@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
-import {flushSync} from "react-dom";
+import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
 type Rect = {x?: number; y?: number; width?: number; height?: number};
@@ -996,101 +996,117 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
   );
 };
 
-let assetsRoot: Root | null = null;
-let assetsMount: HTMLElement | null = null;
+type StudioReactState = {
+  assets: FilmStudioAssetsModel | null;
+  timeline: FilmTimelineSurfaceModel | null;
+  toolbarVisible: boolean;
+  timelineToolbarVisible: boolean;
+  scrubVisible: boolean;
+  aiModel: FilmStudioAiDirectorModel | null;
+  clipInspectorMounted: boolean;
+  clipInspector: FilmClipInspectorModel | null;
+  clipInspectorEmptyMessage?: string;
+  canvasInspectorMounted: boolean;
+  canvasElement: CanvasElementSelection | null;
+};
+
+const studioReactState: StudioReactState = {
+  assets: null,
+  timeline: null,
+  toolbarVisible: false,
+  timelineToolbarVisible: false,
+  scrubVisible: false,
+  aiModel: null,
+  clipInspectorMounted: false,
+  clipInspector: null,
+  clipInspectorEmptyMessage: undefined,
+  canvasInspectorMounted: false,
+  canvasElement: null,
+};
+let studioRoot: Root | null = null;
+let studioRootMount: HTMLElement | null = null;
+
+const studioPortal = (targetId: string, child: React.ReactNode): React.ReactPortal | null => {
+  const target = document.getElementById(targetId);
+  return target ? createPortal(child, target, targetId) : null;
+};
+
+/**
+ * A single React root owns every React-rendered Studio surface.
+ * Portals preserve the existing layout slots while preventing independent roots
+ * from racing over the same editor state or remounting shared surfaces.
+ */
+const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+  const clip = state.clipInspector;
+  const clipKey = clip
+    ? clip.id + ":" + JSON.stringify(clip.attrs || {})
+    : "empty:" + (state.clipInspectorEmptyMessage || "");
+  const element = state.canvasElement;
+  return (
+    <>
+      {state.assets ? studioPortal("fs-assets-list", <StudioAssets model={state.assets} />) : null}
+      {state.timeline ? studioPortal("fs-timeline", <TimelineSurface model={state.timeline} />) : null}
+      {state.toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
+      {state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
+      {state.scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
+      {state.aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={state.aiModel} />) : null}
+      {state.clipInspectorMounted ? studioPortal(
+        "fs-inspector",
+        <ClipInspector key={clipKey} clip={clip} emptyMessage={state.clipInspectorEmptyMessage} />
+      ) : null}
+      {state.canvasInspectorMounted ? studioPortal(
+        "fs-react-canvas-inspector",
+        element ? <CanvasInspector key={element.clipId + "::" + element.selector} element={element} /> : null
+      ) : null}
+    </>
+  );
+};
+
+function renderStudioReactOwner(patch: Partial<StudioReactState>): void {
+  Object.assign(studioReactState, patch);
+  const mount = document.getElementById("fs-react-root");
+  if (!mount) return;
+  if (!studioRoot || studioRootMount !== mount) {
+    studioRoot = createRoot(mount);
+    studioRootMount = mount;
+  }
+  const snapshot = {...studioReactState};
+  flushSync(() => {
+    studioRoot?.render(<StudioReactOwner state={snapshot} />);
+  });
+}
+
 window.filmStudioReactAssets = {
   render(model) {
-    const mount = document.getElementById("fs-assets-list");
-    if (!mount) return;
-    if (!assetsRoot || assetsMount !== mount) {
-      assetsRoot = createRoot(mount);
-      assetsMount = mount;
-    }
-    flushSync(() => {
-      assetsRoot?.render(<StudioAssets model={model} />);
-    });
+    renderStudioReactOwner({assets:model});
   },
 };
 
-let timelineSurfaceRoot: Root | null = null;
-let timelineSurfaceMount: HTMLElement | null = null;
 window.filmStudioReactTimeline = {
   renderSurface(model) {
-    const mount = document.getElementById("fs-timeline");
-    if (!mount) return;
-    if (!timelineSurfaceRoot || timelineSurfaceMount !== mount) {
-      timelineSurfaceRoot = createRoot(mount);
-      timelineSurfaceMount = mount;
-    }
-    flushSync(() => {
-      timelineSurfaceRoot?.render(<TimelineSurface model={model} />);
-    });
+    renderStudioReactOwner({timeline:model});
   },
 };
 
-let toolbarRoot: Root | null = null;
-let toolbarMount: HTMLElement | null = null;
-let timelineToolbarRoot: Root | null = null;
-let timelineToolbarMount: HTMLElement | null = null;
-let scrubRoot: Root | null = null;
-let scrubMount: HTMLElement | null = null;
 window.filmStudioReactToolbar = {
   render() {
-    const mount = document.getElementById("fs-react-toolbar");
-    if (!mount) return;
-    if (!toolbarRoot || toolbarMount !== mount) {
-      toolbarRoot = createRoot(mount);
-      toolbarMount = mount;
-    }
-    flushSync(() => {
-      toolbarRoot?.render(<StudioToolbar />);
-    });
+    renderStudioReactOwner({toolbarVisible:true});
   },
   renderTimeline() {
-    const mount = document.getElementById("fs-react-timeline-toolbar");
-    if (!mount) return;
-    if (!timelineToolbarRoot || timelineToolbarMount !== mount) {
-      timelineToolbarRoot = createRoot(mount);
-      timelineToolbarMount = mount;
-    }
-    flushSync(() => {
-      timelineToolbarRoot?.render(<StudioTimelineToolbar />);
-    });
+    renderStudioReactOwner({timelineToolbarVisible:true});
   },
   renderScrub() {
-    const mount = document.getElementById("fs-react-scrub-row");
-    if (!mount) return;
-    if (!scrubRoot || scrubMount !== mount) {
-      scrubRoot = createRoot(mount);
-      scrubMount = mount;
-    }
-    flushSync(() => {
-      scrubRoot?.render(<StudioScrubRow />);
-    });
+    renderStudioReactOwner({scrubVisible:true});
   },
 };
 
-let aiRoot: Root | null = null;
-let aiMount: HTMLElement | null = null;
 window.filmStudioReactAi = {
   render(model) {
-    const mount = document.getElementById("fs-react-ai-director");
-    if (!mount) return;
-    if (!aiRoot || aiMount !== mount) {
-      aiRoot = createRoot(mount);
-      aiMount = mount;
-    }
-    flushSync(() => {
-      aiRoot?.render(<StudioAiDirector key="ai-director" model={model} />);
-    });
+    renderStudioReactOwner({aiModel:model});
   },
 };
 
 let activeCanvasSelection: CanvasElementSelection | null = null;
-let activeRoot: Root | null = null;
-let activeMount: HTMLElement | null = null;
-let clipRoot: Root | null = null;
-let clipMount: HTMLElement | null = null;
 
 window.filmStudioReactInspector = {
   saveSelected() {
@@ -1106,33 +1122,18 @@ window.filmStudioReactInspector = {
     return window.filmStudioCommitCanvasElement(result.operation, {allowInspectorDraft:true});
   },
   renderClip(clip, emptyMessage) {
-    const mount = document.getElementById("fs-inspector");
-    if (!mount) return;
-    if (!clipRoot || clipMount !== mount) {
-      clipRoot = createRoot(mount);
-      clipMount = mount;
-    }
-    const key = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (emptyMessage || "");
-    flushSync(() => {
-      clipRoot?.render(<ClipInspector key={key} clip={clip} emptyMessage={emptyMessage} />);
+    renderStudioReactOwner({
+      clipInspectorMounted:true,
+      clipInspector:clip,
+      clipInspectorEmptyMessage:emptyMessage,
     });
   },
   render(element) {
     activeCanvasSelection=element;
-    const mount = document.getElementById("fs-react-canvas-inspector");
-    if (!mount) return;
-    if (!activeRoot || activeMount !== mount) {
-      activeRoot = createRoot(mount);
-      activeMount = mount;
-    }
-    flushSync(() => {
-      activeRoot?.render(
-        element ? <CanvasInspector key={element.clipId + "::" + element.selector} element={element} /> : null
-      );
+    renderStudioReactOwner({
+      canvasInspectorMounted:true,
+      canvasElement:element,
     });
-    // Inputs use defaultValue for a simple uncontrolled form. A repeated selection
-    // of the same clip/selector does not remount React, so refresh the input values
-    // from the new element payload after each selection message.
     if (element) this.sync(element);
   },
   sync(element) {
