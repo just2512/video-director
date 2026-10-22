@@ -319,6 +319,25 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert fd.read_project_film(project_id)["rev"] == fd.revision_of(repaired)
 
+                # Move into the upper zoom range first; the measured wheel then creates horizontal overflow.
+                page.evaluate("""() => {
+                  const scroll = document.querySelector('#fs-timeline-scroll');
+                  const rect = scroll.getBoundingClientRect();
+                  const clientX = rect.left + Math.max(120, Math.min(200, scroll.clientWidth - 24));
+                  for (let i = 0; i < 3; i++) {
+                    scroll.dispatchEvent(new WheelEvent('wheel', {
+                      bubbles: true, cancelable: true, ctrlKey: true,
+                      deltaY: -100, clientX
+                    }));
+                  }
+                }""")
+                page.wait_for_function(
+                    """() => {
+                      const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      return !!clip && Number.parseFloat(clip.style.width) > 460;
+                    }"""
+                )
+
                 # Ctrl-wheel zoom is non-passive and keeps the same timeline time under the pointer.
                 zoom_before = page.evaluate("""() => {
                   const scroll = document.querySelector('#fs-timeline-scroll');
