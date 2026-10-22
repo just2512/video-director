@@ -40,9 +40,11 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "等待新的呈现帧超时" in helper
     event_wait = runtime[runtime.index("function waitForEvent"):runtime.index("function startInitialVideoFrameWait")]
     assert "function mediaFailureDescription(element)" in event_wait
+    assert "function eventAlreadySatisfied(element,eventName)" in event_wait
     assert "element.addEventListener('error',onMediaError" in event_wait
     assert "networkState=" in event_wait and "readyState=" in event_wait
     assert "MEDIA_ERR_DECODE" in event_wait
+    assert event_wait.index("element.addEventListener(eventName,finish") < event_wait.index("if(eventAlreadySatisfied(element,eventName))") < event_wait.index("timer=setTimeout(timeout")
     assert 'clip["source_fps"] = _source_video_fps(project_id, raw_path)' in render
     assert "def _source_video_fps(project_id: str, raw_path: str)" in render
     assert "Promise.race" not in prepare

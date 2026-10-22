@@ -546,6 +546,15 @@
       +', networkState='+finite(element&&element.networkState,-1)
       +', readyState='+finite(element&&element.readyState,-1)+']';
   }
+  function eventAlreadySatisfied(element,eventName){
+    if(eventName==='loadedmetadata')return finite(element&&element.readyState,0)>=1;
+    if(eventName==='loadeddata')return finite(element&&element.readyState,0)>=2;
+    // Image load may finish between the caller's complete check and listener registration.
+    if(eventName==='load'&&element&&element.tagName==='IMG')return element.complete===true;
+    // 'seeked' is deliberately not inferred from !seeking: the listener is
+    // registered before assigning currentTime, so that state is not a completion signal.
+    return false;
+  }
   function waitForEvent(element,eventName,timeoutMs){
     return new Promise(function(resolve,reject){
       var done=false,timer=0;
@@ -572,6 +581,12 @@
       }
       element.addEventListener(eventName,finish,{once:true});
       element.addEventListener('error',onMediaError,{once:true});
+      // Close the classic readyState/event-listener race: the event can fire
+      // after the caller's state check but before this listener is attached.
+      if(eventAlreadySatisfied(element,eventName)){
+        finish();
+        return;
+      }
       timer=setTimeout(timeout,timeoutMs||8000);
     });
   }
