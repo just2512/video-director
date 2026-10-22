@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from video_director.film_scene_runtime import (
     inject_scene_css,
     inject_scene_runtime,

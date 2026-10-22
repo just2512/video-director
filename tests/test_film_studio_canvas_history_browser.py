@@ -171,7 +171,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     page.locator('#fs-react-ai-director [data-react-ai-chat-log="true"]').wait_for(
                         state="attached", timeout=10000
                     )
-                    page.locator("#fs-side-tab-ai").click()
+                    page.locator("#fs-side-inspector").wait_for(state="visible")
+                    page.locator("#fs-side-ai").wait_for(state="visible")
                     page.locator("#fs-chat-input").fill("检查当前影片的开场")
                     page.route(
                         "**/api/editor/film/command",
@@ -193,7 +194,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                         "浏览器回归模拟：未生成修改提案", exact=True
                     ).wait_for(state="attached", timeout=10000)
                     page.unroute("**/api/editor/film/command")
-                    page.locator("#fs-side-tab-inspector").click()
+                    assert page.locator("#fs-side-inspector").is_visible()
+                    assert page.locator("#fs-side-ai").is_visible()
                 else:
                     assert page.locator("#fs-static-ai-director").is_visible()
                     assert not page.locator("#fs-react-ai-director").is_visible()

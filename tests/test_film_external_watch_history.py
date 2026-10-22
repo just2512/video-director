@@ -26,7 +26,7 @@ def test_external_agent_edit_enters_shared_history_and_can_undo_redo(tmp_path, m
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "external-agent-history"
     project = config.project_dir(project_id)
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
     film_path.write_text(FILM, encoding="utf-8")
     initial = fd.read_project_film(project_id)
@@ -64,7 +64,7 @@ def test_watcher_does_not_duplicate_an_edit_already_recorded_by_studio_api(tmp_p
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "external-watch-api-dedup"
     project = config.project_dir(project_id)
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
     film_path.write_text(FILM, encoding="utf-8")
     initial = fd.read_project_film(project_id)
@@ -89,7 +89,7 @@ def test_external_write_between_initial_read_and_watcher_registration_is_not_los
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "watch-registration-race"
     project = config.project_dir(project_id)
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
     film_path.write_text(FILM, encoding="utf-8")
     initial = fd.read_project_film(project_id)
@@ -113,7 +113,7 @@ def test_external_edit_then_studio_undo_redo_does_not_corrupt_shared_history(tmp
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "external-history-undo-redo"
     project = config.project_dir(project_id)
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
     film_path.write_text(FILM, encoding="utf-8")
     initial = fd.read_project_film(project_id)
@@ -150,7 +150,7 @@ def test_external_agent_can_restore_an_old_snapshot_without_clearing_undoability
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "external-history-restored-snapshot"
     project = config.project_dir(project_id)
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
     film_path.write_text(FILM, encoding="utf-8")
     original = fd.read_project_film(project_id)
@@ -186,7 +186,7 @@ def test_external_edit_that_restores_a_historical_revision_is_still_recorded(tmp
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "external-edit-restores-old-revision"
     project = config.project_dir(project_id)
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
 
     initial = FILM

@@ -22,7 +22,9 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "renderSurface(model)" in component
     assert "window.filmStudioReactTimeline.renderSurface(renderModel);" in studio
     assert 'data-react-timeline-clip={clip.id}' in component
-    assert "timelineSurfaceRoot?.render(<TimelineSurface model={model} />);" in component
+    assert "const StudioReactOwner: React.FC" in component
+    assert component.count("createRoot(") == 1
+    assert "createPortal" in component
     assert "<TimelineSurface key={model.renderKey}" not in component
     assert "key={track.id}" in component
     assert "key={clip.id}" in component
