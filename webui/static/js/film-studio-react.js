@@ -24797,7 +24797,12 @@
                       "data-keyframe-at": mark.at,
                       title: "\u5173\u952E\u5E27 " + mark.at.toFixed(3) + "s \xB7 " + mark.properties.join(", "),
                       "aria-label": "\u8DF3\u8F6C\u5230 " + mark.at.toFixed(3) + " \u79D2\u5173\u952E\u5E27",
-                      style: { left: (clip.duration && clip.duration > 0 ? Math.max(0, Math.min(100, mark.at / clip.duration * 100)) : 0) + "%" }
+                      style: { left: (clip.duration && clip.duration > 0 ? Math.max(0, Math.min(100, mark.at / clip.duration * 100)) : 0) + "%" },
+                      onClick: (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        window.filmStudioJumpToKeyframe?.(clip.id, mark.at);
+                      }
                     },
                     mark.at
                   )),
