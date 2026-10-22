@@ -5413,6 +5413,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
                 "speed": attrs.get("speed", "1"), "volume": attrs.get("volume", "1"),
                 "muted": "muted" in attrs, "volume_envelope": attrs.get("volume_envelope", ""), "fade": attrs.get("fade", "0,0"), "style": attrs.get("style", ""),
                 "title": attrs.get("title", ""),
+                "film_keyframes": attrs.get("data-film-keyframes", ""),
             })
     prompt = (
         "你是视频时间线编辑规划器。只输出 JSON：{"
@@ -5428,7 +5429,7 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
         "“第 N 段/第 N 个镜头”优先按 visual_index 定位；轨道内描述按 track_index/clip_index 定位；“这个/选中片段”使用当前选择 ID。"
         "不要编造 ID；修剪只能缩短当前源区间并保留正时长。目标不明确时返回空 operations，并在 summary 提出简短澄清问题。"
-        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。data-film-keyframes 是通用视觉属性关键帧数组，形如 [{property:'opacity',keyframes:[{at:0,value:0,easing:'ease_in'},{at:1,value:1,easing:'ease_out'}]}]；at 是剪辑相对秒数，属性仅限 x/y（0–1）、scale/scale_x/scale_y/camera_scale（0.1–5）、rotation（-3600–3600）、opacity（0–1）、blur（0–100）、camera_x/camera_y（0–1）、offset_x/offset_y（-10000–10000）；easing 仅 linear/ease_in/ease_out/ease_in_out。仅在用户明确要求视觉属性关键帧时修改，不要把关键帧时间当成全局时间。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
+        "volume_envelope 是剪辑相对时间的音量倍率关键帧 JSON 数组，形如 [{t:0,v:1},{t:2,v:0.2}]；t 为秒，v 在 0–1；只有用户明确要求自动化音量时才修改。film_keyframes 是当前片段 data-film-keyframes 的完整通用视觉通道；set data-film-keyframes 会覆盖整组通道，因此修改时必须保留所有未被用户要求变更的现有 property 通道及其关键帧，不得静默清空其他动画。data-film-keyframes 是通用视觉属性关键帧数组，形如 [{property:'opacity',keyframes:[{at:0,value:0,easing:'ease_in'},{at:1,value:1,easing:'ease_out'}]}]；at 是剪辑相对秒数，属性仅限 x/y（0–1）、scale/scale_x/scale_y/camera_scale（0.1–5）、rotation（-3600–3600）、opacity（0–1）、blur（0–100）、camera_x/camera_y（0–1）、offset_x/offset_y（-10000–10000）；easing 仅 linear/ease_in/ease_out/ease_in_out。切入/切出 eased segment 时，后端可能生成 {type:'window',preset,start,end} 的裁切保真缓动对象；未要求改变曲线时必须原样保留。仅在用户明确要求视觉属性关键帧时修改，不要把关键帧时间当成全局时间。fade 是以秒表示的淡入/淡出对，形如 '0.3,0.5'；只在用户明确要求淡化时修改，合计不能超过片段时长。不允许素材插入、付费动作及源码修改；新增素材必须由 Studio 素材池选择。"
         f"\n当前选择片段 ID：{selected_clip_id or '无'}"
         f"\n当前选中画布元素（只可操作这一项）：{json.dumps(selected_element, ensure_ascii=False, separators=(',', ':')) if selected_element else '无；不得使用 element_set'}"
         f"\n当前片段：{json.dumps(clips, ensure_ascii=False, separators=(',', ':'))}"
