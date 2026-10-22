@@ -17,6 +17,15 @@ def test_canvas_inspector_has_functional_unbundled_fallback():
     assert "id=\"fs-apply-element\"" in studio
     assert "window.filmStudioSaveSelectedElement()" in studio
     assert 'id="fs-field-keyframes"' in studio
+    assert "function renderFallbackKeyframeControls(clip)" in studio
+    assert "function bindFallbackKeyframeEditor(clip)" in studio
+    assert "data-fallback-kf-point" in studio
+    assert "data-fallback-kf-add" in studio
+    assert "data-fallback-kf-remove" in studio
+    assert "fallbackKeyframeCurve" in studio
+    assert "setPointerCapture" in studio
+    assert "clip.trackLocked" in studio
+
     assert "window.filmStudioSaveInspector=async function()" in studio
     assert "data-film-keyframes" in studio
     assert "renderElementInspector(element);" in studio
