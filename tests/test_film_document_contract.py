@@ -1379,7 +1379,6 @@ def test_canvas_inspector_submits_the_validated_element_set_operation():
     assert "field:'overrides',value:JSON.stringify(overrides)" not in studio
 
 """The FilmDocument keeps FPS authoritative across parse/serialize operations."""
-from __future__ import annotations
 
 import pytest
 
