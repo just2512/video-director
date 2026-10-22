@@ -29,3 +29,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "onPointerDown={event => window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget)}" in component
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioBeginClipDrag = function(e,el)" in studio
+    assert "onPointerMove={event => window.filmStudioMoveClipGesture?.(event.nativeEvent)}" in component
+    assert "onPointerUp={event => window.filmStudioEndClipGesture?.(event.nativeEvent)}" in component
+    assert "window.filmStudioMoveClipGesture = function(e)" in studio
+    assert "S.reactGesturePointerId===e.pointerId" in studio
