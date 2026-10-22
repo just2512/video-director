@@ -34,6 +34,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
       PY311_BIN: /home/actions/miniforge3/envs/py311/bin
+      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
     steps:
       # Avoid external checkout/setup action downloads. Restore the exact source
       # revision through the authenticated GitHub archive API using shell tools.

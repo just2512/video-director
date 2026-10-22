@@ -93,6 +93,15 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 }""", project_id)
                 page.evaluate("window.filmStudioToggle()")
                 page.locator('#film-studio-panel.fs-studio-expanded').wait_for(state="visible")
+                if os.environ.get("VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO") == "1":
+                    # This CI job has already built the bundle; fail if the page silently
+                    # falls back to the legacy UI instead of using the React surfaces.
+                    page.locator('#fs-react-ai-director [data-react-ai-chat-log="true"]').wait_for(state="visible")
+                    assert page.evaluate("typeof window.filmStudioReactAi?.render === 'function'")
+                    assert not page.locator("#fs-static-ai-director").is_visible()
+                    assert not page.locator("#fs-static-timeline-toolbar").is_visible()
+                    page.locator('#fs-react-timeline-toolbar [data-film-action="split"]').wait_for(state="visible")
+
                 # Attribute inspection and AI direction must be visible at the same
                 # time; resizing their divider must persist the user-selected split.
                 inspector = page.locator("#fs-side-inspector")
