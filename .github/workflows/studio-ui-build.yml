@@ -164,6 +164,7 @@ jobs:
           import os
           import urllib.error
           import urllib.request
+          import time
           from pathlib import Path
 
           repo = os.environ["GITHUB_REPOSITORY"]
@@ -185,14 +186,34 @@ jobs:
           def request(route, method="GET", payload=None):
               url = route if route.startswith("https://") else api + route
               data = None if payload is None else json.dumps(payload).encode("utf-8")
-              req = urllib.request.Request(url, data=data, headers=headers, method=method)
-              try:
-                  with urllib.request.urlopen(req, timeout=60) as response:
-                      raw = response.read()
-                      return json.loads(raw) if raw else {}
-              except urllib.error.HTTPError as exc:
-                  details = exc.read().decode("utf-8", "replace")[:2000]
-                  raise RuntimeError(f"GitHub API {method} {route}: HTTP {exc.code}: {details}") from exc
+              retryable_statuses = {408, 425, 429, 500, 502, 503, 504}
+              max_attempts = 4
+              for attempt in range(1, max_attempts + 1):
+                  req = urllib.request.Request(url, data=data, headers=headers, method=method)
+                  try:
+                      with urllib.request.urlopen(req, timeout=60) as response:
+                          raw = response.read()
+                          return json.loads(raw) if raw else {}
+                  except urllib.error.HTTPError as exc:
+                      details = exc.read().decode("utf-8", "replace")[:2000]
+                      if exc.code in retryable_statuses and attempt < max_attempts:
+                          base_delay = min(8, 2 ** (attempt - 1))
+                          try:
+                              retry_after = float(exc.headers.get("Retry-After", "0"))
+                          except (TypeError, ValueError):
+                              retry_after = 0
+                          delay = max(base_delay, min(15, retry_after))
+                          print(f"::warning::GitHub API {method} {route} returned HTTP {exc.code}; retry {attempt + 1}/{max_attempts} in {delay:g}s.")
+                          time.sleep(delay)
+                          continue
+                      raise RuntimeError(f"GitHub API {method} {route}: HTTP {exc.code}: {details}") from exc
+                  except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+                      if attempt >= max_attempts:
+                          raise RuntimeError(f"GitHub API {method} {route} failed after {max_attempts} attempts: {exc}") from exc
+                      delay = min(8, 2 ** (attempt - 1))
+                      print(f"::warning::Transient GitHub API transport error for {method} {route}: {exc}; retry {attempt + 1}/{max_attempts} in {delay}s.")
+                      time.sleep(delay)
+              raise RuntimeError(f"GitHub API {method} {route} exhausted retries.")
 
           current = request(f"/repos/{repo}/commits/main").get("sha")
           if current != expected:
