@@ -85,6 +85,34 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
 
+                # Exercise a real React-owned pointer gesture in Chromium, not only a static contract.
+                clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                box = clip.bounding_box()
+                assert box and box["width"] >= 20, box
+                original_left = clip.evaluate("(element) => element.style.left")
+                start_x = box["x"] + box["width"] * 0.5
+                start_y = box["y"] + box["height"] * 0.5
+                # clip-b is five seconds long, so one fifth of its width is one timeline second.
+                delta_x = box["width"] / 5
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(start_x + delta_x, start_y, steps=6)
+                page.mouse.up()
+                page.wait_for_function(
+                    """oldLeft => {
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      return !!node && node.style.left !== oldLeft;
+                    }""",
+                    arg=original_left,
+                    timeout=10000,
+                )
+                moved_document = fd.read_project_film(project_id)
+                moved_clip = next(
+                    item for track in moved_document["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                assert abs(float(moved_clip["attrs"]["at"]) - 6.0) < 0.15, moved_clip
+
                 changed = SAMPLE.replace('speed="2"', 'speed="2.5"')
                 film_path.write_text(changed, encoding="utf-8")
                 page.wait_for_function(
