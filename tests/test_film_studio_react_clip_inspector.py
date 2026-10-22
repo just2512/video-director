@@ -64,7 +64,8 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     for field_id in ("fs-keyframe-property", "fs-keyframe-add", "fs-keyframe-clear"):
         assert f'id="{field_id}"' in component
     assert "keyframePath" in component
-    assert 'field: "data-film-keyframes"' in contract
+    assert '"data-film-keyframes"' in contract
+    assert 'field: FilmStringField; value: string | null' in contract
     assert "keyframes" in component
 
 

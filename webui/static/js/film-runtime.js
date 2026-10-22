@@ -537,22 +537,41 @@
     state.playing=true;state.originTime=state.time;state.originClock=performance.now();
     renderTime(state.time,true);state.raf=requestAnimationFrame(frame);
   }
+  function mediaFailureDescription(element){
+    var error=element&&element.error,code=error?finite(error.code,0):0;
+    var errorNames={1:'MEDIA_ERR_ABORTED',2:'MEDIA_ERR_NETWORK',3:'MEDIA_ERR_DECODE',4:'MEDIA_ERR_SRC_NOT_SUPPORTED'};
+    var source=String(element&& (element.currentSrc||element.src)||element&&element.tagName||'media').slice(0,300);
+    var message=error&&typeof error.message==='string'&&error.message?': '+String(error.message).slice(0,240):'';
+    return source+' [mediaError='+(errorNames[code]||code||'none')+message
+      +', networkState='+finite(element&&element.networkState,-1)
+      +', readyState='+finite(element&&element.readyState,-1)+']';
+  }
   function waitForEvent(element,eventName,timeoutMs){
     return new Promise(function(resolve,reject){
       var done=false,timer=0;
       function cleanup(){
         if(timer)clearTimeout(timer);
         element.removeEventListener(eventName,finish);
+        element.removeEventListener('error',onMediaError);
       }
       function finish(){
         if(done)return;done=true;cleanup();resolve();
       }
+      function fail(message){
+        if(done)return;done=true;cleanup();reject(new Error(message+mediaFailureDescription(element)));
+      }
+      function onMediaError(){
+        fail('媒体元素触发 error，无法等待事件 '+eventName+'：');
+      }
       function timeout(){
-        if(done)return;done=true;cleanup();
-        var source=String(element.currentSrc||element.src||element.tagName||'media').slice(0,300);
-        reject(new Error('等待媒体事件 '+eventName+' 超时：'+source));
+        fail('等待媒体事件 '+eventName+' 超时：');
+      }
+      if(element.error){
+        fail('媒体元素在等待事件 '+eventName+' 前已失败：');
+        return;
       }
       element.addEventListener(eventName,finish,{once:true});
+      element.addEventListener('error',onMediaError,{once:true});
       timer=setTimeout(timeout,timeoutMs||8000);
     });
   }
