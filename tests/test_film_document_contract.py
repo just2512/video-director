@@ -2173,6 +2173,37 @@ def test_keyframe_window_easing_is_endpoint_normalized_and_roundtrips():
     )[0]["keyframes"][1]["easing"]
 
 
+def test_film_keyframe_mapper_preserves_cubic_bezier_and_window_curves():
+    bezier = {"type": "bezier", "x1": 0.2, "y1": 0.35, "x2": 0.8, "y2": 1.0}
+    curve_window = {"type": "window", "curve": bezier, "start": 0.25, "end": 0.9}
+    channels, unsupported = fd._film_keyframes([
+        {"property": "x", "keyframes": [
+            {"at": 0, "value": 0.1, "easing": bezier},
+            {"at": 1, "value": 0.8, "easing": curve_window},
+        ]},
+    ], 4.0)
+    assert unsupported == []
+    assert channels == [{
+        "property": "x",
+        "keyframes": [
+            {"at": 0.0, "value": 0.1, "easing": bezier},
+            {"at": 1.0, "value": 0.8, "easing": curve_window},
+        ],
+    }]
+
+
+def test_film_keyframe_mapper_rejects_invalid_bezier_control_order():
+    channels, unsupported = fd._film_keyframes([
+        {"property": "x", "keyframes": [
+            {"at": 0, "value": 0.1, "easing": {
+                "type": "bezier", "x1": 0.9, "y1": 0.35, "x2": 0.2, "y2": 1.0,
+            }},
+        ]},
+    ], 4.0)
+    assert channels[0]["keyframes"][0]["easing"] == "linear"
+    assert unsupported == ["x 贝塞尔缓动格式无效"]
+
+
 def test_visual_keyframes_stay_inside_clip_after_roll_and_slide_trim():
     doc = fd.parse_film(SAMPLE)
     channels = [{

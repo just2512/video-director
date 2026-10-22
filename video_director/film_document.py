@@ -3363,9 +3363,49 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
                 if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
                     unsupported.append(f"{prop} 缓动 {easing}")
                     easing = "linear"
+            elif isinstance(easing, dict) and easing.get("type") == "bezier":
+                try:
+                    if set(easing) != {"type", "x1", "y1", "x2", "y2"}:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", "贝塞尔结构无效", 422)
+                    controls = {
+                        key: _number(easing.get(key), f"keyframe {prop}.easing.{key}", 0, 1)
+                        for key in ("x1", "y1", "x2", "y2")
+                    }
+                    if controls["x1"] > controls["x2"]:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", "贝塞尔控制点必须满足 x1 <= x2", 422)
+                    easing = {"type": "bezier", **controls}
+                except (FilmError, TypeError, ValueError):
+                    unsupported.append(f"{prop} 贝塞尔缓动格式无效")
+                    easing = "linear"
             elif isinstance(easing, dict) and easing.get("type") == "window":
-                if (set(easing) != {"type", "preset", "start", "end"}
-                    or easing.get("preset") not in {"linear", "ease_in", "ease_out", "ease_in_out"}):
+                try:
+                    if set(easing) == {"type", "preset", "start", "end"}:
+                        preset = easing.get("preset")
+                        if preset not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", "window 预设无效", 422)
+                        start = _number(easing.get("start"), f"keyframe {prop}.easing.start", 0, 1)
+                        end = _number(easing.get("end"), f"keyframe {prop}.easing.end", 0, 1)
+                        if end <= start:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", "window 区间必须递增", 422)
+                        easing = {"type": "window", "preset": preset, "start": start, "end": end}
+                    elif set(easing) == {"type", "curve", "start", "end"}:
+                        curve = easing.get("curve")
+                        if not isinstance(curve, dict) or curve.get("type") != "bezier" or set(curve) != {"type", "x1", "y1", "x2", "y2"}:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", "window 贝塞尔曲线结构无效", 422)
+                        controls = {
+                            key: _number(curve.get(key), f"keyframe {prop}.easing.curve.{key}", 0, 1)
+                            for key in ("x1", "y1", "x2", "y2")
+                        }
+                        if controls["x1"] > controls["x2"]:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", "贝塞尔控制点必须满足 x1 <= x2", 422)
+                        start = _number(easing.get("start"), f"keyframe {prop}.easing.start", 0, 1)
+                        end = _number(easing.get("end"), f"keyframe {prop}.easing.end", 0, 1)
+                        if end <= start:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", "window 区间必须递增", 422)
+                        easing = {"type": "window", "curve": {"type": "bezier", **controls}, "start": start, "end": end}
+                    else:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", "window 缓动结构无效", 422)
+                except (FilmError, TypeError, ValueError):
                     unsupported.append(f"{prop} 分段缓动格式无效")
                     easing = "linear"
             else:
