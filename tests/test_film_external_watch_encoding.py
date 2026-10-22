@@ -76,3 +76,46 @@ def test_first_external_write_invalid_utf8_is_reported_even_when_revision_matche
     assert topic == "film"
     assert broken["phase"] == "document_broken"
     assert broken["error"] and "UTF-8" in broken["error"]
+
+
+def test_same_project_id_on_new_storage_path_does_not_reuse_broken_state(tmp_path: Path):
+    project_id = "film-watch-path-reuse"
+    first_path = tmp_path / "first" / "film.html"
+    second_path = tmp_path / "second" / "film.html"
+    first_path.parent.mkdir(parents=True)
+    second_path.parent.mkdir(parents=True)
+    first_path.write_text(FILM, encoding="utf-8")
+    active_path = {"value": first_path}
+    events = []
+    watcher = FilmRevisionWatcher(
+        lambda topic, payload: events.append((topic, payload)),
+        path_for_project=lambda _project_id: active_path["value"],
+        settle_seconds=0.05,
+        interval_seconds=0.02,
+    )
+    watcher.watch(project_id)
+
+    broken_bytes = b"<html><body>partial write</body></html>"
+    first_path.write_bytes(broken_bytes)
+    now = time.monotonic() + 1
+    watcher.poll_once(now=now)
+    watcher.poll_once(now=now + 1)
+    assert events and events[-1][1]["phase"] == "document_broken"
+    first_broken_event = events[-1][1]
+
+    # The same project ID can be re-created in a new storage root. The new
+    # monitor state must not inherit the previous document_broken revision/error.
+    events.clear()
+    second_path.write_text(FILM, encoding="utf-8")
+    active_path["value"] = second_path
+    watcher.watch(project_id)
+    second_path.write_bytes(broken_bytes)
+    watcher.poll_once(now=now + 2)
+    watcher.poll_once(now=now + 3)
+
+    assert events, "path changes must reset watcher state so repeated broken files still emit document_broken"
+    topic, second_broken_event = events[-1]
+    assert topic == "film"
+    assert second_broken_event["phase"] == "document_broken"
+    assert second_broken_event["revision"] == first_broken_event["revision"]
+    assert second_broken_event["error"] == first_broken_event["error"]

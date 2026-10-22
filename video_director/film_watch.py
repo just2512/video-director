@@ -72,10 +72,19 @@ class FilmRevisionWatcher:
             initial_revision = baseline_revision
         matched_initial_snapshot = actual_revision == initial_revision
         now = time.monotonic()
+        try:
+            watched_path = str(path.resolve())
+        except OSError:
+            watched_path = str(path.absolute())
         with self._lock:
             state = self._projects.get(pid)
-            if state is None:
+            # Storage roots may change when a project is re-created under a new
+            # workspace (and when tests reload the WebUI module). A project ID is
+            # only unique within one storage root; never reuse watcher phase/error
+            # state across different physical film.html paths.
+            if state is None or state.get("watched_path") != watched_path:
                 self._projects[pid] = {
+                    "watched_path": watched_path,
                     "last_revision": baseline_revision,
                     "last_text": baseline_text,
                     "last_phase": "revision_changed" if matched_initial_snapshot and path.is_file() else "missing",
