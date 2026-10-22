@@ -43,6 +43,8 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "function mediaFailureDescription(element)" in event_helpers
     assert "function eventAlreadySatisfied(element,eventName)" in event_helpers
     assert "element.addEventListener('error',onMediaError" in event_wait
+    assert "readinessSignals=['loadedmetadata','loadeddata','canplay','progress','durationchange']" in event_wait
+    assert "element.addEventListener(name,onReadinessSignal)" in event_wait
     assert "networkState=" in event_helpers and "readyState=" in event_helpers
     assert "MEDIA_ERR_DECODE" in event_helpers
     listener_index = event_wait.index("element.addEventListener(eventName,finish")

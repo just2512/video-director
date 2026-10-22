@@ -558,10 +558,12 @@
   function waitForEvent(element,eventName,timeoutMs){
     return new Promise(function(resolve,reject){
       var done=false,timer=0;
+      var readinessSignals=['loadedmetadata','loadeddata','canplay','progress','durationchange'];
       function cleanup(){
         if(timer)clearTimeout(timer);
         element.removeEventListener(eventName,finish);
         element.removeEventListener('error',onMediaError);
+        readinessSignals.forEach(function(name){element.removeEventListener(name,onReadinessSignal);});
       }
       function finish(){
         if(done)return;done=true;cleanup();resolve();
@@ -571,6 +573,9 @@
       }
       function onMediaError(){
         fail('媒体元素触发 error，无法等待事件 '+eventName+'：');
+      }
+      function onReadinessSignal(){
+        if(eventAlreadySatisfied(element,eventName))finish();
       }
       function timeout(){
         // Browser media pipelines may reach HAVE_CURRENT_DATA / HAVE_ENOUGH_DATA
@@ -588,6 +593,10 @@
       }
       element.addEventListener(eventName,finish,{once:true});
       element.addEventListener('error',onMediaError,{once:true});
+      // Recheck readiness whenever the media pipeline reports progress. Some
+      // Chromium builds can advance readyState without delivering loadeddata
+      // to a listener that attaches during a source transition.
+      readinessSignals.forEach(function(name){element.addEventListener(name,onReadinessSignal);});
       // Close the classic readyState/event-listener race: the event can fire
       // after the caller's state check but before this listener is attached.
       if(eventAlreadySatisfied(element,eventName)){
