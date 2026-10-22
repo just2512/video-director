@@ -318,6 +318,111 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     timeout=15000,
                 )
                 assert fd.read_project_film(project_id)["rev"] == fd.revision_of(repaired)
+
+                # Ctrl-wheel zoom is non-passive and keeps the same timeline time under the pointer.
+                zoom_before = page.evaluate("""() => {
+                  const scroll = document.querySelector('#fs-timeline-scroll');
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  if (!scroll || !clip) throw new Error('timeline scroll or clip-b missing before zoom');
+                  const rect = scroll.getBoundingClientRect();
+                  const localX = Math.max(120, Math.min(200, scroll.clientWidth - 24));
+                  const width = Number.parseFloat(clip.style.width);
+                  const pixelsPerSecond = width / 5;
+                  return {
+                    clientX: rect.left + localX, localX, width, pixelsPerSecond,
+                    scrollLeft: scroll.scrollLeft,
+                    anchorTime: (scroll.scrollLeft + localX - 132) / pixelsPerSecond
+                  };
+                }""")
+                zoom_prevented = page.evaluate("""clientX => {
+                  const scroll = document.querySelector('#fs-timeline-scroll');
+                  const event = new WheelEvent('wheel', {
+                    bubbles: true, cancelable: true, ctrlKey: true,
+                    deltaY: -100, clientX
+                  });
+                  scroll.dispatchEvent(event);
+                  return event.defaultPrevented;
+                }""", zoom_before["clientX"])
+                assert zoom_prevented is True, "Ctrl-wheel must prevent browser page zoom while over the timeline"
+                page.wait_for_function(
+                    """oldWidth => {
+                      const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      return !!clip && Number.parseFloat(clip.style.width) > oldWidth + 1;
+                    }""",
+                    arg=zoom_before["width"],
+                )
+                zoom_after = page.evaluate("""() => {
+                  const scroll = document.querySelector('#fs-timeline-scroll');
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  return {
+                    width: Number.parseFloat(clip.style.width),
+                    pixelsPerSecond: Number.parseFloat(clip.style.width) / 5,
+                    scrollLeft: scroll.scrollLeft
+                  };
+                }""")
+                assert abs(zoom_after["pixelsPerSecond"] / zoom_before["pixelsPerSecond"] - 1.25) < 0.02, zoom_after
+                expected_scroll_left = max(
+                    0,
+                    132 + zoom_before["anchorTime"] * zoom_after["pixelsPerSecond"] - zoom_before["localX"],
+                )
+                assert abs(zoom_after["scrollLeft"] - expected_scroll_left) < 4, {
+                    "before": zoom_before, "after": zoom_after, "expected_scroll_left": expected_scroll_left
+                }
+
+                # Reach the zoom cap so the timeline must scroll; then verify auto-scroll while a clip is held at the right edge.
+                page.evaluate("""clientX => {
+                  const scroll = document.querySelector('#fs-timeline-scroll');
+                  for (let i = 0; i < 5; i++) {
+                    scroll.dispatchEvent(new WheelEvent('wheel', {
+                      bubbles: true, cancelable: true, ctrlKey: true,
+                      deltaY: -100, clientX
+                    }));
+                  }
+                }""", zoom_before["clientX"])
+                page.wait_for_function(
+                    """() => {
+                      const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      return !!clip && Number.parseFloat(clip.style.width) > 590;
+                    }"""
+                )
+                auto_scroll_start = page.evaluate("""() => {
+                  const scroll = document.querySelector('#fs-timeline-scroll');
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const left = Number.parseFloat(clip.style.left);
+                  const maxScroll = Math.max(0, scroll.scrollWidth - scroll.clientWidth);
+                  scroll.scrollLeft = Math.max(0, Math.min(maxScroll, 132 + left - 140));
+                  const sr = scroll.getBoundingClientRect();
+                  const cr = clip.getBoundingClientRect();
+                  return {
+                    scrollLeft: scroll.scrollLeft,
+                    startX: Math.max(sr.left + 8, cr.left + 20),
+                    edgeX: sr.right - 6,
+                    y: cr.top + cr.height / 2
+                  };
+                }""")
+                assert auto_scroll_start["startX"] < auto_scroll_start["edgeX"] - 24, auto_scroll_start
+                page.mouse.move(auto_scroll_start["startX"], auto_scroll_start["y"])
+                page.mouse.down()
+                page.mouse.move(auto_scroll_start["edgeX"], auto_scroll_start["y"], steps=10)
+                page.wait_for_function(
+                    """oldScrollLeft => {
+                      const scroll = document.querySelector('#fs-timeline-scroll');
+                      return !!scroll && scroll.scrollLeft > oldScrollLeft + 8;
+                    }""",
+                    arg=auto_scroll_start["scrollLeft"],
+                    timeout=5000,
+                )
+                page.mouse.up()
+                for _ in range(30):
+                    doc_after_auto_scroll = fd.read_project_film(project_id)["doc"]
+                    moved_after_auto_scroll = next(
+                        item for track in doc_after_auto_scroll["tracks"]
+                        for item in track["clips"] if item["id"] == "clip-b"
+                    )
+                    if float(moved_after_auto_scroll["attrs"]["at"]) > 5.1:
+                        break
+                    page.wait_for_timeout(100)
+                assert float(moved_after_auto_scroll["attrs"]["at"]) > 5.1, moved_after_auto_scroll
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:
