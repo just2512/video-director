@@ -597,7 +597,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
             {typeof clip.playhead==="number"&&<line x1={8+clampKeyframe((clip.playhead-clip.at)/clip.duration,0,1)*344} x2={8+clampKeyframe((clip.playhead-clip.at)/clip.duration,0,1)*344} y1="4" y2="84" className="fs-keyframe-playhead"/>}
             {activeChannel&&activeChannel.keyframes.length>1&&<path d={keyframePath(activeChannel,clip.duration,animationInfo.min,animationInfo.max)} className="fs-keyframe-curve" fill="none"/>}
             {activeChannel?.keyframes.map((point,index)=><circle key={point.at}
-              cx={8+clampKeyframe(point.at/clip.duration,0,1)*344}
+              cx={8+clampKeyframe(point.at/(clip.duration??0),0,1)*344}
               cy={8+(1-(clampKeyframe(point.value,animationInfo.min,animationInfo.max)-animationInfo.min)/Math.max(1e-9,animationInfo.max-animationInfo.min))*72}
               r="4.5" className={"fs-keyframe-point"+(draggingKeyframe===index?" is-dragging":"")}
               tabIndex={readOnly?-1:0} role="slider" aria-label={"关键帧 "+(index+1)}
@@ -611,7 +611,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
           <div className="fs-keyframe-labels"><span>0.000s</span><span>{clip.duration.toFixed(3)}s</span></div>
           <div className="fs-keyframe-list">
             {activeChannel?activeChannel.keyframes.map((point,index)=><div className="fs-keyframe-row" key={point.at}>
-              <label>时间<input type="number" min={0} max={clip.duration} step={frameStep} value={point.at.toFixed(3)} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 时间"}
+              <label>时间<input type="number" min={0} max={clip.duration ?? undefined} step={frameStep} value={point.at.toFixed(3)} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 时间"}
                 onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{at:value});}}/></label>
               <label>数值<input type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={point.value} disabled={readOnly} aria-label={"关键帧 "+(index+1)+" 数值"}
                 onChange={event=>{const value=Number(event.currentTarget.value);if(Number.isFinite(value))updateKeyframePoint(index,{value});}}/></label>
@@ -626,8 +626,9 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
           <div className="fs-keyframe-add">
             <label className="fs-inspector-field">时间（相对秒）<input id="fs-keyframe-new-at" type="number" min={0} max={clip.duration} step={frameStep} value={newKeyframeAt} disabled={readOnly} onChange={event=>setNewKeyframeAt(event.currentTarget.value)}/></label>
             <label className="fs-inspector-field">数值<input id="fs-keyframe-new-value" type="number" min={animationInfo.min} max={animationInfo.max} step="0.01" value={newKeyframeValue} disabled={readOnly} onChange={event=>setNewKeyframeValue(event.currentTarget.value)}/></label>
-            <label className="fs-inspector-field">缓动<select id="fs-keyframe-new-easing" value={newKeyframeEasing} disabled={readOnly} onChange={event=>setNewKeyframeEasing(event.currentTarget.value as FilmKeyframeEasing)}>
+            <label className="fs-inspector-field">缓动<select id="fs-keyframe-new-easing" value={typeof newKeyframeEasing==="string"?newKeyframeEasing:"window"} disabled={readOnly} onChange={event=>{if(event.currentTarget.value!=="window")setNewKeyframeEasing(event.currentTarget.value as FilmKeyframeEasing)}}>
               <option value="linear">线性</option><option value="ease_in">缓入</option><option value="ease_out">缓出</option><option value="ease_in_out">缓入缓出</option>
+              <option value="window" disabled>裁剪保真的曲线分段</option>
             </select></label>
             <button type="button" className="fs-btn" id="fs-keyframe-add" disabled={readOnly} onClick={addKeyframe}>添加关键帧</button>
           </div>
