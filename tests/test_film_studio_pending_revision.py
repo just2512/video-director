@@ -15,7 +15,7 @@ def test_studio_discards_timeline_and_envelope_drag_when_external_revision_arriv
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     assert "本次旧画面拖动未提交，先载入外部版本" in source
     assert "本次拖动未提交，先载入外部版本" in source
-    on_up = source[source.index("async function onUp(e)"):source.index("document.addEventListener('pointermove',onMove)")]
+    on_up = source[source.index("async function onUp(e)"):source.index("document.addEventListener('pointermove',function(e)")]
     assert "if(S.pendingExternalRevision)" in on_up
     assert "flushPendingExternalRevision();" in on_up
     pointer_cancel = source[source.index("document.addEventListener('pointercancel'"):source.index("window.filmStudioSetSideMode")]
