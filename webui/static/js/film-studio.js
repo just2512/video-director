@@ -920,11 +920,13 @@
       });
     });
     }
+    if(!reactTimeline){
     $('fs-ruler-body').querySelectorAll('[data-at]').forEach(function(el){
       if(el.__filmStudioRulerBound)return;
       el.__filmStudioRulerBound=true;
       el.addEventListener('click',function(){window.filmStudioSeek(el.getAttribute('data-at'));});
     });
+    }
     setPlayheadVisual();
     renderAudioWaveforms();
   }

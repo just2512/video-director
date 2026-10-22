@@ -85,6 +85,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
 
+                # The React ruler must route seek through the shared playhead bridge.
+                page.locator('#fs-ruler-body .fs-ruler-mark[data-at="5"]').click()
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-playhead')?.value === '5'"
+                )
+                assert page.locator("#fs-monitor-time").inner_text() == "00:05"
+
                 # Exercise React-owned track controls against the authoritative FilmDocument.
                 def track_attrs(track_id: str) -> dict:
                     document = fd.read_project_film(project_id)["doc"]

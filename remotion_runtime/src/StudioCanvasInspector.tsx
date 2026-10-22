@@ -762,7 +762,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
       <div className="fs-ruler-head">时码</div>
       <div className="fs-ruler-body" id="fs-ruler-body" style={{width:model.laneWidth}}>
         {model.ticks.map((tick) => (
-          <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at}>{tick.label}</div>
+          <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at} onClick={() => window.filmStudioSeek?.(tick.at)}>{tick.label}</div>
         ))}
       </div>
     </div>
