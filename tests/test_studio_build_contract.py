@@ -19,7 +19,9 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "build:studio" in package["scripts"]
     assert "build:studio:css" in package["scripts"]
     assert package["scripts"]["build:studio:css"].startswith("tailwindcss -i film-studio-tailwind.css")
-    assert "studio_ui/film-studio-tailwind.css" in str(list((root / "studio_ui").glob("film-studio-tailwind.css")))
+    tailwind_entry = root / "studio_ui" / "film-studio-tailwind.css"
+    assert tailwind_entry.is_file()
+    assert '@source "../remotion_runtime/src/StudioCanvasInspector.tsx";' in tailwind_entry.read_text(encoding="utf-8")
     assert not any(name.startswith("@remotion/") for name in package["dependencies"])
     assert "@remotion/renderer" in remotion_package["dependencies"]
     assert "React 19 + Tailwind 4" in contract
@@ -57,6 +59,8 @@ def test_studio_components_share_one_react_root_and_keep_portal_slots():
     assert "film-studio-inspector-share" in runtime
     assert "if(inspector)inspector.hidden" not in runtime
     assert "if(ai)ai.hidden" not in runtime
+    assert "side-split" in runtime
+    assert "applySideShare((e.clientY-d.rect.top)/sideHeight*100,true)" in runtime
     for surface in (
         "fs-assets-list", "fs-timeline", "fs-react-toolbar",
         "fs-react-timeline-toolbar", "fs-react-scrub-row",

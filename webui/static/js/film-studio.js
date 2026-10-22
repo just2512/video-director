@@ -2787,7 +2787,7 @@ window.filmStudioCopyClips=function(){
     if(!pane)return;
     var height=pane.getBoundingClientRect().height||0;
     var minShare=height>0?Math.max(25,Math.min(45,80/height*100)):25;
-    var maxShare=height>0?Math.min(75,Math.max(55,1-90/height)*100):75;
+    var maxShare=height>0?Math.min(75,Math.max(25,(1-96/height)*100)):75;
     var share=Math.max(minShare,Math.min(maxShare,Number(raw)||54));
     pane.style.setProperty('--fs-inspector-share',share.toFixed(2)+'%');
     if(divider)divider.setAttribute('aria-valuenow',String(Math.round(share)));
