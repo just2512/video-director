@@ -139,8 +139,14 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
 
+    asset_insert_started = threading.Event()
+    release_asset_insert = threading.Event()
+
     def fake_library_asset_clip(project_id, asset_id, at, still_duration):
         assert asset_id == "fixture-asset"
+        asset_insert_started.set()
+        if not release_asset_insert.wait(timeout=10):
+            raise RuntimeError("test did not release the pending asset insert")
         return {
             "id": "overwrite-asset", "tag": "video",
             "attrs": {"id": "overwrite-asset", "src": "../assets/new.mp4#t=0,1",
@@ -165,34 +171,12 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
-            pending_insert_states: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.route("**/api/assets_library*", lambda route: route.fulfill(
                 status=200, content_type="application/json",
                 body=json.dumps([{"asset_id": "fixture-asset", "type": "video",
                                   "description": "覆盖测试素材", "duration": 1}]),
             ))
-            def capture_pending_overwrite(route):
-                state = page.evaluate("""() => {
-                  const snapshot = window.filmStudioStore?.getSnapshot();
-                  const node = document.querySelector("#fs-react-film-store-state");
-                  return {
-                    busy: snapshot?.busy,
-                    revision: snapshot?.revision,
-                    transaction: snapshot?.pendingTransaction && {
-                      kind: snapshot.pendingTransaction.kind,
-                      baseRevision: snapshot.pendingTransaction.baseRevision,
-                      operationCount: snapshot.pendingTransaction.operationCount,
-                      operation: snapshot.pendingTransaction.operations[0],
-                    },
-                    domKind: node?.dataset.pendingTransactionKind,
-                    domBase: node?.dataset.pendingTransactionBase,
-                    domCount: node?.dataset.pendingTransactionOperationCount,
-                  };
-                }""")
-                pending_insert_states.append(state)
-                route.continue_()
-            page.route("**/api/editor/film/insert-asset", capture_pending_overwrite)
             try:
                 response = page.goto(f"http://127.0.0.1:{server.server_port}/",
                                      wait_until="domcontentloaded")
@@ -220,17 +204,36 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 page.evaluate("window.filmStudioLoadLibrary()")
                 page.locator('[data-add-asset="fixture-asset"]').wait_for(state="visible")
                 page.locator('[data-add-asset="fixture-asset"]').click()
-                assert len(pending_insert_states) == 1, pending_insert_states
-                pending = pending_insert_states[0]
-                assert pending["busy"] is True, pending
-                assert pending["revision"] == initial["rev"], pending
-                assert pending["transaction"]["kind"] == "asset-overwrite", pending
-                assert pending["transaction"]["baseRevision"] == initial["rev"], pending
-                assert pending["transaction"]["operationCount"] == 1, pending
-                assert pending["transaction"]["operation"]["placement_mode"] == "overwrite", pending
-                assert pending["domKind"] == "asset-overwrite", pending
-                assert pending["domBase"] == initial["rev"], pending
-                assert pending["domCount"] == "1", pending
+                assert asset_insert_started.wait(timeout=5), "asset insert HTTP handler was not reached"
+                try:
+                    pending = page.evaluate("""() => {
+                      const snapshot = window.filmStudioStore?.getSnapshot();
+                      const node = document.querySelector("#fs-react-film-store-state");
+                      return {
+                        busy: snapshot?.busy,
+                        revision: snapshot?.revision,
+                        transaction: snapshot?.pendingTransaction && {
+                          kind: snapshot.pendingTransaction.kind,
+                          baseRevision: snapshot.pendingTransaction.baseRevision,
+                          operationCount: snapshot.pendingTransaction.operationCount,
+                          operation: snapshot.pendingTransaction.operations[0],
+                        },
+                        domKind: node?.dataset.pendingTransactionKind,
+                        domBase: node?.dataset.pendingTransactionBase,
+                        domCount: node?.dataset.pendingTransactionOperationCount,
+                      };
+                    }""")
+                    assert pending["busy"] is True, pending
+                    assert pending["revision"] == initial["rev"], pending
+                    assert pending["transaction"]["kind"] == "asset-overwrite", pending
+                    assert pending["transaction"]["baseRevision"] == initial["rev"], pending
+                    assert pending["transaction"]["operationCount"] == 1, pending
+                    assert pending["transaction"]["operation"]["placement_mode"] == "overwrite", pending
+                    assert pending["domKind"] == "asset-overwrite", pending
+                    assert pending["domBase"] == initial["rev"], pending
+                    assert pending["domCount"] == "1", pending
+                finally:
+                    release_asset_insert.set()
 
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
