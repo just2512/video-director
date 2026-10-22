@@ -2070,3 +2070,40 @@ def test_streaming_planner_forwards_cancel_event_and_upstream_handle():
     assert received[0] == ("opened", upstream)
     assert "".join(item for item in received[1:] if isinstance(item, str)) == output
     assert summary["summary"] == "调整画面关键帧"
+
+
+def test_visual_keyframes_are_rebased_without_changing_curve_on_split_and_trim():
+    doc = fd.parse_film(SAMPLE)
+    channels = [{
+        "property": "opacity",
+        "keyframes": [
+            {"at": 0, "value": 0, "easing": "ease_in"},
+            {"at": 4, "value": 1, "easing": "ease_out"},
+            {"at": 8, "value": 0.5, "easing": "linear"},
+            {"at": 12, "value": 1, "easing": "ease_in_out"},
+        ],
+    }]
+    source, _ = fd.apply_ops(doc, [
+        {"op": "set", "clip": "clip-a", "field": "data-film-keyframes", "value": channels},
+    ])
+    split, _ = fd.apply_ops(source, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-keyframe-right"},
+    ])
+    by_id = {clip["id"]: clip for track in split["tracks"] for clip in track["clips"]}
+    left = json.loads(by_id["clip-a"]["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    right = json.loads(by_id["clip-a-keyframe-right"]["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    assert left[0]["at"] == 0 and left[-1]["at"] == 2
+    assert right[0]["at"] == 0 and right[0]["value"] == pytest.approx(0.25)
+    assert any(isinstance(point.get("easing"), dict) and point["easing"].get("type") == "window" for point in right)
+    assert not fd.validate_film(fd.serialize_film(split))
+
+    trimmed, _ = fd.apply_ops(source, [
+        {"op": "trim", "clip": "clip-a", "edge": "start", "at": 2},
+        {"op": "trim", "clip": "clip-a", "edge": "end", "end": 7},
+    ])
+    clip = next(c for track in trimmed["tracks"] for c in track["clips"] if c["id"] == "clip-a")
+    keyframes = json.loads(clip["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    assert keyframes[0]["at"] == 0 and keyframes[0]["value"] == pytest.approx(0.25)
+    assert keyframes[-1]["at"] == 5
+    assert all(point["at"] <= 5 for point in keyframes)
+    assert not fd.validate_film(fd.serialize_film(trimmed))

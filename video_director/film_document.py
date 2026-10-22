@@ -360,6 +360,144 @@ def _slice_volume_envelope(attrs: dict, old_start: float, old_end: float) -> Non
     attrs["volume_envelope"] = _normalize_volume_envelope(rebased)
 
 
+def _film_keyframe_ease(value: float, easing: Any) -> float:
+    """Evaluate a keyframe easing preset, including a preserved sub-window."""
+    x = min(1.0, max(0.0, float(value)))
+
+    def preset_eval(progress: float, preset: str) -> float:
+        t = min(1.0, max(0.0, progress))
+        if preset == "ease_in":
+            return t * t
+        if preset == "ease_out":
+            return 1.0 - (1.0 - t) * (1.0 - t)
+        if preset == "ease_in_out":
+            return 2.0 * t * t if t < 0.5 else 1.0 - ((-2.0 * t + 2.0) ** 2) / 2.0
+        return t
+
+    if isinstance(easing, dict) and easing.get("type") == "window":
+        preset = str(easing.get("preset") or "linear")
+        start = min(1.0, max(0.0, float(easing.get("start", 0.0))))
+        end = min(1.0, max(0.0, float(easing.get("end", 1.0))))
+        left = preset_eval(start, preset)
+        right = preset_eval(end, preset)
+        if end <= start or abs(right - left) <= 1e-12:
+            return x
+        return min(1.0, max(0.0, (preset_eval(start + (end - start) * x, preset) - left) / (right - left)))
+    return preset_eval(x, str(easing or "linear"))
+
+
+def _film_keyframe_value(points: list[dict], at: float) -> float:
+    """Evaluate a validated channel at clip-local time."""
+    if not points or at < float(points[0]["at"]):
+        return 0.0
+    if abs(at - float(points[0]["at"])) <= 1e-9:
+        return float(points[0]["value"])
+    for left, right in zip(points, points[1:]):
+        left_at, right_at = float(left["at"]), float(right["at"])
+        if at <= right_at + 1e-9:
+            span = right_at - left_at
+            if span <= 1e-12:
+                return float(right["value"])
+            ratio = _film_keyframe_ease((at - left_at) / span, right.get("easing", "linear"))
+            return float(left["value"]) + (float(right["value"]) - float(left["value"])) * ratio
+    return float(points[-1]["value"])
+
+
+def _film_keyframe_window(easing: Any, start_ratio: float, end_ratio: float) -> Any:
+    """Represent a subinterval of an easing curve without changing its shape."""
+    if end_ratio <= start_ratio + 1e-12:
+        return "linear"
+    if start_ratio <= 1e-9 and end_ratio >= 1.0 - 1e-9:
+        return copy.deepcopy(easing if easing is not None else "linear")
+    if isinstance(easing, dict) and easing.get("type") == "window":
+        preset = str(easing.get("preset") or "linear")
+        base_start = float(easing.get("start", 0.0))
+        base_end = float(easing.get("end", 1.0))
+    else:
+        preset = str(easing or "linear")
+        base_start, base_end = 0.0, 1.0
+    if preset == "linear":
+        return "linear"
+    start = base_start + (base_end - base_start) * start_ratio
+    end = base_start + (base_end - base_start) * end_ratio
+    if start <= 1e-9 and end >= 1.0 - 1e-9:
+        return preset
+    return {"type": "window", "preset": preset, "start": round(start, 9), "end": round(end, 9)}
+
+
+def _slice_film_keyframes(attrs: dict, old_start: float, old_end: float) -> None:
+    """Clip-local keyframes are sliced and re-based with their interpolation curve preserved."""
+    raw = attrs.get("data-film-keyframes")
+    if raw is None:
+        return
+    if not math.isfinite(old_start) or not math.isfinite(old_end) or old_start < 0 or old_end <= old_start:
+        raise FilmError("INVALID_FILM_KEYFRAMES", "不能将视觉关键帧切片到无效的片段区间", 422)
+    try:
+        channels = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧 JSON 无效，不能安全切片", 422) from exc
+    if not isinstance(channels, list):
+        raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧必须是 JSON 数组", 422)
+    result: list[dict] = []
+    eps = 1e-9
+    for channel in channels:
+        if not isinstance(channel, dict) or not isinstance(channel.get("keyframes"), list):
+            raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧通道结构无效，不能安全切片", 422)
+        points = sorted(channel["keyframes"], key=lambda point: float(point["at"]))
+        if not points:
+            continue
+        first_at, last_at = float(points[0]["at"]), float(points[-1]["at"])
+        boundaries: list[float] = []
+        # Before the first keyframe Runtime uses the property's base transform. Do not
+        # invent a local-time-zero keyframe there, because the base value is clip-specific.
+        if old_start >= first_at - eps:
+            boundaries.append(old_start)
+        boundaries.extend(float(point["at"]) for point in points
+                          if old_start + eps < float(point["at"]) < old_end - eps)
+        exact_end = any(abs(float(point["at"]) - old_end) <= eps for point in points)
+        if old_end >= first_at - eps and (old_end < last_at - eps or exact_end):
+            boundaries.append(old_end)
+        # Deduplicate boundary times while retaining deterministic sorted order.
+        boundaries = sorted({round(value, 9) for value in boundaries})
+        if not boundaries:
+            continue
+        out_points: list[dict] = []
+        for at in boundaries:
+            exact = next((point for point in points if abs(float(point["at"]) - at) <= eps), None)
+            out_points.append({
+                "at": round(max(0.0, at - old_start), 6),
+                "value": round(_film_keyframe_value(points, at), 6),
+                "easing": copy.deepcopy(exact.get("easing", "linear") if exact else "linear"),
+            })
+        # Each right-hand keyframe stores the easing of the segment ending there. If a
+        # trim/split cuts inside an eased segment, a window preserves the exact curve.
+        for index in range(1, len(out_points)):
+            a, b = boundaries[index - 1], boundaries[index]
+            right_original = next((point for point in points if float(point["at"]) >= b - eps), None)
+            if right_original is None:
+                out_points[index]["easing"] = "linear"
+                continue
+            left_original = next((point for point in reversed(points)
+                                  if float(point["at"]) <= a + eps), None)
+            if left_original is None:
+                out_points[index]["easing"] = copy.deepcopy(right_original.get("easing", "linear"))
+                continue
+            span = float(right_original["at"]) - float(left_original["at"])
+            if span <= eps:
+                out_points[index]["easing"] = "linear"
+            else:
+                ratio_a = (a - float(left_original["at"])) / span
+                ratio_b = (b - float(left_original["at"])) / span
+                out_points[index]["easing"] = _film_keyframe_window(
+                    right_original.get("easing", "linear"),
+                    min(1.0, max(0.0, ratio_a)), min(1.0, max(0.0, ratio_b)))
+        result.append({"property": channel["property"], "keyframes": out_points})
+    if result:
+        attrs["data-film-keyframes"] = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    else:
+        attrs.pop("data-film-keyframes", None)
+
+
 def revision_of(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -645,9 +783,21 @@ def _film_runtime_metadata_issues(clip: dict) -> list[str]:
                     _number(point.get("value"), prop + ".value")
                     if at <= last_at:
                         raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的关键帧时间必须严格递增且不能重复", 422)
-                    easing = str(point.get("easing") or "linear")
-                    if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
-                        raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 不支持缓动 " + easing, 422)
+                    raw_easing = point.get("easing") or "linear"
+                    if isinstance(raw_easing, str):
+                        if raw_easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 不支持缓动 " + raw_easing, 422)
+                    elif isinstance(raw_easing, dict):
+                        if set(raw_easing) != {"type", "preset", "start", "end"} or raw_easing.get("type") != "window":
+                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动结构无效", 422)
+                        if raw_easing.get("preset") not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动预设无效", 422)
+                        window_start = _number(raw_easing.get("start"), prop + ".easing.start", 0, 1)
+                        window_end = _number(raw_easing.get("end"), prop + ".easing.end", 0, 1)
+                        if window_end <= window_start:
+                            raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的分段缓动区间必须递增", 422)
+                    else:
+                        raise FilmError("INVALID_FILM_KEYFRAMES", prop + " 的缓动格式无效", 422)
                     last_at = at
             mapped, warnings = _film_keyframes(channels, duration)
             if warnings or len(mapped) != len(channels):
@@ -1967,12 +2117,16 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 raise FilmError("DUPLICATE_CLIP_ID", f"切分后 ID 已存在：{right_id}")
             original_id = clip["id"]
             original_envelope = attrs.get("volume_envelope")
+            original_keyframes = attrs.get("data-film-keyframes")
             original_fade = attrs.get("fade")
             split_offset = at - start
             left_fade, right_fade = _split_fade(original_fade, duration, split_offset)
             clip["attrs"]["src"] = _with_source_range(attrs["src"], src_in, mid)
             if original_envelope is not None:
                 _slice_volume_envelope(clip["attrs"], 0.0, split_offset)
+            if original_keyframes is not None:
+                clip["attrs"]["data-film-keyframes"] = original_keyframes
+                _slice_film_keyframes(clip["attrs"], 0.0, split_offset)
             _store_fade(clip["attrs"], left_fade)
             right = copy.deepcopy(clip)
             right["id"], right["attrs"]["id"] = right_id, right_id
@@ -1981,6 +2135,9 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             if original_envelope is not None:
                 right["attrs"]["volume_envelope"] = original_envelope
                 _slice_volume_envelope(right["attrs"], split_offset, duration)
+            if original_keyframes is not None:
+                right["attrs"]["data-film-keyframes"] = original_keyframes
+                _slice_film_keyframes(right["attrs"], split_offset, duration)
             _store_fade(right["attrs"], right_fade)
             track["clips"].insert(track["clips"].index(clip) + 1, right)
             normalized.append({"op": "split", "clip": original_id, "at": _fmt(at), "new_id": right_id})
@@ -2009,6 +2166,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 attrs["src"] = _with_source_range(attrs["src"], new_src_in, new_src_out)
                 attrs["at"] = _fmt(new_start)
                 _slice_volume_envelope(attrs, delta, duration)
+                _slice_film_keyframes(attrs, delta, duration)
                 _store_fade(attrs, trimmed_fade)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "start", "at": _fmt(new_start)})
             elif edge == "end":
@@ -2019,6 +2177,7 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                     raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
                 attrs["src"] = _with_source_range(attrs["src"], src_in, min(src_out, new_src_out))
                 _slice_volume_envelope(attrs, 0.0, new_end - start)
+                _slice_film_keyframes(attrs, 0.0, new_end - start)
                 _store_fade(attrs, trimmed_fade)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "end", "end": _fmt(new_end)})
             else:
@@ -3100,11 +3259,20 @@ def _film_keyframes(raw_tracks: list, duration: float) -> tuple[list[dict], list
             if not limits[0] <= value <= limits[1]:
                 invalid = True
                 break
-            easing = str(point.get("easing") or "linear")
-            if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
-                unsupported.append(f"{prop} 缓动 {easing}")
+            easing = point.get("easing") or "linear"
+            if isinstance(easing, str):
+                if easing not in {"linear", "ease_in", "ease_out", "ease_in_out"}:
+                    unsupported.append(f"{prop} 缓动 {easing}")
+                    easing = "linear"
+            elif isinstance(easing, dict) and easing.get("type") == "window":
+                if (set(easing) != {"type", "preset", "start", "end"}
+                    or easing.get("preset") not in {"linear", "ease_in", "ease_out", "ease_in_out"}):
+                    unsupported.append(f"{prop} 分段缓动格式无效")
+                    easing = "linear"
+            else:
+                unsupported.append(f"{prop} 缓动格式无效")
                 easing = "linear"
-            mapped.append({"at": at, "value": value, "easing": easing})
+            mapped.append({"at": at, "value": value, "easing": copy.deepcopy(easing)})
         if invalid:
             unsupported.append(f"{prop} 含非数值或越界关键帧")
             continue

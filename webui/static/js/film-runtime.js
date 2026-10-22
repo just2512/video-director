@@ -324,6 +324,14 @@
     }
     if(!mode||typeof mode!=='object')return x;
     var type=String(mode.type||'linear');
+    if(type==='window'){
+      var preset=String(mode.preset||'linear');
+      var windowStart=clamp(finite(mode.start,0),0,1),windowEnd=clamp(finite(mode.end,1),0,1);
+      if(windowEnd<=windowStart)return x;
+      var low=filmEase(windowStart,preset),high=filmEase(windowEnd,preset);
+      if(Math.abs(high-low)<1e-12)return x;
+      return clamp((filmEase(windowStart+(windowEnd-windowStart)*x,preset)-low)/(high-low),0,1);
+    }
     var direction=String(mode.mode||'in').toLowerCase().replace(/_/g,'');
     var params=mode.parameters||{};
     function easeIn(t){
