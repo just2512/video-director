@@ -23,6 +23,11 @@ def test_canvas_inspector_has_functional_unbundled_fallback():
     assert "data-fallback-kf-add" in studio
     assert "data-fallback-kf-remove" in studio
     assert "fallbackKeyframeCurve" in studio
+    assert "function normalizeBezier(raw)" in studio
+    assert "function normalizeWindow(raw)" in studio
+    assert "function bezier(t,curve)" in studio
+    assert "easing.type==='bezier'?'bezier':'window'" in studio
+    assert "自定义贝塞尔（请使用 React Studio 调整控制柄）" in studio
     assert "setPointerCapture" in studio
     assert "clip.trackLocked" in studio
 

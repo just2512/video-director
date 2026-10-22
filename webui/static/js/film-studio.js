@@ -59,13 +59,40 @@
       var points=channel.keyframes.map(function(point){
         if(!point||!Number.isFinite(Number(point.at))||!Number.isFinite(Number(point.value)))throw new Error('关键帧时间和值必须是有限数字。');
         var easing=point.easing||'linear';
+        function normalizeBezier(raw){
+          if(!raw||typeof raw!=='object'||raw.type!=='bezier'||
+            Object.keys(raw).sort().join(',')!=='type,x1,x2,y1,y2'){
+            throw new Error('关键帧贝塞尔曲线结构无效。');
+          }
+          var curve={type:'bezier',x1:Number(raw.x1),y1:Number(raw.y1),x2:Number(raw.x2),y2:Number(raw.y2)};
+          if(['x1','y1','x2','y2'].some(function(key){return !Number.isFinite(curve[key])||curve[key]<0||curve[key]>1;})||curve.x1>curve.x2){
+            throw new Error('关键帧贝塞尔控制点必须在 0–1 范围，且 x1 不大于 x2。');
+          }
+          return curve;
+        }
+        function normalizeWindow(raw){
+          if(!raw||typeof raw!=='object'||raw.type!=='window'||
+            !Number.isFinite(Number(raw.start))||!Number.isFinite(Number(raw.end))||
+            Number(raw.start)<0||Number(raw.end)>1||Number(raw.end)<=Number(raw.start)){
+            throw new Error('关键帧曲线分段格式无效。');
+          }
+          if(Object.keys(raw).sort().join(',')==='end,preset,start,type'){
+            if(['linear','ease_in','ease_out','ease_in_out'].indexOf(raw.preset)<0)throw new Error('关键帧分段缓动预设无效。');
+            return {type:'window',preset:raw.preset,start:Number(raw.start),end:Number(raw.end)};
+          }
+          if(Object.keys(raw).sort().join(',')==='curve,end,start,type'){
+            return {type:'window',curve:normalizeBezier(raw.curve),start:Number(raw.start),end:Number(raw.end)};
+          }
+          throw new Error('关键帧曲线分段格式无效。');
+        }
         if(typeof easing==='string'){
           if(['linear','ease_in','ease_out','ease_in_out'].indexOf(easing)<0)throw new Error('关键帧缓动类型无效。');
-        }else if(!easing||easing.type!=='window'||['linear','ease_in','ease_out','ease_in_out'].indexOf(easing.preset)<0||
-          !Number.isFinite(Number(easing.start))||!Number.isFinite(Number(easing.end))||Number(easing.start)<0||Number(easing.end)>1||Number(easing.end)<=Number(easing.start)){
-          throw new Error('关键帧曲线分段格式无效。');
+        }else if(easing&&typeof easing==='object'&&easing.type==='bezier'){
+          easing=normalizeBezier(easing);
+        }else if(easing&&typeof easing==='object'&&easing.type==='window'){
+          easing=normalizeWindow(easing);
         }else{
-          easing={type:'window',preset:easing.preset,start:Number(easing.start),end:Number(easing.end)};
+          throw new Error('关键帧缓动格式无效。');
         }
         var at=Number(point.at),value=Number(point.value);
         if(at<0||value<info.min||value>info.max)throw new Error('属性 '+info.label+' 的关键帧时间或数值超出范围。');
@@ -85,12 +112,26 @@
       if(preset==='ease_in_out')return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
       return t;
     }
+    function bezier(t,curve){
+      var target=Math.max(0,Math.min(1,t));
+      function cubic(u,a,b){var inverse=1-u;return 3*inverse*inverse*u*a+3*inverse*u*u*b+u*u*u;}
+      if(target<=0||target>=1)return target;
+      var low=0,high=1;
+      for(var i=0;i<28;i++){
+        var middle=(low+high)*0.5;
+        if(cubic(middle,curve.x1,curve.x2)<target)low=middle;else high=middle;
+      }
+      return Math.max(0,Math.min(1,cubic((low+high)*0.5,curve.y1,curve.y2)));
+    }
+    function evaluate(t,spec){return typeof spec==='string'?base(t,spec):bezier(t,spec);}
     if(typeof easing==='string')return base(x,easing);
+    if(easing.type==='bezier')return bezier(x,easing);
     var start=Math.max(0,Math.min(1,Number(easing.start))),end=Math.max(0,Math.min(1,Number(easing.end)));
     if(end<=start)return x;
-    var low=base(start,easing.preset),high=base(end,easing.preset);
+    var spec=easing.curve||easing.preset;
+    var low=evaluate(start,spec),high=evaluate(end,spec);
     if(Math.abs(high-low)<1e-12)return x;
-    return Math.max(0,Math.min(1,(base(start+(end-start)*x,easing.preset)-low)/(high-low)));
+    return Math.max(0,Math.min(1,(evaluate(start+(end-start)*x,spec)-low)/(high-low)));
   }
   function fallbackKeyframeValue(points,at){
     if(!points.length||at<points[0].at)return 0;
@@ -156,7 +197,7 @@
     html+='<div class="fs-keyframe-list">';
     if(channel.keyframes.length){
       channel.keyframes.forEach(function(point,index){
-        var easingValue=typeof point.easing==='string'?point.easing:'window';
+        var easingValue=typeof point.easing==='string'?point.easing:(point.easing&&point.easing.type==='bezier'?'bezier':'window');
         html+='<div class="fs-keyframe-row"><label>时间<input type="number" min="0" max="'+duration+'" step="'+frameStep+'" data-fallback-kf-at="'+index+'" value="'+point.at.toFixed(3)+'"></label>'+
           '<label>数值<input type="number" min="'+info.min+'" max="'+info.max+'" step="0.01" data-fallback-kf-value="'+index+'" value="'+point.value+'"></label>'+
           '<label>缓动<select data-fallback-kf-easing="'+index+'" aria-label="关键帧 '+(index+1)+' 缓动">'+
@@ -164,6 +205,7 @@
           '<option value="ease_in"'+(easingValue==='ease_in'?' selected':'')+'>缓入</option>'+
           '<option value="ease_out"'+(easingValue==='ease_out'?' selected':'')+'>缓出</option>'+
           '<option value="ease_in_out"'+(easingValue==='ease_in_out'?' selected':'')+'>缓入缓出</option>'+
+          '<option value="bezier" disabled'+(easingValue==='bezier'?' selected':'')+'>自定义贝塞尔（请使用 React Studio 调整控制柄）</option>'+
           '<option value="window" disabled'+(easingValue==='window'?' selected':'')+'>裁剪保真的曲线分段</option></select></label>'+
           '<button type="button" class="fs-btn" data-fallback-kf-remove="'+index+'" aria-label="删除关键帧 '+(index+1)+'">删除</button></div>';
       });
