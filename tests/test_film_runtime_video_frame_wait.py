@@ -45,7 +45,10 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "element.addEventListener('error',onMediaError" in event_wait
     assert "networkState=" in event_helpers and "readyState=" in event_helpers
     assert "MEDIA_ERR_DECODE" in event_helpers
-    assert event_wait.index("element.addEventListener(eventName,finish") < event_wait.index("if(eventAlreadySatisfied(element,eventName))") < event_wait.index("timer=setTimeout(timeout")
+    listener_index = event_wait.index("element.addEventListener(eventName,finish")
+    post_listener_check = event_wait.index("if(eventAlreadySatisfied(element,eventName))", listener_index)
+    timer_index = event_wait.index("timer=setTimeout(timeout", listener_index)
+    assert listener_index < post_listener_check < timer_index
     assert "function timeout(){" in event_wait
     timeout_body = event_wait[event_wait.index("function timeout(){"):]
     assert timeout_body.index("if(eventAlreadySatisfied(element,eventName))") < timeout_body.index("fail('等待媒体事件 '+eventName+' 超时：');")
