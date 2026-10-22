@@ -24712,7 +24712,7 @@
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-ruler", style: { width: model.totalWidth }, "data-react-timeline-surface": "true", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-head", children: "\u65F6\u7801" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-body", id: "fs-ruler-body", style: { width: model.laneWidth }, children: model.ticks.map((tick) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-mark", "data-at": tick.at, style: { left: tick.left }, children: tick.label }, tick.at)) })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-body", id: "fs-ruler-body", style: { width: model.laneWidth }, children: model.ticks.map((tick) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-mark", "data-at": tick.at, style: { left: tick.left }, onClick: () => window.filmStudioSeek?.(tick.at), children: tick.label }, tick.at)) })
       ] }),
       model.tracks.map((track) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "div",
