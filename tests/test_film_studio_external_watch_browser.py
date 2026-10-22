@@ -113,6 +113,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert abs(float(moved_clip["attrs"]["at"]) - 6.0) < 0.15, moved_clip
 
+                # The drag selected clip-b. Restore clip-a so the existing
+                # external-write assertion observes the field that is changed next.
+                page.evaluate("window.filmStudioSelectClip('clip-a')")
+                page.wait_for_function(
+                    "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
+                )
+
                 changed = SAMPLE.replace('speed="2"', 'speed="2.5"')
                 film_path.write_text(changed, encoding="utf-8")
                 page.wait_for_function(
