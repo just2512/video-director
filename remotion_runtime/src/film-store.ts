@@ -191,18 +191,30 @@ const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureCont
         (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 ||
          trackOrder[originalTrackIndex] !== trackId))) return null;
 
+  const primaryMember = members.find(member => member.id === id);
+  if (!primaryMember ||
+      (originalAt !== undefined && primaryMember.originalAt !== originalAt) ||
+      (originalEnd !== undefined && primaryMember.originalEnd !== originalEnd) ||
+      (trackId !== undefined && primaryMember.trackId !== trackId) ||
+      (originalTrackIndex !== undefined && primaryMember.trackIndex !== originalTrackIndex) ||
+      (mode !== "move" && members.length !== 1)) return null;
+
   const hasClipBaseline = originalAt !== undefined && originalEnd !== undefined &&
     !!trackId && originalTrackIndex !== undefined && !!targetTrackId;
   if ((mode === "move" || mode === "trim-start" || mode === "trim-end" || mode === "slip") &&
       !hasClipBaseline) return null;
   if (mode === "roll" && (
       !leftClipId || !rightClipId || leftClipId === rightClipId ||
-      rightAt === undefined || leftDuration === undefined || leftDuration <= 0 ||
+      (id !== leftClipId && id !== rightClipId) ||
+      primaryMember.trackId !== targetTrackId ||
+      rightAt === undefined || rightAt < 0 ||
+      leftDuration === undefined || leftDuration <= 0 ||
       rightDuration === undefined || rightDuration <= 0 || !targetTrackId)) return null;
   if (mode === "slide" && (
       !leftClipId || !centerClipId || !rightClipId ||
+      centerClipId !== id || primaryMember.trackId !== targetTrackId ||
       new Set([leftClipId,centerClipId,rightClipId]).size !== 3 ||
-      centerAt === undefined || rightAt === undefined ||
+      centerAt === undefined || centerAt < 0 || rightAt === undefined || rightAt < centerAt ||
       leftDuration === undefined || leftDuration <= 0 ||
       centerDuration === undefined || centerDuration <= 0 ||
       rightDuration === undefined || rightDuration <= 0 || !targetTrackId)) return null;

@@ -1626,6 +1626,22 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                     rightAt:1,leftDuration:1
                   });
                   const incompleteRollRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{...base,originalEnd:2});
+                  const mismatchedBaselineRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{
+                    ...base,mode:"trim-start",members:[member,{...member,id:"clip-extra"}]
+                  });
+                  const multiMemberTrimRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{
+                    ...base,mode:"roll",leftClipId:"clip-left",rightClipId:"clip-right",
+                    rightAt:1,leftDuration:1,rightDuration:1
+                  });
+                  const mismatchedRollIdentityRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{
+                    ...base,mode:"slide",leftClipId:"clip-left",centerClipId:"clip-other",rightClipId:"clip-right",
+                    centerAt:0,rightAt:1,leftDuration:1,centerDuration:1,rightDuration:1
+                  });
+                  const mismatchedSlideIdentityRejected = store.getField("timelineGestureContext") === null;
                   store.setField("timelineGestureContext",{
                     ...base,mode:"slide",leftClipId:"clip-left",centerClipId:"clip-probe",rightClipId:"clip-right",
                     centerAt:0,rightAt:1,leftDuration:1,centerDuration:1,rightDuration:1
@@ -1646,6 +1662,10 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                     "malformedMemberRejected":True,
                     "duplicateMemberRejected":True,
                     "incompleteRollRejected":True,
+                    "mismatchedBaselineRejected":True,
+                    "multiMemberTrimRejected":True,
+                    "mismatchedRollIdentityRejected":True,
+                    "mismatchedSlideIdentityRejected":True,
                     "completeSlideAccepted":True,
                     "noDomRefs":True,
                 }, context_validation
