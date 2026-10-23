@@ -24025,6 +24025,10 @@
         playing: false,
         duration: 10,
         pixelsPerSecond: 36,
+        timelineGesturePreview: null,
+        timelineSnapGuide: null,
+        timelineDropTarget: null,
+        timelineActiveDragIds: null,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24059,6 +24063,9 @@
     }
     getField(key) {
       return this.snapshot[key];
+    }
+    setField(key, value) {
+      this.setValue(key, value);
     }
     dispatchTransaction(context, submitter) {
       const pending = asPendingTransaction(context);
@@ -24119,6 +24126,44 @@
         normalized = key === "duration" ? Math.max(1e-3, parsed) : Math.max(0, parsed);
       } else if (key === "pendingTransaction") {
         normalized = asPendingTransaction(value);
+      } else if (key === "timelineGesturePreview") {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          normalized = null;
+        } else {
+          const entries = {};
+          for (const [clipId, rawEntry] of Object.entries(value)) {
+            if (!clipId) continue;
+            if (typeof rawEntry === "number" && Number.isFinite(rawEntry)) {
+              entries[clipId] = rawEntry;
+              continue;
+            }
+            if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) continue;
+            const raw = rawEntry;
+            const geometry = {};
+            if (typeof raw.left === "number" && Number.isFinite(raw.left)) geometry.left = raw.left;
+            if (typeof raw.width === "number" && Number.isFinite(raw.width) && raw.width > 0) geometry.width = raw.width;
+            if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
+            if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
+            if (Object.keys(geometry).length) entries[clipId] = geometry;
+          }
+          normalized = Object.keys(entries).length ? entries : null;
+        }
+      } else if (key === "timelineSnapGuide") {
+        if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+        else {
+          const raw = value;
+          const at = Number(raw.at);
+          normalized = Number.isFinite(at) && at >= 0 && typeof raw.kind === "string" && typeof raw.title === "string" ? { at, kind: raw.kind, title: raw.title } : null;
+        }
+      } else if (key === "timelineDropTarget") {
+        if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+        else {
+          const raw = value;
+          normalized = typeof raw.trackId === "string" && raw.trackId ? { trackId: raw.trackId, invalid: raw.invalid === true } : null;
+        }
+      } else if (key === "timelineActiveDragIds") {
+        const ids = Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
+        normalized = ids.length ? Array.from(new Set(ids)) : null;
       } else if (key === "film") {
         normalized = value ?? null;
         if (normalized && typeof normalized === "object" && typeof normalized.rev === "string") {
@@ -24149,6 +24194,10 @@
         playing: target.playing === true,
         duration: Math.max(1e-3, asFiniteNumber(target.duration, 10)),
         pixelsPerSecond: Math.max(12, Math.min(120, asFiniteNumber(target.pxPerSec, 36))),
+        timelineGesturePreview: null,
+        timelineSnapGuide: null,
+        timelineDropTarget: null,
+        timelineActiveDragIds: null,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -25354,43 +25403,11 @@
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
     ] });
   };
-  var updateTimelineGesturePreview = null;
-  var updateTimelineSnapGuide = null;
-  var updateTimelineDropTarget = null;
-  var updateTimelineActiveDragIds = null;
   var TimelineSurface = ({ model }) => {
-    const [gesturePreview, setGesturePreview] = (0, import_react.useState)(null);
-    const [snapGuide, setSnapGuide] = (0, import_react.useState)(null);
-    const [dropTarget, setDropTarget] = (0, import_react.useState)(null);
-    const [activeDragIds, setActiveDragIds] = (0, import_react.useState)(null);
-    (0, import_react.useLayoutEffect)(() => {
-      const update = (preview) => setGesturePreview(preview);
-      updateTimelineGesturePreview = update;
-      return () => {
-        if (updateTimelineGesturePreview === update) updateTimelineGesturePreview = null;
-      };
-    }, []);
-    (0, import_react.useLayoutEffect)(() => {
-      const update = (guide) => setSnapGuide(guide);
-      updateTimelineSnapGuide = update;
-      return () => {
-        if (updateTimelineSnapGuide === update) updateTimelineSnapGuide = null;
-      };
-    }, []);
-    (0, import_react.useLayoutEffect)(() => {
-      const update = (target) => setDropTarget(target);
-      updateTimelineDropTarget = update;
-      return () => {
-        if (updateTimelineDropTarget === update) updateTimelineDropTarget = null;
-      };
-    }, []);
-    (0, import_react.useLayoutEffect)(() => {
-      const update = (ids) => setActiveDragIds(ids);
-      updateTimelineActiveDragIds = update;
-      return () => {
-        if (updateTimelineActiveDragIds === update) updateTimelineActiveDragIds = null;
-      };
-    }, []);
+    const gesturePreview = useFilmStoreField("timelineGesturePreview");
+    const snapGuide = useFilmStoreField("timelineSnapGuide");
+    const dropTarget = useFilmStoreField("timelineDropTarget");
+    const activeDragIds = useFilmStoreField("timelineActiveDragIds");
     const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
     const playhead = useFilmStoreField("playhead");
     const duration = useFilmStoreField("duration");
@@ -26036,18 +26053,22 @@
       renderStudioReactOwner({ timeline: model });
     },
     setGesturePreview(preview) {
-      updateTimelineGesturePreview?.(preview);
+      filmStore.setField("timelineGesturePreview", preview);
     },
     setSnapGuide(guide) {
-      updateTimelineSnapGuide?.(guide);
+      filmStore.setField("timelineSnapGuide", guide);
     },
     setTrackDropTarget(target) {
-      updateTimelineDropTarget?.(target);
+      filmStore.setField("timelineDropTarget", target);
     },
     setActiveDragIds(ids) {
-      updateTimelineActiveDragIds?.(ids);
+      filmStore.setField("timelineActiveDragIds", ids);
     },
     clearSurface() {
+      filmStore.setField("timelineGesturePreview", null);
+      filmStore.setField("timelineSnapGuide", null);
+      filmStore.setField("timelineDropTarget", null);
+      filmStore.setField("timelineActiveDragIds", null);
       if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
         renderStudioReactOwner({ timeline: null, timelineContextMenu: null });
       }
