@@ -24030,6 +24030,7 @@
         timelineDropTarget: null,
         timelineActiveDragIds: null,
         timelineEnvelopePreview: null,
+        timelineWaveformSources: {},
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24173,6 +24174,19 @@
           const points = Array.isArray(raw.points) ? raw.points.filter((item) => !!item && typeof item === "object" && !Array.isArray(item)).map((item) => ({ t: Number(item.t), v: Number(item.v) })).filter((point) => Number.isFinite(point.t) && point.t >= 0 && Number.isFinite(point.v)).map((point) => ({ t: point.t, v: Math.max(0, Math.min(1, point.v)) })).sort((a, b) => a.t - b.t) : [];
           normalized = clipId && points.length >= 2 ? { clipId, points } : null;
         }
+      } else if (key === "timelineWaveformSources") {
+        const sources = {};
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          for (const [key2, entry] of Object.entries(value)) {
+            if (!key2 || !entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+            const raw = entry;
+            const duration = Number(raw.duration);
+            const rawPeaks = raw.peaks;
+            const peaks = rawPeaks instanceof Uint8Array ? rawPeaks : Array.isArray(rawPeaks) ? Uint8Array.from(rawPeaks.map((item) => Math.max(0, Math.min(255, Math.round(Number(item) || 0))))) : null;
+            if (Number.isFinite(duration) && duration > 0 && peaks && peaks.length > 0) sources[key2] = { duration, peaks };
+          }
+        }
+        normalized = sources;
       } else if (key === "film") {
         normalized = value ?? null;
         if (normalized && typeof normalized === "object" && typeof normalized.rev === "string") {
@@ -24208,6 +24222,7 @@
         timelineDropTarget: null,
         timelineActiveDragIds: null,
         timelineEnvelopePreview: null,
+        timelineWaveformSources: {},
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -25413,6 +25428,57 @@
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
     ] });
   };
+  var AudioWaveformCanvas = ({
+    clipId,
+    waveformKey,
+    duration,
+    pixelsPerSecond,
+    sourceStart,
+    sourceEnd,
+    source
+  }) => {
+    const canvasRef = (0, import_react.useRef)(null);
+    (0, import_react.useLayoutEffect)(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      delete canvas.dataset.reactWaveformPainted;
+      const width = filmTimelineMath.clipWidth(duration || 1, pixelsPerSecond, 16, 1, 1800, true);
+      const height = Math.max(18, Math.min(40, canvas.parentElement ? canvas.parentElement.clientHeight - 6 : 30));
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+      if (!source || !Number.isFinite(source.duration) || source.duration <= 0 || !source.peaks.length) {
+        canvas.title = "\u97F3\u9891\u6CE2\u5F62\u7B49\u5F85\u89E3\u7801";
+        return;
+      }
+      const start = Math.max(0, Math.min(source.duration, sourceStart || 0));
+      const end = sourceEnd == null || !Number.isFinite(sourceEnd) ? source.duration : Math.max(start, Math.min(source.duration, sourceEnd));
+      const first = Math.max(0, Math.min(source.peaks.length - 1, Math.floor(start / source.duration * source.peaks.length)));
+      const last = Math.max(first + 1, Math.min(source.peaks.length, Math.ceil(end / source.duration * source.peaks.length)));
+      const count = Math.max(1, last - first), mid = height / 2;
+      ctx.fillStyle = "rgba(211,250,241,.72)";
+      for (let x = 0; x < width; x++) {
+        const index = first + Math.min(count - 1, Math.floor(x / width * count));
+        const amplitude = (source.peaks[index] || 0) / 255;
+        const bar = Math.max(1, amplitude * (height - 4));
+        ctx.fillRect(x, mid - bar / 2, 1, bar);
+      }
+      canvas.title = "\u7D20\u6750\u6CE2\u5F62 \xB7 \u6E90\u533A\u95F4 " + start.toFixed(2) + "\u2013" + end.toFixed(2) + " \u79D2";
+      canvas.dataset.reactWaveformPainted = "true";
+    }, [clipId, waveformKey, duration, pixelsPerSecond, sourceStart, sourceEnd, source]);
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "canvas",
+      {
+        className: "fs-clip-waveform",
+        "data-waveform-clip": clipId,
+        "data-waveform-key": waveformKey,
+        "aria-label": "\u97F3\u9891\u6CE2\u5F62",
+        ref: canvasRef
+      }
+    );
+  };
   var drawVolumeEnvelopeCanvas = (canvas, duration, pixelsPerSecond, points) => {
     if (!Number.isFinite(duration) || duration <= 0) return;
     const width = filmTimelineMath.clipWidth(duration, pixelsPerSecond, 24, 1, 1800, true);
@@ -25498,6 +25564,7 @@
     const dropTarget = useFilmStoreField("timelineDropTarget");
     const activeDragIds = useFilmStoreField("timelineActiveDragIds");
     const envelopePreview = useFilmStoreField("timelineEnvelopePreview");
+    const waveformSources = useFilmStoreField("timelineWaveformSources");
     const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
     const playhead = useFilmStoreField("playhead");
     const duration = useFilmStoreField("duration");
@@ -25721,7 +25788,18 @@
                       clip.thumbnail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "fs-clip-thumb", src: clip.thumbnail, loading: "lazy", alt: "", onError: (event) => {
                         event.currentTarget.style.display = "none";
                       } }) : null,
-                      clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("canvas", { className: "fs-clip-waveform", "data-waveform-clip": clip.id, "aria-label": "\u97F3\u9891\u6CE2\u5F62" }) : null,
+                      clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                        AudioWaveformCanvas,
+                        {
+                          clipId: clip.id,
+                          waveformKey: clip.waveformKey,
+                          duration: clip.duration ?? 1,
+                          pixelsPerSecond: model.pixelsPerSecond,
+                          sourceStart: clip.sourceStart,
+                          sourceEnd: clip.sourceEnd,
+                          source: waveformSources[clip.waveformKey]
+                        }
+                      ) : null,
                       clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                         VolumeEnvelopeCanvas,
                         {
