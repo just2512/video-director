@@ -1162,22 +1162,21 @@
     if(!reactTimeline)$('fs-timeline').style.width=(132+laneWidth)+'px';
     $('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
     var timelineRoot=$('fs-timeline');
-    if(timelineRoot&&!timelineRoot.__filmStudioKeyframeDelegationBound){
+    var reactOwnsTimeline=!!(window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==="function");
+    if(timelineRoot&&!reactOwnsTimeline&&!timelineRoot.__filmStudioKeyframeDelegationBound){
+      // Native click delegation is only the no-bundle fallback. The verified React
+      // surface handles marker pointer/click itself and must not be shadowed by
+      // capture-phase listeners on its Portal host.
       timelineRoot.__filmStudioKeyframeDelegationBound=true;
-      timelineRoot.addEventListener('pointerdown',function(event){
-        var marker=event.target&&event.target.closest?event.target.closest('[data-film-keyframe-marker]'):null;
-        if(marker)event.stopPropagation();
-      },true);
       timelineRoot.addEventListener('click',function(event){
         var marker=event.target&&event.target.closest?event.target.closest('[data-film-keyframe-marker]'):null;
         if(!marker)return;
-        if(window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==="function")return;
         event.preventDefault();event.stopPropagation();
         window.filmStudioJumpToKeyframe(
           marker.getAttribute('data-film-keyframe-marker'),
           Number(marker.getAttribute('data-keyframe-at')||0)
         );
-      },true);
+      });
     }
     $('fs-timeline').querySelectorAll('[data-clip]').forEach(function(el){
       // React owns clip selection and gesture initiation when the verified bundle

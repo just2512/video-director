@@ -276,7 +276,11 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
 
-                # Keyframe markers select their clip and seek using clip-relative time.
+                # React owns keyframe marker events: seek only, no parent clip drag or FilmDocument write.
+                keyframe_before = fd.read_project_film(project_id)
+                keyframe_clip_before = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').evaluate(
+                    "(node) => ({left:node.style.left,width:node.style.width})"
+                )
                 page.locator('button[data-film-keyframe-marker="clip-a"][data-keyframe-at="1"]').click()
                 page.wait_for_function(
                     """() => {
@@ -287,6 +291,17 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     }"""
                 )
                 assert page.locator('#fs-field-speed').input_value() == '2'
+                keyframe_after = fd.read_project_film(project_id)
+                assert keyframe_after["rev"] == keyframe_before["rev"], {
+                    "before": keyframe_before["rev"], "after": keyframe_after["rev"]
+                }
+                keyframe_clip_after = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').evaluate(
+                    "(node) => ({left:node.style.left,width:node.style.width})"
+                )
+                assert keyframe_clip_after == keyframe_clip_before, {
+                    "before": keyframe_clip_before, "after": keyframe_clip_after
+                }
+                assert page.locator('[data-react-gesture-preview="true"]').count() == 0
 
                 # The React ruler must route seek through the shared playhead bridge.
                 page.locator('#fs-ruler-body .fs-ruler-mark[data-at="5"]').click()

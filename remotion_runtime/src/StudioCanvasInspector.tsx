@@ -1174,6 +1174,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                   aria-label={"跳转到 "+mark.at.toFixed(3)+" 秒关键帧"}
                   style={{left:(clip.duration && clip.duration>0 ? Math.max(0,Math.min(100,mark.at/clip.duration*100)) : 0)+"%"}}
                   key={mark.at}
+                  onPointerDown={(event) => {
+                    // A marker is a seek target, never the parent clip's drag surface.
+                    event.stopPropagation();
+                  }}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();

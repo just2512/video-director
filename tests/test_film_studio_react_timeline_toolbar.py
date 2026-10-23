@@ -80,6 +80,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert 'style={{left:132 + filmTimelineMath.clipLeft(playhead,model.pixelsPerSecond)}}' in component
     assert "if(line&&!reactTimeline)line.style.left=" in studio
     assert "window.filmStudioJumpToKeyframe?.(clip.id, mark.at)" in component
+    assert "onPointerDown={(event) => {\n                    // A marker is a seek target" in component
+    assert "timelineRoot.addEventListener('pointerdown'" not in studio
+    assert "if(timelineRoot&&!reactOwnsTimeline&&!timelineRoot.__filmStudioKeyframeDelegationBound)" in studio
+    assert "if(!marker)return;\n        event.preventDefault();event.stopPropagation();" in studio
     assert "window.filmStudioJumpToKeyframe=function(clipId,at)" in studio
     assert "window.filmStudioJumpToKeyframe" in studio and "renderSurface" in studio
     assert "clearSurface(): void;" in component
