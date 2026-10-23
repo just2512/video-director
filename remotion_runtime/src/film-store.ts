@@ -19,6 +19,8 @@ export type FilmStudioTimelineDropTarget = {trackId: string; invalid: boolean} |
 export type FilmStudioTimelineActiveDragIds = string[] | null;
 export type FilmStudioTimelineEnvelopePoint = {t: number; v: number};
 export type FilmStudioTimelineEnvelopePreview = {clipId: string; points: FilmStudioTimelineEnvelopePoint[]} | null;
+export type FilmStudioTimelineWaveformSource = {duration: number; peaks: Uint8Array};
+export type FilmStudioTimelineWaveformSources = Record<string, FilmStudioTimelineWaveformSource>;
 
 export interface FilmStudioStoreSnapshot {
   projectId: string;
@@ -37,6 +39,7 @@ export interface FilmStudioStoreSnapshot {
   timelineDropTarget: FilmStudioTimelineDropTarget;
   timelineActiveDragIds: FilmStudioTimelineActiveDragIds;
   timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
+  timelineWaveformSources: FilmStudioTimelineWaveformSources;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -141,6 +144,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineDropTarget: null,
       timelineActiveDragIds: null,
       timelineEnvelopePreview: null,
+      timelineWaveformSources: {},
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -310,6 +314,23 @@ class FilmStore implements FilmStudioStoreBridge {
           : [];
         normalized = clipId && points.length >= 2 ? {clipId,points} : null;
       }
+    } else if (key === "timelineWaveformSources") {
+      const sources: FilmStudioTimelineWaveformSources = {};
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+          if (!key || !entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+          const raw = entry as Record<string, unknown>;
+          const duration = Number(raw.duration);
+          const rawPeaks = raw.peaks;
+          const peaks = rawPeaks instanceof Uint8Array
+            ? rawPeaks
+            : Array.isArray(rawPeaks)
+              ? Uint8Array.from(rawPeaks.map(item => Math.max(0,Math.min(255,Math.round(Number(item)||0)))))
+              : null;
+          if (Number.isFinite(duration) && duration > 0 && peaks && peaks.length > 0) sources[key] = {duration,peaks};
+        }
+      }
+      normalized = sources;
     } else if (key === "film") {
       normalized = value ?? null;
       if (normalized && typeof normalized === "object" &&
@@ -351,6 +372,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineDropTarget: null,
       timelineActiveDragIds: null,
       timelineEnvelopePreview: null,
+      timelineWaveformSources: {},
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,

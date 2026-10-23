@@ -1183,7 +1183,11 @@
                 atLabel:fmtTime(clip.at),durationLabel:clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s',
                 selected:(S.selectedIds||[]).indexOf(clip.id)>=0,thumbnail:thumbnail,duration:clip.duration,
                 keyframeMarks:timelineKeyframeMarks(clip),
-                waveform:clip.tag==='audio',envelope:(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null,
+                waveform:clip.tag==='audio',
+                waveformKey:String(clip.media_url||'').split('#',1)[0],
+                sourceStart:Number(clip.src_in)||0,
+                sourceEnd:Number.isFinite(clip.src_out)?clip.src_out:null,
+                envelope:(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null,
                 envelopePoints:envelopePointsForClip(clip),
                 locked:Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked'),
                 trimHandles:clip.duration!=null&&!Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked')
@@ -1287,9 +1291,21 @@
     setPlayheadVisual();
     renderAudioWaveforms();
   }
+  function syncTimelineWaveformSources(){
+    var bridge=window.filmStudioStore;
+    if(!bridge||typeof bridge.getField!=='function'||typeof bridge.setField!=='function')return false;
+    var current=bridge.getField('timelineWaveformSources')||{},cache=S.waveformCache||{},keys=Object.keys(cache),currentKeys=Object.keys(current);
+    if(keys.length===currentKeys.length&&keys.every(function(key){
+      return current[key]&&current[key].duration===cache[key].duration&&current[key].peaks===cache[key].peaks;
+    }))return false;
+    var next={};
+    keys.forEach(function(key){next[key]={duration:cache[key].duration,peaks:cache[key].peaks};});
+    bridge.setField('timelineWaveformSources',next);
+    return true;
+  }
   async function decodeAudioWaveform(url){
     var key=String(url||'').split('#',1)[0];
-    if(S.waveformCache[key])return S.waveformCache[key];
+    if(S.waveformCache[key]){syncTimelineWaveformSources();return S.waveformCache[key];}
     if(S.waveformPending[key])return S.waveformPending[key];
     var task=(async function(){
       var response=await fetch(key,{credentials:'same-origin'});
@@ -1324,6 +1340,7 @@
         S.waveformCache[key]=result;
         var keys=Object.keys(S.waveformCache);
         while(keys.length>8){delete S.waveformCache[keys.shift()];}
+        syncTimelineWaveformSources();
         return result;
       }finally{try{await context.close();}catch(_){}}
     })();
@@ -1336,6 +1353,8 @@
     try{
       var data=await decodeAudioWaveform(clip.media_url);
       if(!canvas.isConnected)return;
+      var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
+      if(reactTimeline){syncTimelineWaveformSources();return;}
       var width=timelineClipWidth(clip.duration||1,S.pxPerSec,16,1,1800,true);
       var height=Math.max(18,Math.min(40,canvas.parentElement?canvas.parentElement.clientHeight-6:30));
       canvas.width=width;canvas.height=height;
@@ -1355,7 +1374,8 @@
       }
       canvas.title='素材波形 · 源区间 '+sourceStart.toFixed(2)+'–'+sourceEnd.toFixed(2)+' 秒';
     }catch(error){
-      if(canvas.isConnected)canvas.title='波形暂不可用：'+String(error&&error.message||error);
+      var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
+      if(canvas.isConnected&&!reactTimeline)canvas.title='波形暂不可用：'+String(error&&error.message||error);
     }
   }
   function renderAudioWaveforms(){

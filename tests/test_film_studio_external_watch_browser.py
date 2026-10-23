@@ -995,6 +995,39 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert cancelled_envelope["selectedBeforeClick"] == "clip-b", cancelled_envelope
                 assert cancelled_envelope["selectedAfterClick"] == "clip-b", cancelled_envelope
                 page.wait_for_function("() => window.filmStudioOwnsEnvelopeGesturePointer?.(78) !== true")
+
+                # Inject deterministic peaks through the actual FilmStore field so the React waveform
+                # canvas is exercised without network/audio-decoder variability in this fixture.
+                waveform_fixture = page.evaluate("""() => {
+                  const canvas = document.querySelector('canvas[data-waveform-clip="audio-1"]');
+                  const store = window.filmStudioStore;
+                  if (!canvas || !store) throw new Error('React waveform canvas or FilmStore missing');
+                  const key = canvas.dataset.waveformKey;
+                  if (!key) throw new Error('audio waveform source key missing');
+                  const peaks = new Uint8Array(128);
+                  for (let i = 0; i < peaks.length; i++) peaks[i] = (i % 16) * 16;
+                  const current = store.getField('timelineWaveformSources') || {};
+                  store.setField('timelineWaveformSources', {...current, [key]: {duration:20, peaks}});
+                  return {key, width:canvas.width, height:canvas.height};
+                }""")
+                page.wait_for_function(
+                    """key => {
+                      const canvas = document.querySelector('canvas[data-waveform-clip="audio-1"]');
+                      return !!canvas && canvas.dataset.reactWaveformPainted === 'true' &&
+                        canvas.dataset.waveformKey === key;
+                    }""",
+                    arg=waveform_fixture["key"],
+                    timeout=5000,
+                )
+                waveform_pixels = page.locator('canvas[data-waveform-clip="audio-1"]').evaluate("""canvas => {
+                  const ctx = canvas.getContext('2d');
+                  const data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+                  let painted = 0;
+                  for (let i = 3; i < data.length; i += 4) if (data[i] > 0) painted++;
+                  return {painted,width:canvas.width,height:canvas.height,title:canvas.title};
+                }""")
+                assert waveform_pixels["painted"] > 0, waveform_pixels
+                assert waveform_pixels["title"].startswith("素材波形"), waveform_pixels
                 after_envelope_cancel = fd.read_project_film(project_id)
                 assert after_envelope_cancel["rev"] == before_envelope_cancel["rev"]
                 # The drag selected clip-b. Restore clip-a so the existing

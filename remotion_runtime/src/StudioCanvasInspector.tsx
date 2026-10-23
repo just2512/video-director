@@ -12,6 +12,8 @@ import {
   type FilmStudioTimelineActiveDragIds,
   type FilmStudioTimelineEnvelopePoint,
   type FilmStudioTimelineEnvelopePreview,
+  type FilmStudioTimelineWaveformSource,
+  type FilmStudioTimelineWaveformSources,
 } from "./film-store";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
@@ -220,7 +222,8 @@ interface FilmStudioReactAssetsBridge {
 type FilmTimelineSurfaceClip = {
   id: string; trackId: string; tag: string; title: string;
   left: number; width: number; duration:number|null; at:number; atLabel: string; durationLabel: string;
-  selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; envelope: boolean;
+  selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; waveformKey: string;
+  sourceStart: number; sourceEnd: number | null; envelope: boolean;
   envelopePoints: FilmStudioTimelineEnvelopePoint[];
   keyframeMarks:Array<{at:number;properties:string[]}>; trimHandles: boolean;
 };
@@ -978,6 +981,56 @@ const StudioToolbar: React.FC = () => {
   );
 };
 
+type AudioWaveformCanvasProps = {
+  clipId: string;
+  waveformKey: string;
+  duration: number;
+  pixelsPerSecond: number;
+  sourceStart: number;
+  sourceEnd: number | null;
+  source: FilmStudioTimelineWaveformSource | undefined;
+};
+
+const AudioWaveformCanvas: React.FC<AudioWaveformCanvasProps> = ({
+  clipId,waveformKey,duration,pixelsPerSecond,sourceStart,sourceEnd,source,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    delete canvas.dataset.reactWaveformPainted;
+    const width = filmTimelineMath.clipWidth(duration || 1,pixelsPerSecond,16,1,1800,true);
+    const height = Math.max(18,Math.min(40,canvas.parentElement ? canvas.parentElement.clientHeight - 6 : 30));
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0,0,width,height);
+    if (!source || !Number.isFinite(source.duration) || source.duration <= 0 || !source.peaks.length) {
+      canvas.title = "音频波形等待解码";
+      return;
+    }
+    const start = Math.max(0,Math.min(source.duration,sourceStart || 0));
+    const end = sourceEnd == null || !Number.isFinite(sourceEnd)
+      ? source.duration
+      : Math.max(start,Math.min(source.duration,sourceEnd));
+    const first = Math.max(0,Math.min(source.peaks.length - 1,Math.floor(start / source.duration * source.peaks.length)));
+    const last = Math.max(first + 1,Math.min(source.peaks.length,Math.ceil(end / source.duration * source.peaks.length)));
+    const count = Math.max(1,last - first), mid = height / 2;
+    ctx.fillStyle = "rgba(211,250,241,.72)";
+    for (let x = 0; x < width; x++) {
+      const index = first + Math.min(count - 1,Math.floor(x / width * count));
+      const amplitude = (source.peaks[index] || 0) / 255;
+      const bar = Math.max(1,amplitude * (height - 4));
+      ctx.fillRect(x,mid - bar / 2,1,bar);
+    }
+    canvas.title = "素材波形 · 源区间 " + start.toFixed(2) + "–" + end.toFixed(2) + " 秒";
+    canvas.dataset.reactWaveformPainted = "true";
+  },[clipId,waveformKey,duration,pixelsPerSecond,sourceStart,sourceEnd,source]);
+  return <canvas className="fs-clip-waveform" data-waveform-clip={clipId} data-waveform-key={waveformKey}
+    aria-label="音频波形" ref={canvasRef} />;
+};
+
 const drawVolumeEnvelopeCanvas = (
   canvas: HTMLCanvasElement,
   duration: number,
@@ -1077,6 +1130,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   const dropTarget = useFilmStoreField("timelineDropTarget");
   const activeDragIds = useFilmStoreField("timelineActiveDragIds");
   const envelopePreview = useFilmStoreField("timelineEnvelopePreview");
+  const waveformSources = useFilmStoreField("timelineWaveformSources");
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
   const playhead=useFilmStoreField("playhead");
   const duration=useFilmStoreField("duration");
@@ -1288,7 +1342,15 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               }}
             >
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
-              {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}
+              {clip.waveform ? <AudioWaveformCanvas
+                clipId={clip.id}
+                waveformKey={clip.waveformKey}
+                duration={clip.duration ?? 1}
+                pixelsPerSecond={model.pixelsPerSecond}
+                sourceStart={clip.sourceStart}
+                sourceEnd={clip.sourceEnd}
+                source={waveformSources[clip.waveformKey]}
+              /> : null}
               {clip.envelope ? <VolumeEnvelopeCanvas
                 clipId={clip.id}
                 duration={clip.duration ?? 0}

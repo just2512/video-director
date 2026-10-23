@@ -64,6 +64,15 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "setTimelineEnvelopePreview(clip.id,points)" in studio
     assert "setTimelineEnvelopePreview(ed.clipId,ed.points)" in studio
     assert "if(reactTimeline)return;" in studio
+    assert "type FilmStudioTimelineWaveformSource = {duration: number; peaks: Uint8Array};" in store
+    assert "timelineWaveformSources: FilmStudioTimelineWaveformSources;" in store
+    assert 'useFilmStoreField("timelineWaveformSources")' in component
+    assert "const AudioWaveformCanvas: React.FC<AudioWaveformCanvasProps>" in component
+    assert "canvas.dataset.reactWaveformPainted = \"true\";" in component
+    assert "data-waveform-key={waveformKey}" in component
+    assert "function syncTimelineWaveformSources()" in studio
+    assert "if(reactTimeline){syncTimelineWaveformSources();return;}" in studio
+
     assert "setField<K extends keyof FilmStudioStoreSnapshot>(key: K, value: FilmStudioStoreSnapshot[K]): void;" in store
     assert 'useFilmStoreField("timelineGesturePreview")' in component
     assert 'useFilmStoreField("timelineSnapGuide")' in component
