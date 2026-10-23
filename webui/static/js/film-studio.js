@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var gestureDomRefs = null;
   if(window.filmStudioStore&&typeof window.filmStudioStore.bindLegacyState==='function')window.filmStudioStore.bindLegacyState(S);
   var $ = function (id) { return document.getElementById(id); };
   function dispatchStudioTransaction(kind,baseRevision,operations,submitter){
@@ -59,6 +60,13 @@
     bridge.setActiveDragIds(ids&&ids.length?ids.slice():null);
     return true;
   }
+  function updateTimelineGestureContext(patch){
+    var current=S.drag;
+    if(!current)return null;
+    S.drag=Object.assign({},current,patch||{});
+    return S.drag;
+  }
+
   function timelineSecondsToPixels(seconds,scale){var m=timelineMath();return m?m.secondsToPixels(seconds,scale):num(seconds,0)*Math.max(0.000001,num(scale,1));}
   function timelinePixelsToSeconds(pixels,scale){var m=timelineMath();return m?m.pixelsToSeconds(pixels,scale):num(pixels,0)/Math.max(0.000001,num(scale,1));}
   function timelineDragDeltaSeconds(pointerDelta,scrollDelta,scale){var m=timelineMath();return m&&typeof m.dragDeltaSeconds==='function'?m.dragDeltaSeconds(pointerDelta,scrollDelta,scale):timelinePixelsToSeconds(num(pointerDelta,0)+num(scrollDelta,0),scale);}
@@ -855,8 +863,9 @@
   function clearDragTrackTarget(d){
     var bridge=window.filmStudioReactTimeline;
     var reactOwnsTarget=bridge&&typeof bridge.setTrackDropTarget==='function';
-    if(d&&d.targetRow&&!reactOwnsTarget)d.targetRow.classList.remove('fs-track-drop-target','fs-track-drop-invalid');
-    if(d)d.targetRow=null;
+    var targetRow=gestureDomRefs&&gestureDomRefs.targetRow;
+    if(targetRow&&!reactOwnsTarget)targetRow.classList.remove('fs-track-drop-target','fs-track-drop-invalid');
+    if(gestureDomRefs)gestureDomRefs.targetRow=null;
     setTimelineDropTarget(null,false);
   }
   function groupMoveTargetError(d,targetTrackId){
@@ -1074,15 +1083,16 @@
             return;
           }
         }
-        var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
+        var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;}),memberDomElements=Object.create(null);
         var members=chosen.map(function(id){
           var selected=findClip(id);if(!selected)return null;
-          // React owns each member's transient geometry/active marker; the authoritative gesture snapshot can be ID-only.
+          // Store only stable IDs and numeric edit baselines; DOM references stay outside FilmStore.
           var element=null;
           if(!reactOwnsGestureSurface)
             element=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(node){return node.getAttribute('data-clip')===id;});
+          if(element)memberDomElements[id]=element;
           return selected&&(reactOwnsGestureSurface||element)?{id:id,originalAt:selected.at,originalEnd:selected.end==null?selected.at+num(selected.duration,2):selected.end,
-            trackId:selected.track_id,trackIndex:trackOrder.indexOf(selected.track_id),element:element}:null;
+            trackId:selected.track_id,trackIndex:trackOrder.indexOf(selected.track_id)}:null;
         }).filter(Boolean);
         if(!members.length)return;
         if(mode==='slide'){
@@ -1102,12 +1112,13 @@
             rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
           }
           if(!reactOwnsGestureSurface&&(!leftElement||!rightElement)){showStatus('无法定位滑移式修剪的邻接片段。','error');return;}
-          S.drag={id:clip.id,mode:'slide',startX:e.clientX,startY:e.clientY,
+          gestureDomRefs=reactOwnsGestureSurface?null:{clipElement:el,memberElements:memberDomElements,
+            slideElements:[leftElement,el,rightElement],rollElements:null,targetRow:null};
+          S.drag={id:clip.id,mode:'slide',pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,
             leftClipId:leftClip.id,centerClipId:clip.id,rightClipId:rightClip.id,
             leftDuration:leftClip.duration,centerDuration:clip.duration,rightDuration:rightClip.duration,
-            centerAt:clip.at,rightAt:rightClip.at,pxPerSec:S.pxPerSec,
-            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,
-            slideElements:[leftElement,el,rightElement],members:members,targetTrackId:clip.track_id,targetRow:null};
+            centerAt:clip.at,rightAt:rightClip.at,startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,
+            members:members,targetTrackId:clip.track_id,trackOrder:trackOrder};
         }else if(mode==='roll'){
           var trackData=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
           var ordered=(trackData&&trackData.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
@@ -1123,20 +1134,28 @@
             rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
           }
           if(!reactOwnsGestureSurface&&(!leftElement||!rightElement)){showStatus('无法定位切口两侧片段。','error');return;}
-          S.drag={id:clip.id,mode:'roll',startX:e.clientX,startY:e.clientY,leftClipId:leftClip.id,rightClipId:rightClip.id,
-            rightAt:rightClip.at,leftDuration:leftClip.duration,rightDuration:rightClip.duration,pxPerSec:S.pxPerSec,
-            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,rollElements:[leftElement,rightElement],
-            members:members,targetTrackId:clip.track_id,targetRow:null};
+          gestureDomRefs=reactOwnsGestureSurface?null:{clipElement:el,memberElements:memberDomElements,
+            slideElements:null,rollElements:[leftElement,rightElement],targetRow:null};
+          S.drag={id:clip.id,mode:'roll',pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,
+            leftClipId:leftClip.id,rightClipId:rightClip.id,rightAt:rightClip.at,
+            leftDuration:leftClip.duration,rightDuration:rightClip.duration,
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,members:members,
+            targetTrackId:clip.track_id,trackOrder:trackOrder};
         }else{
           if(mode!=='move')members=members.filter(function(m){return m.id===clip.id;});
-          S.drag={id:clip.id,mode:mode,startX:e.clientX,startY:e.clientY,originalAt:clip.at,
-            originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
+          gestureDomRefs=reactOwnsGestureSurface?null:{clipElement:el,memberElements:memberDomElements,
+            slideElements:null,rollElements:null,targetRow:null};
+          S.drag={id:clip.id,mode:mode,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,
+            originalAt:clip.at,originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
             originalTrackIndex:trackOrder.indexOf(clip.track_id),trackOrder:trackOrder,
-            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,members:members,
-            targetTrackId:clip.track_id,targetRow:null};
+            startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,members:members,
+            targetTrackId:clip.track_id};
         }
         var reactOwnsActiveDrag=setTimelineActiveDragIds(members.map(function(member){return member.id;}));
-        if(!reactOwnsActiveDrag)members.forEach(function(member){member.element.classList.add('fs-dragging');});
+        if(!reactOwnsActiveDrag)members.forEach(function(member){
+          var element=gestureDomRefs&&gestureDomRefs.memberElements[member.id];
+          if(element)element.classList.add('fs-dragging');
+        });
         if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
         e.preventDefault();
     return Boolean(S.drag&&S.drag.element===el&&e&&Number.isInteger(e.pointerId));
@@ -1941,7 +1960,7 @@
     var pointerDelta=e.clientX-d.startX,scrollDelta=scroll.scrollLeft-d.startScrollLeft;
     var dx=pointerDelta+scrollDelta,deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
     if(!d.active&&Math.sqrt(dx*dx+(e.clientY-d.startY)*(e.clientY-d.startY))<5)return;
-    d.active=true;
+    if(!d.active)d=updateTimelineGestureContext({active:true})||d;
     updateDragAutoScroll(e);
     // Only plain clip moves can change tracks. Trim/roll/slip/slide gestures
     // must remain bound to their original track even if the pointer crosses rows.
@@ -1949,9 +1968,11 @@
       var target=document.elementFromPoint(e.clientX,e.clientY),row=target&&target.closest('.fs-track');
       if(row){
         var nextTrack=row.getAttribute('data-track'),targetError=groupMoveTargetError(d,nextTrack);
-        if(d.targetRow!==row||d.targetTrackId!==nextTrack||d.invalidTargetMessage!==targetError){
+        var rowChanged=!!gestureDomRefs&&gestureDomRefs.targetRow!==row;
+        if(rowChanged||d.targetTrackId!==nextTrack||d.invalidTargetMessage!==targetError){
           clearDragTrackTarget(d);
-          d.targetTrackId=nextTrack;d.invalidTargetMessage=targetError;d.targetRow=row;
+          d=updateTimelineGestureContext({targetTrackId:nextTrack,invalidTargetMessage:targetError})||d;
+          if(gestureDomRefs)gestureDomRefs.targetRow=row;
           if(!setTimelineDropTarget(nextTrack,!!targetError))
             row.classList.add(targetError?'fs-track-drop-invalid':'fs-track-drop-target');
         }
@@ -1967,12 +1988,14 @@
       slidePreview[d.centerClipId]={left:Math.max(0,timelineSecondsToPixels(d.centerAt+deltaSlide,S.pxPerSec)),mode:'slide',deltaLabel:slideLabel};
       slidePreview[d.rightClipId]={left:Math.max(0,timelineSecondsToPixels(d.rightAt+deltaSlide,S.pxPerSec)),width:Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaSlide,S.pxPerSec))};
       if(!setTimelineGesturePreview(slidePreview)){
-        d.slideElements[0].style.width=slidePreview[d.leftClipId].width+'px';
-        d.slideElements[1].style.left=slidePreview[d.centerClipId].left+'px';
-        d.slideElements[2].style.left=slidePreview[d.rightClipId].left+'px';
-        d.slideElements[2].style.width=slidePreview[d.rightClipId].width+'px';
-        d.element.setAttribute('data-slide-delta',slideLabel);
-        d.element.classList.add('fs-sliding');
+        var slideElements=gestureDomRefs&&gestureDomRefs.slideElements,clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
+        if(!slideElements||!clipElement)return;
+        slideElements[0].style.width=slidePreview[d.leftClipId].width+'px';
+        slideElements[1].style.left=slidePreview[d.centerClipId].left+'px';
+        slideElements[2].style.left=slidePreview[d.rightClipId].left+'px';
+        slideElements[2].style.width=slidePreview[d.rightClipId].width+'px';
+        clipElement.setAttribute('data-slide-delta',slideLabel);
+        clipElement.classList.add('fs-sliding');
       }
     }else if(d.mode==='roll'){
       var rollResolution=resolveTimelineRoll(d,deltaSeconds,8);
@@ -1985,11 +2008,13 @@
       var rollTarget=rollPreview[d.id]||{};
       rollTarget.mode='roll';rollTarget.deltaLabel=rollLabel;rollPreview[d.id]=rollTarget;
       if(!setTimelineGesturePreview(rollPreview)){
-        d.rollElements[0].style.width=rollPreview[d.leftClipId].width+'px';
-        d.rollElements[1].style.left=rollPreview[d.rightClipId].left+'px';
-        d.rollElements[1].style.width=rollPreview[d.rightClipId].width+'px';
-        d.element.setAttribute('data-roll-delta',rollLabel);
-        d.element.classList.add('fs-rolling');
+        var rollElements=gestureDomRefs&&gestureDomRefs.rollElements,clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
+        if(!rollElements||!clipElement)return;
+        rollElements[0].style.width=rollPreview[d.leftClipId].width+'px';
+        rollElements[1].style.left=rollPreview[d.rightClipId].left+'px';
+        rollElements[1].style.width=rollPreview[d.rightClipId].width+'px';
+        clipElement.setAttribute('data-roll-delta',rollLabel);
+        clipElement.classList.add('fs-rolling');
       }
     }else if(d.mode==='slip'){
       var slipClip=findClip(d.id),slipSpeed=slipClip?num(slipClip.attrs.speed,1):1;
@@ -1997,8 +2022,10 @@
       var slipPreview={};
       slipPreview[d.id]={mode:'slip',deltaLabel:'源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s'};
       if(!setTimelineGesturePreview(slipPreview)){
-        d.element.setAttribute('data-slip-delta',slipPreview[d.id].deltaLabel);
-        d.element.classList.add('fs-slipping');
+        var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
+        if(!clipElement)return;
+        clipElement.setAttribute('data-slip-delta',slipPreview[d.id].deltaLabel);
+        clipElement.classList.add('fs-slipping');
       }
     }else if(d.mode==='trim-start'){
       var trimStartResolution=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
@@ -2007,8 +2034,10 @@
       var trimStartPreview={};
       trimStartPreview[d.id]={left:timelineSecondsToPixels(newStart,S.pxPerSec),width:Math.max(3,timelineSecondsToPixels(d.originalEnd-newStart,S.pxPerSec))};
       if(!setTimelineGesturePreview(trimStartPreview)){
-        d.element.style.left=trimStartPreview[d.id].left+'px';
-        d.element.style.width=trimStartPreview[d.id].width+'px';
+        var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
+        if(!clipElement)return;
+        clipElement.style.left=trimStartPreview[d.id].left+'px';
+        clipElement.style.width=trimStartPreview[d.id].width+'px';
       }
     }else if(d.mode==='trim-end'){
       var trimEndResolution=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
@@ -2016,7 +2045,11 @@
       showTimelineSnapGuide(endSnapUsed?endSnapUsed.at:null,endSnapUsed&&endSnapUsed.kind);
       var trimEndPreview={};
       trimEndPreview[d.id]={width:Math.max(3,timelineSecondsToPixels(newEnd-d.originalAt,S.pxPerSec))};
-      if(!setTimelineGesturePreview(trimEndPreview))d.element.style.width=trimEndPreview[d.id].width+'px';
+      if(!setTimelineGesturePreview(trimEndPreview)){
+        var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
+        if(!clipElement)return;
+        clipElement.style.width=trimEndPreview[d.id].width+'px';
+      }
     }else{
       var chosenIds=(d.members||[]).map(function(member){return member.id;});
       var minStart=(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity);
@@ -2028,7 +2061,10 @@
         previewLeftByClipId[member.id]={left:timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)};
       });
       if(!setTimelineGesturePreview(previewLeftByClipId)){
-        (d.members||[]).forEach(function(member){member.element.style.left=previewLeftByClipId[member.id].left+'px';});
+        (d.members||[]).forEach(function(member){
+          var element=gestureDomRefs&&gestureDomRefs.memberElements[member.id];
+          if(element)element.style.left=previewLeftByClipId[member.id].left+'px';
+        });
       }
     }
   }
@@ -2055,11 +2091,16 @@
       return;
     }
     var d=S.drag;
-    if(!d){clearDragAutoScroll();setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    if(!d){gestureDomRefs=null;clearDragAutoScroll();setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    var dragDomRefs=gestureDomRefs;
     S.drag=null;clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
     showTimelineSnapGuide(null);clearDragTrackTarget(d);
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
-    if(!reactOwnsActiveDrag)(d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
+    if(!reactOwnsActiveDrag)(d.members||[]).forEach(function(member){
+      var element=dragDomRefs&&dragDomRefs.memberElements[member.id];
+      if(element)element.classList.remove('fs-dragging');
+    });
+    gestureDomRefs=null;
     if(S.pendingExternalRevision){
       syncClipSelectionVisual();renderTimeline();clearTimelineGesturePreview();
       showStatus('影片 revision 在拖动期间变化；本次旧画面拖动未提交，先载入外部版本。','error');
@@ -2072,10 +2113,11 @@
     }
     var pointerDelta=e.clientX-d.startX,scrollDelta=$('fs-timeline-scroll').scrollLeft-d.startScrollLeft;
     var deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
-    if(!reactOwnsActiveDrag){
-      d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
-      d.element.removeAttribute('data-roll-delta');d.element.classList.remove('fs-rolling');
-      d.element.removeAttribute('data-slide-delta');d.element.classList.remove('fs-sliding');
+    if(!reactOwnsActiveDrag&&dragDomRefs&&dragDomRefs.clipElement){
+      var dragElement=dragDomRefs.clipElement;
+      dragElement.removeAttribute('data-slip-delta');dragElement.classList.remove('fs-slipping');
+      dragElement.removeAttribute('data-roll-delta');dragElement.classList.remove('fs-rolling');
+      dragElement.removeAttribute('data-slide-delta');dragElement.classList.remove('fs-sliding');
     }
     if(d.mode==='slide'){
       var slideCommitResolution=resolveTimelineSlide(d,deltaSeconds,8);
@@ -2166,14 +2208,16 @@
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){
-      var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
+      var drag=S.drag,dragDomRefs=gestureDomRefs;S.drag=null;clearDragTrackTarget(drag);
       (drag.members||[]).forEach(function(member){
-        if(!reactOwnsActiveDrag)member.element.classList.remove('fs-dragging','fs-slipping','fs-rolling','fs-sliding');
-        if(!reactOwnsActiveDrag){
-          member.element.removeAttribute('data-slip-delta');member.element.removeAttribute('data-roll-delta');member.element.removeAttribute('data-slide-delta');
+        var element=dragDomRefs&&dragDomRefs.memberElements[member.id];
+        if(!reactOwnsActiveDrag&&element)element.classList.remove('fs-dragging','fs-slipping','fs-rolling','fs-sliding');
+        if(!reactOwnsActiveDrag&&element){
+          element.removeAttribute('data-slip-delta');element.removeAttribute('data-roll-delta');element.removeAttribute('data-slide-delta');
         }
       });
     }
+    gestureDomRefs=null;
     if(S.data&&S.data.exists)renderTimeline();
     clearTimelineGesturePreview();
     flushPendingExternalRevision();

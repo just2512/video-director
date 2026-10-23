@@ -85,6 +85,16 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "data-react-gesture-preview={previewForClip(clip.id) ? \"true\" : \"false\"}" in component
     assert "previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth" in component
     assert "setTimelineGesturePreview(previewLeftByClipId)" in studio
+    assert "type FilmStudioTimelineGestureContext =" in store
+    assert "timelineGestureContext: FilmStudioTimelineGestureContext | null;" in store
+    assert '["drag", "timelineGestureContext"]' in store
+    assert "function updateTimelineGestureContext(patch)" in studio
+    assert "var gestureDomRefs = null;" in studio
+    assert "d.element" not in studio
+    assert "d.slideElements" not in studio
+    assert "d.rollElements" not in studio
+    assert "member.element" not in studio
+    assert "d.targetRow" not in studio
     assert "resolveTrimStart(originalAt: number, originalEnd: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "resolveTrimEnd(originalAt: number, originalEnd: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8)" in studio
@@ -192,7 +202,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "setActiveDragIds(ids: FilmTimelineActiveDragIds): void;" in component
     assert "activeDragIds?.includes(clip.id) ? \" fs-dragging\" : \"\"" in component
     assert "bridge.setActiveDragIds!=='function'" in studio
-    assert "if(!reactOwnsActiveDrag)members.forEach(function(member){member.element.classList.add('fs-dragging');});" in studio
+    assert "if(!reactOwnsActiveDrag)members.forEach(function(member){" in studio
+    assert "var element=gestureDomRefs&&gestureDomRefs.memberElements[member.id];" in studio
+    assert "if(element)element.classList.add('fs-dragging');" in studio
     assert 'id="fs-snap-guide"' in component
     assert "dropTarget?.trackId === track.id" in component
     assert "bridge.setSnapGuide==='function'" in studio

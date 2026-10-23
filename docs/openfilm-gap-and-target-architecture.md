@@ -6,7 +6,7 @@
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
-最重要的剩余差距不是按钮数量，而是所有权边界：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是最终时间线，但其编辑状态与剪辑数学仍通过原生 JS 服务桥驱动，React 已拥有单一根、轨道开关、时码尺 seek、片段指针生命周期与关键帧跳转，音量包络/波形/部分上下文菜单仍保留原生事件入口；frame(t) 的确定性范围小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
+最重要的剩余差距不是按钮数量，而是所有权边界：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 的瞬态几何和手势提示；但活动片段手势的操作上下文仍在原生控制器的 `S.drag` 对象里，下一步应把它迁成 FilmStore 的类型化 ID-only 快照，DOM 引用只留给无 bundle fallback。剪辑数学、FilmOperation 组合与 revision 检查仍由共享适配器/FilmDocument 执行；frame(t) 的确定性范围小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
 
 ## 目前已有的可复用基础
 
@@ -22,7 +22,7 @@
 |---|---|---|
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
-| React Studio | **单一 React root；AI 与 Inspector 并排；轨道锁/同步锁/隐藏/静音、时码尺 seek、片段选择/指针生命周期、关键帧跳转由 React 分发**；业务状态、source-aware 剪辑数学与部分 canvas/context-menu 交互仍走既有原生 JS/FilmDocument 桥。 | Studio 构建使用 self-hosted `[self-hosted, linux, x64]` runner 与独立 `studio_ui/` 包；React/Tailwind 构建、选定 Chromium 回归、JS 语法检查与产物发布均通过最新 CI，但不是全部剪辑组合或逐帧渲染一致性的证明 |
+| React Studio | **单一 React root；AI 与 Inspector 并排；轨道开关、时码尺 seek、片段/音量包络 pointer 生命周期、波形/包络绘制、右键菜单、剪辑瞬态几何与关键帧跳转由 React/FilmStore 拥有**；操作上下文现在是 FilmStore 的 ID-only gesture context，剪辑数学与 revision-checked FilmDocument 写入仍经共享适配器。 | Studio 构建使用 self-hosted `[self-hosted, linux, x64]` runner 与独立 `studio_ui/` 包；React/Tailwind 构建、选定 Chromium 回归、JS 语法检查与产物发布均通过最新 CI，但不是全部剪辑组合或逐帧渲染一致性的证明 |
 | 页面元素编辑 | 已支持 selector、文本、位置/尺寸、文字色、旋转；后端还支持背景色、不透明度、字重、对齐等受限字段 | Inspector 应暴露常用可编辑字段，并让 React 与无 bundle fallback 同契约；编辑不应意外物化未改字段 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线；自定义 Bezier 控制柄已通过保存/重载的真实 Chromium 回归（Studio #211 / b9b0adf4） | 完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收；控制柄的交互与持久化测试不等于逐帧渲染一致性的证明 |
@@ -32,7 +32,7 @@
 
 ## 当前下一阶段落地点
 
-- React 对简单片段移动手势拥有预览位置状态；旧适配器负责从 FilmDocument 读取候选并计算 typed move resolution，React 负责预览显示，pointerup 仍通过 revision-checked FilmDocument 事务提交。修剪/roll/slide/slip 暂时保留各自原生预览入口。
+- 活动片段手势上下文以 FilmStore 的 `timelineGestureContext` 类型化保存：只存指针 ID、模式、稳定 clip/track ID、原始时间/时长、吸附/目标轨道状态和多选成员的数值快照。不得把 `HTMLElement`、Canvas 或轨道 row 塞进 Store；无 bundle fallback 所需 DOM 引用仅保存在原生适配层闭包。预览仍由 React state 渲染，pointerup 仍通过 FilmDocument revision-checked 事务提交。
 
 ## React 时间线输入所有权（当前增量）
 

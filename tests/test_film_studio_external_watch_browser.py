@@ -2153,6 +2153,19 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                 )
                 roll_preview = {clip_id: clip_geometry(page, clip_id) for clip_id in ids}
                 assert roll_preview["clip-left"]["roll"] and roll_preview["clip-left"]["preview"] == "true", roll_preview
+                roll_context = page.evaluate("""() => {
+                  const context = window.filmStudioStore?.getSnapshot()?.timelineGestureContext;
+                  return context ? {
+                    mode: context.mode, id: context.id, pointerId: context.pointerId,
+                    active: context.active, memberIds: context.members.map(member => member.id),
+                    hasDomRef: Object.keys(context).some(key => /element|canvas|row/i.test(key)) ||
+                      context.members.some(member => Object.keys(member).some(key => /element|canvas|row/i.test(key)))
+                  } : null;
+                }""")
+                assert roll_context and roll_context["mode"] == "roll" and roll_context["active"] is True, roll_context
+                assert roll_context["id"] == "clip-left" and roll_context["pointerId"] >= 0, roll_context
+                assert set(roll_context["memberIds"]) == {"clip-left"}, roll_context
+                assert roll_context["hasDomRef"] is False, roll_context
                 assert_no_write_during_preview(baseline_revision, edit_count)
                 page.mouse.up()
                 finish_keys(["Control"])
@@ -2206,6 +2219,9 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                 )
                 slide_preview = {clip_id: clip_geometry(page, clip_id) for clip_id in ids}
                 assert slide_preview["clip-middle"]["slide"] and slide_preview["clip-middle"]["preview"] == "true", slide_preview
+                slide_context = page.evaluate("window.filmStudioStore?.getSnapshot()?.timelineGestureContext || null")
+                assert slide_context and slide_context["mode"] == "slide" and slide_context["active"] is True, slide_context
+                assert slide_context["centerClipId"] == "clip-middle" and slide_context["members"][0]["id"] == "clip-middle", slide_context
                 assert_no_write_during_preview(baseline_revision, edit_count)
                 page.mouse.up()
                 finish_keys(["Alt", "Shift"])
@@ -2251,6 +2267,9 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                     timeout=5000,
                 )
                 slip_preview = clip_geometry(page, "clip-middle")
+                slip_context = page.evaluate("window.filmStudioStore?.getSnapshot()?.timelineGestureContext || null")
+                assert slip_context and slip_context["mode"] == "slip" and slip_context["active"] is True, slip_context
+                assert slip_context["members"][0]["id"] == "clip-middle" and slip_context["originalEnd"] == 10.0, slip_context
                 assert_no_write_during_preview(baseline_revision, edit_count)
                 page.mouse.up()
                 finish_keys(["Alt"])

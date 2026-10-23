@@ -17,6 +17,39 @@ export type FilmStudioTimelineGesturePreview = Record<string, FilmStudioTimeline
 export type FilmStudioTimelineSnapGuide = {at: number; kind: string; title: string} | null;
 export type FilmStudioTimelineDropTarget = {trackId: string; invalid: boolean} | null;
 export type FilmStudioTimelineActiveDragIds = string[] | null;
+export type FilmStudioTimelineGestureMode = "move" | "trim-start" | "trim-end" | "roll" | "slide" | "slip";
+export type FilmStudioTimelineGestureMember = {
+  id: string;
+  originalAt: number;
+  originalEnd: number;
+  trackId: string;
+  trackIndex: number;
+};
+export type FilmStudioTimelineGestureContext = {
+  id: string;
+  mode: FilmStudioTimelineGestureMode;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startScrollLeft: number;
+  active: boolean;
+  members: FilmStudioTimelineGestureMember[];
+  trackOrder: string[];
+  originalAt: number | undefined;
+  originalEnd: number | undefined;
+  trackId: string | undefined;
+  originalTrackIndex: number | undefined;
+  targetTrackId: string | undefined;
+  invalidTargetMessage: string | undefined;
+  leftClipId: string | undefined;
+  centerClipId: string | undefined;
+  rightClipId: string | undefined;
+  rightAt: number | undefined;
+  centerAt: number | undefined;
+  leftDuration: number | undefined;
+  centerDuration: number | undefined;
+  rightDuration: number | undefined;
+};
 export type FilmStudioTimelineEnvelopePoint = {t: number; v: number};
 export type FilmStudioTimelineEnvelopePreview = {clipId: string; points: FilmStudioTimelineEnvelopePoint[]} | null;
 export type FilmStudioTimelineWaveformSource = {duration: number; peaks: Uint8Array};
@@ -38,6 +71,7 @@ export interface FilmStudioStoreSnapshot {
   timelineSnapGuide: FilmStudioTimelineSnapGuide;
   timelineDropTarget: FilmStudioTimelineDropTarget;
   timelineActiveDragIds: FilmStudioTimelineActiveDragIds;
+  timelineGestureContext: FilmStudioTimelineGestureContext | null;
   timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
   timelineWaveformSources: FilmStudioTimelineWaveformSources;
   pendingExternalRevision: string;
@@ -72,6 +106,65 @@ const asString = (value: unknown): string =>
 const asFiniteNumber = (value: unknown, fallback: number): number => {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const asOptionalFiniteNumber = (value: unknown): number | undefined => {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureContext | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const modes: FilmStudioTimelineGestureMode[] = ["move", "trim-start", "trim-end", "roll", "slide", "slip"];
+  const mode = typeof raw.mode === "string" && modes.includes(raw.mode as FilmStudioTimelineGestureMode)
+    ? raw.mode as FilmStudioTimelineGestureMode : null;
+  const id = asString(raw.id);
+  const startX = asOptionalFiniteNumber(raw.startX);
+  const startY = asOptionalFiniteNumber(raw.startY);
+  const startScrollLeft = asOptionalFiniteNumber(raw.startScrollLeft);
+  const members = (Array.isArray(raw.members) ? raw.members : [])
+    .map((item): FilmStudioTimelineGestureMember | null => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const member = item as Record<string, unknown>;
+      const memberId = asString(member.id);
+      const originalAt = asOptionalFiniteNumber(member.originalAt);
+      const originalEnd = asOptionalFiniteNumber(member.originalEnd);
+      const trackId = asString(member.trackId);
+      const trackIndex = asOptionalFiniteNumber(member.trackIndex);
+      if (!memberId || originalAt === undefined || originalEnd === undefined ||
+          !trackId || trackIndex === undefined) return null;
+      return {id:memberId,originalAt,originalEnd,trackId,trackIndex};
+    })
+    .filter((item): item is FilmStudioTimelineGestureMember => item !== null);
+  if (!id || !mode || startX === undefined || startY === undefined ||
+      startScrollLeft === undefined || !members.length) return null;
+  const optionalString = (key: string): string | undefined => {
+    const value = asString(raw[key]);
+    return value || undefined;
+  };
+  return {
+    id, mode, pointerId: asFiniteNumber(raw.pointerId, -1),
+    startX, startY, startScrollLeft, active: raw.active === true, members,
+    trackOrder: Array.isArray(raw.trackOrder)
+      ? raw.trackOrder.filter((item): item is string => typeof item === "string" && item.length > 0)
+      : [],
+    originalAt: asOptionalFiniteNumber(raw.originalAt),
+    originalEnd: asOptionalFiniteNumber(raw.originalEnd),
+    trackId: optionalString("trackId"),
+    originalTrackIndex: asOptionalFiniteNumber(raw.originalTrackIndex),
+    targetTrackId: optionalString("targetTrackId"),
+    invalidTargetMessage: optionalString("invalidTargetMessage"),
+    leftClipId: optionalString("leftClipId"),
+    centerClipId: optionalString("centerClipId"),
+    rightClipId: optionalString("rightClipId"),
+    rightAt: asOptionalFiniteNumber(raw.rightAt),
+    centerAt: asOptionalFiniteNumber(raw.centerAt),
+    leftDuration: asOptionalFiniteNumber(raw.leftDuration),
+    centerDuration: asOptionalFiniteNumber(raw.centerDuration),
+    rightDuration: asOptionalFiniteNumber(raw.rightDuration),
+  };
 };
 
 const asPendingTransaction = (value: unknown): FilmStudioPendingTransaction | null => {
@@ -143,6 +236,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineSnapGuide: null,
       timelineDropTarget: null,
       timelineActiveDragIds: null,
+      timelineGestureContext: null,
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       pendingExternalRevision: "",
@@ -300,6 +394,8 @@ class FilmStore implements FilmStudioStoreBridge {
     } else if (key === "timelineActiveDragIds") {
       const ids = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
       normalized = ids.length ? Array.from(new Set(ids)) : null;
+    } else if (key === "timelineGestureContext") {
+      normalized = asTimelineGestureContext(value);
     } else if (key === "timelineEnvelopePreview") {
       if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
       else {
@@ -371,6 +467,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineSnapGuide: null,
       timelineDropTarget: null,
       timelineActiveDragIds: null,
+      timelineGestureContext: null,
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       pendingExternalRevision: asString(target.pendingExternalRevision),
@@ -399,6 +496,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["playing", "playing"],
       ["duration", "duration"],
       ["pxPerSec", "pixelsPerSecond"],
+      ["drag", "timelineGestureContext"],
       ["pendingExternalRevision", "pendingExternalRevision"],
       ["insertMode", "insertMode"],
       ["overwriteMode", "overwriteMode"],
