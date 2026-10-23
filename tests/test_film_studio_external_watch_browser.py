@@ -447,7 +447,6 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     """() => document.querySelector('#fs-timeline .fs-clip[data-clip=\"clip-a\"]')?.dataset.reactGesturePreview === 'false' """,
                     timeout=10000,
                 )
-                )
                 trim_document_after = fd.read_project_film(project_id)
                 trim_clip_after = next(
                     item for track in trim_document_after["doc"]["tracks"]
