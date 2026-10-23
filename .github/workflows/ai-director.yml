@@ -14,7 +14,11 @@ permissions:
 
 concurrency:
   group: ai-director-${{ github.ref }}
-  cancel-in-progress: false
+  # Keep long-running regressions by default. A deliberate push whose commit
+  # message contains [unblock-runner] may cancel a stale run stuck after the
+  # test process has ended (for example, at runner "Complete job") and let the
+  # newest main revision take the single self-hosted runner.
+  cancel-in-progress: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[unblock-runner]') }}
 
 jobs:
   ai-director:
