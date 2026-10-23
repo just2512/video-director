@@ -912,7 +912,8 @@
           });
           if(blockedMember){
             e.preventDefault();
-            showStatus('多选移动包含'+blockedMember.reason+blockedMember.kind+' '+blockedMember.id+'，整组移动已取消。','error');
+            var blockedLabel=blockedMember.reason==='已锁定'?'锁定':'不存在的';
+            showStatus('多选移动包含'+blockedLabel+blockedMember.kind+' '+blockedMember.id+'，整组移动已取消。','error');
             return;
           }
         }

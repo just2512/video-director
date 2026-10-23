@@ -33,7 +33,8 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "function groupMoveTargetError(d,targetTrackId)" in studio
     assert "d.invalidTargetMessage" in studio
     assert "fs-track-drop-invalid" in studio
-    assert "多选移动包含'+blockedMember.reason+blockedMember.kind" in studio
+    assert "var blockedLabel=blockedMember.reason==='已锁定'?'锁定':'不存在的';" in studio
+    assert "多选移动包含'+blockedLabel+blockedMember.kind" in studio
     assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component
     assert "window.filmStudioOwnsClipGesturePointer(e.pointerId)" in studio
     assert "onClick={() => window.filmStudioSeek?.(tick.at)}" in component
