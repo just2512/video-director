@@ -423,8 +423,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert fd.read_project_film(project_id)["rev"] == trim_document_before["rev"]
                 page.mouse.up()
                 page.wait_for_function(
-                    "() => document.querySelector('#fs-timeline .fs-clip[data-clip=\\"clip-a\\"]')?.dataset.reactGesturePreview === 'false'",
+                    """() => document.querySelector('#fs-timeline .fs-clip[data-clip=\"clip-a\"]')?.dataset.reactGesturePreview === 'false' """,
                     timeout=10000,
+                )
                 )
                 trim_document_after = fd.read_project_film(project_id)
                 trim_clip_after = next(
