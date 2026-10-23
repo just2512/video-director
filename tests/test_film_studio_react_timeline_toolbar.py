@@ -29,6 +29,8 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "activePointerId = useRef<number | null>(null)" in component
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioBeginClipDrag = function(e,el)" in studio
+    assert "var blockedMember=null;" in studio
+    assert "多选移动包含'+blockedMember.reason+blockedMember.kind" in studio
     assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component
     assert "window.filmStudioOwnsClipGesturePointer(e.pointerId)" in studio
     assert "onClick={() => window.filmStudioSeek?.(tick.at)}" in component

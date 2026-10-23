@@ -384,6 +384,77 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert abs(float(undone_video["attrs"]["at"]) - 6.0) < 0.001, undone_video
                 assert abs(float(undone_audio["attrs"]["at"]) - 0.0) < 0.001, undone_audio
 
+                # A selected locked clip blocks the entire group before any preview or write.
+                page.evaluate("window.filmStudioSetClipLock('audio-1', true)")
+                page.wait_for_function("""() => {
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!clip && clip.querySelector('.fs-clip-lock-mark');
+                }""")
+                clip.click()
+                audio_clip.click(modifiers=["Control"])
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
+                    audio.classList.contains('fs-clip-selected');
+                }""")
+
+                def assert_locked_group_drag_is_atomic():
+                    before_blocked = fd.read_project_film(project_id)
+                    locked_requests_before = len(film_edit_requests)
+                    box = clip.bounding_box()
+                    assert box, "clip-b bounding box unavailable"
+                    start_x = box["x"] + box["width"] * 0.5
+                    start_y = box["y"] + box["height"] * 0.5
+                    page.mouse.move(start_x, start_y)
+                    page.mouse.down()
+                    page.mouse.move(start_x + max(24, box["width"] / 5), start_y, steps=6)
+                    page.mouse.up()
+                    page.wait_for_function("""() => {
+                      const alert = document.querySelector('#film-studio-alert');
+                      return !!alert && alert.textContent.includes('多选移动包含锁定');
+                    }""")
+                    after_blocked = fd.read_project_film(project_id)
+                    assert after_blocked["rev"] == before_blocked["rev"]
+                    assert len(film_edit_requests) == locked_requests_before, film_edit_requests[locked_requests_before:]
+                    after_video = next(item for track in after_blocked["doc"]["tracks"] for item in track["clips"] if item["id"] == "clip-b")
+                    after_audio = next(item for track in after_blocked["doc"]["tracks"] for item in track["clips"] if item["id"] == "audio-1")
+                    before_video = next(item for track in before_blocked["doc"]["tracks"] for item in track["clips"] if item["id"] == "clip-b")
+                    before_audio = next(item for track in before_blocked["doc"]["tracks"] for item in track["clips"] if item["id"] == "audio-1")
+                    assert after_video["attrs"]["at"] == before_video["attrs"]["at"]
+                    assert after_audio["attrs"]["at"] == before_audio["attrs"]["at"]
+
+                assert_locked_group_drag_is_atomic()
+                page.evaluate("window.filmStudioSetClipLock('audio-1', false)")
+                page.wait_for_function("""() => {
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!clip && !clip.querySelector('.fs-clip-lock-mark');
+                }""")
+
+                # A locked member track is equally fatal to the whole group move.
+                page.evaluate("window.filmStudioToggleTrackLock('audio-bed')")
+                page.wait_for_function("""() => Object.prototype.hasOwnProperty.call(
+                  window.__testFilmTrackAttrs?.['audio-bed'] || {}, 'locked'
+                )""") if False else None
+                page.wait_for_function("""() => {
+                  const button = document.querySelector('button[data-track-lock="audio-bed"]');
+                  return !!button && button.textContent.trim() === '🔒';
+                }""")
+                clip.click()
+                audio_clip.click(modifiers=["Control"])
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
+                    audio.classList.contains('fs-clip-selected');
+                }""")
+                assert_locked_group_drag_is_atomic()
+                page.evaluate("window.filmStudioToggleTrackLock('audio-bed')")
+                page.wait_for_function("""() => {
+                  const button = document.querySelector('button[data-track-lock="audio-bed"]');
+                  return !!button && button.textContent.trim() === '锁';
+                }""")
+
                 # React pointercancel must clear the active gesture without committing.
                 before_cancel = fd.read_project_film(project_id)
                 cancelled = page.evaluate("""() => {

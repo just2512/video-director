@@ -878,6 +878,27 @@
           :(slideGesture?'slide':(slipGesture?'slip':'move'));
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
         var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
+        if(mode==='move'){
+          var blockedMember=null;
+          chosen.some(function(id){
+            var selectedClip=findClip(id);
+            if(!selectedClip){blockedMember={kind:'片段',id:id,reason:'已不存在'};return true;}
+            var selectedTrack=(S.data.tracks||[]).find(function(item){return item.id===selectedClip.track_id;});
+            if(!selectedTrack){blockedMember={kind:'轨道',id:selectedClip.track_id||id,reason:'已不存在'};return true;}
+            if(Object.prototype.hasOwnProperty.call(selectedTrack.attrs||{},'locked')){
+              blockedMember={kind:'轨道',id:selectedTrack.id,reason:'已锁定'};return true;
+            }
+            if(Object.prototype.hasOwnProperty.call(selectedClip.attrs||{},'data-clip-locked')){
+              blockedMember={kind:'片段',id:selectedClip.id,reason:'已锁定'};return true;
+            }
+            return false;
+          });
+          if(blockedMember){
+            e.preventDefault();
+            showStatus('多选移动包含'+blockedMember.reason+blockedMember.kind+' '+blockedMember.id+'，整组移动已取消。','error');
+            return;
+          }
+        }
         var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
         var members=chosen.map(function(id){
           var selected=findClip(id);if(!selected)return null;
