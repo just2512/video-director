@@ -1123,6 +1123,132 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
         thread.join(timeout=5)
 
 
+def test_react_clip_pointercancel_discards_preview_without_writing_film(tmp_path, monkeypatch):
+    """A cancelled React-owned clip drag clears preview and cannot commit after trailing pointer events."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-react-clip-pointercancel"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            film_edit_requests: list[dict] = []
+            def capture_film_edit_request(request):
+                if request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        film_edit_requests.append(json.loads(request.post_data or "{}"))
+                    except (TypeError, ValueError):
+                        film_edit_requests.append({"_invalid_json": True})
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_film_edit_request)
+            try:
+                page.set_default_navigation_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles: true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                clip.wait_for(state="visible", timeout=5000)
+                box = clip.bounding_box()
+                assert box, "clip-b bounding box unavailable"
+                original = clip.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
+                before_cancel = fd.read_project_film(project_id)
+                request_count_before = len(film_edit_requests)
+
+                # Start/move with real Chromium mouse input, then deliver pointercancel
+                # to the actual active pointer ID so React takes its normal cancellation path.
+                page.evaluate("""() => {
+                  window.__reactClipPointerId = null;
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  node.addEventListener("pointerdown", event => {
+                    window.__reactClipPointerId = event.pointerId;
+                  }, {capture:true, once:true});
+                }""")
+                start_x = box["x"] + box["width"] * 0.5
+                start_y = box["y"] + box["height"] * 0.5
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(start_x + 28, start_y, steps=6)
+                page.wait_for_function(
+                    """oldLeft => {
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      return !!node && node.dataset.reactGesturePreview === "true" && node.style.left !== oldLeft;
+                    }""",
+                    arg=original["left"],
+                    timeout=5000,
+                )
+                pointer_id = page.evaluate("window.__reactClipPointerId")
+                assert isinstance(pointer_id, int), pointer_id
+                preview_left = clip.evaluate("(node) => node.style.left")
+                assert preview_left != original["left"], {"before": original, "preview": preview_left}
+                assert len(film_edit_requests) == request_count_before
+                assert fd.read_project_film(project_id)["rev"] == before_cancel["rev"]
+
+                page.evaluate("""({pointerId, x, y}) => {
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  node.dispatchEvent(new PointerEvent("pointercancel", {
+                    bubbles:true, cancelable:true, pointerId, pointerType:"mouse",
+                    button:0, buttons:0, clientX:x, clientY:y
+                  }));
+                }""", {"pointerId": pointer_id, "x": start_x + 28, "y": start_y})
+                page.wait_for_function(
+                    """pointerId => {
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      const owns = window.filmStudioOwnsClipGesturePointer?.(pointerId) === true;
+                      return !!node && node.dataset.reactGesturePreview === "false" && !owns;
+                    }""",
+                    arg=pointer_id,
+                    timeout=5000,
+                )
+                # Later pointer events from the still-held mouse must not resurrect the cancelled drag.
+                page.mouse.move(start_x + 48, start_y, steps=2)
+                page.mouse.up()
+                page.wait_for_timeout(50)
+                after_cancel = fd.read_project_film(project_id)
+                assert after_cancel["rev"] == before_cancel["rev"]
+                assert len(film_edit_requests) == request_count_before, film_edit_requests
+                cancelled_geometry = clip.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
+                assert cancelled_geometry == original, {"before": original, "after": cancelled_geometry}
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tmp_path, monkeypatch):
     """Right-click menu has one React surface and Escape only intercepts an open menu."""
     storage_root = tmp_path / "storage"
