@@ -904,6 +904,27 @@
     var usedSnap=snap&&Math.abs(target-snap.at)<0.001?snap:null;
     return {target:target,deltaSeconds:target-(edge==='start'?originalAt:originalEnd),snapCandidate:usedSnap};
   }
+  function resolveTimelineRoll(d,deltaSeconds,thresholdPx){
+    var excluded=[d.leftClipId,d.rightClipId],candidates=timelineSnapCandidates(excluded),math=timelineMath();
+    if(math&&typeof math.resolveRollGesture==='function')
+      return math.resolveRollGesture(d.rightAt,deltaSeconds,d.leftDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+    var snap=findTimelineSnap(d.rightAt+deltaSeconds,excluded,thresholdPx);
+    var proposed=snap?snap.at-d.rightAt:deltaSeconds;
+    var delta=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,proposed));
+    var usedSnap=snap&&Math.abs(d.rightAt+delta-snap.at)<0.001?snap:null;
+    return {targetAt:d.rightAt+delta,deltaSeconds:delta,snapCandidate:usedSnap};
+  }
+  function resolveTimelineSlide(d,deltaSeconds,thresholdPx){
+    var excluded=[d.leftClipId,d.centerClipId,d.rightClipId],candidates=timelineSnapCandidates(excluded),math=timelineMath();
+    if(math&&typeof math.resolveSlideGesture==='function')
+      return math.resolveSlideGesture(d.centerAt,deltaSeconds,d.leftDuration,d.centerDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+    var snap=findTimelineSnap(d.centerAt+deltaSeconds,excluded,thresholdPx);
+    var proposed=snap?snap.at-d.centerAt:deltaSeconds;
+    var min=-Math.min(d.leftDuration,d.centerDuration)+0.04,max=Math.min(d.centerDuration,d.rightDuration)-0.04;
+    var delta=Math.max(min,Math.min(max,proposed));
+    var usedSnap=snap&&Math.abs(d.centerAt+delta-snap.at)<0.001?snap:null;
+    return {targetAt:d.centerAt+delta,deltaSeconds:delta,snapCandidate:usedSnap};
+  }
   function showTimelineSnapGuide(at, kind){
     var timeline=$('fs-timeline'),bridge=window.filmStudioReactTimeline;
     if(bridge&&typeof bridge.setSnapGuide==='function'){
@@ -1829,14 +1850,8 @@
       }
     }
     if(d.mode==='slide'){
-      var deltaSlide=deltaSeconds;
-      var slideMin=-Math.min(d.leftDuration,d.centerDuration)+0.04;
-      var slideMax=Math.min(d.centerDuration,d.rightDuration)-0.04;
-      var slideIds=[d.leftClipId,d.centerClipId,d.rightClipId];
-      var slideSnap=findTimelineSnap(d.centerAt+deltaSlide,slideIds,8);
-      if(slideSnap)deltaSlide=slideSnap.at-d.centerAt;
-      deltaSlide=Math.max(slideMin,Math.min(slideMax,deltaSlide));
-      var slideSnapUsed=slideSnap&&Math.abs(d.centerAt+deltaSlide-slideSnap.at)<0.001;
+      var slideResolution=resolveTimelineSlide(d,deltaSeconds,8);
+      var deltaSlide=slideResolution.deltaSeconds,slideSnapUsed=slideResolution.snapCandidate;
       showTimelineSnapGuide(slideSnapUsed?slideSnap.at:null,slideSnapUsed&&slideSnap.kind);
       var slideLabel='滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s';
       var slidePreview={};
@@ -1852,11 +1867,8 @@
         d.element.classList.add('fs-sliding');
       }
     }else if(d.mode==='roll'){
-      var deltaRoll=deltaSeconds;
-      var rollSnap=findTimelineSnap(d.rightAt+deltaRoll,[d.leftClipId,d.rightClipId],8);
-      if(rollSnap)deltaRoll=rollSnap.at-d.rightAt;
-      deltaRoll=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,deltaRoll));
-      var rollSnapUsed=rollSnap&&Math.abs(d.rightAt+deltaRoll-rollSnap.at)<0.001;
+      var rollResolution=resolveTimelineRoll(d,deltaSeconds,8);
+      var deltaRoll=rollResolution.deltaSeconds,rollSnapUsed=rollResolution.snapCandidate;
       showTimelineSnapGuide(rollSnapUsed?rollSnap.at:null,rollSnapUsed&&rollSnap.kind);
       var rollLabel='切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s';
       var rollPreview={};
@@ -1956,19 +1968,14 @@
       d.element.removeAttribute('data-slide-delta');d.element.classList.remove('fs-sliding');
     }
     if(d.mode==='slide'){
-      var slideDelta=deltaSeconds;
-      var slideSnap=findTimelineSnap(d.centerAt+slideDelta,[d.leftClipId,d.centerClipId,d.rightClipId],8);
-      if(slideSnap)slideDelta=slideSnap.at-d.centerAt;
-      slideDelta=Math.max(-Math.min(d.leftDuration,d.centerDuration)+0.04,
-        Math.min(Math.min(d.centerDuration,d.rightDuration)-0.04,slideDelta));
+      var slideCommitResolution=resolveTimelineSlide(d,deltaSeconds,8);
+      var slideDelta=slideCommitResolution.deltaSeconds;
       if(Math.abs(slideDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
       await filmStudioCommit([{op:'slide',clip:d.centerClipId,delta:Number(slideDelta.toFixed(3))}]);return;
     }
     if(d.mode==='roll'){
-      var rollDelta=deltaSeconds;
-      var rollSnap=findTimelineSnap(d.rightAt+rollDelta,[d.leftClipId,d.rightClipId],8);
-      if(rollSnap)rollDelta=rollSnap.at-d.rightAt;
-      rollDelta=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,rollDelta));
+      var rollCommitResolution=resolveTimelineRoll(d,deltaSeconds,8);
+      var rollDelta=rollCommitResolution.deltaSeconds;
       if(Math.abs(rollDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
       await filmStudioCommit([{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:Number(rollDelta.toFixed(3))}]);return;
     }
