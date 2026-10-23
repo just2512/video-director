@@ -996,6 +996,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     };
   }, []);
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
+  const playhead=useFilmStoreField("playhead");
   const selectedIds=filmStore.getSnapshot().selectedIds;
   // The version is the scalar subscription token; the array proxy is stable by design.
   void selectedIdsVersion;
@@ -1194,7 +1195,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     {snapGuide ? <div id="fs-snap-guide" className="fs-snap-guide"
       style={{left:132 + filmTimelineMath.clipLeft(snapGuide.at,model.pixelsPerSecond)}}
       title={snapGuide.title} data-snap-kind={snapGuide.kind} /> : null}
-    <div className="fs-playhead" id="fs-playhead-line" />
+    <div className="fs-playhead" id="fs-playhead-line"
+      style={{left:132 + filmTimelineMath.clipLeft(playhead,model.pixelsPerSecond)}} />
   </>
   );
 };

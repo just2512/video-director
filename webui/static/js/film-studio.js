@@ -464,7 +464,9 @@
       var val=$('fs-playhead-value');if(val)val.textContent=fmtTime(S.playhead);
     }
     var monitor=$('fs-monitor-time');if(monitor)monitor.textContent=fmtTime(S.playhead);
-    var line=$('fs-playhead-line');if(line)line.style.left=(132+timelineSecondsToPixels(S.playhead,S.pxPerSec))+'px';
+    var line=$('fs-playhead-line');
+    var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
+    if(line&&!reactTimeline)line.style.left=(132+timelineSecondsToPixels(S.playhead,S.pxPerSec))+'px';
   }
   function renderElementSelection(element) {
     var box=$('fs-element-selection'),monitor=$('fs-monitor-stage');

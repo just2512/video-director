@@ -153,6 +153,26 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
 
+                # The React playhead consumes FilmStore state; seeking changes geometry but not film revision.
+                playhead_doc_before = fd.read_project_film(project_id)
+                page.evaluate("window.filmStudioSeek(2)")
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  const snapshot = store?.getSnapshot();
+                  const line = document.querySelector('#fs-timeline #fs-playhead-line');
+                  const math = window.filmStudioTimelineMath;
+                  const scale = store?.getField('pixelsPerSecond');
+                  return snapshot?.playhead === 2 && !!line && !!math &&
+                    Math.abs(parseFloat(line.style.left) - (132 + math.clipLeft(2, scale))) < 0.1;
+                }""", timeout=5000)
+                assert fd.read_project_film(project_id)["rev"] == playhead_doc_before["rev"]
+                page.evaluate("window.filmStudioSeek(0)")
+                page.wait_for_function(
+                    """() => window.filmStudioStore?.getSnapshot()?.playhead === 0 &&
+                      Math.abs(parseFloat(document.querySelector('#fs-timeline #fs-playhead-line')?.style.left || '0') - 132) < 0.1""",
+                    timeout=5000,
+                )
+
                 # Shared typed timeline math is used by React rendering and the
                 # gesture adapter. Zoom keeps the same time under the pointer.
                 math = page.evaluate("""() => {
