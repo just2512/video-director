@@ -824,9 +824,8 @@
       });
     },24);
   }
-  function findTimelineSnap(rawAt, excludedIds, thresholdPx){
-    if(!S.snapEnabled)return null;
-    var ids=excludedIds||[], candidates=[{at:0,kind:'片头'}];
+  function timelineSnapCandidates(excludedIds){
+    var ids=excludedIds||[],candidates=[{at:0,kind:'片头'}];
     // Clip selection may move the playhead to the dragged clip's start. Do not
     // snap that clip straight back to its own origin while the pointer is moving.
     var playheadIsSelectedClipStart=ids.some(function(id){
@@ -839,7 +838,11 @@
       if(Number.isFinite(Number(clip.at)))candidates.push({at:Number(clip.at),kind:'片段入点'});
       if(Number.isFinite(Number(clip.end)))candidates.push({at:Number(clip.end),kind:'片段出点'});
     });
-    var math=timelineMath();
+    return candidates;
+  }
+  function findTimelineSnap(rawAt, excludedIds, thresholdPx){
+    if(!S.snapEnabled)return null;
+    var candidates=timelineSnapCandidates(excludedIds),math=timelineMath();
     if(math&&typeof math.resolveSnapCandidate==='function')
       return math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx);
     var best=null,bestDistance=Infinity;
@@ -849,6 +852,17 @@
       if(distance<=thresholdPx&&distance<bestDistance){best=candidate;bestDistance=distance;}
     });
     return best;
+  }
+  function resolveTimelineMove(minimumStart,deltaSeconds,excludedIds,thresholdPx){
+    var candidates=timelineSnapCandidates(excludedIds),math=timelineMath();
+    if(math&&typeof math.resolveMoveGesture==='function')
+      return math.resolveMoveGesture(minimumStart,deltaSeconds,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+    var start=Math.max(0,num(minimumStart,0)),rawAt=Math.max(0,start+num(deltaSeconds,0));
+    var snap=findTimelineSnap(rawAt,excludedIds,thresholdPx);
+    var proposedAt=snap?Math.max(0,snap.at):rawAt;
+    var delta=Math.max(-start,proposedAt-start),targetAt=Math.max(0,start+delta);
+    var usedSnap=snap&&Math.abs(targetAt-snap.at)<0.001?snap:null;
+    return {targetAt:targetAt,deltaSeconds:delta,snapCandidate:usedSnap};
   }
   function showTimelineSnapGuide(at, kind){
     var timeline=$('fs-timeline');
@@ -1803,12 +1817,9 @@
     }else{
       var chosenIds=(d.members||[]).map(function(member){return member.id;});
       var minStart=(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity);
-      var rawMoveAt=Number.isFinite(minStart)?minStart+deltaSeconds:deltaSeconds;
-      var moveSnap=findTimelineSnap(rawMoveAt,chosenIds,8);
-      var snappedDelta=moveSnap&&Number.isFinite(minStart)?moveSnap.at-minStart:deltaSeconds;
-      snappedDelta=Math.max(-Math.max(0,minStart),snappedDelta);
-      var moveSnapUsed=moveSnap&&Math.abs(minStart+snappedDelta-moveSnap.at)<0.001;
-      showTimelineSnapGuide(moveSnapUsed?moveSnap.at:null,moveSnapUsed&&moveSnap.kind);
+      var moveResolution=resolveTimelineMove(minStart,deltaSeconds,chosenIds,8);
+      var snappedDelta=moveResolution.deltaSeconds,moveSnapUsed=moveResolution.snapCandidate;
+      showTimelineSnapGuide(moveSnapUsed?moveSnapUsed.at:null,moveSnapUsed&&moveSnapUsed.kind);
       (d.members||[]).forEach(function(member){member.element.style.left=timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)+'px';});
     }
   }
@@ -1892,10 +1903,9 @@
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
     var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));
-    var rawAt=Math.max(0,minStart+deltaSeconds);
-    var finalSnap=findTimelineSnap(rawAt,chosen,8);
-    var targetAt=finalSnap?finalSnap.at:rawAt;
-    var delta=Math.max(-minStart,targetAt-minStart);
+    // Preview and commit must use identical clamping/snap resolution.
+    var moveResolution=resolveTimelineMove(minStart,deltaSeconds,chosen,8);
+    var delta=moveResolution.deltaSeconds;
     var targetIndex=d.trackOrder.indexOf(d.targetTrackId||d.trackId);
     if(targetIndex<0)targetIndex=d.originalTrackIndex;
     var trackDelta=targetIndex-d.originalTrackIndex,operations=[];

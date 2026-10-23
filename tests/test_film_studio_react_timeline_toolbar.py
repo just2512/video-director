@@ -22,6 +22,8 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "findTimelineSnap" in studio
     assert "timelineDragDeltaSeconds(pointerDelta,scrollDelta,scale)" in studio
     assert "math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx)" in studio
+    assert "resolveTimelineMove(minStart,deltaSeconds,chosenIds,8)" in studio
+    assert "resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "dragDeltaSeconds(pointerDeltaPixels: number, scrollDeltaPixels: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "updateDragAutoScroll" in studio
     assert "setInterval(function()" in studio

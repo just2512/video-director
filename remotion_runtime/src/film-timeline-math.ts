@@ -4,11 +4,18 @@ export interface FilmTimelineSnapCandidate {
   kind: string;
 }
 
+export interface FilmTimelineMoveResolution {
+  targetAt: number;
+  deltaSeconds: number;
+  snapCandidate: FilmTimelineSnapCandidate | null;
+}
+
 export interface FilmTimelineMathBridge {
   secondsToPixels(seconds: number, pixelsPerSecond: number): number;
   pixelsToSeconds(pixels: number, pixelsPerSecond: number): number;
   dragDeltaSeconds(pointerDeltaPixels: number, scrollDeltaPixels: number, pixelsPerSecond: number): number;
   resolveSnapCandidate(rawAt: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number): FilmTimelineSnapCandidate | null;
+  resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number, snapEnabled: boolean): FilmTimelineMoveResolution;
   clipLeft(at: number, pixelsPerSecond: number): number;
   clipWidth(duration: number | null, pixelsPerSecond: number, minWidth?: number, unknownDuration?: number, maxWidth?: number, roundUp?: boolean): number;
   zoomScale(current: number, direction: number, min?: number, max?: number): number;
@@ -48,6 +55,21 @@ export const filmTimelineMath: FilmTimelineMathBridge = {
       }
     }
     return best;
+  },
+  resolveMoveGesture(minimumStart, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    const start = Math.max(0, finiteOr(minimumStart, 0));
+    // Resolve against the same zero-clamped play time in both preview and commit.
+    const rawAt = Math.max(0, start + finiteOr(rawDeltaSeconds, 0));
+    const candidate = snapEnabled
+      ? filmTimelineMath.resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels)
+      : null;
+    const proposedAt = candidate ? Math.max(0, candidate.at) : rawAt;
+    const deltaSeconds = Math.max(-start, proposedAt - start);
+    const targetAt = Math.max(0, start + deltaSeconds);
+    const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 0.001
+      ? candidate
+      : null;
+    return {targetAt, deltaSeconds, snapCandidate};
   },
   clipLeft(at, pixelsPerSecond) {
     return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));
