@@ -430,8 +430,6 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     assert after_audio["attrs"]["at"] == before_audio["attrs"]["at"]
 
                 assert_locked_group_drag_is_atomic()
-
-                assert_locked_group_drag_is_atomic()
                 page.evaluate("window.filmStudioSetClipLock('audio-1', false)")
                 page.wait_for_function("""() => {
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
