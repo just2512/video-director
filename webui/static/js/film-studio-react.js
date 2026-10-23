@@ -23970,6 +23970,91 @@
     const parsed = typeof value === "number" ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
+  var asOptionalFiniteNumber = (value) => {
+    if (value === void 0 || value === null || value === "") return void 0;
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : void 0;
+  };
+  var asTimelineGestureContext = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const raw = value;
+    const modes = ["move", "trim-start", "trim-end", "roll", "slide", "slip"];
+    const mode = typeof raw.mode === "string" && modes.includes(raw.mode) ? raw.mode : null;
+    const id = asString(raw.id);
+    const pointerId = asOptionalFiniteNumber(raw.pointerId);
+    const startX = asOptionalFiniteNumber(raw.startX);
+    const startY = asOptionalFiniteNumber(raw.startY);
+    const startScrollLeft = asOptionalFiniteNumber(raw.startScrollLeft);
+    const rawMembers = Array.isArray(raw.members) ? raw.members : null;
+    const rawTrackOrder = Array.isArray(raw.trackOrder) ? raw.trackOrder : null;
+    if (!id || !mode || pointerId === void 0 || !Number.isInteger(pointerId) || pointerId < 0 || startX === void 0 || startY === void 0 || startScrollLeft === void 0 || !rawMembers || !rawMembers.length || !rawTrackOrder || !rawTrackOrder.length || rawTrackOrder.some((item) => typeof item !== "string" || item.length === 0) || new Set(rawTrackOrder).size !== rawTrackOrder.length) return null;
+    const trackOrder = rawTrackOrder;
+    const members = [];
+    const memberIds = /* @__PURE__ */ new Set();
+    for (const item of rawMembers) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const member = item;
+      const memberId = asString(member.id);
+      const originalAt = asOptionalFiniteNumber(member.originalAt);
+      const originalEnd = asOptionalFiniteNumber(member.originalEnd);
+      const trackId = asString(member.trackId);
+      const trackIndex = asOptionalFiniteNumber(member.trackIndex);
+      if (!memberId || memberIds.has(memberId) || originalAt === void 0 || originalEnd === void 0 || originalAt < 0 || originalEnd < originalAt || !trackId || !Number.isInteger(trackIndex) || trackIndex === void 0 || trackIndex < 0 || trackOrder[trackIndex] !== trackId) return null;
+      memberIds.add(memberId);
+      members.push({ id: memberId, originalAt, originalEnd, trackId, trackIndex });
+    }
+    if (!memberIds.has(id)) return null;
+    const optionalString = (key) => {
+      const value2 = asString(raw[key]);
+      return value2 || void 0;
+    };
+    const optionalNumber = (key) => {
+      const number = asOptionalFiniteNumber(raw[key]);
+      return number;
+    };
+    const numberKeys = [
+      "originalAt",
+      "originalEnd",
+      "originalTrackIndex",
+      "rightAt",
+      "centerAt",
+      "leftDuration",
+      "centerDuration",
+      "rightDuration"
+    ];
+    if (numberKeys.some((key) => raw[key] !== void 0 && raw[key] !== null && optionalNumber(key) === void 0)) {
+      return null;
+    }
+    const originalTrackIndex = optionalNumber("originalTrackIndex");
+    if (originalTrackIndex !== void 0 && (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 || optionalString("trackId") && trackOrder[originalTrackIndex] !== optionalString("trackId"))) {
+      return null;
+    }
+    return {
+      id,
+      mode,
+      pointerId,
+      startX,
+      startY,
+      startScrollLeft,
+      active: raw.active === true,
+      members,
+      trackOrder,
+      originalAt: optionalNumber("originalAt"),
+      originalEnd: optionalNumber("originalEnd"),
+      trackId: optionalString("trackId"),
+      originalTrackIndex,
+      targetTrackId: optionalString("targetTrackId"),
+      invalidTargetMessage: optionalString("invalidTargetMessage"),
+      leftClipId: optionalString("leftClipId"),
+      centerClipId: optionalString("centerClipId"),
+      rightClipId: optionalString("rightClipId"),
+      rightAt: optionalNumber("rightAt"),
+      centerAt: optionalNumber("centerAt"),
+      leftDuration: optionalNumber("leftDuration"),
+      centerDuration: optionalNumber("centerDuration"),
+      rightDuration: optionalNumber("rightDuration")
+    };
+  };
   var asPendingTransaction = (value) => {
     if (!value || typeof value !== "object") return null;
     const raw = value;
@@ -24036,6 +24121,7 @@
         timelineSnapGuide: null,
         timelineDropTarget: null,
         timelineActiveDragIds: null,
+        timelineGestureContext: null,
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         pendingExternalRevision: "",
@@ -24173,6 +24259,8 @@
       } else if (key === "timelineActiveDragIds") {
         const ids = Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
         normalized = ids.length ? Array.from(new Set(ids)) : null;
+      } else if (key === "timelineGestureContext") {
+        normalized = asTimelineGestureContext(value);
       } else if (key === "timelineEnvelopePreview") {
         if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
         else {
@@ -24228,6 +24316,7 @@
         timelineSnapGuide: null,
         timelineDropTarget: null,
         timelineActiveDragIds: null,
+        timelineGestureContext: null,
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         pendingExternalRevision: asString(target.pendingExternalRevision),
@@ -24255,6 +24344,7 @@
         ["playing", "playing"],
         ["duration", "duration"],
         ["pxPerSec", "pixelsPerSecond"],
+        ["drag", "timelineGestureContext"],
         ["pendingExternalRevision", "pendingExternalRevision"],
         ["insertMode", "insertMode"],
         ["overwriteMode", "overwriteMode"],
