@@ -26,9 +26,9 @@
     mod
   ));
 
-  // node_modules/react/cjs/react.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "node_modules/react/cjs/react.development.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // node_modules/react/index.js
+  // ../remotion_runtime/node_modules/react/index.js
   var require_react = __commonJS({
-    "node_modules/react/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // node_modules/react-dom/index.js
+  // ../remotion_runtime/node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "node_modules/react-dom/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // node_modules/scheduler/cjs/scheduler.development.js
+  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // node_modules/scheduler/index.js
+  // ../remotion_runtime/node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "node_modules/scheduler/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom-client.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // node_modules/react-dom/client.js
+  // ../remotion_runtime/node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "node_modules/react-dom/client.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // node_modules/react/cjs/react-jsx-runtime.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // node_modules/react/jsx-runtime.js
+  // ../remotion_runtime/node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "node_modules/react/jsx-runtime.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -24029,6 +24029,7 @@
         timelineSnapGuide: null,
         timelineDropTarget: null,
         timelineActiveDragIds: null,
+        timelineEnvelopePreview: null,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24164,6 +24165,14 @@
       } else if (key === "timelineActiveDragIds") {
         const ids = Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
         normalized = ids.length ? Array.from(new Set(ids)) : null;
+      } else if (key === "timelineEnvelopePreview") {
+        if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+        else {
+          const raw = value;
+          const clipId = typeof raw.clipId === "string" ? raw.clipId : "";
+          const points = Array.isArray(raw.points) ? raw.points.filter((item) => !!item && typeof item === "object" && !Array.isArray(item)).map((item) => ({ t: Number(item.t), v: Number(item.v) })).filter((point) => Number.isFinite(point.t) && point.t >= 0 && Number.isFinite(point.v)).map((point) => ({ t: point.t, v: Math.max(0, Math.min(1, point.v)) })).sort((a, b) => a.t - b.t) : [];
+          normalized = clipId && points.length >= 2 ? { clipId, points } : null;
+        }
       } else if (key === "film") {
         normalized = value ?? null;
         if (normalized && typeof normalized === "object" && typeof normalized.rev === "string") {
@@ -24198,6 +24207,7 @@
         timelineSnapGuide: null,
         timelineDropTarget: null,
         timelineActiveDragIds: null,
+        timelineEnvelopePreview: null,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -25403,11 +25413,91 @@
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
     ] });
   };
+  var drawVolumeEnvelopeCanvas = (canvas, duration, pixelsPerSecond, points) => {
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const width = filmTimelineMath.clipWidth(duration, pixelsPerSecond, 24, 1, 1800, true);
+    const height = Math.max(24, canvas.parentElement ? canvas.parentElement.clientHeight - 2 : 40);
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    const xy = (point) => ({
+      x: Math.max(0, Math.min(width, point.t / duration * width)),
+      y: height - 4 - Math.max(0, Math.min(1, point.v)) * (height - 8)
+    });
+    const plotted = points.filter((point) => Number.isFinite(point.t) && Number.isFinite(point.v) && point.t >= 0 && point.t <= duration).slice().sort((a, b) => a.t - b.t);
+    if (!plotted.length) plotted.push({ t: 0, v: 1 }, { t: duration, v: 1 });
+    const first = plotted[0], last = plotted[plotted.length - 1];
+    if (first.t > 0) plotted.unshift({ t: 0, v: first.v });
+    if (last.t < duration) plotted.push({ t: duration, v: last.v });
+    ctx.strokeStyle = "rgba(255,220,134,.95)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    plotted.forEach((point, index) => {
+      const p = xy(point);
+      if (index === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = "#fff0b3";
+    ctx.strokeStyle = "#4a3620";
+    ctx.lineWidth = 1;
+    points.filter((point) => point.t >= 0 && point.t <= duration).forEach((point) => {
+      const p = xy(point);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+    canvas.title = "\u97F3\u91CF\u5305\u7EDC\u500D\u7387 0\u20131 \xB7 " + points.length + " \u4E2A\u5173\u952E\u5E27\u3002\u62D6\u52A8\u66F2\u7EBF\u6DFB\u52A0/\u8C03\u6574\uFF0CShift \u6216\u53F3\u952E\u5220\u9664\u5185\u90E8\u70B9\u3002";
+    canvas.dataset.reactEnvelopePainted = "true";
+  };
+  var VolumeEnvelopeCanvas = ({
+    clipId,
+    duration,
+    pixelsPerSecond,
+    points,
+    preview,
+    onContextMenu,
+    onClick,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel
+  }) => {
+    const canvasRef = (0, import_react.useRef)(null);
+    const isPreview = preview?.clipId === clipId;
+    const visiblePoints = isPreview ? preview.points : points;
+    (0, import_react.useLayoutEffect)(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      delete canvas.dataset.reactEnvelopePainted;
+      drawVolumeEnvelopeCanvas(canvas, duration, pixelsPerSecond, visiblePoints);
+    }, [clipId, duration, pixelsPerSecond, visiblePoints]);
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "canvas",
+      {
+        ref: canvasRef,
+        className: "fs-clip-envelope",
+        "data-envelope-clip": clipId,
+        "data-react-envelope-source": isPreview ? "preview" : "document",
+        "aria-label": "\u97F3\u91CF\u5305\u7EDC\uFF1A\u62D6\u52A8\u6DFB\u52A0\u6216\u8C03\u6574\u5173\u952E\u5E27\uFF1BShift \u6216\u53F3\u952E\u5220\u9664\u5185\u90E8\u70B9",
+        onContextMenu,
+        onClick,
+        onPointerDown,
+        onPointerMove,
+        onPointerUp,
+        onPointerCancel
+      }
+    );
+  };
   var TimelineSurface = ({ model }) => {
     const gesturePreview = useFilmStoreField("timelineGesturePreview");
     const snapGuide = useFilmStoreField("timelineSnapGuide");
     const dropTarget = useFilmStoreField("timelineDropTarget");
     const activeDragIds = useFilmStoreField("timelineActiveDragIds");
+    const envelopePreview = useFilmStoreField("timelineEnvelopePreview");
     const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
     const playhead = useFilmStoreField("playhead");
     const duration = useFilmStoreField("duration");
@@ -25633,11 +25723,13 @@
                       } }) : null,
                       clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("canvas", { className: "fs-clip-waveform", "data-waveform-clip": clip.id, "aria-label": "\u97F3\u9891\u6CE2\u5F62" }) : null,
                       clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                        "canvas",
+                        VolumeEnvelopeCanvas,
                         {
-                          className: "fs-clip-envelope",
-                          "data-envelope-clip": clip.id,
-                          "aria-label": "\u97F3\u91CF\u5305\u7EDC\uFF1A\u62D6\u52A8\u6DFB\u52A0\u6216\u8C03\u6574\u5173\u952E\u5E27\uFF1BShift \u6216\u53F3\u952E\u5220\u9664\u5185\u90E8\u70B9",
+                          clipId: clip.id,
+                          duration: clip.duration ?? 0,
+                          pixelsPerSecond: model.pixelsPerSecond,
+                          points: clip.envelopePoints,
+                          preview: envelopePreview,
                           onContextMenu: (event) => event.preventDefault(),
                           onClick: (event) => event.stopPropagation(),
                           onPointerDown: (event) => {
@@ -26064,11 +26156,15 @@
     setActiveDragIds(ids) {
       filmStore.setField("timelineActiveDragIds", ids);
     },
+    setEnvelopePreview(preview) {
+      filmStore.setField("timelineEnvelopePreview", preview);
+    },
     clearSurface() {
       filmStore.setField("timelineGesturePreview", null);
       filmStore.setField("timelineSnapGuide", null);
       filmStore.setField("timelineDropTarget", null);
       filmStore.setField("timelineActiveDragIds", null);
+      filmStore.setField("timelineEnvelopePreview", null);
       if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
         renderStudioReactOwner({ timeline: null, timelineContextMenu: null });
       }
