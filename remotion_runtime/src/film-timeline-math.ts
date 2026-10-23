@@ -21,6 +21,9 @@ export interface FilmTimelineLinkedEditResolution {
   deltaSeconds: number;
   snapCandidate: FilmTimelineSnapCandidate | null;
 }
+export interface FilmTimelineSlipResolution {
+  sourceDeltaSeconds: number;
+}
 
 export interface FilmTimelineMathBridge {
   secondsToPixels(seconds: number, pixelsPerSecond: number): number;
@@ -32,6 +35,7 @@ export interface FilmTimelineMathBridge {
   resolveTrimEnd(originalAt: number, originalEnd: number, rawDeltaSeconds: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number, snapEnabled: boolean): FilmTimelineTrimResolution;
   resolveRollGesture(rightAt: number, rawDeltaSeconds: number, leftDuration: number, rightDuration: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number, snapEnabled: boolean): FilmTimelineLinkedEditResolution;
   resolveSlideGesture(centerAt: number, rawDeltaSeconds: number, leftDuration: number, centerDuration: number, rightDuration: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number, snapEnabled: boolean): FilmTimelineLinkedEditResolution;
+  resolveSlipGesture(rawDeltaSeconds: number, playbackSpeed: number): FilmTimelineSlipResolution;
   clipLeft(at: number, pixelsPerSecond: number): number;
   clipWidth(duration: number | null, pixelsPerSecond: number, minWidth?: number, unknownDuration?: number, maxWidth?: number, roundUp?: boolean): number;
   zoomScale(current: number, direction: number, min?: number, max?: number): number;
@@ -145,6 +149,13 @@ export const filmTimelineMath: FilmTimelineMathBridge = {
     const targetAt = anchor + deltaSeconds;
     const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 0.001 ? candidate : null;
     return {targetAt, deltaSeconds, snapCandidate};
+  },
+  resolveSlipGesture(rawDeltaSeconds, playbackSpeed) {
+    return {
+      // Slip offsets the source range by timeline delta scaled by playback rate;
+      // it never alters the clip's timeline start or duration.
+      sourceDeltaSeconds: finiteOr(rawDeltaSeconds, 0) * finiteOr(playbackSpeed, 1),
+    };
   },
   clipLeft(at, pixelsPerSecond) {
     return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));

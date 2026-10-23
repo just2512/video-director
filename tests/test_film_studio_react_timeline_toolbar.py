@@ -91,6 +91,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8)" in studio
     assert "resolveRollGesture(rightAt: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "resolveSlideGesture(centerAt: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
+    math_source = (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
+    assert "resolveSlipGesture(rawDeltaSeconds: number, playbackSpeed: number): FilmTimelineSlipResolution;" in math_source
+    assert "resolveTimelineSlip(deltaSeconds,slipSpeed).sourceDeltaSeconds" in studio
+    assert "resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1)).sourceDeltaSeconds" in studio
+
     assert "resolveTimelineRoll(d,deltaSeconds,8)" in studio
     assert "resolveTimelineSlide(d,deltaSeconds,8)" in studio
     assert "if(!setTimelineGesturePreview(trimStartPreview))" in studio

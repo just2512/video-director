@@ -985,6 +985,12 @@
     var usedSnap=snap&&Math.abs(d.centerAt+delta-snap.at)<0.001?snap:null;
     return {targetAt:d.centerAt+delta,deltaSeconds:delta,snapCandidate:usedSnap};
   }
+  function resolveTimelineSlip(rawDeltaSeconds, playbackSpeed){
+    var math=timelineMath();
+    if(math&&typeof math.resolveSlipGesture==='function')
+      return math.resolveSlipGesture(rawDeltaSeconds,playbackSpeed);
+    return {sourceDeltaSeconds:num(rawDeltaSeconds,0)*num(playbackSpeed,1)};
+  }
   function showTimelineSnapGuide(at, kind){
     var timeline=$('fs-timeline'),bridge=window.filmStudioReactTimeline;
     if(bridge&&typeof bridge.setSnapGuide==='function'){
@@ -1987,7 +1993,7 @@
       }
     }else if(d.mode==='slip'){
       var slipClip=findClip(d.id),slipSpeed=slipClip?num(slipClip.attrs.speed,1):1;
-      var sourceDelta=deltaSeconds*slipSpeed;
+      var sourceDelta=resolveTimelineSlip(deltaSeconds,slipSpeed).sourceDeltaSeconds;
       var slipPreview={};
       slipPreview[d.id]={mode:'slip',deltaLabel:'源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s'};
       if(!setTimelineGesturePreview(slipPreview)){
@@ -2086,7 +2092,7 @@
     if(d.mode==='slip'){
       var slipClip=findClip(d.id);
       if(!slipClip||slipClip.duration==null){clearTimelineGesturePreview();renderTimeline();return;}
-      var sourceDelta=deltaSeconds*num(slipClip.attrs.speed,1);
+      var sourceDelta=resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1)).sourceDeltaSeconds;
       if(Math.abs(sourceDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
       await filmStudioCommit([{op:'slip',clip:d.id,delta_source:Number(sourceDelta.toFixed(3))}]);return;
     }
