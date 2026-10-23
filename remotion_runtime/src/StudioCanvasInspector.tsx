@@ -956,7 +956,7 @@ let updateTimelineGesturePreview: ((preview: FilmTimelineGesturePreview) => void
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
   const [gesturePreview, setGesturePreview] = useState<FilmTimelineGesturePreview>(null);
   useLayoutEffect(() => {
-    const update = (preview: Record<string, number> | null) => setGesturePreview(preview);
+    const update = (preview: FilmTimelineGesturePreview) => setGesturePreview(preview);
     updateTimelineGesturePreview = update;
     return () => {
       if (updateTimelineGesturePreview === update) updateTimelineGesturePreview = null;
