@@ -24022,6 +24022,7 @@
         selectedIdsVersion: 0,
         selectionAnchor: "",
         playhead: 0,
+        playing: false,
         duration: 10,
         pixelsPerSecond: 36,
         pendingExternalRevision: "",
@@ -24109,7 +24110,7 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
-      } else if (key === "busy" || key === "broken" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering") {
+      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering") {
         normalized = value === true;
       } else if (key === "pixelsPerSecond") {
         normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -24145,6 +24146,7 @@
         selectedIdsVersion: this.snapshot.selectedIdsVersion,
         selectionAnchor: asString(target.selectionAnchor),
         playhead: asFiniteNumber(target.playhead, 0),
+        playing: target.playing === true,
         duration: Math.max(1e-3, asFiniteNumber(target.duration, 10)),
         pixelsPerSecond: Math.max(12, Math.min(120, asFiniteNumber(target.pxPerSec, 36))),
         pendingExternalRevision: asString(target.pendingExternalRevision),
@@ -24169,6 +24171,7 @@
         ["selectedIds", "selectedIds"],
         ["selectionAnchor", "selectionAnchor"],
         ["playhead", "playhead"],
+        ["playing", "playing"],
         ["duration", "duration"],
         ["pxPerSec", "pixelsPerSecond"],
         ["pendingExternalRevision", "pendingExternalRevision"],
@@ -25768,10 +25771,22 @@
   };
   var StudioScrubRow = () => {
     const playhead = useFilmStoreField("playhead");
+    const playing = useFilmStoreField("playing");
     const duration = useFilmStoreField("duration");
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "frame-prev", children: "\u4E0A\u4E00\u5E27" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", id: "fs-play-toggle", "data-film-action": "play-toggle", children: "\u64AD\u653E" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          className: "fs-btn",
+          type: "button",
+          id: "fs-play-toggle",
+          "data-film-action": "play-toggle",
+          "aria-pressed": playing,
+          title: playing ? "\u6682\u505C\u9884\u89C8" : "\u64AD\u653E\u9884\u89C8",
+          children: playing ? "\u6682\u505C" : "\u64AD\u653E"
+        }
+      ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "input",
         {
