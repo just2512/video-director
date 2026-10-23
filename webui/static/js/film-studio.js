@@ -3631,16 +3631,35 @@ window.filmStudioCopyClips=function(){
   // listener here caused concurrent filmStudioLoad requests on every project switch.
   var legacyEditorLoad=window.editorLoad;
   if(typeof legacyEditorLoad==='function'){
-    window.editorLoad=function(){
-      var result=legacyEditorLoad.apply(this,arguments);
-      Promise.resolve(result).finally(async function(){
-        var selector=$('editor-project'),pid=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||'';
-        if(!pid)return;
-        var state=await apiGet('/api/editor/film?project_id='+encodeURIComponent(pid));
-        if(!state||!state.ok)return;
-        if(state.exists&&!S.open)window.filmStudioToggle();
-        else if(S.open)filmStudioLoad(true);
-      });
+    window.editorLoad=async function(){
+      var selector=$('editor-project'),pid=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||'';
+      if(!pid)return await legacyEditorLoad.apply(this,arguments);
+
+      // Resolve the authoritative editor before the legacy CompositionIR loader runs.
+      // Presence wins even when film.html is malformed: Studio must display the broken
+      // FilmDocument gate instead of exposing the project through the older timeline.
+      var state=null;
+      try{
+        state=await apiGet('/api/editor/film?project_id='+encodeURIComponent(pid));
+      }catch(error){
+        showStatus('无法确认影片文档状态；为避免绕过 film.html 权威门禁，暂不打开旧工作台。','error');
+        return {ok:false,code:'FILM_STATE_UNAVAILABLE',error:String(error&&error.message||error)};
+      }
+      if(state&&state.exists===true){
+        if(!S.open)window.filmStudioToggle();
+        else await filmStudioLoad(true);
+        return {ok:state.ok===true,film_document:true,project_id:pid,revision:state.rev||''};
+      }
+      if(!state||state.ok!==true){
+        showStatus('影片文档状态不可用；未加载旧 CompositionIR 工作台。','error');
+        return {ok:false,code:'FILM_STATE_UNAVAILABLE'};
+      }
+
+      // Only a confirmed absence of film.html may enter the legacy editor.
+      // If Studio is already open, keep it on the selected project and show the
+      // explicit migration screen instead of leaving the previous project's view.
+      var result=await legacyEditorLoad.apply(this,arguments);
+      if(S.open)await filmStudioLoad(true);
       return result;
     };
   }

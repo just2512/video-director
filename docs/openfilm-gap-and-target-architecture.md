@@ -12,6 +12,7 @@
 
 - **唯一最终时间线**：有效的 `film.html` 是最终编辑/渲染权威；初始化迁移是显式操作，不允许 CompositionIR 静默覆盖 FilmDocument。
 - 项目选择器的 `change` 事件只通过 `editorLoad()` 进入项目工作流；该包装层负责决定打开或重载嵌入的 Studio，不能再注册一条并发 `filmStudioLoad` 旁路。真实 Chromium 回归要求 Studio 已打开时再次切换/打开项目只执行一次 FilmDocument reload，防止旧请求覆盖较新项目状态。
+- `editorLoad()` 在调用旧 CompositionIR loader 之前先查询 FilmDocument 权威状态；只要 `film.html` 存在（包括无法解析的情况），就直接进入 Studio 并由 Studio 显示有效/损坏状态。只有服务器明确确认 `film.html` 不存在时才调用旧工作台；状态查询失败时 fail-closed，不猜测项目仍可按旧时间线编辑。
 - **文件化协作**：项目文件、agent CLI 与 Studio watcher 连接外部编辑；稳定快照经解析后发 revision 事件，坏文档会冻结编辑而不是被 Studio 覆盖。
 - **冲突保护**：编辑操作绑定 revision 和 clip ID；旧 revision 的 AI 提案拒绝应用；缺失 ID 不会改投另一个片段。人机共享的是文本文件与可审计操作，不是聊天上下文中的隐藏状态。
 - **编辑/渲染闭环**：多轨、轨道锁定/隐藏/静音、剪切、修剪、插入编辑、ripple delete、slip/roll/slide（有意限制适用条件）、愈合切口、淡入淡出、音量包络、波形、缩略图、撤销/重做和基于真实浏览器的 look/render 均已有实现。
@@ -121,7 +122,7 @@
 - 通用视觉属性写入 `data-film-keyframes`，音频增益仍使用 `volume_envelope`，不混用两种语义。
 - 关键帧时间是 clip-relative。split、trim、roll、slide 按新片段时长切片/重基准；切入/切出 eased segment 时用后端校验的 `window` 表达式保留插值形状。回归用例分别覆盖两个源时长的切分/修剪与 roll/slide。
 - React Inspector 源码和可运行 fallback 都有曲线、节点拖动、帧步进时间/数值编辑、缓动、增加/删除/清空；时间线上显示关键帧标记，点击跳到影片绝对时间。fallback JSON 高级编辑仍共用同一 FilmDocument operation。
-- 自定义 cubic Bezier 控制柄已在 React Inspector 实现（SVG 可拖控制柄并有 x1/y1/x2/y2 数值输入），关键帧 easing 支持 bezier 与切片保真的 window curve；仍需单独补真实浏览器保存/回读验收，并执行完整预览/导出逐帧一致性 Chromium + FFmpeg 验收。截至 2026-10-22，真实 Studio Chromium 回归覆盖时间线拖动/写回、轨道标志、关键帧跳转、pointercancel、Ctrl/⌘+滚轮锚点缩放和右边缘自动滚动；完整 AI Director 回归为 1256 passed、0 failed。该证据不覆盖自定义 Bezier 控制柄、全部专业剪辑操作排列或所有网页场景的逐帧确定性。
+- 自定义 cubic Bezier 控制柄已在 React Inspector 实现（SVG 可拖控制柄并有 x1/y1/x2/y2 数值输入），并已通过真实 Chromium 修改、应用 FilmDocument、刷新页面后回读持久化值的验收（`tests/test_film_studio_canvas_history_browser.py::test_react_bezier_control_drag_persists_after_browser_reload`）。仍需补完整预览/导出逐帧一致性 Chromium + FFmpeg 验收；控制柄持久化成功不等于渲染出的所有中间帧都符合期望。截至 2026-10-22，真实 Studio Chromium 回归覆盖时间线拖动/写回、轨道标志、关键帧跳转、pointercancel、Ctrl/⌘+滚轮锚点缩放和右边缘自动滚动；完整 AI Director 回归为 1256 passed、0 failed。该证据不覆盖自定义 Bezier 控制柄、全部专业剪辑操作排列或所有网页场景的逐帧确定性。
 
 ### D. 最后强化媒体生成与导出
 

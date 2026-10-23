@@ -40,6 +40,11 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
     (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
     assert fd.read_project_film(project_id)["exists"]
 
+    broken_project_id = "film-studio-project-shell-broken-document"
+    broken_project_root = storage_root / broken_project_id
+    broken_project_root.mkdir(parents=True)
+    (broken_project_root / fd.FILM_NAME).write_text("<!doctype html><section", encoding="utf-8")
+
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -57,11 +62,13 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
               window.setInterval = (callback, delay, ...args) =>
                 nativeSetInterval(callback, typeof delay === "number" && delay >= 500 ? 60000 : delay, ...args);
               window.__filmDocumentReadUrls = [];
+              window.__compositionReadUrls = [];
               const nativeFetch = window.fetch.bind(window);
               window.fetch = (input, init) => {
                 const url = typeof input === "string" ? input :
                   (input && typeof input.url === "string" ? input.url : String(input));
                 if (url.includes("/api/editor/film?project_id=")) window.__filmDocumentReadUrls.push(url);
+                if (url.includes("/api/editor/composition?project_id=")) window.__compositionReadUrls.push(url);
                 return nativeFetch(input, init);
               };
             })();""")
@@ -85,6 +92,10 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 }""", project_id)
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible", timeout=10000)
+                legacy_reads = page.evaluate("window.__compositionReadUrls.slice()")
+                assert legacy_reads == [], {
+                    "migrated FilmDocument projects must not enter the legacy CompositionIR loader": legacy_reads
+                }
 
                 # Now Studio is open. A second selector change invokes editorLoad().
                 # Exactly two reads are expected: the wrapper's existence check and
@@ -105,6 +116,23 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 ), reads
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
                 assert fd.read_project_film(project_id)["exists"]
+
+                # Existing but malformed film.html must stay in the Studio's broken-document
+                # gate and must never cause a legacy CompositionIR read.
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", broken_project_id)
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('影片文档无效')",
+                    timeout=10000,
+                )
+                assert "校验失败" in page.locator("#fs-timeline").inner_text()
+                assert page.locator("#fs-timeline .fs-clip[data-clip]").count() == 0
+                assert page.evaluate("window.__compositionReadUrls.slice()") == []
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
