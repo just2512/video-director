@@ -1009,6 +1009,9 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   const activePointerId = useRef<number | null>(null);
   const activeEnvelopePointerId = useRef<number | null>(null);
   const activeScrubPointerId = useRef<number | null>(null);
+  const pendingScrubPointer = useRef<{
+    pointerId: number; startX: number; startY: number; startedOnTick: boolean;
+  } | null>(null);
   const seekFromRulerPointer = (clientX: number, body: HTMLDivElement) => {
     const rect = body.getBoundingClientRect();
     const localX = clientX - rect.left;
@@ -1073,24 +1076,41 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         }}
         onPointerDown={event => {
           if (event.button !== 0) return;
-          // A ruler tick has its own click-to-seek handler. Capturing the pointer
-          // on the parent would retarget click away from that child on pointerup.
           const target = event.target;
-          if (target instanceof Element && target.closest(".fs-ruler-mark")) return;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          activeScrubPointerId.current = event.pointerId;
-          seekFromRulerPointer(event.clientX, event.currentTarget);
+          const startedOnTick = target instanceof Element && !!target.closest(".fs-ruler-mark");
+          pendingScrubPointer.current = {
+            pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,startedOnTick
+          };
+          // A click on a tick must not seek early or capture the parent pointer;
+          // the child onClick performs exact tick seek if the pointer is released in place.
+          if (!startedOnTick) seekFromRulerPointer(event.clientX, event.currentTarget);
         }}
         onPointerMove={event => {
+          const pending = pendingScrubPointer.current;
+          if (!pending || pending.pointerId !== event.pointerId) return;
+          if (activeScrubPointerId.current !== event.pointerId) {
+            const dx = event.clientX - pending.startX;
+            const dy = event.clientY - pending.startY;
+            if (Math.hypot(dx, dy) < 4) return;
+            // Delay capture until real movement so click-to-seek still reaches tick children.
+            event.currentTarget.setPointerCapture(event.pointerId);
+            activeScrubPointerId.current = event.pointerId;
+          }
           if (activeScrubPointerId.current === event.pointerId) {
             seekFromRulerPointer(event.clientX, event.currentTarget);
           }
         }}
         onPointerUp={event => {
+          if (pendingScrubPointer.current?.pointerId === event.pointerId) {
+            pendingScrubPointer.current = null;
+          }
           if (activeScrubPointerId.current !== event.pointerId) return;
           activeScrubPointerId.current = null;
         }}
         onPointerCancel={event => {
+          if (pendingScrubPointer.current?.pointerId === event.pointerId) {
+            pendingScrubPointer.current = null;
+          }
           if (activeScrubPointerId.current !== event.pointerId) return;
           activeScrubPointerId.current = null;
         }}

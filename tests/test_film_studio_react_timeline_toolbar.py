@@ -24,8 +24,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "event.shiftKey ? 0.1 : 1" in component
     assert "activeScrubPointerId = useRef<number | null>(null)" in component
     assert "seekFromRulerPointer(event.clientX, event.currentTarget)" in component
-    ruler_scrub_handlers = component.split('data-react-scrub-ready="true"', 1)[1].split("onPointerMove", 1)[0]
-    assert "preventDefault()" not in ruler_scrub_handlers, "scrub pointerdown must preserve ruler tick click synthesis"
+    ruler_scrub_handlers = component.split('data-react-scrub-ready="true"', 1)[1]
+    ruler_pointerdown = ruler_scrub_handlers.split("onPointerDown={event => {", 1)[1].split("onPointerMove", 1)[0]
+    assert "preventDefault()" not in ruler_pointerdown, "scrub pointerdown must preserve ruler tick click synthesis"
+    assert "setPointerCapture(event.pointerId)" not in ruler_pointerdown, "capture starts only after a real drag threshold"
+    assert "Math.hypot(dx, dy) < 4" in ruler_scrub_handlers
     assert 'target.closest(".fs-ruler-mark")' in component
     assert "event.currentTarget.setPointerCapture(event.pointerId)" in component
     assert "onPointerCancel={event => {" in component
