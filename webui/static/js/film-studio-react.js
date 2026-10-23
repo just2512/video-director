@@ -25211,6 +25211,43 @@
       ] })
     ] });
   };
+  var StudioTimelineContextMenu = ({ model }) => {
+    const left = Math.max(8, Math.min(model.x, window.innerWidth - 204));
+    const top = Math.max(8, Math.min(model.y, window.innerHeight - 292));
+    const action = (name) => (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      window.filmStudioContextMenuAction?.(name, model.clipId);
+    };
+    return (0, import_react_dom.createPortal)(
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        "div",
+        {
+          className: "fs-context-menu",
+          role: "menu",
+          "data-react-context-menu": "true",
+          style: { position: "fixed", left, top },
+          onContextMenu: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          },
+          onPointerDown: (event) => event.stopPropagation(),
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "copy", onClick: action("copy"), children: "\u590D\u5236\u6240\u9009\u7247\u6BB5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "duplicate", onClick: action("duplicate"), children: "\u91CD\u590D\u6240\u9009\u7247\u6BB5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "paste", onClick: action("paste"), children: "\u7C98\u8D34\u5230\u64AD\u653E\u5934" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "split", onClick: action("split"), children: "\u5728\u64AD\u653E\u5934\u5207\u5206" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "delete", onClick: action("delete"), children: "\u5220\u9664\u6240\u9009\u7247\u6BB5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "ripple", onClick: action("ripple"), children: "\u6CE2\u7EB9\u5220\u9664" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "inspector", onClick: action("inspector"), children: "\u6253\u5F00\u5C5E\u6027\u68C0\u67E5\u5668" })
+          ]
+        }
+      ),
+      document.body
+    );
+  };
   var StudioToolbar = () => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "undo", children: "\u64A4\u9500" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "redo", children: "\u91CD\u505A" }),
@@ -25218,17 +25255,36 @@
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn fs-primary", type: "button", "data-film-action": "render", children: "\u5BFC\u51FA MP4" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
   ] });
+  var updateTimelineGesturePreview = null;
   var TimelineSurface = ({ model }) => {
+    const [gesturePreview, setGesturePreview] = (0, import_react.useState)(null);
+    (0, import_react.useLayoutEffect)(() => {
+      const update = (preview) => setGesturePreview(preview);
+      updateTimelineGesturePreview = update;
+      return () => {
+        if (updateTimelineGesturePreview === update) updateTimelineGesturePreview = null;
+      };
+    }, []);
     const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
     const selectedIds = filmStore.getSnapshot().selectedIds;
     void selectedIdsVersion;
     const activePointerId = (0, import_react.useRef)(null);
+    const activeEnvelopePointerId = (0, import_react.useRef)(null);
     (0, import_react.useLayoutEffect)(() => {
       const ownsPointer = (pointerId) => activePointerId.current === pointerId;
       window.filmStudioOwnsClipGesturePointer = ownsPointer;
       return () => {
         if (window.filmStudioOwnsClipGesturePointer === ownsPointer) {
           window.filmStudioOwnsClipGesturePointer = void 0;
+        }
+      };
+    }, []);
+    (0, import_react.useLayoutEffect)(() => {
+      const ownsEnvelopePointer = (pointerId) => activeEnvelopePointerId.current === pointerId;
+      window.filmStudioOwnsEnvelopeGesturePointer = ownsEnvelopePointer;
+      return () => {
+        if (window.filmStudioOwnsEnvelopeGesturePointer === ownsEnvelopePointer) {
+          window.filmStudioOwnsEnvelopeGesturePointer = void 0;
         }
       };
     }, []);
@@ -25298,12 +25354,18 @@
                 "data-track": clip.trackId,
                 "data-kind": clip.tag,
                 "data-react-timeline-clip": clip.id,
+                "data-react-gesture-preview": gesturePreview && Object.prototype.hasOwnProperty.call(gesturePreview, clip.id) ? "true" : "false",
                 style: {
-                  left: filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                  left: gesturePreview && Object.prototype.hasOwnProperty.call(gesturePreview, clip.id) ? gesturePreview[clip.id] : filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
                   width: filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
                 },
                 title: clip.title,
                 onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
+                onContextMenu: (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  window.filmStudioOpenTimelineContextMenu?.(clip.id, event.clientX, event.clientY);
+                },
                 onPointerDown: (event) => {
                   const started = window.filmStudioBeginClipDrag?.(event.nativeEvent, event.currentTarget);
                   if (started) activePointerId.current = event.nativeEvent.pointerId;
@@ -25333,7 +25395,47 @@
                     event.currentTarget.style.display = "none";
                   } }) : null,
                   clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("canvas", { className: "fs-clip-waveform", "data-waveform-clip": clip.id, "aria-label": "\u97F3\u9891\u6CE2\u5F62" }) : null,
-                  clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("canvas", { className: "fs-clip-envelope", "data-envelope-clip": clip.id, "aria-label": "\u97F3\u91CF\u5305\u7EDC\uFF1A\u62D6\u52A8\u6DFB\u52A0\u6216\u8C03\u6574\u5173\u952E\u5E27\uFF1BShift \u6216\u53F3\u952E\u5220\u9664\u5185\u90E8\u70B9" }) : null,
+                  clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                    "canvas",
+                    {
+                      className: "fs-clip-envelope",
+                      "data-envelope-clip": clip.id,
+                      "aria-label": "\u97F3\u91CF\u5305\u7EDC\uFF1A\u62D6\u52A8\u6DFB\u52A0\u6216\u8C03\u6574\u5173\u952E\u5E27\uFF1BShift \u6216\u53F3\u952E\u5220\u9664\u5185\u90E8\u70B9",
+                      onContextMenu: (event) => event.preventDefault(),
+                      onClick: (event) => event.stopPropagation(),
+                      onPointerDown: (event) => {
+                        if (event.button !== 0 && event.button !== 2) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const pointerId = event.nativeEvent.pointerId;
+                        if (window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, event.currentTarget)) {
+                          activeEnvelopePointerId.current = pointerId;
+                        }
+                      },
+                      onPointerMove: (event) => {
+                        if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
+                          window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent);
+                        }
+                      },
+                      onPointerUp: (event) => {
+                        const pointerId = event.nativeEvent.pointerId;
+                        if (activeEnvelopePointerId.current !== pointerId) return;
+                        const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
+                        const clear = () => {
+                          if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
+                        };
+                        Promise.resolve(pending).then(clear, clear);
+                      },
+                      onPointerCancel: (event) => {
+                        const pointerId = event.nativeEvent.pointerId;
+                        if (activeEnvelopePointerId.current !== pointerId) return;
+                        window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
+                        Promise.resolve().then(() => {
+                          if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
+                        });
+                      }
+                    }
+                  ) : null,
                   clip.keyframeMarks.map((mark) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                     "button",
                     {
@@ -25597,7 +25699,8 @@
     clipInspector: null,
     clipInspectorEmptyMessage: void 0,
     canvasInspectorMounted: false,
-    canvasElement: null
+    canvasElement: null,
+    timelineContextMenu: null
   };
   var studioRoot = null;
   var studioRootMount = null;
@@ -25651,7 +25754,8 @@
       state.canvasInspectorMounted ? studioPortal(
         "fs-react-canvas-inspector",
         element ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CanvasInspector, { element }, element.clipId + "::" + element.selector) : null
-      ) : null
+      ) : null,
+      state.timelineContextMenu ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineContextMenu, { model: state.timelineContextMenu }) : null
     ] });
   };
   function renderStudioReactOwner(patch) {
@@ -25676,6 +25780,26 @@
   window.filmStudioReactTimeline = {
     renderSurface(model) {
       renderStudioReactOwner({ timeline: model });
+    },
+    setGesturePreview(preview) {
+      updateTimelineGesturePreview?.(preview);
+    },
+    clearSurface() {
+      if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
+        renderStudioReactOwner({ timeline: null, timelineContextMenu: null });
+      }
+    },
+    hasSurface() {
+      return studioReactState.timeline !== null;
+    },
+    openContextMenu(model) {
+      renderStudioReactOwner({ timelineContextMenu: model });
+    },
+    closeContextMenu() {
+      if (studioReactState.timelineContextMenu !== null) renderStudioReactOwner({ timelineContextMenu: null });
+    },
+    isContextMenuOpen() {
+      return studioReactState.timelineContextMenu !== null;
     }
   };
   window.filmStudioReactToolbar = {
