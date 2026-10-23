@@ -1462,13 +1462,18 @@
     }
     return points[points.length-1].v;
   }
-  function beginVolumeEnvelopeGesture(e,canvas){
-    var clip=findClip(canvas.getAttribute('data-envelope-clip'));
+  function beginVolumeEnvelopeGesture(e,surface,legacyCanvas){
+    var canvas=legacyCanvas||(surface&&typeof surface.getAttribute==='function'?surface:null);
+    var context=canvas?{clipId:canvas.getAttribute('data-envelope-clip')}:surface||{};
+    var clip=findClip(String(context.clipId||''));
     if(!clip||clip.duration==null||clip.duration<=0)return false;
     if(e.button!==0&&e.button!==2)return false;
     e.preventDefault();e.stopPropagation();
     if(S.busy||S.broken){showStatus('当前无法编辑音量包络。','error');return false;}
-    var duration=clip.duration,rect=canvas.getBoundingClientRect();
+    var duration=clip.duration,sourceRect=canvas?canvas.getBoundingClientRect():context.rect;
+    if(!sourceRect)return false;
+    var rect={left:Number(sourceRect.left),top:Number(sourceRect.top),width:Number(sourceRect.width),height:Number(sourceRect.height)};
+    if(![rect.left,rect.top,rect.width,rect.height].every(Number.isFinite))return false;
     if(duration<=0.02){showStatus('片段短于 0.02 秒，无法安全添加内部音量关键帧。','error');return false;}
     if(!rect.width||!rect.height)return false;
     var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
@@ -1505,12 +1510,14 @@
       if(index<0)index=points.length;
       points.splice(index,0,{t:time,v:value});added=true;
     }
-    S.envelopeDrag={clipId:clip.id,canvas:canvas,points:points,index:index,duration:duration,active:added,changed:added};
-    if(canvas.setPointerCapture)try{canvas.setPointerCapture(e.pointerId);}catch(_){}
-    if(!setTimelineEnvelopePreview(clip.id,points))drawVolumeEnvelope(canvas,points);
+    S.envelopeDrag={clipId:clip.id,canvas:canvas||null,rect:rect,points:points,index:index,duration:duration,active:added,changed:added};
+    if(canvas&&canvas.setPointerCapture)try{canvas.setPointerCapture(e.pointerId);}catch(_){}
+    if(!setTimelineEnvelopePreview(clip.id,points)&&canvas)drawVolumeEnvelope(canvas,points);
     return true;
   }
-  window.filmStudioBeginEnvelopeGesture=beginVolumeEnvelopeGesture;
+  window.filmStudioBeginEnvelopeGesture=function(e,context){
+    return beginVolumeEnvelopeGesture(e,context,null);
+  };
   function bindVolumeEnvelopeCanvas(canvas){
     var initialClip=findClip(canvas.getAttribute('data-envelope-clip'));
     if(!initialClip||initialClip.duration==null||initialClip.duration<=0)return;
@@ -1953,7 +1960,7 @@
   }
   function onMove(e) {
     if(S.envelopeDrag){
-      var ed=S.envelopeDrag,rect=ed.canvas.getBoundingClientRect(),point=ed.points[ed.index];
+      var ed=S.envelopeDrag,rect=ed.canvas?ed.canvas.getBoundingClientRect():ed.rect,point=ed.points[ed.index];
       if(!point||!rect.width||!rect.height)return;
       var x=Math.max(0,Math.min(rect.width,(e.clientX-rect.left)));
       var y=Math.max(0,Math.min(rect.height,(e.clientY-rect.top)));
@@ -2191,9 +2198,11 @@
        !window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     return onUp(e);
   };
-  window.filmStudioMoveEnvelopeGesture=function(e){
+  window.filmStudioMoveEnvelopeGesture=function(e,rect){
     if(!e||!window.filmStudioOwnsEnvelopeGesturePointer||
        !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag)return;
+    if(rect&&[rect.left,rect.top,rect.width,rect.height].every(Number.isFinite))
+      S.envelopeDrag.rect={left:rect.left,top:rect.top,width:rect.width,height:rect.height};
     onMove(e);
   };
   window.filmStudioEndEnvelopeGesture=function(e){

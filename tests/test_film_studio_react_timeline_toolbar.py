@@ -202,8 +202,14 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "var nativeEnvelope=target&&target.closest?target.closest('[data-envelope-clip]'):null;" in studio
     assert "if(reactTimeline&&reactClip&&!nativeEnvelope)return;" in studio
     assert "if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;" in studio
-    assert "window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, event.currentTarget)" in component
+    assert "window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {" in component
+    assert "clipId:clip.id" in component
+    assert "rect:{left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height}" in component
     assert "window.filmStudioOwnsEnvelopeGesturePointer = ownsEnvelopePointer" in component
+    assert "window.filmStudioBeginEnvelopeGesture=function(e,context)" in studio
+    assert "S.envelopeDrag={clipId:clip.id,canvas:canvas||null,rect:rect" in studio
+    assert "var ed=S.envelopeDrag,rect=ed.canvas?ed.canvas.getBoundingClientRect():ed.rect" in studio
+    assert "window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {" in component
     assert "onClick={event => event.stopPropagation()}" in component
     assert "window.filmStudioBeginEnvelopeGesture=beginVolumeEnvelopeGesture" in studio
     assert "window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)" in studio

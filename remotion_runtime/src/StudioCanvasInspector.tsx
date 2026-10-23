@@ -300,8 +300,8 @@ declare global {
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
-    filmStudioBeginEnvelopeGesture?: (event: PointerEvent, canvas: HTMLCanvasElement) => boolean;
-    filmStudioMoveEnvelopeGesture?: (event: PointerEvent) => void;
+    filmStudioBeginEnvelopeGesture?: (event: PointerEvent, context: {clipId: string; rect: {left: number; top: number; width: number; height: number}}) => boolean;
+    filmStudioMoveEnvelopeGesture?: (event: PointerEvent, rect: {left: number; top: number; width: number; height: number}) => void;
     filmStudioEndEnvelopeGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCancelEnvelopeGesture?: (event: PointerEvent) => void;
     filmStudioOwnsEnvelopeGesturePointer?: (pointerId: number) => boolean;
@@ -1378,13 +1378,22 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                   event.preventDefault();
                   event.stopPropagation();
                   const pointerId = event.nativeEvent.pointerId;
-                  if (window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, event.currentTarget)) {
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  const started = window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {
+                    clipId:clip.id,
+                    rect:{left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height},
+                  });
+                  if (started) {
                     activeEnvelopePointerId.current = pointerId;
+                    try { event.currentTarget.setPointerCapture(pointerId); } catch { /* synthetic events have no active pointer to capture */ }
                   }
                 }}
                 onPointerMove={event => {
                   if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
-                    window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent);
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {
+                      left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height,
+                    });
                   }
                 }}
                 onPointerUp={event => {
