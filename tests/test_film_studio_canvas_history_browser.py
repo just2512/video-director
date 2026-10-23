@@ -497,6 +497,10 @@ def test_react_bezier_control_drag_persists_after_browser_reload(tmp_path, monke
                 handle = page.locator('[data-bezier-handle="p1"]')
                 graph.wait_for(state="visible", timeout=10000)
                 handle.wait_for(state="visible", timeout=10000)
+                # "visible" does not imply inside the viewport. Mouse events sent
+                # below the viewport cannot reach an otherwise visible Inspector node.
+                graph.scroll_into_view_if_needed()
+                handle.scroll_into_view_if_needed()
                 control_x = page.locator('[aria-label="关键帧 1 x1"]')
                 control_x.wait_for(state="visible", timeout=10000)
                 assert abs(float(control_x.input_value()) - 0.2) < 0.001
@@ -514,13 +518,43 @@ def test_react_bezier_control_drag_persists_after_browser_reload(tmp_path, monke
                 page.mouse.down()
                 page.mouse.move(target_x, target_y, steps=8)
                 page.mouse.up()
-                page.wait_for_function(
-                    """() => {
+                try:
+                    page.wait_for_function(
+                        """() => {
+                          const input = document.querySelector('[aria-label="关键帧 1 x1"]');
+                          return !!input && Math.abs(Number(input.value) - 0.42) < 0.025;
+                        }""",
+                        timeout=10000,
+                    )
+                except Exception as exc:
+                    diagnostics = page.evaluate("""({x, y}) => {
+                      const graph = document.querySelector('.fs-keyframe-bezier-graph');
+                      const handle = document.querySelector('[data-bezier-handle="p1"]');
                       const input = document.querySelector('[aria-label="关键帧 1 x1"]');
-                      return !!input && Math.abs(Number(input.value) - 0.42) < 0.025;
-                    }""",
-                    timeout=10000,
-                )
+                      const hit = document.elementFromPoint(x, y);
+                      const rect = node => {
+                        if (!node) return null;
+                        const r = node.getBoundingClientRect();
+                        return {x:r.x,y:r.y,width:r.width,height:r.height};
+                      };
+                      return {
+                        value: input && input.value,
+                        disabled: input && input.disabled,
+                        graph: rect(graph),
+                        handle: rect(handle),
+                        handleCenterHit: (() => {
+                          if (!handle) return null;
+                          const r=handle.getBoundingClientRect();
+                          const el=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+                          return {tag:el&&el.tagName, handle:!!(el&&el.closest&&el.closest('[data-bezier-handle="p1"]'))};
+                        })(),
+                        targetHit: {tag:hit&&hit.tagName, className:hit&&hit.getAttribute('class')},
+                        pageSize: {width:innerWidth,height:innerHeight},
+                        pointerTarget: {x,y}
+                      };
+                    }""", {"x": target_x, "y": target_y})
+                    raise AssertionError("Bezier handle drag did not update the control value: " +
+                                         json.dumps(diagnostics, ensure_ascii=False)) from exc
 
                 original_revision = fd.read_project_film(project_id)["rev"]
                 page.locator("#fs-apply-clip-inspector").click()
