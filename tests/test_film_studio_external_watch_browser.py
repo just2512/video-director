@@ -433,9 +433,6 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
 
                 # A locked member track is equally fatal to the whole group move.
                 page.evaluate("window.filmStudioToggleTrackLock('audio-bed')")
-                page.wait_for_function("""() => Object.prototype.hasOwnProperty.call(
-                  window.__testFilmTrackAttrs?.['audio-bed'] || {}, 'locked'
-                )""") if False else None
                 page.wait_for_function("""() => {
                   const button = document.querySelector('button[data-track-lock="audio-bed"]');
                   return !!button && button.textContent.trim() === '🔒';
@@ -454,6 +451,69 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   const button = document.querySelector('button[data-track-lock="audio-bed"]');
                   return !!button && button.textContent.trim() === '锁';
                 }""")
+
+                # Dropping a clip onto a locked destination track is rejected before POST /edit.
+                page.evaluate("""() => {
+                  window.prompt = () => 'Locked destination';
+                }""")
+                page.evaluate("window.filmStudioAddTrack()")
+                page.wait_for_function("""() => [...document.querySelectorAll('#fs-timeline .fs-track-label')]
+                  .some(label => label.textContent.trim() === 'Locked destination')""")
+                destination_track_id = page.evaluate("""() => {
+                  const label = [...document.querySelectorAll('#fs-timeline .fs-track-label')]
+                    .find(node => node.textContent.trim() === 'Locked destination');
+                  return label?.closest('.fs-track')?.getAttribute('data-track') || null;
+                }""")
+                assert destination_track_id
+                page.evaluate("(id) => window.filmStudioToggleTrackLock(id)", destination_track_id)
+                page.wait_for_function("""id => {
+                  const button = document.querySelector('button[data-track-lock="' + id + '"]');
+                  return !!button && button.textContent.trim() === '🔒';
+                }""", arg=destination_track_id)
+
+                clip.click()
+                before_destination_reject = fd.read_project_film(project_id)
+                destination_requests_before = len(film_edit_requests)
+                destination_clip_before = next(
+                    item for track in before_destination_reject["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                source_box = clip.bounding_box()
+                target_row = page.locator(
+                    '#fs-timeline .fs-track[data-track="' + destination_track_id + '"]'
+                )
+                target_box = target_row.bounding_box()
+                assert source_box and target_box, {"source": source_box, "target": target_box}
+                source_x = source_box["x"] + source_box["width"] * 0.5
+                source_y = source_box["y"] + source_box["height"] * 0.5
+                target_y = target_box["y"] + target_box["height"] * 0.72
+                page.mouse.move(source_x, source_y)
+                page.mouse.down()
+                page.mouse.move(source_x, target_y, steps=8)
+                page.wait_for_function("""id => {
+                  const row = document.querySelector('#fs-timeline .fs-track[data-track="' + id + '"]');
+                  return !!row && row.classList.contains('fs-track-drop-invalid');
+                }""", arg=destination_track_id, timeout=5000)
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const alert = document.querySelector('#film-studio-alert');
+                  return !!alert && alert.textContent.includes('目标轨道') &&
+                    alert.textContent.includes('已锁定');
+                }""")
+                after_destination_reject = fd.read_project_film(project_id)
+                assert after_destination_reject["rev"] == before_destination_reject["rev"]
+                assert len(film_edit_requests) == destination_requests_before, film_edit_requests[destination_requests_before:]
+                destination_clip_after = next(
+                    item for track in after_destination_reject["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                assert destination_clip_after["track_id"] == destination_clip_before["track_id"]
+                assert destination_clip_after["attrs"]["at"] == destination_clip_before["attrs"]["at"]
+                page.evaluate("(id) => window.filmStudioToggleTrackLock(id)", destination_track_id)
+                page.wait_for_function("""id => {
+                  const button = document.querySelector('button[data-track-lock="' + id + '"]');
+                  return !!button && button.textContent.trim() === '锁';
+                }""", arg=destination_track_id)
 
                 # React pointercancel must clear the active gesture without committing.
                 before_cancel = fd.read_project_film(project_id)

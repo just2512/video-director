@@ -30,6 +30,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioBeginClipDrag = function(e,el)" in studio
     assert "var blockedMember=null;" in studio
+    assert "function groupMoveTargetError(d,targetTrackId)" in studio
+    assert "d.invalidTargetMessage" in studio
+    assert "fs-track-drop-invalid" in studio
     assert "多选移动包含'+blockedMember.reason+blockedMember.kind" in studio
     assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component
     assert "window.filmStudioOwnsClipGesturePointer(e.pointerId)" in studio

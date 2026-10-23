@@ -765,8 +765,25 @@
     return S.selectedIds.indexOf(id)>=0;
   }
   function clearDragTrackTarget(d){
-    if(d&&d.targetRow)d.targetRow.classList.remove('fs-track-drop-target');
+    if(d&&d.targetRow)d.targetRow.classList.remove('fs-track-drop-target','fs-track-drop-invalid');
     if(d)d.targetRow=null;
+  }
+  function groupMoveTargetError(d,targetTrackId){
+    var order=d&&d.trackOrder||[],targetIndex=order.indexOf(targetTrackId);
+    if(targetIndex<0)return '目标轨道不存在，多选移动已取消。';
+    var originIndex=Number.isInteger(d.originalTrackIndex)?d.originalTrackIndex:order.indexOf(d.trackId);
+    if(originIndex<0)return '无法确认原轨道位置，多选移动已取消。';
+    var trackDelta=targetIndex-originIndex,members=d.members||[];
+    for(var i=0;i<members.length;i++){
+      var destinationIndex=members[i].trackIndex+trackDelta;
+      if(destinationIndex<0||destinationIndex>=order.length)return '多选移动超出轨道范围，操作已取消。';
+      var destinationId=order[destinationIndex];
+      var destination=(S.data&&S.data.tracks||[]).find(function(track){return track.id===destinationId;});
+      if(!destination)return '目标轨道 '+destinationId+' 已不存在，多选移动已取消。';
+      if(Object.prototype.hasOwnProperty.call(destination.attrs||{},'locked'))
+        return '目标轨道 '+destinationId+' 已锁定，多选移动已取消。';
+    }
+    return null;
   }
   function stopDragAutoScroll(){
     if(S.dragAutoScrollTimer){clearInterval(S.dragAutoScrollTimer);S.dragAutoScrollTimer=null;}
@@ -1719,8 +1736,12 @@
     if(d.mode==='move'){
       var target=document.elementFromPoint(e.clientX,e.clientY),row=target&&target.closest('.fs-track');
       if(row){
-        var nextTrack=row.getAttribute('data-track');
-        if(nextTrack!==d.targetTrackId){clearDragTrackTarget(d);d.targetTrackId=nextTrack;d.targetRow=row;row.classList.add('fs-track-drop-target');}
+        var nextTrack=row.getAttribute('data-track'),targetError=groupMoveTargetError(d,nextTrack);
+        if(d.targetRow!==row||d.targetTrackId!==nextTrack||d.invalidTargetMessage!==targetError){
+          clearDragTrackTarget(d);
+          d.targetTrackId=nextTrack;d.invalidTargetMessage=targetError;d.targetRow=row;
+          row.classList.add(targetError?'fs-track-drop-invalid':'fs-track-drop-target');
+        }
       }
     }
     if(d.mode==='slide'){
@@ -1817,6 +1838,9 @@
       return;
     }
     if(!d.active){syncClipSelectionVisual();flushPendingExternalRevision();return;}
+    if(d.invalidTargetMessage){
+      renderTimeline();showStatus(d.invalidTargetMessage,'error');flushPendingExternalRevision();return;
+    }
     var deltaPx=e.clientX-d.startX+($('fs-timeline-scroll').scrollLeft-d.startScrollLeft);
     d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
     d.element.removeAttribute('data-roll-delta');d.element.classList.remove('fs-rolling');

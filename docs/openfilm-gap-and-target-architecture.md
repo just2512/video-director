@@ -87,7 +87,7 @@
 - 通用视觉属性写入 `data-film-keyframes`，音频增益仍使用 `volume_envelope`，不混用两种语义。
 - 关键帧时间是 clip-relative。split、trim、roll、slide 按新片段时长切片/重基准；切入/切出 eased segment 时用后端校验的 `window` 表达式保留插值形状。回归用例分别覆盖两个源时长的切分/修剪与 roll/slide。
 - React Inspector 源码和可运行 fallback 都有曲线、节点拖动、帧步进时间/数值编辑、缓动、增加/删除/清空；时间线上显示关键帧标记，点击跳到影片绝对时间。fallback JSON 高级编辑仍共用同一 FilmDocument operation。
-- 自定义 cubic Bezier 控制柄尚未实现；完整预览/导出逐帧一致性仍需独立的 Chromium + FFmpeg 验收。截至 2026-10-22，真实 Studio Chromium 回归覆盖时间线拖动/写回、轨道标志、关键帧跳转、pointercancel、Ctrl/⌘+滚轮锚点缩放和右边缘自动滚动；完整 AI Director 回归为 1256 passed、0 failed。该证据不覆盖自定义 Bezier 控制柄、全部专业剪辑操作排列或所有网页场景的逐帧确定性。
+- 自定义 cubic Bezier 控制柄已在 React Inspector 实现（SVG 可拖控制柄并有 x1/y1/x2/y2 数值输入），关键帧 easing 支持 bezier 与切片保真的 window curve；仍需单独补真实浏览器保存/回读验收，并执行完整预览/导出逐帧一致性 Chromium + FFmpeg 验收。截至 2026-10-22，真实 Studio Chromium 回归覆盖时间线拖动/写回、轨道标志、关键帧跳转、pointercancel、Ctrl/⌘+滚轮锚点缩放和右边缘自动滚动；完整 AI Director 回归为 1256 passed、0 failed。该证据不覆盖自定义 Bezier 控制柄、全部专业剪辑操作排列或所有网页场景的逐帧确定性。
 
 ### D. 最后强化媒体生成与导出
 
@@ -117,4 +117,4 @@
 ## 本次直接落地
 
 画布 Inspector 已补齐背景填色开关/背景色、不透明度、字重和文字对齐；背景透明语义被显式保留，额外属性只在确有变化时写入 overrides。时间线已加入帧吸附开关/参考线、右键上下文菜单、重复片段和关键帧跳转；AI 规划已加入 SSE token 增量反馈、停止和“取消当前请求后按新要求重规划”。React 源码与无构建时 fallback 均有关键帧曲线编辑入口，且共享 FilmDocument 校验与写盘路径。  
-**当前仍未关闭的验收门禁：** React 已有可运行构建产物，且选定的 Chromium/FilmDocument 回归已通过；但 React 尚未完全拥有时间线状态和手势，导演与 Studio 的产品入口仍未完全收敛，自定义 Bezier 控制柄及部分专业 NLE 交互仍有边界，多种网页动画/异步资源仍不能宣称必然确定性。后续必须以具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
+**当前仍未关闭的验收门禁：** React 已有可运行构建产物并拥有单一根、scrubber 订阅、轨道控制、时码尺、片段手势分发与关键帧跳转；音量包络/波形和部分上下文菜单仍由原生事件处理。导演与 Studio 的产品入口尚未完全收敛；Bezier 控制柄已实现但需要真实浏览器保存/回读验收；多轨同步移动、Lift/Ripple/Delete/Insert 的完整组合仍需补充冲突和恢复测试；多种网页动画/异步资源仍不能宣称必然确定性。后续必须以具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
