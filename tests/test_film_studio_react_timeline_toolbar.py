@@ -20,6 +20,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert 'scroll.dataset.reactZoomReady = "true"' in component
     assert "bindFilmTimelineWheel" not in studio
     assert "findTimelineSnap" in studio
+    assert "timelineDragDeltaSeconds(pointerDelta,scrollDelta,scale)" in studio
+    assert "math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx)" in studio
+    assert "dragDeltaSeconds(pointerDeltaPixels: number, scrollDeltaPixels: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "updateDragAutoScroll" in studio
     assert "setInterval(function()" in studio
     assert "var minStart=(d.members||[]).reduce" in studio

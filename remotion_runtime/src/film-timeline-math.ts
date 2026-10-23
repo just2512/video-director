@@ -1,7 +1,14 @@
-/** Shared timeline geometry/time mapping used by React surfaces and the Studio gesture adapter. */
+/** Shared timeline and gesture math used by React surfaces and the Studio operation adapter. */
+export interface FilmTimelineSnapCandidate {
+  at: number;
+  kind: string;
+}
+
 export interface FilmTimelineMathBridge {
   secondsToPixels(seconds: number, pixelsPerSecond: number): number;
   pixelsToSeconds(pixels: number, pixelsPerSecond: number): number;
+  dragDeltaSeconds(pointerDeltaPixels: number, scrollDeltaPixels: number, pixelsPerSecond: number): number;
+  resolveSnapCandidate(rawAt: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number): FilmTimelineSnapCandidate | null;
   clipLeft(at: number, pixelsPerSecond: number): number;
   clipWidth(duration: number | null, pixelsPerSecond: number, minWidth?: number, unknownDuration?: number, maxWidth?: number, roundUp?: boolean): number;
   zoomScale(current: number, direction: number, min?: number, max?: number): number;
@@ -19,6 +26,28 @@ export const filmTimelineMath: FilmTimelineMathBridge = {
   },
   pixelsToSeconds(pixels, pixelsPerSecond) {
     return finiteOr(pixels, 0) / Math.max(0.000001, finiteOr(pixelsPerSecond, 1));
+  },
+  dragDeltaSeconds(pointerDeltaPixels, scrollDeltaPixels, pixelsPerSecond) {
+    return filmTimelineMath.pixelsToSeconds(
+      finiteOr(pointerDeltaPixels, 0) + finiteOr(scrollDeltaPixels, 0),
+      pixelsPerSecond,
+    );
+  },
+  resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels) {
+    const target = finiteOr(rawAt, 0);
+    const threshold = Math.max(0, finiteOr(thresholdPixels, 0));
+    let best: FilmTimelineSnapCandidate | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      if (!candidate || !Number.isFinite(candidate.at)) continue;
+      const distance = Math.abs(filmTimelineMath.secondsToPixels(candidate.at - target, pixelsPerSecond));
+      // Strictly-less preserves candidate order when distances tie.
+      if (distance <= threshold && distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+    return best;
   },
   clipLeft(at, pixelsPerSecond) {
     return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));

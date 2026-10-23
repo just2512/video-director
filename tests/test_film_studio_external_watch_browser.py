@@ -104,6 +104,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   return {
                     pixels: m.secondsToPixels(1.5, 48),
                     seconds: m.pixelsToSeconds(72, 48),
+                    dragDelta: m.dragDeltaSeconds(30, -10, 40),
+                    snapTie: m.resolveSnapCandidate(10, [
+                      {at: 10.125, kind: "first"},
+                      {at: 9.875, kind: "equal-distance-later"},
+                      {at: 10.3, kind: "outside-threshold"},
+                    ], 40, 5),
+                    noSnap: m.resolveSnapCandidate(10, [{at: 10.3, kind: "outside"}], 40, 5),
                     left: m.clipLeft(-1, 48),
                     unknownWidth: m.clipWidth(null, 48, 24, 2),
                     frame: m.snapToFrame(1.01, 30),
@@ -115,6 +122,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert math == {
                     "pixels": 72,
                     "seconds": 1.5,
+                    "dragDelta": 0.5,
+                    "snapTie": {"at": 10.125, "kind": "first"},
+                    "noSnap": None,
                     "left": 0,
                     "unknownWidth": 96,
                     "frame": 1,
