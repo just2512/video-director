@@ -1454,7 +1454,7 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                 stale_warning = page.locator("#fs-proposal-stale-warning")
                 stale_warning.wait_for(state="visible", timeout=5000)
                 assert "当前影片 revision 已变化" in stale_warning.inner_text()
-                assert "clip-b" in page.locator("#fs-proposal-panel").inner_text()
+                assert "clip-b" in page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]').inner_text()
                 assert page.locator('[data-film-action="preview-proposal"]').is_disabled()
                 assert page.locator('[data-film-action="apply-proposal"]').is_disabled()
                 assert not page.locator('[data-film-action="reject-proposal"]').is_disabled()

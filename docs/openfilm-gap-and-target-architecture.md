@@ -52,7 +52,8 @@
 - 片段选中态由 React 从 FilmStore 的 selectedIds 投影；原生适配器只更新选中 ID，不再在 React 路径中改写 clip classList。fallback 仍用原生类切换。
 - 当完整 React 时间线拥有手势预览和活动 clip ID 时，多选手势上下文只保存稳定 ID、原始时间/边界和轨道索引，不再逐片段查询或保留 DOM 节点。roll/slide 的邻接 DOM 引用仅在原生 fallback 中收集。
 - 播放头位置由 React 订阅 FilmStore 的 `playhead` 字段并依据当前像素比例渲染；原生适配器保留运行时 seek/播放控制与 no-bundle fallback，不再直接写 React 时间线节点的 `style.left`。
-- React 时码尺提供 slider 无障碍语义、点击刻度、按下拖动连续 seek，以及方向键按 1 秒/Shift+方向键按 0.1 秒定位；所有输入仍通过同一 seek bridge 更新 FilmStore、播放器与 monitor 时间，不生成 FilmDocument 事务。
+- React 时码尺提供 slider 无障碍语义、点击刻度、按下拖动连续 seek，以及方向键按 1 秒/Shift+方向键按 0.1 秒定位；React 处理方向键后停止向 document 级 NLE 快捷键冒泡，避免同一次按键同时执行帧级 Nudge。所有输入仍通过同一 seek bridge 更新 FilmStore、播放器与 monitor 时间，不生成 FilmDocument 事务。
+- 外部 revision 改变时保留旧 AI 提案用于查看差异/拒绝，并记录观测到的新 revision；React 面板显式标记过期并禁用预览/应用，命令桥也会拒绝对旧提案的直接调用。服务器 revision gate 仍是最终安全边界。
 - React 时间线内容宽度由 `fs-react-timeline-surface` 依据同一 `FilmTimelineSurfaceModel.totalWidth` 渲染；`#fs-timeline` Portal 宿主不再由原生适配器写 inline width，只有 no-bundle fallback 才直接设置宿主宽度。真实 Chromium Ctrl+滚轮回归校验 surface/scroll 宽度增大且宿主 inline width 不变。
 - 这不是将所有剪辑算法迁入 React：修剪、roll、slide、slip 继续逐步迁移，最终写盘仍必须经过 revision-checked FilmDocument 事务。
 

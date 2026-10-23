@@ -362,6 +362,37 @@
     panel.addEventListener('pointercancel',function(){dragging=null;});
   }
   function showStatus(message, kind) { var el=$('film-studio-alert'); if(!el)return; el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':''); el.textContent=message||''; }
+  function currentFilmProposalRevision(proposal){
+    var pending=String(S.pendingExternalRevision||'');
+    if(pending&&pending!=='__reload__')return pending;
+    return String(proposal&&proposal.observed_revision||S.rev||'');
+  }
+  function markFilmProposalStale(revision,message){
+    var proposal=S.proposal;
+    if(!proposal)return false;
+    var observed=String(revision||'');
+    if(observed)proposal.observed_revision=observed;
+    S.previewProposalActive=false;S.runtimeRev='';
+    if(observed&&proposal.stale_notified_revision!==observed){
+      proposal.stale_notified_revision=observed;
+      appendMessage(message||'影片 revision 已变化。旧 AI 提案仍可查看或拒绝，但不能预览/应用。','assistant');
+    }else{
+      renderProposalPanel();
+    }
+    return true;
+  }
+  function blockStaleFilmProposalAction(proposal,action){
+    if(!proposal)return false;
+    var pending=String(S.pendingExternalRevision||'');
+    var current=currentFilmProposalRevision(proposal);
+    var stale=!!pending||!current||String(proposal.base_revision||'')!==current;
+    if(!stale)return false;
+    if(current&&current!=='__reload__')proposal.observed_revision=current;
+    S.previewProposalActive=false;S.runtimeRev='';
+    renderProposalPanel();
+    showStatus('当前影片 revision 已变化（当前：'+(current&&current!=='__reload__'?current:'未知')+'）。旧提案不能'+action+'；请重新生成，或拒绝旧提案。','error');
+    return true;
+  }
   function renderAiDirector() {
     var bridge=window.filmStudioReactAi,root=$('fs-react-ai-director'),legacy=$('fs-static-ai-director');
     if(bridge&&typeof bridge.render==='function'&&root){
@@ -378,7 +409,7 @@
         bridge.render({
           messages:(S.messages||[]).map(function(item){return{text:String(item.text||''),role:String(item.role||'assistant')};}),
           proposal:proposal,
-          currentRevision:String(S.rev||'')
+          currentRevision:currentFilmProposalRevision(S.proposal)
         });
         root.style.display='flex';
         if(legacy)legacy.style.display='none';
@@ -2126,7 +2157,7 @@
       if(!S.open||S.busy||S.drag||S.envelopeDrag)return;
       var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(S.projectId));
       if(r&&r.ok&&r.exists&&r.rev!==S.rev){
-        if(S.proposal){appendMessage('影片已被外部修改，旧 AI 提案已作废。','assistant');S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
+        if(S.proposal)markFilmProposalStale(r.rev,'影片已被外部修改。旧 AI 提案仍可查看或拒绝，但不能预览/应用。');
         S.pendingExternalRevision=r.rev;
         flushPendingExternalRevision();
       }
@@ -2980,6 +3011,7 @@ window.filmStudioCopyClips=function(){
   window.filmStudioPreviewProposal=function(){
     var proposal=S.proposal,frame=$('fs-preview-composition');
     if(!proposal||!proposal.candidate||!frame||!frame.contentWindow){showStatus('没有可预览的 AI 提案。','error');return;}
+    if(blockStaleFilmProposalAction(proposal,'预览'))return;
     window.filmStudioSetSideMode('ai');
     S.previewProposalActive=true;S.runtimeRev='';
     syncRuntime('seek-pause');
@@ -2994,6 +3026,7 @@ window.filmStudioCopyClips=function(){
   };
   window.filmStudioApplyProposal=async function(){
     var proposal=S.proposal;if(!proposal||S.busy)return;
+    if(blockStaleFilmProposalAction(proposal,'应用'))return;
     if(hasUncommittedInspectorEdits()){showStatus('请先应用 Inspector 属性草稿，或重新载入并确认丢弃，再应用 AI 提案。','error');return;}
     if(S.broken){showStatus('影片文件无效，不能应用 AI 提案。','error');return;}
     if(proposal.project_id!==S.projectId){showStatus('提案所属项目已变化，不能应用。','error');return;}
@@ -3007,7 +3040,8 @@ window.filmStudioCopyClips=function(){
           appendMessage((result&&result.error)||'提案应用失败。','assistant');
           showStatus((result&&result.error)||'提案应用失败。','error');
           if(result&&result.code==='REVISION_CONFLICT'){
-            S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
+            S.previewProposalActive=false;S.runtimeRev='';
+            delete proposal.observed_revision;delete proposal.stale_notified_revision;
             reloadAfterConflict=true;
           }
           return false;
@@ -3021,8 +3055,11 @@ window.filmStudioCopyClips=function(){
     }catch(error){
       var proposalErrorCode=error&&error.code||'';
       if(proposalErrorCode==='FILM_REVISION_CONFLICT'||proposalErrorCode==='FILM_EXTERNAL_REVISION_PENDING'){
-        S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
+        S.previewProposalActive=false;S.runtimeRev='';
+        delete proposal.observed_revision;delete proposal.stale_notified_revision;
         await filmStudioLoad(true);
+        renderProposalPanel();
+        showStatus('影片 revision 已变化。旧提案仍可查看或拒绝，但不能预览/应用。','error');
       }else{
         showStatus('AI 提案应用失败：'+String(error&&error.message||error),'error');
       }
@@ -3256,10 +3293,12 @@ window.filmStudioCopyClips=function(){
           showStatus('影片文件校验失败，已保留当前画面并暂停编辑：'+String(data.error||'文档解析失败'),'error');
         }else if(packet.event==='film'&&data.phase==='revision_changed'&&data.source==='external_file'&&S.open){
           S.broken=false;
-          if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
-          if(data.revision&&data.revision!==S.rev){S.pendingExternalRevision=data.revision;flushPendingExternalRevision();}
+          if(data.revision&&data.revision!==S.rev){
+            if(S.proposal)markFilmProposalStale(data.revision,'影片已被外部修改。旧 AI 提案仍可查看或拒绝，但不能预览/应用。');
+            S.pendingExternalRevision=data.revision;flushPendingExternalRevision();
+          }
         }else if(packet.event==='film'&&data.phase==='revision_changed'&&S.open&&data.revision&&data.revision!==S.rev){
-          if(S.proposal){appendMessage('影片 revision 已变化，待确认提案已作废。','assistant');S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
+          if(S.proposal)markFilmProposalStale(data.revision,'影片 revision 已变化。旧 AI 提案仍可查看或拒绝，但不能预览/应用。');
           S.pendingExternalRevision=data.revision;
           flushPendingExternalRevision();
         }else if(packet.event==='film_ai'&&S.open&&data.project_id===S.projectId&&data.phase==='planning'){

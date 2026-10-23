@@ -1080,6 +1080,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         onKeyDown={event => {
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
           event.preventDefault();
+          event.stopPropagation();
           const step = event.shiftKey ? 0.1 : 1;
           window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
         }}

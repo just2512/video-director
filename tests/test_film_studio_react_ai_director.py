@@ -40,7 +40,13 @@ def test_react_ai_director_keeps_the_existing_action_and_message_contract():
     assert "window.filmStudioCancelAi({preserveSteer:true})" in studio
     assert "S.messages.push({text:String(text),role:role});" in studio
     assert "baseRevision:String(S.proposal.base_revision||'')" in studio
-    assert "currentRevision:String(S.rev||'')" in studio
+    assert "currentRevision:currentFilmProposalRevision(S.proposal)" in studio
+    assert "function currentFilmProposalRevision(proposal)" in studio
+    assert "function markFilmProposalStale(revision,message)" in studio
+    assert "function blockStaleFilmProposalAction(proposal,action)" in studio
+    assert "if(blockStaleFilmProposalAction(proposal,'预览'))return;" in studio
+    assert "if(blockStaleFilmProposalAction(proposal,'应用'))return;" in studio
+    assert "S.proposal=null;S.previewProposalActive=false;renderProposalPanel();" not in studio.split("S.poll=setInterval",1)[1].split("},1600);",1)[0]
     assert "currentRevision: string" in component
     assert "proposal.baseRevision !== model.currentRevision" in component
     assert 'id="fs-proposal-stale-warning"' in component
