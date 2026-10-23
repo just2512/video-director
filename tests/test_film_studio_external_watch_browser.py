@@ -52,7 +52,7 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             # Pause the Studio's background revision poll for this focused count;
             # this test measures project-switch requests, not the independent watcher.
-            page.add_init_script("""() => {
+            page.add_init_script("""(() => {
               const nativeSetInterval = window.setInterval.bind(window);
               window.setInterval = (callback, delay, ...args) =>
                 nativeSetInterval(callback, typeof delay === "number" && delay >= 500 ? 60000 : delay, ...args);
@@ -64,7 +64,7 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 if (url.includes("/api/editor/film?project_id=")) window.__filmDocumentReadUrls.push(url);
                 return nativeFetch(input, init);
               };
-            }""")
+            })();""")
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
