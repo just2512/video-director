@@ -398,8 +398,13 @@ def test_film_timeline_supports_group_selection_drag_and_pointer_anchored_zoom()
     assert "ids.map(function(id){return {op:'remove',clip:id};})" in script
     assert "timelineZoomAnchorTime(scroll.scrollLeft,localX,S.pxPerSec,132)" in script
     assert "timelineZoomScrollLeft(anchorTime,localX,S.pxPerSec,132)" in script
-    assert "scroll.addEventListener('wheel'" in script
-    assert "{passive:false}" in script
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+
+    # Ctrl/Meta-wheel input is React-owned now; the legacy script only exposes
+    # the zoom bridge and must not be required to bind a second wheel listener.
+    assert 'scroll.addEventListener("wheel", onWheel, {passive:false})' in component
+    assert 'scroll.dataset.reactZoomReady = "true"' in component
+    assert "scroll.addEventListener('wheel'" not in script
     assert ".fs-track.fs-track-drop-target" in styles
 
 

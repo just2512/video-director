@@ -237,8 +237,9 @@ jobs:
                   for kind in ("failure", "error"):
                       node = case.find(kind)
                       if node is not None:
-                          message = (node.attrib.get("message") or node.text or "").strip().replace("\n", " ")
-                          record = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}: {message[:500]}"
+                          message = (node.attrib.get("message") or "").strip().replace("\n", " ")
+                          trace = (node.text or "").strip().replace("\n", " ")
+                          record = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}: {message[:350]} [trace: {trace[-1200:]}]"
                           (failures if kind == "failure" else errors).append(record)
           print("PYTEST_SUMMARY " + str(totals))
           summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -272,11 +273,24 @@ jobs:
 
 
       # The browser serves the checked-in bundle, not an ephemeral build directory.
-      # Publish only after typecheck, bundle build, focused React/migration browser smoke tests and JS syntax pass.
-      # The full suite still reports independently; unrelated full-suite failures must not leave main serving a placeholder bundle.
+      # Gate asset publication on the authoritative timeline contract and real-browser
+      # gesture/external-write suite as well as build, focused smoke tests, and JS syntax.
+      # Unrelated full-suite failures remain visible; targeted Studio failures block publication.
       # A GitHub-token push intentionally does not fan out another workflow run.
-      - name: Publish verified React Studio bundle and Tailwind CSS to main
+      - name: Gate Studio asset publication on timeline browser regressions
+        id: timeline_regression_gate
         if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 5m "$PY311_BIN/python3.11" -m pytest -q --tb=short \
+            tests/test_film_document_contract.py \
+            tests/test_film_studio_external_watch_browser.py \
+            tests/test_film_studio_react_timeline_toolbar.py \
+            tests/test_studio_build_contract.py
+
+      - name: Publish verified React Studio bundle and Tailwind CSS to main
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.timeline_regression_gate.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}

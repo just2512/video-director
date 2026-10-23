@@ -71,6 +71,48 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             page.on("request", lambda request: film_render_requests.append(request.url) if request.url.endswith("/api/editor/film/render") else None)
             page.on("request", lambda request: film_history_requests.append(request.url) if request.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")) else None)
             page.on("response", lambda response: film_edit_responses.append(f"{response.status} {response.url}") if response.url.endswith("/api/editor/film/edit") else None)
+
+            # When a browser wait fails, emit the exact predicate and observable
+            # editor state into the CI log; otherwise the runner's short summary
+            # can hide the failing wait behind a generic 30-second timeout.
+            native_wait_for_function = page.wait_for_function
+            def wait_for_function_with_diagnostics(expression, *args, **kwargs):
+                try:
+                    return native_wait_for_function(expression, *args, **kwargs)
+                except Exception as error:
+                    try:
+                        state = page.evaluate("""() => {
+                          const scroll = document.querySelector("#fs-timeline-scroll");
+                          const alert = document.querySelector("#film-studio-alert");
+                          const store = window.filmStudioStore;
+                          return {
+                            url: location.href,
+                            readyState: document.readyState,
+                            studioClass: document.querySelector("#film-studio-panel")?.className || null,
+                            timelineReady: !!document.querySelector("#fs-timeline"),
+                            reactZoomReady: scroll?.dataset.reactZoomReady || null,
+                            scroll: scroll ? {left: scroll.scrollLeft, width: scroll.scrollWidth, clientWidth: scroll.clientWidth} : null,
+                            zoomScale: store?.getField("pixelsPerSecond") ?? null,
+                            revision: store?.getSnapshot()?.revision ?? null,
+                            selectedIds: store?.getSnapshot()?.selectedIds ?? null,
+                            clips: [...document.querySelectorAll("#fs-timeline .fs-clip")].map(node => ({
+                              id: node.getAttribute("data-clip"), left: node.style.left, width: node.style.width,
+                              dragging: node.classList.contains("fs-dragging")
+                            })),
+                            speed: document.querySelector("#fs-field-speed")?.value ?? null,
+                            alert: alert?.textContent || null
+                          };
+                        }""")
+                    except Exception as snapshot_error:
+                        state = {"snapshotError": str(snapshot_error)}
+                    print("EXTERNAL_WATCH_WAIT_FAILURE=" + json.dumps({
+                        "predicate": str(expression)[:1200],
+                        "timeout": kwargs.get("timeout"),
+                        "error": str(error),
+                        "state": state,
+                    }, ensure_ascii=False, default=str), flush=True)
+                    raise
+            page.wait_for_function = wait_for_function_with_diagnostics
             try:
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 tracing = True
