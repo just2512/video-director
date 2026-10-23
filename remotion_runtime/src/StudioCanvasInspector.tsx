@@ -1041,8 +1041,9 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     };
   }, []);
   return (
-  <>
-    <div className="fs-ruler" style={{width:model.totalWidth}} data-react-timeline-surface="true">
+  <div className="fs-react-timeline-surface" data-react-timeline-surface="true"
+    style={{width:model.totalWidth,position:"relative"}}>
+    <div className="fs-ruler" style={{width:model.totalWidth}}>
       <div className="fs-ruler-head">时码</div>
       <div className="fs-ruler-body" id="fs-ruler-body" style={{width:model.laneWidth}}>
         {model.ticks.map((tick) => (
@@ -1197,7 +1198,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
       title={snapGuide.title} data-snap-kind={snapGuide.kind} /> : null}
     <div className="fs-playhead" id="fs-playhead-line"
       style={{left:132 + filmTimelineMath.clipLeft(playhead,model.pixelsPerSecond)}} />
-  </>
+  </div>
   );
 };
 

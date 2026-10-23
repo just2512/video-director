@@ -60,6 +60,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component
     assert "window.filmStudioOwnsClipGesturePointer(e.pointerId)" in studio
     assert "onClick={() => window.filmStudioSeek?.(tick.at)}" in component
+    assert 'className="fs-react-timeline-surface" data-react-timeline-surface="true"' in component
+    assert 'style={{width:model.totalWidth,position:"relative"}}' in component
+    assert "if(!reactTimeline)$('fs-timeline').style.width=" in studio
     assert 'const playhead=useFilmStoreField("playhead");' in component
     assert 'style={{left:132 + filmTimelineMath.clipLeft(playhead,model.pixelsPerSecond)}}' in component
     assert "if(line&&!reactTimeline)line.style.left=" in studio

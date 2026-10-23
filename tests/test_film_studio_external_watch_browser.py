@@ -948,6 +948,20 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => document.querySelector('#fs-timeline-scroll')?.dataset.reactZoomReady === 'true'",
                     timeout=10000,
                 )
+                host_before_zoom = page.evaluate("""() => {
+                  const host = document.querySelector('#fs-timeline');
+                  const surface = host?.querySelector('.fs-react-timeline-surface');
+                  const scroll = document.querySelector('#fs-timeline-scroll');
+                  return {
+                    hostInlineWidth: host?.style.width || '',
+                    surfaceWidth: surface ? surface.getBoundingClientRect().width : 0,
+                    surfaceInlineWidth: surface?.style.width || '',
+                    scrollWidth: scroll?.scrollWidth || 0,
+                  };
+                }""")
+                assert host_before_zoom["hostInlineWidth"] == "", host_before_zoom
+                assert host_before_zoom["surfaceWidth"] > 0, host_before_zoom
+                assert host_before_zoom["scrollWidth"] >= host_before_zoom["surfaceWidth"], host_before_zoom
                 scroll_box = page.locator("#fs-timeline-scroll").bounding_box()
                 assert scroll_box, "timeline scroll box unavailable before zoom"
                 wheel_client_x = scroll_box["x"] + max(120, min(200, scroll_box["width"] - 24))
@@ -973,7 +987,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     clientX: rect.left + localX, clientY: rect.top + Math.min(40, rect.height / 2),
                     localX, width, pixelsPerSecond,
                     storePixelsPerSecond: window.filmStudioStore?.getField("pixelsPerSecond"),
-                    scrollLeft: scroll.scrollLeft,
+                    hostInlineWidth: document.querySelector('#fs-timeline')?.style.width || '',
+                    surfaceWidth: document.querySelector('#fs-timeline .fs-react-timeline-surface')?.getBoundingClientRect().width || 0,
+                    scrollWidth: scroll.scrollWidth,
                     anchorTime: (scroll.scrollLeft + localX - 132) / pixelsPerSecond
                   };
                 }""")
@@ -1003,11 +1019,21 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     width: Number.parseFloat(clip.style.width),
                     pixelsPerSecond: Number.parseFloat(clip.style.width) / 5,
                     storePixelsPerSecond: window.filmStudioStore?.getField("pixelsPerSecond"),
+                    hostInlineWidth: document.querySelector('#fs-timeline')?.style.width || '',
+                    surfaceWidth: document.querySelector('#fs-timeline .fs-react-timeline-surface')?.getBoundingClientRect().width || 0,
+                    scrollWidth: scroll.scrollWidth,
                     scrollLeft: scroll.scrollLeft
                   };
                 }""")
                 assert abs(zoom_before["storePixelsPerSecond"] - zoom_before["pixelsPerSecond"]) < 0.02, zoom_before
                 assert abs(zoom_after["storePixelsPerSecond"] - zoom_after["pixelsPerSecond"]) < 0.02, zoom_after
+                assert zoom_before["hostInlineWidth"] == "" and zoom_after["hostInlineWidth"] == "", {
+                    "before": zoom_before, "after": zoom_after,
+                }
+                assert zoom_after["surfaceWidth"] > zoom_before["surfaceWidth"], {
+                    "before": zoom_before, "after": zoom_after,
+                }
+                assert zoom_after["scrollWidth"] >= zoom_after["surfaceWidth"], zoom_after
                 assert abs(zoom_after["pixelsPerSecond"] / zoom_before["pixelsPerSecond"] - 1.25) < 0.02, zoom_after
                 expected_scroll_left = max(
                     0,

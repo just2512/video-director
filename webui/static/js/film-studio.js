@@ -1116,7 +1116,8 @@
       }).join('');
       $('fs-timeline').innerHTML=ruler+body+'<div class="fs-playhead" id="fs-playhead-line"></div>';
     }
-    $('fs-timeline').style.width=(132+laneWidth)+'px';$('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
+    if(!reactTimeline)$('fs-timeline').style.width=(132+laneWidth)+'px';
+    $('fs-timeline-meta').textContent=fmtTime(S.duration)+' · '+S.data.tracks.length+' 轨';
     var timelineRoot=$('fs-timeline');
     if(timelineRoot&&!timelineRoot.__filmStudioKeyframeDelegationBound){
       timelineRoot.__filmStudioKeyframeDelegationBound=true;
