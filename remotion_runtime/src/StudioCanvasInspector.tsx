@@ -221,11 +221,16 @@ type FilmTimelineSurfaceModel = {
   ticks: Array<{at:number;label:string;left:number}>;
   tracks: FilmTimelineSurfaceTrack[];
 };
+type FilmTimelineContextMenu = {clipId: string; x: number; y: number};
+
 interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
   setGesturePreview(preview: Record<string, number> | null): void;
   clearSurface(): void;
   hasSurface(): boolean;
+  openContextMenu(model: FilmTimelineContextMenu): void;
+  closeContextMenu(): void;
+  isContextMenuOpen(): boolean;
 }
 type FilmStudioAiMessage = {text: string; role: string};
 type FilmStudioAiOperationPreview = {
@@ -273,6 +278,8 @@ declare global {
     filmStudioEndEnvelopeGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCancelEnvelopeGesture?: (event: PointerEvent) => void;
     filmStudioOwnsEnvelopeGesturePointer?: (pointerId: number) => boolean;
+    filmStudioOpenTimelineContextMenu?: (clipId: string, clientX: number, clientY: number) => void;
+    filmStudioContextMenuAction?: (action: string, clipId: string) => void;
     filmStudioToggleTrackLock?: (trackId: string) => Promise<boolean> | void;
     filmStudioToggleTrackFlag?: (trackId: string, field: string) => Promise<boolean> | void;
     filmStudioShowAssetMode?: (mode: string) => void;
@@ -899,6 +906,33 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
   );
 };
 
+const StudioTimelineContextMenu: React.FC<{model: FilmTimelineContextMenu}> = ({model}) => {
+  const left = Math.max(8, Math.min(model.x, window.innerWidth - 204));
+  const top = Math.max(8, Math.min(model.y, window.innerHeight - 292));
+  const action = (name: string) => (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.filmStudioContextMenuAction?.(name, model.clipId);
+  };
+  return createPortal(
+    <div className="fs-context-menu" role="menu" data-react-context-menu="true"
+      style={{position:"fixed",left,top}}
+      onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}
+      onPointerDown={event => event.stopPropagation()}>
+      <button type="button" role="menuitem" data-context-action="copy" onClick={action("copy")}>复制所选片段</button>
+      <button type="button" role="menuitem" data-context-action="duplicate" onClick={action("duplicate")}>重复所选片段</button>
+      <button type="button" role="menuitem" data-context-action="paste" onClick={action("paste")}>粘贴到播放头</button>
+      <div className="fs-context-separator" />
+      <button type="button" role="menuitem" data-context-action="split" onClick={action("split")}>在播放头切分</button>
+      <button type="button" role="menuitem" data-context-action="delete" onClick={action("delete")}>删除所选片段</button>
+      <button type="button" role="menuitem" data-context-action="ripple" onClick={action("ripple")}>波纹删除</button>
+      <div className="fs-context-separator" />
+      <button type="button" role="menuitem" data-context-action="inspector" onClick={action("inspector")}>打开属性检查器</button>
+    </div>,
+    document.body
+  );
+};
+
 const StudioToolbar: React.FC = () => (
   <>
     <button className="fs-btn" type="button" data-film-action="undo">撤销</button>
@@ -1008,6 +1042,11 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               title={clip.title}
               key={clip.id}
               onClick={event => window.filmStudioClickClip?.(clip.id,event.nativeEvent)}
+              onContextMenu={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                window.filmStudioOpenTimelineContextMenu?.(clip.id,event.clientX,event.clientY);
+              }}
               onPointerDown={event => {
                 const started=window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget);
                 if(started)activePointerId.current=event.nativeEvent.pointerId;
@@ -1315,6 +1354,7 @@ type StudioReactState = {
   clipInspectorEmptyMessage?: string;
   canvasInspectorMounted: boolean;
   canvasElement: CanvasElementSelection | null;
+  timelineContextMenu: FilmTimelineContextMenu | null;
 };
 
 const studioReactState: StudioReactState = {
@@ -1329,6 +1369,7 @@ const studioReactState: StudioReactState = {
   clipInspectorEmptyMessage: undefined,
   canvasInspectorMounted: false,
   canvasElement: null,
+  timelineContextMenu: null,
 };
 let studioRoot: Root | null = null;
 let studioRootMount: HTMLElement | null = null;
@@ -1390,6 +1431,7 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
         "fs-react-canvas-inspector",
         element ? <CanvasInspector key={element.clipId + "::" + element.selector} element={element} /> : null
       ) : null}
+      {state.timelineContextMenu ? <StudioTimelineContextMenu model={state.timelineContextMenu} /> : null}
     </>
   );
 };
@@ -1424,10 +1466,21 @@ window.filmStudioReactTimeline = {
     updateTimelineGesturePreview?.(preview);
   },
   clearSurface() {
-    if (studioReactState.timeline !== null) renderStudioReactOwner({timeline:null});
+    if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
+      renderStudioReactOwner({timeline:null,timelineContextMenu:null});
+    }
   },
   hasSurface() {
     return studioReactState.timeline !== null;
+  },
+  openContextMenu(model) {
+    renderStudioReactOwner({timelineContextMenu:model});
+  },
+  closeContextMenu() {
+    if (studioReactState.timelineContextMenu !== null) renderStudioReactOwner({timelineContextMenu:null});
+  },
+  isContextMenuOpen() {
+    return studioReactState.timelineContextMenu !== null;
   },
 };
 

@@ -72,4 +72,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "onClick={event => event.stopPropagation()}" in component
     assert "window.filmStudioBeginEnvelopeGesture=beginVolumeEnvelopeGesture" in studio
     assert "window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)" in studio
+    assert "window.filmStudioOpenTimelineContextMenu?.(clip.id,event.clientX,event.clientY)" in component
+    assert "window.filmStudioContextMenuAction?.(name, model.clipId)" in component
+    assert "data-react-context-menu=\"true\"" in component
+    assert "openContextMenu(model: FilmTimelineContextMenu): void;" in component
+    assert "window.filmStudioOpenTimelineContextMenu=function(clipId,clientX,clientY)" in studio
+    assert "window.filmStudioContextMenuAction=function(action,clipId)" in studio
+    assert "bridge.isContextMenuOpen==='function'&&bridge.isContextMenuOpen()" in studio
     assert "if(S.reactGesturePointerId===e.pointerId)return;" not in studio

@@ -2555,9 +2555,42 @@ window.filmStudioCopyClips=function(){
   function closeTimelineContextMenu(){
     if(activeTimelineContextMenu&&activeTimelineContextMenu.parentNode)activeTimelineContextMenu.parentNode.removeChild(activeTimelineContextMenu);
     activeTimelineContextMenu=null;
+    var bridge=window.filmStudioReactTimeline;
+    if(bridge&&typeof bridge.closeContextMenu==='function')bridge.closeContextMenu();
   }
+  window.filmStudioOpenTimelineContextMenu=function(clipId,clientX,clientY){
+    if((S.selectedIds||[]).indexOf(clipId)<0)selectClipWithModifiers(clipId,{});
+    closeTimelineContextMenu();
+    var bridge=window.filmStudioReactTimeline;
+    if(bridge&&typeof bridge.openContextMenu==='function')
+      bridge.openContextMenu({clipId:clipId,x:Number(clientX)||0,y:Number(clientY)||0});
+  };
+  window.filmStudioContextMenuAction=function(action,clipId){
+    closeTimelineContextMenu();
+    if(action==='copy')return window.filmStudioCopyClips();
+    if(action==='duplicate')return window.filmStudioDuplicateClips(clipId);
+    if(action==='paste')return window.filmStudioPasteClips();
+    if(action==='split'){
+      var clip=findClip(clipId);
+      if(!clip||S.playhead<=clip.at+0.001||clip.end==null||S.playhead>=clip.end-0.001){
+        showStatus('播放头必须位于选中片段内部才能切分。','error');return false;
+      }
+      S.selectedId=clipId;if((S.selectedIds||[]).indexOf(clipId)<0)S.selectedIds=[clipId];
+      return window.filmStudioSplit();
+    }
+    if(action==='delete')return window.filmStudioRemove();
+    if(action==='ripple')return window.filmStudioRippleDelete();
+    if(action==='inspector')return window.filmStudioSetSideMode('inspector');
+    return false;
+  };
   document.addEventListener('contextmenu',function(event){
     var clipElement=event.target&&event.target.closest?event.target.closest('#fs-timeline .fs-clip[data-clip]'):null;
+    var bridge=window.filmStudioReactTimeline;
+    var reactTimeline=bridge&&typeof bridge.renderSurface==='function';
+    if(reactTimeline){
+      if(!clipElement)closeTimelineContextMenu();
+      return;
+    }
     if(!clipElement){closeTimelineContextMenu();return;}
     event.preventDefault();
     var clipId=clipElement.getAttribute('data-clip');
@@ -2581,33 +2614,26 @@ window.filmStudioCopyClips=function(){
     menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-292))+'px';
     document.body.appendChild(menu);
     activeTimelineContextMenu=menu;
-    menu.addEventListener('contextmenu',function(e){e.preventDefault();});
+    menu.addEventListener('contextmenu',function(e){e.preventDefault();e.stopPropagation();});
     menu.addEventListener('click',function(e){
       var item=e.target&&e.target.closest?e.target.closest('[data-context-action]'):null;
       if(!item)return;
       e.preventDefault();e.stopPropagation();
-      var action=item.getAttribute('data-context-action');
-      closeTimelineContextMenu();
-      if(action==='copy')window.filmStudioCopyClips();
-      else if(action==='duplicate')window.filmStudioDuplicateClips(clipId);
-      else if(action==='paste')window.filmStudioPasteClips();
-      else if(action==='split'){
-        var clip=findClip(clipId);
-        if(!clip||S.playhead<=clip.at+0.001||clip.end==null||S.playhead>=clip.end-0.001){
-          showStatus('播放头必须位于选中片段内部才能切分。','error');return;
-        }
-        S.selectedId=clipId;if((S.selectedIds||[]).indexOf(clipId)<0)S.selectedIds=[clipId];
-        window.filmStudioSplit();
-      }else if(action==='delete')window.filmStudioRemove();
-      else if(action==='ripple')window.filmStudioRippleDelete();
-      else if(action==='inspector')window.filmStudioSetSideMode('inspector');
+      window.filmStudioContextMenuAction(item.getAttribute('data-context-action'),clipId);
     });
   });
   document.addEventListener('pointerdown',function(event){
-    if(activeTimelineContextMenu&&!activeTimelineContextMenu.contains(event.target))closeTimelineContextMenu();
+    if(event.target&&event.target.closest&&event.target.closest('.fs-context-menu'))return;
+    var bridge=window.filmStudioReactTimeline;
+    var reactMenuOpen=bridge&&typeof bridge.isContextMenuOpen==='function'&&bridge.isContextMenuOpen();
+    if(activeTimelineContextMenu||reactMenuOpen)closeTimelineContextMenu();
   },true);
   document.addEventListener('keydown',function(event){
-    if(event.key==='Escape'&&activeTimelineContextMenu){closeTimelineContextMenu();event.stopPropagation();}
+    var bridge=window.filmStudioReactTimeline;
+    var reactMenuOpen=bridge&&typeof bridge.isContextMenuOpen==='function'&&bridge.isContextMenuOpen();
+    if(event.key==='Escape'&&(activeTimelineContextMenu||reactMenuOpen)){
+      closeTimelineContextMenu();event.stopPropagation();
+    }
   });
   window.filmStudioJoinThroughEdit=async function(){
     var clip=findClip(S.selectedId);
