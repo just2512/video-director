@@ -92,14 +92,16 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 }""", project_id)
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible", timeout=10000)
+                initial_reads = page.evaluate("window.__filmDocumentReadUrls.slice()")
+                assert len(initial_reads) == 2, {"initial FilmDocument reads": initial_reads}
+                assert all(f"project_id={project_id}" in url for url in initial_reads), initial_reads
                 legacy_reads = page.evaluate("window.__compositionReadUrls.slice()")
                 assert legacy_reads == [], {
                     "migrated FilmDocument projects must not enter the legacy CompositionIR loader": legacy_reads
                 }
 
-                # Now Studio is open. A second selector change invokes editorLoad().
-                # Exactly two reads are expected: the wrapper's existence check and
-                # the one canonical filmStudioLoad; there must be no third duplicate load.
+                # Now Studio is open. A second selector change goes through the same
+                # wrapper and must again perform one authority check + one Studio reload.
                 page.evaluate("window.__filmDocumentReadUrls.length = 0")
                 page.evaluate("""() => {
                   const select = document.querySelector('#editor-project');

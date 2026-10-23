@@ -2351,14 +2351,10 @@
     window.filmStudioToggle();
     return true;
   };
-  (function bindAuthoritativeProjectEntry(){
-    var selector=$('editor-project');
-    if(!selector||selector.__filmStudioAutoOpenBound)return;
-    selector.__filmStudioAutoOpenBound=true;
-    selector.addEventListener('change',function(){
-      void window.filmStudioOpenIfCurrentProjectHasFilm();
-    });
-  })();
+  // Project selection is routed by the single editorLoad wrapper above.
+  // workspaceOpen() calls filmStudioOpenIfCurrentProjectHasFilm() explicitly;
+  // do not also bind a change listener here or the initial selector change races
+  // two independent FilmDocument preflights and Studio toggles.
   window.filmStudioClose=function(){
     if(hasUncommittedInspectorEdits()){
       if(!window.confirm('Inspector 中有未提交的属性草稿。退出 Studio 将放弃这些修改；是否继续？'))return;

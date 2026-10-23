@@ -13,6 +13,7 @@
 - **唯一最终时间线**：有效的 `film.html` 是最终编辑/渲染权威；初始化迁移是显式操作，不允许 CompositionIR 静默覆盖 FilmDocument。
 - 项目选择器的 `change` 事件只通过 `editorLoad()` 进入项目工作流；该包装层负责决定打开或重载嵌入的 Studio，不能再注册一条并发 `filmStudioLoad` 旁路。真实 Chromium 回归要求 Studio 已打开时再次切换/打开项目只执行一次 FilmDocument reload，防止旧请求覆盖较新项目状态。
 - `editorLoad()` 在调用旧 CompositionIR loader 之前先查询 FilmDocument 权威状态；只要 `film.html` 存在（包括无法解析的情况），就直接进入 Studio 并由 Studio 显示有效/损坏状态。只有服务器明确确认 `film.html` 不存在时才调用旧工作台；状态查询失败时 fail-closed，不猜测项目仍可按旧时间线编辑。
+- 项目选择器不再另装第二条自动打开 Studio 的 `change` 监听。直接下拉操作只走 `editorLoad()` authority-first 包装器；`workspaceOpen()` 则显式调用 FilmDocument 打开入口。真实 Chromium 首次打开与再次切换均断言只执行一次状态检查和一次 Studio 加载，且完全不读取旧 CompositionIR。
 - **文件化协作**：项目文件、agent CLI 与 Studio watcher 连接外部编辑；稳定快照经解析后发 revision 事件，坏文档会冻结编辑而不是被 Studio 覆盖。
 - **冲突保护**：编辑操作绑定 revision 和 clip ID；旧 revision 的 AI 提案拒绝应用；缺失 ID 不会改投另一个片段。人机共享的是文本文件与可审计操作，不是聊天上下文中的隐藏状态。
 - **编辑/渲染闭环**：多轨、轨道锁定/隐藏/静音、剪切、修剪、插入编辑、ripple delete、slip/roll/slide（有意限制适用条件）、愈合切口、淡入淡出、音量包络、波形、缩略图、撤销/重做和基于真实浏览器的 look/render 均已有实现。
