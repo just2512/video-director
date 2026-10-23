@@ -1961,3 +1961,323 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path, monkeypatch):
+    """Roll/slide/slip preview only in React state, then submit one operation and undo cleanly."""
+    from video_director import prober
+
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    # This browser test validates the editor transaction contract, not FFprobe itself.
+    # Source-bound validation is separately exercised with real-boundary contract tests.
+    monkeypatch.setattr(prober, "probe_media", lambda _path: prober.ProbeResult(
+        duration=24.0, has_video_stream=True, has_audio_stream=True,
+    ))
+
+    project_id = "film-studio-react-linked-edit-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    linked_sample = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+<video id="clip-left" src="../assets/source.mp4#t=0,5" at="0"></video>
+<video id="clip-middle" src="../assets/source.mp4#t=5,10" at="5"></video>
+<video id="clip-right" src="../assets/source.mp4#t=10,15" at="10"></video>
+</section>
+</body></html>'''
+    film_path.write_text(linked_sample, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+
+    def clip_in(snapshot, clip_id):
+        return next(
+            clip for track in snapshot["doc"]["tracks"]
+            for clip in track["clips"] if clip["id"] == clip_id
+        )
+
+    def clip_geometry(page, clip_id):
+        return page.locator(f'#fs-timeline .fs-clip[data-clip="{clip_id}"]').evaluate(
+            """node => ({
+              left: node.style.left,
+              width: node.style.width,
+              preview: node.dataset.reactGesturePreview,
+              roll: node.dataset.rollDelta || null,
+              slide: node.dataset.slideDelta || null,
+              slip: node.dataset.slipDelta || null
+            })"""
+        )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            film_edit_requests: list[dict] = []
+
+            def capture_film_edit_request(request):
+                if request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        film_edit_requests.append(json.loads(request.post_data or "{}"))
+                    except (TypeError, ValueError):
+                        film_edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_film_edit_request)
+            try:
+                page.set_default_navigation_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles: true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                for clip_id in ("clip-left", "clip-middle", "clip-right"):
+                    page.locator(f'#fs-timeline .fs-clip[data-clip="{clip_id}"]').wait_for(
+                        state="visible", timeout=5000
+                    )
+
+                baseline = fd.read_project_film(project_id)
+                baseline_revision = baseline["rev"]
+                ids = ("clip-left", "clip-middle", "clip-right")
+                baseline_doc = {clip_id: clip_in(baseline, clip_id) for clip_id in ids}
+                baseline_geometry = {clip_id: clip_geometry(page, clip_id) for clip_id in ids}
+
+                def begin_drag(selector, modifiers, delta_x=18):
+                    handle = page.locator(selector)
+                    bounds = handle.bounding_box()
+                    assert bounds, {"selector": selector, "bounds": bounds}
+                    x = bounds["x"] + bounds["width"] / 2
+                    y = bounds["y"] + bounds["height"] / 2
+                    for modifier in modifiers:
+                        page.keyboard.down(modifier)
+                    page.mouse.move(x, y)
+                    page.mouse.down()
+                    page.mouse.move(x + delta_x, y, steps=6)
+                    return x, y, delta_x
+
+                def finish_keys(modifiers):
+                    for modifier in reversed(modifiers):
+                        page.keyboard.up(modifier)
+
+                def assert_no_write_during_preview(revision, request_count):
+                    assert len(film_edit_requests) == request_count, film_edit_requests
+                    assert fd.read_project_film(project_id)["rev"] == revision
+
+                def undo_to_baseline(clip_ids):
+                    committed_revision = page.evaluate(
+                        "() => window.filmStudioStore?.getSnapshot()?.revision || ''"
+                    )
+                    page.evaluate("window.filmStudioUndo()")
+                    page.wait_for_function(
+                        """({revision, ids}) => {
+                          const store = window.filmStudioStore;
+                          const currentRevision = store?.getSnapshot()?.revision || '';
+                          if (!currentRevision || currentRevision === revision) return false;
+                          return ids.every(id => {
+                            const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]');
+                            return !!node && node.dataset.reactGesturePreview === 'false';
+                          });
+                        }""",
+                        arg={"revision": committed_revision, "ids": list(clip_ids)},
+                        timeout=10_000,
+                    )
+                    restored = fd.read_project_film(project_id)
+                    for clip_id in ids:
+                        expected = baseline_doc[clip_id]
+                        actual = clip_in(restored, clip_id)
+                        assert actual["attrs"]["src"] == expected["attrs"]["src"], {
+                            "clip": clip_id, "expected": expected["attrs"]["src"], "actual": actual["attrs"]["src"]
+                        }
+                        assert float(actual["attrs"]["at"]) == float(expected["attrs"]["at"]), actual
+                        assert abs(fd.clip_duration(actual) - fd.clip_duration(expected)) < 0.001, actual
+                    for clip_id in clip_ids:
+                        page.wait_for_function(
+                            """({id, left, width}) => {
+                              const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]');
+                              return !!node && node.style.left === left && node.style.width === width;
+                            }""",
+                            arg={
+                                "id": clip_id,
+                                "left": baseline_geometry[clip_id]["left"],
+                                "width": baseline_geometry[clip_id]["width"],
+                            },
+                            timeout=10_000,
+                        )
+
+                # ROLL: Ctrl-drag the shared cut at clip-left's out point.
+                edit_count = len(film_edit_requests)
+                left_end = '#fs-timeline .fs-clip[data-clip="clip-left"] .fs-trim-handle[data-trim="end"]'
+                begin_drag(left_end, ["Control"])
+                page.wait_for_function(
+                    """before => {
+                      const left = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-left"]');
+                      const right = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-middle"]');
+                      return !!left && !!right &&
+                        left.dataset.reactGesturePreview === "true" &&
+                        right.dataset.reactGesturePreview === "true" &&
+                        left.style.width !== before.leftWidth &&
+                        right.style.left !== before.rightLeft;
+                    }""",
+                    arg={
+                        "leftWidth": baseline_geometry["clip-left"]["width"],
+                        "rightLeft": baseline_geometry["clip-middle"]["left"],
+                    },
+                    timeout=5000,
+                )
+                roll_preview = {clip_id: clip_geometry(page, clip_id) for clip_id in ids}
+                assert roll_preview["clip-left"]["roll"] and roll_preview["clip-left"]["preview"] == "true", roll_preview
+                assert_no_write_during_preview(baseline_revision, edit_count)
+                page.mouse.up()
+                finish_keys(["Control"])
+                page.wait_for_function(
+                    """old => {
+                      const left = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-left"]');
+                      const right = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-middle"]');
+                      return !!left && !!right && left.dataset.reactGesturePreview === "false" &&
+                        right.dataset.reactGesturePreview === "false" && left.style.width !== old.leftWidth;
+                    }""",
+                    arg={"leftWidth": baseline_geometry["clip-left"]["width"]},
+                    timeout=10_000,
+                )
+                assert len(film_edit_requests) == edit_count + 1, film_edit_requests
+                roll_ops = film_edit_requests[-1].get("ops") or []
+                assert len(roll_ops) == 1 and roll_ops[0].get("op") == "roll", roll_ops
+                assert roll_ops[0].get("clip") == "clip-left" and roll_ops[0].get("other_clip") == "clip-middle", roll_ops
+                assert abs(float(roll_ops[0]["delta"]) - 0.5) < 0.08, roll_ops
+                rolled = fd.read_project_film(project_id)
+                assert abs(fd.clip_duration(clip_in(rolled, "clip-left")) - 5.5) < 0.08
+                assert abs(float(clip_in(rolled, "clip-middle")["attrs"]["at"]) - 5.5) < 0.08
+                undo_to_baseline(("clip-left", "clip-middle"))
+
+                # SLIDE: Alt+Shift-drag the middle of the three contiguous, same-source clips.
+                edit_count = len(film_edit_requests)
+                middle_box = page.locator('#fs-timeline .fs-clip[data-clip="clip-middle"]').bounding_box()
+                assert middle_box
+                begin_drag(
+                    '#fs-timeline .fs-clip[data-clip="clip-middle"]',
+                    ["Alt", "Shift"],
+                )
+                page.wait_for_function(
+                    """before => {
+                      const left = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-left"]');
+                      const middle = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-middle"]');
+                      const right = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-right"]');
+                      return !!left && !!middle && !!right &&
+                        left.dataset.reactGesturePreview === "true" &&
+                        middle.dataset.reactGesturePreview === "true" &&
+                        right.dataset.reactGesturePreview === "true" &&
+                        left.style.width !== before.leftWidth &&
+                        middle.style.left !== before.middleLeft &&
+                        right.style.left !== before.rightLeft;
+                    }""",
+                    arg={
+                        "leftWidth": baseline_geometry["clip-left"]["width"],
+                        "middleLeft": baseline_geometry["clip-middle"]["left"],
+                        "rightLeft": baseline_geometry["clip-right"]["left"],
+                    },
+                    timeout=5000,
+                )
+                slide_preview = {clip_id: clip_geometry(page, clip_id) for clip_id in ids}
+                assert slide_preview["clip-middle"]["slide"] and slide_preview["clip-middle"]["preview"] == "true", slide_preview
+                assert_no_write_during_preview(baseline_revision, edit_count)
+                page.mouse.up()
+                finish_keys(["Alt", "Shift"])
+                page.wait_for_function(
+                    """old => {
+                      const middle = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-middle"]');
+                      return !!middle && middle.dataset.reactGesturePreview === "false" && middle.style.left !== old.middleLeft;
+                    }""",
+                    arg={"middleLeft": baseline_geometry["clip-middle"]["left"]},
+                    timeout=10_000,
+                )
+                assert len(film_edit_requests) == edit_count + 1, film_edit_requests
+                slide_ops = film_edit_requests[-1].get("ops") or []
+                assert len(slide_ops) == 1 and slide_ops[0].get("op") == "slide", slide_ops
+                assert slide_ops[0].get("clip") == "clip-middle", slide_ops
+                assert abs(float(slide_ops[0]["delta"]) - 0.5) < 0.08, slide_ops
+                slid = fd.read_project_film(project_id)
+                assert abs(float(clip_in(slid, "clip-middle")["attrs"]["at"]) - 5.5) < 0.08
+                undo_to_baseline(ids)
+
+                # SLIP: Alt-drag keeps clip time/width fixed and only offsets the source range.
+                edit_count = len(film_edit_requests)
+                middle_before_slip = clip_in(fd.read_project_film(project_id), "clip-middle")
+                page.mouse.move(
+                    middle_box["x"] + middle_box["width"] / 2,
+                    middle_box["y"] + middle_box["height"] / 2,
+                )
+                begin_drag(
+                    '#fs-timeline .fs-clip[data-clip="clip-middle"]',
+                    ["Alt"],
+                )
+                page.wait_for_function(
+                    """before => {
+                      const middle = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-middle"]');
+                      return !!middle && middle.dataset.reactGesturePreview === "true" &&
+                        (middle.dataset.slipDelta || "").includes("源偏移 +0.50s") &&
+                        middle.style.left === before.left && middle.style.width === before.width;
+                    }""",
+                    arg={
+                        "left": baseline_geometry["clip-middle"]["left"],
+                        "width": baseline_geometry["clip-middle"]["width"],
+                    },
+                    timeout=5000,
+                )
+                slip_preview = clip_geometry(page, "clip-middle")
+                assert_no_write_during_preview(baseline_revision, edit_count)
+                page.mouse.up()
+                finish_keys(["Alt"])
+                page.wait_for_function(
+                    """old => {
+                      const middle = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-middle"]');
+                      return !!middle && middle.dataset.reactGesturePreview === "false" &&
+                        middle.style.left === old.left && middle.style.width === old.width;
+                    }""",
+                    arg={
+                        "left": baseline_geometry["clip-middle"]["left"],
+                        "width": baseline_geometry["clip-middle"]["width"],
+                    },
+                    timeout=10_000,
+                )
+                assert len(film_edit_requests) == edit_count + 1, film_edit_requests
+                slip_ops = film_edit_requests[-1].get("ops") or []
+                assert len(slip_ops) == 1 and slip_ops[0].get("op") == "slip", slip_ops
+                assert slip_ops[0].get("clip") == "clip-middle", slip_ops
+                assert abs(float(slip_ops[0]["delta_source"]) - 0.5) < 0.08, slip_ops
+                slipped = fd.read_project_film(project_id)
+                slipped_middle = clip_in(slipped, "clip-middle")
+                assert slipped_middle["attrs"]["src"].endswith("#t=5.5,10.5"), slipped_middle
+                assert float(slipped_middle["attrs"]["at"]) == 5.0, slipped_middle
+                assert abs(fd.clip_duration(slipped_middle) - fd.clip_duration(middle_before_slip)) < 0.001
+                undo_to_baseline(ids)
+
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
