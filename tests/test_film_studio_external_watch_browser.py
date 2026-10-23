@@ -1982,6 +1982,11 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
+    # The API resolves ../assets relative to the project folder. Supply a file
+    # at that path because media_path_for_src enforces existence before probing.
+    shared_assets = storage_root / "assets"
+    shared_assets.mkdir(parents=True, exist_ok=True)
+    (shared_assets / "source.mp4").write_bytes(b"linked-edit browser fixture; probe_media is stubbed below")
     linked_sample = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
 <body>
