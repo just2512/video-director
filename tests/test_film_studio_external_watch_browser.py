@@ -315,6 +315,32 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert page.locator("#fs-monitor-time").inner_text() == "00:05.000"
 
+                # Dragging the React ruler continuously seeks; it must not create a FilmDocument edit.
+                ruler_body = page.locator("#fs-ruler-body[data-react-scrub-ready='true']")
+                ruler_bounds = ruler_body.bounding_box()
+                assert ruler_bounds, "React ruler body is not available for scrub"
+                scrub_before = fd.read_project_film(project_id)
+                scrub_edit_count_before = len(film_edit_requests)
+                pixels_per_second = page.evaluate("window.filmStudioStore.getField('pixelsPerSecond')")
+                scrub_y = ruler_bounds["y"] + ruler_bounds["height"] / 2
+                scrub_start_x = ruler_bounds["x"] + pixels_per_second * 1.0
+                scrub_end_x = ruler_bounds["x"] + pixels_per_second * 4.0
+                page.mouse.move(scrub_start_x, scrub_y)
+                page.mouse.down()
+                page.mouse.move(scrub_end_x, scrub_y, steps=8)
+                page.wait_for_function(
+                    """() => {
+                      const slider = document.querySelector('#fs-playhead');
+                      const monitor = document.querySelector('#fs-monitor-time');
+                      return !!slider && Math.abs(Number(slider.value) - 4) < 0.15 &&
+                        !!monitor && monitor.textContent.trim() === '00:04.000';
+                    }""",
+                    timeout=5000,
+                )
+                page.mouse.up()
+                assert fd.read_project_film(project_id)["rev"] == scrub_before["rev"]
+                assert len(film_edit_requests) == scrub_edit_count_before
+
                 # Exercise React-owned track controls against the authoritative FilmDocument.
                 def track_attrs(track_id: str) -> dict:
                     document = fd.read_project_film(project_id)["doc"]

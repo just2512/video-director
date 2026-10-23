@@ -997,6 +997,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   }, []);
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
   const playhead=useFilmStoreField("playhead");
+  const duration=useFilmStoreField("duration");
   const selectedIds=filmStore.getSnapshot().selectedIds;
   // The version is the scalar subscription token; the array proxy is stable by design.
   void selectedIdsVersion;
@@ -1007,6 +1008,13 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   };
   const activePointerId = useRef<number | null>(null);
   const activeEnvelopePointerId = useRef<number | null>(null);
+  const activeScrubPointerId = useRef<number | null>(null);
+  const seekFromRulerPointer = (clientX: number, body: HTMLDivElement) => {
+    const rect = body.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const seconds = Math.max(0, Math.min(duration, localX / Math.max(0.000001, model.pixelsPerSecond)));
+    window.filmStudioSeek?.(seconds);
+  };
   useLayoutEffect(() => {
     const ownsPointer = (pointerId:number) => activePointerId.current === pointerId;
     window.filmStudioOwnsClipGesturePointer = ownsPointer;
@@ -1045,7 +1053,32 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     style={{width:model.totalWidth,position:"relative"}}>
     <div className="fs-ruler" style={{width:model.totalWidth}}>
       <div className="fs-ruler-head">时码</div>
-      <div className="fs-ruler-body" id="fs-ruler-body" style={{width:model.laneWidth}}>
+      <div
+        className="fs-ruler-body"
+        id="fs-ruler-body"
+        data-react-scrub-ready="true"
+        style={{width:model.laneWidth}}
+        onPointerDown={event => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          activeScrubPointerId.current = event.pointerId;
+          seekFromRulerPointer(event.clientX, event.currentTarget);
+        }}
+        onPointerMove={event => {
+          if (activeScrubPointerId.current === event.pointerId) {
+            seekFromRulerPointer(event.clientX, event.currentTarget);
+          }
+        }}
+        onPointerUp={event => {
+          if (activeScrubPointerId.current !== event.pointerId) return;
+          activeScrubPointerId.current = null;
+        }}
+        onPointerCancel={event => {
+          if (activeScrubPointerId.current !== event.pointerId) return;
+          activeScrubPointerId.current = null;
+        }}
+      >
         {model.ticks.map((tick) => (
           <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at} onClick={() => window.filmStudioSeek?.(tick.at)}>{tick.label}</div>
         ))}

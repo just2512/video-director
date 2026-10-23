@@ -17,6 +17,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "pixelsPerSecond: number;" in store
     assert '["pxPerSec", "pixelsPerSecond"]' in store
     assert 'scroll.addEventListener("wheel", onWheel, {passive:false})' in component
+    assert 'data-react-scrub-ready="true"' in component
+    assert "activeScrubPointerId = useRef<number | null>(null)" in component
+    assert "seekFromRulerPointer(event.clientX, event.currentTarget)" in component
+    assert "onPointerCancel={event => {" in component
+    assert "timelineRoot.addEventListener('pointerdown'" not in studio
     assert 'scroll.dataset.reactZoomReady = "true"' in component
     assert "bindFilmTimelineWheel" not in studio
     assert "findTimelineSnap" in studio
