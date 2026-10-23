@@ -472,6 +472,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 clip.click()
                 before_destination_reject = fd.read_project_film(project_id)
                 destination_requests_before = len(film_edit_requests)
+                destination_track_before = next(
+                    track["id"] for track in before_destination_reject["doc"]["tracks"]
+                    if any(item["id"] == "clip-b" for item in track["clips"])
+                )
                 destination_clip_before = next(
                     item for track in before_destination_reject["doc"]["tracks"]
                     for item in track["clips"] if item["id"] == "clip-b"
@@ -501,11 +505,15 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 after_destination_reject = fd.read_project_film(project_id)
                 assert after_destination_reject["rev"] == before_destination_reject["rev"]
                 assert len(film_edit_requests) == destination_requests_before, film_edit_requests[destination_requests_before:]
+                destination_track_after = next(
+                    track["id"] for track in after_destination_reject["doc"]["tracks"]
+                    if any(item["id"] == "clip-b" for item in track["clips"])
+                )
                 destination_clip_after = next(
                     item for track in after_destination_reject["doc"]["tracks"]
                     for item in track["clips"] if item["id"] == "clip-b"
                 )
-                assert destination_clip_after["track_id"] == destination_clip_before["track_id"]
+                assert destination_track_after == destination_track_before
                 assert destination_clip_after["attrs"]["at"] == destination_clip_before["attrs"]["at"]
                 page.evaluate("(id) => window.filmStudioToggleTrackLock(id)", destination_track_id)
                 page.wait_for_function("""id => {
