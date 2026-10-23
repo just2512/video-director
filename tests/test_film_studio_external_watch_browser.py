@@ -1612,10 +1612,21 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                   const malformedMemberRejected = store.getField("timelineGestureContext") === null;
                   store.setField("timelineGestureContext",{...base,members:[member,{...member}]});
                   const duplicateMemberRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{
+                    ...base,mode:"roll",leftClipId:"clip-left",rightClipId:"clip-right",
+                    rightAt:1,leftDuration:1
+                  });
+                  const incompleteRollRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{
+                    ...base,mode:"slide",leftClipId:"clip-left",centerClipId:"clip-probe",rightClipId:"clip-right",
+                    centerAt:0,rightAt:1,leftDuration:1,centerDuration:1,rightDuration:1
+                  });
+                  const completeSlideAccepted = store.getField("timelineGestureContext")?.mode === "slide";
                   store.setField("timelineGestureContext",null);
                   return {
                     accepted:accepted ? accepted.members.map(item=>item.id) : null,
                     invalidPointerRejected,malformedMemberRejected,duplicateMemberRejected,
+                    incompleteRollRejected,completeSlideAccepted,
                     noDomRefs:accepted ? !Object.keys(accepted).some(key=>/element|canvas|row/i.test(key)) &&
                       accepted.members.every(item=>!Object.keys(item).some(key=>/element|canvas|row/i.test(key))) : false
                   };
@@ -1625,6 +1636,8 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                     "invalidPointerRejected":True,
                     "malformedMemberRejected":True,
                     "duplicateMemberRejected":True,
+                    "incompleteRollRejected":True,
+                    "completeSlideAccepted":True,
                     "noDomRefs":True,
                 }, context_validation
 

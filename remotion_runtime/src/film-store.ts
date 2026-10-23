@@ -168,30 +168,63 @@ const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureCont
   if (numberKeys.some(key => raw[key] !== undefined && raw[key] !== null && optionalNumber(key) === undefined)) {
     return null;
   }
+  const originalAt = optionalNumber("originalAt");
+  const originalEnd = optionalNumber("originalEnd");
+  const trackId = optionalString("trackId");
   const originalTrackIndex = optionalNumber("originalTrackIndex");
-  if (originalTrackIndex !== undefined &&
-      (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 ||
-       (optionalString("trackId") && trackOrder[originalTrackIndex] !== optionalString("trackId")))) {
-    return null;
-  }
+  const targetTrackId = optionalString("targetTrackId");
+  const leftClipId = optionalString("leftClipId");
+  const centerClipId = optionalString("centerClipId");
+  const rightClipId = optionalString("rightClipId");
+  const rightAt = optionalNumber("rightAt");
+  const centerAt = optionalNumber("centerAt");
+  const leftDuration = optionalNumber("leftDuration");
+  const centerDuration = optionalNumber("centerDuration");
+  const rightDuration = optionalNumber("rightDuration");
+
+  if ((originalAt === undefined) !== (originalEnd === undefined) ||
+      (originalAt !== undefined && originalEnd !== undefined && originalEnd < originalAt) ||
+      (trackId === undefined) !== (originalTrackIndex === undefined) ||
+      (trackId && !trackOrder.includes(trackId)) ||
+      (targetTrackId && !trackOrder.includes(targetTrackId)) ||
+      (originalTrackIndex !== undefined &&
+        (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 ||
+         trackOrder[originalTrackIndex] !== trackId))) return null;
+
+  const hasClipBaseline = originalAt !== undefined && originalEnd !== undefined &&
+    !!trackId && originalTrackIndex !== undefined && !!targetTrackId;
+  if ((mode === "move" || mode === "trim-start" || mode === "trim-end" || mode === "slip") &&
+      !hasClipBaseline) return null;
+  if (mode === "roll" && (
+      !leftClipId || !rightClipId || leftClipId === rightClipId ||
+      rightAt === undefined || leftDuration === undefined || leftDuration <= 0 ||
+      rightDuration === undefined || rightDuration <= 0 || !targetTrackId)) return null;
+  if (mode === "slide" && (
+      !leftClipId || !centerClipId || !rightClipId ||
+      new Set([leftClipId,centerClipId,rightClipId]).size !== 3 ||
+      centerAt === undefined || rightAt === undefined ||
+      leftDuration === undefined || leftDuration <= 0 ||
+      centerDuration === undefined || centerDuration <= 0 ||
+      rightDuration === undefined || rightDuration <= 0 || !targetTrackId)) return null;
+
   return {
     id, mode, pointerId,
     startX, startY, startScrollLeft, active: raw.active === true, members,
     trackOrder,
-    originalAt: optionalNumber("originalAt"),
-    originalEnd: optionalNumber("originalEnd"),
-    trackId: optionalString("trackId"),
+    originalAt,
+    originalEnd,
+    trackId,
     originalTrackIndex,
-    targetTrackId: optionalString("targetTrackId"),
+    targetTrackId,
     invalidTargetMessage: optionalString("invalidTargetMessage"),
-    leftClipId: optionalString("leftClipId"),
-    centerClipId: optionalString("centerClipId"),
-    rightClipId: optionalString("rightClipId"),
-    rightAt: optionalNumber("rightAt"),
-    centerAt: optionalNumber("centerAt"),
-    leftDuration: optionalNumber("leftDuration"),
-    centerDuration: optionalNumber("centerDuration"),
-    rightDuration: optionalNumber("rightDuration"),
+    leftClipId,
+    centerClipId,
+    rightClipId,
+    rightAt,
+    centerAt,
+    leftDuration,
+    centerDuration,
+    rightDuration,
   };
 };
 const asPendingTransaction = (value: unknown): FilmStudioPendingTransaction | null => {

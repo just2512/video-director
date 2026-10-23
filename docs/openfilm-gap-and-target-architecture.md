@@ -32,7 +32,7 @@
 
 ## 当前下一阶段落地点
 
-- 活动片段手势上下文以 FilmStore 的 `timelineGestureContext` 类型化保存：只存指针 ID、模式、稳定 clip/track ID、原始时间/时长、吸附/目标轨道状态和多选成员的数值快照。Store 对指针 ID、轨道索引及成员 ID 做严格校验；任何畸形成员或重复 ID 都拒绝整份上下文，不会静默缩小多选组。不得把 `HTMLElement`、Canvas 或轨道 row 塞进 Store；无 bundle fallback 所需 DOM 引用仅保存在原生适配层闭包。预览仍由 React state 渲染，pointerup 仍通过 FilmDocument revision-checked 事务提交。
+- 活动片段手势上下文以 FilmStore 的 `timelineGestureContext` 类型化保存：只存指针 ID、模式、稳定 clip/track ID、原始时间/时长、吸附/目标轨道状态和多选成员的数值快照。Store 对指针 ID、轨道索引、成员 ID 与手势模式必需字段做严格校验；任何畸形成员、重复 ID 或缺失 roll/slide 基线都拒绝整份上下文，不会静默缩小多选组。不得把 `HTMLElement`、Canvas 或轨道 row 塞进 Store；无 bundle fallback 所需 DOM 引用仅保存在原生适配层闭包。预览仍由 React state 渲染，pointerup 仍通过 FilmDocument revision-checked 事务提交。
 
 ## React 时间线输入所有权（当前增量）
 
