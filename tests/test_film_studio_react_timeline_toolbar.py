@@ -72,6 +72,13 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "clip.keyframeMarks.map" in component
     assert "var bridge=window.filmStudioReactToolbar" in studio
     assert "bridge.renderTimeline();" in studio
+    assert 'const rendering = useFilmStoreField("rendering");' in component
+    assert 'disabled={rendering} aria-busy={rendering}' in component
+    assert 'rendering: boolean;' in store
+    assert '["rendering", "rendering"]' in store
+    render_function = studio.split("window.filmStudioRender=async function(){", 1)[1].split("function findProposalClip(", 1)[0]
+    assert "button.disabled" not in render_function
+
     assert "function reactOwnsTimelineToolbar()" in studio
     assert "if(reactOwnsTimelineToolbar())return;" in studio
     assert "if(!reactOwnsTimelineToolbar()){" in studio

@@ -24,6 +24,7 @@ export interface FilmStudioStoreSnapshot {
   envelopeMode: boolean;
   slideMode: boolean;
   slipMode: boolean;
+  rendering: boolean;
   busy: boolean;
   broken: boolean;
   pendingTransaction: FilmStudioPendingTransaction | null;
@@ -120,6 +121,7 @@ class FilmStore implements FilmStudioStoreBridge {
       envelopeMode: false,
       slideMode: false,
       slipMode: false,
+      rendering: false,
       busy: false,
       broken: false,
       pendingTransaction: null,
@@ -212,7 +214,7 @@ class FilmStore implements FilmStudioStoreBridge {
       normalized = asString(value);
     } else if (key === "busy" || key === "broken" ||
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
-        key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
+        key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering") {
       normalized = value === true;
     } else if (key === "pixelsPerSecond") {
       normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -263,6 +265,7 @@ class FilmStore implements FilmStudioStoreBridge {
       envelopeMode: target.envelopeMode === true,
       slideMode: target.slideMode === true,
       slipMode: target.slipMode === true,
+      rendering: target.rendering === true,
       busy: target.busy === true,
       broken: target.broken === true,
       pendingTransaction: asPendingTransaction(target.pendingTransaction),
@@ -287,6 +290,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["envelopeMode", "envelopeMode"],
       ["slideMode", "slideMode"],
       ["slipMode", "slipMode"],
+      ["rendering", "rendering"],
       ["busy", "busy"],
       ["broken", "broken"],
       ["pendingTransaction", "pendingTransaction"],

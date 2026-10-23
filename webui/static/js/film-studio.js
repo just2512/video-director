@@ -2791,15 +2791,14 @@ window.filmStudioCopyClips=function(){
     if(hasUncommittedInspectorEdits()){showStatus('影片有未提交的 Inspector 草稿；先应用属性或重新载入后再导出，避免输出旧 revision。','error');return;}
     if(S.rendering){showStatus('当前已有导出任务。');return;}
     S.rendering=true;
-    var pid=S.projectId,revision=S.rev,button=document.querySelector('[data-film-action="render"]');
-    if(button)button.disabled=true;
+    var pid=S.projectId,revision=S.rev;
     var resultBox=$('fs-render-result'),link=$('fs-render-download');
     if(resultBox)resultBox.hidden=true;
     showStatus('正在提交 film.html revision '+revision+' 的 MP4 导出任务……');
     try{
       var started=await apiPost('/api/editor/film/render',{project_id:pid,expected_revision:revision});
       if(!started||!started.ok||!started.run_id){
-        showStatus((started&&started.error)||'导出任务启动失败。','error');S.rendering=false;if(button)button.disabled=false;return;
+        showStatus((started&&started.error)||'导出任务启动失败。','error');S.rendering=false;return;
       }
       showStatus('导出任务已启动。文档 revision：'+revision+'；渲染进度可从任务状态查看。');
       var terminal=false,readFailures=0;
@@ -2813,7 +2812,7 @@ window.filmStudioCopyClips=function(){
         }
         readFailures=0;
         if(run.status==='COMPLETED'){
-          terminal=true;S.rendering=false;if(button)button.disabled=false;
+          terminal=true;S.rendering=false;
           var out=run.result||{},path=out.mp4_path||'';
           if(S.projectId===pid&&path&&link&&resultBox){
             link.href='/file?path='+encodeURIComponent(path);
@@ -2835,12 +2834,12 @@ window.filmStudioCopyClips=function(){
               out.current===false?'':'success');
           }
         }else if(run.status==='FAILED'||run.status==='INTERRUPTED'||run.status==='CANCELLED'){
-          terminal=true;S.rendering=false;if(button)button.disabled=false;
+          terminal=true;S.rendering=false;
           if(S.projectId===pid)showStatus((run.error&&String(run.error))||'MP4 导出失败，请检查素材范围与任务详情。','error');
         }
       }
     }catch(error){
-      S.rendering=false;if(button)button.disabled=false;
+      S.rendering=false;
       showStatus('MP4 导出请求失败：'+String(error&&error.message||error),'error');
     }
   };

@@ -1546,6 +1546,103 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
         thread.join(timeout=5)
 
 
+def test_react_render_button_tracks_filestore_rendering_without_dom_mutation(tmp_path, monkeypatch):
+    """Render progress is FilmStore state; the React button follows it without editing the film."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-react-render-button-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            workflow_polls = {"count": 0}
+
+            def mock_render_start(route):
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"ok": True, "run_id": "react-render-button-test"}),
+                )
+
+            def mock_render_status(route):
+                workflow_polls["count"] += 1
+                status = "RUNNING" if workflow_polls["count"] == 1 else "COMPLETED"
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"status": status, "result": {}}),
+                )
+
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
+                render_button = page.locator('#fs-react-toolbar [data-film-action="render"]')
+                render_button.wait_for(state="visible", timeout=5000)
+                assert not render_button.is_disabled()
+                assert page.evaluate("window.filmStudioStore?.getSnapshot()?.rendering") is False
+
+                page.route("**/api/editor/film/render", mock_render_start)
+                page.route("**/api/workflows/react-render-button-test", mock_render_status)
+                page.evaluate("() => { window.filmStudioRender(); return true; }")
+                page.wait_for_function(
+                    """() => window.filmStudioStore?.getSnapshot()?.rendering === true &&
+                      document.querySelector('#fs-react-toolbar [data-film-action="render"]')?.disabled === true""",
+                    timeout=5000,
+                )
+                assert render_button.is_disabled()
+                assert render_button.get_attribute("aria-busy") == "true"
+                page.wait_for_function(
+                    """() => window.filmStudioStore?.getSnapshot()?.rendering === false &&
+                      document.querySelector('#fs-react-toolbar [data-film-action="render"]')?.disabled === false""",
+                    timeout=10000,
+                )
+                assert not render_button.is_disabled()
+                assert render_button.get_attribute("aria-busy") == "false"
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+                assert workflow_polls["count"] >= 2
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(tmp_path, monkeypatch):
     """An Agent's newer film.html must win over an older AI proposal targeting a deleted clip."""
     storage_root = tmp_path / "storage"

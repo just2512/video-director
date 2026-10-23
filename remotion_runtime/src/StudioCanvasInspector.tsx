@@ -956,15 +956,20 @@ const StudioTimelineContextMenu: React.FC<{model: FilmTimelineContextMenu}> = ({
   );
 };
 
-const StudioToolbar: React.FC = () => (
-  <>
-    <button className="fs-btn" type="button" data-film-action="undo">撤销</button>
-    <button className="fs-btn" type="button" data-film-action="redo">重做</button>
-    <button className="fs-btn" type="button" data-film-action="reload">重新载入</button>
-    <button className="fs-btn fs-primary" type="button" data-film-action="render">导出 MP4</button>
-    <button className="fs-btn" type="button" data-film-action="close" title="退出全屏 Studio，不切回旧编辑状态">退出 Studio</button>
-  </>
-);
+const StudioToolbar: React.FC = () => {
+  const rendering = useFilmStoreField("rendering");
+  return (
+    <>
+      <button className="fs-btn" type="button" data-film-action="undo">撤销</button>
+      <button className="fs-btn" type="button" data-film-action="redo">重做</button>
+      <button className="fs-btn" type="button" data-film-action="reload">重新载入</button>
+      <button className="fs-btn fs-primary" type="button" data-film-action="render"
+        disabled={rendering} aria-busy={rendering}
+        title={rendering ? "导出任务进行中" : undefined}>导出 MP4</button>
+      <button className="fs-btn" type="button" data-film-action="close" title="退出全屏 Studio，不切回旧编辑状态">退出 Studio</button>
+    </>
+  );
+};
 
 let updateTimelineGesturePreview: ((preview: FilmTimelineGesturePreview) => void) | null = null;
 let updateTimelineSnapGuide: ((guide: FilmTimelineSnapGuide) => void) | null = null;
