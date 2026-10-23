@@ -59,6 +59,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "activePointerId = useRef<number | null>(null)" in component
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioBeginClipDrag = function(e,el)" in studio
+    assert "var reactOwnsGestureSurface=!!(gestureBridge&&typeof gestureBridge.setGesturePreview==='function'&&typeof gestureBridge.setActiveDragIds==='function');" in studio
+    assert "if(!reactOwnsGestureSurface)" in studio
+    assert "element=Array.from($('fs-timeline').querySelectorAll('[data-clip]'))" in studio
+    assert "if(!reactOwnsGestureSurface&&(!leftElement||!rightElement))" in studio
+
     assert "var blockedMember=null;" in studio
     assert "function groupMoveTargetError(d,targetTrackId)" in studio
     assert "d.invalidTargetMessage" in studio

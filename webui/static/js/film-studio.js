@@ -981,6 +981,8 @@
         var mode=trim?(rollGesture?'roll':(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'))
           :(slideGesture?'slide':(slipGesture?'slip':'move'));
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
+        var gestureBridge=window.filmStudioReactTimeline;
+        var reactOwnsGestureSurface=!!(gestureBridge&&typeof gestureBridge.setGesturePreview==='function'&&typeof gestureBridge.setActiveDragIds==='function');
         var chosen=mode==='move'?(S.selectedIds||[clip.id]):[clip.id];
         if(mode==='move'){
           var blockedMember=null;
@@ -1007,8 +1009,11 @@
         var trackOrder=(S.data.tracks||[]).map(function(t){return t.id;});
         var members=chosen.map(function(id){
           var selected=findClip(id);if(!selected)return null;
-          var element=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(node){return node.getAttribute('data-clip')===id;});
-          return selected&&element?{id:id,originalAt:selected.at,originalEnd:selected.end==null?selected.at+num(selected.duration,2):selected.end,
+          // React owns each member's transient geometry/active marker; the authoritative gesture snapshot can be ID-only.
+          var element=null;
+          if(!reactOwnsGestureSurface)
+            element=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(node){return node.getAttribute('data-clip')===id;});
+          return selected&&(reactOwnsGestureSurface||element)?{id:id,originalAt:selected.at,originalEnd:selected.end==null?selected.at+num(selected.duration,2):selected.end,
             trackId:selected.track_id,trackIndex:trackOrder.indexOf(selected.track_id),element:element}:null;
         }).filter(Boolean);
         if(!members.length)return;
@@ -1022,10 +1027,13 @@
              ||Math.abs(leftClip.end-clip.at)>0.001||Math.abs(clip.end-rightClip.at)>0.001){
             showStatus('Alt+Shift 滑移式修剪要求所选片段左右都有时间上连续的邻接片段。','error');e.preventDefault();return;
           }
-          var elements=Array.from($('fs-timeline').querySelectorAll('[data-clip]'));
-          var leftElement=elements.find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
-          var rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
-          if(!leftElement||!rightElement){showStatus('无法定位滑移式修剪的邻接片段。','error');return;}
+          var leftElement=null,rightElement=null;
+          if(!reactOwnsGestureSurface){
+            var elements=Array.from($('fs-timeline').querySelectorAll('[data-clip]'));
+            leftElement=elements.find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
+            rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
+          }
+          if(!reactOwnsGestureSurface&&(!leftElement||!rightElement)){showStatus('无法定位滑移式修剪的邻接片段。','error');return;}
           S.drag={id:clip.id,mode:'slide',startX:e.clientX,startY:e.clientY,
             leftClipId:leftClip.id,centerClipId:clip.id,rightClipId:rightClip.id,
             leftDuration:leftClip.duration,centerDuration:clip.duration,rightDuration:rightClip.duration,
@@ -1040,9 +1048,13 @@
           if(edge==='end'&&index>=0&&index+1<ordered.length&&clip.end!=null&&Math.abs(clip.end-ordered[index+1].at)<=0.001){leftClip=clip;rightClip=ordered[index+1];}
           else if(edge==='start'&&index>0&&ordered[index-1].end!=null&&Math.abs(ordered[index-1].end-clip.at)<=0.001){leftClip=ordered[index-1];rightClip=clip;}
           else{showStatus('Ctrl 拖动切口只支持同轨相邻片段共用的切口。','error');e.preventDefault();return;}
-          var leftElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
-          var rightElement=Array.from($('fs-timeline').querySelectorAll('[data-clip]')).find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
-          if(!leftElement||!rightElement){showStatus('无法定位切口两侧片段。','error');return;}
+          var leftElement=null,rightElement=null;
+          if(!reactOwnsGestureSurface){
+            var elements=Array.from($('fs-timeline').querySelectorAll('[data-clip]'));
+            leftElement=elements.find(function(n){return n.getAttribute('data-clip')===leftClip.id;});
+            rightElement=elements.find(function(n){return n.getAttribute('data-clip')===rightClip.id;});
+          }
+          if(!reactOwnsGestureSurface&&(!leftElement||!rightElement)){showStatus('无法定位切口两侧片段。','error');return;}
           S.drag={id:clip.id,mode:'roll',startX:e.clientX,startY:e.clientY,leftClipId:leftClip.id,rightClipId:rightClip.id,
             rightAt:rightClip.at,leftDuration:leftClip.duration,rightDuration:rightClip.duration,pxPerSec:S.pxPerSec,
             startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,rollElements:[leftElement,rightElement],
