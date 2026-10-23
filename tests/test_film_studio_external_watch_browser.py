@@ -493,6 +493,14 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert abs(float(trim_undone_clip["attrs"]["at"])) < 0.001, trim_undone_clip
 
+                # Re-establish the intended anchor after the trim test selected clip-a.
+                clip.click()
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
+                    !audio.classList.contains('fs-clip-selected');
+                }""")
                 # Cross-track multi-selection moves as one two-operation FilmDocument transaction.
                 audio_clip = page.locator('#fs-timeline .fs-clip[data-clip="audio-1"]')
                 audio_clip.click(modifiers=["Control"])
