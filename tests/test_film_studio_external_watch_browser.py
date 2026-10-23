@@ -1651,7 +1651,8 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                   return {
                     accepted:accepted ? accepted.members.map(item=>item.id) : null,
                     invalidPointerRejected,malformedMemberRejected,duplicateMemberRejected,
-                    incompleteRollRejected,completeSlideAccepted,
+                    incompleteRollRejected,mismatchedBaselineRejected,multiMemberTrimRejected,
+                    mismatchedRollIdentityRejected,mismatchedSlideIdentityRejected,completeSlideAccepted,
                     noDomRefs:accepted ? !Object.keys(accepted).some(key=>/element|canvas|row/i.test(key)) &&
                       accepted.members.every(item=>!Object.keys(item).some(key=>/element|canvas|row/i.test(key))) : false
                   };
