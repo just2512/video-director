@@ -307,6 +307,83 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert abs(float(redone_clip["attrs"]["at"]) - 6.0) < 0.15, redone_clip
 
+                # Cross-track multi-selection moves as one two-operation FilmDocument transaction.
+                audio_clip = page.locator('#fs-timeline .fs-clip[data-clip="audio-1"]')
+                audio_clip.click(modifiers=["Control"])
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
+                    audio.classList.contains('fs-clip-selected');
+                }""")
+                group_before = fd.read_project_film(project_id)
+                group_video_before = next(
+                    item for track in group_before["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                group_audio_before = next(
+                    item for track in group_before["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "audio-1"
+                )
+                video_box = clip.bounding_box()
+                audio_box = audio_clip.bounding_box()
+                assert video_box and audio_box, {"video": video_box, "audio": audio_box}
+                group_start_x = audio_box["x"] + audio_box["width"] * 0.5
+                group_start_y = audio_box["y"] + audio_box["height"] * 0.5
+                group_delta_x = video_box["width"] / 5
+                group_lefts_before = page.evaluate("""() => Object.fromEntries(
+                  ['clip-b','audio-1'].map(id => [
+                    id, document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]').style.left
+                  ])
+                )""")
+                group_request_start = len(film_edit_requests)
+                page.mouse.move(group_start_x, group_start_y)
+                page.mouse.down()
+                page.mouse.move(group_start_x + group_delta_x, group_start_y, steps=8)
+                page.mouse.up()
+                page.wait_for_function("""before => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio && video.style.left !== before['clip-b'] &&
+                    audio.style.left !== before['audio-1'];
+                }""", arg=group_lefts_before, timeout=10000)
+                group_after = fd.read_project_film(project_id)
+                group_video_after = next(
+                    item for track in group_after["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                group_audio_after = next(
+                    item for track in group_after["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "audio-1"
+                )
+                assert abs(float(group_video_after["attrs"]["at"]) - 7.0) < 0.15, group_video_after
+                assert abs(float(group_audio_after["attrs"]["at"]) - 1.0) < 0.15, group_audio_after
+                group_requests = film_edit_requests[group_request_start:]
+                assert len(group_requests) == 1, group_requests
+                group_ops = group_requests[0].get("ops") or []
+                assert len(group_ops) == 2 and all(op.get("op") == "move" for op in group_ops), group_requests
+
+                # One undo restores both tracks; a grouped gesture must not produce per-clip history.
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio &&
+                    Math.abs(Number.parseFloat(video.style.left) - 6 * 36) < 1 &&
+                    Math.abs(Number.parseFloat(audio.style.left)) < 1;
+                }""", timeout=10000)
+                group_undone = fd.read_project_film(project_id)
+                undone_video = next(
+                    item for track in group_undone["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-b"
+                )
+                undone_audio = next(
+                    item for track in group_undone["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "audio-1"
+                )
+                assert abs(float(undone_video["attrs"]["at"]) - 6.0) < 0.001, undone_video
+                assert abs(float(undone_audio["attrs"]["at"]) - 0.0) < 0.001, undone_audio
+
                 # React pointercancel must clear the active gesture without committing.
                 before_cancel = fd.read_project_film(project_id)
                 cancelled = page.evaluate("""() => {
