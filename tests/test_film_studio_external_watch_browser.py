@@ -95,7 +95,22 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                             zoomScale: store?.getField("pixelsPerSecond") ?? null,
                             revision: store?.getSnapshot()?.revision ?? null,
                             selectedIds: store?.getSnapshot()?.selectedIds ?? null,
-                            clips: [...document.querySelectorAll("#fs-timeline .fs-clip")].map(node => ({
+                            film: (() => {
+                              const film = store?.getSnapshot()?.film;
+                              return film ? {
+                                exists: film.exists, revision: film.rev, duration: film.duration,
+                                tracks: (film.tracks || []).map(track => ({
+                                  id: track.id,
+                                  clips: (track.clips || []).map(clip => clip.id)
+                                }))
+                              } : null;
+                            })(),
+                            trackRows: [...document.querySelectorAll("#fs-timeline .fs-track")].map(node => ({
+                              id: node.getAttribute("data-track"),
+                              clips: node.querySelectorAll(".fs-clip[data-clip]").length
+                            })),
+                            timelineHTML: document.querySelector("#fs-timeline")?.innerHTML.slice(0, 1200) ?? null,
+                            clips: [...document.querySelectorAll("#fs-timeline .fs-clip[data-clip]")].map(node => ({
                               id: node.getAttribute("data-clip"), left: node.style.left, width: node.style.width,
                               dragging: node.classList.contains("fs-dragging")
                             })),
@@ -818,6 +833,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.wait_for_function(
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2.75'; }",
                     timeout=15000,
+                )
+                # The inspector changing back is not enough: the authoritative timeline
+                # surface must re-render all repaired IDs before further wheel input.
+                page.wait_for_function(
+                    """() => ["clip-a","clip-b","audio-1"].every(id =>
+                      document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]'))""",
+                    timeout=5000,
                 )
                 assert fd.read_project_film(project_id)["rev"] == fd.revision_of(repaired)
 
