@@ -1010,7 +1010,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   const activeEnvelopePointerId = useRef<number | null>(null);
   const activeScrubPointerId = useRef<number | null>(null);
   const pendingScrubPointer = useRef<{
-    pointerId: number; startX: number; startY: number; startedOnTick: boolean;
+    pointerId: number; startX: number; startY: number; startedOnTick: boolean; tickAt: number | null;
   } | null>(null);
   const seekFromRulerPointer = (clientX: number, body: HTMLDivElement) => {
     const rect = body.getBoundingClientRect();
@@ -1077,13 +1077,17 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         onPointerDown={event => {
           if (event.button !== 0) return;
           const target = event.target;
-          const startedOnTick = target instanceof Element && !!target.closest(".fs-ruler-mark");
+          const tick = target instanceof Element ? target.closest(".fs-ruler-mark") : null;
+          const rawTickAt = tick ? Number(tick.getAttribute("data-at")) : NaN;
+          const tickAt = Number.isFinite(rawTickAt) ? rawTickAt : null;
           pendingScrubPointer.current = {
-            pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,startedOnTick
+            pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
+            startedOnTick:!!tick,tickAt
           };
-          // A click on a tick must not seek early or capture the parent pointer;
-          // the child onClick performs exact tick seek if the pointer is released in place.
-          if (!startedOnTick) seekFromRulerPointer(event.clientX, event.currentTarget);
+          // Capture once, at the owning surface. Clicks on marks are resolved by
+          // pointerup using data-at; a real drag is activated only after 4px.
+          event.currentTarget.setPointerCapture(event.pointerId);
+          if (!tick) seekFromRulerPointer(event.clientX, event.currentTarget);
         }}
         onPointerMove={event => {
           const pending = pendingScrubPointer.current;
@@ -1092,8 +1096,6 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
             const dx = event.clientX - pending.startX;
             const dy = event.clientY - pending.startY;
             if (Math.hypot(dx, dy) < 4) return;
-            // Delay capture until real movement so click-to-seek still reaches tick children.
-            event.currentTarget.setPointerCapture(event.pointerId);
             activeScrubPointerId.current = event.pointerId;
           }
           if (activeScrubPointerId.current === event.pointerId) {
@@ -1101,7 +1103,14 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
           }
         }}
         onPointerUp={event => {
-          if (pendingScrubPointer.current?.pointerId === event.pointerId) {
+          const pending = pendingScrubPointer.current;
+          if (pending?.pointerId === event.pointerId) {
+            // Manual tick resolution avoids depending on synthetic child click after
+            // pointer capture, and prevents a drag started on a tick from snapping back.
+            if (activeScrubPointerId.current !== event.pointerId &&
+                pending.startedOnTick && pending.tickAt !== null) {
+              window.filmStudioSeek?.(pending.tickAt);
+            }
             pendingScrubPointer.current = null;
           }
           if (activeScrubPointerId.current !== event.pointerId) return;
@@ -1116,7 +1125,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         }}
       >
         {model.ticks.map((tick) => (
-          <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at} onClick={() => window.filmStudioSeek?.(tick.at)}>{tick.label}</div>
+          <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at}>{tick.label}</div>
         ))}
       </div>
     </div>

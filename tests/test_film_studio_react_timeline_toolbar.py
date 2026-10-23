@@ -26,11 +26,12 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "seekFromRulerPointer(event.clientX, event.currentTarget)" in component
     ruler_scrub_handlers = component.split('data-react-scrub-ready="true"', 1)[1]
     ruler_pointerdown = ruler_scrub_handlers.split("onPointerDown={event => {", 1)[1].split("onPointerMove", 1)[0]
-    assert "preventDefault()" not in ruler_pointerdown, "scrub pointerdown must preserve ruler tick click synthesis"
-    assert "setPointerCapture(event.pointerId)" not in ruler_pointerdown, "capture starts only after a real drag threshold"
+    assert "event.currentTarget.setPointerCapture(event.pointerId)" in ruler_pointerdown
     assert "Math.hypot(dx, dy) < 4" in ruler_scrub_handlers
     assert 'target.closest(".fs-ruler-mark")' in component
-    assert "event.currentTarget.setPointerCapture(event.pointerId)" in component
+    assert 'tickAt: number | null' in component
+    assert 'window.filmStudioSeek?.(pending.tickAt)' in component
+    assert 'onClick={() => window.filmStudioSeek?.(tick.at)}' not in component
     assert "onPointerCancel={event => {" in component
     assert "timelineRoot.addEventListener('pointerdown'" not in studio
     assert 'scroll.dataset.reactZoomReady = "true"' in component

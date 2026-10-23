@@ -338,9 +338,16 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 ruler_body = page.locator("#fs-ruler-body[data-react-scrub-ready='true']")
                 ruler_bounds = ruler_body.bounding_box()
                 assert ruler_bounds, "React ruler body is not available for scrub"
+                pixels_per_second = page.evaluate("window.filmStudioStore.getField('pixelsPerSecond')")
+                scrub_click_before = fd.read_project_film(project_id)
+                scrub_click_count_before = len(film_edit_requests)
+                ruler_body.locator('.fs-ruler-mark[data-at="5"]').click()
+                page.wait_for_function("window.filmStudioStore?.getSnapshot()?.playhead === 5", timeout=5000)
+                assert fd.read_project_film(project_id)["rev"] == scrub_click_before["rev"]
+                assert len(film_edit_requests) == scrub_click_count_before
+
                 scrub_before = fd.read_project_film(project_id)
                 scrub_edit_count_before = len(film_edit_requests)
-                pixels_per_second = page.evaluate("window.filmStudioStore.getField('pixelsPerSecond')")
                 scrub_y = ruler_bounds["y"] + ruler_bounds["height"] / 2
                 scrub_start_x = ruler_bounds["x"] + pixels_per_second * 1.0
                 scrub_end_x = ruler_bounds["x"] + pixels_per_second * 4.0
