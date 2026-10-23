@@ -802,6 +802,37 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert len(film_edit_requests) == cross_request_count
                 assert fd.read_project_film(project_id)["rev"] == cross_before["rev"]
 
+                # Leaving all track rows must clear the stale target and refuse commit.
+                outside_track_scroll = page.locator("#fs-timeline-scroll").bounding_box()
+                assert outside_track_scroll
+                outside_track_x = min(1400, outside_track_scroll["x"] + outside_track_scroll["width"] * 0.7)
+                outside_track_y = max(2, outside_track_scroll["y"] - 8)
+                assert page.evaluate(
+                    "([x,y]) => !document.elementFromPoint(x,y)?.closest('.fs-track')",
+                    [outside_track_x, outside_track_y],
+                ), {"x": outside_track_x, "y": outside_track_y}
+                outside_before = fd.read_project_film(project_id)
+                outside_requests_before = len(film_edit_requests)
+                outside_box = clip.bounding_box()
+                assert outside_box
+                page.mouse.move(outside_box["x"] + outside_box["width"] / 2, outside_box["y"] + outside_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(outside_track_x, outside_track_y, steps=10)
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return String(state?.timelineGestureContext?.invalidTargetMessage || '').includes('有效轨道') &&
+                    state?.timelineDropTarget === null;
+                }""", timeout=5000)
+                assert len(film_edit_requests) == outside_requests_before
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null && state?.timelineGesturePreview === null &&
+                    state?.timelineDropTarget === null;
+                }""", timeout=10000)
+                assert len(film_edit_requests) == outside_requests_before
+                assert fd.read_project_film(project_id)["rev"] == outside_before["rev"]
+
                 # A two-row translation moves the members to the two empty rows.
                 cross_video_box = clip.bounding_box()
                 target_destination_box = page.locator('.fs-track[data-track="' + cross_track_destination_id + '"]').bounding_box()

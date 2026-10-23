@@ -2020,6 +2020,13 @@
           if(!setTimelineDropTarget(nextTrack,!!targetError))
             row.classList.add(targetError?'fs-track-drop-invalid':'fs-track-drop-target');
         }
+      }else{
+        var outsideTrackMessage='请将片段放置到有效轨道上，多选移动已取消。';
+        var staleDropTarget=!!(gestureDomRefs&&gestureDomRefs.targetRow);
+        if(d.targetTrackId!==d.trackId||d.invalidTargetMessage!==outsideTrackMessage||staleDropTarget){
+          clearDragTrackTarget(d);
+          d=updateTimelineGestureContext({targetTrackId:d.trackId,invalidTargetMessage:outsideTrackMessage})||d;
+        }
       }
     }
     if(d.mode==='slide'){
