@@ -25186,6 +25186,7 @@
       text: "\u53EF\u4EE5\u76F4\u63A5\u6307\u6325\u5F53\u524D\u5F71\u7247\uFF0C\u4F8B\u5982\uFF1A\u201C\u7B2C\u4E8C\u955C\u8282\u594F\u592A\u6162\uFF0C\u7F29\u77ED\u4E00\u79D2\uFF0C\u97F3\u4E50\u4E0D\u53D8\uFF0C\u5B57\u5E55\u7EE7\u7EED\u8DDF\u7740\u65C1\u767D\u8D70\u201D\u3002AI \u4FEE\u6539\u4F1A\u5148\u9A8C\u8BC1\u76EE\u6807\u3001\u65F6\u95F4\u548C\u97F3\u753B\u4F9D\u8D56\uFF0C\u518D\u53CD\u9988\u64CD\u4F5C\u7ED3\u679C\u3002"
     }];
     const proposal = model.proposal;
+    const proposalIsStale = !!proposal && (!model.currentRevision || proposal.baseRevision !== model.currentRevision);
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       proposal ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-proposal-panel", id: "fs-proposal-panel", "data-react-ai-proposal": "true", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { id: "fs-proposal-summary", children: proposal.summary || "AI \u5019\u9009\u4FEE\u6539" }),
@@ -25195,6 +25196,13 @@
           proposal.baseRevision,
           " \xB7 \u5C1A\u672A\u5199\u5165\u6B63\u5F0F\u6587\u6863"
         ] }),
+        proposalIsStale ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { id: "fs-proposal-stale-warning", className: "fs-proposal-stale-warning", role: "alert", children: [
+          "\u5F53\u524D\u5F71\u7247 revision \u5DF2\u53D8\u5316\uFF08\u5F53\u524D\uFF1A",
+          model.currentRevision || "\u672A\u77E5",
+          "\uFF09\u3002\u6B64\u63D0\u6848\u57FA\u4E8E\u65E7 revision ",
+          proposal.baseRevision,
+          "\uFF0C\u4E0D\u80FD\u9884\u89C8\u6216\u5E94\u7528\u3002\u8BF7\u91CD\u65B0\u751F\u6210\u63D0\u6848\uFF0C\u6216\u62D2\u7EDD\u6B64\u63D0\u6848\u3002"
+        ] }) : null,
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "fs-proposal-operation-list", "data-react-proposal-details": "true", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
             "\u67E5\u770B\u5177\u4F53\u6539\u52A8\uFF08",
@@ -25231,9 +25239,29 @@
           ] }) : null
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-proposal-actions", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "preview-proposal", children: "\u91CD\u65B0\u9884\u89C8" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              className: "fs-btn",
+              type: "button",
+              "data-film-action": "preview-proposal",
+              disabled: proposalIsStale,
+              title: proposalIsStale ? "\u63D0\u6848\u57FA\u4E8E\u65E7 revision\uFF0C\u8BF7\u91CD\u65B0\u751F\u6210" : void 0,
+              children: "\u91CD\u65B0\u9884\u89C8"
+            }
+          ),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "reject-proposal", children: "\u62D2\u7EDD" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn fs-primary", type: "button", "data-film-action": "apply-proposal", children: "\u786E\u8BA4\u5E94\u7528" })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              className: "fs-btn fs-primary",
+              type: "button",
+              "data-film-action": "apply-proposal",
+              disabled: proposalIsStale,
+              title: proposalIsStale ? "\u63D0\u6848\u57FA\u4E8E\u65E7 revision\uFF0C\u8BF7\u91CD\u65B0\u751F\u6210" : void 0,
+              children: "\u786E\u8BA4\u5E94\u7528"
+            }
+          )
         ] })
       ] }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { id: "fs-chat-log", className: "fs-chat-log", "aria-live": "polite", "data-react-ai-chat-log": "true", children: messages.map((message, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -25345,6 +25373,7 @@
     }, []);
     const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
     const playhead = useFilmStoreField("playhead");
+    const duration = useFilmStoreField("duration");
     const selectedIds = filmStore.getSnapshot().selectedIds;
     void selectedIdsVersion;
     const previewForClip = (clipId) => {
@@ -25354,6 +25383,14 @@
     };
     const activePointerId = (0, import_react.useRef)(null);
     const activeEnvelopePointerId = (0, import_react.useRef)(null);
+    const activeScrubPointerId = (0, import_react.useRef)(null);
+    const pendingScrubPointer = (0, import_react.useRef)(null);
+    const seekFromRulerPointer = (clientX, body) => {
+      const rect = body.getBoundingClientRect();
+      const localX = clientX - rect.left;
+      const seconds = Math.max(0, Math.min(duration, localX / Math.max(1e-6, model.pixelsPerSecond)));
+      window.filmStudioSeek?.(seconds);
+    };
     (0, import_react.useLayoutEffect)(() => {
       const ownsPointer = (pointerId) => activePointerId.current === pointerId;
       window.filmStudioOwnsClipGesturePointer = ownsPointer;
@@ -25396,7 +25433,77 @@
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-ruler", style: { width: model.totalWidth }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-head", children: "\u65F6\u7801" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-body", id: "fs-ruler-body", style: { width: model.laneWidth }, children: model.ticks.map((tick) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-mark", "data-at": tick.at, style: { left: tick.left }, onClick: () => window.filmStudioSeek?.(tick.at), children: tick.label }, tick.at)) })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "div",
+              {
+                className: "fs-ruler-body",
+                id: "fs-ruler-body",
+                "data-react-scrub-ready": "true",
+                role: "slider",
+                "aria-label": "\u65F6\u95F4\u5C3A\u64AD\u653E\u5934\u4F4D\u7F6E\uFF1B\u70B9\u51FB\u523B\u5EA6\u8DF3\u8F6C\uFF0C\u62D6\u52A8\u6216\u4F7F\u7528\u65B9\u5411\u952E\u5B9A\u4F4D",
+                "aria-valuemin": 0,
+                "aria-valuemax": duration,
+                "aria-valuenow": Math.min(duration, Math.max(0, playhead)),
+                "aria-valuetext": Math.min(duration, Math.max(0, playhead)).toFixed(2) + " \u79D2",
+                tabIndex: 0,
+                style: { width: model.laneWidth },
+                onKeyDown: (event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const step = event.shiftKey ? 0.1 : 1;
+                  window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
+                },
+                onPointerDown: (event) => {
+                  if (event.button !== 0) return;
+                  const target = event.target;
+                  const tick = target instanceof Element ? target.closest(".fs-ruler-mark") : null;
+                  const rawTickAt = tick ? Number(tick.getAttribute("data-at")) : NaN;
+                  const tickAt = Number.isFinite(rawTickAt) ? rawTickAt : null;
+                  pendingScrubPointer.current = {
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    startedOnTick: !!tick,
+                    tickAt
+                  };
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  if (!tick) seekFromRulerPointer(event.clientX, event.currentTarget);
+                },
+                onPointerMove: (event) => {
+                  const pending = pendingScrubPointer.current;
+                  if (!pending || pending.pointerId !== event.pointerId) return;
+                  if (activeScrubPointerId.current !== event.pointerId) {
+                    const dx = event.clientX - pending.startX;
+                    const dy = event.clientY - pending.startY;
+                    if (Math.hypot(dx, dy) < 4) return;
+                    activeScrubPointerId.current = event.pointerId;
+                  }
+                  if (activeScrubPointerId.current === event.pointerId) {
+                    seekFromRulerPointer(event.clientX, event.currentTarget);
+                  }
+                },
+                onPointerUp: (event) => {
+                  const pending = pendingScrubPointer.current;
+                  if (pending?.pointerId === event.pointerId) {
+                    if (activeScrubPointerId.current !== event.pointerId && pending.startedOnTick && pending.tickAt !== null) {
+                      window.filmStudioSeek?.(pending.tickAt);
+                    }
+                    pendingScrubPointer.current = null;
+                  }
+                  if (activeScrubPointerId.current !== event.pointerId) return;
+                  activeScrubPointerId.current = null;
+                },
+                onPointerCancel: (event) => {
+                  if (pendingScrubPointer.current?.pointerId === event.pointerId) {
+                    pendingScrubPointer.current = null;
+                  }
+                  if (activeScrubPointerId.current !== event.pointerId) return;
+                  activeScrubPointerId.current = null;
+                },
+                children: model.ticks.map((tick) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-mark", "data-at": tick.at, style: { left: tick.left }, children: tick.label }, tick.at))
+              }
+            )
           ] }),
           model.tracks.map((track) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
             "div",
@@ -25539,6 +25646,9 @@
                           title: "\u5173\u952E\u5E27 " + mark.at.toFixed(3) + "s \xB7 " + mark.properties.join(", "),
                           "aria-label": "\u8DF3\u8F6C\u5230 " + mark.at.toFixed(3) + " \u79D2\u5173\u952E\u5E27",
                           style: { left: (clip.duration && clip.duration > 0 ? Math.max(0, Math.min(100, mark.at / clip.duration * 100)) : 0) + "%" },
+                          onPointerDown: (event) => {
+                            event.stopPropagation();
+                          },
                           onClick: (event) => {
                             event.preventDefault();
                             event.stopPropagation();
