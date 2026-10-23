@@ -25874,8 +25874,22 @@
                       window.filmStudioOpenTimelineContextMenu?.(clip.id, event.clientX, event.clientY);
                     },
                     onPointerDown: (event) => {
-                      const started = window.filmStudioBeginClipDrag?.(event.nativeEvent, event.currentTarget);
-                      if (started) activePointerId.current = event.nativeEvent.pointerId;
+                      const target = event.target;
+                      const elementTarget = target instanceof Element ? target : null;
+                      const trim = elementTarget?.closest("[data-trim]");
+                      const rawTrimEdge = trim?.getAttribute("data-trim");
+                      const started = window.filmStudioBeginClipGesture?.(event.nativeEvent, {
+                        clipId: clip.id,
+                        trimEdge: rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
+                        targetIsButton: !!elementTarget?.closest("button")
+                      });
+                      if (started) {
+                        activePointerId.current = event.nativeEvent.pointerId;
+                        try {
+                          event.currentTarget.setPointerCapture(event.nativeEvent.pointerId);
+                        } catch {
+                        }
+                      }
                     },
                     onPointerMove: (event) => {
                       if (activePointerId.current === event.nativeEvent.pointerId) window.filmStudioMoveClipGesture?.(event.nativeEvent);
