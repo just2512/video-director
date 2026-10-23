@@ -29,6 +29,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "data-react-gesture-preview={previewForClip(clip.id) ? \"true\" : \"false\"}" in component
     assert "previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth" in component
     assert "setTimelineGesturePreview(previewLeftByClipId)" in studio
+    assert "resolveTrimStart(originalAt: number, originalEnd: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
+    assert "resolveTrimEnd(originalAt: number, originalEnd: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
+    assert "resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8)" in studio
+    assert "resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8)" in studio
     assert "if(!setTimelineGesturePreview(trimStartPreview))" in studio
     assert "if(!setTimelineGesturePreview(trimEndPreview))" in studio
     assert "if(!setTimelineGesturePreview(rollPreview))" in studio

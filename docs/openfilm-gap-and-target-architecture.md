@@ -40,6 +40,7 @@
 - `#fs-timeline` 是 React Portal 宿主时，迁移页或文档错误页不能直接改写其子树。切换到 legacy 占位页前先卸载 React 时间线；恢复有效 FilmDocument 时，仅当 React surface 确认未挂载后，清理遗留占位内容并重新挂载，避免 React fiber 仍持有旧节点而浏览器 DOM 已被清空。
 
 - 片段移动、修剪、roll、slide、slip 与音量包络的 pointer 生命周期由 React 分发；时间线几何、操作约束与吸附仍由共享适配器按当前 FilmDocument 计算，所有瞬态片段几何和 roll/slide/slip 提示由 React state 渲染。pointerup 仍只通过 revision-checked FilmDocument 事务提交；无 bundle fallback 保留原生预览入口。音量曲线的绘制和关键帧命中测试仍由共享适配器执行。
+- 修剪起点/终点的原始目标、吸附候选、最小时长边界与最终目标由类型化 `resolveTrimStart/resolveTrimEnd` 同时驱动预览和 pointerup 提交，防止显示位置与落盘时间使用不同的限幅/吸附顺序。
 - 吸附线与跨轨拖放的目标/拒绝提示也作为 React 时间线瞬态状态渲染；原生适配器只计算目标 ID、吸附时间与可读提示。无 bundle fallback 才直接插入指示器/切换轨道 CSS 类，pointercancel 会清理吸附提示。
 - 拖动中片段的虚线/淡化标记由同一个 React transient state 跟踪活跃 clip ID；原生 pointer adapter 不再改写 React clip 的 `classList`，no-bundle fallback 才会直接切换该类。
 - 播放头位置由 React 订阅 FilmStore 的 `playhead` 字段并依据当前像素比例渲染；原生适配器保留运行时 seek/播放控制与 no-bundle fallback，不再直接写 React 时间线节点的 `style.left`。

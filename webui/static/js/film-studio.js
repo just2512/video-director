@@ -894,6 +894,16 @@
     var usedSnap=snap&&Math.abs(targetAt-snap.at)<0.001?snap:null;
     return {targetAt:targetAt,deltaSeconds:delta,snapCandidate:usedSnap};
   }
+  function resolveTimelineTrim(edge,originalAt,originalEnd,deltaSeconds,excludedIds,thresholdPx){
+    var candidates=timelineSnapCandidates(excludedIds),math=timelineMath(),method=edge==='start'?'resolveTrimStart':'resolveTrimEnd';
+    if(math&&typeof math[method]==='function')
+      return math[method](originalAt,originalEnd,deltaSeconds,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+    var raw=edge==='start'?originalAt+deltaSeconds:originalEnd+deltaSeconds;
+    var snap=findTimelineSnap(raw,excludedIds,thresholdPx),proposed=snap?snap.at:raw;
+    var target=Math.max(originalAt+0.04,Math.min(originalEnd-0.04,proposed));
+    var usedSnap=snap&&Math.abs(target-snap.at)<0.001?snap:null;
+    return {target:target,deltaSeconds:target-(edge==='start'?originalAt:originalEnd),snapCandidate:usedSnap};
+  }
   function showTimelineSnapGuide(at, kind){
     var timeline=$('fs-timeline'),bridge=window.filmStudioReactTimeline;
     if(bridge&&typeof bridge.setSnapGuide==='function'){
@@ -1871,12 +1881,9 @@
         d.element.classList.add('fs-slipping');
       }
     }else if(d.mode==='trim-start'){
-      var rawStart=d.originalAt+deltaSeconds;
-      var startSnap=findTimelineSnap(rawStart,[d.id],8);
-      if(startSnap)rawStart=startSnap.at;
-      var newStart=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawStart));
-      var startSnapUsed=startSnap&&Math.abs(newStart-startSnap.at)<0.001;
-      showTimelineSnapGuide(startSnapUsed?startSnap.at:null,startSnapUsed&&startSnap.kind);
+      var trimStartResolution=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
+      var newStart=trimStartResolution.target,startSnapUsed=trimStartResolution.snapCandidate;
+      showTimelineSnapGuide(startSnapUsed?startSnapUsed.at:null,startSnapUsed&&startSnapUsed.kind);
       var trimStartPreview={};
       trimStartPreview[d.id]={left:timelineSecondsToPixels(newStart,S.pxPerSec),width:Math.max(3,timelineSecondsToPixels(d.originalEnd-newStart,S.pxPerSec))};
       if(!setTimelineGesturePreview(trimStartPreview)){
@@ -1884,12 +1891,9 @@
         d.element.style.width=trimStartPreview[d.id].width+'px';
       }
     }else if(d.mode==='trim-end'){
-      var rawEnd=d.originalEnd+deltaSeconds;
-      var endSnap=findTimelineSnap(rawEnd,[d.id],8);
-      if(endSnap)rawEnd=endSnap.at;
-      var newEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawEnd));
-      var endSnapUsed=endSnap&&Math.abs(newEnd-endSnap.at)<0.001;
-      showTimelineSnapGuide(endSnapUsed?endSnap.at:null,endSnapUsed&&endSnap.kind);
+      var trimEndResolution=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
+      var newEnd=trimEndResolution.target,endSnapUsed=trimEndResolution.snapCandidate;
+      showTimelineSnapGuide(endSnapUsed?endSnapUsed.at:null,endSnapUsed&&endSnapUsed.kind);
       var trimEndPreview={};
       trimEndPreview[d.id]={width:Math.max(3,timelineSecondsToPixels(newEnd-d.originalAt,S.pxPerSec))};
       if(!setTimelineGesturePreview(trimEndPreview))d.element.style.width=trimEndPreview[d.id].width+'px';
@@ -1976,18 +1980,12 @@
       await filmStudioCommit([{op:'slip',clip:d.id,delta_source:Number(sourceDelta.toFixed(3))}]);return;
     }
     if(d.mode==='trim-start'){
-      var rawTrimAt=d.originalAt+deltaSeconds;
-      var commitStartSnap=findTimelineSnap(rawTrimAt,[d.id],8);
-      if(commitStartSnap)rawTrimAt=commitStartSnap.at;
-      var trimAt=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawTrimAt));
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:Number(trimAt.toFixed(3))}]);return;
+      var trimStartCommit=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
+      await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:Number(trimStartCommit.target.toFixed(3))}]);return;
     }
     if(d.mode==='trim-end'){
-      var rawTrimEnd=d.originalEnd+deltaSeconds;
-      var commitEndSnap=findTimelineSnap(rawTrimEnd,[d.id],8);
-      if(commitEndSnap)rawTrimEnd=commitEndSnap.at;
-      var trimEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawTrimEnd));
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:Number(trimEnd.toFixed(3))}]);return;
+      var trimEndCommit=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
+      await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:Number(trimEndCommit.target.toFixed(3))}]);return;
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
     var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));

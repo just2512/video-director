@@ -10,12 +10,20 @@ export interface FilmTimelineMoveResolution {
   snapCandidate: FilmTimelineSnapCandidate | null;
 }
 
+export interface FilmTimelineTrimResolution {
+  target: number;
+  deltaSeconds: number;
+  snapCandidate: FilmTimelineSnapCandidate | null;
+}
+
 export interface FilmTimelineMathBridge {
   secondsToPixels(seconds: number, pixelsPerSecond: number): number;
   pixelsToSeconds(pixels: number, pixelsPerSecond: number): number;
   dragDeltaSeconds(pointerDeltaPixels: number, scrollDeltaPixels: number, pixelsPerSecond: number): number;
   resolveSnapCandidate(rawAt: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number): FilmTimelineSnapCandidate | null;
   resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number, snapEnabled: boolean): FilmTimelineMoveResolution;
+  resolveTrimStart(originalAt: number, originalEnd: number, rawDeltaSeconds: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number, snapEnabled: boolean): FilmTimelineTrimResolution;
+  resolveTrimEnd(originalAt: number, originalEnd: number, rawDeltaSeconds: number, candidates: readonly FilmTimelineSnapCandidate[], pixelsPerSecond: number, thresholdPixels: number, snapEnabled: boolean): FilmTimelineTrimResolution;
   clipLeft(at: number, pixelsPerSecond: number): number;
   clipWidth(duration: number | null, pixelsPerSecond: number, minWidth?: number, unknownDuration?: number, maxWidth?: number, roundUp?: boolean): number;
   zoomScale(current: number, direction: number, min?: number, max?: number): number;
@@ -70,6 +78,30 @@ export const filmTimelineMath: FilmTimelineMathBridge = {
       ? candidate
       : null;
     return {targetAt, deltaSeconds, snapCandidate};
+  },
+  resolveTrimStart(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    const start = finiteOr(originalAt, 0);
+    const end = finiteOr(originalEnd, start + 0.08);
+    const rawTarget = start + finiteOr(rawDeltaSeconds, 0);
+    const candidate = snapEnabled
+      ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels)
+      : null;
+    const proposed = candidate ? candidate.at : rawTarget;
+    const target = Math.max(start + 0.04, Math.min(end - 0.04, proposed));
+    const snapCandidate = candidate && Math.abs(target - candidate.at) < 0.001 ? candidate : null;
+    return {target, deltaSeconds: target - start, snapCandidate};
+  },
+  resolveTrimEnd(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    const start = finiteOr(originalAt, 0);
+    const end = finiteOr(originalEnd, start + 0.08);
+    const rawTarget = end + finiteOr(rawDeltaSeconds, 0);
+    const candidate = snapEnabled
+      ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels)
+      : null;
+    const proposed = candidate ? candidate.at : rawTarget;
+    const target = Math.max(start + 0.04, Math.min(end - 0.04, proposed));
+    const snapCandidate = candidate && Math.abs(target - candidate.at) < 0.001 ? candidate : null;
+    return {target, deltaSeconds: target - end, snapCandidate};
   },
   clipLeft(at, pixelsPerSecond) {
     return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));
