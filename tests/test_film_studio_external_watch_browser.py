@@ -1611,7 +1611,7 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                   const base = {
                     id:"clip-probe",mode:"move",pointerId:17,startX:1,startY:1,startScrollLeft:0,
                     active:false,members:[member],trackOrder:["track-a"],trackId:"track-a",
-                    originalTrackIndex:0,targetTrackId:"track-a"
+                    originalAt:0,originalEnd:1,originalTrackIndex:0,targetTrackId:"track-a"
                   };
                   store.setField("timelineGestureContext",base);
                   const accepted = store.getField("timelineGestureContext");
