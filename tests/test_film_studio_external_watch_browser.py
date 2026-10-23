@@ -360,6 +360,29 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert fd.read_project_film(project_id)["rev"] == scrub_before["rev"]
                 assert len(film_edit_requests) == scrub_edit_count_before
 
+                # Keyboard seeking uses 1-second steps, Shift uses 0.1-second steps, and no edit transaction.
+                ruler_body.focus()
+                page.keyboard.press("ArrowRight")
+                page.wait_for_function("""() => {
+                  const slider = document.querySelector('#fs-playhead');
+                  const monitor = document.querySelector('#fs-monitor-time');
+                  return !!slider && Math.abs(Number(slider.value) - 5) < 0.02 &&
+                    !!monitor && monitor.textContent.trim() === '00:05.000' &&
+                    document.querySelector('#fs-ruler-body')?.getAttribute('aria-valuenow') === '5';
+                }""", timeout=5000)
+                page.keyboard.press("Shift+ArrowLeft")
+                page.wait_for_function(
+                    "() => Math.abs(Number(document.querySelector('#fs-playhead')?.value) - 4.9) < 0.02",
+                    timeout=5000,
+                )
+                page.keyboard.press("Shift+ArrowRight")
+                page.wait_for_function(
+                    "() => Math.abs(Number(document.querySelector('#fs-playhead')?.value) - 5) < 0.02",
+                    timeout=5000,
+                )
+                assert fd.read_project_film(project_id)["rev"] == scrub_before["rev"]
+                assert len(film_edit_requests) == scrub_edit_count_before
+
                 # Exercise React-owned track controls against the authoritative FilmDocument.
                 def track_attrs(track_id: str) -> dict:
                     document = fd.read_project_film(project_id)["doc"]

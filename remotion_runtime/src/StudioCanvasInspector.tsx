@@ -1057,7 +1057,20 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         className="fs-ruler-body"
         id="fs-ruler-body"
         data-react-scrub-ready="true"
+        role="slider"
+        aria-label="时间尺播放头位置；点击刻度跳转，拖动或使用方向键定位"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={Math.min(duration, Math.max(0, playhead))}
+        aria-valuetext={Math.min(duration, Math.max(0, playhead)).toFixed(2) + " 秒"}
+        tabIndex={0}
         style={{width:model.laneWidth}}
+        onKeyDown={event => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const step = event.shiftKey ? 0.1 : 1;
+          window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
+        }}
         onPointerDown={event => {
           if (event.button !== 0) return;
           // A ruler tick has its own click-to-seek handler. Capturing the pointer

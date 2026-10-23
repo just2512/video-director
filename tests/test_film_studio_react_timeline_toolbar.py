@@ -18,6 +18,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert '["pxPerSec", "pixelsPerSecond"]' in store
     assert 'scroll.addEventListener("wheel", onWheel, {passive:false})' in component
     assert 'data-react-scrub-ready="true"' in component
+    assert 'role="slider"' in component
+    assert 'aria-label="时间尺播放头位置；点击刻度跳转，拖动或使用方向键定位"' in component
+    assert 'event.key !== "ArrowLeft" && event.key !== "ArrowRight"' in component
+    assert "event.shiftKey ? 0.1 : 1" in component
     assert "activeScrubPointerId = useRef<number | null>(null)" in component
     assert "seekFromRulerPointer(event.clientX, event.currentTarget)" in component
     ruler_scrub_handlers = component.split('data-react-scrub-ready="true"', 1)[1].split("onPointerMove", 1)[0]
