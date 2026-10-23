@@ -384,20 +384,25 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert abs(float(undone_video["attrs"]["at"]) - 6.0) < 0.001, undone_video
                 assert abs(float(undone_audio["attrs"]["at"]) - 0.0) < 0.001, undone_audio
 
-                # A selected locked clip blocks the entire group before any preview or write.
+                def wait_for_group_selection():
+                    page.wait_for_function("""() => {
+                      const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                      return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
+                        audio.classList.contains('fs-clip-selected');
+                    }""")
+
+                # Select the group while both members are editable; locking one member afterward
+                # simulates the stale-selection case the drag preflight must reject.
+                clip.click()
+                audio_clip.click(modifiers=["Control"])
+                wait_for_group_selection()
                 page.evaluate("window.filmStudioSetClipLock('audio-1', true)")
                 page.wait_for_function("""() => {
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
                   return !!clip && clip.querySelector('.fs-clip-lock-mark');
                 }""")
-                clip.click()
-                audio_clip.click(modifiers=["Control"])
-                page.wait_for_function("""() => {
-                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
-                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
-                  return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
-                    audio.classList.contains('fs-clip-selected');
-                }""")
+                wait_for_group_selection()
 
                 def assert_locked_group_drag_is_atomic():
                     before_blocked = fd.read_project_film(project_id)
@@ -425,26 +430,25 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     assert after_audio["attrs"]["at"] == before_audio["attrs"]["at"]
 
                 assert_locked_group_drag_is_atomic()
+
+                assert_locked_group_drag_is_atomic()
                 page.evaluate("window.filmStudioSetClipLock('audio-1', false)")
                 page.wait_for_function("""() => {
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
                   return !!clip && !clip.querySelector('.fs-clip-lock-mark');
                 }""")
 
-                # A locked member track is equally fatal to the whole group move.
+                # Select the same group first, then lock its source track. The group must still be
+                # rejected before any move operation reaches the server.
+                clip.click()
+                audio_clip.click(modifiers=["Control"])
+                wait_for_group_selection()
                 page.evaluate("window.filmStudioToggleTrackLock('audio-bed')")
                 page.wait_for_function("""() => {
                   const button = document.querySelector('button[data-track-lock="audio-bed"]');
                   return !!button && button.textContent.trim() === '🔒';
                 }""")
-                clip.click()
-                audio_clip.click(modifiers=["Control"])
-                page.wait_for_function("""() => {
-                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
-                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
-                  return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
-                    audio.classList.contains('fs-clip-selected');
-                }""")
+                wait_for_group_selection()
                 assert_locked_group_drag_is_atomic()
                 page.evaluate("window.filmStudioToggleTrackLock('audio-bed')")
                 page.wait_for_function("""() => {
