@@ -276,6 +276,25 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => { const field = document.querySelector('#fs-field-speed'); return !!field && field.value === '2'; }"
                 )
 
+                # Selection classes are React projections of FilmStore, not native classList writes.
+                selection_before = fd.read_project_film(project_id)
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').click()
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore?.getSnapshot();
+                  const a = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                  const b = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  return store?.selectedId === "clip-b" && store.selectedIds.includes("clip-b") &&
+                    !!a && !!b && !a.classList.contains("fs-clip-selected") &&
+                    b.classList.contains("fs-clip-selected");
+                }""")
+                assert fd.read_project_film(project_id)["rev"] == selection_before["rev"]
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore?.getSnapshot();
+                  const a = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                  return store?.selectedId === "clip-a" && !!a && a.classList.contains("fs-clip-selected");
+                }""")
+
                 # React owns keyframe marker events: seek only, no parent clip drag or FilmDocument write.
                 keyframe_before = fd.read_project_film(project_id)
                 keyframe_clip_before = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').evaluate(

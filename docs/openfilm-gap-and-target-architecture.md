@@ -45,6 +45,7 @@
 - 吸附线与跨轨拖放的目标/拒绝提示也作为 React 时间线瞬态状态渲染；原生适配器只计算目标 ID、吸附时间与可读提示。无 bundle fallback 才直接插入指示器/切换轨道 CSS 类，pointercancel 会清理吸附提示。
 - 拖动中片段的虚线/淡化标记由同一个 React transient state 跟踪活跃 clip ID；原生 pointer adapter 不再改写 React clip 的 `classList`，no-bundle fallback 才会直接切换该类。
 - 关键帧标记的 pointer/click 在 React 时间线中由按钮自身消费，跳转只调用共享 seek bridge；无 React bundle 时才安装原生 click 委派，不再在 Portal 宿主捕获阶段拦截 React 指针事件。
+- 片段选中态由 React 从 FilmStore 的 selectedIds 投影；原生适配器只更新选中 ID，不再在 React 路径中改写 clip classList。fallback 仍用原生类切换。
 - 当完整 React 时间线拥有手势预览和活动 clip ID 时，多选手势上下文只保存稳定 ID、原始时间/边界和轨道索引，不再逐片段查询或保留 DOM 节点。roll/slide 的邻接 DOM 引用仅在原生 fallback 中收集。
 - 播放头位置由 React 订阅 FilmStore 的 `playhead` 字段并依据当前像素比例渲染；原生适配器保留运行时 seek/播放控制与 no-bundle fallback，不再直接写 React 时间线节点的 `style.left`。
 - React 时码尺已支持按下并拖动连续 seek，pointer capture 在 React 中维持手势；仍通过同一 seek bridge 更新 FilmStore、播放器与 monitor 时间，不生成 FilmDocument 事务。

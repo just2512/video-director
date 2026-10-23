@@ -750,6 +750,10 @@
     showStatus(S.overwriteMode?'覆盖编辑已开启：素材只替换所选轨道的重叠区间，不推移其他片段或音频轨道。':'覆盖编辑已关闭。','success');
   };
   function syncClipSelectionVisual(){
+    var bridge=window.filmStudioReactTimeline;
+    // React derives selected styling from FilmStore.selectedIdsVersion.
+    // Mutate classes imperatively only for the no-bundle native timeline fallback.
+    if(bridge&&typeof bridge.renderSurface==='function')return;
     var selected=S.selectedIds||[];
     document.querySelectorAll('#fs-timeline [data-clip]').forEach(function(el){
       el.classList.toggle('fs-clip-selected',selected.indexOf(el.getAttribute('data-clip'))>=0);
