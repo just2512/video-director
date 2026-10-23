@@ -740,7 +740,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
                     audio.classList.contains('fs-clip-selected');
                 }""")
-                # Prepare an extra unlocked row so this selected group can move one track down as a unit.
+                # AddTrack inserts at index 0. Moving the selected group into that first row shifts both members up one track.
                 page.evaluate("window.prompt = () => 'Cross-track Preview Destination'")
                 page.evaluate("window.filmStudioAddTrack()")
                 page.wait_for_function("""() => [...document.querySelectorAll('#fs-timeline .fs-track-label')]
@@ -763,21 +763,21 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 cross_request_count = len(film_edit_requests)
                 cross_video_before_left = clip.evaluate("(node) => node.style.left")
                 cross_video_box = clip.bounding_box()
-                target_audio_track_box = page.locator('.fs-track[data-track="audio-bed"]').bounding_box()
-                assert cross_video_box and target_audio_track_box
+                target_destination_box = page.locator('.fs-track[data-track="' + cross_track_destination_id + '"]').bounding_box()
+                assert cross_video_box and target_destination_box
                 cross_start_x = cross_video_box["x"] + cross_video_box["width"] / 2
                 cross_start_y = cross_video_box["y"] + cross_video_box["height"] / 2
-                cross_target_y = target_audio_track_box["y"] + target_audio_track_box["height"] / 2
+                cross_target_y = target_destination_box["y"] + target_destination_box["height"] / 2
                 page.mouse.move(cross_start_x, cross_start_y)
                 page.mouse.down()
                 page.mouse.move(cross_start_x + 36, cross_target_y, steps=10)
                 page.wait_for_function("""destinationId => {
-                  const videoGhost = document.querySelector('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="audio-bed"]');
-                  const audioGhost = document.querySelector('[data-gesture-ghost-for="audio-1"][data-gesture-target-track="' + destinationId + '"]');
+                  const videoGhost = document.querySelector('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="' + destinationId + '"]');
+                  const audioGhost = document.querySelector('[data-gesture-ghost-for="audio-1"][data-gesture-target-track="video-main"]');
                   const state = window.filmStudioStore?.getSnapshot();
                   return !!videoGhost && !!audioGhost &&
-                    state?.timelineGesturePreview?.['clip-b']?.targetTrackId === 'audio-bed' &&
-                    state?.timelineGesturePreview?.['audio-1']?.targetTrackId === destinationId;
+                    state?.timelineGesturePreview?.['clip-b']?.targetTrackId === destinationId &&
+                    state?.timelineGesturePreview?.['audio-1']?.targetTrackId === 'video-main';
                 }""", arg=cross_track_destination_id, timeout=5000)
                 cross_video_ghost = page.locator('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="audio-bed"]')
                 assert cross_video_ghost.get_attribute("aria-hidden") == "true"
@@ -794,8 +794,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 def located_track(document: dict, clip_id: str) -> str:
                     return next(track["id"] for track in document["doc"]["tracks"]
                       if any(item["id"] == clip_id for item in track["clips"]))
-                assert located_track(cross_after, "clip-b") == "audio-bed"
-                assert located_track(cross_after, "audio-1") == cross_track_destination_id
+                assert located_track(cross_after, "clip-b") == cross_track_destination_id
+                assert located_track(cross_after, "audio-1") == "video-main"
                 cross_requests = film_edit_requests[cross_request_count:]
                 assert len(cross_requests) == 1, cross_requests
                 cross_ops = cross_requests[0].get("ops") or []
