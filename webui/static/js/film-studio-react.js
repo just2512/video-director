@@ -23925,6 +23925,13 @@
       const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 1e-3 ? candidate : null;
       return { targetAt, deltaSeconds, snapCandidate };
     },
+    resolveSlipGesture(rawDeltaSeconds, playbackSpeed) {
+      return {
+        // Slip offsets the source range by timeline delta scaled by playback rate;
+        // it never alters the clip's timeline start or duration.
+        sourceDeltaSeconds: finiteOr(rawDeltaSeconds, 0) * finiteOr(playbackSpeed, 1)
+      };
+    },
     clipLeft(at, pixelsPerSecond) {
       return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));
     },
