@@ -1594,6 +1594,40 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                 assert bounds, "clip-b bounding box unavailable"
                 before_menu = fd.read_project_film(project_id)
 
+                # Gesture context is an all-or-nothing ID-only snapshot. A bad member or
+                # duplicate member must reject the whole group rather than silently move a subset.
+                context_validation = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const member = {id:"clip-probe",originalAt:0,originalEnd:1,trackId:"track-a",trackIndex:0};
+                  const base = {
+                    id:"clip-probe",mode:"move",pointerId:17,startX:1,startY:1,startScrollLeft:0,
+                    active:false,members:[member],trackOrder:["track-a"],trackId:"track-a",
+                    originalTrackIndex:0,targetTrackId:"track-a"
+                  };
+                  store.setField("timelineGestureContext",base);
+                  const accepted = store.getField("timelineGestureContext");
+                  store.setField("timelineGestureContext",{...base,pointerId:-1});
+                  const invalidPointerRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{...base,members:[member,{id:"clip-other",originalAt:1,originalEnd:2,trackId:"track-a"}]});
+                  const malformedMemberRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",{...base,members:[member,{...member}]});
+                  const duplicateMemberRejected = store.getField("timelineGestureContext") === null;
+                  store.setField("timelineGestureContext",null);
+                  return {
+                    accepted:accepted ? accepted.members.map(item=>item.id) : null,
+                    invalidPointerRejected,malformedMemberRejected,duplicateMemberRejected,
+                    noDomRefs:accepted ? !Object.keys(accepted).some(key=>/element|canvas|row/i.test(key)) &&
+                      accepted.members.every(item=>!Object.keys(item).some(key=>/element|canvas|row/i.test(key))) : false
+                  };
+                }""")
+                assert context_validation == {
+                    "accepted":["clip-probe"],
+                    "invalidPointerRejected":True,
+                    "malformedMemberRejected":True,
+                    "duplicateMemberRejected":True,
+                    "noDomRefs":True,
+                }, context_validation
+
                 page.mouse.click(bounds["x"] + 12, bounds["y"] + 8, button="right")
                 menu = page.locator('.fs-context-menu[data-react-context-menu="true"]')
                 menu.wait_for(state="visible", timeout=5000)

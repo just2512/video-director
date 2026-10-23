@@ -87,6 +87,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "setTimelineGesturePreview(previewLeftByClipId)" in studio
     assert "type FilmStudioTimelineGestureContext =" in store
     assert "timelineGestureContext: FilmStudioTimelineGestureContext | null;" in store
+    assert "if (!memberId || memberIds.has(memberId)" in store
+    assert "!Number.isInteger(pointerId) || pointerId < 0" in store
+    assert "if (!memberIds.has(id)) return null;" in store
+
     assert '["drag", "timelineGestureContext"]' in store
     assert "function updateTimelineGestureContext(patch)" in studio
     assert "var gestureDomRefs = null;" in studio

@@ -121,52 +121,79 @@ const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureCont
   const mode = typeof raw.mode === "string" && modes.includes(raw.mode as FilmStudioTimelineGestureMode)
     ? raw.mode as FilmStudioTimelineGestureMode : null;
   const id = asString(raw.id);
+  const pointerId = asOptionalFiniteNumber(raw.pointerId);
   const startX = asOptionalFiniteNumber(raw.startX);
   const startY = asOptionalFiniteNumber(raw.startY);
   const startScrollLeft = asOptionalFiniteNumber(raw.startScrollLeft);
-  const members = (Array.isArray(raw.members) ? raw.members : [])
-    .map((item): FilmStudioTimelineGestureMember | null => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-      const member = item as Record<string, unknown>;
-      const memberId = asString(member.id);
-      const originalAt = asOptionalFiniteNumber(member.originalAt);
-      const originalEnd = asOptionalFiniteNumber(member.originalEnd);
-      const trackId = asString(member.trackId);
-      const trackIndex = asOptionalFiniteNumber(member.trackIndex);
-      if (!memberId || originalAt === undefined || originalEnd === undefined ||
-          !trackId || trackIndex === undefined) return null;
-      return {id:memberId,originalAt,originalEnd,trackId,trackIndex};
-    })
-    .filter((item): item is FilmStudioTimelineGestureMember => item !== null);
-  if (!id || !mode || startX === undefined || startY === undefined ||
-      startScrollLeft === undefined || !members.length) return null;
+  const rawMembers = Array.isArray(raw.members) ? raw.members : null;
+  const rawTrackOrder = Array.isArray(raw.trackOrder) ? raw.trackOrder : null;
+  if (!id || !mode || pointerId === undefined || !Number.isInteger(pointerId) || pointerId < 0 ||
+      startX === undefined || startY === undefined || startScrollLeft === undefined ||
+      !rawMembers || !rawMembers.length || !rawTrackOrder || !rawTrackOrder.length ||
+      rawTrackOrder.some(item => typeof item !== "string" || item.length === 0) ||
+      new Set(rawTrackOrder).size !== rawTrackOrder.length) return null;
+
+  const trackOrder = rawTrackOrder as string[];
+  const members: FilmStudioTimelineGestureMember[] = [];
+  const memberIds = new Set<string>();
+  for (const item of rawMembers) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const member = item as Record<string, unknown>;
+    const memberId = asString(member.id);
+    const originalAt = asOptionalFiniteNumber(member.originalAt);
+    const originalEnd = asOptionalFiniteNumber(member.originalEnd);
+    const trackId = asString(member.trackId);
+    const trackIndex = asOptionalFiniteNumber(member.trackIndex);
+    if (!memberId || memberIds.has(memberId) ||
+        originalAt === undefined || originalEnd === undefined || originalAt < 0 || originalEnd < originalAt ||
+        !trackId || !Number.isInteger(trackIndex) || trackIndex === undefined || trackIndex < 0 ||
+        trackOrder[trackIndex] !== trackId) return null;
+    memberIds.add(memberId);
+    members.push({id:memberId,originalAt,originalEnd,trackId,trackIndex});
+  }
+  if (!memberIds.has(id)) return null;
+
   const optionalString = (key: string): string | undefined => {
     const value = asString(raw[key]);
     return value || undefined;
   };
+  const optionalNumber = (key: string): number | undefined => {
+    const number = asOptionalFiniteNumber(raw[key]);
+    return number;
+  };
+  const numberKeys = [
+    "originalAt","originalEnd","originalTrackIndex","rightAt","centerAt",
+    "leftDuration","centerDuration","rightDuration",
+  ];
+  if (numberKeys.some(key => raw[key] !== undefined && raw[key] !== null && optionalNumber(key) === undefined)) {
+    return null;
+  }
+  const originalTrackIndex = optionalNumber("originalTrackIndex");
+  if (originalTrackIndex !== undefined &&
+      (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 ||
+       (optionalString("trackId") && trackOrder[originalTrackIndex] !== optionalString("trackId")))) {
+    return null;
+  }
   return {
-    id, mode, pointerId: asFiniteNumber(raw.pointerId, -1),
+    id, mode, pointerId,
     startX, startY, startScrollLeft, active: raw.active === true, members,
-    trackOrder: Array.isArray(raw.trackOrder)
-      ? raw.trackOrder.filter((item): item is string => typeof item === "string" && item.length > 0)
-      : [],
-    originalAt: asOptionalFiniteNumber(raw.originalAt),
-    originalEnd: asOptionalFiniteNumber(raw.originalEnd),
+    trackOrder,
+    originalAt: optionalNumber("originalAt"),
+    originalEnd: optionalNumber("originalEnd"),
     trackId: optionalString("trackId"),
-    originalTrackIndex: asOptionalFiniteNumber(raw.originalTrackIndex),
+    originalTrackIndex,
     targetTrackId: optionalString("targetTrackId"),
     invalidTargetMessage: optionalString("invalidTargetMessage"),
     leftClipId: optionalString("leftClipId"),
     centerClipId: optionalString("centerClipId"),
     rightClipId: optionalString("rightClipId"),
-    rightAt: asOptionalFiniteNumber(raw.rightAt),
-    centerAt: asOptionalFiniteNumber(raw.centerAt),
-    leftDuration: asOptionalFiniteNumber(raw.leftDuration),
-    centerDuration: asOptionalFiniteNumber(raw.centerDuration),
-    rightDuration: asOptionalFiniteNumber(raw.rightDuration),
+    rightAt: optionalNumber("rightAt"),
+    centerAt: optionalNumber("centerAt"),
+    leftDuration: optionalNumber("leftDuration"),
+    centerDuration: optionalNumber("centerDuration"),
+    rightDuration: optionalNumber("rightDuration"),
   };
 };
-
 const asPendingTransaction = (value: unknown): FilmStudioPendingTransaction | null => {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
