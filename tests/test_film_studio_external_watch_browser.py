@@ -26,6 +26,95 @@ SAMPLE = '''<!doctype html>
 </body></html>'''
 
 
+def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monkeypatch):
+    """A project selector change must not launch a second concurrent FilmDocument load."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-project-shell-single-load"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    assert fd.read_project_film(project_id)["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            # Pause the Studio's background revision poll for this focused count;
+            # this test measures project-switch requests, not the independent watcher.
+            page.add_init_script("""() => {
+              const nativeSetInterval = window.setInterval.bind(window);
+              window.setInterval = (callback, delay, ...args) =>
+                nativeSetInterval(callback, typeof delay === "number" && delay >= 500 ? 60000 : delay, ...args);
+              window.__filmDocumentReadUrls = [];
+              const nativeFetch = window.fetch.bind(window);
+              window.fetch = (input, init) => {
+                const url = typeof input === "string" ? input :
+                  (input && typeof input.url === "string" ? input.url : String(input));
+                if (url.includes("/api/editor/film?project_id=")) window.__filmDocumentReadUrls.push(url);
+                return nativeFetch(input, init);
+              };
+            }""")
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible", timeout=10000)
+
+                # Now Studio is open. A second selector change invokes editorLoad().
+                # Exactly two reads are expected: the wrapper's existence check and
+                # the one canonical filmStudioLoad; there must be no third duplicate load.
+                page.evaluate("window.__filmDocumentReadUrls.length = 0")
+                page.evaluate("""() => {
+                  const select = document.querySelector('#editor-project');
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""")
+                page.wait_for_function(
+                    "() => window.__filmDocumentReadUrls.length >= 2", timeout=5000
+                )
+                page.wait_for_timeout(350)
+                reads = page.evaluate("window.__filmDocumentReadUrls.slice()")
+                assert len(reads) == 2, {"reads": reads}
+                assert all(
+                    f"project_id={project_id}" in url for url in reads
+                ), reads
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
+                assert fd.read_project_film(project_id)["exists"]
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp_path, monkeypatch):
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))

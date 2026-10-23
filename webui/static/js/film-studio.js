@@ -3626,7 +3626,9 @@ window.filmStudioCopyClips=function(){
     });
   }
   restoreDock();
-  var projectSelect=$('editor-project');if(projectSelect)projectSelect.addEventListener('change',function(){if(S.open)setTimeout(function(){filmStudioLoad(true);},50);});
+  // The editor-project select already calls editorLoad() via its inline onchange.
+  // That wrapper owns the sole Studio reload/open decision; a second change
+  // listener here caused concurrent filmStudioLoad requests on every project switch.
   var legacyEditorLoad=window.editorLoad;
   if(typeof legacyEditorLoad==='function'){
     window.editorLoad=function(){
