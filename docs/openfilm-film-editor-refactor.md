@@ -49,7 +49,7 @@ When a Composition has multiple variants and no valid active_variant_id, migrati
 - Applying a proposal requires an exact matching base revision inside the document write lock; stale proposals are rejected rather than rebased. The approved operation set lives in a short-lived, single-use server-side registry tied to project and revision; client-supplied operation arrays are ignored.
 - The Studio can preview, accept, or reject a proposal. Rejection changes neither the document nor its revision. Editing manually or receiving a newer external revision invalidates the pending proposal.
 - Document revision changes and AI planning phases use the repository's existing SSE event bus; file polling remains the fallback for external local-agent writes that do not pass through the server.
-- Model-token streaming is not claimed: the current LLM abstraction exposes a blocking generate call, so this milestone streams lifecycle events, not partial model text.
+- Token streaming is implemented in the code path: the OpenAI-compatible provider requests stream=True, forwards delta.content fragments as server-side SSE token events, and the Studio consumes them. Automated tests use a fake upstream stream to verify fragment ordering, concatenation, and cancellation; they do not establish that a real configured model delivers incremental text through the deployed proxy. Live-model streaming remains UNVERIFIED until a real configured-provider request records multiple token events before the final result.
 
 ## Clip-relative volume envelope
 

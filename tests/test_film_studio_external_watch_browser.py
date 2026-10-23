@@ -881,3 +881,140 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(tmp_path, monkeypatch):
+    """An Agent's newer film.html must win over an older AI proposal targeting a deleted clip."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-stale-proposal-delete-target"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+    initial_revision = initial["rev"]
+
+    def fake_plan(llm, state, message, selected_clip_id, summary_out=None,
+                  selected_element=None, **kwargs):
+        assert selected_clip_id == "clip-b"
+        if summary_out is not None:
+            summary_out["summary"] = "Change the target clip speed."
+        return [{"op": "set", "clip": "clip-b", "field": "speed", "value": 1.5}]
+
+    monkeypatch.setattr(fd, "plan_film_command", fake_plan)
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: object())
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            context = browser.new_context(viewport={"width": 1280, "height": 900})
+            page = context.new_page()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                page.goto(base_url + "/", wait_until="domcontentloaded")
+
+                # Create a real server-registered proposal through the browser's fetch path.
+                created = page.evaluate(
+                    """async ({url, body}) => {
+                      const response = await fetch(url, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(body)
+                      });
+                      return {status: response.status, body: await response.json()};
+                    }""",
+                    {
+                        "url": base_url + "/api/editor/film/command",
+                        "body": {
+                            "project_id": project_id,
+                            "base": initial_revision,
+                            "message": "Change clip-b speed.",
+                            "selected_clip_id": "clip-b",
+                        },
+                    },
+                )
+                assert created["status"] == 200, created
+                proposal = created["body"]["proposal"]
+                assert proposal["base_revision"] == initial_revision
+                assert "clip-b" in proposal["affected_clip_ids"]
+                assert fd.read_project_film(project_id)["rev"] == initial_revision, (
+                    "Planning a proposal must not write film.html."
+                )
+
+                # Simulate an Agent atomically rewriting film.html and deleting the target.
+                before_agent_write = fd.read_project_film(project_id)
+                updated_doc, _ = fd.apply_ops(
+                    before_agent_write["doc"], [{"op": "remove", "clip": "clip-b"}]
+                )
+                agent_text = fd.serialize_film(updated_doc)
+                fd.parse_film(agent_text)
+                staged_path = film_path.with_name(film_path.name + ".agent.tmp")
+                staged_path.write_text(agent_text, encoding="utf-8")
+                staged_path.replace(film_path)
+                after_agent_write = fd.read_project_film(project_id)
+                agent_revision = after_agent_write["rev"]
+                assert agent_revision != initial_revision
+                assert all(
+                    clip["id"] != "clip-b"
+                    for track in after_agent_write["doc"]["tracks"]
+                    for clip in track["clips"]
+                )
+
+                # The server must reject the old proposal at the revision gate; client ops
+                # are intentionally supplied to prove they cannot replace registered operations.
+                applied = page.evaluate(
+                    """async ({url, body}) => {
+                      const response = await fetch(url, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(body)
+                      });
+                      return {status: response.status, body: await response.json()};
+                    }""",
+                    {
+                        "url": base_url + "/api/editor/film/apply-proposal",
+                        "body": {
+                            "project_id": project_id,
+                            "proposal_id": proposal["id"],
+                            "base_revision": initial_revision,
+                            "operations": [
+                                {"op": "set", "clip": "clip-a", "field": "speed", "value": 9}
+                            ],
+                        },
+                    },
+                )
+                assert applied["status"] == 409, applied
+                assert applied["body"]["code"] == "REVISION_CONFLICT", applied
+
+                persisted = fd.read_project_film(project_id)
+                assert persisted["rev"] == agent_revision
+                assert all(
+                    clip["id"] != "clip-b"
+                    for track in persisted["doc"]["tracks"]
+                    for clip in track["clips"]
+                )
+                original_clip_a = next(
+                    clip for track in initial["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-a"
+                )
+                persisted_clip_a = next(
+                    clip for track in persisted["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-a"
+                )
+                assert persisted_clip_a["attrs"].get("speed") == original_clip_a["attrs"].get("speed")
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
