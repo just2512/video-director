@@ -211,7 +211,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "var ed=S.envelopeDrag,rect=ed.canvas?ed.canvas.getBoundingClientRect():ed.rect" in studio
     assert "window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {" in component
     assert "onClick={event => event.stopPropagation()}" in component
-    assert "window.filmStudioBeginEnvelopeGesture=beginVolumeEnvelopeGesture" in studio
+    assert "return beginVolumeEnvelopeGesture(e,context,null);" in studio
     assert "window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)" in studio
     assert "window.filmStudioOpenTimelineContextMenu?.(clip.id,event.clientX,event.clientY)" in component
     assert "window.filmStudioContextMenuAction?.(name, model.clipId)" in component
