@@ -50,6 +50,7 @@
 - 拖动中片段的虚线/淡化标记由同一个 React transient state 跟踪活跃 clip ID；原生 pointer adapter 不再改写 React clip 的 `classList`，no-bundle fallback 才会直接切换该类。
 - 关键帧标记的 pointer/click 在 React 时间线中由按钮自身消费，跳转只调用共享 seek bridge；无 React bundle 时才安装原生 click 委派，不再在 Portal 宿主捕获阶段拦截 React 指针事件。
 - 片段选中态由 React 从 FilmStore 的 selectedIds 投影；原生适配器只更新选中 ID，不再在 React 路径中改写 clip classList。fallback 仍用原生类切换。
+- React 时间线工具栏的插入/覆盖/吸附/音量曲线/slide/slip 按钮只订阅 FilmStore 状态；原生适配器仍负责切换状态与工作区模式 class，但在 React toolbar 存在时不再直接改按钮文字、pressed 属性或 class，no-bundle fallback 保留原生更新。
 - 当完整 React 时间线拥有手势预览和活动 clip ID 时，多选手势上下文只保存稳定 ID、原始时间/边界和轨道索引，不再逐片段查询或保留 DOM 节点。roll/slide 的邻接 DOM 引用仅在原生 fallback 中收集。
 - 播放头位置由 React 订阅 FilmStore 的 `playhead` 字段并依据当前像素比例渲染；原生适配器保留运行时 seek/播放控制与 no-bundle fallback，不再直接写 React 时间线节点的 `style.left`。
 - React 时码尺提供 slider 无障碍语义、点击刻度、按下拖动连续 seek，以及方向键按 1 秒/Shift+方向键按 0.1 秒定位；React 处理方向键后停止向 document 级 NLE 快捷键冒泡，避免同一次按键同时执行帧级 Nudge。所有输入仍通过同一 seek bridge 更新 FilmStore、播放器与 monitor 时间，不生成 FilmDocument 事务。

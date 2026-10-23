@@ -72,6 +72,12 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "clip.keyframeMarks.map" in component
     assert "var bridge=window.filmStudioReactToolbar" in studio
     assert "bridge.renderTimeline();" in studio
+    assert "function reactOwnsTimelineToolbar()" in studio
+    assert "if(reactOwnsTimelineToolbar())return;" in studio
+    assert "if(!reactOwnsTimelineToolbar()){" in studio
+    assert "reactToolbar?null:document.querySelector('[data-film-action=\"envelope-mode\"]')" in studio
+    assert "reactToolbar?null:document.querySelector('[data-film-action=\"slide-mode\"]')" in studio
+    assert "reactToolbar?null:document.querySelector('[data-film-action=\"slip-mode\"]')" in studio
     assert "onClick={event => window.filmStudioClickClip?.(clip.id,event.nativeEvent)}" in component
     assert "activePointerId = useRef<number | null>(null)" in component
     assert "if(!reactTimeline){" in studio

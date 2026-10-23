@@ -153,6 +153,72 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
 
+                # React mode buttons are projections of FilmStore; adapter logic may change state but not their DOM attributes.
+                mode_doc_before = fd.read_project_film(project_id)
+                mode_controls = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const button = selector => document.querySelector('#fs-react-timeline-toolbar ' + selector);
+                  return {
+                    snapEnabled: state?.snapEnabled,
+                    insertMode: state?.insertMode,
+                    overwriteMode: state?.overwriteMode,
+                    snapPressed: button('[data-film-action="toggle-snap"]')?.getAttribute('aria-pressed'),
+                    snapText: button('[data-film-action="toggle-snap"]')?.textContent.trim(),
+                  };
+                }""")
+                assert mode_controls["snapPressed"] == str(mode_controls["snapEnabled"]).lower(), mode_controls
+                snap_button = page.locator('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]')
+                snap_button.click()
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]');
+                      return state?.snapEnabled === expected &&
+                        button?.getAttribute('aria-pressed') === String(expected) &&
+                        button?.textContent.trim() === (expected ? '吸附：开' : '吸附：关');
+                    }""",
+                    arg=not mode_controls["snapEnabled"],
+                    timeout=5000,
+                )
+                snap_button.click()
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]');
+                      return state?.snapEnabled === expected &&
+                        button?.getAttribute('aria-pressed') === String(expected);
+                    }""",
+                    arg=mode_controls["snapEnabled"],
+                    timeout=5000,
+                )
+                insert_button = page.locator('#fs-react-timeline-toolbar [data-film-action="insert-mode"]')
+                overwrite_button = page.locator('#fs-react-timeline-toolbar [data-film-action="overwrite-mode"]')
+                insert_button.click()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="insert-mode"]');
+                  return state?.insertMode === true && state?.overwriteMode === false &&
+                    button?.getAttribute('aria-pressed') === 'true' && button.textContent.trim() === '插入编辑：开';
+                }""", timeout=5000)
+                overwrite_button.click()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const insert = document.querySelector('#fs-react-timeline-toolbar [data-film-action="insert-mode"]');
+                  const overwrite = document.querySelector('#fs-react-timeline-toolbar [data-film-action="overwrite-mode"]');
+                  return state?.insertMode === false && state?.overwriteMode === true &&
+                    insert?.getAttribute('aria-pressed') === 'false' && insert.textContent.trim() === '插入编辑：关' &&
+                    overwrite?.getAttribute('aria-pressed') === 'true' && overwrite.textContent.trim() === '覆盖编辑：开';
+                }""", timeout=5000)
+                overwrite_button.click()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="overwrite-mode"]');
+                  return state?.overwriteMode === false && button?.getAttribute('aria-pressed') === 'false';
+                }""", timeout=5000)
+                assert fd.read_project_film(project_id)["rev"] == mode_doc_before["rev"], (
+                    "Toolbar mode toggles are transient UI state; FilmDocument revision must not change."
+                )
+
                 # The React playhead consumes FilmStore state; seeking changes geometry but not film revision.
                 playhead_doc_before = fd.read_project_film(project_id)
                 page.evaluate("window.filmStudioSeek(2)")

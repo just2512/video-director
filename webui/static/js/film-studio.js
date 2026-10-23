@@ -757,7 +757,12 @@
       showStatus('素材加入时间线失败：'+String(error&&error.message||error),'error');
     }finally{flushPendingExternalRevision();}
   };
+  function reactOwnsTimelineToolbar(){
+    var bridge=window.filmStudioReactToolbar;
+    return !!(bridge&&typeof bridge.renderTimeline==='function');
+  }
   function syncPlacementModeButtons(){
+    if(reactOwnsTimelineToolbar())return;
     document.querySelectorAll('[data-film-action="insert-mode"]').forEach(function(button){
       button.textContent='插入编辑：'+(S.insertMode?'开':'关');
       button.classList.toggle('fs-primary',S.insertMode);
@@ -980,10 +985,12 @@
   }
   window.filmStudioToggleSnap=function(){
     S.snapEnabled=!S.snapEnabled;
-    document.querySelectorAll('[data-film-action="toggle-snap"]').forEach(function(button){
-      button.setAttribute('aria-pressed',String(S.snapEnabled));
-      button.textContent=S.snapEnabled?'吸附：开':'吸附：关';
-    });
+    if(!reactOwnsTimelineToolbar()){
+      document.querySelectorAll('[data-film-action="toggle-snap"]').forEach(function(button){
+        button.setAttribute('aria-pressed',String(S.snapEnabled));
+        button.textContent=S.snapEnabled?'吸附：开':'吸附：关';
+      });
+    }
     if(!S.snapEnabled)showTimelineSnapGuide(null);
     showStatus(S.snapEnabled?'时间线吸附已开启（阈值 8 屏幕像素）。':'时间线吸附已关闭。','success');
   };
@@ -1436,8 +1443,10 @@
   window.filmStudioSetEnvelopeMode=function(enabled){
     S.envelopeMode=!!enabled;
     if(S.envelopeMode){S.slideMode=false;S.slipMode=false;}
-    var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="envelope-mode"]'),
-        slideButton=document.querySelector('[data-film-action="slide-mode"]'),slipButton=document.querySelector('[data-film-action="slip-mode"]');
+    var panel=$('film-studio-panel'),reactToolbar=reactOwnsTimelineToolbar(),
+        button=reactToolbar?null:document.querySelector('[data-film-action="envelope-mode"]'),
+        slideButton=reactToolbar?null:document.querySelector('[data-film-action="slide-mode"]'),
+        slipButton=reactToolbar?null:document.querySelector('[data-film-action="slip-mode"]');
     if(panel){
       panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
       panel.classList.toggle('fs-slide-mode',S.slideMode);
@@ -1466,8 +1475,10 @@
   window.filmStudioSetSlideMode=function(enabled){
     S.slideMode=!!enabled;
     if(S.slideMode){S.envelopeMode=false;S.slipMode=false;}
-    var panel=$('film-studio-panel'),button=document.querySelector('[data-film-action="slide-mode"]'),
-        envelopeButton=document.querySelector('[data-film-action="envelope-mode"]'),slipButton=document.querySelector('[data-film-action="slip-mode"]');
+    var panel=$('film-studio-panel'),reactToolbar=reactOwnsTimelineToolbar(),
+        button=reactToolbar?null:document.querySelector('[data-film-action="slide-mode"]'),
+        envelopeButton=reactToolbar?null:document.querySelector('[data-film-action="envelope-mode"]'),
+        slipButton=reactToolbar?null:document.querySelector('[data-film-action="slip-mode"]');
     if(panel){
       panel.classList.toggle('fs-slide-mode',S.slideMode);
       panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
@@ -1496,10 +1507,10 @@
   window.filmStudioSetSlipMode=function(enabled){
     S.slipMode=!!enabled;
     if(S.slipMode){S.slideMode=false;S.envelopeMode=false;}
-    var panel=$('film-studio-panel'),
-        button=document.querySelector('[data-film-action="slip-mode"]'),
-        slideButton=document.querySelector('[data-film-action="slide-mode"]'),
-        envelopeButton=document.querySelector('[data-film-action="envelope-mode"]');
+    var panel=$('film-studio-panel'),reactToolbar=reactOwnsTimelineToolbar(),
+        button=reactToolbar?null:document.querySelector('[data-film-action="slip-mode"]'),
+        slideButton=reactToolbar?null:document.querySelector('[data-film-action="slide-mode"]'),
+        envelopeButton=reactToolbar?null:document.querySelector('[data-film-action="envelope-mode"]');
     if(panel){
       panel.classList.toggle('fs-slip-mode',S.slipMode);
       panel.classList.toggle('fs-slide-mode',S.slideMode);
