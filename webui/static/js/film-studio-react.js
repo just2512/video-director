@@ -23995,13 +23995,13 @@
       if (!item || typeof item !== "object" || Array.isArray(item)) return null;
       const member = item;
       const memberId = asString(member.id);
-      const originalAt = asOptionalFiniteNumber(member.originalAt);
-      const originalEnd = asOptionalFiniteNumber(member.originalEnd);
-      const trackId = asString(member.trackId);
+      const originalAt2 = asOptionalFiniteNumber(member.originalAt);
+      const originalEnd2 = asOptionalFiniteNumber(member.originalEnd);
+      const trackId2 = asString(member.trackId);
       const trackIndex = asOptionalFiniteNumber(member.trackIndex);
-      if (!memberId || memberIds.has(memberId) || originalAt === void 0 || originalEnd === void 0 || originalAt < 0 || originalEnd < originalAt || !trackId || !Number.isInteger(trackIndex) || trackIndex === void 0 || trackIndex < 0 || trackOrder[trackIndex] !== trackId) return null;
+      if (!memberId || memberIds.has(memberId) || originalAt2 === void 0 || originalEnd2 === void 0 || originalAt2 < 0 || originalEnd2 < originalAt2 || !trackId2 || !Number.isInteger(trackIndex) || trackIndex === void 0 || trackIndex < 0 || trackOrder[trackIndex] !== trackId2) return null;
       memberIds.add(memberId);
-      members.push({ id: memberId, originalAt, originalEnd, trackId, trackIndex });
+      members.push({ id: memberId, originalAt: originalAt2, originalEnd: originalEnd2, trackId: trackId2, trackIndex });
     }
     if (!memberIds.has(id)) return null;
     const optionalString = (key) => {
@@ -24025,10 +24025,24 @@
     if (numberKeys.some((key) => raw[key] !== void 0 && raw[key] !== null && optionalNumber(key) === void 0)) {
       return null;
     }
+    const originalAt = optionalNumber("originalAt");
+    const originalEnd = optionalNumber("originalEnd");
+    const trackId = optionalString("trackId");
     const originalTrackIndex = optionalNumber("originalTrackIndex");
-    if (originalTrackIndex !== void 0 && (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 || optionalString("trackId") && trackOrder[originalTrackIndex] !== optionalString("trackId"))) {
-      return null;
-    }
+    const targetTrackId = optionalString("targetTrackId");
+    const leftClipId = optionalString("leftClipId");
+    const centerClipId = optionalString("centerClipId");
+    const rightClipId = optionalString("rightClipId");
+    const rightAt = optionalNumber("rightAt");
+    const centerAt = optionalNumber("centerAt");
+    const leftDuration = optionalNumber("leftDuration");
+    const centerDuration = optionalNumber("centerDuration");
+    const rightDuration = optionalNumber("rightDuration");
+    if (originalAt === void 0 !== (originalEnd === void 0) || originalAt !== void 0 && originalEnd !== void 0 && originalEnd < originalAt || trackId === void 0 !== (originalTrackIndex === void 0) || trackId && !trackOrder.includes(trackId) || targetTrackId && !trackOrder.includes(targetTrackId) || originalTrackIndex !== void 0 && (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 || trackOrder[originalTrackIndex] !== trackId)) return null;
+    const hasClipBaseline = originalAt !== void 0 && originalEnd !== void 0 && !!trackId && originalTrackIndex !== void 0 && !!targetTrackId;
+    if ((mode === "move" || mode === "trim-start" || mode === "trim-end" || mode === "slip") && !hasClipBaseline) return null;
+    if (mode === "roll" && (!leftClipId || !rightClipId || leftClipId === rightClipId || rightAt === void 0 || leftDuration === void 0 || leftDuration <= 0 || rightDuration === void 0 || rightDuration <= 0 || !targetTrackId)) return null;
+    if (mode === "slide" && (!leftClipId || !centerClipId || !rightClipId || (/* @__PURE__ */ new Set([leftClipId, centerClipId, rightClipId])).size !== 3 || centerAt === void 0 || rightAt === void 0 || leftDuration === void 0 || leftDuration <= 0 || centerDuration === void 0 || centerDuration <= 0 || rightDuration === void 0 || rightDuration <= 0 || !targetTrackId)) return null;
     return {
       id,
       mode,
@@ -24039,20 +24053,20 @@
       active: raw.active === true,
       members,
       trackOrder,
-      originalAt: optionalNumber("originalAt"),
-      originalEnd: optionalNumber("originalEnd"),
-      trackId: optionalString("trackId"),
+      originalAt,
+      originalEnd,
+      trackId,
       originalTrackIndex,
-      targetTrackId: optionalString("targetTrackId"),
+      targetTrackId,
       invalidTargetMessage: optionalString("invalidTargetMessage"),
-      leftClipId: optionalString("leftClipId"),
-      centerClipId: optionalString("centerClipId"),
-      rightClipId: optionalString("rightClipId"),
-      rightAt: optionalNumber("rightAt"),
-      centerAt: optionalNumber("centerAt"),
-      leftDuration: optionalNumber("leftDuration"),
-      centerDuration: optionalNumber("centerDuration"),
-      rightDuration: optionalNumber("rightDuration")
+      leftClipId,
+      centerClipId,
+      rightClipId,
+      rightAt,
+      centerAt,
+      leftDuration,
+      centerDuration,
+      rightDuration
     };
   };
   var asPendingTransaction = (value) => {
