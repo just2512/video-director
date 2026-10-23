@@ -219,6 +219,49 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "Toolbar mode toggles are transient UI state; FilmDocument revision must not change."
                 )
 
+                # Playback label and pressed state are React projections of the shared runtime state.
+                playback_doc_before = fd.read_project_film(project_id)
+                play_button = page.locator('#fs-react-scrub-row #fs-play-toggle')
+                initial_playing = page.evaluate("window.filmStudioStore?.getSnapshot()?.playing")
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const button = document.querySelector('#fs-react-scrub-row #fs-play-toggle');
+                      return state?.playing === expected &&
+                        button?.getAttribute('aria-pressed') === String(expected) &&
+                        button?.textContent.trim() === (expected ? '暂停' : '播放');
+                    }""",
+                    arg=initial_playing,
+                    timeout=5000,
+                )
+                page.evaluate("window.filmStudioTogglePlayback()")
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const button = document.querySelector('#fs-react-scrub-row #fs-play-toggle');
+                      return state?.playing === expected &&
+                        button?.getAttribute('aria-pressed') === String(expected) &&
+                        button?.textContent.trim() === (expected ? '暂停' : '播放');
+                    }""",
+                    arg=not initial_playing,
+                    timeout=5000,
+                )
+                page.evaluate("window.filmStudioSeek(0)")
+                page.wait_for_function(
+                    """() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const button = document.querySelector('#fs-react-scrub-row #fs-play-toggle');
+                      return state?.playing === false && button?.getAttribute('aria-pressed') === 'false' &&
+                        button?.textContent.trim() === '播放';
+                    }""",
+                    timeout=5000,
+                )
+                assert fd.read_project_film(project_id)["rev"] == playback_doc_before["rev"]
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.playhead === 0",
+                    timeout=5000,
+                )
+
                 # The React playhead consumes FilmStore state; seeking changes geometry but not film revision.
                 playhead_doc_before = fd.read_project_film(project_id)
                 page.evaluate("window.filmStudioSeek(2)")

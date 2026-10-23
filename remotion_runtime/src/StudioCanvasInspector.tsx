@@ -1358,11 +1358,13 @@ const StudioAssets: React.FC<{model: FilmStudioAssetsModel}> = ({model}) => {
 
 const StudioScrubRow: React.FC = () => {
   const playhead=useFilmStoreField("playhead");
+  const playing=useFilmStoreField("playing");
   const duration=useFilmStoreField("duration");
   return (
   <>
     <button className="fs-btn" type="button" data-film-action="frame-prev">上一帧</button>
-    <button className="fs-btn" type="button" id="fs-play-toggle" data-film-action="play-toggle">播放</button>
+    <button className="fs-btn" type="button" id="fs-play-toggle" data-film-action="play-toggle"
+      aria-pressed={playing} title={playing ? "暂停预览" : "播放预览"}>{playing ? "暂停" : "播放"}</button>
     <input
       id="fs-playhead"
       type="range"

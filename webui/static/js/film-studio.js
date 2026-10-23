@@ -26,6 +26,17 @@
   }
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
+  function syncPlaybackButtonText(){
+    var bridge=window.filmStudioReactToolbar;
+    if(bridge&&typeof bridge.renderScrub==='function')return;
+    var button=$('fs-play-toggle');
+    if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
+  }
+  function setPlaybackState(playing){
+    window.filmStudioPlaying=!!playing;
+    S.playing=!!playing;
+    syncPlaybackButtonText();
+  }
   function timelineMath(){return window.filmStudioTimelineMath||null;}
   function setTimelineGesturePreview(preview){
     var bridge=window.filmStudioReactTimeline;
@@ -437,12 +448,12 @@
     if(frame){try{frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);}catch(_){}frame.style.display='none';}
     var ph=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
-    S.runtimeRev='';S.runtimeCommand='';S.previewProposalActive=false;window.filmStudioPlaying=false;
+    S.runtimeRev='';S.runtimeCommand='';S.previewProposalActive=false;setPlaybackState(false);
     S.elementInspect=false;S.selectedElement=null;S.hoveredElement=null;
     renderElementInspector(null);
     var selection=$('fs-element-selection');if(selection)selection.hidden=true;
     var inspectButton=$('fs-element-inspect-toggle');if(inspectButton){inspectButton.setAttribute('aria-pressed','false');inspectButton.textContent='选择画面元素';}
-    var button=$('fs-play-toggle');if(button)button.textContent='播放';
+    syncPlaybackButtonText();
   }
   function syncRuntime(type) {
     var frame=$('fs-preview-composition');
@@ -464,7 +475,7 @@
     else if(command==='seek-pause')frame.contentWindow.postMessage({type:'film-runtime:seek-pause',time:S.playhead},window.location.origin);
     else frame.contentWindow.postMessage({type:'film-runtime:seek',time:S.playhead},window.location.origin);
     S.runtimeCommand='';
-    var button=$('fs-play-toggle');if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
+    syncPlaybackButtonText();
   }
   function filmStudioRuntimeFrameLoaded() {
     var frame=$('fs-preview-composition');
@@ -1670,7 +1681,7 @@
       S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
       S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;S.hoveredElement=null;
       var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
-      S.proposal=null;S.previewProposalActive=false;S.broken=false;window.filmStudioPlaying=false;
+      S.proposal=null;S.previewProposalActive=false;S.broken=false;setPlaybackState(false);
     }
     S.projectId=nextId;
     var requestProjectId=nextId;
@@ -1692,7 +1703,7 @@
       }
       S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();
     }
-    else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';window.filmStudioPlaying=false;S.migration=r;renderMigration();}
+    else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';setPlaybackState(false);S.migration=r;renderMigration();}
     else if(r&&!r.ok&&r.exists===true){renderBrokenFilmState(r);}
     else {if(r&&r.code==='INVALID_FILM')S.broken=true;S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
   }
@@ -2220,7 +2231,7 @@
   window.filmStudioSelectClip=function(id){S.selectedId=id;S.selectedIds=id?[id]:[];S.selectionAnchor=id;var c=findClip(id);if(c)S.playhead=c.at;render();};
   window.filmStudioSeek=function(value){
     var wasPlaying=!!window.filmStudioPlaying;
-    S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));window.filmStudioPlaying=false;setPlayheadVisual();
+    S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));setPlaybackState(false);setPlayheadVisual();
     syncRuntime(wasPlaying?'seek-pause':undefined);
   };
   window.filmStudioJumpToKeyframe=function(clipId,at){
@@ -2234,7 +2245,7 @@
   window.filmStudioNudge=function(direction){var fps=Math.max(1,Math.min(120,num(S.data&&S.data.fps,30)));window.filmStudioSeek(timelineSnapToFrame(S.playhead+direction/fps,fps));};
   window.filmStudioTogglePlayback=function(){
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
-    window.filmStudioPlaying=!window.filmStudioPlaying;
+    setPlaybackState(!window.filmStudioPlaying);
     syncRuntime(window.filmStudioPlaying?'play':'pause');
   };
   window.filmStudioToggleElementInspect=function(){
@@ -2243,7 +2254,7 @@
     S.elementInspect=!S.elementInspect;
     var frame=$('fs-preview-composition'),button=$('fs-element-inspect-toggle');
     if(S.elementInspect&&window.filmStudioPlaying){
-      window.filmStudioPlaying=false;syncRuntime('pause');
+      setPlaybackState(false);syncRuntime('pause');
     }
     if(button){button.setAttribute('aria-pressed',String(S.elementInspect));button.textContent=S.elementInspect?'点选/拖动画面元素…':'选择画面元素';}
     if(S.elementInspect){
@@ -2446,12 +2457,12 @@
       }
     }else if(message.type==='film-runtime:time'){
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
-      window.filmStudioPlaying=!!message.playing;setPlayheadVisual();
-      var button=$('fs-play-toggle');if(button)button.textContent=window.filmStudioPlaying?'暂停':'播放';
+      setPlaybackState(!!message.playing);setPlayheadVisual();
+      syncPlaybackButtonText();
     }else if(message.type==='film-runtime:ended'||message.type==='film-runtime:paused'){
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
-      window.filmStudioPlaying=false;setPlayheadVisual();
-      var button=$('fs-play-toggle');if(button)button.textContent='播放';
+      setPlaybackState(false);setPlayheadVisual();
+      syncPlaybackButtonText();
     }
   });
   window.filmStudioZoom=function(direction,anchorClientX){

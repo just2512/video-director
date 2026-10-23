@@ -15,6 +15,7 @@ export interface FilmStudioStoreSnapshot {
   selectedIdsVersion: number;
   selectionAnchor: string;
   playhead: number;
+  playing: boolean;
   duration: number;
   pixelsPerSecond: number;
   pendingExternalRevision: string;
@@ -112,6 +113,7 @@ class FilmStore implements FilmStudioStoreBridge {
       selectedIdsVersion: 0,
       selectionAnchor: "",
       playhead: 0,
+      playing: false,
       duration: 10,
       pixelsPerSecond: 36,
       pendingExternalRevision: "",
@@ -212,7 +214,7 @@ class FilmStore implements FilmStudioStoreBridge {
     if (key === "projectId" || key === "revision" || key === "selectedId" ||
         key === "selectionAnchor" || key === "pendingExternalRevision") {
       normalized = asString(value);
-    } else if (key === "busy" || key === "broken" ||
+    } else if (key === "busy" || key === "broken" || key === "playing" ||
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
         key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering") {
       normalized = value === true;
@@ -256,6 +258,7 @@ class FilmStore implements FilmStudioStoreBridge {
       selectedIdsVersion: this.snapshot.selectedIdsVersion,
       selectionAnchor: asString(target.selectionAnchor),
       playhead: asFiniteNumber(target.playhead, 0),
+      playing: target.playing === true,
       duration: Math.max(0.001, asFiniteNumber(target.duration, 10)),
       pixelsPerSecond: Math.max(12, Math.min(120, asFiniteNumber(target.pxPerSec, 36))),
       pendingExternalRevision: asString(target.pendingExternalRevision),
@@ -281,6 +284,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["selectedIds", "selectedIds"],
       ["selectionAnchor", "selectionAnchor"],
       ["playhead", "playhead"],
+      ["playing", "playing"],
       ["duration", "duration"],
       ["pxPerSec", "pixelsPerSecond"],
       ["pendingExternalRevision", "pendingExternalRevision"],

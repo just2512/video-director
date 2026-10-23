@@ -11,6 +11,14 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert 'id="fs-react-timeline-toolbar"' in html
     assert 'id="fs-static-timeline-toolbar"' in html
     assert "const StudioTimelineToolbar: React.FC" in component
+    assert 'const playing=useFilmStoreField("playing");' in component
+    assert 'aria-pressed={playing} title={playing ? "暂停预览" : "播放预览"}' in component
+    assert 'playing: boolean;' in store
+    assert '["playing", "playing"]' in store
+    assert "function setPlaybackState(playing)" in studio
+    assert "function syncPlaybackButtonText()" in studio
+    assert "typeof bridge.renderScrub==='function')return;" in studio
+    assert "var button=$('fs-play-toggle');if(button)button.textContent" not in studio
     for action in ("insert-mode", "toggle-snap", "split", "join-cut", "ripple-delete", "envelope-mode", "slide-mode", "add-track", "zoom-in", "apply-inspector"):
         assert f'data-film-action="{action}"' in component
     assert "renderTimeline(): void" in component
