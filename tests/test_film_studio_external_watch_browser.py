@@ -392,10 +392,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                         audio.classList.contains('fs-clip-selected');
                     }""")
 
-                # Select the group while both members are editable; locking one member afterward
-                # simulates the stale-selection case the drag preflight must reject.
-                clip.click()
-                audio_clip.click(modifiers=["Control"])
+                # The cross-track drag above leaves both members selected. Locking one afterward
+                # simulates stale selection and must be rejected by the drag preflight.
                 wait_for_group_selection()
                 page.evaluate("window.filmStudioSetClipLock('audio-1', true)")
                 page.wait_for_function("""() => {
@@ -436,10 +434,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   return !!clip && !clip.querySelector('.fs-clip-lock-mark');
                 }""")
 
-                # Select the same group first, then lock its source track. The group must still be
+                # Reuse the still-selected group, then lock its source track. The group must be
                 # rejected before any move operation reaches the server.
-                clip.click()
-                audio_clip.click(modifiers=["Control"])
                 wait_for_group_selection()
                 page.evaluate("window.filmStudioToggleTrackLock('audio-bed')")
                 page.wait_for_function("""() => {
