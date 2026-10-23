@@ -779,7 +779,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     state?.timelineGesturePreview?.['clip-b']?.targetTrackId === destinationId &&
                     state?.timelineGesturePreview?.['audio-1']?.targetTrackId === 'video-main';
                 }""", arg=cross_track_destination_id, timeout=5000)
-                cross_video_ghost = page.locator('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="audio-bed"]')
+                cross_video_ghost = page.locator('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="' + cross_track_destination_id + '"]')
                 assert cross_video_ghost.get_attribute("aria-hidden") == "true"
                 assert cross_video_ghost.evaluate("(node) => node.style.left") != cross_video_before_left
                 assert len(film_edit_requests) == cross_request_count
