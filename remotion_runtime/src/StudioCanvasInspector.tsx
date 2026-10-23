@@ -293,6 +293,9 @@ declare global {
     filmStudioSelectClip?: (clipId: string) => void;
     filmStudioClickClip?: (clipId: string, event: MouseEvent) => void;
     filmStudioBeginClipDrag?: (event: PointerEvent, element: HTMLElement) => boolean | void;
+    filmStudioBeginClipGesture?: (event: PointerEvent, context: {
+      clipId: string; trimEdge: "start" | "end" | null; targetIsButton: boolean;
+    }) => boolean | void;
     filmStudioMoveClipGesture?: (event: PointerEvent) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
@@ -1319,8 +1322,19 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 window.filmStudioOpenTimelineContextMenu?.(clip.id,event.clientX,event.clientY);
               }}
               onPointerDown={event => {
-                const started=window.filmStudioBeginClipDrag?.(event.nativeEvent,event.currentTarget);
-                if(started)activePointerId.current=event.nativeEvent.pointerId;
+                const target = event.target;
+                const elementTarget = target instanceof Element ? target : null;
+                const trim = elementTarget?.closest("[data-trim]");
+                const rawTrimEdge = trim?.getAttribute("data-trim");
+                const started=window.filmStudioBeginClipGesture?.(event.nativeEvent,{
+                  clipId:clip.id,
+                  trimEdge:rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
+                  targetIsButton:!!elementTarget?.closest("button"),
+                });
+                if(started){
+                  activePointerId.current=event.nativeEvent.pointerId;
+                  event.currentTarget.setPointerCapture(event.nativeEvent.pointerId);
+                }
               }}
               onPointerMove={event => {
                 if(activePointerId.current===event.nativeEvent.pointerId)window.filmStudioMoveClipGesture?.(event.nativeEvent);

@@ -1038,24 +1038,27 @@
       if(selected){S.playhead=selected.at;setPlayheadVisual();previewCurrent();}
     }
   };
-  window.filmStudioBeginClipDrag = function(e,el){
-        if(e.button!==0||e.target.closest('button'))return;
+  function beginClipGesture(e,context,el){
+        context=context||{};
+        var clipId=String(context.clipId||(el&&el.getAttribute('data-clip'))||'');
+        if(e.button!==0||context.targetIsButton)return;
         if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
-        var clip=findClip(el.getAttribute('data-clip'));if(!clip)return;
+        var clip=findClip(clipId);if(!clip)return;
         if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
           selectClipWithModifiers(clip.id,e);
           S.playhead=clip.at;setPlayheadVisual();previewCurrent();renderInspector();renderAssets();
           e.preventDefault();showStatus('该片段已锁定，只能查看属性；如需编辑，请在属性栏显式解锁。');return;
         }
-        var trim=e.target.closest('[data-trim]'),rollGesture=!!(trim&&e.ctrlKey),
+        var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEdge:null,
+            rollGesture=!!(trimEdge&&e.ctrlKey),
             mediaCanSlip=(clip.tag==='video'||clip.tag==='audio'),
-            slideGesture=!!(!trim&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip),
-            slipGesture=!!(!trim&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip),canDrag;
+            slideGesture=!!(!trimEdge&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip),
+            slipGesture=!!(!trimEdge&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip),canDrag;
         if(rollGesture||slideGesture||slipGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();syncDirectorSelection();canDrag=true;}
         else{canDrag=selectClipWithModifiers(clip.id,e);}
         if(!canDrag){e.preventDefault();return;}
         S.playhead=clip.at;setPlayheadVisual();previewCurrent();
-        var mode=trim?(rollGesture?'roll':(trim.getAttribute('data-trim')==='start'?'trim-start':'trim-end'))
+        var mode=trimEdge?(rollGesture?'roll':(trimEdge==='start'?'trim-start':'trim-end'))
           :(slideGesture?'slide':(slipGesture?'slip':'move'));
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
         var gestureBridge=window.filmStudioReactTimeline;
@@ -1123,7 +1126,7 @@
           var trackData=(S.data.tracks||[]).find(function(t){return t.id===clip.track_id;});
           var ordered=(trackData&&trackData.clips||[]).slice().sort(function(a,b){return a.at-b.at;});
           var index=ordered.findIndex(function(item){return item.id===clip.id;}),leftClip=null,rightClip=null;
-          var edge=trim.getAttribute('data-trim');
+          var edge=trimEdge;
           if(edge==='end'&&index>=0&&index+1<ordered.length&&clip.end!=null&&Math.abs(clip.end-ordered[index+1].at)<=0.001){leftClip=clip;rightClip=ordered[index+1];}
           else if(edge==='start'&&index>0&&ordered[index-1].end!=null&&Math.abs(ordered[index-1].end-clip.at)<=0.001){leftClip=ordered[index-1];rightClip=clip;}
           else{showStatus('Ctrl 拖动切口只支持同轨相邻片段共用的切口。','error');e.preventDefault();return;}
@@ -1156,9 +1159,21 @@
           var element=gestureDomRefs&&gestureDomRefs.memberElements[member.id];
           if(element)element.classList.add('fs-dragging');
         });
-        if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
+        if(el&&el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
         e.preventDefault();
-    return Boolean(S.drag&&S.drag.id===String(el.getAttribute('data-clip'))&&S.drag.pointerId===e.pointerId&&Number.isInteger(e.pointerId));
+    return Boolean(S.drag&&S.drag.id===clip.id&&S.drag.pointerId===e.pointerId&&Number.isInteger(e.pointerId));
+  }
+  window.filmStudioBeginClipGesture=function(e,context){
+    return beginClipGesture(e,context,null);
+  };
+  window.filmStudioBeginClipDrag = function(e,el){
+    if(!el)return false;
+    var target=e&&e.target,trim=target&&target.closest?target.closest('[data-trim]'):null;
+    return beginClipGesture(e,{
+      clipId:el.getAttribute('data-clip'),
+      trimEdge:trim?trim.getAttribute('data-trim'):null,
+      targetIsButton:!!(target&&target.closest&&target.closest('button'))
+    },el);
   };
 
   window.filmStudioToggleTrackLock = function(trackId){
