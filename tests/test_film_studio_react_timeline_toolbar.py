@@ -51,6 +51,12 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "type FilmTimelineGesturePreviewGeometry" in component
     assert "setGesturePreview(preview: FilmTimelineGesturePreview): void" in component
+    assert "targetTrackId?: string;" in (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
+    assert "previewEntry.targetTrackId=destinationTrackId" in studio
+    assert "crossTrackGhostsByTrack" in component
+    assert 'data-gesture-ghost-for={clip.id}' in component
+    assert 'data-gesture-target-track={track.id}' in component
+    assert "fs-clip-gesture-ghost" in (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     assert "timelineGesturePreview: FilmStudioTimelineGesturePreview;" in store
     assert "timelineSnapGuide: FilmStudioTimelineSnapGuide;" in store
     assert "timelineDropTarget: FilmStudioTimelineDropTarget;" in store

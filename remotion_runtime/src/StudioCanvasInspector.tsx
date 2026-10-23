@@ -1145,6 +1145,16 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     if (typeof entry === "number") return {left:entry};
     return entry || null;
   };
+  const crossTrackGhostsByTrack = new Map<string, FilmTimelineSurfaceClip[]>();
+  for (const sourceTrack of model.tracks) {
+    for (const clip of sourceTrack.clips) {
+      const targetTrackId = previewForClip(clip.id)?.targetTrackId;
+      if (!targetTrackId || targetTrackId === clip.trackId) continue;
+      const ghosts = crossTrackGhostsByTrack.get(targetTrackId) || [];
+      ghosts.push(clip);
+      crossTrackGhostsByTrack.set(targetTrackId, ghosts);
+    }
+  }
   const activePointerId = useRef<number | null>(null);
   const activeEnvelopePointerId = useRef<number | null>(null);
   const activeScrubPointerId = useRef<number | null>(null);
@@ -1442,6 +1452,27 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               <span className="fs-clip-subtitle">{clip.atLabel}{clip.durationLabel}</span>
             </div>
           ))}
+          {(crossTrackGhostsByTrack.get(track.id) || []).map((clip) => {
+            const preview = previewForClip(clip.id);
+            if (!preview) return null;
+            return (
+              <div
+                className="fs-clip fs-clip-gesture-ghost"
+                key={"gesture-ghost-" + clip.id}
+                data-gesture-ghost-for={clip.id}
+                data-gesture-target-track={track.id}
+                data-kind={clip.tag}
+                aria-hidden="true"
+                style={{
+                  left:preview.left ?? filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
+                  width:preview.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
+                }}
+              >
+                <span className="fs-clip-title">{clip.title}</span>
+                <span className="fs-clip-subtitle">{clip.atLabel}{clip.durationLabel}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     ))}

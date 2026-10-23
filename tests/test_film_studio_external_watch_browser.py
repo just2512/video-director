@@ -740,6 +740,79 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
                     audio.classList.contains('fs-clip-selected');
                 }""")
+                # Prepare an extra unlocked row so this selected group can move one track down as a unit.
+                page.evaluate("window.prompt = () => 'Cross-track Preview Destination'")
+                page.evaluate("window.filmStudioAddTrack()")
+                page.wait_for_function("""() => [...document.querySelectorAll('#fs-timeline .fs-track-label')]
+                  .some(label => label.textContent.trim() === 'Cross-track Preview Destination')""", timeout=10000)
+                cross_track_destination_id = page.evaluate("""() => {
+                  const label = [...document.querySelectorAll('#fs-timeline .fs-track-label')]
+                    .find(node => node.textContent.trim() === 'Cross-track Preview Destination');
+                  return label?.closest('.fs-track')?.getAttribute('data-track') || null;
+                }""")
+                assert cross_track_destination_id
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
+                    audio.classList.contains('fs-clip-selected');
+                }""")
+
+                # Cross-track preview renders a React ghost for each member in its translated destination row.
+                cross_before = fd.read_project_film(project_id)
+                cross_request_count = len(film_edit_requests)
+                cross_video_before_left = clip.evaluate("(node) => node.style.left")
+                cross_video_box = clip.bounding_box()
+                target_audio_track_box = page.locator('.fs-track[data-track="audio-bed"]').bounding_box()
+                assert cross_video_box and target_audio_track_box
+                cross_start_x = cross_video_box["x"] + cross_video_box["width"] / 2
+                cross_start_y = cross_video_box["y"] + cross_video_box["height"] / 2
+                cross_target_y = target_audio_track_box["y"] + target_audio_track_box["height"] / 2
+                page.mouse.move(cross_start_x, cross_start_y)
+                page.mouse.down()
+                page.mouse.move(cross_start_x + 36, cross_target_y, steps=10)
+                page.wait_for_function("""destinationId => {
+                  const videoGhost = document.querySelector('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="audio-bed"]');
+                  const audioGhost = document.querySelector('[data-gesture-ghost-for="audio-1"][data-gesture-target-track="' + destinationId + '"]');
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!videoGhost && !!audioGhost &&
+                    state?.timelineGesturePreview?.['clip-b']?.targetTrackId === 'audio-bed' &&
+                    state?.timelineGesturePreview?.['audio-1']?.targetTrackId === destinationId;
+                }""", arg=cross_track_destination_id, timeout=5000)
+                cross_video_ghost = page.locator('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="audio-bed"]')
+                assert cross_video_ghost.get_attribute("aria-hidden") == "true"
+                assert cross_video_ghost.evaluate("(node) => node.style.left") != cross_video_before_left
+                assert len(film_edit_requests) == cross_request_count
+                assert fd.read_project_film(project_id)["rev"] == cross_before["rev"]
+
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null && state?.timelineGesturePreview === null;
+                }""", timeout=10000)
+                cross_after = fd.read_project_film(project_id)
+                def located_track(document: dict, clip_id: str) -> str:
+                    return next(track["id"] for track in document["doc"]["tracks"]
+                      if any(item["id"] == clip_id for item in track["clips"]))
+                assert located_track(cross_after, "clip-b") == "audio-bed"
+                assert located_track(cross_after, "audio-1") == cross_track_destination_id
+                cross_requests = film_edit_requests[cross_request_count:]
+                assert len(cross_requests) == 1, cross_requests
+                cross_ops = cross_requests[0].get("ops") or []
+                assert len(cross_ops) == 2 and all(op.get("op") == "move" for op in cross_ops), cross_requests
+                assert {op.get("clip") for op in cross_ops} == {"clip-b", "audio-1"}, cross_ops
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio &&
+                    video.closest('.fs-track')?.getAttribute('data-track') === 'video-main' &&
+                    audio.closest('.fs-track')?.getAttribute('data-track') === 'audio-bed';
+                }""", timeout=10000)
+                cross_undone = fd.read_project_film(project_id)
+                assert located_track(cross_undone, "clip-b") == "video-main"
+                assert located_track(cross_undone, "audio-1") == "audio-bed"
+
                 group_before = fd.read_project_film(project_id)
                 group_video_before = next(
                     item for track in group_before["doc"]["tracks"]

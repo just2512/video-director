@@ -2079,8 +2079,18 @@
       var snappedDelta=moveResolution.deltaSeconds,moveSnapUsed=moveResolution.snapCandidate;
       showTimelineSnapGuide(moveSnapUsed?moveSnapUsed.at:null,moveSnapUsed&&moveSnapUsed.kind);
       var previewLeftByClipId={};
+      var previewTargetIndex=d.trackOrder.indexOf(d.targetTrackId||d.trackId);
+      if(previewTargetIndex<0)previewTargetIndex=d.originalTrackIndex;
+      var previewTrackDelta=previewTargetIndex-d.originalTrackIndex;
+      var canPreviewCrossTrack=!d.invalidTargetMessage&&Number.isInteger(previewTargetIndex)&&Number.isInteger(d.originalTrackIndex);
       (d.members||[]).forEach(function(member){
-        previewLeftByClipId[member.id]={left:timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)};
+        var previewEntry={left:timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)};
+        var destinationIndex=member.trackIndex+previewTrackDelta;
+        if(canPreviewCrossTrack&&destinationIndex>=0&&destinationIndex<d.trackOrder.length){
+          var destinationTrackId=d.trackOrder[destinationIndex];
+          if(destinationTrackId!==member.trackId)previewEntry.targetTrackId=destinationTrackId;
+        }
+        previewLeftByClipId[member.id]=previewEntry;
       });
       if(!setTimelineGesturePreview(previewLeftByClipId)){
         (d.members||[]).forEach(function(member){
