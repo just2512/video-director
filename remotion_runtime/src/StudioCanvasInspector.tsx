@@ -1060,7 +1060,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         style={{width:model.laneWidth}}
         onPointerDown={event => {
           if (event.button !== 0) return;
-          // Keep native click synthesis enabled so clicking a ruler mark still seeks exactly to that tick.
+          // A ruler tick has its own click-to-seek handler. Capturing the pointer
+          // on the parent would retarget click away from that child on pointerup.
+          const target = event.target;
+          if (target instanceof Element && target.closest(".fs-ruler-mark")) return;
           event.currentTarget.setPointerCapture(event.pointerId);
           activeScrubPointerId.current = event.pointerId;
           seekFromRulerPointer(event.clientX, event.currentTarget);
