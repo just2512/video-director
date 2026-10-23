@@ -257,7 +257,7 @@ type FilmStudioAiProposal = {
   affectedTruncatedCount: number;
   truncatedCount: number;
 } | null;
-type FilmStudioAiDirectorModel = {messages: FilmStudioAiMessage[]; proposal: FilmStudioAiProposal};
+type FilmStudioAiDirectorModel = {messages: FilmStudioAiMessage[]; proposal: FilmStudioAiProposal; currentRevision: string};
 interface FilmStudioReactAiBridge {
   render(model: FilmStudioAiDirectorModel): void;
 }
@@ -868,12 +868,19 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
     text: "可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。"
   }];
   const proposal = model.proposal;
+  const proposalIsStale = !!proposal &&
+    (!model.currentRevision || proposal.baseRevision !== model.currentRevision);
   return (
     <>
       {proposal ? (
         <div className="fs-proposal-panel" id="fs-proposal-panel" data-react-ai-proposal="true">
           <strong id="fs-proposal-summary">{proposal.summary || "AI 候选修改"}</strong>
           <p id="fs-proposal-detail">{proposal.operationCount} 项操作 · 基于 revision {proposal.baseRevision} · 尚未写入正式文档</p>
+          {proposalIsStale ? (
+            <p id="fs-proposal-stale-warning" className="fs-proposal-stale-warning" role="alert">
+              当前影片 revision 已变化（当前：{model.currentRevision || "未知"}）。此提案基于旧 revision {proposal.baseRevision}，不能预览或应用。请重新生成提案，或拒绝此提案。
+            </p>
+          ) : null}
           <details className="fs-proposal-operation-list" data-react-proposal-details="true">
             <summary>查看具体改动（{proposal.operationCount} 项）</summary>
             <ol>
@@ -891,9 +898,11 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
             {proposal.affectedTruncatedCount ? <p>另有 {proposal.affectedTruncatedCount} 个受影响对象未列出。</p> : null}
           </details>
           <div className="fs-proposal-actions">
-            <button className="fs-btn" type="button" data-film-action="preview-proposal">重新预览</button>
+            <button className="fs-btn" type="button" data-film-action="preview-proposal"
+              disabled={proposalIsStale} title={proposalIsStale ? "提案基于旧 revision，请重新生成" : undefined}>重新预览</button>
             <button className="fs-btn" type="button" data-film-action="reject-proposal">拒绝</button>
-            <button className="fs-btn fs-primary" type="button" data-film-action="apply-proposal">确认应用</button>
+            <button className="fs-btn fs-primary" type="button" data-film-action="apply-proposal"
+              disabled={proposalIsStale} title={proposalIsStale ? "提案基于旧 revision，请重新生成" : undefined}>确认应用</button>
           </div>
         </div>
       ) : null}

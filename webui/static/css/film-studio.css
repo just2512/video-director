@@ -67,6 +67,7 @@
 .fs-clip-subtitle{display:block;opacity:.74;font-size:9px;margin-top:3px;white-space:nowrap}
 .fs-playhead{position:absolute;z-index:10;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;box-shadow:0 0 0 1px #0004}
 .fs-playhead:before{content:"";position:absolute;top:0;left:-4px;width:10px;height:8px;background:#fff;clip-path:polygon(0 0,100% 0,50% 100%)}
+.fs-proposal-stale-warning{margin:7px 0;padding:8px 10px;border:1px solid #8c4c43;border-left-width:3px;border-radius:5px;background:#2b1d1b;color:#ffd1c9;font-size:11px;line-height:1.55;overflow-wrap:anywhere}
 .fs-chat-pane{margin-top:6px}
 .fs-chat-log{max-height:180px;overflow:auto;display:flex;flex-direction:column;gap:7px;padding:4px 0 8px}
 .fs-chat-message{font-size:11px;line-height:1.6;padding:7px 9px;border-radius:5px;max-width:90%;white-space:pre-wrap;overflow-wrap:anywhere}

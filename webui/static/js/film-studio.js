@@ -377,7 +377,8 @@
       try{
         bridge.render({
           messages:(S.messages||[]).map(function(item){return{text:String(item.text||''),role:String(item.role||'assistant')};}),
-          proposal:proposal
+          proposal:proposal,
+          currentRevision:String(S.rev||'')
         });
         root.style.display='flex';
         if(legacy)legacy.style.display='none';

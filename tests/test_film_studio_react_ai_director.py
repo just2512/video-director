@@ -40,3 +40,9 @@ def test_react_ai_director_keeps_the_existing_action_and_message_contract():
     assert "window.filmStudioCancelAi({preserveSteer:true})" in studio
     assert "S.messages.push({text:String(text),role:role});" in studio
     assert "baseRevision:String(S.proposal.base_revision||'')" in studio
+    assert "currentRevision:String(S.rev||'')" in studio
+    assert "currentRevision: string" in component
+    assert "proposal.baseRevision !== model.currentRevision" in component
+    assert 'id="fs-proposal-stale-warning"' in component
+    assert "disabled={proposalIsStale}" in component
+    assert ".fs-proposal-stale-warning" in (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")

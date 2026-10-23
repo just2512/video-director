@@ -1431,6 +1431,43 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                 page.keyboard.press("Escape")
                 assert page.evaluate("window.__escapeShouldPropagate") is True
                 assert fd.read_project_film(project_id)["rev"] == before_menu["rev"]
+
+                # The AI panel must flag a proposal whose base revision no longer matches the live film.
+                proposal_fixture = page.evaluate("""() => {
+                  const bridge = window.filmStudioReactAi;
+                  const current = String(window.filmStudioStore?.getSnapshot()?.revision || "");
+                  if (!bridge || typeof bridge.render !== "function" || !current) {
+                    throw new Error("React AI bridge or current FilmStore revision unavailable");
+                  }
+                  const proposal = {
+                    summary: "测试过期提案", operationCount: 1,
+                    baseRevision: current + "-stale",
+                    operationPreviews: [{
+                      id: "stale-preview-1", action: "修改速度", target: "clip-b",
+                      detail: "将片段速度改为 1.5", before: "1", after: "1.5"
+                    }],
+                    affectedClips: ["clip-b"], affectedTruncatedCount: 0, truncatedCount: 0
+                  };
+                  bridge.render({currentRevision: current, messages: [], proposal});
+                  return {current, proposal};
+                }""")
+                stale_warning = page.locator("#fs-proposal-stale-warning")
+                stale_warning.wait_for(state="visible", timeout=5000)
+                assert "当前影片 revision 已变化" in stale_warning.inner_text()
+                assert "clip-b" in page.locator("#fs-proposal-panel").inner_text()
+                assert page.locator('[data-film-action="preview-proposal"]').is_disabled()
+                assert page.locator('[data-film-action="apply-proposal"]').is_disabled()
+                assert not page.locator('[data-film-action="reject-proposal"]').is_disabled()
+                assert fd.read_project_film(project_id)["rev"] == before_menu["rev"]
+
+                # A matching base revision restores preview/apply without writing anything.
+                page.evaluate("""({current, proposal}) => {
+                  window.filmStudioReactAi.render({currentRevision: current, messages: [], proposal: {...proposal, baseRevision: current}});
+                }""", proposal_fixture)
+                stale_warning.wait_for(state="detached", timeout=5000)
+                assert not page.locator('[data-film-action="preview-proposal"]').is_disabled()
+                assert not page.locator('[data-film-action="apply-proposal"]').is_disabled()
+                assert fd.read_project_film(project_id)["rev"] == before_menu["rev"]
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
