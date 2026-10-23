@@ -20,6 +20,8 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert 'data-react-scrub-ready="true"' in component
     assert "activeScrubPointerId = useRef<number | null>(null)" in component
     assert "seekFromRulerPointer(event.clientX, event.currentTarget)" in component
+    ruler_scrub_handlers = component.split('data-react-scrub-ready="true"', 1)[1].split("onPointerMove", 1)[0]
+    assert "preventDefault()" not in ruler_scrub_handlers, "scrub pointerdown must preserve ruler tick click synthesis"
     assert "onPointerCancel={event => {" in component
     assert "timelineRoot.addEventListener('pointerdown'" not in studio
     assert 'scroll.dataset.reactZoomReady = "true"' in component
