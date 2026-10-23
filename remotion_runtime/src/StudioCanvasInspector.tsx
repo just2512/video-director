@@ -252,6 +252,7 @@ declare global {
     filmStudioSeek?: (value: string | number) => void;
     filmStudioJumpToKeyframe?: (clipId: string, at: number) => void;
     filmStudioTimelineMath?: FilmTimelineMathBridge;
+    filmStudioZoom?: (direction: number, anchorClientX?: number) => void;
     filmStudioStore?: FilmStudioStoreBridge;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
     filmStudioReactTimeline?: FilmStudioReactTimelineBridge;
@@ -913,6 +914,21 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
       if (window.filmStudioOwnsClipGesturePointer === ownsPointer) {
         window.filmStudioOwnsClipGesturePointer = undefined;
       }
+    };
+  }, []);
+  useEffect(() => {
+    const scroll = document.getElementById("fs-timeline-scroll");
+    if (!scroll) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      window.filmStudioZoom?.(event.deltaY < 0 ? 1 : -1, event.clientX);
+    };
+    scroll.addEventListener("wheel", onWheel, {passive:false});
+    scroll.dataset.reactZoomReady = "true";
+    return () => {
+      scroll.removeEventListener("wheel", onWheel);
+      delete scroll.dataset.reactZoomReady;
     };
   }, []);
   return (

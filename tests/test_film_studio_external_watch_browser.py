@@ -741,18 +741,25 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert fd.read_project_film(project_id)["rev"] == fd.revision_of(repaired)
 
-                # Move into the upper zoom range first; the measured wheel then creates horizontal overflow.
-                page.evaluate("""() => {
-                  const scroll = document.querySelector('#fs-timeline-scroll');
-                  const rect = scroll.getBoundingClientRect();
-                  const clientX = rect.left + Math.max(120, Math.min(200, scroll.clientWidth - 24));
-                  for (let i = 0; i < 4; i++) {
-                    scroll.dispatchEvent(new WheelEvent('wheel', {
-                      bubbles: true, cancelable: true, ctrlKey: true,
-                      deltaY: -100, clientX
-                    }));
-                  }
-                }""")
+                def ctrl_wheel(client_x: float, client_y: float, delta_y: float, count: int = 1) -> None:
+                    page.mouse.move(client_x, client_y)
+                    page.keyboard.down("Control")
+                    try:
+                        for _ in range(count):
+                            page.mouse.wheel(0, delta_y)
+                    finally:
+                        page.keyboard.up("Control")
+
+                # Use genuine Chromium input after React installs the non-passive zoom handler.
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-timeline-scroll')?.dataset.reactZoomReady === 'true'",
+                    timeout=10000,
+                )
+                scroll_box = page.locator("#fs-timeline-scroll").bounding_box()
+                assert scroll_box, "timeline scroll box unavailable before zoom"
+                wheel_client_x = scroll_box["x"] + max(120, min(200, scroll_box["width"] - 24))
+                wheel_client_y = scroll_box["y"] + min(40, scroll_box["height"] / 2)
+                ctrl_wheel(wheel_client_x, wheel_client_y, -100, count=4)
                 page.wait_for_function(
                     """() => {
                       const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
@@ -770,21 +777,25 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   const width = Number.parseFloat(clip.style.width);
                   const pixelsPerSecond = width / 5;
                   return {
-                    clientX: rect.left + localX, localX, width, pixelsPerSecond,
+                    clientX: rect.left + localX, clientY: rect.top + Math.min(40, rect.height / 2),
+                    localX, width, pixelsPerSecond,
+                    storePixelsPerSecond: window.filmStudioStore?.getField("pixelsPerSecond"),
                     scrollLeft: scroll.scrollLeft,
                     anchorTime: (scroll.scrollLeft + localX - 132) / pixelsPerSecond
                   };
                 }""")
-                zoom_prevented = page.evaluate("""clientX => {
+                page.evaluate("""() => {
                   const scroll = document.querySelector('#fs-timeline-scroll');
-                  const event = new WheelEvent('wheel', {
-                    bubbles: true, cancelable: true, ctrlKey: true,
-                    deltaY: -100, clientX
-                  });
-                  scroll.dispatchEvent(event);
-                  return event.defaultPrevented;
-                }""", zoom_before["clientX"])
-                assert zoom_prevented is True, "Ctrl-wheel must prevent browser page zoom while over the timeline"
+                  window.__filmStudioWheelPrevented = false;
+                  scroll.addEventListener("wheel", event => {
+                    if (event.ctrlKey || event.metaKey) window.__filmStudioWheelPrevented = event.defaultPrevented;
+                  }, {once:true});
+                }""")
+                ctrl_wheel(zoom_before["clientX"], zoom_before["clientY"], -100)
+                page.wait_for_function(
+                    "() => window.__filmStudioWheelPrevented === true",
+                    timeout=5000,
+                )
                 page.wait_for_function(
                     """oldWidth => {
                       const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
@@ -798,9 +809,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   return {
                     width: Number.parseFloat(clip.style.width),
                     pixelsPerSecond: Number.parseFloat(clip.style.width) / 5,
+                    storePixelsPerSecond: window.filmStudioStore?.getField("pixelsPerSecond"),
                     scrollLeft: scroll.scrollLeft
                   };
                 }""")
+                assert abs(zoom_before["storePixelsPerSecond"] - zoom_before["pixelsPerSecond"]) < 0.02, zoom_before
+                assert abs(zoom_after["storePixelsPerSecond"] - zoom_after["pixelsPerSecond"]) < 0.02, zoom_after
                 assert abs(zoom_after["pixelsPerSecond"] / zoom_before["pixelsPerSecond"] - 1.25) < 0.02, zoom_after
                 expected_scroll_left = max(
                     0,
@@ -811,15 +825,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 }
 
                 # Reach the zoom cap so the timeline must scroll; then verify auto-scroll while a clip is held at the right edge.
-                page.evaluate("""clientX => {
-                  const scroll = document.querySelector('#fs-timeline-scroll');
-                  for (let i = 0; i < 5; i++) {
-                    scroll.dispatchEvent(new WheelEvent('wheel', {
-                      bubbles: true, cancelable: true, ctrlKey: true,
-                      deltaY: -100, clientX
-                    }));
-                  }
-                }""", zoom_before["clientX"])
+                ctrl_wheel(zoom_before["clientX"], zoom_before["clientY"], -100, count=5)
                 page.wait_for_function(
                     """() => {
                       const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');

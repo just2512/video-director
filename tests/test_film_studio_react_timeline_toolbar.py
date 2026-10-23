@@ -7,12 +7,18 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    store = (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
     assert 'id="fs-react-timeline-toolbar"' in html
     assert 'id="fs-static-timeline-toolbar"' in html
     assert "const StudioTimelineToolbar: React.FC" in component
     for action in ("insert-mode", "toggle-snap", "split", "join-cut", "ripple-delete", "envelope-mode", "slide-mode", "add-track", "zoom-in", "apply-inspector"):
         assert f'data-film-action="{action}"' in component
     assert "renderTimeline(): void" in component
+    assert "pixelsPerSecond: number;" in store
+    assert '["pxPerSec", "pixelsPerSecond"]' in store
+    assert 'scroll.addEventListener("wheel", onWheel, {passive:false})' in component
+    assert 'scroll.dataset.reactZoomReady = "true"' in component
+    assert "bindFilmTimelineWheel" not in studio
     assert "findTimelineSnap" in studio
     assert "updateDragAutoScroll" in studio
     assert "setInterval(function()" in studio

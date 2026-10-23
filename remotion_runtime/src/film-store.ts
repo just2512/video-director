@@ -16,6 +16,7 @@ export interface FilmStudioStoreSnapshot {
   selectionAnchor: string;
   playhead: number;
   duration: number;
+  pixelsPerSecond: number;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -111,6 +112,7 @@ class FilmStore implements FilmStudioStoreBridge {
       selectionAnchor: "",
       playhead: 0,
       duration: 10,
+      pixelsPerSecond: 36,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -212,6 +214,8 @@ class FilmStore implements FilmStudioStoreBridge {
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
         key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
       normalized = value === true;
+    } else if (key === "pixelsPerSecond") {
+      normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
     } else if (key === "playhead" || key === "duration") {
       const parsed = asFiniteNumber(value, key === "duration" ? 10 : 0);
       normalized = key === "duration" ? Math.max(0.001, parsed) : Math.max(0, parsed);
@@ -251,6 +255,7 @@ class FilmStore implements FilmStudioStoreBridge {
       selectionAnchor: asString(target.selectionAnchor),
       playhead: asFiniteNumber(target.playhead, 0),
       duration: Math.max(0.001, asFiniteNumber(target.duration, 10)),
+      pixelsPerSecond: Math.max(12, Math.min(120, asFiniteNumber(target.pxPerSec, 36))),
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,
@@ -274,6 +279,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["selectionAnchor", "selectionAnchor"],
       ["playhead", "playhead"],
       ["duration", "duration"],
+      ["pxPerSec", "pixelsPerSecond"],
       ["pendingExternalRevision", "pendingExternalRevision"],
       ["insertMode", "insertMode"],
       ["overwriteMode", "overwriteMode"],

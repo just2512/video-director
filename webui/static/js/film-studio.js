@@ -2272,14 +2272,6 @@
       if(scroll&&rect)scroll.scrollLeft=timelineZoomScrollLeft(anchorTime,localX,S.pxPerSec,132);
     }
   };
-  (function bindFilmTimelineWheel(){
-    var scroll=$('fs-timeline-scroll');if(!scroll)return;
-    scroll.addEventListener('wheel',function(e){
-      if(!(e.ctrlKey||e.metaKey))return;
-      e.preventDefault();
-      window.filmStudioZoom(e.deltaY<0?1:-1,e.clientX);
-    },{passive:false});
-  })();
   window.filmStudioAddTrack=async function(){
     if(!S.data||!S.data.exists||S.busy){showStatus('请先初始化影片文档。','error');return;}
     var label=window.prompt('新轨道名称','画面轨道');if(label==null)return;label=label.trim();
