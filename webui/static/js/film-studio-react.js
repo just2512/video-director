@@ -23843,6 +23843,27 @@
     pixelsToSeconds(pixels, pixelsPerSecond) {
       return finiteOr(pixels, 0) / Math.max(1e-6, finiteOr(pixelsPerSecond, 1));
     },
+    dragDeltaSeconds(pointerDeltaPixels, scrollDeltaPixels, pixelsPerSecond) {
+      return filmTimelineMath.pixelsToSeconds(
+        finiteOr(pointerDeltaPixels, 0) + finiteOr(scrollDeltaPixels, 0),
+        pixelsPerSecond
+      );
+    },
+    resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels) {
+      const target = finiteOr(rawAt, 0);
+      const threshold = Math.max(0, finiteOr(thresholdPixels, 0));
+      let best = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const candidate of candidates) {
+        if (!candidate || !Number.isFinite(candidate.at)) continue;
+        const distance = Math.abs(filmTimelineMath.secondsToPixels(candidate.at - target, pixelsPerSecond));
+        if (distance <= threshold && distance < bestDistance) {
+          best = candidate;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    },
     clipLeft(at, pixelsPerSecond) {
       return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));
     },
@@ -23941,6 +23962,7 @@
         selectionAnchor: "",
         playhead: 0,
         duration: 10,
+        pixelsPerSecond: 36,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24027,6 +24049,8 @@
         normalized = asString(value);
       } else if (key === "busy" || key === "broken" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
         normalized = value === true;
+      } else if (key === "pixelsPerSecond") {
+        normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
       } else if (key === "playhead" || key === "duration") {
         const parsed = asFiniteNumber(value, key === "duration" ? 10 : 0);
         normalized = key === "duration" ? Math.max(1e-3, parsed) : Math.max(0, parsed);
@@ -24060,6 +24084,7 @@
         selectionAnchor: asString(target.selectionAnchor),
         playhead: asFiniteNumber(target.playhead, 0),
         duration: Math.max(1e-3, asFiniteNumber(target.duration, 10)),
+        pixelsPerSecond: Math.max(12, Math.min(120, asFiniteNumber(target.pxPerSec, 36))),
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -24082,6 +24107,7 @@
         ["selectionAnchor", "selectionAnchor"],
         ["playhead", "playhead"],
         ["duration", "duration"],
+        ["pxPerSec", "pixelsPerSecond"],
         ["pendingExternalRevision", "pendingExternalRevision"],
         ["insertMode", "insertMode"],
         ["overwriteMode", "overwriteMode"],
@@ -25194,6 +25220,21 @@
         if (window.filmStudioOwnsClipGesturePointer === ownsPointer) {
           window.filmStudioOwnsClipGesturePointer = void 0;
         }
+      };
+    }, []);
+    (0, import_react.useEffect)(() => {
+      const scroll = document.getElementById("fs-timeline-scroll");
+      if (!scroll) return;
+      const onWheel = (event) => {
+        if (!(event.ctrlKey || event.metaKey)) return;
+        event.preventDefault();
+        window.filmStudioZoom?.(event.deltaY < 0 ? 1 : -1, event.clientX);
+      };
+      scroll.addEventListener("wheel", onWheel, { passive: false });
+      scroll.dataset.reactZoomReady = "true";
+      return () => {
+        scroll.removeEventListener("wheel", onWheel);
+        delete scroll.dataset.reactZoomReady;
       };
     }, []);
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
