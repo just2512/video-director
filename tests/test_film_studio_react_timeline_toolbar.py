@@ -56,6 +56,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "window.filmStudioJumpToKeyframe?.(clip.id, mark.at)" in component
     assert "window.filmStudioJumpToKeyframe=function(clipId,at)" in studio
     assert "window.filmStudioJumpToKeyframe" in studio and "renderSurface" in studio
+    assert "clearSurface(): void;" in component
+    assert "hasSurface(): boolean;" in component
+    assert "typeof timelineBridge.clearSurface==='function')timelineBridge.clearSurface();" in studio
+    assert "typeof timelineBridge.hasSurface==='function'&&!timelineBridge.hasSurface()" in studio
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioMoveClipGesture = function(e)" in studio
     assert "window.filmStudioCancelClipGesture?.(event.nativeEvent)" in component

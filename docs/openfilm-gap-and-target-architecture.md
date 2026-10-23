@@ -36,6 +36,8 @@
 
 ## React 时间线输入所有权（当前增量）
 
+- `#fs-timeline` 是 React Portal 宿主时，迁移页或文档错误页不能直接改写其子树。切换到 legacy 占位页前先卸载 React 时间线；恢复有效 FilmDocument 时，仅当 React surface 确认未挂载后，清理遗留占位内容并重新挂载，避免 React fiber 仍持有旧节点而浏览器 DOM 已被清空。
+
 - 简单片段移动预览与音量包络的 pointerdown/move/up/cancel 由 React 分发；包络增益曲线的绘制、关键帧命中测试和 FilmOperation 仍由共享适配器执行。原生 document 监听只处理非 React 所有的指针与无构建 fallback，并根据 pointer owner 明确跳过已被 React 接管的手势。
 - 这不是将所有剪辑算法迁入 React：修剪、roll、slide、slip 继续逐步迁移，最终写盘仍必须经过 revision-checked FilmDocument 事务。
 

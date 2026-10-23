@@ -837,8 +837,15 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 # The inspector changing back is not enough: the authoritative timeline
                 # surface must re-render all repaired IDs before further wheel input.
                 page.wait_for_function(
-                    """() => ["clip-a","clip-b","audio-1"].every(id =>
-                      document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]'))""",
+                    """() => {
+                      const snapshot = window.filmStudioStore?.getSnapshot();
+                      const film = snapshot?.film;
+                      const modelHasClips = ["clip-a","clip-b","audio-1"].every(id =>
+                        (film?.tracks || []).some(track => (track.clips || []).some(clip => clip.id === id)));
+                      const domHasClips = ["clip-a","clip-b","audio-1"].every(id =>
+                        document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]'));
+                      return modelHasClips && domHasClips;
+                    }""",
                     timeout=5000,
                 )
                 assert fd.read_project_film(project_id)["rev"] == fd.revision_of(repaired)

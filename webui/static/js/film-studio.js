@@ -550,6 +550,10 @@
     if(backgroundToggle)backgroundToggle.checked=!isTransparentBackground(String(styles.backgroundColor||'transparent'));
   }
   function renderMigration() {
+    // #fs-timeline is a React portal target when the verified bundle is loaded.
+    // Unmount that portal before legacy migration markup mutates its DOM children.
+    var timelineBridge=window.filmStudioReactTimeline;
+    if(timelineBridge&&typeof timelineBridge.clearSurface==='function')timelineBridge.clearSurface();
     var data=S.migration||{}, preview=data.migration_preview||{}, warnings=preview.warnings||[];
     $('fs-project-label').textContent=S.projectId;$('fs-clip-count').textContent='—';$('fs-timeline-meta').textContent='迁移预览';
     $('fs-assets-list').innerHTML='<div class="fs-empty">当前项目还没有 film.html。初始化将生成可编辑影片文档，不会覆盖旧 Composition。</div>';
@@ -1020,6 +1024,13 @@
     var laneWidth=Math.max(720,Math.ceil(timelineSecondsToPixels(S.duration,S.pxPerSec))),ticks=Math.min(240,Math.ceil(S.duration/5));
     var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
     if(reactTimeline){
+      var timelineBridge=window.filmStudioReactTimeline;
+      // React must remount after migration/error placeholders were written outside its root.
+      // Replace those placeholder children only when the React subtree is known to be unmounted.
+      if(timelineBridge&&typeof timelineBridge.hasSurface==='function'&&!timelineBridge.hasSurface()){
+        var timelineHost=$('fs-timeline');
+        if(timelineHost)timelineHost.replaceChildren();
+      }
       var renderModel={
         laneWidth:laneWidth,totalWidth:132+laneWidth,
         pixelsPerSecond:S.pxPerSec,

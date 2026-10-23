@@ -224,6 +224,8 @@ type FilmTimelineSurfaceModel = {
 interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
   setGesturePreview(preview: Record<string, number> | null): void;
+  clearSurface(): void;
+  hasSurface(): boolean;
 }
 type FilmStudioAiMessage = {text: string; role: string};
 type FilmStudioAiOperationPreview = {
@@ -1420,6 +1422,12 @@ window.filmStudioReactTimeline = {
   },
   setGesturePreview(preview) {
     updateTimelineGesturePreview?.(preview);
+  },
+  clearSurface() {
+    if (studioReactState.timeline !== null) renderStudioReactOwner({timeline:null});
+  },
+  hasSurface() {
+    return studioReactState.timeline !== null;
   },
 };
 
