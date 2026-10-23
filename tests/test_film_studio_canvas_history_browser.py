@@ -443,3 +443,142 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_react_bezier_control_drag_persists_after_browser_reload(tmp_path, monkeypatch):
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "studio-bezier-control-browser"
+    project_root = storage_root / project_id
+    scene_root = project_root / "scenes"
+    scene_root.mkdir(parents=True)
+    keyframes = json.dumps([{
+        "property": "opacity",
+        "keyframes": [
+            {"at": 0, "value": 1, "easing": {
+                "type": "bezier", "x1": 0.2, "y1": 0.1, "x2": 0.8, "y2": 0.9
+            }},
+            {"at": 4, "value": 0.25, "easing": "linear"},
+        ],
+    }], separators=(",", ":"))
+    film = FILM.replace(
+        'at="0"\nstyle=',
+        'at="0" data-film-keyframes=\'' + keyframes + '\'\nstyle=',
+        1,
+    )
+    assert film != FILM
+    (project_root / fd.FILM_NAME).write_text(film, encoding="utf-8")
+    (scene_root / "title.html").write_text(SCENE, encoding="utf-8")
+    assert fd.read_project_film(project_id)["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            try:
+                _open_studio(page, server.server_port, project_id)
+                page.locator("#fs-timeline .fs-clip[data-clip='scene-clip']").click(
+                    position={"x": 40, "y": 10}
+                )
+                page.locator('#fs-inspector [data-react-clip-inspector="true"]').wait_for(
+                    state="attached", timeout=10000
+                )
+                graph = page.locator(".fs-keyframe-bezier-graph")
+                handle = page.locator('[data-bezier-handle="p1"]')
+                graph.wait_for(state="visible", timeout=10000)
+                handle.wait_for(state="visible", timeout=10000)
+                control_x = page.locator('[aria-label="关键帧 1 x1"]')
+                control_x.wait_for(state="visible", timeout=10000)
+                assert abs(float(control_x.input_value()) - 0.2) < 0.001
+
+                # Drag the real SVG handle (x1=.2 to x1=.42) rather than
+                # setting React state or asserting that the control exists.
+                graph_box = graph.bounding_box()
+                handle_box = handle.bounding_box()
+                assert graph_box and handle_box, {"graph": graph_box, "handle": handle_box}
+                start_x = handle_box["x"] + handle_box["width"] / 2
+                start_y = handle_box["y"] + handle_box["height"] / 2
+                target_x = graph_box["x"] + graph_box["width"] * 0.436
+                target_y = graph_box["y"] + graph_box["height"] * 0.82
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(target_x, target_y, steps=8)
+                page.mouse.up()
+                page.wait_for_function(
+                    """() => {
+                      const input = document.querySelector('[aria-label="关键帧 1 x1"]');
+                      return !!input && Math.abs(Number(input.value) - 0.42) < 0.025;
+                    }""",
+                    timeout=10000,
+                )
+
+                original_revision = fd.read_project_film(project_id)["rev"]
+                page.locator("#fs-apply-clip-inspector").click()
+                page.wait_for_function(
+                    """oldRevision => {
+                      const label = document.querySelector('#fs-project-label');
+                      return !!label && !label.textContent.includes('rev ' + oldRevision);
+                    }""",
+                    arg=original_revision,
+                    timeout=15000,
+                )
+                saved = fd.read_project_film(project_id)
+                saved_clip = next(
+                    item for track in saved["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "scene-clip"
+                )
+                saved_channels = json.loads(saved_clip["attrs"]["data-film-keyframes"])
+                opacity = next(channel for channel in saved_channels if channel["property"] == "opacity")
+                easing = opacity["keyframes"][0]["easing"]
+                assert easing["type"] == "bezier"
+                assert abs(float(easing["x1"]) - 0.42) < 0.025, easing
+                assert abs(float(easing["y1"]) - 0.1) < 0.025, easing
+                assert abs(float(easing["x2"]) - 0.8) < 0.025, easing
+                assert abs(float(easing["y2"]) - 0.9) < 0.025, easing
+                assert opacity["keyframes"][1]["value"] == 0.25
+                saved_revision = saved["rev"]
+
+                # A true browser reload must rebuild the control from the persisted film.html.
+                page.reload(wait_until="domcontentloaded")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                }""", project_id)
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="scene-clip"]').wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="scene-clip"]').click(
+                    position={"x": 40, "y": 10}
+                )
+                page.locator('#fs-inspector [data-react-clip-inspector="true"]').wait_for(
+                    state="attached", timeout=10000
+                )
+                control_x_after_reload = page.locator('[aria-label="关键帧 1 x1"]')
+                control_x_after_reload.wait_for(state="visible", timeout=10000)
+                assert abs(float(control_x_after_reload.input_value()) - 0.42) < 0.025
+                assert fd.read_project_film(project_id)["rev"] == saved_revision
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
