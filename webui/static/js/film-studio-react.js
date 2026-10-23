@@ -24253,6 +24253,7 @@
             const geometry = {};
             if (typeof raw.left === "number" && Number.isFinite(raw.left)) geometry.left = raw.left;
             if (typeof raw.width === "number" && Number.isFinite(raw.width) && raw.width > 0) geometry.width = raw.width;
+            if (typeof raw.targetTrackId === "string" && raw.targetTrackId.trim()) geometry.targetTrackId = raw.targetTrackId;
             if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
             if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
             if (Object.keys(geometry).length) entries[clipId] = geometry;
@@ -25688,6 +25689,16 @@
       if (typeof entry === "number") return { left: entry };
       return entry || null;
     };
+    const crossTrackGhostsByTrack = /* @__PURE__ */ new Map();
+    for (const sourceTrack of model.tracks) {
+      for (const clip of sourceTrack.clips) {
+        const targetTrackId = previewForClip(clip.id)?.targetTrackId;
+        if (!targetTrackId || targetTrackId === clip.trackId) continue;
+        const ghosts = crossTrackGhostsByTrack.get(targetTrackId) || [];
+        ghosts.push(clip);
+        crossTrackGhostsByTrack.set(targetTrackId, ghosts);
+      }
+    }
     const activePointerId = (0, import_react.useRef)(null);
     const activeEnvelopePointerId = (0, import_react.useRef)(null);
     const activeScrubPointerId = (0, import_react.useRef)(null);
@@ -25849,177 +25860,205 @@
                     }, children: track.muted ? "\u{1F50A}" : "\u{1F507}" })
                   ] })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-                  "div",
-                  {
-                    className: "fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "") + (activeDragIds?.includes(clip.id) ? " fs-dragging" : "") + (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") + (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") + (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : ""),
-                    "data-clip": clip.id,
-                    "data-clip-locked": clip.locked ? "true" : "false",
-                    "data-track": clip.trackId,
-                    "data-kind": clip.tag,
-                    "data-react-timeline-clip": clip.id,
-                    "data-react-gesture-preview": previewForClip(clip.id) ? "true" : "false",
-                    "data-roll-delta": previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : void 0,
-                    "data-slide-delta": previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : void 0,
-                    "data-slip-delta": previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : void 0,
-                    style: {
-                      left: previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
-                      width: previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
-                    },
-                    title: clip.title,
-                    onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
-                    onContextMenu: (event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      window.filmStudioOpenTimelineContextMenu?.(clip.id, event.clientX, event.clientY);
-                    },
-                    onPointerDown: (event) => {
-                      const target = event.target;
-                      const elementTarget = target instanceof Element ? target : null;
-                      const trim = elementTarget?.closest("[data-trim]");
-                      const rawTrimEdge = trim?.getAttribute("data-trim");
-                      const started = window.filmStudioBeginClipGesture?.(event.nativeEvent, {
-                        clipId: clip.id,
-                        trimEdge: rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
-                        targetIsButton: !!elementTarget?.closest("button")
-                      });
-                      if (started) {
-                        activePointerId.current = event.nativeEvent.pointerId;
-                        try {
-                          event.currentTarget.setPointerCapture(event.nativeEvent.pointerId);
-                        } catch {
-                        }
-                      }
-                    },
-                    onPointerMove: (event) => {
-                      if (activePointerId.current === event.nativeEvent.pointerId) window.filmStudioMoveClipGesture?.(event.nativeEvent);
-                    },
-                    onPointerUp: (event) => {
-                      const pointerId = event.nativeEvent.pointerId;
-                      if (activePointerId.current !== pointerId) return;
-                      const pending = window.filmStudioEndClipGesture?.(event.nativeEvent);
-                      const clear = () => {
-                        if (activePointerId.current === pointerId) activePointerId.current = null;
-                      };
-                      Promise.resolve(pending).then(clear, clear);
-                    },
-                    onPointerCancel: (event) => {
-                      const pointerId = event.nativeEvent.pointerId;
-                      if (activePointerId.current !== pointerId) return;
-                      window.filmStudioCancelClipGesture?.(event.nativeEvent);
-                      Promise.resolve().then(() => {
-                        if (activePointerId.current === pointerId) activePointerId.current = null;
-                      });
-                    },
-                    children: [
-                      clip.thumbnail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "fs-clip-thumb", src: clip.thumbnail, loading: "lazy", alt: "", onError: (event) => {
-                        event.currentTarget.style.display = "none";
-                      } }) : null,
-                      clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                        AudioWaveformCanvas,
-                        {
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: [
+                  track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                    "div",
+                    {
+                      className: "fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "") + (activeDragIds?.includes(clip.id) ? " fs-dragging" : "") + (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") + (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") + (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : ""),
+                      "data-clip": clip.id,
+                      "data-clip-locked": clip.locked ? "true" : "false",
+                      "data-track": clip.trackId,
+                      "data-kind": clip.tag,
+                      "data-react-timeline-clip": clip.id,
+                      "data-react-gesture-preview": previewForClip(clip.id) ? "true" : "false",
+                      "data-roll-delta": previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : void 0,
+                      "data-slide-delta": previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : void 0,
+                      "data-slip-delta": previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : void 0,
+                      style: {
+                        left: previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                        width: previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
+                      },
+                      title: clip.title,
+                      onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
+                      onContextMenu: (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        window.filmStudioOpenTimelineContextMenu?.(clip.id, event.clientX, event.clientY);
+                      },
+                      onPointerDown: (event) => {
+                        const target = event.target;
+                        const elementTarget = target instanceof Element ? target : null;
+                        const trim = elementTarget?.closest("[data-trim]");
+                        const rawTrimEdge = trim?.getAttribute("data-trim");
+                        const started = window.filmStudioBeginClipGesture?.(event.nativeEvent, {
                           clipId: clip.id,
-                          waveformKey: clip.waveformKey,
-                          duration: clip.duration ?? 1,
-                          pixelsPerSecond: model.pixelsPerSecond,
-                          sourceStart: clip.sourceStart,
-                          sourceEnd: clip.sourceEnd,
-                          source: waveformSources[clip.waveformKey]
+                          trimEdge: rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
+                          targetIsButton: !!elementTarget?.closest("button")
+                        });
+                        if (started) {
+                          activePointerId.current = event.nativeEvent.pointerId;
+                          try {
+                            event.currentTarget.setPointerCapture(event.nativeEvent.pointerId);
+                          } catch {
+                          }
                         }
-                      ) : null,
-                      clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                        VolumeEnvelopeCanvas,
-                        {
-                          clipId: clip.id,
-                          duration: clip.duration ?? 0,
-                          pixelsPerSecond: model.pixelsPerSecond,
-                          points: clip.envelopePoints,
-                          preview: envelopePreview,
-                          onContextMenu: (event) => event.preventDefault(),
-                          onClick: (event) => event.stopPropagation(),
-                          onPointerDown: (event) => {
-                            if (event.button !== 0 && event.button !== 2) return;
-                            event.preventDefault();
-                            event.stopPropagation();
-                            const pointerId = event.nativeEvent.pointerId;
-                            const bounds = event.currentTarget.getBoundingClientRect();
-                            const started = window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {
-                              clipId: clip.id,
-                              rect: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }
-                            });
-                            if (started) {
-                              activeEnvelopePointerId.current = pointerId;
-                              try {
-                                event.currentTarget.setPointerCapture(pointerId);
-                              } catch {
-                              }
-                            }
-                          },
-                          onPointerMove: (event) => {
-                            if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
+                      },
+                      onPointerMove: (event) => {
+                        if (activePointerId.current === event.nativeEvent.pointerId) window.filmStudioMoveClipGesture?.(event.nativeEvent);
+                      },
+                      onPointerUp: (event) => {
+                        const pointerId = event.nativeEvent.pointerId;
+                        if (activePointerId.current !== pointerId) return;
+                        const pending = window.filmStudioEndClipGesture?.(event.nativeEvent);
+                        const clear = () => {
+                          if (activePointerId.current === pointerId) activePointerId.current = null;
+                        };
+                        Promise.resolve(pending).then(clear, clear);
+                      },
+                      onPointerCancel: (event) => {
+                        const pointerId = event.nativeEvent.pointerId;
+                        if (activePointerId.current !== pointerId) return;
+                        window.filmStudioCancelClipGesture?.(event.nativeEvent);
+                        Promise.resolve().then(() => {
+                          if (activePointerId.current === pointerId) activePointerId.current = null;
+                        });
+                      },
+                      children: [
+                        clip.thumbnail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "fs-clip-thumb", src: clip.thumbnail, loading: "lazy", alt: "", onError: (event) => {
+                          event.currentTarget.style.display = "none";
+                        } }) : null,
+                        clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                          AudioWaveformCanvas,
+                          {
+                            clipId: clip.id,
+                            waveformKey: clip.waveformKey,
+                            duration: clip.duration ?? 1,
+                            pixelsPerSecond: model.pixelsPerSecond,
+                            sourceStart: clip.sourceStart,
+                            sourceEnd: clip.sourceEnd,
+                            source: waveformSources[clip.waveformKey]
+                          }
+                        ) : null,
+                        clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                          VolumeEnvelopeCanvas,
+                          {
+                            clipId: clip.id,
+                            duration: clip.duration ?? 0,
+                            pixelsPerSecond: model.pixelsPerSecond,
+                            points: clip.envelopePoints,
+                            preview: envelopePreview,
+                            onContextMenu: (event) => event.preventDefault(),
+                            onClick: (event) => event.stopPropagation(),
+                            onPointerDown: (event) => {
+                              if (event.button !== 0 && event.button !== 2) return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const pointerId = event.nativeEvent.pointerId;
                               const bounds = event.currentTarget.getBoundingClientRect();
-                              window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {
-                                left: bounds.left,
-                                top: bounds.top,
-                                width: bounds.width,
-                                height: bounds.height
+                              const started = window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {
+                                clipId: clip.id,
+                                rect: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }
+                              });
+                              if (started) {
+                                activeEnvelopePointerId.current = pointerId;
+                                try {
+                                  event.currentTarget.setPointerCapture(pointerId);
+                                } catch {
+                                }
+                              }
+                            },
+                            onPointerMove: (event) => {
+                              if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
+                                const bounds = event.currentTarget.getBoundingClientRect();
+                                window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {
+                                  left: bounds.left,
+                                  top: bounds.top,
+                                  width: bounds.width,
+                                  height: bounds.height
+                                });
+                              }
+                            },
+                            onPointerUp: (event) => {
+                              const pointerId = event.nativeEvent.pointerId;
+                              if (activeEnvelopePointerId.current !== pointerId) return;
+                              const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
+                              const clear = () => {
+                                if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
+                              };
+                              Promise.resolve(pending).then(clear, clear);
+                            },
+                            onPointerCancel: (event) => {
+                              const pointerId = event.nativeEvent.pointerId;
+                              if (activeEnvelopePointerId.current !== pointerId) return;
+                              window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
+                              Promise.resolve().then(() => {
+                                if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
                               });
                             }
-                          },
-                          onPointerUp: (event) => {
-                            const pointerId = event.nativeEvent.pointerId;
-                            if (activeEnvelopePointerId.current !== pointerId) return;
-                            const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
-                            const clear = () => {
-                              if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
-                            };
-                            Promise.resolve(pending).then(clear, clear);
-                          },
-                          onPointerCancel: (event) => {
-                            const pointerId = event.nativeEvent.pointerId;
-                            if (activeEnvelopePointerId.current !== pointerId) return;
-                            window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
-                            Promise.resolve().then(() => {
-                              if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
-                            });
                           }
-                        }
-                      ) : null,
-                      clip.keyframeMarks.map((mark) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                        "button",
-                        {
-                          type: "button",
-                          className: "fs-clip-keyframe-marker",
-                          "data-film-keyframe-marker": clip.id,
-                          "data-keyframe-at": mark.at,
-                          title: "\u5173\u952E\u5E27 " + mark.at.toFixed(3) + "s \xB7 " + mark.properties.join(", "),
-                          "aria-label": "\u8DF3\u8F6C\u5230 " + mark.at.toFixed(3) + " \u79D2\u5173\u952E\u5E27",
-                          style: { left: (clip.duration && clip.duration > 0 ? Math.max(0, Math.min(100, mark.at / clip.duration * 100)) : 0) + "%" },
-                          onPointerDown: (event) => {
-                            event.stopPropagation();
+                        ) : null,
+                        clip.keyframeMarks.map((mark) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                          "button",
+                          {
+                            type: "button",
+                            className: "fs-clip-keyframe-marker",
+                            "data-film-keyframe-marker": clip.id,
+                            "data-keyframe-at": mark.at,
+                            title: "\u5173\u952E\u5E27 " + mark.at.toFixed(3) + "s \xB7 " + mark.properties.join(", "),
+                            "aria-label": "\u8DF3\u8F6C\u5230 " + mark.at.toFixed(3) + " \u79D2\u5173\u952E\u5E27",
+                            style: { left: (clip.duration && clip.duration > 0 ? Math.max(0, Math.min(100, mark.at / clip.duration * 100)) : 0) + "%" },
+                            onPointerDown: (event) => {
+                              event.stopPropagation();
+                            },
+                            onClick: (event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              window.filmStudioJumpToKeyframe?.(clip.id, mark.at);
+                            }
                           },
-                          onClick: (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            window.filmStudioJumpToKeyframe?.(clip.id, mark.at);
-                          }
+                          mark.at
+                        )),
+                        clip.locked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-lock-mark", "aria-label": "\u7247\u6BB5\u5DF2\u9501\u5B9A", children: "\u{1F512}" }) : null,
+                        clip.trimHandles ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-left", "data-trim": "start", title: "\u4FEE\u526A\u5165\u70B9" }),
+                          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-right", "data-trim": "end", title: "\u4FEE\u526A\u51FA\u70B9" })
+                        ] }) : null,
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                          clip.atLabel,
+                          clip.durationLabel
+                        ] })
+                      ]
+                    },
+                    clip.id
+                  )),
+                  (crossTrackGhostsByTrack.get(track.id) || []).map((clip) => {
+                    const preview = previewForClip(clip.id);
+                    if (!preview) return null;
+                    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                      "div",
+                      {
+                        className: "fs-clip fs-clip-gesture-ghost",
+                        "data-gesture-ghost-for": clip.id,
+                        "data-gesture-target-track": track.id,
+                        "data-kind": clip.tag,
+                        "aria-hidden": "true",
+                        style: {
+                          left: preview.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                          width: preview.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
                         },
-                        mark.at
-                      )),
-                      clip.locked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-lock-mark", "aria-label": "\u7247\u6BB5\u5DF2\u9501\u5B9A", children: "\u{1F512}" }) : null,
-                      clip.trimHandles ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-left", "data-trim": "start", title: "\u4FEE\u526A\u5165\u70B9" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-right", "data-trim": "end", title: "\u4FEE\u526A\u51FA\u70B9" })
-                      ] }) : null,
-                      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
-                      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
-                        clip.atLabel,
-                        clip.durationLabel
-                      ] })
-                    ]
-                  },
-                  clip.id
-                )) })
+                        children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
+                          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                            clip.atLabel,
+                            clip.durationLabel
+                          ] })
+                        ]
+                      },
+                      "gesture-ghost-" + clip.id
+                    );
+                  })
+                ] })
               ]
             },
             track.id
