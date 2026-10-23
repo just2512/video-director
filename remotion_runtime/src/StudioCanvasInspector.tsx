@@ -1333,7 +1333,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 });
                 if(started){
                   activePointerId.current=event.nativeEvent.pointerId;
-                  event.currentTarget.setPointerCapture(event.nativeEvent.pointerId);
+                  try { event.currentTarget.setPointerCapture(event.nativeEvent.pointerId); } catch { /* synthetic events have no active pointer to capture */ }
                 }
               }}
               onPointerMove={event => {

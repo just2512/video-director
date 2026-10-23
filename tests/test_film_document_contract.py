@@ -779,7 +779,7 @@ def test_slide_trim_alt_shift_drag_and_ai_contract_are_wired():
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert "window.filmStudioToggleSlideMode" in script
-    assert "slideGesture=!!(!trim&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip)" in script
+    assert "slideGesture=!!(!trimEdge&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip)" in script
     assert 'data-film-action="slide-mode"' in index
     assert ".fs-btn.fs-slide-mode-active" in (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     assert "e.altKey&&e.shiftKey" in script
@@ -850,10 +850,10 @@ def test_roll_trim_ctrl_drag_and_operation_contract():
     script = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
-    assert "rollGesture=!!(trim&&e.ctrlKey)" in script
+    assert "rollGesture=!!(trimEdge&&e.ctrlKey)" in script
     assert "data-roll-delta" in script
     assert "S.drag={id:clip.id,mode:'roll',pointerId:e.pointerId" in script
-    assert "return Boolean(S.drag&&S.drag.id===String(el.getAttribute('data-clip'))&&S.drag.pointerId===e.pointerId" in script
+    assert "return Boolean(S.drag&&S.drag.id===clip.id&&S.drag.pointerId===e.pointerId" in script
 
     assert 'elif kind == "roll"' in module
     assert "Ctrl 拖动切口滚动修剪" in index
@@ -920,7 +920,7 @@ def test_slip_and_speed_preset_controls_are_wired_into_timeline():
     styles = (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     index = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
-    assert "slipGesture=!!(!trim&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip)" in script
+    assert "slipGesture=!!(!trimEdge&&(S.slipMode||(e.altKey&&!e.shiftKey))&&mediaCanSlip)" in script
     assert "field == \"slip\"" not in module  # slip is a first-class operation, not an inspector field
     assert 'data-speed-preset="'+"" in script
     assert ".fs-speed-chip-active" in styles
