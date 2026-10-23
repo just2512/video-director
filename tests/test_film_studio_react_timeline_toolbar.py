@@ -55,6 +55,15 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "timelineSnapGuide: FilmStudioTimelineSnapGuide;" in store
     assert "timelineDropTarget: FilmStudioTimelineDropTarget;" in store
     assert "timelineActiveDragIds: FilmStudioTimelineActiveDragIds;" in store
+    assert "timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;" in store
+    assert "setEnvelopePreview(preview: FilmStudioTimelineEnvelopePreview): void;" in component
+    assert 'useFilmStoreField("timelineEnvelopePreview")' in component
+    assert "const drawVolumeEnvelopeCanvas =" in component
+    assert "canvas.dataset.reactEnvelopePainted = \"true\";" in component
+    assert "data-react-envelope-source={isPreview ? \"preview\" : \"document\"}" in component
+    assert "setTimelineEnvelopePreview(clip.id,points)" in studio
+    assert "setTimelineEnvelopePreview(ed.clipId,ed.points)" in studio
+    assert "if(reactTimeline)return;" in studio
     assert "setField<K extends keyof FilmStudioStoreSnapshot>(key: K, value: FilmStudioStoreSnapshot[K]): void;" in store
     assert 'useFilmStoreField("timelineGesturePreview")' in component
     assert 'useFilmStoreField("timelineSnapGuide")' in component

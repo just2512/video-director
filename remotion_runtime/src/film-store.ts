@@ -17,6 +17,8 @@ export type FilmStudioTimelineGesturePreview = Record<string, FilmStudioTimeline
 export type FilmStudioTimelineSnapGuide = {at: number; kind: string; title: string} | null;
 export type FilmStudioTimelineDropTarget = {trackId: string; invalid: boolean} | null;
 export type FilmStudioTimelineActiveDragIds = string[] | null;
+export type FilmStudioTimelineEnvelopePoint = {t: number; v: number};
+export type FilmStudioTimelineEnvelopePreview = {clipId: string; points: FilmStudioTimelineEnvelopePoint[]} | null;
 
 export interface FilmStudioStoreSnapshot {
   projectId: string;
@@ -34,6 +36,7 @@ export interface FilmStudioStoreSnapshot {
   timelineSnapGuide: FilmStudioTimelineSnapGuide;
   timelineDropTarget: FilmStudioTimelineDropTarget;
   timelineActiveDragIds: FilmStudioTimelineActiveDragIds;
+  timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -137,6 +140,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineSnapGuide: null,
       timelineDropTarget: null,
       timelineActiveDragIds: null,
+      timelineEnvelopePreview: null,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -292,6 +296,20 @@ class FilmStore implements FilmStudioStoreBridge {
     } else if (key === "timelineActiveDragIds") {
       const ids = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
       normalized = ids.length ? Array.from(new Set(ids)) : null;
+    } else if (key === "timelineEnvelopePreview") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+      else {
+        const raw = value as Record<string, unknown>;
+        const clipId = typeof raw.clipId === "string" ? raw.clipId : "";
+        const points = Array.isArray(raw.points)
+          ? raw.points.filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item))
+              .map(item => ({t:Number(item.t),v:Number(item.v)}))
+              .filter(point => Number.isFinite(point.t) && point.t >= 0 && Number.isFinite(point.v))
+              .map(point => ({t:point.t,v:Math.max(0,Math.min(1,point.v))}))
+              .sort((a,b) => a.t - b.t)
+          : [];
+        normalized = clipId && points.length >= 2 ? {clipId,points} : null;
+      }
     } else if (key === "film") {
       normalized = value ?? null;
       if (normalized && typeof normalized === "object" &&
@@ -332,6 +350,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineSnapGuide: null,
       timelineDropTarget: null,
       timelineActiveDragIds: null,
+      timelineEnvelopePreview: null,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,

@@ -45,6 +45,14 @@
     return true;
   }
   function clearTimelineGesturePreview(){setTimelineGesturePreview(null);}
+  function setTimelineEnvelopePreview(clipId,points){
+    var bridge=window.filmStudioReactTimeline;
+    if(!bridge||typeof bridge.setEnvelopePreview!=='function')return false;
+    if(!clipId||!Array.isArray(points))bridge.setEnvelopePreview(null);
+    else bridge.setEnvelopePreview({clipId:String(clipId),points:points.map(function(point){return {t:Number(point.t),v:Number(point.v)};})});
+    return true;
+  }
+  function clearTimelineEnvelopePreview(){return setTimelineEnvelopePreview('',null);}
   function setTimelineActiveDragIds(ids){
     var bridge=window.filmStudioReactTimeline;
     if(!bridge||typeof bridge.setActiveDragIds!=='function')return false;
@@ -1176,6 +1184,7 @@
                 selected:(S.selectedIds||[]).indexOf(clip.id)>=0,thumbnail:thumbnail,duration:clip.duration,
                 keyframeMarks:timelineKeyframeMarks(clip),
                 waveform:clip.tag==='audio',envelope:(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null,
+                envelopePoints:envelopePointsForClip(clip),
                 locked:Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked'),
                 trimHandles:clip.duration!=null&&!Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked')
               };
@@ -1438,7 +1447,7 @@
     }
     S.envelopeDrag={clipId:clip.id,canvas:canvas,points:points,index:index,duration:duration,active:added,changed:added};
     if(canvas.setPointerCapture)try{canvas.setPointerCapture(e.pointerId);}catch(_){}
-    drawVolumeEnvelope(canvas,points);
+    if(!setTimelineEnvelopePreview(clip.id,points))drawVolumeEnvelope(canvas,points);
     return true;
   }
   window.filmStudioBeginEnvelopeGesture=beginVolumeEnvelopeGesture;
@@ -1549,6 +1558,8 @@
   window.filmStudioToggleSlipMode=function(){window.filmStudioSetSlipMode(!S.slipMode);};
   function renderVolumeEnvelopes(){
     var timeline=$('fs-timeline');if(!timeline)return;
+    var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
+    if(reactTimeline)return;
     timeline.querySelectorAll('[data-envelope-clip]').forEach(function(canvas){
       var clip=findClip(canvas.getAttribute('data-envelope-clip'));
       if(!clip)return;
@@ -1891,7 +1902,9 @@
         point.t=Math.max(lower,Math.min(upper,x/rect.width*ed.duration));
       }
       point.v=Math.max(0,Math.min(1,1-(y-4)/Math.max(1,rect.height-8)));
-      ed.active=true;ed.changed=true;drawVolumeEnvelope(ed.canvas,ed.points);e.preventDefault();return;
+      ed.active=true;ed.changed=true;
+      if(!setTimelineEnvelopePreview(ed.clipId,ed.points))drawVolumeEnvelope(ed.canvas,ed.points);
+      e.preventDefault();return;
     }
     var d=S.drag;if(!d)return;
     var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
@@ -1997,6 +2010,7 @@
     if(S.envelopeDrag){
       var envelopeEdit=S.envelopeDrag;S.envelopeDrag=null;
       if(S.pendingExternalRevision){
+        clearTimelineEnvelopePreview();
         renderTimeline();
         showStatus('影片 revision 在音量曲线拖动期间变化；本次拖动未提交，先载入外部版本。','error');
         flushPendingExternalRevision();
@@ -2010,6 +2024,7 @@
         normalized.forEach(function(p){if(unique.length&&Math.abs(unique[unique.length-1].t-p.t)<0.001)unique[unique.length-1]=p;else unique.push(p);});
         if(unique.length>=2)await filmStudioCommit([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}]);
       }else if(S.data&&S.data.exists)renderTimeline();
+      clearTimelineEnvelopePreview();
       flushPendingExternalRevision();
       return;
     }
@@ -2121,6 +2136,7 @@
   function cancelPointerGesture(){
     clearDragAutoScroll();
     showTimelineSnapGuide(null);
+    clearTimelineEnvelopePreview();
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){

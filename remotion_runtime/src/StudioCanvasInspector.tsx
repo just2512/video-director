@@ -10,6 +10,8 @@ import {
   type FilmStudioTimelineSnapGuide,
   type FilmStudioTimelineDropTarget,
   type FilmStudioTimelineActiveDragIds,
+  type FilmStudioTimelineEnvelopePoint,
+  type FilmStudioTimelineEnvelopePreview,
 } from "./film-store";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
@@ -219,6 +221,7 @@ type FilmTimelineSurfaceClip = {
   id: string; trackId: string; tag: string; title: string;
   left: number; width: number; duration:number|null; at:number; atLabel: string; durationLabel: string;
   selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; envelope: boolean;
+  envelopePoints: FilmStudioTimelineEnvelopePoint[];
   keyframeMarks:Array<{at:number;properties:string[]}>; trimHandles: boolean;
 };
 type FilmTimelineSurfaceTrack = {
@@ -243,6 +246,7 @@ interface FilmStudioReactTimelineBridge {
   setSnapGuide(guide: FilmTimelineSnapGuide): void;
   setTrackDropTarget(target: FilmTimelineDropTarget): void;
   setActiveDragIds(ids: FilmTimelineActiveDragIds): void;
+  setEnvelopePreview(preview: FilmStudioTimelineEnvelopePreview): void;
   clearSurface(): void;
   hasSurface(): boolean;
   openContextMenu(model: FilmTimelineContextMenu): void;
@@ -974,11 +978,105 @@ const StudioToolbar: React.FC = () => {
   );
 };
 
+const drawVolumeEnvelopeCanvas = (
+  canvas: HTMLCanvasElement,
+  duration: number,
+  pixelsPerSecond: number,
+  points: readonly FilmStudioTimelineEnvelopePoint[],
+): void => {
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  const width = filmTimelineMath.clipWidth(duration,pixelsPerSecond,24,1,1800,true);
+  const height = Math.max(24,canvas.parentElement ? canvas.parentElement.clientHeight - 2 : 40);
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0,0,width,height);
+  const xy = (point: FilmStudioTimelineEnvelopePoint) => ({
+    x:Math.max(0,Math.min(width,point.t / duration * width)),
+    y:height - 4 - Math.max(0,Math.min(1,point.v)) * (height - 8),
+  });
+  const plotted = points
+    .filter(point => Number.isFinite(point.t) && Number.isFinite(point.v) && point.t >= 0 && point.t <= duration)
+    .slice()
+    .sort((a,b) => a.t - b.t);
+  if (!plotted.length) plotted.push({t:0,v:1},{t:duration,v:1});
+  const first = plotted[0], last = plotted[plotted.length - 1];
+  if (first.t > 0) plotted.unshift({t:0,v:first.v});
+  if (last.t < duration) plotted.push({t:duration,v:last.v});
+  ctx.strokeStyle = "rgba(255,220,134,.95)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  plotted.forEach((point,index) => {
+    const p = xy(point);
+    if (index === 0) ctx.moveTo(p.x,p.y);
+    else ctx.lineTo(p.x,p.y);
+  });
+  ctx.stroke();
+  ctx.fillStyle = "#fff0b3";
+  ctx.strokeStyle = "#4a3620";
+  ctx.lineWidth = 1;
+  points.filter(point => point.t >= 0 && point.t <= duration).forEach(point => {
+    const p = xy(point);
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,3,0,Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+  canvas.title = "音量包络倍率 0–1 · " + points.length + " 个关键帧。拖动曲线添加/调整，Shift 或右键删除内部点。";
+  canvas.dataset.reactEnvelopePainted = "true";
+};
+
+type VolumeEnvelopeCanvasProps = {
+  clipId: string;
+  duration: number;
+  pixelsPerSecond: number;
+  points: FilmStudioTimelineEnvelopePoint[];
+  preview: FilmStudioTimelineEnvelopePreview;
+  onContextMenu?: React.MouseEventHandler<HTMLCanvasElement>;
+  onClick?: React.MouseEventHandler<HTMLCanvasElement>;
+  onPointerDown?: React.PointerEventHandler<HTMLCanvasElement>;
+  onPointerMove?: React.PointerEventHandler<HTMLCanvasElement>;
+  onPointerUp?: React.PointerEventHandler<HTMLCanvasElement>;
+  onPointerCancel?: React.PointerEventHandler<HTMLCanvasElement>;
+};
+
+const VolumeEnvelopeCanvas: React.FC<VolumeEnvelopeCanvasProps> = ({
+  clipId,duration,pixelsPerSecond,points,preview,
+  onContextMenu,onClick,onPointerDown,onPointerMove,onPointerUp,onPointerCancel,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isPreview = preview?.clipId === clipId;
+  const visiblePoints = isPreview ? preview.points : points;
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    delete canvas.dataset.reactEnvelopePainted;
+    drawVolumeEnvelopeCanvas(canvas,duration,pixelsPerSecond,visiblePoints);
+  },[clipId,duration,pixelsPerSecond,visiblePoints]);
+  return (
+    <canvas
+      ref={canvasRef}
+      className="fs-clip-envelope"
+      data-envelope-clip={clipId}
+      data-react-envelope-source={isPreview ? "preview" : "document"}
+      aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点"
+      onContextMenu={onContextMenu}
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+    />
+  );
+};
+
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
   const gesturePreview = useFilmStoreField("timelineGesturePreview");
   const snapGuide = useFilmStoreField("timelineSnapGuide");
   const dropTarget = useFilmStoreField("timelineDropTarget");
   const activeDragIds = useFilmStoreField("timelineActiveDragIds");
+  const envelopePreview = useFilmStoreField("timelineEnvelopePreview");
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
   const playhead=useFilmStoreField("playhead");
   const duration=useFilmStoreField("duration");
@@ -1191,10 +1289,12 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
             >
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
               {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}
-              {clip.envelope ? <canvas
-                className="fs-clip-envelope"
-                data-envelope-clip={clip.id}
-                aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点"
+              {clip.envelope ? <VolumeEnvelopeCanvas
+                clipId={clip.id}
+                duration={clip.duration ?? 0}
+                pixelsPerSecond={model.pixelsPerSecond}
+                points={clip.envelopePoints}
+                preview={envelopePreview}
                 onContextMenu={event => event.preventDefault()}
                 onClick={event => event.stopPropagation()}
                 onPointerDown={event => {
@@ -1603,11 +1703,15 @@ window.filmStudioReactTimeline = {
   setActiveDragIds(ids) {
     filmStore.setField("timelineActiveDragIds", ids);
   },
+  setEnvelopePreview(preview) {
+    filmStore.setField("timelineEnvelopePreview", preview);
+  },
   clearSurface() {
     filmStore.setField("timelineGesturePreview", null);
     filmStore.setField("timelineSnapGuide", null);
     filmStore.setField("timelineDropTarget", null);
     filmStore.setField("timelineActiveDragIds", null);
+    filmStore.setField("timelineEnvelopePreview", null);
     if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
       renderStudioReactOwner({timeline:null,timelineContextMenu:null});
     }

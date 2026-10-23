@@ -963,6 +963,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 # and clicking the envelope surface must not leak selection to its parent clip.
                 envelope = page.locator('canvas[data-envelope-clip="audio-1"]')
                 envelope.wait_for(state="visible")
+                page.wait_for_function(
+                    "() => document.querySelector('canvas[data-envelope-clip=\\\"audio-1\\\"]')?.dataset.reactEnvelopePainted === 'true'",
+                    timeout=5000,
+                )
                 before_envelope_cancel = fd.read_project_film(project_id)
                 cancelled_envelope = page.evaluate("""() => {
                   const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');
@@ -973,15 +977,21 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     clientY:Math.round(rect.top + rect.height * 0.4)};
                   canvas.dispatchEvent(new PointerEvent('pointerdown', point));
                   const ownedAtStart = window.filmStudioOwnsEnvelopeGesturePointer?.(78) === true;
+                  canvas.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 12, clientY:point.clientY + 8}));
+                  const preview = window.filmStudioStore?.getSnapshot()?.timelineEnvelopePreview;
+                  const previewStored = preview?.clipId === 'audio-1' && Array.isArray(preview.points) && preview.points.length >= 2;
                   canvas.dispatchEvent(new PointerEvent('pointercancel', {...point, buttons:0}));
+                  const previewCleared = window.filmStudioStore?.getSnapshot()?.timelineEnvelopePreview === null;
                   document.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 24}));
                   document.dispatchEvent(new PointerEvent('pointerup', {...point, buttons:0}));
                   const selectedBeforeClick = window.filmStudioStore?.getSnapshot()?.selectedId;
                   canvas.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,button:0}));
                   const selectedAfterClick = window.filmStudioStore?.getSnapshot()?.selectedId;
-                  return {ownedAtStart, selectedBeforeClick, selectedAfterClick};
+                  return {ownedAtStart, previewStored, previewCleared, selectedBeforeClick, selectedAfterClick};
                 }""")
                 assert cancelled_envelope["ownedAtStart"] is True, cancelled_envelope
+                assert cancelled_envelope["previewStored"] is True, cancelled_envelope
+                assert cancelled_envelope["previewCleared"] is True, cancelled_envelope
                 assert cancelled_envelope["selectedBeforeClick"] == "clip-b", cancelled_envelope
                 assert cancelled_envelope["selectedAfterClick"] == "clip-b", cancelled_envelope
                 page.wait_for_function("() => window.filmStudioOwnsEnvelopeGesturePointer?.(78) !== true")
