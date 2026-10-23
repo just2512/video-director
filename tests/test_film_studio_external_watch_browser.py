@@ -1457,9 +1457,9 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                 context_proposal_panel = page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]')
                 context_proposal_panel.locator('details[data-react-proposal-details="true"] > summary').click()
                 assert "clip-b" in context_proposal_panel.inner_text()
-                assert page.locator('[data-film-action="preview-proposal"]').is_disabled()
-                assert page.locator('[data-film-action="apply-proposal"]').is_disabled()
-                assert not page.locator('[data-film-action="reject-proposal"]').is_disabled()
+                assert context_proposal_panel.locator('[data-film-action="preview-proposal"]').is_disabled()
+                assert context_proposal_panel.locator('[data-film-action="apply-proposal"]').is_disabled()
+                assert not context_proposal_panel.locator('[data-film-action="reject-proposal"]').is_disabled()
                 assert fd.read_project_film(project_id)["rev"] == before_menu["rev"]
 
                 # A matching base revision restores preview/apply without writing anything.
@@ -1467,8 +1467,8 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                   window.filmStudioReactAi.render({currentRevision: current, messages: [], proposal: {...proposal, baseRevision: current}});
                 }""", proposal_fixture)
                 stale_warning.wait_for(state="detached", timeout=5000)
-                assert not page.locator('[data-film-action="preview-proposal"]').is_disabled()
-                assert not page.locator('[data-film-action="apply-proposal"]').is_disabled()
+                assert not context_proposal_panel.locator('[data-film-action="preview-proposal"]').is_disabled()
+                assert not context_proposal_panel.locator('[data-film-action="apply-proposal"]').is_disabled()
                 assert fd.read_project_film(project_id)["rev"] == before_menu["rev"]
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
