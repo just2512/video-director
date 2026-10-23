@@ -868,20 +868,42 @@
     if(gestureDomRefs)gestureDomRefs.targetRow=null;
     setTimelineDropTarget(null,false);
   }
-  function groupMoveTargetError(d,targetTrackId){
+  function groupMoveTargetError(d,targetTrackId,rawDeltaSeconds){
     var order=d&&d.trackOrder||[],targetIndex=order.indexOf(targetTrackId);
     if(targetIndex<0)return '目标轨道不存在，多选移动已取消。';
     var originIndex=Number.isInteger(d.originalTrackIndex)?d.originalTrackIndex:order.indexOf(d.trackId);
     if(originIndex<0)return '无法确认原轨道位置，多选移动已取消。';
     var trackDelta=targetIndex-originIndex,members=d.members||[];
+    var selectedIds=members.map(function(member){return member.id;});
+    var minStart=members.reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity);
+    var resolved=resolveTimelineMove(minStart,Number(rawDeltaSeconds)||0,selectedIds,8);
+    var horizontalDelta=resolved.deltaSeconds;
     for(var i=0;i<members.length;i++){
-      var destinationIndex=members[i].trackIndex+trackDelta;
+      var member=members[i],destinationIndex=member.trackIndex+trackDelta;
       if(destinationIndex<0||destinationIndex>=order.length)return '多选移动超出轨道范围，操作已取消。';
       var destinationId=order[destinationIndex];
       var destination=(S.data&&S.data.tracks||[]).find(function(track){return track.id===destinationId;});
       if(!destination)return '目标轨道 '+destinationId+' 已不存在，多选移动已取消。';
       if(Object.prototype.hasOwnProperty.call(destination.attrs||{},'locked'))
         return '目标轨道 '+destinationId+' 已锁定，多选移动已取消。';
+
+      // FilmDocument rejects overlapping clips at transaction validation time.
+      // Reject that drop during preview instead of submitting an operation set
+      // that can only return HTTP 400.
+      var sourceClip=findClip(member.id);
+      if(!sourceClip||sourceClip.end==null||!Number.isFinite(Number(sourceClip.end)))continue;
+      var targetStart=Math.max(0,member.originalAt+horizontalDelta);
+      var duration=Math.max(0,Number(sourceClip.end)-Number(sourceClip.at));
+      var targetEnd=targetStart+duration;
+      var stationary=destination.clips||[];
+      for(var j=0;j<stationary.length;j++){
+        var other=stationary[j];
+        if(selectedIds.indexOf(other.id)>=0||other.end==null)continue;
+        var otherStart=Number(other.at),otherEnd=Number(other.end);
+        if(!Number.isFinite(otherStart)||!Number.isFinite(otherEnd))continue;
+        if(targetStart<otherEnd-0.001&&otherStart<targetEnd-0.001)
+          return '多选移动后片段 '+member.id+' 与目标轨道 '+destinationId+' 上的片段 '+other.id+' 时间重叠，操作已取消。';
+      }
     }
     return null;
   }
@@ -1989,7 +2011,7 @@
     if(d.mode==='move'){
       var target=document.elementFromPoint(e.clientX,e.clientY),row=target&&target.closest('.fs-track');
       if(row){
-        var nextTrack=row.getAttribute('data-track'),targetError=groupMoveTargetError(d,nextTrack);
+        var nextTrack=row.getAttribute('data-track'),targetError=groupMoveTargetError(d,nextTrack,deltaSeconds);
         var rowChanged=!!gestureDomRefs&&gestureDomRefs.targetRow!==row;
         if(rowChanged||d.targetTrackId!==nextTrack||d.invalidTargetMessage!==targetError){
           clearDragTrackTarget(d);

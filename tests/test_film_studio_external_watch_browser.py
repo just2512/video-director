@@ -740,7 +740,18 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   return !!video && !!audio && video.classList.contains('fs-clip-selected') &&
                     audio.classList.contains('fs-clip-selected');
                 }""")
-                # AddTrack inserts at index 0. Moving the selected group into that first row shifts both members up one track.
+                # AddTrack inserts at index 0. Create two empty rows: a one-row translation
+                # collides with stationary clip-a, while the two-row translation is valid.
+                page.evaluate("window.prompt = () => 'Cross-track Preview Companion'")
+                page.evaluate("window.filmStudioAddTrack()")
+                page.wait_for_function("""() => [...document.querySelectorAll('#fs-timeline .fs-track-label')]
+                  .some(label => label.textContent.trim() === 'Cross-track Preview Companion')""", timeout=10000)
+                cross_track_companion_id = page.evaluate("""() => {
+                  const label = [...document.querySelectorAll('#fs-timeline .fs-track-label')]
+                    .find(node => node.textContent.trim() === 'Cross-track Preview Companion');
+                  return label?.closest('.fs-track')?.getAttribute('data-track') || null;
+                }""")
+                assert cross_track_companion_id
                 page.evaluate("window.prompt = () => 'Cross-track Preview Destination'")
                 page.evaluate("window.filmStudioAddTrack()")
                 page.wait_for_function("""() => [...document.querySelectorAll('#fs-timeline .fs-track-label')]
@@ -758,10 +769,40 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     audio.classList.contains('fs-clip-selected');
                 }""")
 
-                # Cross-track preview renders a React ghost for each member in its translated destination row.
+                # A one-row translation would move audio-1 to video-main and overlap clip-a.
+                # The UI must reject it before the FilmDocument write path is called.
                 cross_before = fd.read_project_film(project_id)
                 cross_request_count = len(film_edit_requests)
                 cross_video_before_left = clip.evaluate("(node) => node.style.left")
+                cross_video_box = clip.bounding_box()
+                target_destination_box = page.locator('.fs-track[data-track="' + cross_track_destination_id + '"]').bounding_box()
+                target_companion_box = page.locator('.fs-track[data-track="' + cross_track_companion_id + '"]').bounding_box()
+                assert cross_video_box and target_destination_box and target_companion_box
+                cross_start_x = cross_video_box["x"] + cross_video_box["width"] / 2
+                cross_start_y = cross_video_box["y"] + cross_video_box["height"] / 2
+                cross_companion_y = target_companion_box["y"] + target_companion_box["height"] / 2
+                page.mouse.move(cross_start_x, cross_start_y)
+                page.mouse.down()
+                page.mouse.move(cross_start_x + 36, cross_companion_y, steps=10)
+                page.wait_for_function("""targetId => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const gesture = state?.timelineGestureContext;
+                  const row = document.querySelector('.fs-track[data-track="' + targetId + '"]');
+                  return gesture?.targetTrackId === targetId &&
+                    String(gesture?.invalidTargetMessage || '').includes('时间重叠') &&
+                    row?.classList.contains('fs-track-drop-invalid');
+                }""", arg=cross_track_companion_id, timeout=5000)
+                assert len(film_edit_requests) == cross_request_count
+                assert fd.read_project_film(project_id)["rev"] == cross_before["rev"]
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null && state?.timelineGesturePreview === null;
+                }""", timeout=10000)
+                assert len(film_edit_requests) == cross_request_count
+                assert fd.read_project_film(project_id)["rev"] == cross_before["rev"]
+
+                # A two-row translation moves the members to the two empty rows.
                 cross_video_box = clip.bounding_box()
                 target_destination_box = page.locator('.fs-track[data-track="' + cross_track_destination_id + '"]').bounding_box()
                 assert cross_video_box and target_destination_box
@@ -771,31 +812,39 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.mouse.move(cross_start_x, cross_start_y)
                 page.mouse.down()
                 page.mouse.move(cross_start_x + 36, cross_target_y, steps=10)
-                page.wait_for_function("""destinationId => {
-                  const videoGhost = document.querySelector('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="' + destinationId + '"]');
-                  const audioGhost = document.querySelector('[data-gesture-ghost-for="audio-1"][data-gesture-target-track="video-main"]');
+                page.wait_for_function("""targets => {
+                  const videoGhost = document.querySelector('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="' + targets.destinationId + '"]');
+                  const audioGhost = document.querySelector('[data-gesture-ghost-for="audio-1"][data-gesture-target-track="' + targets.companionId + '"]');
                   const state = window.filmStudioStore?.getSnapshot();
                   return !!videoGhost && !!audioGhost &&
-                    state?.timelineGesturePreview?.['clip-b']?.targetTrackId === destinationId &&
-                    state?.timelineGesturePreview?.['audio-1']?.targetTrackId === 'video-main';
-                }""", arg=cross_track_destination_id, timeout=5000)
+                    state?.timelineGesturePreview?.['clip-b']?.targetTrackId === targets.destinationId &&
+                    state?.timelineGesturePreview?.['audio-1']?.targetTrackId === targets.companionId &&
+                    !state?.timelineGestureContext?.invalidTargetMessage;
+                }""", arg={"destinationId": cross_track_destination_id, "companionId": cross_track_companion_id}, timeout=5000)
                 cross_video_ghost = page.locator('[data-gesture-ghost-for="clip-b"][data-gesture-target-track="' + cross_track_destination_id + '"]')
                 assert cross_video_ghost.get_attribute("aria-hidden") == "true"
                 assert cross_video_ghost.evaluate("(node) => node.style.left") != cross_video_before_left
                 assert len(film_edit_requests) == cross_request_count
                 assert fd.read_project_film(project_id)["rev"] == cross_before["rev"]
 
-                page.mouse.up()
-                page.wait_for_function("""() => {
+                with page.expect_response(
+                    lambda response: response.url.endswith("/api/editor/film/edit") and response.request.method == "POST",
+                    timeout=10000,
+                ) as cross_edit_response_info:
+                    page.mouse.up()
+                cross_edit_response = cross_edit_response_info.value
+                assert cross_edit_response.status == 200, cross_edit_response.text()
+                page.wait_for_function("""expectedRevision => {
                   const state = window.filmStudioStore?.getSnapshot();
-                  return state?.timelineGestureContext === null && state?.timelineGesturePreview === null;
-                }""", timeout=10000)
+                  return state?.timelineGestureContext === null && state?.timelineGesturePreview === null &&
+                    state?.revision !== expectedRevision;
+                }""", arg=cross_before["rev"], timeout=10000)
                 cross_after = fd.read_project_film(project_id)
                 def located_track(document: dict, clip_id: str) -> str:
                     return next(track["id"] for track in document["doc"]["tracks"]
                       if any(item["id"] == clip_id for item in track["clips"]))
                 assert located_track(cross_after, "clip-b") == cross_track_destination_id
-                assert located_track(cross_after, "audio-1") == "video-main"
+                assert located_track(cross_after, "audio-1") == cross_track_companion_id
                 cross_requests = film_edit_requests[cross_request_count:]
                 assert len(cross_requests) == 1, cross_requests
                 cross_ops = cross_requests[0].get("ops") or []

@@ -174,7 +174,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "if(!reactOwnsGestureSurface&&(!leftElement||!rightElement))" in studio
 
     assert "var blockedMember=null;" in studio
-    assert "function groupMoveTargetError(d,targetTrackId)" in studio
+    assert "function groupMoveTargetError(d,targetTrackId,rawDeltaSeconds)" in studio
+    assert "resolveTimelineMove(minStart,Number(rawDeltaSeconds)||0,selectedIds,8)" in studio
+    assert "多选移动后片段 '+member.id+' 与目标轨道 '+destinationId+' 上的片段 '+other.id+' 时间重叠" in studio
     assert "d.invalidTargetMessage" in studio
     assert "fs-track-drop-invalid" in studio
     assert "var blockedLabel=blockedMember.reason==='已锁定'?'锁定':'不存在的';" in studio
