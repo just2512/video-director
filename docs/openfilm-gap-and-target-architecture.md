@@ -30,6 +30,10 @@
 | 确定性与导出 | `frame(t)`、本地资源边界、look 重复抽样、Revision 绑定导出均已有；采样检查不是全帧证明 | 对每个场景验证资源 ready 和帧回执；导出错误定位到 clip ID；明确运行时支持边界，不宣称任意网页/任意 WebGL 都确定 |
 | 产品入口 | 旧导演工作台与全屏 Film Studio 仍是两个工作上下文；初始化迁移后才由 `film.html` 接管 | 收敛为一个项目壳：导演规划、素材、场景、剪辑、AI 对话与导出围绕同一项目/同一最终时间线；迁移只是项目状态变化，不再像切换到另一款应用 |
 
+## 当前下一阶段落地点
+
+- React 对简单片段移动手势拥有预览位置状态；旧适配器负责从 FilmDocument 读取候选并计算 typed move resolution，React 负责预览显示，pointerup 仍通过 revision-checked FilmDocument 事务提交。修剪/roll/slide/slip 暂时保留各自原生预览入口。
+
 ## 目标架构：不新增第二个“影片真相”
 
 ```text

@@ -223,6 +223,7 @@ type FilmTimelineSurfaceModel = {
 };
 interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
+  setGesturePreview(preview: Record<string, number> | null): void;
 }
 type FilmStudioAiMessage = {text: string; role: string};
 type FilmStudioAiOperationPreview = {
@@ -901,7 +902,17 @@ const StudioToolbar: React.FC = () => (
   </>
 );
 
+let updateTimelineGesturePreview: ((preview: Record<string, number> | null) => void) | null = null;
+
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
+  const [gesturePreview, setGesturePreview] = useState<Record<string, number> | null>(null);
+  useLayoutEffect(() => {
+    const update = (preview: Record<string, number> | null) => setGesturePreview(preview);
+    updateTimelineGesturePreview = update;
+    return () => {
+      if (updateTimelineGesturePreview === update) updateTimelineGesturePreview = null;
+    };
+  }, []);
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
   const selectedIds=filmStore.getSnapshot().selectedIds;
   // The version is the scalar subscription token; the array proxy is stable by design.
@@ -970,8 +981,11 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               data-track={clip.trackId}
               data-kind={clip.tag}
               data-react-timeline-clip={clip.id}
+              data-react-gesture-preview={gesturePreview && Object.prototype.hasOwnProperty.call(gesturePreview, clip.id) ? "true" : "false"}
               style={{
-                left:filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
+                left:gesturePreview && Object.prototype.hasOwnProperty.call(gesturePreview, clip.id)
+                  ? gesturePreview[clip.id]
+                  : filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
                 width:filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
               }}
               title={clip.title}
@@ -1353,6 +1367,9 @@ window.filmStudioReactAssets = {
 window.filmStudioReactTimeline = {
   renderSurface(model) {
     renderStudioReactOwner({timeline:model});
+  },
+  setGesturePreview(preview) {
+    updateTimelineGesturePreview?.(preview);
   },
 };
 

@@ -27,6 +27,13 @@
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]); }); }
   function num(v, fallback) { var n = Number(v); return Number.isFinite(n) ? n : fallback; }
   function timelineMath(){return window.filmStudioTimelineMath||null;}
+  function setTimelineGesturePreview(preview){
+    var bridge=window.filmStudioReactTimeline;
+    if(!bridge||typeof bridge.setGesturePreview!=='function')return false;
+    bridge.setGesturePreview(preview);
+    return true;
+  }
+  function clearTimelineGesturePreview(){setTimelineGesturePreview(null);}
   function timelineSecondsToPixels(seconds,scale){var m=timelineMath();return m?m.secondsToPixels(seconds,scale):num(seconds,0)*Math.max(0.000001,num(scale,1));}
   function timelinePixelsToSeconds(pixels,scale){var m=timelineMath();return m?m.pixelsToSeconds(pixels,scale):num(pixels,0)/Math.max(0.000001,num(scale,1));}
   function timelineDragDeltaSeconds(pointerDelta,scrollDelta,scale){var m=timelineMath();return m&&typeof m.dragDeltaSeconds==='function'?m.dragDeltaSeconds(pointerDelta,scrollDelta,scale):timelinePixelsToSeconds(num(pointerDelta,0)+num(scrollDelta,0),scale);}
@@ -1664,15 +1671,16 @@
         ?hasUncommittedClipInspectorEdits()
         :hasUncommittedInspectorEdits();
     if(hasConflictingDraft){
-      // A completed drag may already have updated transient timeline DOM geometry.
+      // A completed drag may already have updated transient preview state.
       // Rebuild only the timeline from S.data; a full render would wipe React form drafts.
       if(!S.drag&&!S.envelopeDrag&&S.data&&S.data.exists)renderTimeline();
+      clearTimelineGesturePreview();
       showStatus('Inspector 还有另一组未提交草稿。请先应用或重新载入后，再执行其他编辑。','error');
       return false;
     }
-    if(!S.projectId||!S.data||!S.data.exists)return false;
-    if(S.busy){showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
-    if(S.broken){showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return false;}
+    if(!S.projectId||!S.data||!S.data.exists){clearTimelineGesturePreview();return false;}
+    if(S.busy){clearTimelineGesturePreview();showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
+    if(S.broken){clearTimelineGesturePreview();showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return false;}
     if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     var studioPanel=$('film-studio-panel'),busyTimeline=$('fs-timeline');
     if(studioPanel)studioPanel.setAttribute('data-busy','true');
@@ -1705,6 +1713,7 @@
     }finally{
       if(studioPanel)studioPanel.setAttribute('data-busy','false');
       if(busyTimeline)busyTimeline.style.pointerEvents='';
+      clearTimelineGesturePreview();
       flushPendingExternalRevision();
     }
   }
@@ -1820,7 +1829,13 @@
       var moveResolution=resolveTimelineMove(minStart,deltaSeconds,chosenIds,8);
       var snappedDelta=moveResolution.deltaSeconds,moveSnapUsed=moveResolution.snapCandidate;
       showTimelineSnapGuide(moveSnapUsed?moveSnapUsed.at:null,moveSnapUsed&&moveSnapUsed.kind);
-      (d.members||[]).forEach(function(member){member.element.style.left=timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)+'px';});
+      var previewLeftByClipId={};
+      (d.members||[]).forEach(function(member){
+        previewLeftByClipId[member.id]=timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec);
+      });
+      if(!setTimelineGesturePreview(previewLeftByClipId)){
+        (d.members||[]).forEach(function(member){member.element.style.left=previewLeftByClipId[member.id]+'px';});
+      }
     }
   }
   async function onUp(e) {
@@ -1844,19 +1859,19 @@
       return;
     }
     var d=S.drag;
-    if(!d){clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    if(!d){clearDragAutoScroll();clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
     S.drag=null;clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
     showTimelineSnapGuide(null);clearDragTrackTarget(d);
     (d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
     if(S.pendingExternalRevision){
-      syncClipSelectionVisual();renderTimeline();
+      syncClipSelectionVisual();renderTimeline();clearTimelineGesturePreview();
       showStatus('影片 revision 在拖动期间变化；本次旧画面拖动未提交，先载入外部版本。','error');
       flushPendingExternalRevision();
       return;
     }
-    if(!d.active){syncClipSelectionVisual();flushPendingExternalRevision();return;}
+    if(!d.active){syncClipSelectionVisual();clearTimelineGesturePreview();flushPendingExternalRevision();return;}
     if(d.invalidTargetMessage){
-      renderTimeline();showStatus(d.invalidTargetMessage,'error');flushPendingExternalRevision();return;
+      renderTimeline();clearTimelineGesturePreview();showStatus(d.invalidTargetMessage,'error');flushPendingExternalRevision();return;
     }
     var pointerDelta=e.clientX-d.startX,scrollDelta=$('fs-timeline-scroll').scrollLeft-d.startScrollLeft;
     var deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
@@ -1914,7 +1929,9 @@
       if(index<0||index>=d.trackOrder.length){showStatus('多选移动超出轨道范围，操作已取消。','error');return;}
       operations.push({op:'move',clip:member.id,track_id:d.trackOrder[index],at:Number(Math.max(0,member.originalAt+delta).toFixed(3))});
     });
-    if(!operations.length||(operations.length!==(d.members||[]).length))return;
+    if(!operations.length||(operations.length!==(d.members||[]).length)){
+      clearTimelineGesturePreview();renderTimeline();return;
+    }
     await filmStudioCommit(operations);
   }
   // The React timeline owns move/up dispatch for clips that captured the pointer.
@@ -1948,6 +1965,7 @@
       });
     }
     if(S.data&&S.data.exists)renderTimeline();
+    clearTimelineGesturePreview();
     flushPendingExternalRevision();
   }
   window.filmStudioCancelClipGesture=function(e){

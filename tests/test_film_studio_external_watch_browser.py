@@ -316,6 +316,16 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.mouse.move(start_x, start_y)
                 page.mouse.down()
                 page.mouse.move(start_x + delta_x, start_y, steps=6)
+                page.wait_for_function(
+                    """({clipId, oldLeft}) => {
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + clipId + '"]');
+                      return !!node && node.dataset.reactGesturePreview === "true" && node.style.left !== oldLeft;
+                    }""",
+                    arg={"clipId": "clip-b", "oldLeft": original_left},
+                    timeout=5000,
+                )
+                preview_left = clip.evaluate("(element) => element.style.left")
+                assert preview_left != original_left, {"before": original_left, "preview": preview_left}
                 page.mouse.up()
                 page.wait_for_function(
                     """oldLeft => {
@@ -331,6 +341,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     for item in track["clips"] if item["id"] == "clip-b"
                 )
                 assert abs(float(moved_clip["attrs"]["at"]) - 6.0) < 0.15, moved_clip
+                page.wait_for_function(
+                    """() => document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]')?.dataset.reactGesturePreview === "false" """
+                )
+                assert clip.evaluate("(element) => element.style.left") != original_left
                 gesture_requests = film_edit_requests[edit_count_before_gesture:]
                 assert len(gesture_requests) == 1, gesture_requests
                 assert len(gesture_requests[0].get("ops") or []) == 1, gesture_requests
