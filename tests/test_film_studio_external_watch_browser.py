@@ -655,13 +655,38 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 trim_preview = trim_clip.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
                 assert trim_preview != trim_clip_box_before, {"before":trim_clip_box_before,"preview":trim_preview}
+                transient_state = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return {
+                    gesture: state?.timelineGesturePreview,
+                    snapGuide: state?.timelineSnapGuide,
+                    dropTarget: state?.timelineDropTarget,
+                    activeDragIds: state?.timelineActiveDragIds
+                  };
+                }""")
+                assert transient_state["gesture"] and "clip-a" in transient_state["gesture"], transient_state
+                assert isinstance(transient_state["gesture"]["clip-a"].get("left"), (int, float)), transient_state
+                assert isinstance(transient_state["gesture"]["clip-a"].get("width"), (int, float)), transient_state
+                assert "clip-a" in transient_state["activeDragIds"], transient_state
                 assert len(film_edit_requests) == trim_edit_count_before
                 assert fd.read_project_film(project_id)["rev"] == trim_document_before["rev"]
                 page.mouse.up()
                 page.wait_for_function(
-                    """() => document.querySelector('#fs-timeline .fs-clip[data-clip=\"clip-a\"]')?.dataset.reactGesturePreview === 'false' """,
+                    """() => document.querySelector('#fs-timeline .fs-clip[data-clip=\\"clip-a\\"]')?.dataset.reactGesturePreview === 'false' """,
                     timeout=10000,
                 )
+                cleared_transient_state = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return {
+                    gesture: state?.timelineGesturePreview,
+                    snapGuide: state?.timelineSnapGuide,
+                    dropTarget: state?.timelineDropTarget,
+                    activeDragIds: state?.timelineActiveDragIds
+                  };
+                }""")
+                assert cleared_transient_state == {
+                    "gesture": None, "snapGuide": None, "dropTarget": None, "activeDragIds": None
+                }, cleared_transient_state
                 trim_document_after = fd.read_project_film(project_id)
                 trim_clip_after = next(
                     item for track in trim_document_after["doc"]["tracks"]

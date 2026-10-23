@@ -6,6 +6,18 @@ export interface FilmStudioPendingTransaction {
   operationCount: number;
 }
 
+export type FilmStudioTimelineGesturePreviewGeometry = {
+  left?: number;
+  width?: number;
+  mode?: "roll" | "slide" | "slip";
+  deltaLabel?: string;
+};
+export type FilmStudioTimelineGesturePreviewEntry = number | FilmStudioTimelineGesturePreviewGeometry;
+export type FilmStudioTimelineGesturePreview = Record<string, FilmStudioTimelineGesturePreviewEntry> | null;
+export type FilmStudioTimelineSnapGuide = {at: number; kind: string; title: string} | null;
+export type FilmStudioTimelineDropTarget = {trackId: string; invalid: boolean} | null;
+export type FilmStudioTimelineActiveDragIds = string[] | null;
+
 export interface FilmStudioStoreSnapshot {
   projectId: string;
   film: unknown | null;
@@ -18,6 +30,10 @@ export interface FilmStudioStoreSnapshot {
   playing: boolean;
   duration: number;
   pixelsPerSecond: number;
+  timelineGesturePreview: FilmStudioTimelineGesturePreview;
+  timelineSnapGuide: FilmStudioTimelineSnapGuide;
+  timelineDropTarget: FilmStudioTimelineDropTarget;
+  timelineActiveDragIds: FilmStudioTimelineActiveDragIds;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -36,6 +52,7 @@ export interface FilmStudioStoreBridge {
   subscribe: (listener: () => void) => () => void;
   subscribeField<K extends keyof FilmStudioStoreSnapshot>(key: K, listener: () => void): () => void;
   getField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K];
+  setField<K extends keyof FilmStudioStoreSnapshot>(key: K, value: FilmStudioStoreSnapshot[K]): void;
   bindLegacyState: (target: Record<string, unknown>) => void;
   dispatchTransaction<T>(
     context: FilmStudioPendingTransaction,
@@ -116,6 +133,10 @@ class FilmStore implements FilmStudioStoreBridge {
       playing: false,
       duration: 10,
       pixelsPerSecond: 36,
+      timelineGesturePreview: null,
+      timelineSnapGuide: null,
+      timelineDropTarget: null,
+      timelineActiveDragIds: null,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -154,6 +175,10 @@ class FilmStore implements FilmStudioStoreBridge {
 
   getField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K] {
     return this.snapshot[key];
+  }
+
+  setField<K extends keyof FilmStudioStoreSnapshot>(key: K, value: FilmStudioStoreSnapshot[K]): void {
+    this.setValue(key, value);
   }
 
   dispatchTransaction<T>(
@@ -225,6 +250,48 @@ class FilmStore implements FilmStudioStoreBridge {
       normalized = key === "duration" ? Math.max(0.001, parsed) : Math.max(0, parsed);
     } else if (key === "pendingTransaction") {
       normalized = asPendingTransaction(value);
+    } else if (key === "timelineGesturePreview") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        normalized = null;
+      } else {
+        const entries: Record<string, FilmStudioTimelineGesturePreviewEntry> = {};
+        for (const [clipId, rawEntry] of Object.entries(value as Record<string, unknown>)) {
+          if (!clipId) continue;
+          if (typeof rawEntry === "number" && Number.isFinite(rawEntry)) {
+            entries[clipId] = rawEntry;
+            continue;
+          }
+          if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) continue;
+          const raw = rawEntry as Record<string, unknown>;
+          const geometry: FilmStudioTimelineGesturePreviewGeometry = {};
+          if (typeof raw.left === "number" && Number.isFinite(raw.left)) geometry.left = raw.left;
+          if (typeof raw.width === "number" && Number.isFinite(raw.width) && raw.width > 0) geometry.width = raw.width;
+          if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
+          if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
+          if (Object.keys(geometry).length) entries[clipId] = geometry;
+        }
+        normalized = Object.keys(entries).length ? entries : null;
+      }
+    } else if (key === "timelineSnapGuide") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+      else {
+        const raw = value as Record<string, unknown>;
+        const at = Number(raw.at);
+        normalized = Number.isFinite(at) && at >= 0 && typeof raw.kind === "string" && typeof raw.title === "string"
+          ? {at, kind: raw.kind, title: raw.title}
+          : null;
+      }
+    } else if (key === "timelineDropTarget") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+      else {
+        const raw = value as Record<string, unknown>;
+        normalized = typeof raw.trackId === "string" && raw.trackId
+          ? {trackId: raw.trackId, invalid: raw.invalid === true}
+          : null;
+      }
+    } else if (key === "timelineActiveDragIds") {
+      const ids = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+      normalized = ids.length ? Array.from(new Set(ids)) : null;
     } else if (key === "film") {
       normalized = value ?? null;
       if (normalized && typeof normalized === "object" &&
@@ -261,6 +328,10 @@ class FilmStore implements FilmStudioStoreBridge {
       playing: target.playing === true,
       duration: Math.max(0.001, asFiniteNumber(target.duration, 10)),
       pixelsPerSecond: Math.max(12, Math.min(120, asFiniteNumber(target.pxPerSec, 36))),
+      timelineGesturePreview: null,
+      timelineSnapGuide: null,
+      timelineDropTarget: null,
+      timelineActiveDragIds: null,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,

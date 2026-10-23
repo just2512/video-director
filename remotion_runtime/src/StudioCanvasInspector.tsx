@@ -1,7 +1,16 @@
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
 import {filmTimelineMath, type FilmTimelineMathBridge} from "./film-timeline-math";
-import {filmStore, type FilmStudioStoreBridge, type FilmStudioStoreSnapshot} from "./film-store";
+import {
+  filmStore,
+  type FilmStudioStoreBridge,
+  type FilmStudioStoreSnapshot,
+  type FilmStudioTimelineGesturePreview,
+  type FilmStudioTimelineGesturePreviewGeometry,
+  type FilmStudioTimelineSnapGuide,
+  type FilmStudioTimelineDropTarget,
+  type FilmStudioTimelineActiveDragIds,
+} from "./film-store";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
@@ -222,17 +231,11 @@ type FilmTimelineSurfaceModel = {
   tracks: FilmTimelineSurfaceTrack[];
 };
 type FilmTimelineContextMenu = {clipId: string; x: number; y: number};
-type FilmTimelineGesturePreviewGeometry = {
-  left?: number;
-  width?: number;
-  mode?: "roll" | "slide" | "slip";
-  deltaLabel?: string;
-};
-type FilmTimelineGesturePreviewEntry = number | FilmTimelineGesturePreviewGeometry;
-type FilmTimelineGesturePreview = Record<string, FilmTimelineGesturePreviewEntry> | null;
-type FilmTimelineSnapGuide = {at: number; kind: string; title: string} | null;
-type FilmTimelineDropTarget = {trackId: string; invalid: boolean} | null;
-type FilmTimelineActiveDragIds = string[] | null;
+type FilmTimelineGesturePreviewGeometry = FilmStudioTimelineGesturePreviewGeometry;
+type FilmTimelineGesturePreview = FilmStudioTimelineGesturePreview;
+type FilmTimelineSnapGuide = FilmStudioTimelineSnapGuide;
+type FilmTimelineDropTarget = FilmStudioTimelineDropTarget;
+type FilmTimelineActiveDragIds = FilmStudioTimelineActiveDragIds;
 
 interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
@@ -971,44 +974,11 @@ const StudioToolbar: React.FC = () => {
   );
 };
 
-let updateTimelineGesturePreview: ((preview: FilmTimelineGesturePreview) => void) | null = null;
-let updateTimelineSnapGuide: ((guide: FilmTimelineSnapGuide) => void) | null = null;
-let updateTimelineDropTarget: ((target: FilmTimelineDropTarget) => void) | null = null;
-let updateTimelineActiveDragIds: ((ids: FilmTimelineActiveDragIds) => void) | null = null;
-
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
-  const [gesturePreview, setGesturePreview] = useState<FilmTimelineGesturePreview>(null);
-  const [snapGuide, setSnapGuide] = useState<FilmTimelineSnapGuide>(null);
-  const [dropTarget, setDropTarget] = useState<FilmTimelineDropTarget>(null);
-  const [activeDragIds, setActiveDragIds] = useState<FilmTimelineActiveDragIds>(null);
-  useLayoutEffect(() => {
-    const update = (preview: FilmTimelineGesturePreview) => setGesturePreview(preview);
-    updateTimelineGesturePreview = update;
-    return () => {
-      if (updateTimelineGesturePreview === update) updateTimelineGesturePreview = null;
-    };
-  }, []);
-  useLayoutEffect(() => {
-    const update = (guide: FilmTimelineSnapGuide) => setSnapGuide(guide);
-    updateTimelineSnapGuide = update;
-    return () => {
-      if (updateTimelineSnapGuide === update) updateTimelineSnapGuide = null;
-    };
-  }, []);
-  useLayoutEffect(() => {
-    const update = (target: FilmTimelineDropTarget) => setDropTarget(target);
-    updateTimelineDropTarget = update;
-    return () => {
-      if (updateTimelineDropTarget === update) updateTimelineDropTarget = null;
-    };
-  }, []);
-  useLayoutEffect(() => {
-    const update = (ids: FilmTimelineActiveDragIds) => setActiveDragIds(ids);
-    updateTimelineActiveDragIds = update;
-    return () => {
-      if (updateTimelineActiveDragIds === update) updateTimelineActiveDragIds = null;
-    };
-  }, []);
+  const gesturePreview = useFilmStoreField("timelineGesturePreview");
+  const snapGuide = useFilmStoreField("timelineSnapGuide");
+  const dropTarget = useFilmStoreField("timelineDropTarget");
+  const activeDragIds = useFilmStoreField("timelineActiveDragIds");
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
   const playhead=useFilmStoreField("playhead");
   const duration=useFilmStoreField("duration");
@@ -1622,18 +1592,22 @@ window.filmStudioReactTimeline = {
     renderStudioReactOwner({timeline:model});
   },
   setGesturePreview(preview) {
-    updateTimelineGesturePreview?.(preview);
+    filmStore.setField("timelineGesturePreview", preview);
   },
   setSnapGuide(guide) {
-    updateTimelineSnapGuide?.(guide);
+    filmStore.setField("timelineSnapGuide", guide);
   },
   setTrackDropTarget(target) {
-    updateTimelineDropTarget?.(target);
+    filmStore.setField("timelineDropTarget", target);
   },
   setActiveDragIds(ids) {
-    updateTimelineActiveDragIds?.(ids);
+    filmStore.setField("timelineActiveDragIds", ids);
   },
   clearSurface() {
+    filmStore.setField("timelineGesturePreview", null);
+    filmStore.setField("timelineSnapGuide", null);
+    filmStore.setField("timelineDropTarget", null);
+    filmStore.setField("timelineActiveDragIds", null);
     if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
       renderStudioReactOwner({timeline:null,timelineContextMenu:null});
     }

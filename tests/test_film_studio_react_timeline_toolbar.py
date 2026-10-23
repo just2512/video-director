@@ -51,6 +51,19 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "type FilmTimelineGesturePreviewGeometry" in component
     assert "setGesturePreview(preview: FilmTimelineGesturePreview): void" in component
+    assert "timelineGesturePreview: FilmStudioTimelineGesturePreview;" in store
+    assert "timelineSnapGuide: FilmStudioTimelineSnapGuide;" in store
+    assert "timelineDropTarget: FilmStudioTimelineDropTarget;" in store
+    assert "timelineActiveDragIds: FilmStudioTimelineActiveDragIds;" in store
+    assert "setField<K extends keyof FilmStudioStoreSnapshot>(key: K, value: FilmStudioStoreSnapshot[K]): void;" in store
+    assert 'useFilmStoreField("timelineGesturePreview")' in component
+    assert 'useFilmStoreField("timelineSnapGuide")' in component
+    assert 'useFilmStoreField("timelineDropTarget")' in component
+    assert 'useFilmStoreField("timelineActiveDragIds")' in component
+    assert "let updateTimelineGesturePreview:" not in component
+    assert "let updateTimelineSnapGuide:" not in component
+    assert "let updateTimelineDropTarget:" not in component
+    assert "let updateTimelineActiveDragIds:" not in component
     assert "data-react-gesture-preview={previewForClip(clip.id) ? \"true\" : \"false\"}" in component
     assert "previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth" in component
     assert "setTimelineGesturePreview(previewLeftByClipId)" in studio
