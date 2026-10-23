@@ -88,6 +88,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "bridge.isContextMenuOpen==='function'&&bridge.isContextMenuOpen()" in studio
     assert "setSnapGuide(guide: FilmTimelineSnapGuide): void;" in component
     assert "setTrackDropTarget(target: FilmTimelineDropTarget): void;" in component
+    assert "setActiveDragIds(ids: FilmTimelineActiveDragIds): void;" in component
+    assert "activeDragIds?.includes(clip.id) ? \" fs-dragging\" : \"\"" in component
+    assert "bridge.setActiveDragIds!=='function'" in studio
+    assert "if(!reactOwnsActiveDrag)members.forEach(function(member){member.element.classList.add('fs-dragging');});" in studio
     assert 'id="fs-snap-guide"' in component
     assert "dropTarget?.trackId === track.id" in component
     assert "bridge.setSnapGuide==='function'" in studio

@@ -334,7 +334,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.wait_for_function(
                     """({clipId, oldLeft}) => {
                       const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + clipId + '"]');
-                      return !!node && node.dataset.reactGesturePreview === "true" && node.style.left !== oldLeft;
+                      return !!node && node.dataset.reactGesturePreview === "true" &&
+                        node.classList.contains("fs-dragging") && node.style.left !== oldLeft;
                     }""",
                     arg={"clipId": "clip-b", "oldLeft": original_left},
                     timeout=5000,

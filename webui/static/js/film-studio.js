@@ -34,6 +34,12 @@
     return true;
   }
   function clearTimelineGesturePreview(){setTimelineGesturePreview(null);}
+  function setTimelineActiveDragIds(ids){
+    var bridge=window.filmStudioReactTimeline;
+    if(!bridge||typeof bridge.setActiveDragIds!=='function')return false;
+    bridge.setActiveDragIds(ids&&ids.length?ids.slice():null);
+    return true;
+  }
   function timelineSecondsToPixels(seconds,scale){var m=timelineMath();return m?m.secondsToPixels(seconds,scale):num(seconds,0)*Math.max(0.000001,num(scale,1));}
   function timelinePixelsToSeconds(pixels,scale){var m=timelineMath();return m?m.pixelsToSeconds(pixels,scale):num(pixels,0)/Math.max(0.000001,num(scale,1));}
   function timelineDragDeltaSeconds(pointerDelta,scrollDelta,scale){var m=timelineMath();return m&&typeof m.dragDeltaSeconds==='function'?m.dragDeltaSeconds(pointerDelta,scrollDelta,scale):timelinePixelsToSeconds(num(pointerDelta,0)+num(scrollDelta,0),scale);}
@@ -1016,7 +1022,8 @@
             startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,element:el,members:members,
             targetTrackId:clip.track_id,targetRow:null};
         }
-        members.forEach(function(member){member.element.classList.add('fs-dragging');});
+        var reactOwnsActiveDrag=setTimelineActiveDragIds(members.map(function(member){return member.id;}));
+        if(!reactOwnsActiveDrag)members.forEach(function(member){member.element.classList.add('fs-dragging');});
         if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
         e.preventDefault();
     return Boolean(S.drag&&S.drag.element===el&&e&&Number.isInteger(e.pointerId));
@@ -1919,10 +1926,11 @@
       return;
     }
     var d=S.drag;
-    if(!d){clearDragAutoScroll();clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    if(!d){clearDragAutoScroll();setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
     S.drag=null;clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
     showTimelineSnapGuide(null);clearDragTrackTarget(d);
-    (d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
+    var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
+    if(!reactOwnsActiveDrag)(d.members||[]).forEach(function(member){member.element.classList.remove('fs-dragging');});
     if(S.pendingExternalRevision){
       syncClipSelectionVisual();renderTimeline();clearTimelineGesturePreview();
       showStatus('影片 revision 在拖动期间变化；本次旧画面拖动未提交，先载入外部版本。','error');
@@ -1935,9 +1943,11 @@
     }
     var pointerDelta=e.clientX-d.startX,scrollDelta=$('fs-timeline-scroll').scrollLeft-d.startScrollLeft;
     var deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
-    d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
-    d.element.removeAttribute('data-roll-delta');d.element.classList.remove('fs-rolling');
-    d.element.removeAttribute('data-slide-delta');d.element.classList.remove('fs-sliding');
+    if(!reactOwnsActiveDrag){
+      d.element.removeAttribute('data-slip-delta');d.element.classList.remove('fs-slipping');
+      d.element.removeAttribute('data-roll-delta');d.element.classList.remove('fs-rolling');
+      d.element.removeAttribute('data-slide-delta');d.element.classList.remove('fs-sliding');
+    }
     if(d.mode==='slide'){
       var slideDelta=deltaSeconds;
       var slideSnap=findTimelineSnap(d.centerAt+slideDelta,[d.leftClipId,d.centerClipId,d.rightClipId],8);
@@ -2034,12 +2044,15 @@
   function cancelPointerGesture(){
     clearDragAutoScroll();
     showTimelineSnapGuide(null);
+    var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){
       var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
       (drag.members||[]).forEach(function(member){
-        member.element.classList.remove('fs-dragging','fs-slipping','fs-rolling','fs-sliding');
-        member.element.removeAttribute('data-slip-delta');member.element.removeAttribute('data-roll-delta');member.element.removeAttribute('data-slide-delta');
+        if(!reactOwnsActiveDrag)member.element.classList.remove('fs-dragging','fs-slipping','fs-rolling','fs-sliding');
+        if(!reactOwnsActiveDrag){
+          member.element.removeAttribute('data-slip-delta');member.element.removeAttribute('data-roll-delta');member.element.removeAttribute('data-slide-delta');
+        }
       });
     }
     if(S.data&&S.data.exists)renderTimeline();
