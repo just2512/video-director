@@ -24031,6 +24031,7 @@
         envelopeMode: false,
         slideMode: false,
         slipMode: false,
+        rendering: false,
         busy: false,
         broken: false,
         pendingTransaction: null
@@ -24108,7 +24109,7 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
-      } else if (key === "busy" || key === "broken" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode") {
+      } else if (key === "busy" || key === "broken" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering") {
         normalized = value === true;
       } else if (key === "pixelsPerSecond") {
         normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -24153,6 +24154,7 @@
         envelopeMode: target.envelopeMode === true,
         slideMode: target.slideMode === true,
         slipMode: target.slipMode === true,
+        rendering: target.rendering === true,
         busy: target.busy === true,
         broken: target.broken === true,
         pendingTransaction: asPendingTransaction(target.pendingTransaction)
@@ -24176,6 +24178,7 @@
         ["envelopeMode", "envelopeMode"],
         ["slideMode", "slideMode"],
         ["slipMode", "slipMode"],
+        ["rendering", "rendering"],
         ["busy", "busy"],
         ["broken", "broken"],
         ["pendingTransaction", "pendingTransaction"]
@@ -25327,13 +25330,27 @@
       document.body
     );
   };
-  var StudioToolbar = () => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "undo", children: "\u64A4\u9500" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "redo", children: "\u91CD\u505A" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "reload", children: "\u91CD\u65B0\u8F7D\u5165" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn fs-primary", type: "button", "data-film-action": "render", children: "\u5BFC\u51FA MP4" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
-  ] });
+  var StudioToolbar = () => {
+    const rendering = useFilmStoreField("rendering");
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "undo", children: "\u64A4\u9500" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "redo", children: "\u91CD\u505A" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "reload", children: "\u91CD\u65B0\u8F7D\u5165" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          className: "fs-btn fs-primary",
+          type: "button",
+          "data-film-action": "render",
+          disabled: rendering,
+          "aria-busy": rendering,
+          title: rendering ? "\u5BFC\u51FA\u4EFB\u52A1\u8FDB\u884C\u4E2D" : void 0,
+          children: "\u5BFC\u51FA MP4"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "close", title: "\u9000\u51FA\u5168\u5C4F Studio\uFF0C\u4E0D\u5207\u56DE\u65E7\u7F16\u8F91\u72B6\u6001", children: "\u9000\u51FA Studio" })
+    ] });
+  };
   var updateTimelineGesturePreview = null;
   var updateTimelineSnapGuide = null;
   var updateTimelineDropTarget = null;
