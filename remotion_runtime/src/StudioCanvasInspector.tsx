@@ -230,10 +230,14 @@ type FilmTimelineGesturePreviewGeometry = {
 };
 type FilmTimelineGesturePreviewEntry = number | FilmTimelineGesturePreviewGeometry;
 type FilmTimelineGesturePreview = Record<string, FilmTimelineGesturePreviewEntry> | null;
+type FilmTimelineSnapGuide = {at: number; kind: string; title: string} | null;
+type FilmTimelineDropTarget = {trackId: string; invalid: boolean} | null;
 
 interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
   setGesturePreview(preview: FilmTimelineGesturePreview): void;
+  setSnapGuide(guide: FilmTimelineSnapGuide): void;
+  setTrackDropTarget(target: FilmTimelineDropTarget): void;
   clearSurface(): void;
   hasSurface(): boolean;
   openContextMenu(model: FilmTimelineContextMenu): void;
@@ -952,14 +956,32 @@ const StudioToolbar: React.FC = () => (
 );
 
 let updateTimelineGesturePreview: ((preview: FilmTimelineGesturePreview) => void) | null = null;
+let updateTimelineSnapGuide: ((guide: FilmTimelineSnapGuide) => void) | null = null;
+let updateTimelineDropTarget: ((target: FilmTimelineDropTarget) => void) | null = null;
 
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
   const [gesturePreview, setGesturePreview] = useState<FilmTimelineGesturePreview>(null);
+  const [snapGuide, setSnapGuide] = useState<FilmTimelineSnapGuide>(null);
+  const [dropTarget, setDropTarget] = useState<FilmTimelineDropTarget>(null);
   useLayoutEffect(() => {
     const update = (preview: FilmTimelineGesturePreview) => setGesturePreview(preview);
     updateTimelineGesturePreview = update;
     return () => {
       if (updateTimelineGesturePreview === update) updateTimelineGesturePreview = null;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const update = (guide: FilmTimelineSnapGuide) => setSnapGuide(guide);
+    updateTimelineSnapGuide = update;
+    return () => {
+      if (updateTimelineSnapGuide === update) updateTimelineSnapGuide = null;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const update = (target: FilmTimelineDropTarget) => setDropTarget(target);
+    updateTimelineDropTarget = update;
+    return () => {
+      if (updateTimelineDropTarget === update) updateTimelineDropTarget = null;
     };
   }, []);
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
@@ -1020,7 +1042,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
       <div
         className={"fs-track" + (track.locked ? " fs-track-locked" : "") +
           (track.syncLocked ? " fs-sync-locked" : "") + (track.hidden ? " fs-hidden-track" : "") +
-          (track.muted ? " fs-muted-track" : "")}
+          (track.muted ? " fs-muted-track" : "") +
+          (dropTarget?.trackId === track.id ? (dropTarget.invalid ? " fs-track-drop-invalid" : " fs-track-drop-target") : "")}
         data-track={track.id}
         key={track.id}
       >
@@ -1156,6 +1179,9 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         </div>
       </div>
     ))}
+    {snapGuide ? <div id="fs-snap-guide" className="fs-snap-guide"
+      style={{left:132 + filmTimelineMath.clipLeft(snapGuide.at,model.pixelsPerSecond)}}
+      title={snapGuide.title} data-snap-kind={snapGuide.kind} /> : null}
     <div className="fs-playhead" id="fs-playhead-line" />
   </>
   );
@@ -1483,6 +1509,12 @@ window.filmStudioReactTimeline = {
   },
   setGesturePreview(preview) {
     updateTimelineGesturePreview?.(preview);
+  },
+  setSnapGuide(guide) {
+    updateTimelineSnapGuide?.(guide);
+  },
+  setTrackDropTarget(target) {
+    updateTimelineDropTarget?.(target);
   },
   clearSurface() {
     if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {

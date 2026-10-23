@@ -86,4 +86,12 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "window.filmStudioOpenTimelineContextMenu=function(clipId,clientX,clientY)" in studio
     assert "window.filmStudioContextMenuAction=function(action,clipId)" in studio
     assert "bridge.isContextMenuOpen==='function'&&bridge.isContextMenuOpen()" in studio
+    assert "setSnapGuide(guide: FilmTimelineSnapGuide): void;" in component
+    assert "setTrackDropTarget(target: FilmTimelineDropTarget): void;" in component
+    assert 'id="fs-snap-guide"' in component
+    assert "dropTarget?.trackId === track.id" in component
+    assert "bridge.setSnapGuide==='function'" in studio
+    assert "bridge.setTrackDropTarget==='function'" in studio
+    assert "if(!setTimelineDropTarget(nextTrack,!!targetError))" in studio
+    assert "clearDragAutoScroll();\n    showTimelineSnapGuide(null);" in studio
     assert "if(S.reactGesturePointerId===e.pointerId)return;" not in studio

@@ -776,9 +776,20 @@
     syncClipSelectionVisual();renderInspector();renderAssets();syncDirectorSelection();
     return S.selectedIds.indexOf(id)>=0;
   }
+  function setTimelineDropTarget(trackId,invalid){
+    var bridge=window.filmStudioReactTimeline;
+    if(bridge&&typeof bridge.setTrackDropTarget==='function'){
+      bridge.setTrackDropTarget(trackId?{trackId:String(trackId),invalid:!!invalid}:null);
+      return true;
+    }
+    return false;
+  }
   function clearDragTrackTarget(d){
-    if(d&&d.targetRow)d.targetRow.classList.remove('fs-track-drop-target','fs-track-drop-invalid');
+    var bridge=window.filmStudioReactTimeline;
+    var reactOwnsTarget=bridge&&typeof bridge.setTrackDropTarget==='function';
+    if(d&&d.targetRow&&!reactOwnsTarget)d.targetRow.classList.remove('fs-track-drop-target','fs-track-drop-invalid');
     if(d)d.targetRow=null;
+    setTimelineDropTarget(null,false);
   }
   function groupMoveTargetError(d,targetTrackId){
     var order=d&&d.trackOrder||[],targetIndex=order.indexOf(targetTrackId);
@@ -876,7 +887,15 @@
     return {targetAt:targetAt,deltaSeconds:delta,snapCandidate:usedSnap};
   }
   function showTimelineSnapGuide(at, kind){
-    var timeline=$('fs-timeline');
+    var timeline=$('fs-timeline'),bridge=window.filmStudioReactTimeline;
+    if(bridge&&typeof bridge.setSnapGuide==='function'){
+      bridge.setSnapGuide(at==null||!timeline?null:{
+        at:Math.max(0,Number(at)||0),
+        kind:String(kind||'时间点'),
+        title:'吸附到 '+(kind||'时间点')+' · '+fmtTime(at)
+      });
+      return;
+    }
     if(at==null||!timeline){var stale=$('fs-snap-guide');if(stale)stale.remove();return;}
     var guide=$('fs-snap-guide');
     if(!guide){guide=document.createElement('div');guide.id='fs-snap-guide';guide.className='fs-snap-guide';timeline.appendChild(guide);}
@@ -1784,7 +1803,8 @@
         if(d.targetRow!==row||d.targetTrackId!==nextTrack||d.invalidTargetMessage!==targetError){
           clearDragTrackTarget(d);
           d.targetTrackId=nextTrack;d.invalidTargetMessage=targetError;d.targetRow=row;
-          row.classList.add(targetError?'fs-track-drop-invalid':'fs-track-drop-target');
+          if(!setTimelineDropTarget(nextTrack,!!targetError))
+            row.classList.add(targetError?'fs-track-drop-invalid':'fs-track-drop-target');
         }
       }
     }
@@ -2013,6 +2033,7 @@
   });
   function cancelPointerGesture(){
     clearDragAutoScroll();
+    showTimelineSnapGuide(null);
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){
       var drag=S.drag;S.drag=null;clearDragTrackTarget(drag);
