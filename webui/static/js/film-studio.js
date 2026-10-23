@@ -1728,12 +1728,12 @@
     }
     var d=S.drag;if(!d)return;
     var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
-    var pointerDelta=e.clientX-d.startX,scrollDelta=scroll.scrollLeft-d.startScrollLeft;
-    var dx=pointerDelta+scrollDelta,deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
     if(!e.skipAutoScroll){
       if(e.clientX<rect.left+28)scroll.scrollLeft=Math.max(0,scroll.scrollLeft-18);
       else if(e.clientX>rect.right-28)scroll.scrollLeft=Math.min(Math.max(0,scroll.scrollWidth-scroll.clientWidth),scroll.scrollLeft+18);
     }
+    var pointerDelta=e.clientX-d.startX,scrollDelta=scroll.scrollLeft-d.startScrollLeft;
+    var dx=pointerDelta+scrollDelta,deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
     if(!d.active&&Math.sqrt(dx*dx+(e.clientY-d.startY)*(e.clientY-d.startY))<5)return;
     d.active=true;
     updateDragAutoScroll(e);
