@@ -266,6 +266,11 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
                 "visual_intent": t,
                 "source_preference": "user_asset",
                 "search_terms": [mpt_semantics.remove_pause_markup(t)],
+                # §七.2 场景级生产契约：rule 兜底诚实给 purpose（镜头存在理由=文案
+                # 本身），must_show/must_not_show 留空（无 LLM 判断，不硬编）。
+                "purpose": mpt_semantics.remove_pause_markup(t),
+                "must_show": [],
+                "must_not_show": [],
             } for t in state["scene_texts"]],
         }
     else:
@@ -294,7 +299,13 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
                 "每个场景再提供 3 个明显不同的创作候选：直叙表达、细节/B-roll、概念化表达；"
                 "每个候选必须包含 title、approach、visual_intent、search_terms、source_preference、"
                 "generation_type、generation_prompt。"
+                "每个场景还必须给出发 purpose（这一镜头在叙事中的存在理由）、"
+                "must_show（画面必须呈现的要素列表）、must_not_show（画面禁止呈现的"
+                "事实性细节或不当元素列表）；must_show/must_not_show 可为空数组。"
                 '只输出 JSON：{"scenes":[{"text":"文案","visual_intent":"主视觉意图",'
+                '"purpose":"镜头存在理由",'
+                '"must_show":["必须呈现的要素"],'
+                '"must_not_show":["禁止呈现的细节"],'
                 '"source_preference":"user_asset|reference_style|software_evidence|stock|generated",'
                 '"search_terms":["按叙事顺序的检索词"],'
                 '"candidates":[{"title":"直叙表达","approach":"direct","visual_intent":"...",'
@@ -322,6 +333,10 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
                     "visual_intent": t,
                     "source_preference": "user_asset",
                     "search_terms": [mpt_semantics.remove_pause_markup(t)],
+                    # §七.2 契约字段：降级时同 rule 兜底口径
+                    "purpose": mpt_semantics.remove_pause_markup(t),
+                    "must_show": [],
+                    "must_not_show": [],
                 } for t in state["scene_texts"]],
             }
             state.setdefault("llm_degraded_warnings", []).append(
@@ -556,12 +571,30 @@ def _tool_material(spec: dict, state: dict) -> dict:
         search_terms_by_scene.append(
             mpt_semantics.normalize_search_terms(raw_terms, scene.get("text", ""), amount=8)
         )
+    # §七.2 契约字段桥接：narration_scenes（TTS 产物）不带 purpose/must_show/
+    # must_not_show——这三字段产在 scene_plan。按位置对齐合并后**回写
+    # state["narration_scenes"]**（新建 dict 副本，不动原元素），此后本工具内
+    # 的 LLM 匹配、生成段以及下游组合工具都能读到契约。
+    _plan_by_pos = {i: (scene_plan_items[i] if isinstance(scene_plan_items[i], dict) else {})
+                    for i in range(min(len(state.get("narration_scenes") or []),
+                                       len(scene_plan_items)))}
+    _merged_scenes = []
+    for i, scene in enumerate(state.get("narration_scenes") or []):
+        planned = _plan_by_pos.get(i) or {}
+        _merged = dict(scene)
+        for _k in ("purpose", "must_show", "must_not_show"):
+            if planned.get(_k) is not None:
+                _merged[_k] = planned[_k]
+        _merged_scenes.append(_merged)
+    state["narration_scenes"] = _merged_scenes
+    _scenes_for_intent = _merged_scenes
+
     intent_path = base / "plans" / "material_intents.json"
     intent_path.parent.mkdir(parents=True, exist_ok=True)
     intent_path.write_text(
         json.dumps(
             mpt_semantics.material_intent_snapshot(
-                state.get("narration_scenes") or [],
+                _scenes_for_intent,
                 search_terms_by_scene={
                     str(s.get("id") or ""): t
                     for s, t in zip(state.get("narration_scenes") or [], search_terms_by_scene)
@@ -579,7 +612,8 @@ def _tool_material(spec: dict, state: dict) -> dict:
         try:
             # 锁定场景从自动匹配集中剔除（沿用 IR 已确认绑定），不被 LLM/顺序
             # 匹配改动——用户锁定的镜头 AI 不许碰（差距6：人工介入不被覆盖）。
-            match_scenes = [s for s in state["narration_scenes"]
+            # 用 _scenes_for_intent（带 §七.2 契约字段）供 LLM 匹配感知 must_show。
+            match_scenes = [s for s in _scenes_for_intent
                             if s["id"] not in locked_scenes]
             assignments = matcher.match_assets(
                 match_scenes, all_assets, llm_call,
@@ -695,6 +729,19 @@ def _tool_material(spec: dict, state: dict) -> dict:
                     prompt = str((cand or {}).get("generation_prompt")
                                  or next((s["text"] for s in state["narration_scenes"]
                                           if s.get("id") == sid), ""))
+                    # §七.2 契约注入：must_show 加重要素、must_not_show 转负面
+                    # 提示词（生成端无独立 negative-prompt 协议，用「画面中不得
+                    # 出现」措辞）。字段来自场景级契约（_gen 合并处已带）。
+                    _scene_ctx = next((s for s in state.get("narration_scenes") or []
+                                       if s.get("id") == sid), None)
+                    _show = [str(x) for x in (_scene_ctx or {}).get("must_show") or []
+                             if str(x or "").strip()]
+                    _not_show = [str(x) for x in (_scene_ctx or {}).get("must_not_show") or []
+                                 if str(x or "").strip()]
+                    if _show:
+                        prompt += f"｜画面必须呈现：{'、'.join(_show)}"
+                    if _not_show:
+                        prompt += f"｜画面中不得出现：{'、'.join(_not_show)}"
                     used_gt = None
                     fpath = ""
                     for try_gt in fallback_chain:
@@ -737,7 +784,6 @@ def _tool_material(spec: dict, state: dict) -> dict:
                         if not used_gt:
                             # 兜底链走尽仍失败 → NEEDS_HUMAN（诚实暴露缺项，
                             # 不伪装成功）。candidates 读写回到主线程统一做。
-                            _cand = dict(candidate_sets_by_scene.get(sid) or [])
                             continue
                         if used_gt in ("video", "motion"):
                             videos.append(fpath)  # motion（Huashu 动效）产物是视频

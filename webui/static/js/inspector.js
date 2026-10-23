@@ -232,6 +232,15 @@ async function _loadMptSceneContext(sceneId){
         sourcePreference: candidate.source_preference || '',
       }).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;');
     }
+    // §七.2 契约展示：必须/禁止呈现要素（场景级，material_intents 透传）
+    const sceneShow = (intent.must_show || []).filter(function(x){ return x; });
+    const sceneNotShow = (intent.must_not_show || []).filter(function(x){ return x; });
+    const contractHtml = (sceneShow.length || sceneNotShow.length)
+      ? '<div style="margin:3px 0 6px;font-size:12px">' +
+        (sceneShow.length ? '<div>必须呈现：' + sceneShow.map(function(x){ return esc(x); }).join('、') + '</div>' : '') +
+        (sceneNotShow.length ? '<div>禁止呈现：' + sceneNotShow.map(function(x){ return esc(x); }).join('、') + '</div>' : '') +
+        '</div>'
+      : '';
     const candidateHtml = candidates.map(function(candidate){
       const selected = candidate.id === selectedCandidate;
       const sourceText = {
@@ -293,6 +302,7 @@ async function _loadMptSceneContext(sceneId){
       '<div style="margin:3px 0 6px">' + (terms || '<span class="hint">未记录</span>') + '</div>' +
       '<div>目标时长：' + Number(intent.target_duration || 0).toFixed(1) + 's' +
       ' · 单段上限：' + (intent.max_clip_duration ? Number(intent.max_clip_duration).toFixed(1) + 's' : '自动') + '</div>' +
+      contractHtml +
       '<div>策略：' + esc(intent.source_preference || 'user_first') +
       ' · ' + esc(intent.diversity_policy || 'prefer_unique_source') +
       ' · ' + esc(intent.reuse_policy || 'reuse_when_needed') + '</div>' +

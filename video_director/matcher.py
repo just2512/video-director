@@ -169,7 +169,19 @@ def llm_match(
         for aid, a in assets.items()
         if a.type == "video"
     )
-    scenes_desc = "\n".join(f"- {s['id']}: {s['text']}" for s in scenes)
+    # §七.2 契约：must_show/must_not_show 进匹配上下文——「必须呈现人物停顿」
+    # 或「禁止出现与文案不符的细节」直接影响素材适配判断。
+    def _scene_line(s: dict) -> str:
+        line = f"- {s['id']}: {s['text']}"
+        show = [str(x) for x in (s.get("must_show") or []) if str(x or "").strip()]
+        not_show = [str(x) for x in (s.get("must_not_show") or []) if str(x or "").strip()]
+        if show:
+            line += f"｜必须呈现: {'、'.join(show)}"
+        if not_show:
+            line += f"｜禁止呈现: {'、'.join(not_show)}"
+        return line
+
+    scenes_desc = "\n".join(_scene_line(s) for s in scenes)
     prompt = MATCH_PROMPT.format(assets_desc=assets_desc, scenes_desc=scenes_desc)
     raw = llm_call(prompt)
     start, end = raw.find("{"), raw.rfind("}")

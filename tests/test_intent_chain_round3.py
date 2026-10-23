@@ -221,9 +221,12 @@ class TestSceneLock:
 class TestAdversarialProbes:
     """2026-10-21 对抗探针固化：LLM 怪输出 / sfx 覆盖顺序 / 锁定继承。"""
 
-    def _state(self, tmp_path, pid="proj-adv-x"):
+    def _state(self, tmp_path, pid="proj-adv-x", monkeypatch=None):
         from video_director import config
-        config.composer_storage_root = lambda: tmp_path
+        if monkeypatch is not None:
+            # 走 monkeypatch 才有 per-test 还原：直接赋值会把 lambda 永久留在
+            # 模块上，污染后续所有 suite 的 project_dir()（全量跑假失败根因）。
+            monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
         from video_director.style import StyleContract
         return {
             "project_id": pid,
@@ -238,7 +241,7 @@ class TestAdversarialProbes:
         """翻译 LLM 五种怪输出全部诚实降级，不炸节点。"""
         import video_director.llm_provider as m
         from video_director import director_agent
-        state = self._state(tmp_path, "proj-adv-bi")
+        state = self._state(tmp_path, "proj-adv-bi", monkeypatch)
 
         class P:
             def __init__(self, ret): self.ret = ret
@@ -252,7 +255,7 @@ class TestAdversarialProbes:
         import video_director.llm_provider as m
         from video_director import director_agent
         monkeypatch.setattr(m, "get_llm", lambda: None)
-        state = self._state(tmp_path, "proj-adv-sfx")
+        state = self._state(tmp_path, "proj-adv-sfx", monkeypatch)
         director_agent._apply_sfx_policy({"sfx": "off"}, state)
         spec = {"sfx": "off", "sfx_plan": [{"action": "hammer", "at": 1.0}]}
         effective = spec.get("sfx_plan")

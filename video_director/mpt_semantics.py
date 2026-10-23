@@ -50,6 +50,10 @@ class MaterialIntent:
     diversity_policy: str = "prefer_unique_source"
     selection_reason: str = ""
     selected_asset_id: str = ""
+    # §七.2 场景级生产契约（2026-10-23 落地）：镜头存在理由 + 必须/禁止呈现
+    purpose: str = ""
+    must_show: tuple[str, ...] = ()
+    must_not_show: tuple[str, ...] = ()
 
 def _parse_pause_value(raw: Optional[str]) -> Optional[float]:
     if raw is None or not raw.strip():
@@ -158,6 +162,19 @@ def build_material_intent(
     text = remove_pause_markup(str(scene.get("text") or ""))
     duration = float(scene.get("duration") or 0.0)
     terms = normalize_search_terms(search_terms, text, amount=8)
+    # §七.2 场景级生产契约三字段：LLM/rule 落在 scene_plan，这里清洗透传，
+    # 供 material_intents.json 交接面（总导演↔素材生成↔审核）可见。
+    purpose = str(scene.get("purpose") or "").strip()[:200]
+    must_show = [
+        str(x or "").strip()[:100] for x in (scene.get("must_show") if
+                                             isinstance(scene.get("must_show"), (list, tuple)) else [])
+        if str(x or "").strip()
+    ]
+    must_not_show = [
+        str(x or "").strip()[:100] for x in (scene.get("must_not_show") if
+                                             isinstance(scene.get("must_not_show"), (list, tuple)) else [])
+        if str(x or "").strip()
+    ]
     return MaterialIntent(
         scene_id=scene_id,
         text=text,
@@ -167,6 +184,9 @@ def build_material_intent(
         source_preference=source_preference,
         selected_asset_id=selected_asset_id,
         selection_reason=selection_reason,
+        purpose=purpose,
+        must_show=tuple(must_show),
+        must_not_show=tuple(must_not_show),
     )
 
 def material_usage_from_ir(ir: Any) -> List[MaterialUsage]:
@@ -253,6 +273,10 @@ def material_intent_snapshot(
             "diversity_policy": i.diversity_policy,
             "selected_asset_id": i.selected_asset_id,
             "selection_reason": i.selection_reason,
+            # §七.2 契约透传：交接面（素材生成/审核 Agent）可见
+            "purpose": i.purpose,
+            "must_show": list(i.must_show),
+            "must_not_show": list(i.must_not_show),
             "selected_candidate_id": selected_candidate,
             "candidates": [dict(x) for x in candidates if isinstance(x, Mapping)],
         })

@@ -132,7 +132,10 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 page.locator("#cf-render-engine").wait_for(state="visible")
                 page.wait_for_function(
                     "() => window.CF_STUDIO_CATALOG && document.querySelectorAll('[data-studio-style]').length > 0",
-                    timeout=10000,
+                    # 首次 catalog 请求做真实能力探活（ffmpeg -version 子进程 +
+                    # Chromium 冷启动），负载高时 >10s——30s 覆盖冷启动，探活
+                    # 进程级 lru_cache 后后续请求毫秒级。
+                    timeout=30000,
                 )
                 assert page.locator("#cf-panel").is_visible()
                 assert page.locator("#cf-render-engine").is_enabled()

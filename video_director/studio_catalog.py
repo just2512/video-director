@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import threading
 from functools import lru_cache
 from pathlib import Path
 
@@ -69,6 +70,25 @@ def _runtime_status(renderer_id: str, ffmpeg_status: str, browser_status: str) -
     else:
         reasons.append(f"声明的引擎 {renderer_id or '(未声明)'} 没有匹配的执行适配器")
     return ("PASS" if not reasons else "MISSING"), reasons
+
+
+# 模板运行时报告按模板身份进程级缓存：template_runtime_report 内部做能力/
+# 依赖解析，模板集在进程生命周期内不变，逐请求重算纯属浪费（2026-10-23
+# 对抗测试：创建面板每次打开都全量重算，Chromium 探活冷启动秒级，前端
+# 10s 等待窗口边缘超时——生产同样卡）。环境/注册表变化属进程重启场景。
+_RUNTIME_REPORT_CACHE: dict = {}
+_RUNTIME_REPORT_LOCK = threading.Lock()
+
+
+def _cached_runtime_report(template) -> dict:
+    # key 必须含 runtime 声明内容：同 id+version 的模板可能被上层替换 runtime
+    # （测试 replace()、未来热更新），只按 id+version 缓存会命中旧报告。
+    runtime = template.runtime or {}
+    key = (str(template.id), str(template.version), repr(sorted(runtime.items())))
+    with _RUNTIME_REPORT_LOCK:
+        if key not in _RUNTIME_REPORT_CACHE:
+            _RUNTIME_REPORT_CACHE[key] = template_runtime_report(template)
+        return _RUNTIME_REPORT_CACHE[key]
 
 
 def build_studio_catalog() -> dict:
@@ -141,7 +161,7 @@ def build_studio_catalog() -> dict:
     templates = []
     for template in candidates:
         renderer_id = str((template.runtime or {}).get("renderer") or "ffmpeg")
-        runtime = template_runtime_report(template)
+        runtime = _cached_runtime_report(template)
         engine_status, engine_reasons = _runtime_status(
             renderer_id, ffmpeg_status, browser_status,
         )
