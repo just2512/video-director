@@ -1158,7 +1158,7 @@
         });
         if(el.setPointerCapture)try{el.setPointerCapture(e.pointerId);}catch(_){}
         e.preventDefault();
-    return Boolean(S.drag&&S.drag.element===el&&e&&Number.isInteger(e.pointerId));
+    return Boolean(S.drag&&S.drag.id===String(el.getAttribute('data-clip'))&&S.drag.pointerId===e.pointerId&&Number.isInteger(e.pointerId));
   };
 
   window.filmStudioToggleTrackLock = function(trackId){

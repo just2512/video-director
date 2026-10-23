@@ -945,6 +945,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   return !!button && button.textContent.trim() === '锁';
                 }""", arg=destination_track_id)
 
+                # Wait for the prior lock operation's HTTP response and FilmStore cleanup before starting a new pointer gesture.
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.busy === false && state.pendingTransaction === null &&
+                    state.broken === false && !state.pendingExternalRevision;
+                }""", timeout=10000)
                 # React pointercancel must clear the active gesture without committing.
                 before_cancel = fd.read_project_film(project_id)
                 cancelled = page.evaluate("""() => {
@@ -973,6 +979,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => document.querySelector('canvas[data-envelope-clip=\\\"audio-1\\\"]')?.dataset.reactEnvelopePainted === 'true'",
                     timeout=5000,
                 )
+                # The destination-track lock transaction must also release FilmStore before the envelope gesture.
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.busy === false && state.pendingTransaction === null &&
+                    state.broken === false && !state.pendingExternalRevision;
+                }""", timeout=10000)
                 before_envelope_cancel = fd.read_project_film(project_id)
                 cancelled_envelope = page.evaluate("""() => {
                   const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');

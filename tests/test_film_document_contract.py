@@ -852,7 +852,10 @@ def test_roll_trim_ctrl_drag_and_operation_contract():
     module = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert "rollGesture=!!(trim&&e.ctrlKey)" in script
     assert "data-roll-delta" in script
-    assert "members:members,targetTrackId:clip.track_id,targetRow:null" in script
+    assert "S.drag={id:clip.id,mode:'roll',pointerId:e.pointerId" in script
+    assert "return Boolean(S.drag&&S.drag.id===String(el.getAttribute('data-clip'))&&S.drag.pointerId===e.pointerId" in script
+    assert "timelineGestureContext" not in script  # state ownership is bridged through FilmStore, not duplicated in this source assertion
+
     assert 'elif kind == "roll"' in module
     assert "Ctrl 拖动切口滚动修剪" in index
 

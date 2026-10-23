@@ -388,6 +388,15 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 assert float(audio["audio-before"]["attrs"]["at"]) == 0
                 assert float(audio["audio-later"]["attrs"]["at"]) == 3
 
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && state.busy === false && state.pendingTransaction === null &&
+                        state.revision === expected;
+                    }""",
+                    arg=final["rev"],
+                    timeout=10000,
+                )
                 stale_transaction = page.evaluate("""async () => {
                   const store = window.filmStudioStore;
                   let submitterRan = false;
