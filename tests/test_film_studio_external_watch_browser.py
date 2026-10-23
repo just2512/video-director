@@ -1454,7 +1454,9 @@ def test_react_timeline_context_menu_opens_and_dismisses_without_writing_film(tm
                 stale_warning = page.locator("#fs-proposal-stale-warning")
                 stale_warning.wait_for(state="visible", timeout=5000)
                 assert "当前影片 revision 已变化" in stale_warning.inner_text()
-                assert "clip-b" in page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]').inner_text()
+                context_proposal_panel = page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]')
+                context_proposal_panel.locator('details[data-react-proposal-details="true"] > summary').click()
+                assert "clip-b" in context_proposal_panel.inner_text()
                 assert page.locator('[data-film-action="preview-proposal"]').is_disabled()
                 assert page.locator('[data-film-action="apply-proposal"]').is_disabled()
                 assert not page.locator('[data-film-action="reject-proposal"]').is_disabled()
@@ -1616,6 +1618,9 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                 )
                 live_stale_warning = page.locator('#fs-react-ai-director #fs-proposal-stale-warning')
                 live_stale_warning.wait_for(state="visible", timeout=10000)
+                # Operation details are intentionally collapsed by default; open them
+                # before asserting the affected clip remains inspectable on a stale proposal.
+                live_proposal.locator('details[data-react-proposal-details="true"] > summary').click()
                 assert not live_proposal.locator('[data-film-action="preview-proposal"]').is_enabled()
                 assert not live_proposal.locator('[data-film-action="apply-proposal"]').is_enabled()
                 assert live_proposal.locator('[data-film-action="reject-proposal"]').is_enabled()
