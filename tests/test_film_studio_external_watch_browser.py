@@ -1549,6 +1549,44 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                     "Planning a proposal must not write film.html."
                 )
 
+                # Also create a proposal through the actual React Studio UI so the adapter's
+                # external-revision poll (not only the React bridge) is tested end-to-end.
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                live_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                live_clip.wait_for(state="visible", timeout=5000)
+                live_clip.click()
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.selectedId === 'clip-b'",
+                    timeout=5000,
+                )
+                chat_input = page.locator('#fs-react-ai-director #fs-chat-input')
+                chat_input.fill("Change clip-b speed.")
+                page.locator('#fs-react-ai-director [data-film-action="ask"]').click()
+                page.wait_for_function(
+                    """() => {
+                      const panel = document.querySelector('#fs-proposal-panel[data-react-ai-proposal="true"]');
+                      return !!panel && panel.textContent.includes("Change the target clip speed.");
+                    }""",
+                    timeout=15000,
+                )
+                live_proposal = page.locator('#fs-react-ai-director #fs-proposal-panel[data-react-ai-proposal="true"]')
+                assert not live_proposal.locator('[data-film-action="apply-proposal"]').is_disabled()
+                assert fd.read_project_film(project_id)["rev"] == initial_revision, (
+                    "The proposal generated inside Studio must not write film.html."
+                )
+
                 # Simulate an Agent atomically rewriting film.html and deleting the target.
                 before_agent_write = fd.read_project_film(project_id)
                 updated_doc, _ = fd.apply_ops(
@@ -1568,6 +1606,23 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                     for clip in track["clips"]
                 )
                 print("STALE_PROPOSAL_CHECKPOINT=external-delete-persisted", flush=True)
+
+                # External revision polling must retain the actual UI proposal, mark it stale,
+                # disable preview/apply, and allow inspection/rejection without touching film.html.
+                page.wait_for_function(
+                    "(expected) => window.filmStudioStore?.getSnapshot()?.revision === expected",
+                    arg=agent_revision,
+                    timeout=15000,
+                )
+                live_stale_warning = page.locator('#fs-react-ai-director #fs-proposal-stale-warning')
+                live_stale_warning.wait_for(state="visible", timeout=10000)
+                assert not live_proposal.locator('[data-film-action="preview-proposal"]').is_enabled()
+                assert not live_proposal.locator('[data-film-action="apply-proposal"]').is_enabled()
+                assert live_proposal.locator('[data-film-action="reject-proposal"]').is_enabled()
+                assert "Change the target clip speed." in live_proposal.inner_text()
+                assert "clip-b" in live_proposal.inner_text()
+                assert page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').count() == 0
+                assert fd.read_project_film(project_id)["rev"] == agent_revision
 
                 # The server must reject the old proposal at the revision gate; client ops
                 # are intentionally supplied to prove they cannot replace registered operations.
