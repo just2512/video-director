@@ -190,7 +190,7 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-track.fs-track-drop-target{background:rgba(69,194,180,.09);box-shadow:inset 0 0 0 1px rgba(69,194,180,.65)}
 .fs-track.fs-track-drop-invalid{background:rgba(225,76,76,.10);box-shadow:inset 0 0 0 1px rgba(235,87,87,.9)}
 .fs-clip.fs-dragging{opacity:.62;border-style:dashed}
-.fs-clip.fs-gesture-ghost{opacity:.62;border:1px dashed #45c2b4;outline:1px solid rgba(69,194,180,.42);outline-offset:-2px;box-shadow:inset 0 0 0 1px rgba(69,194,180,.24);pointer-events:none;cursor:default;z-index:8}
+.fs-clip.fs-clip-gesture-ghost{opacity:.62;border:1px dashed #45c2b4;outline:1px solid rgba(69,194,180,.42);outline-offset:-2px;box-shadow:inset 0 0 0 1px rgba(69,194,180,.24);pointer-events:none;cursor:default;z-index:8}
 
 .fs-proposal-panel{flex:0 0 auto;border:1px solid #557c77;background:#1b2c2a;border-radius:6px;padding:9px;margin-bottom:8px}
 .fs-proposal-panel[hidden]{display:none!important}
