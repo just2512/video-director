@@ -24039,10 +24039,12 @@
     const centerDuration = optionalNumber("centerDuration");
     const rightDuration = optionalNumber("rightDuration");
     if (originalAt === void 0 !== (originalEnd === void 0) || originalAt !== void 0 && originalEnd !== void 0 && originalEnd < originalAt || trackId === void 0 !== (originalTrackIndex === void 0) || trackId && !trackOrder.includes(trackId) || targetTrackId && !trackOrder.includes(targetTrackId) || originalTrackIndex !== void 0 && (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 || trackOrder[originalTrackIndex] !== trackId)) return null;
+    const primaryMember = members.find((member) => member.id === id);
+    if (!primaryMember || originalAt !== void 0 && primaryMember.originalAt !== originalAt || originalEnd !== void 0 && primaryMember.originalEnd !== originalEnd || trackId !== void 0 && primaryMember.trackId !== trackId || originalTrackIndex !== void 0 && primaryMember.trackIndex !== originalTrackIndex || mode !== "move" && members.length !== 1) return null;
     const hasClipBaseline = originalAt !== void 0 && originalEnd !== void 0 && !!trackId && originalTrackIndex !== void 0 && !!targetTrackId;
     if ((mode === "move" || mode === "trim-start" || mode === "trim-end" || mode === "slip") && !hasClipBaseline) return null;
-    if (mode === "roll" && (!leftClipId || !rightClipId || leftClipId === rightClipId || rightAt === void 0 || leftDuration === void 0 || leftDuration <= 0 || rightDuration === void 0 || rightDuration <= 0 || !targetTrackId)) return null;
-    if (mode === "slide" && (!leftClipId || !centerClipId || !rightClipId || (/* @__PURE__ */ new Set([leftClipId, centerClipId, rightClipId])).size !== 3 || centerAt === void 0 || rightAt === void 0 || leftDuration === void 0 || leftDuration <= 0 || centerDuration === void 0 || centerDuration <= 0 || rightDuration === void 0 || rightDuration <= 0 || !targetTrackId)) return null;
+    if (mode === "roll" && (!leftClipId || !rightClipId || leftClipId === rightClipId || id !== leftClipId && id !== rightClipId || primaryMember.trackId !== targetTrackId || rightAt === void 0 || rightAt < 0 || leftDuration === void 0 || leftDuration <= 0 || rightDuration === void 0 || rightDuration <= 0 || !targetTrackId)) return null;
+    if (mode === "slide" && (!leftClipId || !centerClipId || !rightClipId || centerClipId !== id || primaryMember.trackId !== targetTrackId || (/* @__PURE__ */ new Set([leftClipId, centerClipId, rightClipId])).size !== 3 || centerAt === void 0 || centerAt < 0 || rightAt === void 0 || rightAt < centerAt || leftDuration === void 0 || leftDuration <= 0 || centerDuration === void 0 || centerDuration <= 0 || rightDuration === void 0 || rightDuration <= 0 || !targetTrackId)) return null;
     return {
       id,
       mode,
