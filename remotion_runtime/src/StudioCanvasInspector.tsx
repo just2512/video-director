@@ -266,6 +266,11 @@ declare global {
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
+    filmStudioBeginEnvelopeGesture?: (event: PointerEvent, canvas: HTMLCanvasElement) => boolean;
+    filmStudioMoveEnvelopeGesture?: (event: PointerEvent) => void;
+    filmStudioEndEnvelopeGesture?: (event: PointerEvent) => Promise<void> | void;
+    filmStudioCancelEnvelopeGesture?: (event: PointerEvent) => void;
+    filmStudioOwnsEnvelopeGesturePointer?: (pointerId: number) => boolean;
     filmStudioToggleTrackLock?: (trackId: string) => Promise<boolean> | void;
     filmStudioToggleTrackFlag?: (trackId: string, field: string) => Promise<boolean> | void;
     filmStudioShowAssetMode?: (mode: string) => void;
@@ -918,12 +923,22 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   // The version is the scalar subscription token; the array proxy is stable by design.
   void selectedIdsVersion;
   const activePointerId = useRef<number | null>(null);
+  const activeEnvelopePointerId = useRef<number | null>(null);
   useLayoutEffect(() => {
     const ownsPointer = (pointerId:number) => activePointerId.current === pointerId;
     window.filmStudioOwnsClipGesturePointer = ownsPointer;
     return () => {
       if (window.filmStudioOwnsClipGesturePointer === ownsPointer) {
         window.filmStudioOwnsClipGesturePointer = undefined;
+      }
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const ownsEnvelopePointer = (pointerId:number) => activeEnvelopePointerId.current === pointerId;
+    window.filmStudioOwnsEnvelopeGesturePointer = ownsEnvelopePointer;
+    return () => {
+      if (window.filmStudioOwnsEnvelopeGesturePointer === ownsEnvelopePointer) {
+        window.filmStudioOwnsEnvelopeGesturePointer = undefined;
       }
     };
   }, []);
@@ -1016,7 +1031,42 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
             >
               {clip.thumbnail ? <img className="fs-clip-thumb" src={clip.thumbnail} loading="lazy" alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
               {clip.waveform ? <canvas className="fs-clip-waveform" data-waveform-clip={clip.id} aria-label="音频波形" /> : null}
-              {clip.envelope ? <canvas className="fs-clip-envelope" data-envelope-clip={clip.id} aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点" /> : null}
+              {clip.envelope ? <canvas
+                className="fs-clip-envelope"
+                data-envelope-clip={clip.id}
+                aria-label="音量包络：拖动添加或调整关键帧；Shift 或右键删除内部点"
+                onContextMenu={event => event.preventDefault()}
+                onClick={event => event.stopPropagation()}
+                onPointerDown={event => {
+                  if (event.button !== 0 && event.button !== 2) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const pointerId = event.nativeEvent.pointerId;
+                  if (window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, event.currentTarget)) {
+                    activeEnvelopePointerId.current = pointerId;
+                  }
+                }}
+                onPointerMove={event => {
+                  if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
+                    window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent);
+                  }
+                }}
+                onPointerUp={event => {
+                  const pointerId = event.nativeEvent.pointerId;
+                  if (activeEnvelopePointerId.current !== pointerId) return;
+                  const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
+                  const clear = () => { if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null; };
+                  Promise.resolve(pending).then(clear, clear);
+                }}
+                onPointerCancel={event => {
+                  const pointerId = event.nativeEvent.pointerId;
+                  if (activeEnvelopePointerId.current !== pointerId) return;
+                  window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
+                  Promise.resolve().then(() => {
+                    if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
+                  });
+                }}
+              /> : null}
               {clip.keyframeMarks.map(mark => (
                 <button
                   type="button"

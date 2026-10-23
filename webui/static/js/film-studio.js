@@ -1257,59 +1257,63 @@
     }
     return points[points.length-1].v;
   }
+  function beginVolumeEnvelopeGesture(e,canvas){
+    var clip=findClip(canvas.getAttribute('data-envelope-clip'));
+    if(!clip||clip.duration==null||clip.duration<=0)return false;
+    if(e.button!==0&&e.button!==2)return false;
+    e.preventDefault();e.stopPropagation();
+    if(S.busy||S.broken){showStatus('当前无法编辑音量包络。','error');return false;}
+    var duration=clip.duration,rect=canvas.getBoundingClientRect();
+    if(duration<=0.02){showStatus('片段短于 0.02 秒，无法安全添加内部音量关键帧。','error');return false;}
+    if(!rect.width||!rect.height)return false;
+    var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
+    var value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
+    var points=envelopePointsForClip(clip).map(function(p){return {t:Number(p.t),v:Number(p.v)};});
+    var nearest=-1,nearestPx=Infinity;
+    points.forEach(function(p,i){
+      if(p.t<=0.0001||p.t>=duration-0.0001)return;
+      var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
+      if(px<nearestPx){nearestPx=px;nearest=i;}
+    });
+    if((e.button===2||e.shiftKey)&&nearest>=0&&nearestPx<=12){
+      points.splice(nearest,1);
+      if(points.length<2){showStatus('至少需要两个音量关键帧。','error');return false;}
+      filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}]);
+      return false;
+    }
+    if(e.button!==0)return false;
+    var index=-1;
+    points.forEach(function(p,i){
+      var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
+      var renderedY=rect.height-4-p.v*(rect.height-8);
+      var py=Math.abs(renderedY-(e.clientY-rect.top));
+      if(px<=10&&py<=10){index=i;nearestPx=px;}
+    });
+    var added=false;
+    if(index<0){
+      value=volumeEnvelopeAtStudio(points,time);
+      // Clicking the envelope canvas inserts a new local keyframe at the clicked
+      // time and value; dragging immediately after insertion edits its gain.
+      value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
+      time=Math.max(0.01,Math.min(duration-0.01,time));
+      index=points.findIndex(function(p){return p.t>time;});
+      if(index<0)index=points.length;
+      points.splice(index,0,{t:time,v:value});added=true;
+    }
+    S.envelopeDrag={clipId:clip.id,canvas:canvas,points:points,index:index,duration:duration,active:added,changed:added};
+    if(canvas.setPointerCapture)try{canvas.setPointerCapture(e.pointerId);}catch(_){}
+    drawVolumeEnvelope(canvas,points);
+    return true;
+  }
+  window.filmStudioBeginEnvelopeGesture=beginVolumeEnvelopeGesture;
   function bindVolumeEnvelopeCanvas(canvas){
     var initialClip=findClip(canvas.getAttribute('data-envelope-clip'));
     if(!initialClip||initialClip.duration==null||initialClip.duration<=0)return;
     if(canvas.__filmStudioEnvelopeBound)return;
     canvas.__filmStudioEnvelopeBound=true;
+    if(window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function')return;
     canvas.addEventListener('contextmenu',function(e){e.preventDefault();});
-    canvas.addEventListener('pointerdown',function(e){
-      var clip=findClip(canvas.getAttribute('data-envelope-clip'));
-      if(!clip||clip.duration==null||clip.duration<=0)return;
-      if(e.button!==0&&e.button!==2)return;
-      e.preventDefault();e.stopPropagation();
-      if(S.busy||S.broken){showStatus('当前无法编辑音量包络。','error');return;}
-      var duration=clip.duration,rect=canvas.getBoundingClientRect();
-      if(duration<=0.02){showStatus('片段短于 0.02 秒，无法安全添加内部音量关键帧。','error');return;}
-      if(!rect.width||!rect.height)return;
-      var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
-      var value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
-      var points=envelopePointsForClip(clip).map(function(p){return {t:Number(p.t),v:Number(p.v)};});
-      var nearest=-1,nearestPx=Infinity;
-      points.forEach(function(p,i){
-        if(p.t<=0.0001||p.t>=duration-0.0001)return;
-        var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
-        if(px<nearestPx){nearestPx=px;nearest=i;}
-      });
-      if((e.button===2||e.shiftKey)&&nearest>=0&&nearestPx<=12){
-        points.splice(nearest,1);
-        if(points.length<2){showStatus('至少需要两个音量关键帧。','error');return;}
-        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}]);
-        return;
-      }
-      if(e.button!==0)return;
-      var index=-1;
-      points.forEach(function(p,i){
-        var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
-        var renderedY=rect.height-4-p.v*(rect.height-8);
-        var py=Math.abs(renderedY-(e.clientY-rect.top));
-        if(px<=10&&py<=10){index=i;nearestPx=px;}
-      });
-      var added=false;
-      if(index<0){
-        value=volumeEnvelopeAtStudio(points,time);
-        // Clicking the envelope canvas inserts a new local keyframe at the clicked
-        // time and value; dragging immediately after insertion edits its gain.
-        value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
-        time=Math.max(0.01,Math.min(duration-0.01,time));
-        index=points.findIndex(function(p){return p.t>time;});
-        if(index<0)index=points.length;
-        points.splice(index,0,{t:time,v:value});added=true;
-      }
-      S.envelopeDrag={clipId:clip.id,canvas:canvas,points:points,index:index,duration:duration,active:added,changed:added};
-      if(canvas.setPointerCapture)try{canvas.setPointerCapture(e.pointerId);}catch(_){}
-      drawVolumeEnvelope(canvas,points);
-    });
+    canvas.addEventListener('pointerdown',function(e){beginVolumeEnvelopeGesture(e,canvas);});
   }
   window.filmStudioSetEnvelopeMode=function(enabled){
     S.envelopeMode=!!enabled;
@@ -1946,12 +1950,29 @@
        !window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     return onUp(e);
   };
+  window.filmStudioMoveEnvelopeGesture=function(e){
+    if(!e||!window.filmStudioOwnsEnvelopeGesturePointer||
+       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag)return;
+    onMove(e);
+  };
+  window.filmStudioEndEnvelopeGesture=function(e){
+    if(!e||!window.filmStudioOwnsEnvelopeGesturePointer||
+       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag)return;
+    return onUp(e);
+  };
+  window.filmStudioCancelEnvelopeGesture=function(e){
+    if(!e||!window.filmStudioOwnsEnvelopeGesturePointer||
+       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag)return;
+    cancelPointerGesture();
+  };
   document.addEventListener('pointermove',function(e){
     if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
+    if(window.filmStudioOwnsEnvelopeGesturePointer&&window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId))return;
     onMove(e);
   });
   document.addEventListener('pointerup',function(e){
     if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
+    if(window.filmStudioOwnsEnvelopeGesturePointer&&window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId))return;
     onUp(e);
   });
   function cancelPointerGesture(){
@@ -1982,6 +2003,7 @@
     // native envelope-canvas gestures, which stop propagation before React sees them.
     if(reactTimeline&&reactClip&&!nativeEnvelope)return;
     if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
+    if(window.filmStudioOwnsEnvelopeGesturePointer&&window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId))return;
     cancelPointerGesture();
   });
   window.filmStudioSetSideMode=function(mode){

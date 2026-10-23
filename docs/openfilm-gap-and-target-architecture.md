@@ -34,6 +34,11 @@
 
 - React 对简单片段移动手势拥有预览位置状态；旧适配器负责从 FilmDocument 读取候选并计算 typed move resolution，React 负责预览显示，pointerup 仍通过 revision-checked FilmDocument 事务提交。修剪/roll/slide/slip 暂时保留各自原生预览入口。
 
+## React 时间线输入所有权（当前增量）
+
+- 简单片段移动预览与音量包络的 pointerdown/move/up/cancel 由 React 分发；包络增益曲线的绘制、关键帧命中测试和 FilmOperation 仍由共享适配器执行。原生 document 监听只处理非 React 所有的指针与无构建 fallback，并根据 pointer owner 明确跳过已被 React 接管的手势。
+- 这不是将所有剪辑算法迁入 React：修剪、roll、slide、slip 继续逐步迁移，最终写盘仍必须经过 revision-checked FilmDocument 事务。
+
 ## 目标架构：不新增第二个“影片真相”
 
 ```text

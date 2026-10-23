@@ -613,11 +613,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 after_cancel = fd.read_project_film(project_id)
                 assert after_cancel["rev"] == before_cancel["rev"]
 
-                # The native envelope canvas must still be cancelled by the document fallback.
+                # React owns envelope pointer lifecycle; a cancelled gesture must not commit,
+                # and clicking the envelope surface must not leak selection to its parent clip.
                 envelope = page.locator('canvas[data-envelope-clip="audio-1"]')
                 envelope.wait_for(state="visible")
                 before_envelope_cancel = fd.read_project_film(project_id)
-                page.evaluate("""() => {
+                cancelled_envelope = page.evaluate("""() => {
                   const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');
                   if (!canvas) throw new Error('audio envelope canvas missing');
                   const rect = canvas.getBoundingClientRect();
@@ -625,12 +626,19 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     clientX:Math.round(rect.left + rect.width * 0.55),
                     clientY:Math.round(rect.top + rect.height * 0.4)};
                   canvas.dispatchEvent(new PointerEvent('pointerdown', point));
-                  document.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 12}));
+                  const ownedAtStart = window.filmStudioOwnsEnvelopeGesturePointer?.(78) === true;
                   canvas.dispatchEvent(new PointerEvent('pointercancel', {...point, buttons:0}));
                   document.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 24}));
                   document.dispatchEvent(new PointerEvent('pointerup', {...point, buttons:0}));
+                  const selectedBeforeClick = window.filmStudioStore?.getSnapshot()?.selectedId;
+                  canvas.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,button:0}));
+                  const selectedAfterClick = window.filmStudioStore?.getSnapshot()?.selectedId;
+                  return {ownedAtStart, selectedBeforeClick, selectedAfterClick};
                 }""")
-                page.wait_for_timeout(50)
+                assert cancelled_envelope["ownedAtStart"] is True, cancelled_envelope
+                assert cancelled_envelope["selectedBeforeClick"] == "clip-b", cancelled_envelope
+                assert cancelled_envelope["selectedAfterClick"] == "clip-b", cancelled_envelope
+                page.wait_for_function("() => window.filmStudioOwnsEnvelopeGesturePointer?.(78) !== true")
                 after_envelope_cancel = fd.read_project_film(project_id)
                 assert after_envelope_cancel["rev"] == before_envelope_cancel["rev"]
                 # The drag selected clip-b. Restore clip-a so the existing
