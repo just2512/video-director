@@ -40,11 +40,40 @@ jobs:
     steps:
       # Avoid external checkout/setup action downloads. Restore the exact source
       # revision through the authenticated GitHub archive API using shell tools.
-      - name: Recover exact source revision from GitHub archive
+      - name: Recover exact source revision from GitHub using Git first
         shell: bash
         run: |
           set -euo pipefail
           expected="$GITHUB_SHA"
+          workspace="$GITHUB_WORKSPACE"
+          git config --global http.version HTTP/1.1
+          if ! git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git -C "$workspace" init
+          fi
+
+          recovered=false
+          for attempt in 1 2 3; do
+            echo "Recovering exact workflow revision with bounded Git fetch (attempt $attempt/3)."
+            if timeout 35s git -C "$workspace" -c http.version=HTTP/1.1 fetch --no-tags --depth=1 \
+              "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$expected"; then
+              # Only clear the stale workspace after the exact revision is fetchable.
+              git -C "$workspace" clean -ffdx
+              git -C "$workspace" checkout --force --detach FETCH_HEAD
+              recovered=true
+              break
+            fi
+            sleep "$((attempt * 2))"
+          done
+          if [ "$recovered" = true ] && [ "$(git -C "$workspace" rev-parse HEAD)" = "$expected" ]; then
+            git -C "$workspace" reset --hard "$expected"
+            git -C "$workspace" clean -ffdx
+            printf '%s\n' "$expected" > "$workspace/.workflow-source-sha"
+            echo "Restored exact source revision $expected using Git."
+            exit 0
+          fi
+
+          # Last fallback: source archives redirect to codeload.github.com. Keep .git
+          # so the other workflow sharing this runner can recover objects on the next job.
           archive="$RUNNER_TEMP/video-director-${expected}.tar.gz"
           source_tmp="$(mktemp -d "$RUNNER_TEMP/video-director-source.XXXXXX")"
           curl --fail --silent --show-error --location \
@@ -58,11 +87,11 @@ jobs:
           source_root="$(find "$source_tmp" -mindepth 1 -maxdepth 1 -type d -print -quit)"
           test -n "$source_root"
           test -f "$source_root/README.md"
-          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          cp -a "$source_root"/. "$GITHUB_WORKSPACE"/
-          printf '%s\n' "$expected" > "$GITHUB_WORKSPACE/.workflow-source-sha"
-          test "$(cat "$GITHUB_WORKSPACE/.workflow-source-sha")" = "$expected"
-          echo "Restored exact source revision $expected without external checkout actions."
+          find "$workspace" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          cp -a "$source_root"/. "$workspace"/
+          printf '%s\n' "$expected" > "$workspace/.workflow-source-sha"
+          test "$(cat "$workspace/.workflow-source-sha")" = "$expected"
+          echo "Restored exact source revision $expected from archive fallback."
 
       - name: Verify preinstalled toolchain
         run: |
