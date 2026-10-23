@@ -1523,6 +1523,15 @@ def test_react_clip_pointercancel_discards_preview_without_writing_film(tmp_path
                     arg=pointer_id,
                     timeout=5000,
                 )
+                page.wait_for_function(
+                    """() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && state.timelineGestureContext === null &&
+                        state.timelineActiveDragIds === null && state.timelineSnapGuide === null &&
+                        state.timelineDropTarget === null && state.timelineGesturePreview === null;
+                    }""",
+                    timeout=5000,
+                )
                 # Later pointer events from the still-held mouse must not resurrect the cancelled drag.
                 page.mouse.move(start_x + 48, start_y, steps=2)
                 page.mouse.up()
@@ -2149,6 +2158,21 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                     assert len(film_edit_requests) == request_count, film_edit_requests
                     assert fd.read_project_film(project_id)["rev"] == revision
 
+                def assert_gesture_transients_cleared():
+                    page.wait_for_function(
+                        """() => {
+                          const state = window.filmStudioStore?.getSnapshot();
+                          return !!state &&
+                            state.timelineGestureContext === null &&
+                            state.timelineGesturePreview === null &&
+                            state.timelineActiveDragIds === null &&
+                            state.timelineSnapGuide === null &&
+                            state.timelineDropTarget === null &&
+                            state.timelineEnvelopePreview === null;
+                        }""",
+                        timeout=5000,
+                    )
+
                 def undo_to_baseline(clip_ids):
                     committed_revision = page.evaluate(
                         "() => window.filmStudioStore?.getSnapshot()?.revision || ''"
@@ -2238,6 +2262,7 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                     arg={"leftWidth": baseline_geometry["clip-left"]["width"]},
                     timeout=10_000,
                 )
+                assert_gesture_transients_cleared()
                 assert len(film_edit_requests) == edit_count + 1, film_edit_requests
                 roll_ops = film_edit_requests[-1].get("ops") or []
                 assert len(roll_ops) == 1 and roll_ops[0].get("op") == "roll", roll_ops
@@ -2292,6 +2317,7 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                     arg={"middleLeft": baseline_geometry["clip-middle"]["left"]},
                     timeout=10_000,
                 )
+                assert_gesture_transients_cleared()
                 assert len(film_edit_requests) == edit_count + 1, film_edit_requests
                 slide_ops = film_edit_requests[-1].get("ops") or []
                 assert len(slide_ops) == 1 and slide_ops[0].get("op") == "slide", slide_ops
@@ -2344,6 +2370,7 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                     },
                     timeout=10_000,
                 )
+                assert_gesture_transients_cleared()
                 assert len(film_edit_requests) == edit_count + 1, film_edit_requests
                 slip_ops = film_edit_requests[-1].get("ops") or []
                 assert len(slip_ops) == 1 and slip_ops[0].get("op") == "slip", slip_ops
