@@ -23864,6 +23864,16 @@
       }
       return best;
     },
+    resolveMoveGesture(minimumStart, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+      const start = Math.max(0, finiteOr(minimumStart, 0));
+      const rawAt = Math.max(0, start + finiteOr(rawDeltaSeconds, 0));
+      const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels) : null;
+      const proposedAt = candidate ? Math.max(0, candidate.at) : rawAt;
+      const deltaSeconds = Math.max(-start, proposedAt - start);
+      const targetAt = Math.max(0, start + deltaSeconds);
+      const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 1e-3 ? candidate : null;
+      return { targetAt, deltaSeconds, snapCandidate };
+    },
     clipLeft(at, pixelsPerSecond) {
       return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));
     },
