@@ -920,7 +920,9 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
             page = context.new_page()
             try:
                 base_url = f"http://127.0.0.1:{server.server_port}"
-                page.goto(base_url + "/", wait_until="domcontentloaded")
+                page.set_default_navigation_timeout(10_000)
+                page.goto(base_url + "/", wait_until="domcontentloaded", timeout=10_000)
+                print("STALE_PROPOSAL_CHECKPOINT=browser-ready", flush=True)
 
                 # Create a real server-registered proposal through the browser's fetch path.
                 created = page.evaluate(
@@ -928,7 +930,8 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                       const response = await fetch(url, {
                         method: "POST",
                         headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify(body)
+                        body: JSON.stringify(body),
+                        signal: AbortSignal.timeout(8000)
                       });
                       return {status: response.status, body: await response.json()};
                     }""",
@@ -942,6 +945,7 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                         },
                     },
                 )
+                print("STALE_PROPOSAL_CHECKPOINT=proposal-request-returned", flush=True)
                 assert created["status"] == 200, created
                 proposal = created["body"]["proposal"]
                 assert proposal["base_revision"] == initial_revision
@@ -968,6 +972,7 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                     for track in after_agent_write["doc"]["tracks"]
                     for clip in track["clips"]
                 )
+                print("STALE_PROPOSAL_CHECKPOINT=external-delete-persisted", flush=True)
 
                 # The server must reject the old proposal at the revision gate; client ops
                 # are intentionally supplied to prove they cannot replace registered operations.
@@ -976,7 +981,8 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                       const response = await fetch(url, {
                         method: "POST",
                         headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify(body)
+                        body: JSON.stringify(body),
+                        signal: AbortSignal.timeout(8000)
                       });
                       return {status: response.status, body: await response.json()};
                     }""",
@@ -992,6 +998,7 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                         },
                     },
                 )
+                print("STALE_PROPOSAL_CHECKPOINT=apply-request-returned", flush=True)
                 assert applied["status"] == 409, applied
                 assert applied["body"]["code"] == "REVISION_CONFLICT", applied
 
@@ -1011,6 +1018,7 @@ def test_stale_ai_proposal_is_rejected_after_external_agent_deletes_target_clip(
                     for clip in track["clips"] if clip["id"] == "clip-a"
                 )
                 assert persisted_clip_a["attrs"].get("speed") == original_clip_a["attrs"].get("speed")
+                print("STALE_PROPOSAL_CHECKPOINT=all-conflict-assertions-passed", flush=True)
             finally:
                 context.close()
                 browser.close()
