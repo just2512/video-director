@@ -39,7 +39,7 @@
 - 片段右键菜单由 React 的单一 Studio root 渲染；复制、重复、粘贴、切分、删除、波纹删除和 Inspector 仍使用共享命令桥，原生 DOM 菜单仅留给无 bundle fallback。菜单开关不写入 FilmDocument revision。
 - `#fs-timeline` 是 React Portal 宿主时，迁移页或文档错误页不能直接改写其子树。切换到 legacy 占位页前先卸载 React 时间线；恢复有效 FilmDocument 时，仅当 React surface 确认未挂载后，清理遗留占位内容并重新挂载，避免 React fiber 仍持有旧节点而浏览器 DOM 已被清空。
 
-- 简单片段移动预览与音量包络的 pointerdown/move/up/cancel 由 React 分发；包络增益曲线的绘制、关键帧命中测试和 FilmOperation 仍由共享适配器执行。原生 document 监听只处理非 React 所有的指针与无构建 fallback，并根据 pointer owner 明确跳过已被 React 接管的手势。
+- 片段移动、修剪、roll、slide、slip 与音量包络的 pointer 生命周期由 React 分发；时间线几何、操作约束与吸附仍由共享适配器按当前 FilmDocument 计算，所有瞬态片段几何和 roll/slide/slip 提示由 React state 渲染。pointerup 仍只通过 revision-checked FilmDocument 事务提交；无 bundle fallback 保留原生预览入口。音量曲线的绘制和关键帧命中测试仍由共享适配器执行。
 - 这不是将所有剪辑算法迁入 React：修剪、roll、slide、slip 继续逐步迁移，最终写盘仍必须经过 revision-checked FilmDocument 事务。
 
 ## 目标架构：不新增第二个“影片真相”

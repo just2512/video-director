@@ -24,9 +24,16 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx)" in studio
     assert "resolveTimelineMove(minStart,deltaSeconds,chosenIds,8)" in studio
     assert "resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
-    assert "setGesturePreview(preview: Record<string, number> | null): void" in component
-    assert "data-react-gesture-preview=" in component
+    assert "type FilmTimelineGesturePreviewGeometry" in component
+    assert "setGesturePreview(preview: FilmTimelineGesturePreview): void" in component
+    assert "data-react-gesture-preview={previewForClip(clip.id) ? \"true\" : \"false\"}" in component
+    assert "previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth" in component
     assert "setTimelineGesturePreview(previewLeftByClipId)" in studio
+    assert "if(!setTimelineGesturePreview(trimStartPreview))" in studio
+    assert "if(!setTimelineGesturePreview(trimEndPreview))" in studio
+    assert "if(!setTimelineGesturePreview(rollPreview))" in studio
+    assert "if(!setTimelineGesturePreview(slidePreview))" in studio
+    assert "if(!setTimelineGesturePreview(slipPreview))" in studio
     assert "clearTimelineGesturePreview();" in studio
     assert "dragDeltaSeconds(pointerDeltaPixels: number, scrollDeltaPixels: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "updateDragAutoScroll" in studio

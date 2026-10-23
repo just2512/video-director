@@ -222,10 +222,18 @@ type FilmTimelineSurfaceModel = {
   tracks: FilmTimelineSurfaceTrack[];
 };
 type FilmTimelineContextMenu = {clipId: string; x: number; y: number};
+type FilmTimelineGesturePreviewGeometry = {
+  left?: number;
+  width?: number;
+  mode?: "roll" | "slide" | "slip";
+  deltaLabel?: string;
+};
+type FilmTimelineGesturePreviewEntry = number | FilmTimelineGesturePreviewGeometry;
+type FilmTimelineGesturePreview = Record<string, FilmTimelineGesturePreviewEntry> | null;
 
 interface FilmStudioReactTimelineBridge {
   renderSurface(model: FilmTimelineSurfaceModel): void;
-  setGesturePreview(preview: Record<string, number> | null): void;
+  setGesturePreview(preview: FilmTimelineGesturePreview): void;
   clearSurface(): void;
   hasSurface(): boolean;
   openContextMenu(model: FilmTimelineContextMenu): void;
@@ -943,10 +951,10 @@ const StudioToolbar: React.FC = () => (
   </>
 );
 
-let updateTimelineGesturePreview: ((preview: Record<string, number> | null) => void) | null = null;
+let updateTimelineGesturePreview: ((preview: FilmTimelineGesturePreview) => void) | null = null;
 
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
-  const [gesturePreview, setGesturePreview] = useState<Record<string, number> | null>(null);
+  const [gesturePreview, setGesturePreview] = useState<FilmTimelineGesturePreview>(null);
   useLayoutEffect(() => {
     const update = (preview: Record<string, number> | null) => setGesturePreview(preview);
     updateTimelineGesturePreview = update;
@@ -958,6 +966,11 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   const selectedIds=filmStore.getSnapshot().selectedIds;
   // The version is the scalar subscription token; the array proxy is stable by design.
   void selectedIdsVersion;
+  const previewForClip = (clipId: string): FilmTimelineGesturePreviewGeometry | null => {
+    const entry = gesturePreview?.[clipId];
+    if (typeof entry === "number") return {left:entry};
+    return entry || null;
+  };
   const activePointerId = useRef<number | null>(null);
   const activeEnvelopePointerId = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -1026,18 +1039,24 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         <div className="fs-track-body" style={{width:model.laneWidth}}>
           {track.clips.map((clip) => (
             <div
-              className={"fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "")}
+              className={"fs-clip" +
+                (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") +
+                (clip.locked ? " fs-clip-locked" : "") +
+                (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") +
+                (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") +
+                (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : "")}
               data-clip={clip.id}
               data-clip-locked={clip.locked ? "true" : "false"}
               data-track={clip.trackId}
               data-kind={clip.tag}
               data-react-timeline-clip={clip.id}
-              data-react-gesture-preview={gesturePreview && Object.prototype.hasOwnProperty.call(gesturePreview, clip.id) ? "true" : "false"}
+              data-react-gesture-preview={previewForClip(clip.id) ? "true" : "false"}
+              data-roll-delta={previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : undefined}
+              data-slide-delta={previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : undefined}
+              data-slip-delta={previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : undefined}
               style={{
-                left:gesturePreview && Object.prototype.hasOwnProperty.call(gesturePreview, clip.id)
-                  ? gesturePreview[clip.id]
-                  : filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
-                width:filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
+                left:previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
+                width:previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
               }}
               title={clip.title}
               key={clip.id}

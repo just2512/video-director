@@ -394,6 +394,68 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert abs(float(redone_clip["attrs"]["at"]) - 6.0) < 0.15, redone_clip
 
+                # Trim-start preview geometry must be React-owned and transient; only pointerup submits a trim op.
+                trim_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                trim_handle = trim_clip.locator('.fs-trim-handle[data-trim="start"]')
+                trim_box = trim_handle.bounding_box()
+                assert trim_box, "clip-a trim-start handle unavailable"
+                trim_clip_box_before = trim_clip.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
+                trim_document_before = fd.read_project_film(project_id)
+                trim_edit_count_before = len(film_edit_requests)
+                trim_x = trim_box["x"] + trim_box["width"] / 2
+                trim_y = trim_box["y"] + trim_box["height"] / 2
+                trim_delta_x = 18
+                page.mouse.move(trim_x, trim_y)
+                page.mouse.down()
+                page.mouse.move(trim_x + trim_delta_x, trim_y, steps=6)
+                page.wait_for_function(
+                    """({oldLeft, oldWidth}) => {
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                      return !!node && node.dataset.reactGesturePreview === "true" &&
+                        node.style.left !== oldLeft && node.style.width !== oldWidth;
+                    }""",
+                    arg=trim_clip_box_before,
+                    timeout=5000,
+                )
+                trim_preview = trim_clip.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
+                assert trim_preview != trim_clip_box_before, {"before":trim_clip_box_before,"preview":trim_preview}
+                assert len(film_edit_requests) == trim_edit_count_before
+                assert fd.read_project_film(project_id)["rev"] == trim_document_before["rev"]
+                page.mouse.up()
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-timeline .fs-clip[data-clip=\\"clip-a\\"]')?.dataset.reactGesturePreview === 'false'",
+                    timeout=10000,
+                )
+                trim_document_after = fd.read_project_film(project_id)
+                trim_clip_after = next(
+                    item for track in trim_document_after["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-a"
+                )
+                assert float(trim_clip_after["attrs"]["at"]) > float(next(
+                    item for track in trim_document_before["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-a"
+                )["attrs"]["at"]) + 0.1, trim_clip_after
+                trim_requests = film_edit_requests[trim_edit_count_before:]
+                assert len(trim_requests) == 1, trim_requests
+                assert len(trim_requests[0].get("ops") or []) == 1, trim_requests
+                assert trim_requests[0]["ops"][0].get("op") == "trim", trim_requests
+                assert trim_requests[0]["ops"][0].get("edge") == "start", trim_requests
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function(
+                    """({left,width}) => {
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                      return !!node && node.style.left === left && node.style.width === width;
+                    }""",
+                    arg=trim_clip_box_before,
+                    timeout=10000,
+                )
+                trim_undone_doc = fd.read_project_film(project_id)
+                trim_undone_clip = next(
+                    item for track in trim_undone_doc["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-a"
+                )
+                assert abs(float(trim_undone_clip["attrs"]["at"])) < 0.001, trim_undone_clip
+
                 # Cross-track multi-selection moves as one two-operation FilmDocument transaction.
                 audio_clip = page.locator('#fs-timeline .fs-clip[data-clip="audio-1"]')
                 audio_clip.click(modifiers=["Control"])

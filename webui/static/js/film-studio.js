@@ -1798,12 +1798,19 @@
       deltaSlide=Math.max(slideMin,Math.min(slideMax,deltaSlide));
       var slideSnapUsed=slideSnap&&Math.abs(d.centerAt+deltaSlide-slideSnap.at)<0.001;
       showTimelineSnapGuide(slideSnapUsed?slideSnap.at:null,slideSnapUsed&&slideSnap.kind);
-      d.slideElements[0].style.width=Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaSlide,S.pxPerSec))+'px';
-      d.slideElements[1].style.left=Math.max(0,timelineSecondsToPixels(d.centerAt+deltaSlide,S.pxPerSec))+'px';
-      d.slideElements[2].style.left=Math.max(0,timelineSecondsToPixels(d.rightAt+deltaSlide,S.pxPerSec))+'px';
-      d.slideElements[2].style.width=Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaSlide,S.pxPerSec))+'px';
-      d.element.setAttribute('data-slide-delta','滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s');
-      d.element.classList.add('fs-sliding');
+      var slideLabel='滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s';
+      var slidePreview={};
+      slidePreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaSlide,S.pxPerSec))};
+      slidePreview[d.centerClipId]={left:Math.max(0,timelineSecondsToPixels(d.centerAt+deltaSlide,S.pxPerSec)),mode:'slide',deltaLabel:slideLabel};
+      slidePreview[d.rightClipId]={left:Math.max(0,timelineSecondsToPixels(d.rightAt+deltaSlide,S.pxPerSec)),width:Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaSlide,S.pxPerSec))};
+      if(!setTimelineGesturePreview(slidePreview)){
+        d.slideElements[0].style.width=slidePreview[d.leftClipId].width+'px';
+        d.slideElements[1].style.left=slidePreview[d.centerClipId].left+'px';
+        d.slideElements[2].style.left=slidePreview[d.rightClipId].left+'px';
+        d.slideElements[2].style.width=slidePreview[d.rightClipId].width+'px';
+        d.element.setAttribute('data-slide-delta',slideLabel);
+        d.element.classList.add('fs-sliding');
+      }
     }else if(d.mode==='roll'){
       var deltaRoll=deltaSeconds;
       var rollSnap=findTimelineSnap(d.rightAt+deltaRoll,[d.leftClipId,d.rightClipId],8);
@@ -1811,16 +1818,28 @@
       deltaRoll=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,deltaRoll));
       var rollSnapUsed=rollSnap&&Math.abs(d.rightAt+deltaRoll-rollSnap.at)<0.001;
       showTimelineSnapGuide(rollSnapUsed?rollSnap.at:null,rollSnapUsed&&rollSnap.kind);
-      d.rollElements[0].style.width=Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaRoll,S.pxPerSec))+'px';
-      d.rollElements[1].style.left=Math.max(0,timelineSecondsToPixels(d.rightAt+deltaRoll,S.pxPerSec))+'px';
-      d.rollElements[1].style.width=Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaRoll,S.pxPerSec))+'px';
-      d.element.setAttribute('data-roll-delta','切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s');
-      d.element.classList.add('fs-rolling');
+      var rollLabel='切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s';
+      var rollPreview={};
+      rollPreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaRoll,S.pxPerSec))};
+      rollPreview[d.rightClipId]={left:Math.max(0,timelineSecondsToPixels(d.rightAt+deltaRoll,S.pxPerSec)),width:Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaRoll,S.pxPerSec))};
+      var rollTarget=rollPreview[d.id]||{};
+      rollTarget.mode='roll';rollTarget.deltaLabel=rollLabel;rollPreview[d.id]=rollTarget;
+      if(!setTimelineGesturePreview(rollPreview)){
+        d.rollElements[0].style.width=rollPreview[d.leftClipId].width+'px';
+        d.rollElements[1].style.left=rollPreview[d.rightClipId].left+'px';
+        d.rollElements[1].style.width=rollPreview[d.rightClipId].width+'px';
+        d.element.setAttribute('data-roll-delta',rollLabel);
+        d.element.classList.add('fs-rolling');
+      }
     }else if(d.mode==='slip'){
       var slipClip=findClip(d.id),slipSpeed=slipClip?num(slipClip.attrs.speed,1):1;
       var sourceDelta=deltaSeconds*slipSpeed;
-      d.element.setAttribute('data-slip-delta','源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s');
-      d.element.classList.add('fs-slipping');
+      var slipPreview={};
+      slipPreview[d.id]={mode:'slip',deltaLabel:'源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s'};
+      if(!setTimelineGesturePreview(slipPreview)){
+        d.element.setAttribute('data-slip-delta',slipPreview[d.id].deltaLabel);
+        d.element.classList.add('fs-slipping');
+      }
     }else if(d.mode==='trim-start'){
       var rawStart=d.originalAt+deltaSeconds;
       var startSnap=findTimelineSnap(rawStart,[d.id],8);
@@ -1828,8 +1847,12 @@
       var newStart=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawStart));
       var startSnapUsed=startSnap&&Math.abs(newStart-startSnap.at)<0.001;
       showTimelineSnapGuide(startSnapUsed?startSnap.at:null,startSnapUsed&&startSnap.kind);
-      d.element.style.left=timelineSecondsToPixels(newStart,S.pxPerSec)+'px';
-      d.element.style.width=Math.max(3,timelineSecondsToPixels(d.originalEnd-newStart,S.pxPerSec))+'px';
+      var trimStartPreview={};
+      trimStartPreview[d.id]={left:timelineSecondsToPixels(newStart,S.pxPerSec),width:Math.max(3,timelineSecondsToPixels(d.originalEnd-newStart,S.pxPerSec))};
+      if(!setTimelineGesturePreview(trimStartPreview)){
+        d.element.style.left=trimStartPreview[d.id].left+'px';
+        d.element.style.width=trimStartPreview[d.id].width+'px';
+      }
     }else if(d.mode==='trim-end'){
       var rawEnd=d.originalEnd+deltaSeconds;
       var endSnap=findTimelineSnap(rawEnd,[d.id],8);
@@ -1837,7 +1860,9 @@
       var newEnd=Math.max(d.originalAt+0.04,Math.min(d.originalEnd-0.04,rawEnd));
       var endSnapUsed=endSnap&&Math.abs(newEnd-endSnap.at)<0.001;
       showTimelineSnapGuide(endSnapUsed?endSnap.at:null,endSnapUsed&&endSnap.kind);
-      d.element.style.width=Math.max(3,timelineSecondsToPixels(newEnd-d.originalAt,S.pxPerSec))+'px';
+      var trimEndPreview={};
+      trimEndPreview[d.id]={width:Math.max(3,timelineSecondsToPixels(newEnd-d.originalAt,S.pxPerSec))};
+      if(!setTimelineGesturePreview(trimEndPreview))d.element.style.width=trimEndPreview[d.id].width+'px';
     }else{
       var chosenIds=(d.members||[]).map(function(member){return member.id;});
       var minStart=(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity);
@@ -1846,10 +1871,10 @@
       showTimelineSnapGuide(moveSnapUsed?moveSnapUsed.at:null,moveSnapUsed&&moveSnapUsed.kind);
       var previewLeftByClipId={};
       (d.members||[]).forEach(function(member){
-        previewLeftByClipId[member.id]=timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec);
+        previewLeftByClipId[member.id]={left:timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)};
       });
       if(!setTimelineGesturePreview(previewLeftByClipId)){
-        (d.members||[]).forEach(function(member){member.element.style.left=previewLeftByClipId[member.id]+'px';});
+        (d.members||[]).forEach(function(member){member.element.style.left=previewLeftByClipId[member.id].left+'px';});
       }
     }
   }
@@ -1899,7 +1924,7 @@
       if(slideSnap)slideDelta=slideSnap.at-d.centerAt;
       slideDelta=Math.max(-Math.min(d.leftDuration,d.centerDuration)+0.04,
         Math.min(Math.min(d.centerDuration,d.rightDuration)-0.04,slideDelta));
-      if(Math.abs(slideDelta)<0.001){renderTimeline();return;}
+      if(Math.abs(slideDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
       await filmStudioCommit([{op:'slide',clip:d.centerClipId,delta:Number(slideDelta.toFixed(3))}]);return;
     }
     if(d.mode==='roll'){
@@ -1907,14 +1932,14 @@
       var rollSnap=findTimelineSnap(d.rightAt+rollDelta,[d.leftClipId,d.rightClipId],8);
       if(rollSnap)rollDelta=rollSnap.at-d.rightAt;
       rollDelta=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,rollDelta));
-      if(Math.abs(rollDelta)<0.001){renderTimeline();return;}
+      if(Math.abs(rollDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
       await filmStudioCommit([{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:Number(rollDelta.toFixed(3))}]);return;
     }
     if(d.mode==='slip'){
       var slipClip=findClip(d.id);
-      if(!slipClip||slipClip.duration==null){renderTimeline();return;}
+      if(!slipClip||slipClip.duration==null){clearTimelineGesturePreview();renderTimeline();return;}
       var sourceDelta=deltaSeconds*num(slipClip.attrs.speed,1);
-      if(Math.abs(sourceDelta)<0.001){renderTimeline();return;}
+      if(Math.abs(sourceDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
       await filmStudioCommit([{op:'slip',clip:d.id,delta_source:Number(sourceDelta.toFixed(3))}]);return;
     }
     if(d.mode==='trim-start'){
