@@ -107,7 +107,7 @@ export interface FilmStudioStoreSnapshot {
   timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
   timelineWaveformSources: FilmStudioTimelineWaveformSources;
   timelineContextMenu: FilmStudioTimelineContextMenu | null;
-  timelineSurface: FilmStudioTimelineSurfaceModel | null;
+  timelineVisible: boolean;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -386,7 +386,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       timelineContextMenu: null,
-      timelineSurface: null,
+      timelineVisible: false,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -491,7 +491,8 @@ class FilmStore implements FilmStudioStoreBridge {
       normalized = asString(value);
     } else if (key === "busy" || key === "broken" || key === "playing" ||
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
-        key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering") {
+        key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" ||
+        key === "timelineVisible") {
       normalized = value === true;
     } else if (key === "pixelsPerSecond") {
       normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -551,20 +552,6 @@ class FilmStore implements FilmStudioStoreBridge {
         const x = asOptionalFiniteNumber(raw.x);
         const y = asOptionalFiniteNumber(raw.y);
         normalized = clipId && x !== undefined && y !== undefined ? {clipId,x,y} : null;
-      }
-    } else if (key === "timelineSurface") {
-      if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
-      else {
-        const raw = value as Record<string, unknown>;
-        const laneWidth = asOptionalFiniteNumber(raw.laneWidth);
-        const totalWidth = asOptionalFiniteNumber(raw.totalWidth);
-        const pixelsPerSecond = asOptionalFiniteNumber(raw.pixelsPerSecond);
-        normalized = laneWidth !== undefined && laneWidth >= 0 &&
-          totalWidth !== undefined && totalWidth >= laneWidth &&
-          pixelsPerSecond !== undefined && pixelsPerSecond > 0 &&
-          Array.isArray(raw.ticks) && Array.isArray(raw.tracks)
-          ? value as FilmStudioTimelineSurfaceModel
-          : null;
       }
     } else if (key === "timelineGestureContext") {
       normalized = asTimelineGestureContext(value);
@@ -646,7 +633,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       timelineContextMenu: null,
-      timelineSurface: null,
+      timelineVisible: false,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,

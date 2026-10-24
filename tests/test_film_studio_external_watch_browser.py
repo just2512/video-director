@@ -99,59 +99,74 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 for clip_id in ("clip-left", "clip-center", "clip-right", "snap-audio"):
                     page.locator('#fs-timeline .fs-clip[data-clip="' + clip_id + '"]').wait_for(state="visible")
 
-                # The rendered timeline model belongs to FilmStore; clearing and restoring
-                # it must unmount/remount the React surface without a parallel React state field.
-                timeline_surface_state = page.evaluate("""() => {
+                # React derives timeline geometry directly from shared FilmStore source fields.
+                # No copied view-model is stored beside the authoritative FilmDocument.
+                timeline_source_state = page.evaluate("""() => {
                   const bridge = window.filmStudioReactTimeline;
                   const store = window.filmStudioStore;
-                  const surface = store?.getField("timelineSurface");
+                  const film = store?.getField("film");
                   return {
-                    stored: !!surface,
-                    mounted: bridge?.hasSurface() === true,
-                    clipIds: (surface?.tracks || []).flatMap(track => track.clips || []).map(clip => clip.id).sort(),
-                    renderedIds: [...document.querySelectorAll("#fs-timeline .fs-clip[data-clip]")]
+                    visible:store?.getField("timelineVisible") === true,
+                    hasSurface:bridge?.hasSurface() === true,
+                    hasDuplicateModel:Object.prototype.hasOwnProperty.call(store?.getSnapshot() || {}, "timelineSurface"),
+                    sourceClipIds:(film?.tracks || []).flatMap(track => track.clips || []).map(clip => clip.id).sort(),
+                    renderedIds:[...document.querySelectorAll("#fs-timeline .fs-clip[data-clip]")]
                       .map(node => node.getAttribute("data-clip")).sort(),
                   };
                 }""")
                 expected_surface_clip_ids = ["clip-center", "clip-left", "clip-right", "snap-audio"]
-                assert timeline_surface_state == {
-                    "stored": True,
-                    "mounted": True,
-                    "clipIds": expected_surface_clip_ids,
-                    "renderedIds": expected_surface_clip_ids,
-                }, timeline_surface_state
+                assert timeline_source_state == {
+                    "visible":True,
+                    "hasSurface":True,
+                    "hasDuplicateModel":False,
+                    "sourceClipIds":expected_surface_clip_ids,
+                    "renderedIds":expected_surface_clip_ids,
+                }, timeline_source_state
+
+                # A shared zoom-scale update must rederive clip geometry without a legacy
+                # renderTimeline request, proving React owns the projection from source state.
+                page.evaluate("window.filmStudioStore.setField('pixelsPerSecond',48)")
+                page.wait_for_function("""() =>
+                  document.querySelector('#fs-timeline .fs-clip[data-clip="clip-center"]')?.style.left === "240px" &&
+                  document.querySelector('#fs-timeline .fs-ruler-body')?.style.width === "960px"
+                """, timeout=5000)
+                page.evaluate("window.filmStudioStore.setField('pixelsPerSecond',36)")
+                page.wait_for_function("""() =>
+                  document.querySelector('#fs-timeline .fs-clip[data-clip="clip-center"]')?.style.left === "180px" &&
+                  document.querySelector('#fs-timeline .fs-ruler-body')?.style.width === "720px"
+                """, timeout=5000)
+
                 cleared_surface_state = page.evaluate("""() => {
                   const bridge = window.filmStudioReactTimeline;
-                  const store = window.filmStudioStore;
-                  window.__testTimelineSurface = store.getField("timelineSurface");
                   bridge.clearSurface();
                   return {
-                    empty:store.getField("timelineSurface") === null,
+                    visible:window.filmStudioStore.getField("timelineVisible") === true,
                     hasSurface:bridge.hasSurface(),
                     domMounted:!!document.querySelector("#fs-timeline .fs-react-timeline-surface")
                   };
                 }""")
                 assert cleared_surface_state == {
-                    "empty":True,
+                    "visible":False,
                     "hasSurface":False,
                     "domMounted":False,
                 }, cleared_surface_state
-                restored_surface_state = page.evaluate("""() => {
+                bridge_restore_state = page.evaluate("""() => {
                   const bridge = window.filmStudioReactTimeline;
-                  const store = window.filmStudioStore;
-                  bridge.renderSurface(window.__testTimelineSurface);
-                  delete window.__testTimelineSurface;
+                  bridge.renderSurface();
                   return {
-                    stored:store.getField("timelineSurface") !== null,
+                    visible:window.filmStudioStore.getField("timelineVisible") === true,
                     hasSurface:bridge.hasSurface(),
-                    domMounted:!!document.querySelector("#fs-timeline .fs-react-timeline-surface")
+                    domMounted:!!document.querySelector("#fs-timeline .fs-react-timeline-surface"),
+                    clipIds:[...document.querySelectorAll("#fs-timeline .fs-clip[data-clip]")]
+                      .map(node => node.getAttribute("data-clip")).sort(),
                   };
                 }""")
-                assert restored_surface_state == {
-                    "stored":True,
+                assert bridge_restore_state == {
+                    "visible":True,
                     "hasSurface":True,
                     "domMounted":True,
-                }, restored_surface_state
+                    "clipIds":expected_surface_clip_ids,
+                }, bridge_restore_state
 
                 # The context menu is part of the shared FilmStore timeline state, not a
                 # second mutable field on the imperative React owner.

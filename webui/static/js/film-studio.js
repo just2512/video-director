@@ -1289,7 +1289,6 @@
   };
   function renderTimeline() {
     if(!S.data||!S.data.exists)return;
-    var laneWidth=Math.max(720,Math.ceil(timelineSecondsToPixels(S.duration,S.pxPerSec))),ticks=Math.min(240,Math.ceil(S.duration/5));
     var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
     if(reactTimeline){
       var timelineBridge=window.filmStudioReactTimeline;
@@ -1299,40 +1298,9 @@
         var timelineHost=$('fs-timeline');
         if(timelineHost)timelineHost.replaceChildren();
       }
-      var renderModel={
-        laneWidth:laneWidth,totalWidth:132+laneWidth,
-        pixelsPerSecond:S.pxPerSec,
-        ticks:(function(){var items=[];for(var i=0;i<=ticks;i++){var sec=Math.min(S.duration,i*5);items.push({at:sec,label:fmtTime(sec),left:timelineSecondsToPixels(sec,S.pxPerSec)});}return items;})(),
-        tracks:S.data.tracks.map(function(track){
-          var attrs=track.attrs||{},locked=Object.prototype.hasOwnProperty.call(attrs,'locked'),
-              syncLocked=Object.prototype.hasOwnProperty.call(attrs,'sync-lock'),
-              hidden=Object.prototype.hasOwnProperty.call(attrs,'hidden'),muted=Object.prototype.hasOwnProperty.call(attrs,'muted');
-          return {
-            id:track.id,label:String(attrs['data-label']||track.id),locked:locked,syncLocked:syncLocked,hidden:hidden,muted:muted,
-            clips:(track.clips||[]).map(function(clip){
-              var clipAttrs=clip.attrs||{},aid=clipAttrs['data-asset-id']||'';
-              var thumbnail=aid&&clip.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
-              return {
-                id:clip.id,trackId:track.id,tag:clip.tag,title:String(clipAttrs.title||clip.id),at:clip.at,
-                left:timelineClipLeft(clip.at,S.pxPerSec),width:timelineClipWidth(clip.duration,S.pxPerSec,24,2,0,false),
-                atLabel:fmtTime(clip.at),durationLabel:clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s',
-                selected:(S.selectedIds||[]).indexOf(clip.id)>=0,thumbnail:thumbnail,duration:clip.duration,
-                keyframeMarks:timelineKeyframeMarks(clip),
-                waveform:clip.tag==='audio',
-                waveformKey:String(clip.media_url||'').split('#',1)[0],
-                sourceStart:Number(clip.src_in)||0,
-                sourceEnd:Number.isFinite(clip.src_out)?clip.src_out:null,
-                envelope:(clip.tag==='audio'||clip.tag==='video')&&clip.duration!=null,
-                envelopePoints:envelopePointsForClip(clip),
-                locked:Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked'),
-                trimHandles:clip.duration!=null&&!Object.prototype.hasOwnProperty.call(clipAttrs,'data-clip-locked')
-              };
-            })
-          };
-        })
-      };
-      window.filmStudioReactTimeline.renderSurface(renderModel);
+      timelineBridge.renderSurface();
     }else{
+      var laneWidth=Math.max(720,Math.ceil(timelineSecondsToPixels(S.duration,S.pxPerSec))),ticks=Math.min(240,Math.ceil(S.duration/5));
       var ruler='<div class="fs-ruler" style="width:'+(132+laneWidth)+'px"><div class="fs-ruler-head">时码</div><div class="fs-ruler-body" id="fs-ruler-body" style="width:'+laneWidth+'px">';
       for(var i=0;i<=ticks;i++){var sec=Math.min(S.duration,i*5);ruler+='<div class="fs-ruler-mark" data-at="'+sec+'" style="left:'+(timelineSecondsToPixels(sec,S.pxPerSec))+'px">'+esc(fmtTime(sec))+'</div>';}
       ruler+='</div></div>';

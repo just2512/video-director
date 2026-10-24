@@ -19,8 +19,14 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "window.filmStudioReactAssets = {" in component
     assert "const TimelineSurface: React.FC" in component
     assert "window.filmStudioReactTimeline = {" in component
-    assert "renderSurface(model)" in component
-    assert "window.filmStudioReactTimeline.renderSurface(renderModel);" in studio
+    assert "renderSurface(): void" in component
+    assert "const timelineSurface = useMemo(" in component
+    assert "buildTimelineSurfaceModel(" in component
+    assert "window.filmStudioReactTimeline.renderSurface();" in studio
+    assert "window.filmStudioReactTimeline.renderSurface(renderModel);" not in studio
+    store = (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
+    assert "timelineVisible: boolean;" in store
+    assert "timelineSurface: FilmStudioTimelineSurfaceModel | null" not in store
     assert 'data-react-timeline-clip={clip.id}' in component
     assert "const StudioReactOwner: React.FC" in component
     assert component.count("createRoot(") == 1
@@ -56,7 +62,8 @@ def test_react_timeline_keeps_stable_dom_identity_for_tracks_and_clips():
     assert component.count("createRoot(") == 1
     assert "createPortal" in component
     assert 'studioPortal("fs-timeline", <TimelineSurface model={timelineSurface} />)' in component
-    assert 'const timelineSurface = useFilmStoreField("timelineSurface");' in component
+    assert 'const timelineVisible = useFilmStoreField("timelineVisible");' in component
+    assert 'const timelineFilm = useFilmStoreField("film");' in component
     assert "studioReactState.timeline" not in component
     assert "window.filmStudioReactTimeline = {" in component
     assert "<TimelineSurface key=" not in component
