@@ -88,7 +88,11 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     assert "const filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));" in workspace
     assert "if (openedStudio) return {ok: true, mode: 'film'};" in workspace
     assert "Legacy projects without film.html keep the CompositionIR workspace/migration path." in workspace
-    assert "selector.addEventListener('change'" in studio
+    # Project selection was deliberately consolidated in workspaceOpen(); the film
+    # adapter should not bind a second selector change listener.
+    assert "const selEl = document.getElementById('editor-project');" in workspace
+    assert "selEl.value = pid;" in workspace
+    assert "selector.addEventListener('change'" not in studio
     assert "统一影片工作台" in html
     assert "activePointerId = useRef<number | null>(null)" in component
     assert "window.filmStudioOwnsClipGesturePointer = ownsPointer" in component

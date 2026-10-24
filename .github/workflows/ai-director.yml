@@ -301,6 +301,7 @@ jobs:
             tests/test_film_document_contract.py \
             tests/test_film_studio_external_watch_browser.py \
             tests/test_film_studio_react_timeline_toolbar.py \
+            tests/test_film_studio_react_toolbar.py \
             tests/test_studio_build_contract.py
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
