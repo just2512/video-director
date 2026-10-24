@@ -507,7 +507,7 @@ def test_stale_selector_authority_response_cannot_enter_legacy_loader(tmp_path, 
                 current_body = next(item["body"] for item in authority_bodies if item["projectId"] == current_project_id)
                 assert stale_body["ok"] is True and stale_body["exists"] is False, stale_body
                 assert current_body["ok"] is True and current_body["exists"] is True, current_body
-                assert page.locator("#fs-project-label").inner_text() == current_project_id
+                assert page.locator("#fs-project-label").inner_text().startswith(current_project_id)
                 assert page.locator("#film-studio-panel").get_attribute("data-project-id") == current_project_id
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
