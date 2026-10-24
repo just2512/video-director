@@ -2408,17 +2408,34 @@
   };
   // A project with film.html has one authoritative editor. Selecting it opens
   // Studio directly; legacy projects without film.html remain in the migration workspace.
-  window.filmStudioOpenIfCurrentProjectHasFilm = async function(){
+  window.filmStudioOpenIfCurrentProjectHasFilm = async function(expectedProjectId,knownFilmDocument){
     var selector=$('editor-project');
-    var projectId=selector&&String(selector.value||'').trim();
-    if(!projectId||S.open||document.documentElement.classList.contains('fs-studio-open'))return false;
-    var result;
-    try{
-      result=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));
-    }catch(_){return false;}
-    if(!result||result.exists!==true||!selector||selector.value!==projectId||S.open)return false;
+    var projectId=String(expectedProjectId||selector&&selector.value||'').trim();
+    if(!projectId||!selector||String(selector.value||'').trim()!==projectId)return false;
+    var studioVisible=S.open||document.documentElement.classList.contains('fs-studio-open');
+    if(studioVisible){
+      if(S.open&&S.projectId===projectId)return true;
+      window.filmStudioClose();
+      if(S.open||document.documentElement.classList.contains('fs-studio-open'))return false;
+    }
+    var result=knownFilmDocument||null;
+    if(!result){
+      try{result=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));}
+      catch(_){return false;}
+    }
+    if(!result||result.exists!==true||!selector||String(selector.value||'').trim()!==projectId)return false;
     window.filmStudioToggle();
-    return true;
+    return S.open||document.documentElement.classList.contains('fs-studio-open');
+  };
+  window.filmStudioPrepareLegacyProjectOpen=function(projectId){
+    var pid=String(projectId||'').trim();
+    var studioVisible=S.open||document.documentElement.classList.contains('fs-studio-open');
+    if(!studioVisible)return true;
+    // A currently-open Studio remains the authority for its own project even if
+    // its film.html disappears or the preflight response unexpectedly reports false.
+    if(S.open&&S.projectId===pid)return false;
+    window.filmStudioClose();
+    return !S.open&&!document.documentElement.classList.contains('fs-studio-open');
   };
   // Project selection is routed by the single editorLoad wrapper above.
   // workspaceOpen() calls filmStudioOpenIfCurrentProjectHasFilm() explicitly;

@@ -1021,6 +1021,73 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 # must keep the Inspector open and must not claim the split succeeded.
                 assert page.locator("#visual-overlay-inspector-mask").count() == 1
                 page.evaluate("editorVisualOverlayClose()")
+
+                # Authority routing must fail closed when film.html exists or cannot be checked;
+                # only a positive exists:false response may enter the legacy CompositionIR editor.
+                authority_routing = page.evaluate("""async () => {
+                    const selector = document.getElementById('editor-project');
+                    const pid = 'workspace-authority-route-fixture';
+                    const previousValue = selector.value;
+                    let option = [...selector.options].find(item => item.value === pid);
+                    const addedOption = !option;
+                    if (!option) { option = new Option(pid, pid); selector.add(option); }
+                    const original = {
+                        apiGet: window.apiGet,
+                        editorInit: window.editorInit,
+                        editorLoad: window.editorLoad,
+                        directorLoadLatestRun: window.directorLoadLatestRun,
+                        filmOpen: window.filmStudioOpenIfCurrentProjectHasFilm,
+                        prepareLegacy: window.filmStudioPrepareLegacyProjectOpen,
+                        editorToast: window.editorToast,
+                    };
+                    const counters = {legacyLoad: 0, filmOpen: 0, prepareLegacy: 0, messages: []};
+                    let filmReply = {ok:true, exists:true, rev:'fixture-rev'};
+                    window.apiGet = async url => {
+                        if (String(url).startsWith('/api/editor/film?')) return filmReply;
+                        if (String(url) === '/api/actions') return {ok:true, build_id:'workspace-route-smoke'};
+                        return {ok:true};
+                    };
+                    window.editorInit = async () => ({ok:true});
+                    window.editorLoad = async () => { counters.legacyLoad += 1; return {ok:true}; };
+                    window.directorLoadLatestRun = async () => ({ok:true});
+                    window.filmStudioOpenIfCurrentProjectHasFilm = async () => { counters.filmOpen += 1; return false; };
+                    window.filmStudioPrepareLegacyProjectOpen = () => { counters.prepareLegacy += 1; return true; };
+                    window.editorToast = message => counters.messages.push(String(message));
+                    const snapshot = async () => {
+                        const result = await window.workspaceOpen(pid);
+                        return {result,legacyLoad:counters.legacyLoad,filmOpen:counters.filmOpen,
+                            prepareLegacy:counters.prepareLegacy,message:counters.messages.at(-1)||''};
+                    };
+                    try {
+                        selector.value = pid;
+                        const existingFilm = await snapshot();
+                        filmReply = {ok:false,error:'temporary preflight failure'};
+                        const unknownAuthority = await snapshot();
+                        filmReply = {ok:true,exists:false};
+                        const confirmedLegacy = await snapshot();
+                        return {existingFilm,unknownAuthority,confirmedLegacy};
+                    } finally {
+                        window.apiGet = original.apiGet;
+                        window.editorInit = original.editorInit;
+                        window.editorLoad = original.editorLoad;
+                        window.directorLoadLatestRun = original.directorLoadLatestRun;
+                        window.filmStudioOpenIfCurrentProjectHasFilm = original.filmOpen;
+                        window.filmStudioPrepareLegacyProjectOpen = original.prepareLegacy;
+                        window.editorToast = original.editorToast;
+                        selector.value = previousValue;
+                        if (addedOption) option.remove();
+                    }
+                }""")
+                assert authority_routing["existingFilm"]["result"]["ok"] is False, authority_routing
+                assert authority_routing["existingFilm"]["result"]["mode"] == "film", authority_routing
+                assert authority_routing["existingFilm"]["legacyLoad"] == 0, authority_routing
+                assert "未回退" in authority_routing["existingFilm"]["message"], authority_routing
+                assert authority_routing["unknownAuthority"]["result"]["ok"] is False, authority_routing
+                assert authority_routing["unknownAuthority"]["result"]["mode"] == "unknown", authority_routing
+                assert authority_routing["unknownAuthority"]["legacyLoad"] == 0, authority_routing
+                assert authority_routing["confirmedLegacy"]["result"]["ok"] is True, authority_routing
+                assert authority_routing["confirmedLegacy"]["legacyLoad"] == 1, authority_routing
+
             except Exception:
                 context.tracing.stop(path=str(trace_path))
                 raise

@@ -45,16 +45,40 @@ async function workspaceOpen(pid, target){
       }
       selEl.value = pid;
     }
-    // 2. Existing film.html projects enter the authoritative Film Studio directly.
-    // Legacy projects without film.html keep the CompositionIR workspace/migration path.
-    const filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));
-    if (filmDocument && filmDocument.exists === true &&
-        typeof window.filmStudioOpenIfCurrentProjectHasFilm === 'function') {
-      if (typeof directorLoadLatestRun === 'function') await directorLoadLatestRun(pid);
-      const openedStudio = await window.filmStudioOpenIfCurrentProjectHasFilm();
-      if (openedStudio) return {ok: true, mode: 'film'};
+    // 2. Resolve the document authority before opening either editor.
+    // Only an explicit exists:false is allowed to use CompositionIR. A malformed,
+    // failed, or unavailable FilmDocument response must never silently open stale IR.
+    let filmDocument;
+    try {
+      filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));
+    } catch (_) {
+      filmDocument = null;
     }
-    // 3. Load Composition only for projects that still use the legacy workflow.
+    if (!filmDocument || typeof filmDocument.exists !== 'boolean') {
+      const message = '无法确认 film.html 是否存在；为避免打开旧 CompositionIR 覆盖影片数据，已停止打开。请刷新后重试。';
+      editorToast(message, true);
+      return {ok:false,mode:'unknown',error:'FILM_AUTHORITY_UNKNOWN'};
+    }
+    if (filmDocument.exists === true) {
+      if (typeof window.filmStudioOpenIfCurrentProjectHasFilm !== 'function') {
+        editorToast('该项目存在 film.html，但 Film Studio 加载桥不可用；未回退到旧时间线。请刷新后重试。', true);
+        return {ok:false,mode:'film',error:'FILM_STUDIO_UNAVAILABLE'};
+      }
+      if (typeof directorLoadLatestRun === 'function') {
+        try { await directorLoadLatestRun(pid); } catch (_) { /* Run metadata must not change timeline authority. */ }
+      }
+      const openedStudio = await window.filmStudioOpenIfCurrentProjectHasFilm(pid, filmDocument);
+      if (openedStudio) return {ok:true,mode:'film'};
+      editorToast('该项目存在 film.html，但无法打开权威 Film Studio；未回退到旧 CompositionIR。请检查未提交修改或刷新后重试。', true);
+      return {ok:false,mode:'film',error:'FILM_STUDIO_OPEN_FAILED'};
+    }
+    // An explicit exists:false is the only valid route into the legacy editor.
+    if (typeof window.filmStudioPrepareLegacyProjectOpen === 'function' &&
+        !window.filmStudioPrepareLegacyProjectOpen(pid)) {
+      editorToast('当前 Film Studio 尚未安全关闭；本次没有打开旧 CompositionIR。请先完成或放弃未提交修改。', true);
+      return {ok:false,mode:'legacy',error:'STUDIO_CLOSE_BLOCKED'};
+    }
+    // 3. Load Composition only for projects known not to have film.html.
     const r = await editorLoad();
     if (!r || !r.ok) return r || {ok: false};
     if (typeof directorLoadLatestRun === 'function') {
