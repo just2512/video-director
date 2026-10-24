@@ -1500,7 +1500,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
 
                 film_path.write_text("<html><body>partial write</body></html>", encoding="utf-8")
                 page.wait_for_function(
-                    "() => { const alert = document.querySelector('#film-studio-alert'); return !!alert && alert.textContent.includes('影片文件校验失败'); }",
+                    """() => {
+                      const alert = document.querySelector('#film-studio-alert');
+                      const timeline = document.querySelector('#fs-timeline');
+                      return !!alert && alert.textContent.includes('影片文档无效') &&
+                        !!timeline && timeline.innerText.includes('film.html 校验失败') &&
+                        timeline.querySelectorAll('.fs-clip[data-clip]').length === 0;
+                    }""",
                     timeout=15000,
                 )
                 assert film_path.read_text(encoding="utf-8") == "<html><body>partial write</body></html>"
