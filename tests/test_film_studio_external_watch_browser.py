@@ -460,7 +460,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "envelopeHit": {"kind":"edit","index":1,"added":false},
                     "envelopeDelete": {"kind":"remove","points":[{"t":0,"v":1},{"t":4,"v":1}]},
                     "envelopeEndpointDelete": {"kind":"none","points":[{"t":0,"v":1},{"t":4,"v":1}]},
-                    "envelopeMove": [{"t":0,"v":1},{"t":3.99,"v":0},{"t":4,"v":1}],
+                    "envelopeMove": [{"t":0,"v":1},{"t":3.6,"v":0},{"t":4,"v":1}],
                     "envelopeNormalize": [{"t":0,"v":1},{"t":1,"v":0.8},{"t":3,"v":1}],
                     "trimStartSnap": {"target": 1.2, "deltaSeconds": 1.2, "snapKind": "trim-snap"},
                     "trimStartClamp": {"target": 2.04, "deltaSeconds": 0.04, "snapKind": None},
@@ -2708,6 +2708,165 @@ def test_react_linked_edit_previews_commit_once_and_undo_restores_film(tmp_path,
                 undo_to_baseline(ids)
 
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+
+def test_react_envelope_gesture_previews_then_commits_one_undoable_operation(tmp_path, monkeypatch):
+    """Real pointer gesture previews in FilmStore and writes one revision-checked envelope edit."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-react-envelope-gesture-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            film_edit_requests: list[dict] = []
+
+            def capture_film_edit_request(request):
+                if request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        film_edit_requests.append(json.loads(request.post_data or "{}"))
+                    except (TypeError, ValueError):
+                        film_edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_film_edit_request)
+            try:
+                page.set_default_navigation_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                canvas = page.locator('canvas[data-envelope-clip="audio-1"]')
+                canvas.wait_for(state="visible", timeout=10_000)
+                page.wait_for_function(
+                    "() => document.querySelector('canvas[data-envelope-clip=\\\"audio-1\\\"]')?.dataset.reactEnvelopePainted === 'true'",
+                    timeout=5_000,
+                )
+
+                # Enable the real Studio tool, then use real Chromium pointer input on the React canvas.
+                page.locator('[data-film-action="envelope-mode"]:visible').click()
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getField('envelopeMode') === true",
+                    timeout=5_000,
+                )
+                box = canvas.bounding_box()
+                assert box and box["width"] > 80 and box["height"] > 16, box
+                before_doc = fd.read_project_film(project_id)
+                original = next(
+                    clip for track in before_doc["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "audio-1"
+                )
+                assert "volume_envelope" not in original["attrs"], original
+                revision_before = before_doc["rev"]
+                edit_count_before = len(film_edit_requests)
+
+                start_x = box["x"] + box["width"] * 0.50
+                start_y = box["y"] + box["height"] * 0.72
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  const state = store?.getSnapshot();
+                  const gesture = state?.timelineEnvelopeGesture;
+                  const preview = state?.timelineEnvelopePreview;
+                  return gesture?.clipId === "audio-1" && gesture.points.length === 3 &&
+                    gesture.changed === true && !Object.prototype.hasOwnProperty.call(gesture, "canvas") &&
+                    preview?.clipId === "audio-1" && preview.points.length === 3;
+                }""", timeout=5_000)
+
+                # Moving the inserted point changes only the React preview. No request or disk revision yet.
+                page.mouse.move(start_x + 22, start_y - 8, steps=5)
+                page.wait_for_function("""() => {
+                  const gesture = window.filmStudioStore?.getSnapshot()?.timelineEnvelopeGesture;
+                  const point = gesture?.points?.[1];
+                  return !!point && point.t > 2.0 && point.v > 0.2 && point.v < 0.8;
+                }""", timeout=5_000)
+                preview = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const point = state?.timelineEnvelopeGesture?.points?.[1];
+                  return point ? {t:point.t,v:point.v} : null;
+                }""")
+                assert preview and preview["t"] > 0 and 0 <= preview["v"] <= 1, preview
+                assert len(film_edit_requests) == edit_count_before
+                assert fd.read_project_film(project_id)["rev"] == revision_before
+
+                with page.expect_response("**/api/editor/film/edit") as edit_response:
+                    page.mouse.up()
+                assert edit_response.value.status == 200
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineEnvelopeGesture === null &&
+                    state?.timelineEnvelopePreview === null &&
+                    state?.busy === false && state?.pendingTransaction === null;
+                }""", timeout=10_000)
+                assert len(film_edit_requests) == edit_count_before + 1, film_edit_requests
+                operations = film_edit_requests[-1].get("ops") or []
+                assert len(operations) == 1, operations
+                operation = operations[0]
+                assert operation.get("op") == "set", operation
+                assert operation.get("clip") == "audio-1" and operation.get("field") == "volume_envelope", operation
+                saved = fd.read_project_film(project_id)
+                assert saved["rev"] != revision_before
+                saved_clip = next(
+                    clip for track in saved["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "audio-1"
+                )
+                points = json.loads(saved_clip["attrs"]["volume_envelope"])
+                assert len(points) == 3, points
+                assert 0 < points[1]["t"] < fd.clip_duration(saved_clip), points
+                assert 0 <= points[1]["v"] <= 1, points
+                assert abs(points[1]["t"] - round(preview["t"], 3)) <= 0.002, {"saved":points,"preview":preview}
+                assert abs(points[1]["v"] - round(preview["v"], 3)) <= 0.002, {"saved":points,"preview":preview}
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+
+                # The one pointer gesture is exactly one undo unit.
+                with page.expect_response("**/api/editor/film/undo") as undo_response:
+                    page.evaluate("window.filmStudioUndo()")
+                assert undo_response.value.status == 200
+                undone = fd.read_project_film(project_id)
+                undone_clip = next(
+                    clip for track in undone["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "audio-1"
+                )
+                assert "volume_envelope" not in undone_clip["attrs"], undone_clip
             finally:
                 context.close()
                 browser.close()
