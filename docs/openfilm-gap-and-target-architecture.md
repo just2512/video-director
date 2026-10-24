@@ -26,7 +26,7 @@
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
 | React Studio | **单一 React root；AI 与 Inspector 并排；轨道开关、时码尺 seek、片段/音量包络 pointer 生命周期、波形/包络绘制、右键菜单、剪辑瞬态几何与关键帧跳转由 React/FilmStore 拥有**；操作上下文现在是 FilmStore 的 ID-only gesture context，剪辑数学与 revision-checked FilmDocument 写入仍经共享适配器。 | Studio 构建使用 self-hosted `[self-hosted, linux, x64]` runner 与独立 `studio_ui/` 包；React/Tailwind 构建、选定 Chromium 回归、JS 语法检查与产物发布均通过最新 CI，但不是全部剪辑组合或逐帧渲染一致性的证明 |
-| 页面元素编辑 | 已支持 selector、文本、位置/尺寸、文字色、旋转；后端还支持背景色、不透明度、字重、对齐等受限字段 | Inspector 应暴露常用可编辑字段，并让 React 与无 bundle fallback 同契约；编辑不应意外物化未改字段 |
+| 页面元素编辑 | selector、文本、位置/尺寸、文字/背景色、不透明度、字重、对齐、字号、旋转、行高与字间距均可编辑；React 与无 bundle fallback 共用字段契约 | 继续覆盖剩余受限属性；Inspector 只提交实际变化字段，不物化未改文本/位置/样式；字段校验保持与服务端 allowlist 同步 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线；自定义 Bezier 控制柄已通过保存/重载的真实 Chromium 回归（Studio #211 / b9b0adf4） | 完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收；控制柄的交互与持久化测试不等于逐帧渲染一致性的证明 |
 | 实时 AI | 已支持 SSE 生命周期事件、token 片段转发、停止当前请求、执行中转向后重新规划，以及基于 revision 的提案预览/拒绝/确认；正式文档仍只在确认后写入 | 假流单测覆盖 token delta/cancel；真实配置模型经部署代理的端到端 token 流尚未验证；继续补足目标定位、受影响片段、差异预览和验收结果。转向通过取消当前请求后以原指令+新指令重新规划实现，不是同一模型会话的 token 级 steering |
@@ -39,6 +39,11 @@
 - 当前增量将音量包络活动手势从带 `canvas` 属性的临时对象迁为 FilmStore 的 `timelineEnvelopeGesture`：只保存 clip ID、pointer ID、数值矩形、持续时间、关键帧快照、索引与活动标志。Canvas 引用只保留在无 bundle fallback 的适配器闭包里；React 仍绘制预览，pointercancel 清空手势与预览，pointerup 经 FilmDocument revision-checked 事务提交。
 
 ## React 时间线输入所有权（当前增量）
+
+## Inspector 字段级编辑语义
+
+- 画布元素 Inspector 对几何、文字、颜色、字重、对齐、透明度、字号、旋转、行高和字间距只生成差异字段；未修改的文本/样式不进入 `element_set`。若没有差异，不创建 revision。
+- `lineHeight` 与 `letterSpacing` 输入遵循 FilmDocument 的安全 CSS 长度格式；空值表示不修改当前值。前端错误不提交，服务端继续执行最终 allowlist/长度/范围校验。
 
 ## AI 提案 revision 可见门禁
 

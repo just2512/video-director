@@ -326,10 +326,11 @@ type ClipInspectorBuildResult =
 type CanvasElementFormValues = {
   text: string; left: string; top: string; width: string; height: string;
   color: string; backgroundEnabled: boolean; backgroundColor: string;
-  opacity: string; fontWeight: string; textAlign: string; fontSize: string; rotate: string;
+  opacity: string; fontWeight: string; textAlign: string; lineHeight: string; letterSpacing: string;
+  fontSize: string; rotate: string;
 };
 type CanvasElementBuildResult =
-  | {ok:true; operation:Extract<FilmOperation,{op:"element_set"}>}
+  | {ok:true; operation:Extract<FilmOperation,{op:"element_set"}>; changed:boolean}
   | {ok:false; message:string};
 
 /** Validate and build a single element_set intent before the revision-checked JS commit bridge. */
@@ -364,12 +365,30 @@ export const buildCanvasElementOperation = (
   if(!["left","center","right","justify","start","end"].includes(form.textAlign)) {
     return {ok:false,message:"文字对齐方式无效。"};
   }
-  const style:Record<string,string>={
-    position:"fixed",left:values["左坐标"].toFixed(2)+"px",top:values["上坐标"].toFixed(2)+"px",
-    width:values["宽度"].toFixed(2)+"px",height:values["高度"].toFixed(2)+"px",color:form.color,
-    fontSize:values["字号"].toFixed(2)+"px",rotate:values["旋转角度"].toFixed(2)+"deg",
-  };
-  const currentBackground = String(element.styles.backgroundColor || "transparent");
+
+  const rect=element.localRect||element.rect||{};
+  const styles=element.styles||{};
+  const style:Record<string,string>={};
+  const nextLeft=values["左坐标"],nextTop=values["上坐标"];
+  const nextWidth=values["宽度"],nextHeight=values["高度"];
+  const leftChanged=Math.abs(nextLeft-asNumber(rect.x,0))>0.11;
+  const topChanged=Math.abs(nextTop-asNumber(rect.y,0))>0.11;
+  const widthChanged=Math.abs(nextWidth-asNumber(rect.width,1))>0.11;
+  const heightChanged=Math.abs(nextHeight-asNumber(rect.height,1))>0.11;
+  const geometryChanged=leftChanged||topChanged||widthChanged||heightChanged;
+  // Position is not an Inspector field: materialize it only when geometry changes.
+  if(geometryChanged&&String(styles.position||"")!=="fixed")style.position="fixed";
+  if(leftChanged)style.left=nextLeft.toFixed(2)+"px";
+  if(topChanged)style.top=nextTop.toFixed(2)+"px";
+  if(widthChanged)style.width=nextWidth.toFixed(2)+"px";
+  if(heightChanged)style.height=nextHeight.toFixed(2)+"px";
+  if(toHexColor(String(styles.color||"#ffffff")).toLowerCase()!==form.color.toLowerCase())style.color=form.color;
+
+  const currentFontSize=asNumber(parseFloat(styles.fontSize),24);
+  if(Math.abs(values["字号"]-currentFontSize)>0.01)style.fontSize=values["字号"].toFixed(2)+"px";
+  if(Math.abs(values["旋转角度"]-rotateDegrees(styles))>0.01)style.rotate=values["旋转角度"].toFixed(2)+"deg";
+
+  const currentBackground = String(styles.backgroundColor || "transparent");
   const currentBackgroundTransparent = isTransparentBackground(currentBackground);
   if(form.backgroundEnabled) {
     if(currentBackgroundTransparent || toHexColor(currentBackground).toLowerCase()!==form.backgroundColor.toLowerCase()) {
@@ -379,28 +398,47 @@ export const buildCanvasElementOperation = (
     // Unchecking an existing fill means explicitly restoring transparency.
     style.backgroundColor="transparent";
   }
-  const currentOpacity=asNumber(element.styles.opacity,1);
-  if(Math.abs(Number(form.opacity)-currentOpacity)>1e-5) style.opacity=Number(form.opacity).toFixed(3);
-  if(normalizedFontWeight(element.styles.fontWeight)!==Number(form.fontWeight)) {
-    style.fontWeight=String(Number(form.fontWeight));
-  }
-  const currentTextAlign=String(element.styles.textAlign||"left");
-  if(currentTextAlign!==form.textAlign) style.textAlign=form.textAlign;
+  const currentOpacity=asNumber(styles.opacity,1);
+  if(Math.abs(Number(form.opacity)-currentOpacity)>1e-5)style.opacity=Number(form.opacity).toFixed(3);
+  if(normalizedFontWeight(styles.fontWeight)!==Number(form.fontWeight))style.fontWeight=String(Number(form.fontWeight));
+  const currentTextAlign=String(styles.textAlign||"left");
+  if(currentTextAlign!==form.textAlign)style.textAlign=form.textAlign;
+
+  const appendOptionalCssLength=(key:"lineHeight"|"letterSpacing",raw:string,label:string):string|null=>{
+    const value=raw.trim();
+    // Blank means preserve the current CSS value (including keywords such as "normal").
+    if(!value)return null;
+    const match=value.match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|%|em|rem|vh|vw)?$/i);
+    if(!match||value.length>120)return label+"必须是有效 CSS 长度值。";
+    const magnitude=Number(match[1]);
+    if(!Number.isFinite(magnitude))return label+"必须是有限数字。";
+    if(key==="lineHeight"&&magnitude<=0)return "行高必须大于 0。";
+    if(key==="letterSpacing"&&Math.abs(magnitude)>1000)return "字间距绝对值不能超过 1000。";
+    if(String(styles[key]||"").trim()!==value)style[key]=value;
+    return null;
+  };
+  const lineHeightError=appendOptionalCssLength("lineHeight",form.lineHeight,"行高");
+  if(lineHeightError)return {ok:false,message:lineHeightError};
+  const letterSpacingError=appendOptionalCssLength("letterSpacing",form.letterSpacing,"字间距");
+  if(letterSpacingError)return {ok:false,message:letterSpacingError};
+
+  const textChanged=Boolean(element.textEditable)&&form.text!==String(element.text||"");
   const operation:Extract<FilmOperation,{op:"element_set"}>={op:"element_set",clip:element.clipId,selector:element.selector,style};
-  if(element.textEditable)operation.text=form.text;
-  return {ok:true,operation};
+  if(textChanged)operation.text=form.text;
+  return {ok:true,operation,changed:Object.keys(style).length>0||textChanged};
 };
 const readCanvasElementForm=():CanvasElementFormValues|null=>{
   const ids=["fs-element-text","fs-element-left","fs-element-top","fs-element-width","fs-element-height","fs-element-color",
     "fs-element-background-enabled","fs-element-background-color","fs-element-opacity","fs-element-font-weight","fs-element-text-align",
-    "fs-element-font-size","fs-element-rotate"];
+    "fs-element-line-height","fs-element-letter-spacing","fs-element-font-size","fs-element-rotate"];
   const fields=ids.map(id=>document.getElementById(id) as HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement|null);
   if(fields.some(field=>!field))return null;
-  const [text,left,top,width,height,color,backgroundEnabled,backgroundColor,opacity,fontWeight,textAlign,fontSize,rotate]=fields as Array<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>;
+  const [text,left,top,width,height,color,backgroundEnabled,backgroundColor,opacity,fontWeight,textAlign,lineHeight,letterSpacing,fontSize,rotate]=fields as Array<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>;
   return {
     text:text.value,left:left.value,top:top.value,width:width.value,height:height.value,color:color.value,
     backgroundEnabled:(backgroundEnabled as HTMLInputElement).checked,backgroundColor:backgroundColor.value,
-    opacity:opacity.value,fontWeight:fontWeight.value,textAlign:textAlign.value,fontSize:fontSize.value,rotate:rotate.value
+    opacity:opacity.value,fontWeight:fontWeight.value,textAlign:textAlign.value,lineHeight:lineHeight.value,
+    letterSpacing:letterSpacing.value,fontSize:fontSize.value,rotate:rotate.value
   };
 };
 
@@ -1598,6 +1636,11 @@ const StudioTimelineToolbar: React.FC = () => {
   );
 };
 
+const editableCssLength = (value: unknown): string => {
+  const text=String(value||"").trim();
+  return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%|em|rem|vh|vw)?$/i.test(text) ? text : "";
+};
+
 const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element}) => {
   const rect = element.localRect || element.rect || {};
   const styles = element.styles || {};
@@ -1666,6 +1709,18 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
             <option key={align} value={align}>{({left:"左对齐",center:"居中",right:"右对齐",justify:"两端对齐",start:"起始对齐",end:"末端对齐"} as Record<string,string>)[align]}</option>
           ))}
         </select>
+      </label>
+      <label className="fs-inspector-field">
+        行高（CSS 长度）
+        <input id="fs-element-line-height" type="text" maxLength={120} inputMode="decimal"
+          placeholder={"留空不修改；当前值："+String(styles.lineHeight||"未提供")}
+          defaultValue={editableCssLength(styles.lineHeight)} />
+      </label>
+      <label className="fs-inspector-field">
+        字间距（CSS 长度）
+        <input id="fs-element-letter-spacing" type="text" maxLength={120} inputMode="decimal"
+          placeholder={"留空不修改；当前值："+String(styles.letterSpacing||"未提供")}
+          defaultValue={editableCssLength(styles.letterSpacing)} />
       </label>
       <label className="fs-inspector-field">
         字号（px）
@@ -1874,6 +1929,7 @@ window.filmStudioReactInspector = {
     if(!form){window.filmStudioShowInspectorError?.("画布检查器尚未挂载完成，请重新选择元素。");return;}
     const result=buildCanvasElementOperation(element,form);
     if(!result.ok){window.filmStudioShowInspectorError?.(result.message);return;}
+    if(!result.changed)return;
     if(!window.filmStudioCommitCanvasElement){
       window.filmStudioShowInspectorError?.("画布编辑提交桥尚未就绪；本次没有写入 film.html。");return;
     }

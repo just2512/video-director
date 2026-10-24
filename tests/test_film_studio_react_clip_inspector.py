@@ -20,9 +20,17 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     render_end = source[source.index('  render(element) {'):source.index('  sync(element) {')]
     assert "if (element) this.sync(element);" in render_end
     assert "export const buildCanvasElementOperation =" in component
+    assert "changed:Object.keys(style).length>0||textChanged" in component
+    assert "const style:Record<string,string>={};" in component
+    assert "if(!result.changed)return;" in component
+    assert "editableCssLength(styles.lineHeight)" in component
+    assert "editableCssLength(styles.letterSpacing)" in component
+    assert "validEditableElementCssLength(lineHeightInput.value,'lineHeight')" in studio
+    assert "if(!Object.keys(elementStyle).length&&!elementTextChanged)return;" in studio
     for field_id in (
         "fs-element-background-enabled", "fs-element-background-color",
         "fs-element-opacity", "fs-element-font-weight", "fs-element-text-align",
+        "fs-element-line-height", "fs-element-letter-spacing",
     ):
         assert f'id="{field_id}"' in component
     assert "backgroundColor" in component and "normalizedFontWeight" in component

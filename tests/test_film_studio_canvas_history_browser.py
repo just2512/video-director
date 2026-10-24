@@ -297,6 +297,36 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 assert float(persisted_clip["attrs"]["at"]) == 0.25
                 assert persisted_clip["attrs"]["title"] == "React title"
 
+                # Optional CSS fields use the server's length-only grammar and should stay sparse.
+                style_only_revision = fd.read_project_film(project_id)["rev"]
+                page.locator("#fs-element-line-height").fill("calc(1px + 2px)")
+                page.locator("#fs-apply-element").click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('行高')",
+                    timeout=5000,
+                )
+                assert fd.read_project_film(project_id)["rev"] == style_only_revision
+                assert _overrides(project_id) == []
+
+                page.locator("#fs-element-line-height").fill("1.25")
+                page.locator("#fs-element-letter-spacing").fill("1.5px")
+                page.locator("#fs-apply-element").click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('画布修改已保存到 film.html')",
+                    timeout=15000,
+                )
+                style_only = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
+                assert style_only["style"] == {"lineHeight": "1.25", "letterSpacing": "1.5px"}, style_only
+                assert "text" not in style_only, style_only
+
+                # The canvas commit refreshes runtime selection state; select the same element again
+                # before editing the rest of its styles.
+                page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
+                    timeout=15000,
+                )
+                page.locator("#fs-element-text").wait_for(state="visible")
                 page.locator("#fs-element-text").fill("Saved title")
                 page.locator("#fs-element-left").fill("64")
                 page.locator("#fs-element-top").fill("75")
@@ -338,7 +368,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('已撤销')",
                     timeout=15000,
                 )
-                assert not any(item.get("selector") == "#title" for item in _overrides(project_id))
+                remaining = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
+                assert remaining["style"] == {"lineHeight": "1.25", "letterSpacing": "1.5px"}, remaining
+                assert "text" not in remaining, remaining
                 assert fd.read_project_film(project_id)["rev"] != saved_revision
 
                 redo_selector = '#fs-react-toolbar [data-film-action="redo"]' if has_react_toolbar else '#fs-static-toolbar [data-film-action="redo"]'
@@ -349,6 +381,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 )
                 redone = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
                 assert redone["text"] == "Saved title"
+                assert redone["style"]["lineHeight"] == "1.25"
+                assert redone["style"]["letterSpacing"] == "1.5px"
                 assert redone["style"]["left"] == "64.00px"
 
                 # A true browser reload must rebuild the Inspector from the stored

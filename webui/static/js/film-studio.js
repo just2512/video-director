@@ -567,6 +567,22 @@
     var number=Number(text);
     return Number.isFinite(number)?Math.max(100,Math.min(900,Math.round(number/100)*100)):400;
   }
+  function validEditableElementCssLength(value,property){
+    var text=String(value==null?'':value).trim();
+    if(!text)return true;
+    if(text.length>120)return false;
+    var match=text.match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|%|em|rem|vh|vw)?$/i);
+    if(!match)return false;
+    var magnitude=Number(match[1]);
+    if(!Number.isFinite(magnitude))return false;
+    if(property==='lineHeight'&&magnitude<=0)return false;
+    if(property==='letterSpacing'&&Math.abs(magnitude)>1000)return false;
+    return true;
+  }
+  function editableElementCssLength(value,property){
+    var text=String(value==null?'':value).trim();
+    return validEditableElementCssLength(text,property)?text:'';
+  }
   function renderElementInspector(element) {
     var mount=$('fs-react-canvas-inspector');
     if(!mount)return;
@@ -590,6 +606,8 @@
       '<label class="fs-inspector-field">不透明度（0–1）<input id="fs-element-opacity" type="number" min="0" max="1" step="0.05" value="'+esc(num(styles.opacity,1))+'"></label>'+
       '<label class="fs-inspector-field">字重<select id="fs-element-font-weight">'+[100,200,300,400,500,600,700,800,900].map(function(weight){var selected=weight===normalizedFontWeight(styles.fontWeight)?' selected':'';return '<option value="'+weight+'"'+selected+'>'+weight+(weight===400?'（常规）':weight===700?'（粗体）':'')+'</option>';}).join('')+'</select></label>'+
       '<label class="fs-inspector-field">文字对齐<select id="fs-element-text-align">'+[['left','左对齐'],['center','居中'],['right','右对齐'],['justify','两端对齐'],['start','起始对齐'],['end','末端对齐']].map(function(option){var current=String(styles.textAlign||'left'),selected=option[0]===current?' selected':'';return '<option value="'+option[0]+'"'+selected+'>'+option[1]+'</option>';}).join('')+'</select></label>'+
+      '<label class="fs-inspector-field">行高（CSS 长度）<input id="fs-element-line-height" type="text" maxlength="120" inputmode="decimal" placeholder="'+esc('留空不修改；当前值：'+String(styles.lineHeight||'未提供'))+'" value="'+esc(editableElementCssLength(styles.lineHeight,'lineHeight'))+'"></label>'+
+      '<label class="fs-inspector-field">字间距（CSS 长度）<input id="fs-element-letter-spacing" type="text" maxlength="120" inputmode="decimal" placeholder="'+esc('留空不修改；当前值：'+String(styles.letterSpacing||'未提供'))+'" value="'+esc(editableElementCssLength(styles.letterSpacing,'letterSpacing'))+'"></label>'+
       '<label class="fs-inspector-field">字号（px）<input id="fs-element-font-size" type="number" min="1" max="1000" step="1" value="'+esc(num(parseFloat(styles.fontSize),24))+'"></label>'+
       '<label class="fs-inspector-field">旋转（度）<input id="fs-element-rotate" type="number" min="-3600" max="3600" step="1" value="'+esc(rotateMatch?Number(rotateMatch[0]):0)+'"></label>'+
       '<button type="button" class="fs-btn fs-primary" id="fs-apply-element">应用画布修改</button></section>';
@@ -614,6 +632,8 @@
       'fs-element-opacity':String(num(styles.opacity,1)),
       'fs-element-font-weight':String(normalizedFontWeight(styles.fontWeight)),
       'fs-element-text-align':['left','center','right','justify','start','end'].indexOf(String(styles.textAlign||'left'))>=0?String(styles.textAlign||'left'):'left',
+      'fs-element-line-height':editableElementCssLength(styles.lineHeight,'lineHeight'),
+      'fs-element-letter-spacing':editableElementCssLength(styles.letterSpacing,'letterSpacing'),
       'fs-element-font-size':String(num(parseFloat(styles.fontSize),24)),
       'fs-element-rotate':String(rotateMatch?Number(rotateMatch[0]):0)
     };
@@ -1883,6 +1903,8 @@
     if(inspectorFieldDiffersNumber('fs-element-width',num(rect.width,1)))return true;
     if(inspectorFieldDiffersNumber('fs-element-height',num(rect.height,1)))return true;
     if(inspectorFieldDiffersText('fs-element-color',hexColor(styles.color||'#ffffff')))return true;
+    if(inspectorFieldDiffersText('fs-element-line-height',editableElementCssLength(styles.lineHeight,'lineHeight')))return true;
+    if(inspectorFieldDiffersText('fs-element-letter-spacing',editableElementCssLength(styles.letterSpacing,'letterSpacing')))return true;
     if(inspectorFieldDiffersNumber('fs-element-font-size',num(parseFloat(styles.fontSize),24)))return true;
     var rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
     if(inspectorFieldDiffersNumber('fs-element-rotate',rotateMatch?Number(rotateMatch[0]):0))return true;
@@ -2527,10 +2549,12 @@
         widthInput=$('fs-element-width'),heightInput=$('fs-element-height'),colorInput=$('fs-element-color'),
         backgroundEnabledInput=$('fs-element-background-enabled'),backgroundColorInput=$('fs-element-background-color'),
         opacityInput=$('fs-element-opacity'),fontWeightInput=$('fs-element-font-weight'),textAlignInput=$('fs-element-text-align'),
+        lineHeightInput=$('fs-element-line-height'),letterSpacingInput=$('fs-element-letter-spacing'),
         fontInput=$('fs-element-font-size'),rotateInput=$('fs-element-rotate');
     var values=[leftInput,topInput,widthInput,heightInput,fontInput,rotateInput,opacityInput,fontWeightInput].filter(Boolean).map(function(el){return Number(el.value);});
     if(values.some(function(value){return !Number.isFinite(value);})
-      ||!widthInput||!heightInput||!fontInput||!rotateInput||!backgroundEnabledInput||!backgroundColorInput||!opacityInput||!fontWeightInput||!textAlignInput
+      ||!widthInput||!heightInput||!fontInput||!rotateInput||!backgroundEnabledInput||!backgroundColorInput||!opacityInput||!fontWeightInput||!textAlignInput||!lineHeightInput||!letterSpacingInput
+      ||!validEditableElementCssLength(lineHeightInput.value,'lineHeight')||!validEditableElementCssLength(letterSpacingInput.value,'letterSpacing')
       ||Number(widthInput.value)<=0||Number(heightInput.value)<=0
       ||Number(fontInput.value)<=0||Number(widthInput.value)>10000||Number(heightInput.value)>10000
       ||Number(fontInput.value)>1000||Math.abs(Number(rotateInput.value))>3600
@@ -2540,16 +2564,19 @@
       ||!/^#[0-9a-f]{6}$/i.test(backgroundColorInput.value)){
       showStatus('画布坐标、尺寸、字号或旋转角度超出有效范围。','error');return;
     }
-    var elementStyle={
-      position:'fixed',
-      left:Number(leftInput.value).toFixed(2)+'px',
-      top:Number(topInput.value).toFixed(2)+'px',
-      width:Number(widthInput.value).toFixed(2)+'px',
-      height:Number(heightInput.value).toFixed(2)+'px',
-      color:colorInput.value,
-      fontSize:Number(fontInput.value).toFixed(2)+'px',
-      rotate:Number(rotateInput.value).toFixed(2)+'deg'
-    };
+    var rect=selected.localRect||selected.rect||{},styles=selected.styles||{},elementStyle={};
+    var nextLeft=Number(leftInput.value),nextTop=Number(topInput.value),nextWidth=Number(widthInput.value),nextHeight=Number(heightInput.value);
+    var leftChanged=Math.abs(nextLeft-num(rect.x,0))>0.11,topChanged=Math.abs(nextTop-num(rect.y,0))>0.11;
+    var widthChanged=Math.abs(nextWidth-num(rect.width,1))>0.11,heightChanged=Math.abs(nextHeight-num(rect.height,1))>0.11;
+    var geometryChanged=leftChanged||topChanged||widthChanged||heightChanged;
+    if(geometryChanged&&String(styles.position||'')!=='fixed')elementStyle.position='fixed';
+    if(leftChanged)elementStyle.left=nextLeft.toFixed(2)+'px';
+    if(topChanged)elementStyle.top=nextTop.toFixed(2)+'px';
+    if(widthChanged)elementStyle.width=nextWidth.toFixed(2)+'px';
+    if(heightChanged)elementStyle.height=nextHeight.toFixed(2)+'px';
+    if(hexColor(styles.color||'#ffffff').toLowerCase()!==colorInput.value.toLowerCase())elementStyle.color=colorInput.value;
+    if(Math.abs(Number(fontInput.value)-num(parseFloat(styles.fontSize),24))>0.01)elementStyle.fontSize=Number(fontInput.value).toFixed(2)+'px';
+    if(Math.abs(Number(rotateInput.value)-(rotateMatch?Number(rotateMatch[0]):0))>0.01)elementStyle.rotate=Number(rotateInput.value).toFixed(2)+'deg';
     var currentBackground=String(selected.styles&&selected.styles.backgroundColor||'transparent');
     var currentBackgroundTransparent=isTransparentBackground(currentBackground);
     if(backgroundEnabledInput.checked){
@@ -2560,10 +2587,15 @@
     var currentOpacity=num(selected.styles&&selected.styles.opacity,1);
     if(Math.abs(Number(opacityInput.value)-currentOpacity)>1e-5)elementStyle.opacity=Number(opacityInput.value).toFixed(3);
     if(normalizedFontWeight(selected.styles&&selected.styles.fontWeight)!==Number(fontWeightInput.value))elementStyle.fontWeight=String(Number(fontWeightInput.value));
-    var currentTextAlign=String(selected.styles&&selected.styles.textAlign||'left');
+    var currentTextAlign=String(styles.textAlign||'left');
     if(currentTextAlign!==textAlignInput.value)elementStyle.textAlign=textAlignInput.value;
+    var lineHeightValue=String(lineHeightInput.value||'').trim(),letterSpacingValue=String(letterSpacingInput.value||'').trim();
+    if(lineHeightValue&&lineHeightValue!==String(styles.lineHeight||'').trim())elementStyle.lineHeight=lineHeightValue;
+    if(letterSpacingValue&&letterSpacingValue!==String(styles.letterSpacing||'').trim())elementStyle.letterSpacing=letterSpacingValue;
+    var elementTextChanged=!!(textInput&&!textInput.disabled&&textInput.value!==String(selected.text||''));
+    if(!Object.keys(elementStyle).length&&!elementTextChanged)return;
     var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle};
-    if(textInput&&!textInput.disabled&&textInput.value!==null)elementOp.text=textInput.value;
+    if(elementTextChanged)elementOp.text=textInput.value;
     var previousRevision=S.rev;
     var committed=await filmStudioCommit([elementOp],{allowInspectorDraft:'canvas'});
     if(!committed||S.rev===previousRevision)return;
