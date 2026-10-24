@@ -23932,6 +23932,94 @@
         sourceDeltaSeconds: finiteOr(rawDeltaSeconds, 0) * finiteOr(playbackSpeed, 1)
       };
     },
+    resolveEnvelopePointerDown(points, duration, width, height, localX, localY, button, shiftKey) {
+      const copied = points.map((point) => ({ t: point.t, v: point.v }));
+      const none = () => ({
+        kind: "none",
+        index: -1,
+        points: copied.map((point) => ({ ...point })),
+        added: false
+      });
+      const safeDuration = finiteOr(duration, 0);
+      const safeWidth = finiteOr(width, 0);
+      const safeHeight = finiteOr(height, 0);
+      if (safeDuration <= 0.02 || safeWidth <= 0 || safeHeight <= 0) return none();
+      const x = finiteOr(localX, 0);
+      const y = finiteOr(localY, 0);
+      if (button === 2 || shiftKey) {
+        let nearest = -1;
+        let nearestPixels = Number.POSITIVE_INFINITY;
+        copied.forEach((point, index2) => {
+          if (point.t <= 1e-4 || point.t >= safeDuration - 1e-4) return;
+          const px = Math.abs(point.t / safeDuration * safeWidth - x);
+          if (px < nearestPixels) {
+            nearestPixels = px;
+            nearest = index2;
+          }
+        });
+        if (nearest >= 0 && nearestPixels <= 12) {
+          const next = copied.map((point) => ({ ...point }));
+          next.splice(nearest, 1);
+          if (next.length < 2) {
+            return { kind: "minimum-points", index: nearest, points: copied.map((point) => ({ ...point })), added: false };
+          }
+          return { kind: "remove", index: -1, points: next, added: false };
+        }
+        if (button !== 0) return none();
+      }
+      if (button !== 0) return none();
+      let index = -1;
+      copied.forEach((point, candidateIndex) => {
+        const px = Math.abs(point.t / safeDuration * safeWidth - x);
+        const renderedY = safeHeight - 4 - point.v * (safeHeight - 8);
+        const py = Math.abs(renderedY - y);
+        if (px <= 10 && py <= 10) index = candidateIndex;
+      });
+      if (index >= 0) {
+        return { kind: "edit", index, points: copied, added: false };
+      }
+      const time = Math.max(0.01, Math.min(
+        safeDuration - 0.01,
+        Math.max(0, Math.min(safeDuration, x / safeWidth * safeDuration))
+      ));
+      const value = Math.max(0, Math.min(1, 1 - (y - 4) / Math.max(1, safeHeight - 8)));
+      index = copied.findIndex((point) => point.t > time);
+      if (index < 0) index = copied.length;
+      copied.splice(index, 0, { t: time, v: value });
+      return { kind: "insert", index, points: copied, added: true };
+    },
+    moveEnvelopeKeyframe(points, index, duration, width, height, localX, localY) {
+      const safeDuration = finiteOr(duration, 0);
+      const safeWidth = finiteOr(width, 0);
+      const safeHeight = finiteOr(height, 0);
+      if (safeDuration <= 0.02 || safeWidth <= 0 || safeHeight <= 0 || !Number.isInteger(index) || index < 0 || index >= points.length) return null;
+      const next = points.map((point2) => ({ t: point2.t, v: point2.v }));
+      const point = next[index];
+      const x = Math.max(0, Math.min(safeWidth, finiteOr(localX, 0)));
+      const y = Math.max(0, Math.min(safeHeight, finiteOr(localY, 0)));
+      if (index > 0 && index < next.length - 1) {
+        const lower = next[index - 1].t + 0.01;
+        const upper = next[index + 1].t - 0.01;
+        point.t = Math.max(lower, Math.min(upper, x / safeWidth * safeDuration));
+      }
+      point.v = Math.max(0, Math.min(1, 1 - (y - 4) / Math.max(1, safeHeight - 8)));
+      return next;
+    },
+    normalizeEnvelopePoints(points) {
+      const normalized = points.map((point) => ({
+        t: Number(point.t.toFixed(3)),
+        v: Number(point.v.toFixed(3))
+      })).sort((a, b) => a.t - b.t);
+      const unique = [];
+      normalized.forEach((point) => {
+        if (unique.length && Math.abs(unique[unique.length - 1].t - point.t) < 1e-3) {
+          unique[unique.length - 1] = point;
+        } else {
+          unique.push(point);
+        }
+      });
+      return unique;
+    },
     clipLeft(at, pixelsPerSecond) {
       return Math.max(0, filmTimelineMath.secondsToPixels(at, pixelsPerSecond));
     },
