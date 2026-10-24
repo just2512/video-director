@@ -1251,6 +1251,81 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert abs(float(trim_undone_clip["attrs"]["at"])) < 0.001, trim_undone_clip
 
+                # Snapping a trim edge to the playhead is an actual React/FilmStore
+                # transient state: no request or revision change until pointerup,
+                # then one trim transaction and cleanup of both guide and geometry.
+                page.evaluate("window.filmStudioSeek(4.9)")
+                snap_trim = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                snap_handle = snap_trim.locator('.fs-trim-handle[data-trim="end"]')
+                snap_box = snap_handle.bounding_box()
+                assert snap_box, "clip-a trim-end handle unavailable for snap test"
+                snap_before = fd.read_project_film(project_id)
+                snap_edit_count = len(film_edit_requests)
+                snap_bounds_before = snap_trim.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
+                snap_x = snap_box["x"] + snap_box["width"] / 2
+                snap_y = snap_box["y"] + snap_box["height"] / 2
+                page.mouse.move(snap_x, snap_y)
+                page.mouse.down()
+                page.mouse.move(snap_x - 6, snap_y, steps=4)
+                page.wait_for_function(
+                    """() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const guide = document.querySelector('#fs-snap-guide');
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                      return state?.timelineSnapGuide?.kind === "播放头" &&
+                        guide?.dataset.snapKind === "播放头" &&
+                        !!node && node.dataset.reactGesturePreview === "true";
+                    }""",
+                    timeout=5000,
+                )
+                snap_state = page.evaluate("""() => ({
+                  guide: window.filmStudioStore?.getSnapshot()?.timelineSnapGuide,
+                  preview: window.filmStudioStore?.getSnapshot()?.timelineGesturePreview,
+                  clip: (() => {
+                    const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                    return node ? {left:node.style.left,width:node.style.width} : null;
+                  })()
+                })""")
+                assert snap_state["guide"]["kind"] == "播放头", snap_state
+                assert snap_state["preview"]["clip-a"]["width"] != float(snap_bounds_before["width"].removesuffix("px")), snap_state
+                assert len(film_edit_requests) == snap_edit_count
+                assert fd.read_project_film(project_id)["rev"] == snap_before["rev"]
+                page.mouse.up()
+                page.wait_for_function(
+                    """() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return state?.timelineSnapGuide === null &&
+                        state?.timelineGesturePreview === null &&
+                        state?.timelineActiveDragIds === null;
+                    }""",
+                    timeout=10000,
+                )
+                snap_after = fd.read_project_film(project_id)
+                snap_requests = film_edit_requests[snap_edit_count:]
+                assert snap_after["rev"] != snap_before["rev"]
+                assert len(snap_requests) == 1, snap_requests
+                assert len(snap_requests[0].get("ops") or []) == 1, snap_requests
+                snap_op = snap_requests[0]["ops"][0]
+                assert snap_op.get("op") == "trim" and snap_op.get("edge") == "end", snap_op
+                assert abs(float(snap_op.get("end")) - 4.9) < 0.05, snap_op
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function(
+                    """() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                      return state?.timelineSnapGuide === null &&
+                        state?.timelineGesturePreview === null &&
+                        !!node && node.dataset.reactGesturePreview === "false";
+                    }""",
+                    timeout=10000,
+                )
+                snap_undone = fd.read_project_film(project_id)
+                snap_undone_clip = next(
+                    item for track in snap_undone["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-a"
+                )
+                assert abs(float(snap_undone_clip["attrs"]["at"])) < 0.001, snap_undone_clip
+
                 # Re-establish the intended anchor after the trim test selected clip-a.
                 clip.click()
                 page.wait_for_function("""() => {
