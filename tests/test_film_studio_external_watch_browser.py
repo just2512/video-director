@@ -2357,7 +2357,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     state.timelineActiveDragIds === null && state.busy === false &&
                     state.pendingTransaction === null && !!clip &&
                     Math.abs(Number(clip.at) - expected.expectedAt) < 0.001;
-                }""", arg={"expectedRevision":expected_move_external_revision,"expectedAt":Number(move_at_external)}, timeout=15_000)
+                }""", arg={"expectedRevision":expected_move_external_revision,"expectedAt":float(move_at_external)}, timeout=15_000)
                 assert len(film_edit_requests) == move_request_count_before, film_edit_requests
                 move_after = fd.read_project_film(project_id)
                 assert move_after["rev"] == expected_move_external_revision
