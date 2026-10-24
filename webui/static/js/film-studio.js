@@ -741,8 +741,9 @@
     }else{
       // A project with film.html must not surface controls that write CompositionIR.
       // Restore them to the hidden legacy editor instead of merely disabling buttons.
-      restoreDirectorPlanningNode('director-control-grid');
+      // Restore in reverse DOM order so each original nextSibling already exists in its parent.
       restoreDirectorPlanningNode('director-bar-card');
+      restoreDirectorPlanningNode('director-control-grid');
     }
     var legacyNote=$('fs-director-legacy-note'),authorityNote=$('fs-director-authority-note');
     if(legacyNote)legacyNote.style.display=allowLegacyCompositionCommands?'':'none';

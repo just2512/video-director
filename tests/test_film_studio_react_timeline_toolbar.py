@@ -232,6 +232,8 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "mountDirectorPlanning(true);" in load_migration
     assert "mountDirectorPlanning(false);" in load_invalid
     assert "mountDirectorPlanning(false);" in initialize
+    planning_mode = studio.split("function mountDirectorPlanning(allowLegacyCompositionCommands)", 1)[1].split("function restoreDirectorPlanning(){", 1)[0]
+    assert planning_mode.index("restoreDirectorPlanningNode('director-bar-card')") < planning_mode.index("restoreDirectorPlanningNode('director-control-grid')")
     assert "restoreDirectorPlanningNode('director-control-grid')" in studio
     assert "restoreDirectorPlanningNode('director-bar-card')" in studio
     assert "if(!reactTimeline){" in studio
