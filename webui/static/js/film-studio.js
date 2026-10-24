@@ -3774,19 +3774,28 @@ window.filmStudioCopyClips=function(){
   // listener here caused concurrent filmStudioLoad requests on every project switch.
   var legacyEditorLoad=window.editorLoad;
   if(typeof legacyEditorLoad==='function'){
-    window.editorLoad=async function(){
+    window.editorLoad=async function(knownFilmDocument){
       var selector=$('editor-project'),pid=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||'';
       if(!pid)return await legacyEditorLoad.apply(this,arguments);
 
-      // Resolve the authoritative editor before the legacy CompositionIR loader runs.
-      // Presence wins even when film.html is malformed: Studio must display the broken
-      // FilmDocument gate instead of exposing the project through the older timeline.
+      // Reuse an authority result supplied by workspaceOpen(); a result for a
+      // different project is rejected instead of being trusted or silently re-fetched.
       var state=null;
-      try{
-        state=await apiGet('/api/editor/film?project_id='+encodeURIComponent(pid));
-      }catch(error){
-        showStatus('无法确认影片文档状态；为避免绕过 film.html 权威门禁，暂不打开旧工作台。','error');
-        return {ok:false,code:'FILM_STATE_UNAVAILABLE',error:String(error&&error.message||error)};
+      var hasProvidedAuthority=!!(knownFilmDocument&&typeof knownFilmDocument.exists==='boolean');
+      if(hasProvidedAuthority){
+        if(knownFilmDocument.project_id&&String(knownFilmDocument.project_id)!==String(pid)){
+          showStatus('影片预检结果属于另一个项目；未打开旧工作台。','error');
+          return {ok:false,code:'FILM_AUTHORITY_PROJECT_MISMATCH'};
+        }
+        state=knownFilmDocument;
+      }
+      if(!state){
+        try{
+          state=await apiGet('/api/editor/film?project_id='+encodeURIComponent(pid));
+        }catch(error){
+          showStatus('无法确认影片文档状态；为避免绕过 film.html 权威门禁，暂不打开旧工作台。','error');
+          return {ok:false,code:'FILM_STATE_UNAVAILABLE',error:String(error&&error.message||error)};
+        }
       }
       if(state&&state.exists===true){
         var opened=await window.filmStudioOpenIfCurrentProjectHasFilm(pid,state);
@@ -3807,8 +3816,11 @@ window.filmStudioCopyClips=function(){
       // Only a confirmed absence of film.html may enter the legacy editor.
       // If Studio is already open, keep it on the selected project and show the
       // explicit migration screen instead of leaving the previous project's view.
-      var result=await legacyEditorLoad.apply(this,arguments);
-      if(S.open)await filmStudioLoad(true);
+      // The confirmed absence is the same authority snapshot used above;
+      // pass it through so an already-mounted Studio does not make a third GET.
+      var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
+      var result=await legacyEditorLoad.apply(this,legacyArguments);
+      if(S.open)await filmStudioLoad(true,state);
       return result;
     };
   }

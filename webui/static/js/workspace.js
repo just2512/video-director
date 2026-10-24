@@ -83,7 +83,7 @@ async function workspaceOpen(pid, target){
       return {ok:false,mode:'legacy',error:'STUDIO_CLOSE_BLOCKED'};
     }
     // 3. Load Composition only for projects known not to have film.html.
-    const r = await editorLoad();
+    const r = await editorLoad(filmDocument);
     if (!r || !r.ok) return r || {ok: false};
     if (typeof directorLoadLatestRun === 'function') {
       await directorLoadLatestRun(pid);

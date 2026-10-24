@@ -304,6 +304,50 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 assert "校验失败" in page.locator("#fs-timeline").inner_text()
                 assert page.locator("#fs-timeline .fs-clip[data-clip]").count() == 0
                 assert page.evaluate("window.__compositionReadUrls.slice()") == []
+
+                # Switching from a migrated project to a confirmed legacy project must
+                # replace, not retain, the previous FilmDocument timeline. The same
+                # exists:false authority result is reused by the legacy loader and Studio.
+                legacy_project_id = "film-studio-project-shell-legacy-only"
+                legacy_root = storage_root / legacy_project_id
+                (legacy_root / "plans").mkdir(parents=True, exist_ok=True)
+                (legacy_root / "plans" / "composition.json").write_text(json.dumps({
+                    "project": {"title": legacy_project_id, "width": 1080, "height": 1920,
+                                "fps": 30, "duration": 4.0},
+                    "scenes": [
+                        {"id": "legacy-scene-1", "start": 0.0, "duration": 4.0,
+                         "text": "legacy", "layers": []}
+                    ],
+                    "audio": [], "watermarks": []
+                }), encoding="utf-8")
+                page.evaluate("""() => {
+                  window.__filmDocumentReadUrls.length = 0;
+                  window.__compositionReadUrls.length = 0;
+                }""")
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", legacy_project_id)
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-timeline .fs-migrate-action') !== null",
+                    timeout=10000,
+                )
+                assert page.locator("#film-studio-panel.fs-studio-expanded").is_visible()
+                assert "初始化影片文档" in page.locator("#fs-timeline").inner_text()
+                assert page.locator('#fs-timeline .fs-clip[data-clip]').count() == 0
+                legacy_film_reads = page.evaluate("window.__filmDocumentReadUrls.slice()")
+                assert len(legacy_film_reads) == 1, {
+                    "known exists:false response should be reused for the Studio migration screen": legacy_film_reads
+                }
+                assert f"project_id={legacy_project_id}" in legacy_film_reads[0], legacy_film_reads
+                legacy_composition_reads = page.evaluate("window.__compositionReadUrls.slice()")
+                assert legacy_composition_reads and all(
+                    f"project_id={legacy_project_id}" in url for url in legacy_composition_reads
+                ), legacy_composition_reads
+                assert page.locator("#fs-project-label").inner_text() == legacy_project_id
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
