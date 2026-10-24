@@ -65,7 +65,7 @@
 - 拖动中片段的虚线/淡化标记由同一个 React transient state 跟踪活跃 clip ID；原生 pointer adapter 不再改写 React clip 的 `classList`，no-bundle fallback 才会直接切换该类。
 - 关键帧标记的 pointer/click 在 React 时间线中由按钮自身消费，跳转只调用共享 seek bridge；无 React bundle 时才安装原生 click 委派，不再在 Portal 宿主捕获阶段拦截 React 指针事件。
 - 片段选中态由 React 从 FilmStore 的 selectedIds 投影；原生适配器只更新选中 ID，不再在 React 路径中改写 clip classList。fallback 仍用原生类切换。
-- React 时间线工具栏的插入/覆盖/吸附/音量曲线/slide/slip 按钮只订阅 FilmStore 状态；原生适配器仍负责切换状态与工作区模式 class，但在 React toolbar 存在时不再直接改按钮文字、pressed 属性或 class，no-bundle fallback 保留原生更新。
+- React 时间线工具栏的插入/覆盖/吸附/音量曲线/slide/slip 按钮，以及时间线 surface 的 envelope/slide/slip 模式类都订阅 FilmStore。原生适配器只切换模式字段；外层 panel 的模式 class、按钮文字/pressed 属性和 active class 仅由 no-bundle fallback 更新。
 - MP4 导出按钮的禁用态同样由 React 订阅 `FilmStore.rendering`; 原生导出流程只更新导出任务状态，不直接写按钮 `disabled`。导出依旧绑定启动时的 FilmDocument revision，任务终态统一恢复按钮状态，fallback 保留既有行为。
 - 播放/暂停标签和 `aria-pressed` 由 React ScrubRow 订阅 `FilmStore.playing`；runtime 的时间/暂停消息和用户播放操作更新同一状态。原生按钮文字更新只留给 no-bundle fallback，播放/定位不创建 FilmDocument revision。
 - 当完整 React 时间线拥有手势预览和活动 clip ID 时，多选手势上下文只保存稳定 ID、原始时间/边界和轨道索引，不再逐片段查询或保留 DOM 节点。roll/slide 的邻接 DOM 引用仅在原生 fallback 中收集。

@@ -11,6 +11,13 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert 'id="fs-react-timeline-toolbar"' in html
     assert 'id="fs-static-timeline-toolbar"' in html
     assert "const StudioTimelineToolbar: React.FC" in component
+    assert 'useFilmStoreField("envelopeMode")' in component
+    assert 'useFilmStoreField("slideMode")' in component
+    assert 'useFilmStoreField("slipMode")' in component
+    assert '(envelopeMode ? " fs-envelope-mode" : "")' in component
+    assert '(slideMode ? " fs-slide-mode" : "")' in component
+    assert '(slipMode ? " fs-slip-mode" : "")' in component
+    assert studio.count("if(panel&&!reactToolbar){") >= 3
     assert 'const playing=useFilmStoreField("playing");' in component
     assert 'aria-pressed={playing} title={playing ? "暂停预览" : "播放预览"}' in component
     assert 'playing: boolean;' in store

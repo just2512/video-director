@@ -1626,7 +1626,7 @@
         button=reactToolbar?null:document.querySelector('[data-film-action="envelope-mode"]'),
         slideButton=reactToolbar?null:document.querySelector('[data-film-action="slide-mode"]'),
         slipButton=reactToolbar?null:document.querySelector('[data-film-action="slip-mode"]');
-    if(panel){
+    if(panel&&!reactToolbar){
       panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
       panel.classList.toggle('fs-slide-mode',S.slideMode);
       panel.classList.toggle('fs-slip-mode',S.slipMode);
@@ -1658,7 +1658,7 @@
         button=reactToolbar?null:document.querySelector('[data-film-action="slide-mode"]'),
         envelopeButton=reactToolbar?null:document.querySelector('[data-film-action="envelope-mode"]'),
         slipButton=reactToolbar?null:document.querySelector('[data-film-action="slip-mode"]');
-    if(panel){
+    if(panel&&!reactToolbar){
       panel.classList.toggle('fs-slide-mode',S.slideMode);
       panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
       panel.classList.toggle('fs-slip-mode',S.slipMode);
@@ -1690,7 +1690,7 @@
         button=reactToolbar?null:document.querySelector('[data-film-action="slip-mode"]'),
         slideButton=reactToolbar?null:document.querySelector('[data-film-action="slide-mode"]'),
         envelopeButton=reactToolbar?null:document.querySelector('[data-film-action="envelope-mode"]');
-    if(panel){
+    if(panel&&!reactToolbar){
       panel.classList.toggle('fs-slip-mode',S.slipMode);
       panel.classList.toggle('fs-slide-mode',S.slideMode);
       panel.classList.toggle('fs-envelope-mode',S.envelopeMode);
