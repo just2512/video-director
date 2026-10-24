@@ -24274,6 +24274,7 @@
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         timelineContextMenu: null,
+        timelineSurface: null,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24419,6 +24420,15 @@
           const y = asOptionalFiniteNumber(raw.y);
           normalized = clipId && x !== void 0 && y !== void 0 ? { clipId, x, y } : null;
         }
+      } else if (key === "timelineSurface") {
+        if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+        else {
+          const raw = value;
+          const laneWidth = asOptionalFiniteNumber(raw.laneWidth);
+          const totalWidth = asOptionalFiniteNumber(raw.totalWidth);
+          const pixelsPerSecond = asOptionalFiniteNumber(raw.pixelsPerSecond);
+          normalized = laneWidth !== void 0 && laneWidth >= 0 && totalWidth !== void 0 && totalWidth >= laneWidth && pixelsPerSecond !== void 0 && pixelsPerSecond > 0 && Array.isArray(raw.ticks) && Array.isArray(raw.tracks) ? value : null;
+        }
       } else if (key === "timelineGestureContext") {
         normalized = asTimelineGestureContext(value);
       } else if (key === "timelineEnvelopeGesture") {
@@ -24483,6 +24493,7 @@
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         timelineContextMenu: null,
+        timelineSurface: null,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -26526,7 +26537,6 @@
   };
   var studioReactState = {
     assets: null,
-    timeline: null,
     toolbarVisible: false,
     timelineToolbarVisible: false,
     scrubVisible: false,
@@ -26571,6 +26581,7 @@
     );
   };
   var StudioReactOwner = ({ state }) => {
+    const timelineSurface = useFilmStoreField("timelineSurface");
     const timelineContextMenu = useFilmStoreField("timelineContextMenu");
     const clip = state.clipInspector;
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
@@ -26578,7 +26589,7 @@
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmStoreDiagnostics, {}),
       state.assets ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: state.assets })) : null,
-      state.timeline ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: state.timeline })) : null,
+      timelineSurface ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: timelineSurface })) : null,
       state.toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
       state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
       state.scrubVisible ? studioPortal("fs-react-scrub-row", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioScrubRow, {})) : null,
@@ -26615,7 +26626,15 @@
   };
   window.filmStudioReactTimeline = {
     renderSurface(model) {
-      renderStudioReactOwner({ timeline: model });
+      const mount = document.getElementById("fs-react-root");
+      if (mount && (!studioRoot || studioRootMount !== mount)) {
+        filmStore.setField("timelineSurface", model);
+        renderStudioReactOwner({});
+        return;
+      }
+      (0, import_react_dom.flushSync)(() => {
+        filmStore.setField("timelineSurface", model);
+      });
     },
     setGesturePreview(preview) {
       filmStore.setField("timelineGesturePreview", preview);
@@ -26633,18 +26652,18 @@
       filmStore.setField("timelineEnvelopePreview", preview);
     },
     clearSurface() {
-      filmStore.setField("timelineGesturePreview", null);
-      filmStore.setField("timelineSnapGuide", null);
-      filmStore.setField("timelineDropTarget", null);
-      filmStore.setField("timelineActiveDragIds", null);
-      filmStore.setField("timelineEnvelopePreview", null);
-      filmStore.setField("timelineContextMenu", null);
-      if (studioReactState.timeline !== null) {
-        renderStudioReactOwner({ timeline: null });
-      }
+      (0, import_react_dom.flushSync)(() => {
+        filmStore.setField("timelineGesturePreview", null);
+        filmStore.setField("timelineSnapGuide", null);
+        filmStore.setField("timelineDropTarget", null);
+        filmStore.setField("timelineActiveDragIds", null);
+        filmStore.setField("timelineEnvelopePreview", null);
+        filmStore.setField("timelineContextMenu", null);
+        filmStore.setField("timelineSurface", null);
+      });
     },
     hasSurface() {
-      return studioReactState.timeline !== null;
+      return filmStore.getField("timelineSurface") !== null;
     },
     openContextMenu(model) {
       filmStore.setField("timelineContextMenu", model);
