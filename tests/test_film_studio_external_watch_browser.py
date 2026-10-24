@@ -156,6 +156,14 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-center"]').click()
                 page.evaluate("window.filmStudioSetSlideMode(true)")
                 center = page.locator('#fs-timeline .fs-clip[data-clip="clip-center"]')
+                # A click under slide mode must still seek; the subsequent actual
+                # pointer drag preserves that playhead as its snap anchor.
+                page.evaluate("window.filmStudioSeek(1)")
+                center.click()
+                page.wait_for_function(
+                    "() => Math.abs((window.filmStudioStore?.getSnapshot()?.playhead ?? -1) - 5) < 0.001",
+                    timeout=5000,
+                )
                 center_box = center.bounding_box()
                 assert center_box, "slide clip unavailable"
                 before_slide = fd.read_project_film(project_id)

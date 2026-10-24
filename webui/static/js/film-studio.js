@@ -2323,7 +2323,16 @@
       flushPendingExternalRevision();
       return;
     }
-    if(!d.active){syncClipSelectionVisual();clearTimelineGesturePreview();flushPendingExternalRevision();return;}
+    if(!d.active){
+      syncClipSelectionVisual();
+      // A click in slide/slip mode is still a selection/seek, not an edit.
+      // Actual drags keep the current playhead as their snap anchor.
+      if(d.mode==='slide'||d.mode==='slip'){
+        var clickedClip=findClip(d.id);
+        if(clickedClip){S.playhead=clickedClip.at;setPlayheadVisual();previewCurrent();}
+      }
+      clearTimelineGesturePreview();flushPendingExternalRevision();return;
+    }
     if(d.invalidTargetMessage){
       renderTimeline();clearTimelineGesturePreview();showStatus(d.invalidTargetMessage,'error');flushPendingExternalRevision();return;
     }
