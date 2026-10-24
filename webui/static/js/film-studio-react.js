@@ -24274,7 +24274,7 @@
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         timelineContextMenu: null,
-        timelineSurface: null,
+        timelineVisible: false,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24363,7 +24363,7 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
-      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering") {
+      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible") {
         normalized = value === true;
       } else if (key === "pixelsPerSecond") {
         normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -24419,15 +24419,6 @@
           const x = asOptionalFiniteNumber(raw.x);
           const y = asOptionalFiniteNumber(raw.y);
           normalized = clipId && x !== void 0 && y !== void 0 ? { clipId, x, y } : null;
-        }
-      } else if (key === "timelineSurface") {
-        if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
-        else {
-          const raw = value;
-          const laneWidth = asOptionalFiniteNumber(raw.laneWidth);
-          const totalWidth = asOptionalFiniteNumber(raw.totalWidth);
-          const pixelsPerSecond = asOptionalFiniteNumber(raw.pixelsPerSecond);
-          normalized = laneWidth !== void 0 && laneWidth >= 0 && totalWidth !== void 0 && totalWidth >= laneWidth && pixelsPerSecond !== void 0 && pixelsPerSecond > 0 && Array.isArray(raw.ticks) && Array.isArray(raw.tracks) ? value : null;
         }
       } else if (key === "timelineGestureContext") {
         normalized = asTimelineGestureContext(value);
@@ -24493,7 +24484,7 @@
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         timelineContextMenu: null,
-        timelineSurface: null,
+        timelineVisible: false,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -24560,6 +24551,124 @@
     const minutes = Math.floor(time / 60);
     const seconds = time - minutes * 60;
     return String(minutes).padStart(2, "0") + ":" + seconds.toFixed(3).padStart(6, "0");
+  };
+  var timelineRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var timelineKeyframeMarks = (tag, attrs, duration) => {
+    const raw = attrs["data-film-keyframes"];
+    if (tag === "audio" || typeof raw !== "string" || !raw.trim() || duration == null || !Number.isFinite(duration) || duration <= 0) return [];
+    let channels;
+    try {
+      channels = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(channels)) return [];
+    const grouped = /* @__PURE__ */ new Map();
+    for (const rawChannel of channels) {
+      const channel = timelineRecord(rawChannel);
+      if (!Array.isArray(channel.keyframes)) continue;
+      const property = String(channel.property || "");
+      for (const rawPoint of channel.keyframes) {
+        const point = timelineRecord(rawPoint);
+        const at = Number(point.at);
+        if (!Number.isFinite(at) || at < 0 || at > duration + 1e-3) continue;
+        const boundedAt = Math.max(0, Math.min(duration, Number(at.toFixed(3))));
+        const key = String(boundedAt);
+        let entry = grouped.get(key);
+        if (!entry) {
+          entry = { at: boundedAt, properties: [] };
+          grouped.set(key, entry);
+        }
+        if (property && !entry.properties.includes(property)) entry.properties.push(property);
+      }
+    }
+    return Array.from(grouped.values()).sort((a, b) => a.at - b.at).slice(0, 500);
+  };
+  var timelineEnvelopePoints = (attrs, duration) => {
+    const raw = attrs.volume_envelope;
+    if (typeof raw === "string" && raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const points = parsed.map((item) => {
+            const point = timelineRecord(item);
+            return { t: Number(point.t), v: Number(point.v) };
+          }).filter((point) => Number.isFinite(point.t) && Number.isFinite(point.v));
+          if (points.length) return points;
+        }
+      } catch {
+      }
+    }
+    const fallbackDuration = Math.max(0.04, duration == null || !Number.isFinite(duration) ? 0.04 : duration);
+    return [{ t: 0, v: 1 }, { t: fallbackDuration, v: 1 }];
+  };
+  var buildTimelineSurfaceModel = (filmValue, projectId, duration, pixelsPerSecond, selectedIds) => {
+    const film = timelineRecord(filmValue);
+    if (film.exists !== true || !Array.isArray(film.tracks)) return null;
+    const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0;
+    const scale = Number.isFinite(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 36;
+    const laneWidth = Math.max(720, Math.ceil(filmTimelineMath.secondsToPixels(safeDuration, scale)));
+    const tickCount = Math.min(240, Math.ceil(safeDuration / 5));
+    const ticks = Array.from({ length: tickCount + 1 }, (_, index) => {
+      const at = Math.min(safeDuration, index * 5);
+      return { at, label: formatFilmTime(at), left: filmTimelineMath.secondsToPixels(at, scale) };
+    });
+    const tracks = film.tracks.map((rawTrack) => {
+      const track = timelineRecord(rawTrack);
+      const attrs = timelineRecord(track.attrs);
+      const id = String(track.id ?? "");
+      const rawClips = Array.isArray(track.clips) ? track.clips : [];
+      const clips = rawClips.map((rawClip) => {
+        const clip = timelineRecord(rawClip);
+        const clipAttrs = timelineRecord(clip.attrs);
+        const clipId = String(clip.id ?? "");
+        const tag = String(clip.tag || "");
+        const atValue = Number(clip.at);
+        const at = Number.isFinite(atValue) ? atValue : 0;
+        const rawDuration = clip.duration;
+        const parsedDuration = rawDuration == null ? null : Number(rawDuration);
+        const clipDuration = parsedDuration == null || !Number.isFinite(parsedDuration) ? null : parsedDuration;
+        const assetId = clipAttrs["data-asset-id"] || "";
+        const thumbnail = assetId && tag !== "audio" ? "/api/asset_thumbnail?asset_id=" + encodeURIComponent(String(assetId)) + "&project_id=" + encodeURIComponent(projectId) : "";
+        const sourceStartNumber = Number(clip.src_in);
+        const sourceStart = Number.isFinite(sourceStartNumber) ? sourceStartNumber || 0 : 0;
+        const sourceEnd = typeof clip.src_out === "number" && Number.isFinite(clip.src_out) ? clip.src_out : null;
+        const locked = Object.prototype.hasOwnProperty.call(clipAttrs, "data-clip-locked");
+        return {
+          id: clipId,
+          trackId: id,
+          tag,
+          title: String(clipAttrs.title || clipId),
+          at,
+          left: filmTimelineMath.clipLeft(at, scale),
+          width: filmTimelineMath.clipWidth(clipDuration, scale, 24, 2, 0, false),
+          atLabel: formatFilmTime(at),
+          durationLabel: clipDuration == null ? "" : " \xB7 " + clipDuration.toFixed(2) + "s",
+          selected: selectedIds.includes(clipId),
+          thumbnail: String(thumbnail),
+          duration: clipDuration,
+          keyframeMarks: timelineKeyframeMarks(tag, clipAttrs, clipDuration),
+          waveform: tag === "audio",
+          waveformKey: String(clip.media_url || "").split("#", 1)[0],
+          sourceStart,
+          sourceEnd,
+          envelope: (tag === "audio" || tag === "video") && clipDuration != null,
+          envelopePoints: timelineEnvelopePoints(clipAttrs, clipDuration),
+          locked,
+          trimHandles: clipDuration != null && !locked
+        };
+      });
+      return {
+        id,
+        label: String(attrs["data-label"] || id),
+        locked: Object.prototype.hasOwnProperty.call(attrs, "locked"),
+        syncLocked: Object.prototype.hasOwnProperty.call(attrs, "sync-lock"),
+        hidden: Object.prototype.hasOwnProperty.call(attrs, "hidden"),
+        muted: Object.prototype.hasOwnProperty.call(attrs, "muted"),
+        clips
+      };
+    });
+    return { laneWidth, totalWidth: 132 + laneWidth, pixelsPerSecond: scale, ticks, tracks };
   };
   var DEFAULT_FILM_BEZIER = { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 };
   var FILM_KEYFRAME_PROPERTIES = [
@@ -26581,7 +26690,23 @@
     );
   };
   var StudioReactOwner = ({ state }) => {
-    const timelineSurface = useFilmStoreField("timelineSurface");
+    const timelineVisible = useFilmStoreField("timelineVisible");
+    const timelineFilm = useFilmStoreField("film");
+    const timelineProjectId = useFilmStoreField("projectId");
+    const timelineRevision = useFilmStoreField("revision");
+    const timelineDuration = useFilmStoreField("duration");
+    const timelinePixelsPerSecond = useFilmStoreField("pixelsPerSecond");
+    const timelineSelectedIdsVersion = useFilmStoreField("selectedIdsVersion");
+    const timelineSurface = (0, import_react.useMemo)(
+      () => timelineVisible ? buildTimelineSurfaceModel(
+        timelineFilm,
+        timelineProjectId,
+        timelineDuration,
+        timelinePixelsPerSecond,
+        filmStore.getSnapshot().selectedIds
+      ) : null,
+      [timelineVisible, timelineFilm, timelineProjectId, timelineRevision, timelineDuration, timelinePixelsPerSecond, timelineSelectedIdsVersion]
+    );
     const timelineContextMenu = useFilmStoreField("timelineContextMenu");
     const clip = state.clipInspector;
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
@@ -26625,15 +26750,15 @@
     }
   };
   window.filmStudioReactTimeline = {
-    renderSurface(model) {
+    renderSurface() {
       const mount = document.getElementById("fs-react-root");
       if (mount && (!studioRoot || studioRootMount !== mount)) {
-        filmStore.setField("timelineSurface", model);
+        filmStore.setField("timelineVisible", true);
         renderStudioReactOwner({});
         return;
       }
       (0, import_react_dom.flushSync)(() => {
-        filmStore.setField("timelineSurface", model);
+        filmStore.setField("timelineVisible", true);
       });
     },
     setGesturePreview(preview) {
@@ -26659,11 +26784,11 @@
         filmStore.setField("timelineActiveDragIds", null);
         filmStore.setField("timelineEnvelopePreview", null);
         filmStore.setField("timelineContextMenu", null);
-        filmStore.setField("timelineSurface", null);
+        filmStore.setField("timelineVisible", false);
       });
     },
     hasSurface() {
-      return filmStore.getField("timelineSurface") !== null;
+      return filmStore.getField("timelineVisible") === true;
     },
     openContextMenu(model) {
       filmStore.setField("timelineContextMenu", model);
