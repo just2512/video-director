@@ -54,6 +54,13 @@ async function workspaceOpen(pid, target){
     } catch (_) {
       filmDocument = null;
     }
+    // Another selector change may happen while the authority GET is in flight.
+    // Never route an old response into either the Film Studio or CompositionIR loader.
+    if (selEl && String(selEl.value || '').trim() !== String(pid).trim()) {
+      const message = '项目选择已变化；已丢弃过期的影片文档预检结果，请重新打开所选项目。';
+      editorToast(message, true);
+      return {ok:false,mode:'superseded',error:'PROJECT_SELECTION_CHANGED'};
+    }
     if (!filmDocument || typeof filmDocument.exists !== 'boolean') {
       const message = '无法确认 film.html 是否存在；为避免打开旧 CompositionIR 覆盖影片数据，已停止打开。请刷新后重试。';
       editorToast(message, true);

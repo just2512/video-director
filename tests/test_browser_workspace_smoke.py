@@ -1065,7 +1065,45 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                         const unknownAuthority = await snapshot();
                         filmReply = {ok:true,exists:false};
                         const confirmedLegacy = await snapshot();
-                        return {existingFilm,unknownAuthority,confirmedLegacy};
+
+                        // Defer the authority result until after the user changes the selected
+                        // project. The stale exists:false result must not invoke legacy loading.
+                        let resolveAuthority;
+                        let authorityRequestStarted;
+                        const requestStarted = new Promise(resolve => { authorityRequestStarted = resolve; });
+                        window.apiGet = async url => {
+                            if (String(url).startsWith('/api/editor/film?')) {
+                                return await new Promise(resolve => {
+                                    resolveAuthority = resolve;
+                                    authorityRequestStarted();
+                                });
+                            }
+                            return {ok:true};
+                        };
+                        const beforeRace = {
+                            legacyLoad: counters.legacyLoad,
+                            filmOpen: counters.filmOpen,
+                            prepareLegacy: counters.prepareLegacy,
+                        };
+                        const nextPid = 'workspace-authority-route-next-selection';
+                        let nextOption = [...selector.options].find(item => item.value === nextPid);
+                        const addedNextOption = !nextOption;
+                        if (!nextOption) { nextOption = new Option(nextPid, nextPid); selector.add(nextOption); }
+                        selector.value = pid;
+                        const staleOpenPromise = window.workspaceOpen(pid);
+                        await requestStarted;
+                        selector.value = nextPid;
+                        resolveAuthority({ok:true,exists:false,project_id:pid,rev:'stale-authority-rev'});
+                        const staleAuthority = await staleOpenPromise;
+                        const afterRace = {
+                            legacyLoad: counters.legacyLoad,
+                            filmOpen: counters.filmOpen,
+                            prepareLegacy: counters.prepareLegacy,
+                            message: counters.messages.at(-1)||'',
+                        };
+                        if (addedNextOption) nextOption.remove();
+                        return {existingFilm,unknownAuthority,confirmedLegacy,staleAuthority,
+                            beforeRace,afterRace,nextPid};
                     } finally {
                         window.apiGet = original.apiGet;
                         window.editorInit = original.editorInit;
@@ -1088,6 +1126,14 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert authority_routing["unknownAuthority"]["legacyLoad"] == 0, authority_routing
                 assert authority_routing["confirmedLegacy"]["result"]["ok"] is True, authority_routing
                 assert authority_routing["confirmedLegacy"]["legacyLoad"] == 1, authority_routing
+                assert authority_routing["staleAuthority"]["ok"] is False, authority_routing
+                assert authority_routing["staleAuthority"]["mode"] == "superseded", authority_routing
+                assert authority_routing["staleAuthority"]["error"] == "PROJECT_SELECTION_CHANGED", authority_routing
+                assert authority_routing["afterRace"]["legacyLoad"] == authority_routing["beforeRace"]["legacyLoad"], authority_routing
+                assert authority_routing["afterRace"]["filmOpen"] == authority_routing["beforeRace"]["filmOpen"], authority_routing
+                assert authority_routing["afterRace"]["prepareLegacy"] == authority_routing["beforeRace"]["prepareLegacy"], authority_routing
+                assert "过期的影片文档预检结果" in authority_routing["afterRace"]["message"], authority_routing
+
 
             except Exception:
                 context.tracing.stop(path=str(trace_path))
