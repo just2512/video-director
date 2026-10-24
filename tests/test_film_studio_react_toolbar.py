@@ -98,7 +98,8 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     assert "if (openedStudio) return {" in workspace
     assert "ok:filmDocument.ok===true,mode:'film',authority:'film.html'," in workspace
     assert "error:filmDocument.ok===true?null:(filmDocument.error||'INVALID_FILM')" in workspace
-    assert "Legacy projects without film.html keep the CompositionIR workspace/migration path." in workspace
+    assert "// An explicit exists:false is the only valid route into the legacy editor." in workspace
+    assert "return {ok:false,mode:'unknown',error:'FILM_AUTHORITY_UNKNOWN'};" in workspace
     # Project selection was deliberately consolidated in workspaceOpen(); the film
     # adapter should not bind a second selector change listener.
     assert "const selEl = document.getElementById('editor-project');" in workspace

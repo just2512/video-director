@@ -28,7 +28,9 @@ def test_studio_does_not_apply_load_response_mid_drag_or_busy_edit():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     load = source[source.index("async function filmStudioLoad("):source.index("async function filmStudioInitialize")]
     load_guard = "if(S.busy||S.drag||S.envelopeDrag||hasUncommittedInspectorEdits()){"
-    assert load.index("var r=await apiGet(") < load.index(load_guard)
+    assert load.index("try{r=await apiGet(") < load.index(load_guard)
+    assert load.index("if(!r){") < load.index("try{r=await apiGet(")
+    assert "var r=knownFilmDocument||null;" in load
     assert "S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';" in load
     assert load.index(load_guard) < load.index("S.data=r;S.rev=r.rev;")
     assert "pending!==S.rev" in source[source.index("function flushPendingExternalRevision"):source.index("async function filmStudioCommit")]
