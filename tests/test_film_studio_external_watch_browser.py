@@ -872,14 +872,17 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "scroll": 582,
                 }
 
-                # The legacy Director surfaces must remain usable after film.html
-                # takes timeline authority; moving DOM nodes must not create a second editor.
+                # A film-backed project keeps film.html as the only editing authority:
+                # the plan card remains in Studio, while CompositionIR-writing controls stay
+                # in the hidden legacy editor. No second command surface may be mounted.
                 page.locator("#fs-mode-director").click()
                 page.locator("#fs-director-planning-host").wait_for(state="visible")
                 assert page.locator("#director-plan-card").evaluate("(node) => node.parentElement.id") == "fs-director-planning-host"
-                assert page.locator("#director-control-grid").evaluate("(node) => node.parentElement.id") == "fs-director-planning-host"
-                assert page.locator("#director-bar-card").evaluate("(node) => node.parentElement.id") == "fs-director-planning-host"
-                assert page.locator("#director-input").is_visible()
+                assert page.locator("#director-control-grid").evaluate("(node) => node.parentElement.id") == "editor-body"
+                assert page.locator("#director-bar-card").evaluate("(node) => node.parentElement.id") == "editor-body"
+                assert page.locator("#director-input").is_hidden()
+                assert page.locator("#fs-director-authority-note").is_visible()
+                assert page.locator("#fs-director-legacy-note").is_hidden()
                 page.locator("#fs-mode-clips").click()
                 assert page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').is_visible()
                 assert page.locator("#fs-director-planning-host").is_hidden()
