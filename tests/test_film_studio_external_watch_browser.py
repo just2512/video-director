@@ -27,6 +27,172 @@ SAMPLE = '''<!doctype html>
 </body></html>'''
 
 
+SNAP_GESTURE_SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+<video id="clip-left" src="../assets/shared.mp4#t=0,5" at="0"></video>
+<video id="clip-center" src="../assets/shared.mp4#t=5,10" at="5"></video>
+<video id="clip-right" src="../assets/shared.mp4#t=10,15" at="10"></video>
+</section>
+<section id="audio-bed" data-label="BGM">
+<audio id="snap-audio" src="../assets/music.wav#t=0,2" at="6" volume="0.2"></audio>
+</section>
+</body></html>'''
+
+
+def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, monkeypatch):
+    """A resolved snap candidate renders in React for both roll and slide gestures."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-roll-slide-snap-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(SNAP_GESTURE_SAMPLE, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            film_edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        film_edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        film_edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); return !!select && select.options.length>0; }"
+                )
+                page.evaluate("""pid => {
+                  const select=document.querySelector('#editor-project');
+                  let option=[...select.options].find(item=>item.value===pid);
+                  if(!option){option=new Option(pid,pid);select.add(option);}
+                  select.value=pid;
+                  select.dispatchEvent(new Event('change',{bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                for clip_id in ("clip-left", "clip-center", "clip-right", "snap-audio"):
+                    page.locator('#fs-timeline .fs-clip[data-clip="' + clip_id + '"]').wait_for(state="visible")
+
+                # Ctrl-drag the left clip's end through a shared-source cut to 6s,
+                # where the separate audio clip supplies the snap candidate.
+                left_end = page.locator('#fs-timeline .fs-clip[data-clip="clip-left"] .fs-trim-handle[data-trim="end"]')
+                bounds = left_end.bounding_box()
+                assert bounds, "roll trim handle unavailable"
+                before_roll = fd.read_project_film(project_id)
+                roll_request_count = len(film_edit_requests)
+                x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+                page.keyboard.down("Control")
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + 36, y, steps=8)
+                page.wait_for_function("""() => {
+                  const state=window.filmStudioStore?.getSnapshot();
+                  const guide=state?.timelineSnapGuide;
+                  const preview=state?.timelineGesturePreview?.['clip-left'];
+                  return guide?.kind === '片段入点' && Math.abs(guide.at - 6) < 0.001 &&
+                    preview?.mode === 'roll' &&
+                    document.querySelector('#fs-snap-guide')?.dataset.snapKind === '片段入点';
+                }""", timeout=5000)
+                assert len(film_edit_requests) == roll_request_count
+                assert fd.read_project_film(project_id)["rev"] == before_roll["rev"]
+                page.mouse.up()
+                page.keyboard.up("Control")
+                page.wait_for_function("""() => {
+                  const state=window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null &&
+                    state?.timelineGesturePreview === null &&
+                    state?.timelineSnapGuide === null;
+                }""", timeout=10000)
+                after_roll = fd.read_project_film(project_id)
+                roll_requests = film_edit_requests[roll_request_count:]
+                assert after_roll["rev"] != before_roll["rev"]
+                assert len(roll_requests) == 1, roll_requests
+                roll_ops = roll_requests[0].get("ops") or []
+                assert len(roll_ops) == 1 and roll_ops[0].get("op") == "roll", roll_ops
+                assert abs(float(roll_ops[0].get("delta")) - 1.0) < 0.05, roll_ops
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""() => {
+                  const state=window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGesturePreview === null && state?.timelineSnapGuide === null;
+                }""", timeout=10000)
+                undone_roll = fd.read_project_film(project_id)
+                left_after_undo = next(
+                    clip for track in undone_roll["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-left"
+                )
+                assert abs(float(left_after_undo["attrs"]["end"]) - 5.0) < 0.001, left_after_undo
+
+                # Alt+Shift slide the center clip through the same 6s candidate.
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-center"]').click()
+                page.evaluate("window.filmStudioSetSlideMode(true)")
+                center = page.locator('#fs-timeline .fs-clip[data-clip="clip-center"]')
+                center_box = center.bounding_box()
+                assert center_box, "slide clip unavailable"
+                before_slide = fd.read_project_film(project_id)
+                slide_request_count = len(film_edit_requests)
+                x, y = center_box["x"] + center_box["width"] / 2, center_box["y"] + center_box["height"] / 2
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + 36, y, steps=8)
+                page.wait_for_function("""() => {
+                  const state=window.filmStudioStore?.getSnapshot();
+                  const guide=state?.timelineSnapGuide;
+                  const preview=state?.timelineGesturePreview?.['clip-center'];
+                  return guide?.kind === '片段入点' && Math.abs(guide.at - 6) < 0.001 &&
+                    preview?.mode === 'slide' &&
+                    document.querySelector('#fs-snap-guide')?.dataset.snapKind === '片段入点';
+                }""", timeout=5000)
+                assert len(film_edit_requests) == slide_request_count
+                assert fd.read_project_film(project_id)["rev"] == before_slide["rev"]
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const state=window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null &&
+                    state?.timelineGesturePreview === null &&
+                    state?.timelineSnapGuide === null;
+                }""", timeout=10000)
+                after_slide = fd.read_project_film(project_id)
+                slide_requests = film_edit_requests[slide_request_count:]
+                assert after_slide["rev"] != before_slide["rev"]
+                assert len(slide_requests) == 1, slide_requests
+                slide_ops = slide_requests[0].get("ops") or []
+                assert len(slide_ops) == 1 and slide_ops[0].get("op") == "slide", slide_ops
+                assert abs(float(slide_ops[0].get("delta")) - 1.0) < 0.05, slide_ops
+                assert not page_errors, page_errors
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
 
 def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(tmp_path, monkeypatch):
     """A stale but completed export stays accessible and is not mislabeled as current."""

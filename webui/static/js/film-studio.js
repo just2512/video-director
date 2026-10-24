@@ -1132,9 +1132,11 @@
         if(rollGesture||slideGesture||slipGesture){S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;syncClipSelectionVisual();renderInspector();renderAssets();syncDirectorSelection();canDrag=true;}
         else{canDrag=selectClipWithModifiers(clip.id,e);}
         if(!canDrag){e.preventDefault();return;}
-        S.playhead=clip.at;setPlayheadVisual();previewCurrent();
         var mode=trimEdge?(rollGesture?'roll':(trimEdge==='start'?'trim-start':'trim-end'))
           :(slideGesture?'slide':(slipGesture?'slip':'move'));
+        // Moving a clip keeps the legacy seek-to-clip behavior. Editing a cut or source range
+        // preserves the chosen playhead, so it remains a valid snap target during the gesture.
+        if(mode==='move'){S.playhead=clip.at;setPlayheadVisual();previewCurrent();}
         if(mode!=='move'&&clip.duration==null){e.preventDefault();return;}
         var gestureBridge=window.filmStudioReactTimeline;
         var reactOwnsGestureSurface=!!(gestureBridge&&typeof gestureBridge.setGesturePreview==='function'&&typeof gestureBridge.setActiveDragIds==='function');
