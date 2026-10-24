@@ -149,7 +149,7 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
     extracted = subprocess.run(
         [
             renderer._ffmpeg(), "-y", "-loglevel", "error", "-i", str(output),
-            "-vf", r"select=between(n\\,0\\,3)", "-vsync", "0", "-frames:v", "4",
+            "-vf", r"select=between(n\,0\,3)", "-vsync", "0", "-frames:v", "4",
             str(exported_pattern),
         ],
         capture_output=True, text=True, timeout=45,
@@ -172,8 +172,9 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
             encoded_frame = exported.convert("RGB")
             assert encoded_frame.size == (160, 90), encoded_frame.size
             encoded_center_x, encoded_center_y = red_centroid_xy(encoded_frame, minimum_pixels=40)
-            look_center_x = red_centroid_xy(look_tile)[0] / (look_tile.width / encoded_frame.width)
-            look_center_y = red_centroid_xy(look_tile)[1] / (look_tile.height / encoded_frame.height)
+            look_center_raw_x, look_center_raw_y = red_centroid_xy(look_tile)
+            look_center_x = look_center_raw_x / (look_tile.width / encoded_frame.width)
+            look_center_y = look_center_raw_y / (look_tile.height / encoded_frame.height)
             assert abs(encoded_center_x - look_center_x) <= 3.5, {
                 "timestamp": timestamp, "look_center_x": look_center_x, "encoded_center_x": encoded_center_x,
             }
