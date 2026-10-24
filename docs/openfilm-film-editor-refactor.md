@@ -110,9 +110,9 @@ When a Composition has multiple variants and no valid active_variant_id, migrati
 
 ## Render consistency milestone
 
-- The final browser renderer re-renders representative first/middle/last timestamps in reverse order after the frame sequence. Each repeat is compared with the captured PNG using a per-channel tolerance of 32 and a bounded changed-pixel allowance.
-- A materially different repeated frame fails the render with NON_DETERMINISTIC_FRAME instead of silently exporting. Successful output records determinism_status and the number of sampled timestamps.
-- This is a sampled deterministic audit, not proof that every frame or arbitrary CSS feature is deterministic; the existing iframe/CSS constraints remain in force.
+- The final browser renderer re-renders representative first/middle/last timestamps in reverse order after the frame sequence. Each repeat is compared with the captured PNG using a per-channel tolerance of 32 and a bounded changed-pixel allowance; materially different repeats fail with NON_DETERMINISTIC_FRAME.
+- The scene/export end-to-end regression samples a 1-second frame-driven scene at 0.00, 0.25, 0.50 and 0.75 seconds, extracts the same four frames from the actual FFmpeg MP4, and compares both the moving/masked element centroid and a frame-driven scene pixel against the matching Chromium look tile. It separately checks the near-endpoint 0.99-second transform/mask state.
+- Successful output records determinism_status and the number of sampled timestamps. These are sampled audits, not proof that every frame or arbitrary CSS feature is deterministic; the existing iframe/CSS constraints remain in force.
 
 ## Agent-facing CLI and frame-driven scene contract
 
