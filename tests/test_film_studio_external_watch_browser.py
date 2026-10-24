@@ -591,6 +591,18 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                             envelopeMode: store?.getField("envelopeMode") ?? null,
                             envelopeGesture: store?.getSnapshot()?.timelineEnvelopeGesture ?? null,
                             envelopePreview: store?.getSnapshot()?.timelineEnvelopePreview ?? null,
+                            transientTimeline: {
+                              snapGuide: store?.getSnapshot()?.timelineSnapGuide ?? null,
+                              gesturePreview: store?.getSnapshot()?.timelineGesturePreview ?? null,
+                              dropTarget: store?.getSnapshot()?.timelineDropTarget ?? null,
+                              activeDragIds: store?.getSnapshot()?.timelineActiveDragIds ?? null,
+                              clipPreview: [...document.querySelectorAll("#fs-timeline .fs-clip[data-clip]")].map(node => ({
+                                id: node.getAttribute("data-clip"),
+                                reactPreview: node.dataset.reactGesturePreview || null,
+                                left: node.style.left,
+                                width: node.style.width
+                              }))
+                            },
                             envelopeCanvas: (() => {
                               const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');
                               if (!canvas) return null;
@@ -1266,7 +1278,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 snap_y = snap_box["y"] + snap_box["height"] / 2
                 page.mouse.move(snap_x, snap_y)
                 page.mouse.down()
-                page.mouse.move(snap_x - 6, snap_y, steps=4)
+                # clip-a ends near 4.83s. Move right ~4px so the raw end crosses
+                # into the 8px snap threshold around the 4.9s playhead.
+                page.mouse.move(snap_x + 4, snap_y, steps=4)
                 page.wait_for_function(
                     """() => {
                       const state = window.filmStudioStore?.getSnapshot();
