@@ -140,9 +140,13 @@
           </div>
           <div class="fs-assets-list" id="fs-assets-list"><div class="fs-empty">还没有影片文档。</div></div>
           <div class="fs-director-planning-host" id="fs-director-planning-host" style="display:none" aria-label="导演规划与准备">
-            <div class="fs-director-planning-note">
+            <div class="fs-director-planning-note" id="fs-director-legacy-note">
               <strong>导演规划与素材准备</strong>
-              <p>在同一项目工作环境内查看导演任务、能力操作和规划指令。影片初始化后，时间线仍以 film.html revision 为准；旧 Composition 写入若与影片文档冲突会被服务端拒绝。</p>
+              <p>当前项目还没有 film.html。可先使用旧导演规划生成初版，再显式初始化为可审计的影片文档。</p>
+            </div>
+            <div class="fs-director-planning-note" id="fs-director-authority-note" style="display:none">
+              <strong>当前以 film.html 为唯一时间线</strong>
+              <p>旧 CompositionIR 控制与命令入口已移出此工作区。要修改正式影片，请使用右侧 AI 导演生成可预览提案，确认后再应用；影片文档无效时须先修复并重新载入。</p>
             </div>
           </div>
         </aside>

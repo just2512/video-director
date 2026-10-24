@@ -1878,6 +1878,25 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
 
+                # Film-backed projects keep workflow status in the Director tab but cannot
+                # expose the legacy CompositionIR command bar/control grid beside film.html AI.
+                page.locator('[data-film-action="director-mode"]').click()
+                page.wait_for_function("""() => {
+                  const host = document.querySelector('#fs-director-planning-host');
+                  const authority = document.querySelector('#fs-director-authority-note');
+                  const legacy = document.querySelector('#fs-director-legacy-note');
+                  const aiRoot = document.querySelector('#fs-react-ai-director');
+                  return !!host && getComputedStyle(host).display !== 'none' &&
+                    !!authority && getComputedStyle(authority).display !== 'none' &&
+                    !!legacy && getComputedStyle(legacy).display === 'none' &&
+                    !!aiRoot && getComputedStyle(aiRoot).display !== 'none' &&
+                    !host.contains(document.querySelector('#director-control-grid')) &&
+                    !host.contains(document.querySelector('#director-bar-card'));
+                }""", timeout=5000)
+                assert page.locator("#fs-director-planning-host #director-control-grid").count() == 0
+                assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
+                assert page.locator("#fs-react-ai-director").is_visible()
+
                 external = SAMPLE.replace(
                     'id="clip-b" src="../assets/b.mp4#t=0,5" at="5"',
                     'id="clip-b" src="../assets/b.mp4#t=0,5" at="5.5"',

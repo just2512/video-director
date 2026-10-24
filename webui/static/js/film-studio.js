@@ -712,10 +712,20 @@
       if(entry[1])entry[1].className='fs-asset-tab'+(mode===entry[0]?' fs-asset-tab-active':'');
     });
   }
-  function mountDirectorPlanning(){
+  function restoreDirectorPlanningNode(id){
+    var node=$(id);
+    if(!node)return;
+    var index=S.directorNodes.findIndex(function(item){return item.node===node;});
+    if(index<0)return;
+    var item=S.directorNodes.splice(index,1)[0];
+    if(!item.parent)return;
+    var anchor=item.nextSibling&&item.nextSibling.parentNode===item.parent?item.nextSibling:null;
+    item.parent.insertBefore(item.node,anchor);
+  }
+  function mountDirectorPlanning(allowLegacyCompositionCommands){
     var host=$('fs-director-planning-host');
     if(!host)return;
-    ['director-plan-card','director-control-grid','director-bar-card'].forEach(function(id){
+    ['director-plan-card'].concat(allowLegacyCompositionCommands?['director-control-grid','director-bar-card']:[]).forEach(function(id){
       var node=$(id);
       if(!node||host.contains(node))return;
       if(!S.directorNodes.some(function(item){return item.node===node;})){
@@ -723,6 +733,20 @@
       }
       host.appendChild(node);
     });
+    if(allowLegacyCompositionCommands){
+      ['director-control-grid','director-bar-card'].forEach(function(id){
+        var node=$(id);
+        if(node&&host.contains(node))node.style.display='';
+      });
+    }else{
+      // A project with film.html must not surface controls that write CompositionIR.
+      // Restore them to the hidden legacy editor instead of merely disabling buttons.
+      restoreDirectorPlanningNode('director-control-grid');
+      restoreDirectorPlanningNode('director-bar-card');
+    }
+    var legacyNote=$('fs-director-legacy-note'),authorityNote=$('fs-director-authority-note');
+    if(legacyNote)legacyNote.style.display=allowLegacyCompositionCommands?'':'none';
+    if(authorityNote)authorityNote.style.display=allowLegacyCompositionCommands?'none':'';
     syncAssetPaneMode();
   }
   function restoreDirectorPlanning(){
@@ -1786,6 +1810,7 @@
     syncDirectorSelection();
   }
   function renderBrokenFilmState(result){
+    mountDirectorPlanning(false);
     var message=String(result&&result.error||'film.html 无法读取或解析。');
     S.broken=true;
     S.data={exists:true,project_id:S.projectId,tracks:[],duration:10,fps:30,
@@ -1830,6 +1855,7 @@
       return false;
     }
     if(changed){
+      mountDirectorPlanning(false);
       S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
       S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;S.hoveredElement=null;
       var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
@@ -1866,6 +1892,7 @@
       return false;
     }
     if(r&&r.ok&&r.exists){
+      mountDirectorPlanning(false);
       if(S.rev&&r.rev!==S.rev){
         S.selectedElement=null;S.hoveredElement=null;
         var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
@@ -1875,12 +1902,13 @@
       return true;
     }
     if(r&&r.ok&&!r.exists){
+      mountDirectorPlanning(true);
       S.data=null;S.rev=r.rev;S.runtimeRev='';setPlaybackState(false);S.migration=r;renderMigration();
       return true;
     }
     if(r&&!r.ok&&r.exists===true){
-      // The authoritative document exists but is invalid. Showing the explicit
-      // broken-document gate is a successful authority handoff, not a legacy fallback.
+      // An invalid authoritative film still suppresses the legacy Composition writer.
+      mountDirectorPlanning(false);
       renderBrokenFilmState(r);
       return true;
     }
@@ -1906,6 +1934,7 @@
     }
     if(!r||!r.ok){showStatus((r&&r.error)||'初始化失败。','error');return;}
     S.data=r;S.rev=r.rev;S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
+    mountDirectorPlanning(false);
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();
   }
   function inspectorFieldDiffersNumber(id, expected, tolerance){
@@ -2441,7 +2470,8 @@
   window.filmStudioToggle=async function(knownFilmDocument){
     if(S.open){window.filmStudioClose();return false;}
     S.open=true;
-    mountDirectorPlanning();
+    // Do not expose legacy Composition writers until film.html absence is confirmed.
+    mountDirectorPlanning(false);
     var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
     panel.classList.add('fs-studio-expanded');panel.style.display='flex';
     document.documentElement.classList.add('fs-studio-open');
