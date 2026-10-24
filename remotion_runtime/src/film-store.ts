@@ -68,6 +68,24 @@ export type FilmStudioTimelineEnvelopePreview = {clipId: string; points: FilmStu
 export type FilmStudioTimelineWaveformSource = {duration: number; peaks: Uint8Array};
 export type FilmStudioTimelineWaveformSources = Record<string, FilmStudioTimelineWaveformSource>;
 
+export type FilmStudioTimelineSurfaceClip = {
+  id: string; trackId: string; tag: string; title: string;
+  left: number; width: number; duration: number | null; at: number; atLabel: string; durationLabel: string;
+  selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; waveformKey: string;
+  sourceStart: number; sourceEnd: number | null; envelope: boolean;
+  envelopePoints: FilmStudioTimelineEnvelopePoint[];
+  keyframeMarks: Array<{at: number; properties: string[]}>; trimHandles: boolean;
+};
+export type FilmStudioTimelineSurfaceTrack = {
+  id: string; label: string; locked: boolean; syncLocked: boolean; hidden: boolean; muted: boolean;
+  clips: FilmStudioTimelineSurfaceClip[];
+};
+export type FilmStudioTimelineSurfaceModel = {
+  laneWidth: number; totalWidth: number; pixelsPerSecond: number;
+  ticks: Array<{at: number; label: string; left: number}>;
+  tracks: FilmStudioTimelineSurfaceTrack[];
+};
+
 export interface FilmStudioStoreSnapshot {
   projectId: string;
   film: unknown | null;
@@ -89,6 +107,7 @@ export interface FilmStudioStoreSnapshot {
   timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
   timelineWaveformSources: FilmStudioTimelineWaveformSources;
   timelineContextMenu: FilmStudioTimelineContextMenu | null;
+  timelineSurface: FilmStudioTimelineSurfaceModel | null;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -367,6 +386,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       timelineContextMenu: null,
+      timelineSurface: null,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -532,6 +552,20 @@ class FilmStore implements FilmStudioStoreBridge {
         const y = asOptionalFiniteNumber(raw.y);
         normalized = clipId && x !== undefined && y !== undefined ? {clipId,x,y} : null;
       }
+    } else if (key === "timelineSurface") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+      else {
+        const raw = value as Record<string, unknown>;
+        const laneWidth = asOptionalFiniteNumber(raw.laneWidth);
+        const totalWidth = asOptionalFiniteNumber(raw.totalWidth);
+        const pixelsPerSecond = asOptionalFiniteNumber(raw.pixelsPerSecond);
+        normalized = laneWidth !== undefined && laneWidth >= 0 &&
+          totalWidth !== undefined && totalWidth >= laneWidth &&
+          pixelsPerSecond !== undefined && pixelsPerSecond > 0 &&
+          Array.isArray(raw.ticks) && Array.isArray(raw.tracks)
+          ? value as FilmStudioTimelineSurfaceModel
+          : null;
+      }
     } else if (key === "timelineGestureContext") {
       normalized = asTimelineGestureContext(value);
     } else if (key === "timelineEnvelopeGesture") {
@@ -612,6 +646,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       timelineContextMenu: null,
+      timelineSurface: null,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,

@@ -15,6 +15,9 @@ import {
   type FilmStudioTimelineWaveformSource,
   type FilmStudioTimelineWaveformSources,
   type FilmStudioTimelineContextMenu,
+  type FilmStudioTimelineSurfaceClip,
+  type FilmStudioTimelineSurfaceTrack,
+  type FilmStudioTimelineSurfaceModel,
 } from "./film-store";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
@@ -220,23 +223,9 @@ type FilmStudioAssetsModel = {
 interface FilmStudioReactAssetsBridge {
   render(model: FilmStudioAssetsModel): void;
 }
-type FilmTimelineSurfaceClip = {
-  id: string; trackId: string; tag: string; title: string;
-  left: number; width: number; duration:number|null; at:number; atLabel: string; durationLabel: string;
-  selected: boolean; locked: boolean; thumbnail: string; waveform: boolean; waveformKey: string;
-  sourceStart: number; sourceEnd: number | null; envelope: boolean;
-  envelopePoints: FilmStudioTimelineEnvelopePoint[];
-  keyframeMarks:Array<{at:number;properties:string[]}>; trimHandles: boolean;
-};
-type FilmTimelineSurfaceTrack = {
-  id: string; label: string; locked: boolean; syncLocked: boolean; hidden: boolean; muted: boolean;
-  clips: FilmTimelineSurfaceClip[];
-};
-type FilmTimelineSurfaceModel = {
-  laneWidth: number; totalWidth: number; pixelsPerSecond: number;
-  ticks: Array<{at:number;label:string;left:number}>;
-  tracks: FilmTimelineSurfaceTrack[];
-};
+type FilmTimelineSurfaceClip = FilmStudioTimelineSurfaceClip;
+type FilmTimelineSurfaceTrack = FilmStudioTimelineSurfaceTrack;
+type FilmTimelineSurfaceModel = FilmStudioTimelineSurfaceModel;
 type FilmTimelineContextMenu = FilmStudioTimelineContextMenu;
 type FilmTimelineGesturePreviewGeometry = FilmStudioTimelineGesturePreviewGeometry;
 type FilmTimelineGesturePreview = FilmStudioTimelineGesturePreview;
@@ -1756,7 +1745,6 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
 
 type StudioReactState = {
   assets: FilmStudioAssetsModel | null;
-  timeline: FilmTimelineSurfaceModel | null;
   toolbarVisible: boolean;
   timelineToolbarVisible: boolean;
   scrubVisible: boolean;
@@ -1770,7 +1758,6 @@ type StudioReactState = {
 
 const studioReactState: StudioReactState = {
   assets: null,
-  timeline: null,
   toolbarVisible: false,
   timelineToolbarVisible: false,
   scrubVisible: false,
@@ -1819,6 +1806,7 @@ const FilmStoreDiagnostics: React.FC = () => {
 };
 
 const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+  const timelineSurface = useFilmStoreField("timelineSurface");
   const timelineContextMenu = useFilmStoreField("timelineContextMenu");
   const clip = state.clipInspector;
   const clipKey = clip
@@ -1829,7 +1817,7 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
     <>
       <FilmStoreDiagnostics />
       {state.assets ? studioPortal("fs-assets-list", <StudioAssets model={state.assets} />) : null}
-      {state.timeline ? studioPortal("fs-timeline", <TimelineSurface model={state.timeline} />) : null}
+      {timelineSurface ? studioPortal("fs-timeline", <TimelineSurface model={timelineSurface} />) : null}
       {state.toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
       {state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
       {state.scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
@@ -1871,7 +1859,9 @@ window.filmStudioReactAssets = {
 
 window.filmStudioReactTimeline = {
   renderSurface(model) {
-    renderStudioReactOwner({timeline:model});
+    filmStore.setField("timelineSurface", model);
+    const mount = document.getElementById("fs-react-root");
+    if (mount && (!studioRoot || studioRootMount !== mount)) renderStudioReactOwner({});
   },
   setGesturePreview(preview) {
     filmStore.setField("timelineGesturePreview", preview);
@@ -1895,12 +1885,10 @@ window.filmStudioReactTimeline = {
     filmStore.setField("timelineActiveDragIds", null);
     filmStore.setField("timelineEnvelopePreview", null);
     filmStore.setField("timelineContextMenu", null);
-    if (studioReactState.timeline !== null) {
-      renderStudioReactOwner({timeline:null});
-    }
+    filmStore.setField("timelineSurface", null);
   },
   hasSurface() {
-    return studioReactState.timeline !== null;
+    return filmStore.getField("timelineSurface") !== null;
   },
   openContextMenu(model) {
     filmStore.setField("timelineContextMenu", model);

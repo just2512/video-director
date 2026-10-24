@@ -99,6 +99,46 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 for clip_id in ("clip-left", "clip-center", "clip-right", "snap-audio"):
                     page.locator('#fs-timeline .fs-clip[data-clip="' + clip_id + '"]').wait_for(state="visible")
 
+                # The rendered timeline model belongs to FilmStore; clearing and restoring
+                # it must unmount/remount the React surface without a parallel React state field.
+                timeline_surface_state = page.evaluate("""() => {
+                  const bridge = window.filmStudioReactTimeline;
+                  const store = window.filmStudioStore;
+                  const surface = store?.getField("timelineSurface");
+                  return {
+                    stored: !!surface,
+                    mounted: bridge?.hasSurface() === true,
+                    clipIds: (surface?.tracks || []).flatMap(track => track.clips || []).map(clip => clip.id).sort(),
+                    renderedIds: [...document.querySelectorAll("#fs-timeline .fs-clip[data-clip]")]
+                      .map(node => node.getAttribute("data-clip")).sort(),
+                  };
+                }""")
+                expected_surface_clip_ids = ["clip-center", "clip-left", "clip-right", "snap-audio"]
+                assert timeline_surface_state == {
+                    "stored": True,
+                    "mounted": True,
+                    "clipIds": expected_surface_clip_ids,
+                    "renderedIds": expected_surface_clip_ids,
+                }, timeline_surface_state
+                page.evaluate("""() => {
+                  window.__testTimelineSurface = window.filmStudioStore.getField("timelineSurface");
+                  window.filmStudioReactTimeline.clearSurface();
+                }""")
+                page.wait_for_function("""() =>
+                  window.filmStudioStore?.getField("timelineSurface") === null &&
+                  window.filmStudioReactTimeline?.hasSurface() === false &&
+                  !document.querySelector("#fs-timeline .fs-react-timeline-surface")
+                """, timeout=5000)
+                page.evaluate("""() => {
+                  window.filmStudioReactTimeline.renderSurface(window.__testTimelineSurface);
+                  delete window.__testTimelineSurface;
+                }""")
+                page.wait_for_function("""() =>
+                  window.filmStudioStore?.getField("timelineSurface") !== null &&
+                  window.filmStudioReactTimeline?.hasSurface() === true &&
+                  !!document.querySelector("#fs-timeline .fs-react-timeline-surface")
+                """, timeout=5000)
+
                 # The context menu is part of the shared FilmStore timeline state, not a
                 # second mutable field on the imperative React owner.
                 context_menu_state = page.evaluate("""() => {
