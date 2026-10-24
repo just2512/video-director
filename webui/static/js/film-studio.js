@@ -2956,7 +2956,7 @@
     return true;
   };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
-  window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段？此操作可撤销。'))return;var committed=await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));if(!committed)return;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
+  window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段并保留时间线空隙？此操作可撤销。'))return;var committed=await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));if(!committed)return;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
 window.filmStudioCopyClips=function(){
     if(!S.data||!S.data.exists||!S.projectId){showStatus('请先打开一个有效的 film.html 项目。','error');return false;}
     var ids=(S.selectedIds||[]).filter(function(id,index,all){return !!findClip(id)&&all.indexOf(id)===index;});
@@ -3114,8 +3114,8 @@ window.filmStudioCopyClips=function(){
       '<button type="button" role="menuitem" data-context-action="paste">粘贴到播放头</button>',
       '<div class="fs-context-separator"></div>',
       '<button type="button" role="menuitem" data-context-action="split">在播放头切分</button>',
-      '<button type="button" role="menuitem" data-context-action="delete">删除所选片段</button>',
-      '<button type="button" role="menuitem" data-context-action="ripple">波纹删除</button>',
+      '<button type="button" role="menuitem" data-context-action="delete" title="只移除所选片段，后续内容时间不变">删除并保留空隙</button>',
+      '<button type="button" role="menuitem" data-context-action="ripple" title="删除所选时间段，并收拢所有受影响轨道">波纹删除（收拢时间线）</button>',
       '<div class="fs-context-separator"></div>',
       '<button type="button" role="menuitem" data-context-action="inspector">打开属性检查器</button>'
     ].join('');

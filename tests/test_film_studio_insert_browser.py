@@ -463,3 +463,182 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+LIFT_RIPPLE_SAMPLE = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"><style>body{margin:0}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+<video id="video-before" src="../assets/a.mp4#t=0,2" at="0"></video>
+<video id="video-target" src="../assets/b.mp4#t=0,1" at="2"></video>
+<video id="video-after" src="../assets/c.mp4#t=0,2" at="3"></video>
+</section>
+<section id="audio-bed" data-label="BGM">
+<audio id="audio-long" src="../assets/voice.wav#t=0,6" at="0"></audio>
+</section>
+</body></html>'''
+
+
+def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_restores(
+    tmp_path, monkeypatch
+):
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-lift-ripple-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(LIFT_RIPPLE_SAMPLE, encoding="utf-8")
+    initial_text = film_path.read_text(encoding="utf-8")
+    assert fd.read_project_film(project_id)["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(request.post_data_json)
+                    except Exception:
+                        edit_requests.append({"raw": request.post_data})
+
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                }""", project_id)
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                target = page.locator('#fs-timeline .fs-clip[data-clip="video-target"]')
+                target.wait_for(state="visible", timeout=5000)
+                page.evaluate("window.confirm = () => true")
+
+                # Lift: remove only the selected clip and retain the following clip's original time.
+                box = target.bounding_box()
+                assert box, "target clip bounds missing"
+                page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right")
+                menu = page.locator('.fs-context-menu[data-react-context-menu="true"]')
+                menu.wait_for(state="visible", timeout=5000)
+                delete_item = menu.locator('[data-context-action="delete"]')
+                ripple_item = menu.locator('[data-context-action="ripple"]')
+                assert delete_item.inner_text() == "删除并保留空隙"
+                assert ripple_item.inner_text() == "波纹删除（收拢时间线）"
+                assert "后续内容时间不变" in (delete_item.get_attribute("title") or "")
+                assert "所有受影响轨道" in (ripple_item.get_attribute("title") or "")
+                remove_count = len(edit_requests)
+                delete_item.click()
+                page.wait_for_function("""async (pid) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
+                  const target = clips.find(clip => clip.id === 'video-target');
+                  const later = clips.find(clip => clip.id === 'video-after');
+                  const audio = clips.find(clip => clip.id === 'audio-long');
+                  return !target && !!later && Number(later.attrs.at) === 3
+                    && !!audio && String(audio.attrs.src).endsWith('#t=0,6')
+                    && Number(audio.attrs.at) === 0;
+                }""", project_id, timeout=10000)
+                assert len(edit_requests) == remove_count + 1, edit_requests[remove_count:]
+                remove_ops = edit_requests[-1].get("ops") or []
+                assert len(remove_ops) == 1 and remove_ops[0].get("op") == "remove", remove_ops
+
+                # Undo lift to compare ripple behavior against exactly the same source document.
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""async (pid) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  return (doc.tracks || []).some(track =>
+                    (track.clips || []).some(clip => clip.id === 'video-target'));
+                }""", project_id, timeout=10000)
+                assert film_path.read_text(encoding="utf-8") == initial_text
+
+                target = page.locator('#fs-timeline .fs-clip[data-clip="video-target"]')
+                box = target.bounding_box()
+                assert box, "restored target clip bounds missing"
+                before_ripple_text = film_path.read_text(encoding="utf-8")
+                ripple_count = len(edit_requests)
+                page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right")
+                menu.wait_for(state="visible", timeout=5000)
+                menu.locator('[data-context-action="ripple"]').click()
+
+                page.wait_for_function("""async (pid) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
+                  const target = clips.find(clip => clip.id === 'video-target');
+                  const before = clips.find(clip => clip.id === 'video-before');
+                  const after = clips.find(clip => clip.id === 'video-after');
+                  const audioLeft = clips.find(clip => clip.id === 'audio-long');
+                  const audioRight = clips.find(clip => clip.id.startsWith('audio-long-ripple-'));
+                  return !target && !!before && Number(before.attrs.at) === 0
+                    && !!after && Math.abs(Number(after.attrs.at) - 2) < 0.001
+                    && !!audioLeft && String(audioLeft.attrs.src).endsWith('#t=0,2')
+                    && Number(audioLeft.attrs.at) === 0
+                    && !!audioRight && String(audioRight.attrs.src).endsWith('#t=3,6')
+                    && Math.abs(Number(audioRight.attrs.at) - 2) < 0.001;
+                }""", project_id, timeout=10000)
+                assert len(edit_requests) == ripple_count + 1, edit_requests[ripple_count:]
+                ripple_ops = edit_requests[-1].get("ops") or []
+                assert len(ripple_ops) == 1, ripple_ops
+                assert ripple_ops[0].get("op") == "ripple_delete", ripple_ops
+                assert ripple_ops[0].get("clip") == "video-target", ripple_ops
+                assert ripple_ops[0].get("scope") == "all", ripple_ops
+
+                ripple_doc = fd.read_project_film(project_id)
+                tracks = {track["id"]: track for track in ripple_doc["doc"]["tracks"]}
+                video = {clip["id"]: clip for clip in tracks["video-main"]["clips"]}
+                audio_by_id = {clip["id"]: clip for clip in tracks["audio-bed"]["clips"]}
+                right_id = next(clip_id for clip_id in audio_by_id if clip_id.startswith("audio-long-ripple-"))
+                assert "video-target" not in video
+                assert float(video["video-after"]["attrs"]["at"]) == 2
+                assert audio_by_id["audio-long"]["attrs"]["src"].endswith("#t=0,2")
+                assert audio_by_id[right_id]["attrs"]["src"].endswith("#t=3,6")
+                assert float(audio_by_id[right_id]["attrs"]["at"]) == 2
+
+                # Undo restores the exact pre-ripple film.html bytes.
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""async (pid) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
+                  return clips.some(clip => clip.id === 'video-target')
+                    && clips.some(clip => clip.id === 'audio-long' && String(clip.attrs.src).endsWith('#t=0,6'));
+                }""", project_id, timeout=10000)
+                assert film_path.read_text(encoding="utf-8") == before_ripple_text
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

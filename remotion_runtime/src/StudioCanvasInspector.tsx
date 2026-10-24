@@ -998,8 +998,8 @@ const StudioTimelineContextMenu: React.FC<{model: FilmTimelineContextMenu}> = ({
       <button type="button" role="menuitem" data-context-action="paste" onClick={action("paste")}>粘贴到播放头</button>
       <div className="fs-context-separator" />
       <button type="button" role="menuitem" data-context-action="split" onClick={action("split")}>在播放头切分</button>
-      <button type="button" role="menuitem" data-context-action="delete" onClick={action("delete")}>删除所选片段</button>
-      <button type="button" role="menuitem" data-context-action="ripple" onClick={action("ripple")}>波纹删除</button>
+      <button type="button" role="menuitem" data-context-action="delete" onClick={action("delete")} title="只移除所选片段，后续内容时间不变">删除并保留空隙</button>
+      <button type="button" role="menuitem" data-context-action="ripple" onClick={action("ripple")} title="删除所选时间段，并收拢所有受影响轨道">波纹删除（收拢时间线）</button>
       <div className="fs-context-separator" />
       <button type="button" role="menuitem" data-context-action="inspector" onClick={action("inspector")}>打开属性检查器</button>
     </div>,
