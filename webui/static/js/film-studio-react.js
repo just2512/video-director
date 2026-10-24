@@ -25676,8 +25676,8 @@
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "paste", onClick: action("paste"), children: "\u7C98\u8D34\u5230\u64AD\u653E\u5934" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "split", onClick: action("split"), children: "\u5728\u64AD\u653E\u5934\u5207\u5206" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "delete", onClick: action("delete"), children: "\u5220\u9664\u6240\u9009\u7247\u6BB5" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "ripple", onClick: action("ripple"), children: "\u6CE2\u7EB9\u5220\u9664" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "delete", onClick: action("delete"), title: "\u53EA\u79FB\u9664\u6240\u9009\u7247\u6BB5\uFF0C\u540E\u7EED\u5185\u5BB9\u65F6\u95F4\u4E0D\u53D8", children: "\u5220\u9664\u5E76\u4FDD\u7559\u7A7A\u9699" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "ripple", onClick: action("ripple"), title: "\u5220\u9664\u6240\u9009\u65F6\u95F4\u6BB5\uFF0C\u5E76\u6536\u62E2\u6240\u6709\u53D7\u5F71\u54CD\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664\uFF08\u6536\u62E2\u65F6\u95F4\u7EBF\uFF09" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "inspector", onClick: action("inspector"), children: "\u6253\u5F00\u5C5E\u6027\u68C0\u67E5\u5668" })
           ]
