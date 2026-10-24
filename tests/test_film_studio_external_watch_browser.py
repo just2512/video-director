@@ -1677,6 +1677,50 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 revision_before = before_doc["rev"]
                 edit_count_before = len(film_edit_requests)
 
+                # React's real envelope handler must store only an ID/numeric snapshot.
+                # A cancelled pointer clears both context and preview and never writes film.html.
+                cancelled_envelope = page.evaluate("""() => {
+                  const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');
+                  if (!canvas) throw new Error("envelope canvas missing");
+                  const rect = canvas.getBoundingClientRect();
+                  const base = {
+                    bubbles:true,cancelable:true,pointerId:78,button:0,buttons:1,
+                    clientX:Math.round(rect.left + rect.width * 0.5),
+                    clientY:Math.round(rect.top + rect.height * 0.9)
+                  };
+                  canvas.dispatchEvent(new PointerEvent("pointerdown", base));
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const gesture = state?.timelineEnvelopeGesture;
+                  const captured = {
+                    ownedAtStart: window.filmStudioOwnsEnvelopeGesturePointer?.(78) === true,
+                    clipId: gesture?.clipId ?? null,
+                    pointerId: gesture?.pointerId ?? null,
+                    keys: gesture ? Object.keys(gesture).sort() : [],
+                    rectKeys: gesture?.rect ? Object.keys(gesture.rect).sort() : [],
+                    previewClipId: state?.timelineEnvelopePreview?.clipId ?? null
+                  };
+                  canvas.dispatchEvent(new PointerEvent("pointercancel", {...base,buttons:0}));
+                  return captured;
+                }""")
+                assert cancelled_envelope["ownedAtStart"] is True, cancelled_envelope
+                assert cancelled_envelope["clipId"] == "audio-1" and cancelled_envelope["pointerId"] == 78, cancelled_envelope
+                assert cancelled_envelope["keys"] == [
+                    "active","changed","clipId","duration","index","pointerId","points","rect"
+                ], cancelled_envelope
+                assert cancelled_envelope["rectKeys"] == ["height","left","top","width"], cancelled_envelope
+                assert cancelled_envelope["previewClipId"] == "audio-1", cancelled_envelope
+                page.wait_for_function(
+                    """() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return state?.timelineEnvelopeGesture === null &&
+                        state?.timelineEnvelopePreview === null &&
+                        window.filmStudioOwnsEnvelopeGesturePointer?.(78) !== true;
+                    }""",
+                    timeout=5_000,
+                )
+                assert fd.read_project_film(project_id)["rev"] == revision_before
+                assert len(film_edit_requests) == edit_count_before
+
                 start_x = box["x"] + box["width"] * 0.50
                 start_y = box["y"] + box["height"] * 0.90
                 pointer_target = page.evaluate("""() => {
