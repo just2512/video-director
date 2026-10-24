@@ -368,6 +368,13 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert left_box and left_box["width"] > 40
                 x, y = left_box["x"] + left_box["width"] / 2, left_box["y"] + left_box["height"] / 2
                 slip_document_before = fd.read_project_film(project_id)
+                slip_clip_before = next(
+                    item for track in slip_document_before["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-a"
+                )
+                slip_original_src = str(slip_clip_before["attrs"]["src"])
+                slip_original_duration = fd.clip_duration(slip_clip_before)
+                slip_original_source_range = source_range(slip_clip_before)
                 slip_geometry_before = left_element.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
                 slip_edit_count_before = len(film_edit_requests)
                 page.mouse.move(x, y)
@@ -390,16 +397,15 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert len(film_edit_requests) == slip_edit_count_before, film_edit_requests[slip_edit_count_before:]
                 page.mouse.up()
 
-                page.wait_for_function("""async (pid) => {
-                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                page.wait_for_function("""async (args) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(args.pid));
                   if (!response.ok) return false;
                   const doc = await response.json();
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
                   const left = clips.find(clip => clip.id === 'clip-a');
-                  return !!left && String(left.attrs.src).endsWith('#t=2.5,8')
-                    && Math.abs(Number(left.attrs.at)) < 0.001
-                    && Math.abs((Number(left.attrs.src.match(/#t=[^,]+,([^#]+)/)?.[1]) - Number(left.attrs.src.match(/#t=([^,]+)/)?.[1])) / Number(left.attrs.speed) - 2.75) < 0.001;
-                }""", arg=project_id, timeout=10000)
+                  return !!left && String(left.attrs.src) !== args.originalSrc
+                    && Math.abs(Number(left.attrs.at)) < 0.001;
+                }""", arg={"pid": project_id, "originalSrc": slip_original_src}, timeout=10000)
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') === 'false'",
                     timeout=15000,
@@ -411,9 +417,12 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert slip_committed_requests[0]["ops"][0].get("op") == "slip", slip_committed_requests
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
-                assert clips["clip-a"]["attrs"]["src"].endswith("#t=2.5,8")
-                assert float(clips["clip-a"]["attrs"]["at"]) == 0
-                assert fd.clip_duration(clips["clip-a"]) == 2.75
+                slip_source_after = source_range(clips["clip-a"])
+                slip_delta_source = float(slip_committed_requests[0]["ops"][0]["delta_source"])
+                assert abs(float(clips["clip-a"]["attrs"]["at"])) < 0.001
+                assert abs((slip_source_after[0] - slip_original_source_range[0]) - slip_delta_source) < 0.001, clips["clip-a"]
+                assert abs((slip_source_after[1] - slip_original_source_range[1]) - slip_delta_source) < 0.001, clips["clip-a"]
+                assert abs(fd.clip_duration(clips["clip-a"]) - slip_original_duration) < 0.001, clips["clip-a"]
 
                 # Same-project keyboard copy/paste must preserve the source range
                 # and speed, allocate a new stable ID, and avoid track overlap.
@@ -437,12 +446,17 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 pasted = fd.read_project_film(project_id)
                 assert sum(len(track["clips"]) for track in pasted["doc"]["tracks"]) == before_count + 1
                 video_track = next(track for track in pasted["doc"]["tracks"] if track["id"] == "video-main")
-                copies = [clip for clip in video_track["clips"]
-                          if clip["id"] != "clip-a" and clip["attrs"].get("src", "").endswith("#t=2.5,8")]
+                copied_source_range = source_range(clips["clip-a"])
+                copies = [
+                    clip for clip in video_track["clips"]
+                    if clip["id"] != "clip-a"
+                    and all(abs(actual - expected) < 0.001
+                            for actual, expected in zip(source_range(clip), copied_source_range))
+                ]
                 assert len(copies) == 1
                 duplicate = copies[0]
                 assert duplicate["attrs"]["speed"] == "2"
-                assert fd.clip_duration(duplicate) == 2.75
+                assert abs(fd.clip_duration(duplicate) - fd.clip_duration(clips["clip-a"])) < 0.001
                 for existing in video_track["clips"]:
                     if existing["id"] == duplicate["id"]:
                         continue
