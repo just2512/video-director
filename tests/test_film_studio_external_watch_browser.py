@@ -125,9 +125,9 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
 
                 # A shared zoom-scale update must rederive clip geometry without a legacy
                 # renderTimeline request, proving React owns the projection from source state.
-                page.evaluate("window.filmStudioStore.setField('pixelsPerSecond',48)")
+                page.evaluate("window.filmStudioStore.setField('pixelsPerSecond',64)")
                 page.wait_for_function("""() =>
-                  document.querySelector('#fs-timeline .fs-clip[data-clip="clip-center"]')?.style.left === "240px" &&
+                  document.querySelector('#fs-timeline .fs-clip[data-clip="clip-center"]')?.style.left === "320px" &&
                   document.querySelector('#fs-timeline .fs-ruler-body')?.style.width === "960px"
                 """, timeout=5000)
                 page.evaluate("window.filmStudioStore.setField('pixelsPerSecond',36)")
