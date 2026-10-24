@@ -56,6 +56,10 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
     web_server.COMPOSER_ROOT = storage_root
     # Pin this smoke test to the explicit env endpoint. Without this override,
     # model_config.json has higher priority and the test could silently hit another provider.
+    # Restore both module singletons after this test so a live key/provider cannot leak
+    # into later tests in the same pytest process.
+    monkeypatch.setattr(web_server.vd_llm, "_runtime_config", web_server.vd_llm._runtime_config)
+    monkeypatch.setattr(web_server.vd_llm, "_provider_cache", web_server.vd_llm._provider_cache)
     web_server.vd_llm.set_llm_config(api_key, base_url, model)
 
     project_id = "film-live-stream-" + uuid.uuid4().hex[:16]
