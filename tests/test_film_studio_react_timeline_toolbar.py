@@ -60,6 +60,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx,timelineFrameRate())" in studio
     assert "math.resolveSlipGesture(rawDeltaSeconds,playbackSpeed,S.snapEnabled,timelineFrameRate())" in studio
     assert "resolveTimelineMove(minStart,deltaSeconds,chosenIds,8)" in studio
+    assert "function timelineIsFrameAligned(value)" in studio
+    assert "function timelineOperationNumber(value,preserveFramePrecision)" in studio
+    assert "timelineOperationNumber(trimEndCommit.target" in studio
+    assert "timelineOperationNumber(slideDelta" in studio
+    assert "timelineOperationNumber(Math.max(0,member.originalAt+delta)" in studio
     assert "resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "type FilmTimelineGesturePreviewGeometry" in component
     assert "setGesturePreview(preview: FilmTimelineGesturePreview): void" in component

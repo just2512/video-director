@@ -1002,6 +1002,15 @@
     var fps=Number(S.data&&S.data.fps);
     return Number.isFinite(fps)&&fps>0?Math.max(1,Math.min(120,fps)):30;
   }
+  function timelineIsFrameAligned(value){
+    var number=Number(value),fps=timelineFrameRate();
+    return S.snapEnabled&&Number.isFinite(number)&&Math.abs(number*fps-Math.round(number*fps))<0.00002;
+  }
+  function timelineOperationNumber(value,preserveFramePrecision){
+    var number=Number(value);
+    if(!Number.isFinite(number))return number;
+    return Number(number.toFixed(preserveFramePrecision?6:3));
+  }
   function timelineSnapCandidates(excludedIds){
     var ids=excludedIds||[],candidates=[{at:0,kind:'片头'}];
     // Clip selection may move the playhead to the dragged clip's start. Do not
@@ -2357,28 +2366,28 @@
       var slideCommitResolution=resolveTimelineSlide(d,deltaSeconds,8);
       var slideDelta=slideCommitResolution.deltaSeconds;
       if(Math.abs(slideDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([{op:'slide',clip:d.centerClipId,delta:Number(slideDelta.toFixed(3))}]);return;
+      await filmStudioCommit([{op:'slide',clip:d.centerClipId,delta:timelineOperationNumber(slideDelta,(slideCommitResolution.snapCandidate&&slideCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(slideCommitResolution.targetAt))}]);return;
     }
     if(d.mode==='roll'){
       var rollCommitResolution=resolveTimelineRoll(d,deltaSeconds,8);
       var rollDelta=rollCommitResolution.deltaSeconds;
       if(Math.abs(rollDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:Number(rollDelta.toFixed(3))}]);return;
+      await filmStudioCommit([{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:timelineOperationNumber(rollDelta,(rollCommitResolution.snapCandidate&&rollCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(rollCommitResolution.targetAt))}]);return;
     }
     if(d.mode==='slip'){
       var slipClip=findClip(d.id);
       if(!slipClip||slipClip.duration==null){clearTimelineGesturePreview();renderTimeline();return;}
       var sourceDelta=resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1)).sourceDeltaSeconds;
       if(Math.abs(sourceDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([{op:'slip',clip:d.id,delta_source:Number(sourceDelta.toFixed(3))}]);return;
+      await filmStudioCommit([{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}]);return;
     }
     if(d.mode==='trim-start'){
       var trimStartCommit=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:Number(trimStartCommit.target.toFixed(3))}]);return;
+      await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:timelineOperationNumber(trimStartCommit.target,(trimStartCommit.snapCandidate&&trimStartCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimStartCommit.target))}]);return;
     }
     if(d.mode==='trim-end'){
       var trimEndCommit=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:Number(trimEndCommit.target.toFixed(3))}]);return;
+      await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}]);return;
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
     var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));
@@ -2391,7 +2400,7 @@
     (d.members||[]).forEach(function(member){
       var index=member.trackIndex+trackDelta;
       if(index<0||index>=d.trackOrder.length){showStatus('多选移动超出轨道范围，操作已取消。','error');return;}
-      operations.push({op:'move',clip:member.id,track_id:d.trackOrder[index],at:Number(Math.max(0,member.originalAt+delta).toFixed(3))});
+      operations.push({op:'move',clip:member.id,track_id:d.trackOrder[index],at:timelineOperationNumber(Math.max(0,member.originalAt+delta),(moveResolution.snapCandidate&&moveResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(Math.max(0,member.originalAt+delta)))});
     });
     if(!operations.length||(operations.length!==(d.members||[]).length)){
       clearTimelineGesturePreview();renderTimeline();return;

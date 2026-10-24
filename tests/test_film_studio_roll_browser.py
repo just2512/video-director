@@ -346,7 +346,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert abs(float(clips[slide_right_id]["attrs"]["at"]) - expected_right_at) < 0.001
                 assert abs(float(clips[right_id]["attrs"]["at"]) - float(slide_preview["guide"]["at"])) < 0.001
                 assert abs(float(clips[right_id]["attrs"]["at"]) * slide_preview["fps"] -
-                           round(float(clips[right_id]["attrs"]["at"]) * slide_preview["fps"])) < 0.02
+                           round(float(clips[right_id]["attrs"]["at"]) * slide_preview["fps"])) < 0.00002
                 assert abs(fd.clip_end(clips[slide_right_id]) - 5) < 0.001
 
                 page.locator('[data-film-action="slide-mode"]:visible').click()
