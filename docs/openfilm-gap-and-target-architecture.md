@@ -6,7 +6,7 @@
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
-最重要的剩余差距不是按钮数量，而是所有权边界：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 的瞬态几何与类型化 ID-only 手势上下文；React 路径的 `gestureDomRefs` 为空，DOM 引用只留给原生 fallback。音量包络预览已有 React 绘制，但其活动手势上下文仍需完全纳入 FilmStore，并确保只保存稳定 clip/pointer ID 和数值矩形，不保存 Canvas 引用。剪辑数学、FilmOperation 组合与 revision 检查仍由共享适配器/FilmDocument 执行；frame(t) 的确定性范围小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
+最重要的剩余差距不是按钮数量，而是产品入口与外部 AI 服务的验收：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 与音量包络的类型化 ID-only 手势上下文；React 路径的 `gestureDomRefs` 为空，DOM 引用只留给原生 fallback。共享适配器仍负责剪辑数学、FilmOperation 组合与 revision 检查；外部 revision 在包络手势期间到达时拒绝旧预览、保留外部文件并重载的真实 Chromium 回归已补齐。`frame(t)` 的确定性范围仍小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但真实配置模型经中转端点的增量 token 传输仍须通过 opt-in 端到端烟测确认，且系统不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
 
 ## 目前已有的可复用基础
 
@@ -29,7 +29,7 @@
 | 页面元素编辑 | selector、文本、位置/尺寸、文字/背景色、不透明度、字重、对齐、字号、旋转、行高与字间距均可编辑；React 与无 bundle fallback 共用字段契约 | 继续覆盖剩余受限属性；Inspector 只提交实际变化字段，不物化未改文本/位置/样式；字段校验保持与服务端 allowlist 同步 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线；自定义 Bezier 控制柄已通过保存/重载的真实 Chromium 回归（Studio #211 / b9b0adf4） | 完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收；控制柄的交互与持久化测试不等于逐帧渲染一致性的证明 |
-| 实时 AI | 已支持 SSE 生命周期事件、token 片段转发、停止当前请求、执行中转向后重新规划，以及基于 revision 的提案预览/拒绝/确认；正式文档仍只在确认后写入 | 假流单测覆盖 token delta/cancel；真实配置模型经部署代理的端到端 token 流尚未验证；继续补足目标定位、受影响片段、差异预览和验收结果。转向通过取消当前请求后以原指令+新指令重新规划实现，不是同一模型会话的 token 级 steering |
+| 实时 AI | 已支持 SSE 生命周期事件、token 片段转发、停止当前请求、执行中转向后重新规划，以及基于 revision 的提案预览/拒绝/确认；正式文档仍只在确认后写入 | 假流单测覆盖 token delta/cancel；新增 `tests/test_film_studio_live_ai_streaming.py` 的显式 opt-in 烟测，可对当前 `VD_LLM_API_KEY` / `VD_LLM_BASE_URL` / `VD_LLM_MODEL` 配置发起真实请求，验证多个 token 事件在 result 前到达且 `film.html` 未写入。默认 CI 跳过该测试，因此在运维者实际启用并通过前，实时端到端仍标记 UNVERIFIED。转向仍是取消当前请求后用原指令+新指令重新规划，不是同一模型会话的 token 级 steering |
 | 确定性与导出 | `frame(t)`、本地资源边界、look 重复抽样、Revision 绑定导出均已有；采样检查不是全帧证明 | 对每个场景验证资源 ready 和帧回执；导出错误定位到 clip ID；明确运行时支持边界，不宣称任意网页/任意 WebGL 都确定 |
 | 产品入口 | 旧导演工作台与全屏 Film Studio 仍是两个工作上下文；初始化迁移后才由 `film.html` 接管 | 收敛为一个项目壳：导演规划、素材、场景、剪辑、AI 对话与导出围绕同一项目/同一最终时间线；迁移只是项目状态变化，不再像切换到另一款应用 |
 
@@ -37,7 +37,7 @@
 
 - 普通片段 move/trim/roll/slide/slip 的活动手势上下文已由 FilmStore 的 `timelineGestureContext` 类型化保存：仅含指针 ID、模式、稳定 clip/track ID、原始时间/时长、目标轨道状态及成员数值快照；Store 对必要字段与成员身份做严格校验。React 路径不保存 DOM 引用。
 - 音量包络活动手势已迁为 FilmStore 的 `timelineEnvelopeGesture`：只保存 clip ID、pointer ID、数值矩形、持续时间、关键帧快照、索引与活动标志；Canvas 引用只保留在无 bundle fallback 的适配器闭包里。真实 Chromium 已验证 ID-only Store 快照、React 预览、pointercancel 清理、pointerup 单事务和 undo。
-- 当前增量补齐一个仍未覆盖的冲突边界：Agent/外部进程在音量包络指针手势期间写入新 revision。必须保留外部文件、拒绝提交旧预览，并在 pointerup 后重载到新 revision；回归同时断言 edit 请求数不增长、活动上下文/预览清空。
+- Agent/外部进程在音量包络指针手势期间写入新 revision 的冲突边界已由真实 Chromium 回归覆盖：外部文件 revision 被保留；旧预览在 pointerup 时被丢弃，不会发送 edit 请求；FilmStore 活动手势/预览清空，随后重载到外部 revision。该测试随 AI Director #1349 和 Studio #340 通过。
 
 ## React 时间线输入所有权（当前增量）
 
