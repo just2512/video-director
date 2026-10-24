@@ -68,7 +68,11 @@ async function workspaceOpen(pid, target){
         try { await directorLoadLatestRun(pid); } catch (_) { /* Run metadata must not change timeline authority. */ }
       }
       const openedStudio = await window.filmStudioOpenIfCurrentProjectHasFilm(pid, filmDocument);
-      if (openedStudio) return {ok:true,mode:'film'};
+      if (openedStudio) return {
+        ok:filmDocument.ok===true,mode:'film',authority:'film.html',
+        revision:filmDocument.rev||'',valid:filmDocument.ok===true,
+        error:filmDocument.ok===true?null:(filmDocument.error||'INVALID_FILM')
+      };
       editorToast('该项目存在 film.html，但无法打开权威 Film Studio；未回退到旧 CompositionIR。请检查未提交修改或刷新后重试。', true);
       return {ok:false,mode:'film',error:'FILM_STUDIO_OPEN_FAILED'};
     }

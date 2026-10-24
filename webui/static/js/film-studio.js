@@ -1808,16 +1808,25 @@
     showStatus('影片文档无效，已阻止回退到旧时间线。'+message,'error');
     syncDirectorSelection();
   }
-  async function filmStudioLoad(force) {
-    if(!S.open&&!force)return;
+  async function filmStudioLoad(force,knownFilmDocument) {
+    if(!S.open&&!force)return false;
     var selector=$('editor-project'),nextId=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||S.projectId;
-    if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return;}
-    if(S.busy)return;
+    if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return false;}
+    if(S.busy){showStatus('上一项影片操作仍在保存；本次项目切换未执行。','error');return false;}
     var changed=nextId!==S.projectId;
+    if(changed&&(S.drag||S.envelopeDrag)){
+      if(selector&&S.projectId)selector.value=S.projectId;
+      showStatus('时间线手势尚未结束；本次项目切换未执行。请先完成或取消拖动。','error');
+      return false;
+    }
     if(changed&&hasUncommittedInspectorEdits()){
       if(selector&&S.projectId)selector.value=S.projectId;
       showStatus('当前项目的 Inspector 有未提交草稿。请先应用属性，或重新载入当前项目并确认丢弃，再切换项目。','error');
-      return;
+      return false;
+    }
+    if(knownFilmDocument&&knownFilmDocument.project_id&&String(knownFilmDocument.project_id)!==String(nextId)){
+      showStatus('影片预检结果属于另一个项目；未切换时间线。请刷新后重试。','error');
+      return false;
     }
     if(changed){
       S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
@@ -1828,26 +1837,55 @@
     S.projectId=nextId;
     var requestProjectId=nextId;
     var requestGeneration=++S.loadGeneration;
-    var r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));
-    if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return;
+    var r=knownFilmDocument||null;
+    if(!r){
+      try{r=await apiGet('/api/editor/film?project_id='+encodeURIComponent(requestProjectId));}
+      catch(error){
+        if(requestProjectId===S.projectId&&requestGeneration===S.loadGeneration){
+          if(changed){S.data=null;S.rev='';S.runtimeRev='';S.migration=null;}
+          showStatus('读取影片文档失败；为防止覆盖，不写入文件。'+String(error&&error.message||error),'error');
+        }
+        return false;
+      }
+    }
+    if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;
+    if(!r||typeof r.exists!=='boolean'){
+      S.data=null;S.rev='';S.runtimeRev='';
+      showStatus((r&&r.error)||'无法确认 film.html 状态；为防止覆盖，不写入文件。','error');
+      return false;
+    }
     // A user can start a drag while this GET is in flight. Never replace the
-    // timeline DOM mid-gesture, even when the response still reports the same
-    // revision; defer a fresh load until the gesture/busy edit has fully ended.
+    // timeline DOM mid-gesture; defer an external reload and tell the caller it
+    // has not completed as an authoritative view switch.
     if(S.busy||S.drag||S.envelopeDrag||hasUncommittedInspectorEdits()){
       S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';
       if(hasUncommittedInspectorEdits())showStatus('影片读取结果已暂存；Inspector 有未提交的属性草稿。应用修改或选择重新载入。','error');
-      return;
+      else showStatus('影片读取结果已暂存；时间线操作结束后再完成载入。','error');
+      return false;
     }
     if(r&&r.ok&&r.exists){
       if(S.rev&&r.rev!==S.rev){
         S.selectedElement=null;S.hoveredElement=null;
         var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
       }
-      S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;$('film-studio-panel').setAttribute('data-project-id',S.projectId);render();
+      S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;
+      $('film-studio-panel').setAttribute('data-project-id',S.projectId);render();
+      return true;
     }
-    else if(r&&r.ok&&!r.exists){S.data=null;S.rev=r.rev;S.runtimeRev='';setPlaybackState(false);S.migration=r;renderMigration();}
-    else if(r&&!r.ok&&r.exists===true){renderBrokenFilmState(r);}
-    else {if(r&&r.code==='INVALID_FILM')S.broken=true;S.data=null;S.rev='';showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');}
+    if(r&&r.ok&&!r.exists){
+      S.data=null;S.rev=r.rev;S.runtimeRev='';setPlaybackState(false);S.migration=r;renderMigration();
+      return true;
+    }
+    if(r&&!r.ok&&r.exists===true){
+      // The authoritative document exists but is invalid. Showing the explicit
+      // broken-document gate is a successful authority handoff, not a legacy fallback.
+      renderBrokenFilmState(r);
+      return true;
+    }
+    if(r&&r.code==='INVALID_FILM')S.broken=true;
+    S.data=null;S.rev='';S.runtimeRev='';
+    showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');
+    return false;
   }
   async function filmStudioInitialize(acceptWarnings) {
     if(!S.projectId){showStatus('缺少项目编号。','error');return;}
@@ -2380,8 +2418,8 @@
       if(input)input.focus();
     }
   };
-  window.filmStudioToggle=function(){
-    if(S.open){window.filmStudioClose();return;}
+  window.filmStudioToggle=async function(knownFilmDocument){
+    if(S.open){window.filmStudioClose();return false;}
     S.open=true;
     mountDirectorPlanning();
     var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
@@ -2391,7 +2429,7 @@
     $('film-studio-toggle').textContent='重新打开 Studio';
     $('editor-body').style.display='none';$('editor-empty').style.display='none';
     window.filmStudioSetSideMode(S.sideMode);
-    filmStudioLoad(true);
+    var loaded=await filmStudioLoad(true,knownFilmDocument);
     if(S.poll)clearInterval(S.poll);
     S.poll=setInterval(async function(){
       if(!S.open||S.busy||S.drag||S.envelopeDrag)return;
@@ -2405,6 +2443,7 @@
         if(!S.broken||(r.rev&&r.rev!==S.rev))renderBrokenFilmState(r);
       }
     },1600);
+    return loaded;
   };
   // A project with film.html has one authoritative editor. Selecting it opens
   // Studio directly; legacy projects without film.html remain in the migration workspace.
@@ -2412,25 +2451,25 @@
     var selector=$('editor-project');
     var projectId=String(expectedProjectId||selector&&selector.value||'').trim();
     if(!projectId||!selector||String(selector.value||'').trim()!==projectId)return false;
-    if(S.open){
-      if(S.projectId===projectId)return true;
-      // Reuse the mounted Studio and its existing draft/transaction guards rather
-      // than close+reopen, which could discard selection or race another loader.
-      await filmStudioLoad(true);
-      return S.open&&S.projectId===projectId;
-    }
-    if(document.documentElement.classList.contains('fs-studio-open')){
-      window.filmStudioClose();
-      if(S.open||document.documentElement.classList.contains('fs-studio-open'))return false;
-    }
     var result=knownFilmDocument||null;
     if(!result){
       try{result=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));}
       catch(_){return false;}
     }
-    if(!result||result.exists!==true||String(selector.value||'').trim()!==projectId)return false;
-    window.filmStudioToggle();
-    return S.open||document.documentElement.classList.contains('fs-studio-open');
+    if(!result||typeof result.exists!=='boolean'||result.exists!==true||
+       (result.project_id&&String(result.project_id)!==projectId)||
+       String(selector.value||'').trim()!==projectId)return false;
+    if(S.open){
+      if(S.projectId===projectId&&S.data&&S.data.exists&&S.rev===result.rev&&result.ok===true&&!S.broken)return true;
+      // Reuse the mounted Studio and its draft/gesture guards. The known preflight
+      // result is passed through, so the caller awaits the actual authority screen.
+      return await filmStudioLoad(true,result);
+    }
+    if(document.documentElement.classList.contains('fs-studio-open')){
+      window.filmStudioClose();
+      if(S.open||document.documentElement.classList.contains('fs-studio-open'))return false;
+    }
+    return await window.filmStudioToggle(result);
   };
   window.filmStudioPrepareLegacyProjectOpen=function(projectId){
     var pid=String(projectId||'').trim();
@@ -3750,9 +3789,15 @@ window.filmStudioCopyClips=function(){
         return {ok:false,code:'FILM_STATE_UNAVAILABLE',error:String(error&&error.message||error)};
       }
       if(state&&state.exists===true){
-        if(!S.open)window.filmStudioToggle();
-        else await filmStudioLoad(true);
-        return {ok:state.ok===true,film_document:true,project_id:pid,revision:state.rev||''};
+        var opened=await window.filmStudioOpenIfCurrentProjectHasFilm(pid,state);
+        return {
+          ok:opened&&state.ok===true,
+          film_document:true,
+          authority:'film.html',
+          project_id:pid,
+          revision:state.rev||'',
+          error:opened?((state.ok===true)?null:(state.error||'INVALID_FILM')):'FILM_STUDIO_OPEN_FAILED'
+        };
       }
       if(!state||state.ok!==true){
         showStatus('影片文档状态不可用；未加载旧 CompositionIR 工作台。','error');

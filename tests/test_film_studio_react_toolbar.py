@@ -79,7 +79,12 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
-    assert "window.filmStudioOpenIfCurrentProjectHasFilm = async function()" in studio
+    assert "window.filmStudioOpenIfCurrentProjectHasFilm = async function(expectedProjectId,knownFilmDocument)" in studio
+    assert "async function filmStudioLoad(force,knownFilmDocument)" in studio
+    assert "return await filmStudioLoad(true,result);" in studio
+    assert "return await window.filmStudioToggle(result);" in studio
+    assert "var loaded=await filmStudioLoad(true,knownFilmDocument);" in studio
+    assert "if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;" in studio
     assert "window.filmStudioToggleTrackLock?.(track.id)" in component
     assert "window.filmStudioToggleTrackFlag?.(track.id, \"sync-lock\")" in component
     assert "window.filmStudioToggleTrackLock = function(trackId)" in studio

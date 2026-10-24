@@ -1080,6 +1080,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 }""")
                 assert authority_routing["existingFilm"]["result"]["ok"] is False, authority_routing
                 assert authority_routing["existingFilm"]["result"]["mode"] == "film", authority_routing
+                assert authority_routing["existingFilm"]["result"]["error"] == "FILM_STUDIO_OPEN_FAILED", authority_routing
                 assert authority_routing["existingFilm"]["legacyLoad"] == 0, authority_routing
                 assert "未回退" in authority_routing["existingFilm"]["message"], authority_routing
                 assert authority_routing["unknownAuthority"]["result"]["ok"] is False, authority_routing
