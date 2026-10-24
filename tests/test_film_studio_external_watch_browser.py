@@ -174,6 +174,81 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 )
                 assert fd.read_project_film(project_id)["rev"] == mode_revision_before
 
+                # If no clip/playhead/head target is inside the snap zone, move preview falls back to the frame grid.
+                frame_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-right"]')
+                frame_clip.click()
+                frame_box = frame_clip.bounding_box()
+                assert frame_box, "clip-right bounding box unavailable for frame snap test"
+                frame_doc_before = fd.read_project_film(project_id)
+                frame_clip_before = next(
+                    item for track in frame_doc_before["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-right"
+                )
+                frame_left_before = frame_clip.evaluate("(node) => node.style.left")
+                frame_edit_count = len(film_edit_requests)
+                frame_x = frame_box["x"] + frame_box["width"] * 0.5
+                frame_y = frame_box["y"] + frame_box["height"] * 0.5
+                page.mouse.move(frame_x, frame_y)
+                page.mouse.down()
+                page.mouse.move(frame_x + 16, frame_y, steps=6)
+                page.wait_for_function("""oldLeft => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const guide = state?.timelineSnapGuide;
+                  const preview = state?.timelineGesturePreview?.['clip-right'];
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-right"]');
+                  const fps = Number(state?.film?.fps || 30);
+                  return guide?.kind === '帧' && preview?.left != null &&
+                    node?.dataset.reactGesturePreview === 'true' &&
+                    node.style.left !== oldLeft &&
+                    Math.abs(guide.at * fps - Math.round(guide.at * fps)) < 0.00001;
+                }""", arg=frame_left_before, timeout=5000)
+                frame_preview_data = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-right"]');
+                  const fps = Number(state?.film?.fps || 30);
+                  return {guide:state?.timelineSnapGuide, left:node?.style.left, fps};
+                }""")
+                assert fd.read_project_film(project_id)["rev"] == frame_doc_before["rev"]
+                assert len(film_edit_requests) == frame_edit_count
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null &&
+                    state?.timelineGesturePreview === null &&
+                    state?.timelineSnapGuide === null;
+                }""", timeout=10000)
+                page.wait_for_function("""() => {
+                  const film = window.filmStudioStore?.getSnapshot()?.film;
+                  const clips = (film?.tracks || []).flatMap(track => track.clips || []);
+                  return Number(clips.find(clip => clip.id === "clip-right")?.at) > 10;
+                }""", timeout=10000)
+                frame_doc_after = fd.read_project_film(project_id)
+                frame_clip_after = next(
+                    item for track in frame_doc_after["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-right"
+                )
+                frame_requests = film_edit_requests[frame_edit_count:]
+                assert len(frame_requests) == 1, frame_requests
+                assert len(frame_requests[0].get("ops") or []) == 1, frame_requests
+                assert frame_requests[0]["ops"][0].get("op") == "move", frame_requests
+                assert abs(float(frame_clip_after["attrs"]["at"]) - frame_preview_data["guide"]["at"]) < 0.001, frame_clip_after
+                assert abs(frame_preview_data["guide"]["at"] * frame_preview_data["fps"] - round(frame_preview_data["guide"]["at"] * frame_preview_data["fps"])) < 0.00001
+                assert float(frame_clip_after["attrs"]["at"]) > float(frame_clip_before["attrs"]["at"]), frame_clip_after
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""oldLeft => {
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-right"]');
+                  const film = window.filmStudioStore?.getSnapshot()?.film;
+                  const clips = (film?.tracks || []).flatMap(track => track.clips || []);
+                  const clip = clips.find(item => item.id === "clip-right");
+                  return !!node && node.style.left === oldLeft && Math.abs(Number(clip?.at) - 10) < 0.001;
+                }""", arg=frame_left_before, timeout=10000)
+                frame_doc_undone = fd.read_project_film(project_id)
+                frame_clip_undone = next(
+                    item for track in frame_doc_undone["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-right"
+                )
+                assert abs(float(frame_clip_undone["attrs"]["at"]) - float(frame_clip_before["attrs"]["at"])) < 0.001
+
                 # Ctrl-drag the left clip's end through a shared-source cut to 6s,
                 # where the separate audio clip supplies the snap candidate.
                 left_end = page.locator('#fs-timeline .fs-clip[data-clip="clip-left"] .fs-trim-handle[data-trim="end"]')
@@ -1080,6 +1155,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                       {at: 10.3, kind: "outside-threshold"},
                     ], 40, 5),
                     noSnap: m.resolveSnapCandidate(10, [{at: 10.3, kind: "outside"}], 40, 5),
+                    frameSnap: (() => { const r=m.resolveSnapCandidate(10.14, [], 36, 8, 30); return r ? {at:Number(r.at.toFixed(6)),kind:r.kind} : null; })(),
+                    framePriority: m.resolveSnapCandidate(10.11, [{at:10.3,kind:"clip-edge"}], 36, 8, 30),
+                    moveFrame: (() => { const r=m.resolveMoveGesture(10,0.14,[],36,8,true,30); return {targetAt:Number(r.targetAt.toFixed(6)),deltaSeconds:Number(r.deltaSeconds.toFixed(6)),snapKind:r.snapCandidate?.kind??null}; })(),
+                    moveFrameNoSnap: (() => { const r=m.resolveMoveGesture(10,0.14,[],36,8,false,30); return {targetAt:Number(r.targetAt.toFixed(6)),deltaSeconds:Number(r.deltaSeconds.toFixed(6)),snapKind:r.snapCandidate?.kind??null}; })(),
+                    slipFrame: m.resolveSlipGesture(0.21,1,true,30).sourceDeltaSeconds,
+                    slipNoSnap: m.resolveSlipGesture(0.21,1,false,30).sourceDeltaSeconds,
                     moveSnap: (() => { const r = m.resolveMoveGesture(5, 1, [{at: 0, kind: "head"}, {at: 6.1, kind: "move-snap"}], 36, 8, true); return {targetAt: Number(r.targetAt.toFixed(3)), deltaSeconds: Number(r.deltaSeconds.toFixed(3)), snapKind: r.snapCandidate?.kind ?? null}; })(),
                     moveZero: (() => { const r = m.resolveMoveGesture(2, -4, [{at: 0, kind: "head"}], 36, 8, true); return {targetAt: Number(r.targetAt.toFixed(3)), deltaSeconds: Number(r.deltaSeconds.toFixed(3)), snapKind: r.snapCandidate?.kind ?? null}; })(),
                     moveNoSnap: (() => { const r = m.resolveMoveGesture(5, 1, [{at: 6.1, kind: "move-snap"}], 36, 8, false); return {targetAt: Number(r.targetAt.toFixed(3)), deltaSeconds: Number(r.deltaSeconds.toFixed(3)), snapKind: r.snapCandidate?.kind ?? null}; })(),
@@ -1114,6 +1195,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "dragDelta": 0.5,
                     "snapTie": {"at": 10.125, "kind": "first"},
                     "noSnap": None,
+                    "frameSnap": {"at": 10.133333, "kind": "帧"},
+                    "framePriority": {"at": 10.3, "kind": "clip-edge"},
+                    "moveFrame": {"targetAt": 10.133333, "deltaSeconds": 0.133333, "snapKind": "帧"},
+                    "moveFrameNoSnap": {"targetAt": 10.14, "deltaSeconds": 0.14, "snapKind": None},
+                    "slipFrame": 0.2,
+                    "slipNoSnap": 0.21,
                     "moveSnap": {"targetAt": 6.1, "deltaSeconds": 1.1, "snapKind": "move-snap"},
                     "moveZero": {"targetAt": 0, "deltaSeconds": -2, "snapKind": "head"},
                     "moveNoSnap": {"targetAt": 6, "deltaSeconds": 1, "snapKind": None},

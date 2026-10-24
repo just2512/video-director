@@ -53,7 +53,12 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "bindFilmTimelineWheel" not in studio
     assert "findTimelineSnap" in studio
     assert "timelineDragDeltaSeconds(pointerDelta,scrollDelta,scale)" in studio
-    assert "math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx)" in studio
+    timeline_math = (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
+    assert "frameRate?: number" in timeline_math
+    assert 'kind:"帧"' in timeline_math
+    assert "function timelineFrameRate()" in studio
+    assert "math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx,timelineFrameRate())" in studio
+    assert "math.resolveSlipGesture(rawDeltaSeconds,playbackSpeed,S.snapEnabled,timelineFrameRate())" in studio
     assert "resolveTimelineMove(minStart,deltaSeconds,chosenIds,8)" in studio
     assert "resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "type FilmTimelineGesturePreviewGeometry" in component

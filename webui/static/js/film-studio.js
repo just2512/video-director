@@ -998,6 +998,10 @@
       });
     },24);
   }
+  function timelineFrameRate(){
+    var fps=Number(S.data&&S.data.fps);
+    return Number.isFinite(fps)&&fps>0?Math.max(1,Math.min(120,fps)):30;
+  }
   function timelineSnapCandidates(excludedIds){
     var ids=excludedIds||[],candidates=[{at:0,kind:'片头'}];
     // Clip selection may move the playhead to the dragged clip's start. Do not
@@ -1018,19 +1022,22 @@
     if(!S.snapEnabled)return null;
     var candidates=timelineSnapCandidates(excludedIds),math=timelineMath();
     if(math&&typeof math.resolveSnapCandidate==='function')
-      return math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx);
+      return math.resolveSnapCandidate(rawAt,candidates,S.pxPerSec,thresholdPx,timelineFrameRate());
     var best=null,bestDistance=Infinity;
     candidates.forEach(function(candidate){
       if(!Number.isFinite(candidate.at))return;
       var distance=Math.abs(timelineSecondsToPixels(candidate.at-rawAt,S.pxPerSec));
       if(distance<=thresholdPx&&distance<bestDistance){best=candidate;bestDistance=distance;}
     });
-    return best;
+    if(best)return best;
+    var fps=timelineFrameRate(),frameAt=Math.max(0,Math.round(Math.max(0,Number(rawAt)||0)*fps)/fps);
+    var frameDistance=Math.abs(timelineSecondsToPixels(frameAt-rawAt,S.pxPerSec));
+    return frameDistance<=thresholdPx?{at:frameAt,kind:'帧'}:null;
   }
   function resolveTimelineMove(minimumStart,deltaSeconds,excludedIds,thresholdPx){
     var candidates=timelineSnapCandidates(excludedIds),math=timelineMath();
     if(math&&typeof math.resolveMoveGesture==='function')
-      return math.resolveMoveGesture(minimumStart,deltaSeconds,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+      return math.resolveMoveGesture(minimumStart,deltaSeconds,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
     var start=Math.max(0,num(minimumStart,0)),rawAt=Math.max(0,start+num(deltaSeconds,0));
     var snap=findTimelineSnap(rawAt,excludedIds,thresholdPx);
     var proposedAt=snap?Math.max(0,snap.at):rawAt;
@@ -1041,7 +1048,7 @@
   function resolveTimelineTrim(edge,originalAt,originalEnd,deltaSeconds,excludedIds,thresholdPx){
     var candidates=timelineSnapCandidates(excludedIds),math=timelineMath(),method=edge==='start'?'resolveTrimStart':'resolveTrimEnd';
     if(math&&typeof math[method]==='function')
-      return math[method](originalAt,originalEnd,deltaSeconds,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+      return math[method](originalAt,originalEnd,deltaSeconds,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
     var raw=edge==='start'?originalAt+deltaSeconds:originalEnd+deltaSeconds;
     var snap=findTimelineSnap(raw,excludedIds,thresholdPx),proposed=snap?snap.at:raw;
     var target=Math.max(originalAt+0.04,Math.min(originalEnd-0.04,proposed));
@@ -1051,7 +1058,7 @@
   function resolveTimelineRoll(d,deltaSeconds,thresholdPx){
     var excluded=[d.leftClipId,d.rightClipId],candidates=timelineSnapCandidates(excluded),math=timelineMath();
     if(math&&typeof math.resolveRollGesture==='function')
-      return math.resolveRollGesture(d.rightAt,deltaSeconds,d.leftDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+      return math.resolveRollGesture(d.rightAt,deltaSeconds,d.leftDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
     var snap=findTimelineSnap(d.rightAt+deltaSeconds,excluded,thresholdPx);
     var proposed=snap?snap.at-d.rightAt:deltaSeconds;
     var delta=Math.max(-d.leftDuration+0.04,Math.min(d.rightDuration-0.04,proposed));
@@ -1061,7 +1068,7 @@
   function resolveTimelineSlide(d,deltaSeconds,thresholdPx){
     var excluded=[d.leftClipId,d.centerClipId,d.rightClipId],candidates=timelineSnapCandidates(excluded),math=timelineMath();
     if(math&&typeof math.resolveSlideGesture==='function')
-      return math.resolveSlideGesture(d.centerAt,deltaSeconds,d.leftDuration,d.centerDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled);
+      return math.resolveSlideGesture(d.centerAt,deltaSeconds,d.leftDuration,d.centerDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
     var snap=findTimelineSnap(d.centerAt+deltaSeconds,excluded,thresholdPx);
     var proposed=snap?snap.at-d.centerAt:deltaSeconds;
     var min=-Math.min(d.leftDuration,d.centerDuration)+0.04,max=Math.min(d.centerDuration,d.rightDuration)-0.04;
@@ -1072,8 +1079,10 @@
   function resolveTimelineSlip(rawDeltaSeconds, playbackSpeed){
     var math=timelineMath();
     if(math&&typeof math.resolveSlipGesture==='function')
-      return math.resolveSlipGesture(rawDeltaSeconds,playbackSpeed);
-    return {sourceDeltaSeconds:num(rawDeltaSeconds,0)*num(playbackSpeed,1)};
+      return math.resolveSlipGesture(rawDeltaSeconds,playbackSpeed,S.snapEnabled,timelineFrameRate());
+    var sourceDelta=num(rawDeltaSeconds,0)*num(playbackSpeed,1),fps=timelineFrameRate();
+    if(S.snapEnabled)sourceDelta=Math.round(sourceDelta*fps)/fps;
+    return {sourceDeltaSeconds:sourceDelta};
   }
   function showTimelineSnapGuide(at, kind){
     var timeline=$('fs-timeline'),bridge=window.filmStudioReactTimeline;
