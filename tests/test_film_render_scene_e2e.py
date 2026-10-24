@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import subprocess
 
 import pytest
 from PIL import Image
@@ -72,22 +73,30 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
         sheet = contact_sheet.convert("RGB")
         assert sheet.width >= 1920 and sheet.height >= 360
 
-        def red_centroid(tile):
+        def red_centroid_xy(tile, *, minimum_pixels=200):
             pixels = [
                 (x, y)
                 for y in range(tile.height)
                 for x in range(tile.width)
                 if (lambda rgb: rgb[0] > 220 and rgb[1] < 60 and rgb[2] < 60)(tile.getpixel((x, y)))
             ]
-            assert len(pixels) >= 200, f"red moving layer is absent from the contact sheet ({len(pixels)} pixels)"
-            return sum(x for x, _ in pixels) / len(pixels)
+            assert len(pixels) >= minimum_pixels, (
+                f"red moving layer is absent from the sample ({len(pixels)} pixels)"
+            )
+            return (
+                sum(x for x, _ in pixels) / len(pixels),
+                sum(y for _, y in pixels) / len(pixels),
+            )
+
+        def red_centroid(tile):
+            return red_centroid_xy(tile)[0]
 
         first_tile = sheet.crop((0, 0, 640, 360))
         second_tile = sheet.crop((640, 0, 1280, 360))
         third_tile = sheet.crop((1280, 0, 1920, 360))
-        first_center = red_centroid(first_tile)
-        second_center = red_centroid(second_tile)
-        third_center = red_centroid(third_tile)
+        first_center, _ = red_centroid_xy(first_tile)
+        second_center, second_center_y = red_centroid_xy(second_tile)
+        third_center, _ = red_centroid_xy(third_tile)
         assert second_center - first_center > 150, (
             f"Transform keyframes were not applied at t=0.5s: {first_center=}, {second_center=}"
         )
@@ -107,6 +116,7 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
             0.5 + (final_x - final_camera_x) * final_camera_scale
         ) * 160.0
         third_offset = third_center / 4.0 - expected_final_center
+        preview_scene_pixel = second_tile.getpixel((600, 320))
         assert first_offset < -2.0, f"left-half mask wasn't applied at t=0: offset={first_offset}"
         assert third_offset > 2.0, f"right-half mask wasn't applied at t={final_time}: offset={third_offset}"
 
@@ -120,6 +130,40 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
     probe = prober.probe_media(str(output))
     assert probe.has_video_stream is True
     assert probe.duration is not None and abs(float(probe.duration) - 1.0) <= 0.15
+
+    # Compare the exact t=0.5 look sample to the second encoded MP4 frame.
+    # This checks the visible keyframed/masked subject and frame-driven HTML
+    # background across the two actual Chromium paths, not merely MP4 decodability.
+    exported_frame_path = tmp_path / "exported-t-0.5.png"
+    extracted = subprocess.run(
+        [
+            renderer._ffmpeg(), "-y", "-loglevel", "error", "-i", str(output),
+            "-vf", r"select=eq(n\,1)", "-vsync", "0", "-frames:v", "1",
+            str(exported_frame_path),
+        ],
+        capture_output=True, text=True, timeout=45,
+    )
+    assert extracted.returncode == 0, extracted.stderr[-2000:]
+    assert exported_frame_path.is_file() and exported_frame_path.stat().st_size > 0
+
+    with Image.open(exported_frame_path) as exported:
+        encoded_frame = exported.convert("RGB")
+        assert encoded_frame.size == (160, 90), encoded_frame.size
+        encoded_center_x, encoded_center_y = red_centroid_xy(encoded_frame, minimum_pixels=40)
+        look_center_x = second_center / (second_tile.width / encoded_frame.width)
+        look_center_y = second_center_y / (second_tile.height / encoded_frame.height)
+        assert abs(encoded_center_x - look_center_x) <= 3.5, {
+            "timestamp": 0.5, "look_center_x": look_center_x, "encoded_center_x": encoded_center_x,
+        }
+        assert abs(encoded_center_y - look_center_y) <= 3.5, {
+            "timestamp": 0.5, "look_center_y": look_center_y, "encoded_center_y": encoded_center_y,
+        }
+        encoded_scene_pixel = encoded_frame.getpixel((150, 80))
+        assert max(abs(int(preview_channel) - int(encoded_channel))
+                   for preview_channel, encoded_channel in zip(preview_scene_pixel, encoded_scene_pixel)) <= 18, {
+            "timestamp": 0.5, "look_scene_pixel": preview_scene_pixel,
+            "encoded_scene_pixel": encoded_scene_pixel,
+        }
 
 
 def test_offline_render_guard_blocks_external_scene_network_requests():

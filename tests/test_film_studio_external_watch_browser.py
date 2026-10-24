@@ -1270,7 +1270,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "() => window.filmStudioStore?.getField('envelopeMode') === true",
                     timeout=5_000,
                 )
-                box = canvas.bounding_box()
+                box = envelope.bounding_box()
                 assert box and box["width"] > 80 and box["height"] > 16, box
                 before_doc = fd.read_project_film(project_id)
                 original = next(
