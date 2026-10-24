@@ -1829,3 +1829,82 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_studio_displays_source_after_external_file_revision_reload(tmp_path, monkeypatch):
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-source-label-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            try:
+                page.set_default_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
+
+                external = SAMPLE.replace(
+                    'id="clip-b" src="../assets/b.mp4#t=0,5" at="5"',
+                    'id="clip-b" src="../assets/b.mp4#t=0,5" at="5.5"',
+                )
+                assert external != SAMPLE
+                film_path.write_text(external, encoding="utf-8")
+                expected_revision = fd.revision_of(external)
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const alert = document.querySelector('#film-studio-alert');
+                      const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      return state?.revision === expected && !!clip &&
+                        !!alert && alert.textContent.includes('修改来源：外部文件 / Agent 直接改写');
+                    }""",
+                    arg=expected_revision,
+                    timeout=15_000,
+                )
+                assert fd.read_project_film(project_id)["rev"] == expected_revision
+                history = fd._history_read(project_id)
+                assert history["past"][-1]["source"] == "external_file"
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server_thread.join(timeout=5)
+
+

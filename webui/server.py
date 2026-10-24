@@ -1259,10 +1259,10 @@ class Handler(BaseHTTPRequestHandler):
                     raise fd.FilmError("INVALID_PLACEMENT_MODE", "素材放置模式只允许 new-track、ripple 或 overwrite", 422)
                 result = fd.edit_project_film(
                     pid, payload.get("base"), operations,
-                    require_base=placement_mode == "overwrite",
+                    require_base=placement_mode == "overwrite", source="studio_asset_insert",
                 )
                 data = fd.film_payload(pid, fd.read_project_film(pid))
-                data.update({"ops": result["ops"], "rebased": result["rebased"],
+                data.update({"ops": result["ops"], "rebased": result["rebased"], "source": result["source"],
                              "inserted_clip_id": clip["id"], "inserted_track_id": track_id,
                              "placement_mode": placement_mode})
                 sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
@@ -1271,9 +1271,10 @@ class Handler(BaseHTTPRequestHandler):
                 return True
 
             if route == "/api/editor/film/edit":
-                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"))
+                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"), source="studio")
                 data = fd.film_payload(pid, fd.read_project_film(pid))
-                data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"]})
+                data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"],
+                             "source": result["source"]})
                 sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
                                      "source": "manual_edit", "operations": result["ops"]})
                 self._send_json(data)
@@ -1518,11 +1519,13 @@ class Handler(BaseHTTPRequestHandler):
                     raise fd.FilmError("PROPOSAL_NOT_FOUND_OR_STALE",
                                        "提案不存在、已过期、属于其他项目或基线 revision 不匹配；请重新生成。", 409)
                 result = fd.edit_project_film(
-                    pid, approved["base_revision"], approved["operations"], require_base=True
+                    pid, approved["base_revision"], approved["operations"],
+                    require_base=True, source="ai_proposal",
                 )
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
-                             "base": approved["base_revision"], "applied_proposal": proposal_id})
+                             "base": approved["base_revision"], "source": result["source"],
+                             "applied_proposal": proposal_id})
                 sse_publish("film", {"phase": "revision_changed", "project_id": pid,
                                      "revision": data["rev"], "source": "ai_proposal",
                                      "proposal_id": payload.get("proposal_id"),

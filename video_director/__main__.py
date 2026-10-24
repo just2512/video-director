@@ -241,7 +241,7 @@ def main(argv=None):
                 # locking, operation history and revision guard as the Studio.
                 # Never use the UI's best-effort rebase behavior for an agent write.
                 result = fd.edit_project_film(
-                    pid, a.base_revision, operations, require_base=True
+                    pid, a.base_revision, operations, require_base=True, source="cli"
                 )
                 emit({
                     "ok": True, "project_id": pid,
@@ -249,6 +249,7 @@ def main(argv=None):
                     "revision": result["rev"],
                     "operation_count": len(result["ops"]),
                     "operations": result["ops"],
+                    "source": result["source"],
                     "rebased": False,
                 })
 

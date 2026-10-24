@@ -4,6 +4,7 @@
   var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
+  var pendingRevisionSource = '';
   if(window.filmStudioStore&&typeof window.filmStudioStore.bindLegacyState==='function')window.filmStudioStore.bindLegacyState(S);
   var $ = function (id) { return document.getElementById(id); };
   function dispatchStudioTransaction(kind,baseRevision,operations,submitter){
@@ -1859,6 +1860,7 @@
     // has not completed as an authoritative view switch.
     if(S.busy||S.drag||S.envelopeDrag||hasUncommittedInspectorEdits()){
       S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';
+      pendingRevisionSource=(r&&r.rev&&r.rev!==S.rev)?'external_file':'';
       if(hasUncommittedInspectorEdits())showStatus('影片读取结果已暂存；Inspector 有未提交的属性草稿。应用修改或选择重新载入。','error');
       else showStatus('影片读取结果已暂存；时间线操作结束后再完成载入。','error');
       return false;
@@ -1968,10 +1970,27 @@
       return false;
     }
     var pending=S.pendingExternalRevision;
+    var pendingSource=pending==='__reload__'?'':pendingRevisionSource;
+    pendingRevisionSource='';
     S.pendingExternalRevision='';
     if(pending!==S.rev){
+      var projectAtReload=S.projectId;
       S.runtimeRev='';
-      filmStudioLoad(true);
+      filmStudioLoad(true).then(function(loaded){
+        if(!loaded||!pendingSource||S.projectId!==projectAtReload||S.rev!==pending)return;
+        var sourceLabels={
+          external_file:'外部文件 / Agent 直接改写',
+          studio:'Studio 编辑',
+          manual_edit:'Studio 编辑',
+          studio_asset_insert:'Studio 素材插入',
+          asset_insert:'Studio 素材插入',
+          ai_proposal:'AI 提案确认',
+          cli:'CLI / Agent CLI',
+          undo:'撤销',
+          redo:'重做'
+        };
+        showStatus('已载入影片新 revision。修改来源：'+(sourceLabels[pendingSource]||pendingSource)+'。','success');
+      });
       return true;
     }
     return false;
@@ -1984,8 +2003,9 @@
     var dirty=hasUncommittedInspectorEdits();
     if(dirty&&!window.confirm('Inspector 中有未提交的属性草稿。重新载入将放弃这些修改；是否继续？'))return;
     if(dirty)resetInspectorDraft();
-    if(!S.open){S.pendingExternalRevision='';filmStudioLoad(true);return;}
+    if(!S.open){S.pendingExternalRevision='';pendingRevisionSource='';filmStudioLoad(true);return;}
     S.pendingExternalRevision='__reload__';
+    pendingRevisionSource='';
     flushPendingExternalRevision();
   };
   async function filmStudioCommit(ops, options) {
@@ -2437,6 +2457,7 @@
       if(r&&r.ok&&r.exists&&r.rev!==S.rev){
         if(S.proposal)markFilmProposalStale(r.rev,'影片已被外部修改。旧 AI 提案仍可查看或拒绝，但不能预览/应用。');
         S.pendingExternalRevision=r.rev;
+        pendingRevisionSource='external_file';
         flushPendingExternalRevision();
       }
       else if(r&&!r.ok&&r.exists===true){
@@ -3608,11 +3629,14 @@ window.filmStudioCopyClips=function(){
           S.broken=false;
           if(data.revision&&data.revision!==S.rev){
             if(S.proposal)markFilmProposalStale(data.revision,'影片已被外部修改。旧 AI 提案仍可查看或拒绝，但不能预览/应用。');
-            S.pendingExternalRevision=data.revision;flushPendingExternalRevision();
+            S.pendingExternalRevision=data.revision;
+            pendingRevisionSource=data.source||'external_file';
+            flushPendingExternalRevision();
           }
         }else if(packet.event==='film'&&data.phase==='revision_changed'&&S.open&&data.revision&&data.revision!==S.rev){
           if(S.proposal)markFilmProposalStale(data.revision,'影片 revision 已变化。旧 AI 提案仍可查看或拒绝，但不能预览/应用。');
           S.pendingExternalRevision=data.revision;
+          pendingRevisionSource=data.source||'unknown';
           flushPendingExternalRevision();
         }else if(packet.event==='film_ai'&&S.open&&data.project_id===S.projectId&&data.phase==='planning'){
           showStatus('AI 正在分析影片与编辑约束……');

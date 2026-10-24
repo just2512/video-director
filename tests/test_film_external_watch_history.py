@@ -46,6 +46,7 @@ def test_external_agent_edit_enters_shared_history_and_can_undo_redo(tmp_path, m
     assert entry["after"] == external
     assert entry["before_rev"] == initial["rev"]
     assert entry["after_rev"] == fd.revision_of(external)
+    assert entry["source"] == "external_file"
     assert entry["ops"] == [{"op": "external_file", "source": "external_file"}]
     assert events == [("film", {
         "phase": "revision_changed",
@@ -75,12 +76,13 @@ def test_watcher_does_not_duplicate_an_edit_already_recorded_by_studio_api(tmp_p
 
     fd.edit_project_film(project_id, initial["rev"], [
         {"op": "set", "clip": "clip", "field": "title", "value": "Saved by Studio"},
-    ])
+    ], source="studio")
     _poll_changed_file(watcher)
 
     history = fd._history_read(project_id)
     assert len(history["past"]) == 1
     assert history["past"][0]["ops"][0]["op"] == "set"
+    assert history["past"][0]["source"] == "studio"
     assert events == []
 
 

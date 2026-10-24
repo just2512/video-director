@@ -50,6 +50,7 @@
 - React 提案面板同时接收当前 `FilmStore` revision 与提案 `baseRevision`；二者不一致时显示过期提示并禁用预览/应用，保留拒绝操作。服务端 `apply-proposal` revision gate 仍是最终安全边界，前端禁用按钮不替代服务端校验。
 
 - 片段右键菜单由 React 的单一 Studio root 渲染；复制、重复、粘贴、切分、删除、波纹删除和 Inspector 仍使用共享命令桥，原生 DOM 菜单仅留给无 bundle fallback。菜单开关不写入 FilmDocument revision。
+- FilmDocument 历史在 operation payload 之外记录顶层 `source`（Studio、素材插入、AI 提案、CLI 或外部文件）。Studio 在成功载入 watcher 检测到的外部 revision 后显示来源标签，避免用户只知道 revision 改变却不知道是谁写入。
 - `#fs-timeline` 是 React Portal 宿主时，迁移页或文档错误页不能直接改写其子树。切换到 legacy 占位页前先卸载 React 时间线；恢复有效 FilmDocument 时，仅当 React surface 确认未挂载后，清理遗留占位内容并重新挂载，避免 React fiber 仍持有旧节点而浏览器 DOM 已被清空。
 
 - 真实 Chromium 回归还覆盖包络手势的 pointercancel：Store 中的活动上下文只允许 clip/pointer ID、数值矩形、关键帧数值快照和状态字段；取消后上下文/预览都必须清空，FilmDocument revision 和 edit 请求数不变。

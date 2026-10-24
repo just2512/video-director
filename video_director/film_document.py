@@ -2547,6 +2547,7 @@ def record_external_film_revision(
     pid = validate_project_id(project_id)
     if not isinstance(before_text, str) or not isinstance(after_text, str):
         return {"status": "invalid_snapshot"}
+    source_label = str(source or "external_file").strip()[:80] or "external_file"
     before_revision = revision_of(before_text)
     after_revision = revision_of(after_text)
     if before_revision == after_revision:
@@ -2604,12 +2605,14 @@ def record_external_film_revision(
                 past.append({
                     "before": last_text, "after": before_text,
                     "before_rev": last_revision, "after_rev": before_revision,
-                    "ops": [{"op": "external_reconcile", "source": str(source)[:80]}],
+                    "source": source_label,
+                    "ops": [{"op": "external_reconcile", "source": source_label}],
                 })
         past.append({
             "before": before_text, "after": after_text,
             "before_rev": before_revision, "after_rev": after_revision,
-            "ops": [{"op": "external_file", "source": str(source)[:80]}],
+            "source": source_label,
+            "ops": [{"op": "external_file", "source": source_label}],
         })
         history["past"] = past[-200:]
         history["future"] = []
@@ -3053,8 +3056,12 @@ def _validate_slip_source_bounds(project_id: str, doc: dict, normalized_ops: lis
             )
 
 
-def edit_project_film(project_id: str, base: str | None, ops: list[dict], *, require_base: bool = False) -> dict:
+def edit_project_film(
+    project_id: str, base: str | None, ops: list[dict], *,
+    require_base: bool = False, source: str = "api",
+) -> dict:
     pid = validate_project_id(project_id)
+    source_label = str(source or "api").strip()[:80] or "api"
     with project_lock(pid):
         current = read_project_film(pid)
         if not current["exists"]:
@@ -3072,13 +3079,14 @@ def edit_project_film(project_id: str, base: str | None, ops: list[dict], *, req
         history = _history_read(pid)
         history["past"].append({"before": current["text"], "after": updated,
                                 "before_rev": current["rev"], "after_rev": revision_of(updated),
-                                "ops": normalized})
+                                "source": source_label, "ops": normalized})
         history["past"] = history["past"][-200:]
         history["future"] = []
         _write_atomic(_film_path(pid), updated)
         _history_write(pid, history)
         return {"ok": True, "project_id": pid, "rev": revision_of(updated), "base": base,
-                "rebased": bool(base and base != current["rev"]), "document": doc, "ops": normalized}
+                "rebased": bool(base and base != current["rev"]), "document": doc,
+                "ops": normalized, "source": source_label}
 
 
 def undo_redo_project_film(project_id: str, base: str | None, action: str) -> dict:

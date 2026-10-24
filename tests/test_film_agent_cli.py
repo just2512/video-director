@@ -75,6 +75,8 @@ def test_agent_cli_edit_is_revision_guarded_and_enters_shared_history(tmp_path, 
     assert len(history["past"]) == 1
     assert history["past"][0]["before_rev"] == before["rev"]
     assert history["past"][0]["after_rev"] == committed_revision
+    assert history["past"][0]["source"] == "cli"
+    assert result["source"] == "cli"
 
 
 def test_agent_cli_diff_from_after_revision_uses_the_after_snapshot(tmp_path, monkeypatch):
