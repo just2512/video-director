@@ -25838,6 +25838,9 @@
     const activeDragIds = useFilmStoreField("timelineActiveDragIds");
     const envelopePreview = useFilmStoreField("timelineEnvelopePreview");
     const waveformSources = useFilmStoreField("timelineWaveformSources");
+    const envelopeMode = useFilmStoreField("envelopeMode");
+    const slideMode = useFilmStoreField("slideMode");
+    const slipMode = useFilmStoreField("slipMode");
     const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
     const playhead = useFilmStoreField("playhead");
     const duration = useFilmStoreField("duration");
@@ -25904,8 +25907,11 @@
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "div",
       {
-        className: "fs-react-timeline-surface",
+        className: "fs-react-timeline-surface" + (envelopeMode ? " fs-envelope-mode" : "") + (slideMode ? " fs-slide-mode" : "") + (slipMode ? " fs-slip-mode" : ""),
         "data-react-timeline-surface": "true",
+        "data-envelope-mode": envelopeMode ? "true" : "false",
+        "data-slide-mode": slideMode ? "true" : "false",
+        "data-slip-mode": slipMode ? "true" : "false",
         style: { width: model.totalWidth, position: "relative" },
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-ruler", style: { width: model.totalWidth }, children: [
