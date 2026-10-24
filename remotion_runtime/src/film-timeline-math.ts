@@ -135,7 +135,7 @@ export const filmTimelineMath: FilmTimelineMathBridge = {
     const end = finiteOr(originalEnd, start + 0.08);
     const rawTarget = end + finiteOr(rawDeltaSeconds, 0);
     const candidate = snapEnabled
-      ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels)
+      ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels, frameRate)
       : null;
     const proposed = candidate ? candidate.at : rawTarget;
     const target = Math.max(start + 0.04, Math.min(end - 0.04, proposed));
@@ -161,7 +161,7 @@ export const filmTimelineMath: FilmTimelineMathBridge = {
     const anchor = finiteOr(centerAt, 0);
     const rawDelta = finiteOr(rawDeltaSeconds, 0);
     const candidate = snapEnabled
-      ? filmTimelineMath.resolveSnapCandidate(anchor + rawDelta, candidates, pixelsPerSecond, thresholdPixels)
+      ? filmTimelineMath.resolveSnapCandidate(anchor + rawDelta, candidates, pixelsPerSecond, thresholdPixels, frameRate)
       : null;
     const proposedDelta = candidate ? candidate.at - anchor : rawDelta;
     const minimumDelta = -Math.min(
