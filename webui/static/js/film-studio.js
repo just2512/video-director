@@ -2551,6 +2551,12 @@
         opacityInput=$('fs-element-opacity'),fontWeightInput=$('fs-element-font-weight'),textAlignInput=$('fs-element-text-align'),
         lineHeightInput=$('fs-element-line-height'),letterSpacingInput=$('fs-element-letter-spacing'),
         fontInput=$('fs-element-font-size'),rotateInput=$('fs-element-rotate');
+    if(!validEditableElementCssLength(lineHeightInput&&lineHeightInput.value,'lineHeight')){
+      showStatus('行高必须是有效 CSS 长度值，且大于 0。','error');return;
+    }
+    if(!validEditableElementCssLength(letterSpacingInput&&letterSpacingInput.value,'letterSpacing')){
+      showStatus('字间距必须是有效 CSS 长度值，且绝对值不能超过 1000。','error');return;
+    }
     var values=[leftInput,topInput,widthInput,heightInput,fontInput,rotateInput,opacityInput,fontWeightInput].filter(Boolean).map(function(el){return Number(el.value);});
     if(values.some(function(value){return !Number.isFinite(value);})
       ||!widthInput||!heightInput||!fontInput||!rotateInput||!backgroundEnabledInput||!backgroundColorInput||!opacityInput||!fontWeightInput||!textAlignInput||!lineHeightInput||!letterSpacingInput
@@ -2564,7 +2570,8 @@
       ||!/^#[0-9a-f]{6}$/i.test(backgroundColorInput.value)){
       showStatus('画布坐标、尺寸、字号或旋转角度超出有效范围。','error');return;
     }
-    var rect=selected.localRect||selected.rect||{},styles=selected.styles||{},elementStyle={};
+    var rect=selected.localRect||selected.rect||{},styles=selected.styles||{},elementStyle={},
+        rotateMatch=String(styles.rotate||'').match(/-?\d+(?:\.\d+)?/);
     var nextLeft=Number(leftInput.value),nextTop=Number(topInput.value),nextWidth=Number(widthInput.value),nextHeight=Number(heightInput.value);
     var leftChanged=Math.abs(nextLeft-num(rect.x,0))>0.11,topChanged=Math.abs(nextTop-num(rect.y,0))>0.11;
     var widthChanged=Math.abs(nextWidth-num(rect.width,1))>0.11,heightChanged=Math.abs(nextHeight-num(rect.height,1))>0.11;

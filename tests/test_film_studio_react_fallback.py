@@ -22,6 +22,9 @@ def test_canvas_inspector_has_functional_unbundled_fallback():
     assert "data-fallback-kf-point" in studio
     assert "data-fallback-kf-add" in studio
     assert "data-fallback-kf-remove" in studio
+    assert "rotateMatch=String(styles.rotate||'').match" in studio
+    assert "行高必须是有效 CSS 长度值，且大于 0。" in studio
+    assert "字间距必须是有效 CSS 长度值，且绝对值不能超过 1000。" in studio
     assert "fallbackKeyframeCurve" in studio
     assert "function normalizeBezier(raw)" in studio
     assert "function normalizeWindow(raw)" in studio
