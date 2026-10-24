@@ -249,6 +249,164 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 )
                 assert abs(float(frame_clip_undone["attrs"]["at"]) - float(frame_clip_before["attrs"]["at"])) < 0.001
 
+                # Trim-end must use the same fps fallback as move when no explicit snap target is near.
+                trim_handle = page.locator('#fs-timeline .fs-clip[data-clip="clip-right"] .fs-trim-handle[data-trim="end"]')
+                trim_box = trim_handle.bounding_box()
+                assert trim_box, "clip-right trim-end handle unavailable"
+                trim_before = fd.read_project_film(project_id)
+                trim_before_clip = next(
+                    item for track in trim_before["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-right"
+                )
+                trim_end_before = fd.clip_end(trim_before_clip)
+                trim_width_before = page.locator('#fs-timeline .fs-clip[data-clip="clip-right"]').evaluate("(node) => node.style.width")
+                trim_request_count = len(film_edit_requests)
+                trim_x = trim_box["x"] + trim_box["width"] / 2
+                trim_y = trim_box["y"] + trim_box["height"] / 2
+                page.mouse.move(trim_x, trim_y)
+                page.mouse.down()
+                page.mouse.move(trim_x - 13, trim_y, steps=6)
+                page.wait_for_function(
+                    """oldWidth => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const guide = state?.timelineSnapGuide;
+                      const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-right"]');
+                      const preview = state?.timelineGesturePreview?.['clip-right'];
+                      const fps = Number(state?.film?.fps || 30);
+                      return guide?.kind === '帧' && preview?.width != null &&
+                        node?.dataset.reactGesturePreview === 'true' && node.style.width !== oldWidth &&
+                        Math.abs(guide.at * fps - Math.round(guide.at * fps)) < 0.00001;
+                    }""",
+                    arg=trim_width_before,
+                    timeout=5000,
+                )
+                trim_preview = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return {guide:state?.timelineSnapGuide,fps:Number(state?.film?.fps || 30)};
+                }""")
+                assert fd.read_project_film(project_id)["rev"] == trim_before["rev"]
+                assert len(film_edit_requests) == trim_request_count
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null &&
+                    state?.timelineGesturePreview === null &&
+                    state?.timelineSnapGuide === null;
+                }""", timeout=10000)
+                trim_after = fd.read_project_film(project_id)
+                trim_after_clip = next(
+                    item for track in trim_after["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-right"
+                )
+                assert abs(fd.clip_end(trim_after_clip) - trim_preview["guide"]["at"]) < 0.001, trim_after_clip
+                assert abs(fd.clip_end(trim_after_clip) * trim_preview["fps"] - round(fd.clip_end(trim_after_clip) * trim_preview["fps"])) < 0.00001
+                trim_requests = film_edit_requests[trim_request_count:]
+                assert len(trim_requests) == 1, trim_requests
+                assert len(trim_requests[0].get("ops") or []) == 1, trim_requests
+                assert trim_requests[0]["ops"][0].get("op") == "trim", trim_requests
+                assert trim_requests[0]["ops"][0].get("edge") == "end", trim_requests
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""expectedEnd => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const clips = (state?.film?.tracks || []).flatMap(track => track.clips || []);
+                  const clip = clips.find(item => item.id === 'clip-right');
+                  return !!clip && Math.abs(Number(clip.end) - expectedEnd) < 0.001;
+                }""", arg=trim_end_before, timeout=10000)
+                trim_undone = fd.read_project_film(project_id)
+                trim_undone_clip = next(
+                    item for track in trim_undone["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-right"
+                )
+                assert abs(fd.clip_end(trim_undone_clip) - trim_end_before) < 0.001
+
+                # Slide also falls back to the frame grid when the explicit neighbours are outside the 8 px snap zone.
+                slide_button = page.locator('#fs-react-timeline-toolbar [data-film-action="slide-mode"]')
+                if slide_button.get_attribute("aria-pressed") == "true":
+                    slide_button.click()
+                    page.wait_for_function("""() => document.querySelector('#fs-react-timeline-toolbar [data-film-action="slide-mode"]')?.getAttribute('aria-pressed') === 'false'""", timeout=5000)
+                slide_button.click()
+                page.wait_for_function("""() => document.querySelector('#fs-react-timeline-toolbar [data-film-action="slide-mode"]')?.getAttribute('aria-pressed') === 'true'""", timeout=5000)
+                slide_before = fd.read_project_film(project_id)
+                slide_clips_before = {
+                    item["id"]: item
+                    for track in slide_before["doc"]["tracks"]
+                    for item in track["clips"]
+                }
+                slide_geometry_before = page.evaluate("""() => Object.fromEntries(
+                  ['clip-left','clip-center','clip-right'].map(id => {
+                    const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]');
+                    return [id,{left:node?.style.left,width:node?.style.width}];
+                  })
+                )""")
+                slide_request_count = len(film_edit_requests)
+                slide_center = page.locator('#fs-timeline .fs-clip[data-clip="clip-center"]')
+                slide_box = slide_center.bounding_box()
+                assert slide_box, "clip-center unavailable for frame-slide test"
+                slide_x = slide_box["x"] + slide_box["width"] / 2
+                slide_y = slide_box["y"] + slide_box["height"] / 2
+                page.mouse.move(slide_x, slide_y)
+                page.mouse.down()
+                page.mouse.move(slide_x + 13, slide_y, steps=6)
+                page.wait_for_function("""before => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const guide = state?.timelineSnapGuide;
+                  const preview = state?.timelineGesturePreview || {};
+                  const clips = ['clip-left','clip-center','clip-right'].map(id =>
+                    document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]'));
+                  const fps = Number(state?.film?.fps || 30);
+                  return guide?.kind === '帧' && preview['clip-left']?.width != null &&
+                    preview['clip-center']?.left != null && preview['clip-right']?.left != null &&
+                    clips.every((node,index) => node?.dataset.reactGesturePreview === 'true' &&
+                      (node.style.left !== before[['clip-left','clip-center','clip-right'][index]].left ||
+                       node.style.width !== before[['clip-left','clip-center','clip-right'][index]].width)) &&
+                    Math.abs(guide.at * fps - Math.round(guide.at * fps)) < 0.00001;
+                }""", arg=slide_geometry_before, timeout=5000)
+                slide_preview = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return {guide:state?.timelineSnapGuide,fps:Number(state?.film?.fps || 30)};
+                }""")
+                assert fd.read_project_film(project_id)["rev"] == slide_before["rev"]
+                assert len(film_edit_requests) == slide_request_count
+                page.mouse.up()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineGestureContext === null &&
+                    state?.timelineGesturePreview === null &&
+                    state?.timelineSnapGuide === null;
+                }""", timeout=10000)
+                slide_after = fd.read_project_film(project_id)
+                slide_clips_after = {
+                    item["id"]: item
+                    for track in slide_after["doc"]["tracks"]
+                    for item in track["clips"]
+                }
+                assert abs(float(slide_clips_after["clip-center"]["attrs"]["at"]) - slide_preview["guide"]["at"]) < 0.001
+                assert abs(float(slide_clips_after["clip-left"]["attrs"]["at"]) - float(slide_clips_before["clip-left"]["attrs"]["at"])) < 0.001
+                assert abs(fd.clip_end(slide_clips_after["clip-left"]) - slide_preview["guide"]["at"]) < 0.001
+                assert abs(fd.clip_end(slide_clips_after["clip-right"]) - fd.clip_end(slide_clips_before["clip-right"])) < 0.001
+                assert abs(float(slide_clips_after["clip-center"]["attrs"]["at"]) * slide_preview["fps"] - round(float(slide_clips_after["clip-center"]["attrs"]["at"]) * slide_preview["fps"])) < 0.00001
+                slide_requests = film_edit_requests[slide_request_count:]
+                assert len(slide_requests) == 1, slide_requests
+                assert len(slide_requests[0].get("ops") or []) == 1, slide_requests
+                assert slide_requests[0]["ops"][0].get("op") == "slide", slide_requests
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""expected => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const clips = (state?.film?.tracks || []).flatMap(track => track.clips || []);
+                  const center = clips.find(item => item.id === 'clip-center');
+                  return !!center && Math.abs(Number(center.at) - expected) < 0.001;
+                }""", arg=float(slide_clips_before["clip-center"]["attrs"]["at"]), timeout=10000)
+                slide_undone = fd.read_project_film(project_id)
+                slide_clips_undone = {
+                    item["id"]: item
+                    for track in slide_undone["doc"]["tracks"]
+                    for item in track["clips"]
+                }
+                for clip_id in ("clip-left","clip-center","clip-right"):
+                    assert slide_clips_undone[clip_id]["attrs"] == slide_clips_before[clip_id]["attrs"], clip_id
+                slide_button.click()
+                page.wait_for_function("""() => document.querySelector('#fs-react-timeline-toolbar [data-film-action="slide-mode"]')?.getAttribute('aria-pressed') === 'false'""", timeout=5000)
+
                 # Ctrl-drag the left clip's end through a shared-source cut to 6s,
                 # where the separate audio clip supplies the snap candidate.
                 left_end = page.locator('#fs-timeline .fs-clip[data-clip="clip-left"] .fs-trim-handle[data-trim="end"]')
