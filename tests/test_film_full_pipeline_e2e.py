@@ -110,7 +110,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
                                "type": "bezier", "x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.9
                            }},
                        ],
-                   }], separators=(",", ":"))}},
+                   }], separators=(",", ":"))}}},
         {"op": "insert", "track_id": "video-track", "clip": {"id": "footage", "tag": "video",
          "attrs": {"src": "assets/footage.webm#t=0,1", "at": "0",
                    "style": "left:0px;top:0px;width:160px;height:90px"}}},
