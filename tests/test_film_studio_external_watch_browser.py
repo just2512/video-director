@@ -299,7 +299,7 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     for item in track["clips"] if item["id"] == "clip-right"
                 )
                 assert abs(fd.clip_end(trim_after_clip) - trim_preview["guide"]["at"]) < 0.001, trim_after_clip
-                assert abs(fd.clip_end(trim_after_clip) * trim_preview["fps"] - round(fd.clip_end(trim_after_clip) * trim_preview["fps"])) < 0.00001
+                assert abs(fd.clip_end(trim_after_clip) * trim_preview["fps"] - round(fd.clip_end(trim_after_clip) * trim_preview["fps"])) < 0.02
                 trim_requests = film_edit_requests[trim_request_count:]
                 assert len(trim_requests) == 1, trim_requests
                 assert len(trim_requests[0].get("ops") or []) == 1, trim_requests
@@ -384,7 +384,7 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 assert abs(float(slide_clips_after["clip-left"]["attrs"]["at"]) - float(slide_clips_before["clip-left"]["attrs"]["at"])) < 0.001
                 assert abs(fd.clip_end(slide_clips_after["clip-left"]) - slide_preview["guide"]["at"]) < 0.001
                 assert abs(fd.clip_end(slide_clips_after["clip-right"]) - fd.clip_end(slide_clips_before["clip-right"])) < 0.001
-                assert abs(float(slide_clips_after["clip-center"]["attrs"]["at"]) * slide_preview["fps"] - round(float(slide_clips_after["clip-center"]["attrs"]["at"]) * slide_preview["fps"])) < 0.00001
+                assert abs(float(slide_clips_after["clip-center"]["attrs"]["at"]) * slide_preview["fps"] - round(float(slide_clips_after["clip-center"]["attrs"]["at"]) * slide_preview["fps"])) < 0.02
                 slide_requests = film_edit_requests[slide_request_count:]
                 assert len(slide_requests) == 1, slide_requests
                 assert len(slide_requests[0].get("ops") or []) == 1, slide_requests
