@@ -45,6 +45,8 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
         "VD_LLM_LIVE_STREAM_TEST=1 requires VD_LLM_API_KEY; "
         "the key is not printed or included in test diagnostics"
     )
+    base_url = os.environ.get("VD_LLM_BASE_URL", "").strip() or None
+    model = os.environ.get("VD_LLM_MODEL", "").strip() or None
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
 
@@ -52,6 +54,9 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
 
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
+    # Pin this smoke test to the explicit env endpoint. Without this override,
+    # model_config.json has higher priority and the test could silently hit another provider.
+    web_server.vd_llm.set_llm_config(api_key, base_url, model)
 
     project_id = "film-live-stream-" + uuid.uuid4().hex[:16]
     project_root = storage_root / project_id
@@ -89,6 +94,7 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
             response = urllib.request.urlopen(request, timeout=240)
         except urllib.error.HTTPError as error:
             detail = error.read(600).decode("utf-8", errors="replace")
+            detail = detail.replace(api_key, "[redacted]")
             pytest.fail(
                 f"live Film AI streaming endpoint returned HTTP {error.code}: {detail}; "
                 "verify the configured provider and proxy without printing credentials"
@@ -171,8 +177,16 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
     }
 
     proposal = result.get("proposal")
-    if isinstance(proposal, dict):
-        assert proposal.get("base_revision") == before["rev"], "proposal must use the exact requested base revision"
+    assert isinstance(proposal, dict), {
+        "result_keys": sorted(result.keys()),
+        "message": result.get("message"),
+        "hint": "The live test expects a validated proposal, not a no-op response.",
+    }
+    assert proposal.get("base_revision") == before["rev"], "proposal must use the exact requested base revision"
+    operations = proposal.get("operations") or []
+    assert len(operations) == 1, operations
+    assert operations[0].get("op") == "move" and operations[0].get("clip") == "clip-b", operations
+    assert abs(float(operations[0].get("at", -1)) - 8.5) < 0.001, operations
     after = fd.read_project_film(project_id)
     assert after["rev"] == before["rev"], "AI proposal generation must not mutate FilmDocument revision"
     assert film_path.read_bytes() == before_bytes, "AI proposal generation must not rewrite film.html"
