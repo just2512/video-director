@@ -333,15 +333,13 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 expected_right_at = float(slide_clips_before[slide_right_id]["attrs"]["at"]) + slide_delta
                 expected_source_shift = 2.0 * slide_delta
 
-                # The shared cut moves by the same speed-adjusted source delta on both adjacent clips.
+                # Slide preserves the middle clip's source window; the neighboring source endpoints move.
                 assert abs(left_in - before_left_in) < 0.001
                 assert abs(left_out - (before_left_out + expected_source_shift)) < 0.001, clips["clip-a"]
-                assert abs(middle_in - (before_middle_in + expected_source_shift)) < 0.001, clips[right_id]
-                assert abs(middle_out - (before_middle_out + expected_source_shift)) < 0.001, clips[right_id]
+                assert abs(middle_in - before_middle_in) < 0.001, clips[right_id]
+                assert abs(middle_out - before_middle_out) < 0.001, clips[right_id]
                 assert abs(right_in - (before_right_in + expected_source_shift)) < 0.001, clips[slide_right_id]
                 assert abs(right_out - before_right_out) < 0.001, clips[slide_right_id]
-                assert abs(left_out - middle_in) < 0.001, {"left":left_out,"middle":middle_in}
-                assert abs(middle_out - right_in) < 0.001, {"middle":middle_out,"right":right_in}
                 assert abs(float(clips[right_id]["attrs"]["at"]) - expected_middle_at) < 0.001
                 assert abs(float(clips[slide_right_id]["attrs"]["at"]) - expected_right_at) < 0.001
                 assert abs(float(clips[right_id]["attrs"]["at"]) - float(slide_preview["guide"]["at"])) < 0.001
