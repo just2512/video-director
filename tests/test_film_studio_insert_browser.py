@@ -563,7 +563,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   return !target && !!later && Number(later.attrs.at) === 3
                     && !!audio && String(audio.attrs.src).endsWith('#t=0,6')
                     && Number(audio.attrs.at) === 0;
-                }""", project_id, timeout=10000)
+                }""", arg=project_id, timeout=10000)
                 assert len(edit_requests) == remove_count + 1, edit_requests[remove_count:]
                 remove_ops = edit_requests[-1].get("ops") or []
                 assert len(remove_ops) == 1 and remove_ops[0].get("op") == "remove", remove_ops
@@ -576,7 +576,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   const doc = await response.json();
                   return (doc.tracks || []).some(track =>
                     (track.clips || []).some(clip => clip.id === 'video-target'));
-                }""", project_id, timeout=10000)
+                }""", arg=project_id, timeout=10000)
                 assert film_path.read_text(encoding="utf-8") == initial_text
 
                 target = page.locator('#fs-timeline .fs-clip[data-clip="video-target"]')
@@ -604,7 +604,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                     && Number(audioLeft.attrs.at) === 0
                     && !!audioRight && String(audioRight.attrs.src).endsWith('#t=3,6')
                     && Math.abs(Number(audioRight.attrs.at) - 2) < 0.001;
-                }""", project_id, timeout=10000)
+                }""", arg=project_id, timeout=10000)
                 assert len(edit_requests) == ripple_count + 1, edit_requests[ripple_count:]
                 ripple_ops = edit_requests[-1].get("ops") or []
                 assert len(ripple_ops) == 1, ripple_ops
@@ -632,7 +632,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
                   return clips.some(clip => clip.id === 'video-target')
                     && clips.some(clip => clip.id === 'audio-long' && String(clip.attrs.src).endsWith('#t=0,6'));
-                }""", project_id, timeout=10000)
+                }""", arg=project_id, timeout=10000)
                 assert film_path.read_text(encoding="utf-8") == before_ripple_text
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
