@@ -14,6 +14,7 @@ import {
   type FilmStudioTimelineEnvelopePreview,
   type FilmStudioTimelineWaveformSource,
   type FilmStudioTimelineWaveformSources,
+  type FilmStudioTimelineContextMenu,
 } from "./film-store";
 import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
@@ -236,7 +237,7 @@ type FilmTimelineSurfaceModel = {
   ticks: Array<{at:number;label:string;left:number}>;
   tracks: FilmTimelineSurfaceTrack[];
 };
-type FilmTimelineContextMenu = {clipId: string; x: number; y: number};
+type FilmTimelineContextMenu = FilmStudioTimelineContextMenu;
 type FilmTimelineGesturePreviewGeometry = FilmStudioTimelineGesturePreviewGeometry;
 type FilmTimelineGesturePreview = FilmStudioTimelineGesturePreview;
 type FilmTimelineSnapGuide = FilmStudioTimelineSnapGuide;
@@ -1765,7 +1766,6 @@ type StudioReactState = {
   clipInspectorEmptyMessage?: string;
   canvasInspectorMounted: boolean;
   canvasElement: CanvasElementSelection | null;
-  timelineContextMenu: FilmTimelineContextMenu | null;
 };
 
 const studioReactState: StudioReactState = {
@@ -1780,7 +1780,6 @@ const studioReactState: StudioReactState = {
   clipInspectorEmptyMessage: undefined,
   canvasInspectorMounted: false,
   canvasElement: null,
-  timelineContextMenu: null,
 };
 let studioRoot: Root | null = null;
 let studioRootMount: HTMLElement | null = null;
@@ -1820,6 +1819,7 @@ const FilmStoreDiagnostics: React.FC = () => {
 };
 
 const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+  const timelineContextMenu = useFilmStoreField("timelineContextMenu");
   const clip = state.clipInspector;
   const clipKey = clip
     ? clip.id + ":" + JSON.stringify(clip.attrs || {})
@@ -1842,7 +1842,7 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
         "fs-react-canvas-inspector",
         element ? <CanvasInspector key={element.clipId + "::" + element.selector} element={element} /> : null
       ) : null}
-      {state.timelineContextMenu ? <StudioTimelineContextMenu model={state.timelineContextMenu} /> : null}
+      {timelineContextMenu ? <StudioTimelineContextMenu model={timelineContextMenu} /> : null}
     </>
   );
 };
@@ -1894,21 +1894,22 @@ window.filmStudioReactTimeline = {
     filmStore.setField("timelineDropTarget", null);
     filmStore.setField("timelineActiveDragIds", null);
     filmStore.setField("timelineEnvelopePreview", null);
-    if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
-      renderStudioReactOwner({timeline:null,timelineContextMenu:null});
+    filmStore.setField("timelineContextMenu", null);
+    if (studioReactState.timeline !== null) {
+      renderStudioReactOwner({timeline:null});
     }
   },
   hasSurface() {
     return studioReactState.timeline !== null;
   },
   openContextMenu(model) {
-    renderStudioReactOwner({timelineContextMenu:model});
+    filmStore.setField("timelineContextMenu", model);
   },
   closeContextMenu() {
-    if (studioReactState.timelineContextMenu !== null) renderStudioReactOwner({timelineContextMenu:null});
+    if (filmStore.getField("timelineContextMenu") !== null) filmStore.setField("timelineContextMenu", null);
   },
   isContextMenuOpen() {
-    return studioReactState.timelineContextMenu !== null;
+    return filmStore.getField("timelineContextMenu") !== null;
   },
 };
 
