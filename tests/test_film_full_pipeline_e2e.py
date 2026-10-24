@@ -219,7 +219,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     # Compare the real browser-runtime frame from the look contact sheet at t=0.5
     # with frame 1 (t=0.5 at 2 fps) extracted from the encoded MP4.
     half_frame_path = tmp_path / "final-frame-half.png"
-    generate("-i", str(output), "-vf", r"select=eq(n\\,1)", "-vsync", "0",
+    generate("-i", str(output), "-vf", "select=eq(n\\,1)", "-vsync", "0",
              "-frames:v", "1", "-y", str(half_frame_path))
     with Image.open(look_sheet_path) as contact_sheet_source:
         contact_sheet = contact_sheet_source.convert("RGB")
