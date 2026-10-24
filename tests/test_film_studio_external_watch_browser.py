@@ -7,6 +7,7 @@ import os
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
+from urllib.parse import quote as quote_for_test
 
 from playwright.sync_api import sync_playwright
 
@@ -24,6 +25,172 @@ SAMPLE = '''<!doctype html>
 <audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio>
 </section>
 </body></html>'''
+
+
+
+def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(tmp_path, monkeypatch):
+    """A stale but completed export stays accessible and is not mislabeled as current."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-render-result-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    render_requests: list[dict] = []
+    status_requests = 0
+    run_id = "render-result-ui-contract"
+    mp4_path = str(project_root / "film-final-pinned-revision.mp4")
+    qc_path = str(project_root / "film-qc-pinned-revision.json")
+
+    def handle_render(route):
+        payload = json.loads(route.request.post_data or "{}")
+        render_requests.append(payload)
+        route.fulfill(
+            status=202,
+            content_type="application/json",
+            body=json.dumps({
+                "ok": True,
+                "run_id": run_id,
+                "project_id": project_id,
+                "expected_revision": before["rev"],
+            }),
+        )
+
+    def handle_workflow(route):
+        nonlocal status_requests
+        status_requests += 1
+        if status_requests == 1:
+            response = {
+                "run_id": run_id,
+                "status": "RUNNING",
+                "current": "render",
+                "result": {},
+            }
+        else:
+            response = {
+                "run_id": run_id,
+                "status": "COMPLETED",
+                "current": None,
+                "result": {
+                    "ok": True,
+                    "verified": True,
+                    "mp4_path": mp4_path,
+                    "qc_report_path": qc_path,
+                    "rendered_revision": before["rev"],
+                    "current_revision": "external-revision-after-render",
+                    "current": False,
+                    "width": 1920,
+                    "height": 1080,
+                    "duration": 5.0,
+                    "frame_count": 150,
+                    "qc_status": "PASS",
+                    "determinism_status": "PASS",
+                    "audio_signal_status": "AUDIBLE",
+                    "warnings": ["导出期间影片文档已变化"],
+                },
+            }
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(response, ensure_ascii=False),
+        )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.route("**/api/editor/film/render", handle_render)
+            page.route("**/api/workflows/" + run_id, handle_workflow)
+            try:
+                page.set_default_navigation_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); return !!select && select.options.length>0; }"
+                )
+                page.evaluate("""pid => {
+                  const select=document.querySelector('#editor-project');
+                  let option=[...select.options].find(item=>item.value===pid);
+                  if(!option){option=new Option(pid,pid);select.add(option);}
+                  select.value=pid;
+                  select.dispatchEvent(new Event('change',{bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
+
+                render_button = page.locator('[data-film-action="render"]:visible')
+                assert render_button.count() == 1
+                render_button.click()
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getField('rendering') === true",
+                    timeout=5000,
+                )
+                page.wait_for_function(
+                    """() => [...document.querySelectorAll('[data-film-action="render"]')]
+                      .some(button => button.getClientRects().length > 0 && button.disabled)""",
+                    timeout=5_000,
+                )
+                assert render_button.is_disabled(), "React toolbar must disable a duplicate export while rendering"
+                page.locator("#fs-render-result").wait_for(state="visible", timeout=10_000)
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getField('rendering') === false",
+                    timeout=5000,
+                )
+
+                assert render_requests == [{
+                    "project_id": project_id,
+                    "expected_revision": before["rev"],
+                }], render_requests
+                assert status_requests >= 2, status_requests
+                assert render_button.is_enabled()
+
+                result_text = page.locator("#fs-render-result-text").inner_text()
+                assert "1920×1080" in result_text, result_text
+                assert "5.00 秒" in result_text, result_text
+                assert before["rev"] in result_text, result_text
+                assert "QC PASS" in result_text, result_text
+
+                mp4_link = page.locator("#fs-render-download")
+                assert mp4_link.is_visible()
+                assert mp4_link.inner_text() == "打开该版本 MP4（文档已更新）"
+                assert mp4_link.get_attribute("href") == "/file?path=" + quote_for_test(mp4_path, safe="")
+
+                qc_link = page.locator("#fs-qc-download")
+                assert qc_link.is_visible()
+                assert qc_link.inner_text() == "打开 QC 记录（PASS）"
+                assert qc_link.get_attribute("href") == "/file?path=" + quote_for_test(qc_path, safe="")
+
+                alert = page.locator("#film-studio-alert").inner_text()
+                assert "导出期间影片文档发生变化" in alert, alert
+                assert before["rev"] in alert, alert
+                assert "不是当前 revision" in alert, alert
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monkeypatch):
@@ -1280,7 +1447,6 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 envelope = page.locator('canvas[data-envelope-clip="audio-1"]')
                 envelope.wait_for(state="visible")
                 # The audio track may be just below the viewport in a tall multi-track Studio.
-                # Scroll it into view before synthetic hit-testing or real mouse coordinates.
                 envelope.scroll_into_view_if_needed()
                 page.wait_for_function(
                     "() => [...document.querySelectorAll('canvas[data-envelope-clip]')].some(node => node.dataset.envelopeClip === 'audio-1' && node.dataset.reactEnvelopePainted === 'true')",
