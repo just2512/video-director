@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -23835,7 +23835,7 @@
   var import_react = __toESM(require_react(), 1);
 
   // ../remotion_runtime/src/film-timeline-math.ts
-  var finiteOr = (value, fallback) => Number.isFinite(value) ? value : fallback;
+  var finiteOr = (value, fallback) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
   var filmTimelineMath = {
     secondsToPixels(seconds, pixelsPerSecond) {
       return finiteOr(seconds, 0) * Math.max(1e-6, finiteOr(pixelsPerSecond, 1));
@@ -23849,7 +23849,7 @@
         pixelsPerSecond
       );
     },
-    resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels) {
+    resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels, frameRate) {
       const target = finiteOr(rawAt, 0);
       const threshold = Math.max(0, finiteOr(thresholdPixels, 0));
       let best = null;
@@ -23862,29 +23862,36 @@
           bestDistance = distance;
         }
       }
-      return best;
+      if (best) return best;
+      const fps = finiteOr(frameRate, 0);
+      if (fps > 0) {
+        const frameAt = Math.max(0, filmTimelineMath.snapToFrame(Math.max(0, target), fps));
+        const frameDistance = Math.abs(filmTimelineMath.secondsToPixels(frameAt - target, pixelsPerSecond));
+        if (frameDistance <= threshold) return { at: frameAt, kind: "\u5E27" };
+      }
+      return null;
     },
-    resolveMoveGesture(minimumStart, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    resolveMoveGesture(minimumStart, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate) {
       const start = Math.max(0, finiteOr(minimumStart, 0));
       const rawAt = Math.max(0, start + finiteOr(rawDeltaSeconds, 0));
-      const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels) : null;
+      const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(rawAt, candidates, pixelsPerSecond, thresholdPixels, frameRate) : null;
       const proposedAt = candidate ? Math.max(0, candidate.at) : rawAt;
       const deltaSeconds = Math.max(-start, proposedAt - start);
       const targetAt = Math.max(0, start + deltaSeconds);
       const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 1e-3 ? candidate : null;
       return { targetAt, deltaSeconds, snapCandidate };
     },
-    resolveTrimStart(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    resolveTrimStart(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate) {
       const start = finiteOr(originalAt, 0);
       const end = finiteOr(originalEnd, start + 0.08);
       const rawTarget = start + finiteOr(rawDeltaSeconds, 0);
-      const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels) : null;
+      const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels, frameRate) : null;
       const proposed = candidate ? candidate.at : rawTarget;
       const target = Math.max(start + 0.04, Math.min(end - 0.04, proposed));
       const snapCandidate = candidate && Math.abs(target - candidate.at) < 1e-3 ? candidate : null;
       return { target, deltaSeconds: target - start, snapCandidate };
     },
-    resolveTrimEnd(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    resolveTrimEnd(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate) {
       const start = finiteOr(originalAt, 0);
       const end = finiteOr(originalEnd, start + 0.08);
       const rawTarget = end + finiteOr(rawDeltaSeconds, 0);
@@ -23894,10 +23901,10 @@
       const snapCandidate = candidate && Math.abs(target - candidate.at) < 1e-3 ? candidate : null;
       return { target, deltaSeconds: target - end, snapCandidate };
     },
-    resolveRollGesture(rightAt, rawDeltaSeconds, leftDuration, rightDuration, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    resolveRollGesture(rightAt, rawDeltaSeconds, leftDuration, rightDuration, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate) {
       const anchor = finiteOr(rightAt, 0);
       const rawDelta = finiteOr(rawDeltaSeconds, 0);
-      const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(anchor + rawDelta, candidates, pixelsPerSecond, thresholdPixels) : null;
+      const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(anchor + rawDelta, candidates, pixelsPerSecond, thresholdPixels, frameRate) : null;
       const proposedDelta = candidate ? candidate.at - anchor : rawDelta;
       const deltaSeconds = Math.max(
         -Math.max(0, finiteOr(leftDuration, 0)) + 0.04,
@@ -23907,7 +23914,7 @@
       const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 1e-3 ? candidate : null;
       return { targetAt, deltaSeconds, snapCandidate };
     },
-    resolveSlideGesture(centerAt, rawDeltaSeconds, leftDuration, centerDuration, rightDuration, candidates, pixelsPerSecond, thresholdPixels, snapEnabled) {
+    resolveSlideGesture(centerAt, rawDeltaSeconds, leftDuration, centerDuration, rightDuration, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate) {
       const anchor = finiteOr(centerAt, 0);
       const rawDelta = finiteOr(rawDeltaSeconds, 0);
       const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(anchor + rawDelta, candidates, pixelsPerSecond, thresholdPixels) : null;
@@ -23925,12 +23932,11 @@
       const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 1e-3 ? candidate : null;
       return { targetAt, deltaSeconds, snapCandidate };
     },
-    resolveSlipGesture(rawDeltaSeconds, playbackSpeed) {
-      return {
-        // Slip offsets the source range by timeline delta scaled by playback rate;
-        // it never alters the clip's timeline start or duration.
-        sourceDeltaSeconds: finiteOr(rawDeltaSeconds, 0) * finiteOr(playbackSpeed, 1)
-      };
+    resolveSlipGesture(rawDeltaSeconds, playbackSpeed, snapEnabled, frameRate) {
+      let sourceDeltaSeconds = finiteOr(rawDeltaSeconds, 0) * finiteOr(playbackSpeed, 1);
+      const fps = finiteOr(frameRate, 0);
+      if (snapEnabled && fps > 0) sourceDeltaSeconds = filmTimelineMath.snapToFrame(sourceDeltaSeconds, fps);
+      return { sourceDeltaSeconds };
     },
     resolveEnvelopePointerDown(points, duration, width, height, localX, localY, button, shiftKey) {
       const copied = points.map((point) => ({ t: point.t, v: point.v }));
