@@ -227,7 +227,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     load_valid = studio.split("if(r&&r.ok&&r.exists){", 1)[1].split("if(r&&r.ok&&!r.exists)", 1)[0]
     load_migration = studio.split("if(r&&r.ok&&!r.exists){", 1)[1].split("if(r&&!r.ok&&r.exists===true)", 1)[0]
     load_invalid = studio.split("function renderBrokenFilmState(result){", 1)[1].split("var message=", 1)[0]
-    initialize = studio.split("window.filmStudioInitialize=async function(acceptWarnings)", 1)[1].split("function inspectorFieldDiffersNumber", 1)[0]
+    initialize = studio.split("async function filmStudioInitialize(acceptWarnings)", 1)[1].split("function inspectorFieldDiffersNumber", 1)[0]
     assert "mountDirectorPlanning(false);" in load_valid
     assert "mountDirectorPlanning(true);" in load_migration
     assert "mountDirectorPlanning(false);" in load_invalid
