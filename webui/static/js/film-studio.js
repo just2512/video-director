@@ -3773,8 +3773,10 @@ window.filmStudioCopyClips=function(){
   // That wrapper owns the sole Studio reload/open decision; a second change
   // listener here caused concurrent filmStudioLoad requests on every project switch.
   var legacyEditorLoad=window.editorLoad;
+  var editorAuthorityRequestGeneration=0;
   if(typeof legacyEditorLoad==='function'){
     window.editorLoad=async function(knownFilmDocument){
+      var authorityRequestGeneration=++editorAuthorityRequestGeneration;
       var selector=$('editor-project'),pid=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||'';
       if(!pid)return await legacyEditorLoad.apply(this,arguments);
 
@@ -3793,9 +3795,19 @@ window.filmStudioCopyClips=function(){
         try{
           state=await apiGet('/api/editor/film?project_id='+encodeURIComponent(pid));
         }catch(error){
+          if(authorityRequestGeneration!==editorAuthorityRequestGeneration){
+            return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
+          }
           showStatus('无法确认影片文档状态；为避免绕过 film.html 权威门禁，暂不打开旧工作台。','error');
           return {ok:false,code:'FILM_STATE_UNAVAILABLE',error:String(error&&error.message||error)};
         }
+      }
+      // Authority is scoped to this editorLoad invocation, not to the selector's
+      // value at the time a delayed request happens to resolve. A stale exists:false
+      // response must never authorize the legacy loader for a newer selection.
+      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
+         (selector&&String(selector.value||'').trim()!==String(pid).trim())){
+        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
       }
       if(state&&state.exists===true){
         var opened=await window.filmStudioOpenIfCurrentProjectHasFilm(pid,state);

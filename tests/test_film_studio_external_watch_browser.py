@@ -392,6 +392,133 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
         thread.join(timeout=5)
 
 
+def test_stale_selector_authority_response_cannot_enter_legacy_loader(tmp_path, monkeypatch):
+    """A delayed exists:false response for an old selection cannot open CompositionIR for a new selection."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    stale_project_id = "film-studio-stale-legacy-authority"
+    (storage_root / stale_project_id).mkdir(parents=True)
+    current_project_id = "film-studio-current-film-authority"
+    current_root = storage_root / current_project_id
+    current_root.mkdir(parents=True)
+    (current_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    assert fd.read_project_film(current_project_id)["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.add_init_script("""(() => {
+              window.__filmDocumentReadUrls = [];
+              window.__filmDocumentReadBodies = [];
+              window.__compositionReadUrls = [];
+              window.__filmAuthorityDelayByProject = {};
+              const nativeFetch = window.fetch.bind(window);
+              window.fetch = (input, init) => {
+                const url = typeof input === "string" ? input :
+                  (input && typeof input.url === "string" ? input.url : String(input));
+                let filmProjectId = null;
+                try {
+                  const parsed = new URL(url, window.location.origin);
+                  if (parsed.pathname === "/api/editor/film" && parsed.searchParams.has("project_id")) {
+                    filmProjectId = parsed.searchParams.get("project_id");
+                  }
+                } catch (_) {}
+                if (filmProjectId !== null) window.__filmDocumentReadUrls.push(url);
+                if (url.includes("/api/editor/composition?project_id=")) window.__compositionReadUrls.push(url);
+                const request = nativeFetch(input, init);
+                if (filmProjectId !== null) {
+                  request.then(response => response.clone().json()
+                    .then(body => window.__filmDocumentReadBodies.push({projectId:filmProjectId,url,body}))
+                    .catch(error => window.__filmDocumentReadBodies.push({projectId:filmProjectId,url,parseError:String(error)})));
+                  const delay = Number(window.__filmAuthorityDelayByProject[filmProjectId]) || 0;
+                  if (delay > 0) {
+                    return new Promise((resolve, reject) => {
+                      request.then(response => setTimeout(() => resolve(response), delay), reject);
+                    });
+                  }
+                }
+                return request;
+              };
+            })();""")
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""ids => {
+                  const select = document.querySelector('#editor-project');
+                  for (const pid of ids) {
+                    if (![...select.options].some(option => option.value === pid)) {
+                      select.add(new Option(pid, pid));
+                    }
+                  }
+                  // The first (legacy) authority response resolves while the second
+                  // (FilmDocument) response is still pending.
+                  window.__filmAuthorityDelayByProject = {
+                    [ids[0]]: 180,
+                    [ids[1]]: 650
+                  };
+                }""", [stale_project_id, current_project_id])
+
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", stale_project_id)
+                page.wait_for_function(
+                    "(pid) => window.__filmDocumentReadUrls.some(url => new URL(url, location.origin).searchParams.get('project_id') === pid)",
+                    arg=stale_project_id,
+                    timeout=5000,
+                )
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", current_project_id)
+
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible", timeout=10000)
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible", timeout=10000)
+                page.wait_for_function(
+                    "(pid) => window.__filmDocumentReadBodies.some(item => item.projectId === pid && item.body && item.body.exists === true)",
+                    arg=current_project_id,
+                    timeout=5000,
+                )
+                composition_reads = page.evaluate("window.__compositionReadUrls.slice()")
+                assert composition_reads == [], composition_reads
+                authority_bodies = page.evaluate("window.__filmDocumentReadBodies.slice()")
+                stale_body = next(item["body"] for item in authority_bodies if item["projectId"] == stale_project_id)
+                current_body = next(item["body"] for item in authority_bodies if item["projectId"] == current_project_id)
+                assert stale_body["ok"] is True and stale_body["exists"] is False, stale_body
+                assert current_body["ok"] is True and current_body["exists"] is True, current_body
+                assert page.locator("#fs-project-label").inner_text() == current_project_id
+                assert page.locator("#film-studio-panel").get_attribute("data-project-id") == current_project_id
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp_path, monkeypatch):
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
