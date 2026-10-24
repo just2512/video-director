@@ -26,9 +26,9 @@
     mod
   ));
 
-  // node_modules/react/cjs/react.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "node_modules/react/cjs/react.development.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // node_modules/react/index.js
+  // ../remotion_runtime/node_modules/react/index.js
   var require_react = __commonJS({
-    "node_modules/react/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // node_modules/react-dom/index.js
+  // ../remotion_runtime/node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "node_modules/react-dom/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // node_modules/scheduler/cjs/scheduler.development.js
+  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // node_modules/scheduler/index.js
+  // ../remotion_runtime/node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "node_modules/scheduler/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom-client.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // node_modules/react-dom/client.js
+  // ../remotion_runtime/node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "node_modules/react-dom/client.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // node_modules/react/cjs/react-jsx-runtime.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // node_modules/react/jsx-runtime.js
+  // ../remotion_runtime/node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "node_modules/react/jsx-runtime.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -24678,17 +24678,26 @@
     if (!["left", "center", "right", "justify", "start", "end"].includes(form.textAlign)) {
       return { ok: false, message: "\u6587\u5B57\u5BF9\u9F50\u65B9\u5F0F\u65E0\u6548\u3002" };
     }
-    const style = {
-      position: "fixed",
-      left: values["\u5DE6\u5750\u6807"].toFixed(2) + "px",
-      top: values["\u4E0A\u5750\u6807"].toFixed(2) + "px",
-      width: values["\u5BBD\u5EA6"].toFixed(2) + "px",
-      height: values["\u9AD8\u5EA6"].toFixed(2) + "px",
-      color: form.color,
-      fontSize: values["\u5B57\u53F7"].toFixed(2) + "px",
-      rotate: values["\u65CB\u8F6C\u89D2\u5EA6"].toFixed(2) + "deg"
-    };
-    const currentBackground = String(element.styles.backgroundColor || "transparent");
+    const rect = element.localRect || element.rect || {};
+    const styles = element.styles || {};
+    const style = {};
+    const nextLeft = values["\u5DE6\u5750\u6807"], nextTop = values["\u4E0A\u5750\u6807"];
+    const nextWidth = values["\u5BBD\u5EA6"], nextHeight = values["\u9AD8\u5EA6"];
+    const leftChanged = Math.abs(nextLeft - asNumber(rect.x, 0)) > 0.11;
+    const topChanged = Math.abs(nextTop - asNumber(rect.y, 0)) > 0.11;
+    const widthChanged = Math.abs(nextWidth - asNumber(rect.width, 1)) > 0.11;
+    const heightChanged = Math.abs(nextHeight - asNumber(rect.height, 1)) > 0.11;
+    const geometryChanged = leftChanged || topChanged || widthChanged || heightChanged;
+    if (geometryChanged && String(styles.position || "") !== "fixed") style.position = "fixed";
+    if (leftChanged) style.left = nextLeft.toFixed(2) + "px";
+    if (topChanged) style.top = nextTop.toFixed(2) + "px";
+    if (widthChanged) style.width = nextWidth.toFixed(2) + "px";
+    if (heightChanged) style.height = nextHeight.toFixed(2) + "px";
+    if (toHexColor(String(styles.color || "#ffffff")).toLowerCase() !== form.color.toLowerCase()) style.color = form.color;
+    const currentFontSize = asNumber(parseFloat(styles.fontSize), 24);
+    if (Math.abs(values["\u5B57\u53F7"] - currentFontSize) > 0.01) style.fontSize = values["\u5B57\u53F7"].toFixed(2) + "px";
+    if (Math.abs(values["\u65CB\u8F6C\u89D2\u5EA6"] - rotateDegrees(styles)) > 0.01) style.rotate = values["\u65CB\u8F6C\u89D2\u5EA6"].toFixed(2) + "deg";
+    const currentBackground = String(styles.backgroundColor || "transparent");
     const currentBackgroundTransparent = isTransparentBackground(currentBackground);
     if (form.backgroundEnabled) {
       if (currentBackgroundTransparent || toHexColor(currentBackground).toLowerCase() !== form.backgroundColor.toLowerCase()) {
@@ -24697,16 +24706,31 @@
     } else if (!currentBackgroundTransparent) {
       style.backgroundColor = "transparent";
     }
-    const currentOpacity = asNumber(element.styles.opacity, 1);
+    const currentOpacity = asNumber(styles.opacity, 1);
     if (Math.abs(Number(form.opacity) - currentOpacity) > 1e-5) style.opacity = Number(form.opacity).toFixed(3);
-    if (normalizedFontWeight(element.styles.fontWeight) !== Number(form.fontWeight)) {
-      style.fontWeight = String(Number(form.fontWeight));
-    }
-    const currentTextAlign = String(element.styles.textAlign || "left");
+    if (normalizedFontWeight(styles.fontWeight) !== Number(form.fontWeight)) style.fontWeight = String(Number(form.fontWeight));
+    const currentTextAlign = String(styles.textAlign || "left");
     if (currentTextAlign !== form.textAlign) style.textAlign = form.textAlign;
+    const appendOptionalCssLength = (key, raw, label) => {
+      const value = raw.trim();
+      if (!value) return null;
+      const match = value.match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|%|em|rem|vh|vw)?$/i);
+      if (!match || value.length > 120) return label + "\u5FC5\u987B\u662F\u6709\u6548 CSS \u957F\u5EA6\u503C\u3002";
+      const magnitude = Number(match[1]);
+      if (!Number.isFinite(magnitude)) return label + "\u5FC5\u987B\u662F\u6709\u9650\u6570\u5B57\u3002";
+      if (key === "lineHeight" && magnitude <= 0) return "\u884C\u9AD8\u5FC5\u987B\u5927\u4E8E 0\u3002";
+      if (key === "letterSpacing" && Math.abs(magnitude) > 1e3) return "\u5B57\u95F4\u8DDD\u7EDD\u5BF9\u503C\u4E0D\u80FD\u8D85\u8FC7 1000\u3002";
+      if (String(styles[key] || "").trim() !== value) style[key] = value;
+      return null;
+    };
+    const lineHeightError = appendOptionalCssLength("lineHeight", form.lineHeight, "\u884C\u9AD8");
+    if (lineHeightError) return { ok: false, message: lineHeightError };
+    const letterSpacingError = appendOptionalCssLength("letterSpacing", form.letterSpacing, "\u5B57\u95F4\u8DDD");
+    if (letterSpacingError) return { ok: false, message: letterSpacingError };
+    const textChanged = Boolean(element.textEditable) && form.text !== String(element.text || "");
     const operation = { op: "element_set", clip: element.clipId, selector: element.selector, style };
-    if (element.textEditable) operation.text = form.text;
-    return { ok: true, operation };
+    if (textChanged) operation.text = form.text;
+    return { ok: true, operation, changed: Object.keys(style).length > 0 || textChanged };
   };
   var readCanvasElementForm = () => {
     const ids = [
@@ -24721,12 +24745,14 @@
       "fs-element-opacity",
       "fs-element-font-weight",
       "fs-element-text-align",
+      "fs-element-line-height",
+      "fs-element-letter-spacing",
       "fs-element-font-size",
       "fs-element-rotate"
     ];
     const fields = ids.map((id) => document.getElementById(id));
     if (fields.some((field) => !field)) return null;
-    const [text, left, top, width, height, color, backgroundEnabled, backgroundColor, opacity, fontWeight, textAlign, fontSize, rotate] = fields;
+    const [text, left, top, width, height, color, backgroundEnabled, backgroundColor, opacity, fontWeight, textAlign, lineHeight, letterSpacing, fontSize, rotate] = fields;
     return {
       text: text.value,
       left: left.value,
@@ -24739,6 +24765,8 @@
       opacity: opacity.value,
       fontWeight: fontWeight.value,
       textAlign: textAlign.value,
+      lineHeight: lineHeight.value,
+      letterSpacing: letterSpacing.value,
       fontSize: fontSize.value,
       rotate: rotate.value
     };
@@ -26349,6 +26377,10 @@
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn fs-primary", type: "button", "data-film-action": "apply-inspector", children: "\u5E94\u7528\u5C5E\u6027" })
     ] });
   };
+  var editableCssLength = (value) => {
+    const text = String(value || "").trim();
+    return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%|em|rem|vh|vw)?$/i.test(text) ? text : "";
+  };
   var CanvasInspector = ({ element }) => {
     const rect = element.localRect || element.rect || {};
     const styles = element.styles || {};
@@ -26418,6 +26450,34 @@
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "fs-inspector-field", children: [
         "\u6587\u5B57\u5BF9\u9F50",
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { id: "fs-element-text-align", defaultValue: currentTextAlign, children: ["left", "center", "right", "justify", "start", "end"].map((align) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: align, children: { left: "\u5DE6\u5BF9\u9F50", center: "\u5C45\u4E2D", right: "\u53F3\u5BF9\u9F50", justify: "\u4E24\u7AEF\u5BF9\u9F50", start: "\u8D77\u59CB\u5BF9\u9F50", end: "\u672B\u7AEF\u5BF9\u9F50" }[align] }, align)) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "fs-inspector-field", children: [
+        "\u884C\u9AD8\uFF08CSS \u957F\u5EA6\uFF09",
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "input",
+          {
+            id: "fs-element-line-height",
+            type: "text",
+            maxLength: 120,
+            inputMode: "decimal",
+            placeholder: "\u7559\u7A7A\u4E0D\u4FEE\u6539\uFF1B\u5F53\u524D\u503C\uFF1A" + String(styles.lineHeight || "\u672A\u63D0\u4F9B"),
+            defaultValue: editableCssLength(styles.lineHeight)
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "fs-inspector-field", children: [
+        "\u5B57\u95F4\u8DDD\uFF08CSS \u957F\u5EA6\uFF09",
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "input",
+          {
+            id: "fs-element-letter-spacing",
+            type: "text",
+            maxLength: 120,
+            inputMode: "decimal",
+            placeholder: "\u7559\u7A7A\u4E0D\u4FEE\u6539\uFF1B\u5F53\u524D\u503C\uFF1A" + String(styles.letterSpacing || "\u672A\u63D0\u4F9B"),
+            defaultValue: editableCssLength(styles.letterSpacing)
+          }
+        )
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "fs-inspector-field", children: [
         "\u5B57\u53F7\uFF08px\uFF09",
@@ -26606,6 +26666,7 @@
         window.filmStudioShowInspectorError?.(result.message);
         return;
       }
+      if (!result.changed) return;
       if (!window.filmStudioCommitCanvasElement) {
         window.filmStudioShowInspectorError?.("\u753B\u5E03\u7F16\u8F91\u63D0\u4EA4\u6865\u5C1A\u672A\u5C31\u7EEA\uFF1B\u672C\u6B21\u6CA1\u6709\u5199\u5165 film.html\u3002");
         return;
