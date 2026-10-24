@@ -24071,6 +24071,44 @@
       rightDuration
     };
   };
+  var asTimelineEnvelopeGesture = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const raw = value;
+    const clipId = typeof raw.clipId === "string" ? raw.clipId : "";
+    const pointerId = asOptionalFiniteNumber(raw.pointerId);
+    const duration = asOptionalFiniteNumber(raw.duration);
+    const index = asOptionalFiniteNumber(raw.index);
+    const rawRect = raw.rect && typeof raw.rect === "object" && !Array.isArray(raw.rect) ? raw.rect : null;
+    if (!clipId || pointerId === void 0 || !Number.isInteger(pointerId) || pointerId < 0 || duration === void 0 || duration <= 0.02 || index === void 0 || !Number.isInteger(index) || typeof raw.active !== "boolean" || typeof raw.changed !== "boolean" || !rawRect) return null;
+    const rect = {
+      left: asOptionalFiniteNumber(rawRect.left),
+      top: asOptionalFiniteNumber(rawRect.top),
+      width: asOptionalFiniteNumber(rawRect.width),
+      height: asOptionalFiniteNumber(rawRect.height)
+    };
+    if (Object.values(rect).some((item) => item === void 0) || rect.width <= 0 || rect.height <= 0) return null;
+    if (!Array.isArray(raw.points) || raw.points.length < 2 || index < 0 || index >= raw.points.length) return null;
+    const points = [];
+    for (const item of raw.points) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const point = item;
+      const at = asOptionalFiniteNumber(point.t);
+      const value2 = asOptionalFiniteNumber(point.v);
+      if (at === void 0 || value2 === void 0 || at < 0 || at > duration || value2 < 0 || value2 > 1) return null;
+      if (points.length && at < points[points.length - 1].t) return null;
+      points.push({ t: at, v: value2 });
+    }
+    return {
+      clipId,
+      pointerId,
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      points,
+      index,
+      duration,
+      active: raw.active,
+      changed: raw.changed
+    };
+  };
   var asPendingTransaction = (value) => {
     if (!value || typeof value !== "object") return null;
     const raw = value;
@@ -24138,6 +24176,7 @@
         timelineDropTarget: null,
         timelineActiveDragIds: null,
         timelineGestureContext: null,
+        timelineEnvelopeGesture: null,
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         pendingExternalRevision: "",
@@ -24278,6 +24317,8 @@
         normalized = ids.length ? Array.from(new Set(ids)) : null;
       } else if (key === "timelineGestureContext") {
         normalized = asTimelineGestureContext(value);
+      } else if (key === "timelineEnvelopeGesture") {
+        normalized = asTimelineEnvelopeGesture(value);
       } else if (key === "timelineEnvelopePreview") {
         if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
         else {
@@ -24334,6 +24375,7 @@
         timelineDropTarget: null,
         timelineActiveDragIds: null,
         timelineGestureContext: null,
+        timelineEnvelopeGesture: null,
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         pendingExternalRevision: asString(target.pendingExternalRevision),
@@ -24362,6 +24404,7 @@
         ["duration", "duration"],
         ["pxPerSec", "pixelsPerSecond"],
         ["drag", "timelineGestureContext"],
+        ["envelopeDrag", "timelineEnvelopeGesture"],
         ["pendingExternalRevision", "pendingExternalRevision"],
         ["insertMode", "insertMode"],
         ["overwriteMode", "overwriteMode"],
