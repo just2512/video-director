@@ -229,6 +229,7 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
               window.setInterval = (callback, delay, ...args) =>
                 nativeSetInterval(callback, typeof delay === "number" && delay >= 500 ? 60000 : delay, ...args);
               window.__filmDocumentReadUrls = [];
+              window.__filmDocumentReadBodies = [];
               window.__compositionReadUrls = [];
               const nativeFetch = window.fetch.bind(window);
               window.fetch = (input, init) => {
@@ -236,7 +237,13 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                   (input && typeof input.url === "string" ? input.url : String(input));
                 if (url.includes("/api/editor/film?project_id=")) window.__filmDocumentReadUrls.push(url);
                 if (url.includes("/api/editor/composition?project_id=")) window.__compositionReadUrls.push(url);
-                return nativeFetch(input, init);
+                const request = nativeFetch(input, init);
+                if (url.includes("/api/editor/film?project_id=")) {
+                  request.then(response => response.clone().json()
+                    .then(body => window.__filmDocumentReadBodies.push({url, body}))
+                    .catch(error => window.__filmDocumentReadBodies.push({url, parseError:String(error)})));
+                }
+                return request;
               };
             })();""")
             try:
@@ -311,19 +318,30 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 legacy_project_id = "film-studio-project-shell-legacy-only"
                 legacy_root = storage_root / legacy_project_id
                 (legacy_root / "plans").mkdir(parents=True, exist_ok=True)
+                legacy_assets = legacy_root / "assets"
+                legacy_assets.mkdir(parents=True, exist_ok=True)
+                (legacy_assets / "still.png").write_bytes(b"test asset not decoded during migration")
+                (legacy_assets / "manifest.json").write_text(json.dumps([
+                    {"id": "legacy-asset-1", "file": "assets/still.png", "type": "image"}
+                ]), encoding="utf-8")
                 (legacy_root / "plans" / "composition.json").write_text(json.dumps({
                     "project": {"title": legacy_project_id, "width": 1080, "height": 1920,
                                 "fps": 30, "duration": 4.0},
+                    "assets": [
+                        {"id": "legacy-asset-1", "file": "assets/still.png", "type": "image"}
+                    ],
                     "scenes": [
                         {"id": "legacy-scene-1", "start": 0.0, "duration": 4.0,
                          "text": "legacy", "layers": [
-                             {"id": "legacy-layer-1", "type": "image", "start": 0.0, "duration": 4.0}
+                             {"id": "legacy-layer-1", "type": "image", "asset_id": "legacy-asset-1",
+                              "start": 0.0, "duration": 4.0}
                          ]}
                     ],
                     "audio": [], "watermarks": []
                 }), encoding="utf-8")
                 page.evaluate("""() => {
                   window.__filmDocumentReadUrls.length = 0;
+                  window.__filmDocumentReadBodies.length = 0;
                   window.__compositionReadUrls.length = 0;
                 }""")
                 page.evaluate("""pid => {
@@ -333,6 +351,19 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                   select.value = pid;
                   select.dispatchEvent(new Event('change', {bubbles:true}));
                 }""", legacy_project_id)
+                page.wait_for_function(
+                    """(pid) => window.__filmDocumentReadBodies.some(item =>
+                      item.url.includes('project_id=' + encodeURIComponent(pid)) && !!item.body)""",
+                    arg=legacy_project_id,
+                    timeout=10000,
+                )
+                legacy_authority = page.evaluate("""pid =>
+                  window.__filmDocumentReadBodies.find(item =>
+                    item.url.includes('project_id=' + encodeURIComponent(pid)))?.body || null
+                """, legacy_project_id)
+                assert legacy_authority and legacy_authority.get("ok") is True, legacy_authority
+                assert legacy_authority.get("exists") is False, legacy_authority
+                assert legacy_authority.get("migration_available") is True, legacy_authority
                 page.wait_for_function(
                     "() => document.querySelector('#fs-timeline .fs-migrate-action') !== null",
                     timeout=10000,
