@@ -139,7 +139,12 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("""() => {
                   const state=window.filmStudioStore?.getSnapshot();
-                  return state?.timelineGesturePreview === null && state?.timelineSnapGuide === null;
+                  const node=document.querySelector('#fs-timeline .fs-clip[data-clip="clip-left"]');
+                  // Transient gesture state is cleared at pointerup; wait for the actual
+                  // undo render as well, which restores the implicit 5s source range to 180px.
+                  return state?.timelineGesturePreview === null &&
+                    state?.timelineSnapGuide === null &&
+                    !!node && node.style.width === "180px";
                 }""", timeout=10000)
                 undone_roll = fd.read_project_film(project_id)
                 left_after_undo = next(
