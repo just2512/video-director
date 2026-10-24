@@ -2252,6 +2252,86 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 after_cancel = fd.read_project_film(project_id)
                 assert after_cancel["rev"] == before_cancel["rev"]
 
+                # External Agent writes a new revision while a normal clip move is active.
+                # Pointerup must discard the local preview, reload the external file, and never POST the stale move.
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.busy === false && state.pendingTransaction === null &&
+                    state.timelineGestureContext === null && state.timelineGesturePreview === null &&
+                    state.timelineActiveDragIds === null && !state.pendingExternalRevision;
+                }""", timeout=10_000)
+                move_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                move_clip.click()
+                page.wait_for_function("""() => {
+                  const ids = window.filmStudioStore?.getSnapshot()?.selectedIds || [];
+                  return ids.length === 1 && ids[0] === "clip-b";
+                }""", timeout=5_000)
+                move_box = move_clip.bounding_box()
+                assert move_box and move_box["width"] > 50, move_box
+                move_before = fd.read_project_film(project_id)
+                move_revision_before = move_before["rev"]
+                move_request_count_before = len(film_edit_requests)
+                move_x = move_box["x"] + move_box["width"] * 0.5
+                move_y = move_box["y"] + move_box["height"] * 0.5
+                page.mouse.move(move_x, move_y)
+                page.mouse.down()
+                page.mouse.move(move_x + 24, move_y, steps=5)
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  return state?.timelineGestureContext?.id === "clip-b" &&
+                    state.timelineGestureContext.active === true &&
+                    !!state.timelineGesturePreview?.["clip-b"] &&
+                    !!node && node.dataset.reactGesturePreview === "true";
+                }""", timeout=5_000)
+
+                move_external_before = film_path.read_text(encoding="utf-8")
+                move_tag_start = move_external_before.index('id="clip-b"')
+                move_tag_end = move_external_before.index(">", move_tag_start)
+                move_at_marker = move_external_before.index('at="', move_tag_start, move_tag_end)
+                move_at_start = move_at_marker + len('at="')
+                move_at_end = move_external_before.index('"', move_at_start, move_tag_end)
+                move_at_original = float(move_external_before[move_at_start:move_at_end])
+                move_at_external = f"{move_at_original + 0.25:.3f}".rstrip("0").rstrip(".")
+                move_external_after = (
+                    move_external_before[:move_at_start] + move_at_external +
+                    move_external_before[move_at_end:]
+                )
+                assert move_external_after != move_external_before
+                expected_move_external_revision = fd.revision_of(move_external_after)
+                assert expected_move_external_revision != move_revision_before
+                film_path.write_text(move_external_after, encoding="utf-8")
+
+                page.wait_for_function("""expected => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.pendingExternalRevision === expected &&
+                    state?.timelineGestureContext?.id === "clip-b" &&
+                    state?.timelineGestureContext?.active === true &&
+                    !!state?.timelineGesturePreview?.["clip-b"];
+                }""", arg=expected_move_external_revision, timeout=15_000)
+                assert len(film_edit_requests) == move_request_count_before, film_edit_requests
+                assert fd.read_project_film(project_id)["rev"] == expected_move_external_revision
+
+                page.mouse.up()
+                page.wait_for_function("""expected => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const clip = (state?.film?.tracks || []).flatMap(track => track.clips || [])
+                    .find(item => item.id === "clip-b");
+                  return state?.revision === expected && !state.pendingExternalRevision &&
+                    state.timelineGestureContext === null && state.timelineGesturePreview === null &&
+                    state.timelineActiveDragIds === null && state.busy === false &&
+                    state.pendingTransaction === null && !!clip &&
+                    Math.abs(Number(clip.at) - 0) >= 0;
+                }""".replace("${0}", "expectedAt"), arg={"expectedRevision":expected_move_external_revision,"expectedAt":Number(move_at_external)}, timeout=15_000)
+                assert len(film_edit_requests) == move_request_count_before, film_edit_requests
+                move_after = fd.read_project_film(project_id)
+                assert move_after["rev"] == expected_move_external_revision
+                move_clip_after = next(
+                    clip for track in move_after["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-b"
+                )
+                assert abs(float(move_clip_after["attrs"]["at"]) - float(move_at_external)) < 0.001, move_clip_after
+
                 # React owns envelope pointer lifecycle; a cancelled gesture must not commit,
                 # and clicking the envelope surface must not leak selection to its parent clip.
                 envelope = page.locator('canvas[data-envelope-clip="audio-1"]')
