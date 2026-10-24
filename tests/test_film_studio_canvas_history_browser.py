@@ -319,8 +319,20 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 assert style_only["style"] == {"lineHeight": "1.25", "letterSpacing": "1.5px"}, style_only
                 assert "text" not in style_only, style_only
 
-                # The canvas commit refreshes runtime selection state; select the same element again
-                # before editing the rest of its styles.
+                # The previous clip Inspector edit moved clip-a to 0.25s; after the
+                # canvas commit, seek inside that clip before trying to reselect its HTML element.
+                page.evaluate("window.filmStudioSeek(0.5)")
+                page.wait_for_function(
+                    """() => {
+                      const outer = document.querySelector('#fs-preview-composition');
+                      if (!outer || getComputedStyle(outer).display === 'none') return false;
+                      const scene = outer.contentDocument?.querySelector('#scene-clip');
+                      if (!scene || getComputedStyle(scene).display === 'none') return false;
+                      const bounds = scene.getBoundingClientRect();
+                      return bounds.width > 0 && bounds.height > 0;
+                    }""",
+                    timeout=10000,
+                )
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
