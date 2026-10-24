@@ -17,6 +17,7 @@ export type FilmStudioTimelineGesturePreviewEntry = number | FilmStudioTimelineG
 export type FilmStudioTimelineGesturePreview = Record<string, FilmStudioTimelineGesturePreviewEntry> | null;
 export type FilmStudioTimelineSnapGuide = {at: number; kind: string; title: string} | null;
 export type FilmStudioTimelineDropTarget = {trackId: string; invalid: boolean} | null;
+export type FilmStudioTimelineContextMenu = {clipId: string; x: number; y: number};
 export type FilmStudioTimelineActiveDragIds = string[] | null;
 export type FilmStudioTimelineGestureMode = "move" | "trim-start" | "trim-end" | "roll" | "slide" | "slip";
 export type FilmStudioTimelineGestureMember = {
@@ -87,6 +88,7 @@ export interface FilmStudioStoreSnapshot {
   timelineEnvelopeGesture: FilmStudioTimelineEnvelopeGesture;
   timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
   timelineWaveformSources: FilmStudioTimelineWaveformSources;
+  timelineContextMenu: FilmStudioTimelineContextMenu | null;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -364,6 +366,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopeGesture: null,
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
+      timelineContextMenu: null,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -520,6 +523,15 @@ class FilmStore implements FilmStudioStoreBridge {
     } else if (key === "timelineActiveDragIds") {
       const ids = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
       normalized = ids.length ? Array.from(new Set(ids)) : null;
+    } else if (key === "timelineContextMenu") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+      else {
+        const raw = value as Record<string, unknown>;
+        const clipId = asString(raw.clipId);
+        const x = asOptionalFiniteNumber(raw.x);
+        const y = asOptionalFiniteNumber(raw.y);
+        normalized = clipId && x !== undefined && y !== undefined ? {clipId,x,y} : null;
+      }
     } else if (key === "timelineGestureContext") {
       normalized = asTimelineGestureContext(value);
     } else if (key === "timelineEnvelopeGesture") {
@@ -599,6 +611,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopeGesture: null,
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
+      timelineContextMenu: null,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,
