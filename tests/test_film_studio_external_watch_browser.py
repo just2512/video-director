@@ -1278,9 +1278,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 snap_y = snap_box["y"] + snap_box["height"] / 2
                 page.mouse.move(snap_x, snap_y)
                 page.mouse.down()
-                # The gesture activates at 5px. Move 6px to cross activation while
-                # keeping the raw end within the 8px snap threshold around the 4.9s playhead.
-                page.mouse.move(snap_x + 6, snap_y, steps=4)
+                # The end is at about 5.0s and the playhead is 4.9s. Drag left 6px:
+                # cross the 5px activation threshold while staying within 8px of the playhead.
+                page.mouse.move(snap_x - 6, snap_y, steps=4)
                 page.wait_for_function(
                     """() => {
                       const state = window.filmStudioStore?.getSnapshot();
