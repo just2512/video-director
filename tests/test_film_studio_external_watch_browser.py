@@ -99,6 +99,33 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 for clip_id in ("clip-left", "clip-center", "clip-right", "snap-audio"):
                     page.locator('#fs-timeline .fs-clip[data-clip="' + clip_id + '"]').wait_for(state="visible")
 
+                # The context menu is part of the shared FilmStore timeline state, not a
+                # second mutable field on the imperative React owner.
+                context_menu_state = page.evaluate("""() => {
+                  const bridge = window.filmStudioReactTimeline;
+                  const store = window.filmStudioStore;
+                  if (!bridge || !store) return null;
+                  bridge.openContextMenu({clipId:"clip-center",x:140,y:160});
+                  return {
+                    menu:store.getField("timelineContextMenu"),
+                    open:bridge.isContextMenuOpen()
+                  };
+                }""")
+                assert context_menu_state == {
+                    "menu":{"clipId":"clip-center","x":140,"y":160},
+                    "open":True,
+                }, context_menu_state
+                page.wait_for_function(
+                    "() => !!document.querySelector('[data-react-context-menu="true"]')",
+                    timeout=5000,
+                )
+                page.evaluate("window.filmStudioReactTimeline.closeContextMenu()")
+                page.wait_for_function(
+                    """() => window.filmStudioStore?.getField("timelineContextMenu") === null &&
+                      !document.querySelector('[data-react-context-menu="true"]')""",
+                    timeout=5000,
+                )
+
                 # Mode classes are projected from FilmStore on the React surface;
                 # normal React mode changes must not mutate the legacy outer panel.
                 mode_revision_before = fd.read_project_film(project_id)["rev"]
