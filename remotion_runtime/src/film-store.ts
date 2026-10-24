@@ -52,6 +52,17 @@ export type FilmStudioTimelineGestureContext = {
   rightDuration: number | undefined;
 };
 export type FilmStudioTimelineEnvelopePoint = {t: number; v: number};
+export type FilmStudioTimelineEnvelopeRect = {left: number; top: number; width: number; height: number};
+export type FilmStudioTimelineEnvelopeGesture = {
+  clipId: string;
+  pointerId: number;
+  rect: FilmStudioTimelineEnvelopeRect;
+  points: FilmStudioTimelineEnvelopePoint[];
+  index: number;
+  duration: number;
+  active: boolean;
+  changed: boolean;
+} | null;
 export type FilmStudioTimelineEnvelopePreview = {clipId: string; points: FilmStudioTimelineEnvelopePoint[]} | null;
 export type FilmStudioTimelineWaveformSource = {duration: number; peaks: Uint8Array};
 export type FilmStudioTimelineWaveformSources = Record<string, FilmStudioTimelineWaveformSource>;
@@ -73,6 +84,7 @@ export interface FilmStudioStoreSnapshot {
   timelineDropTarget: FilmStudioTimelineDropTarget;
   timelineActiveDragIds: FilmStudioTimelineActiveDragIds;
   timelineGestureContext: FilmStudioTimelineGestureContext | null;
+  timelineEnvelopeGesture: FilmStudioTimelineEnvelopeGesture;
   timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
   timelineWaveformSources: FilmStudioTimelineWaveformSources;
   pendingExternalRevision: string;
@@ -240,6 +252,45 @@ const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureCont
     rightDuration,
   };
 };
+const asTimelineEnvelopeGesture = (value: unknown): FilmStudioTimelineEnvelopeGesture => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const clipId = typeof raw.clipId === "string" ? raw.clipId : "";
+  const pointerId = asOptionalFiniteNumber(raw.pointerId);
+  const duration = asOptionalFiniteNumber(raw.duration);
+  const index = asOptionalFiniteNumber(raw.index);
+  const rawRect = raw.rect && typeof raw.rect === "object" && !Array.isArray(raw.rect)
+    ? raw.rect as Record<string, unknown> : null;
+  if (!clipId || pointerId === undefined || !Number.isInteger(pointerId) || pointerId < 0 ||
+      duration === undefined || duration <= 0.02 ||
+      index === undefined || !Number.isInteger(index) ||
+      typeof raw.active !== "boolean" || typeof raw.changed !== "boolean" || !rawRect) return null;
+  const rect = {
+    left: asOptionalFiniteNumber(rawRect.left),
+    top: asOptionalFiniteNumber(rawRect.top),
+    width: asOptionalFiniteNumber(rawRect.width),
+    height: asOptionalFiniteNumber(rawRect.height),
+  };
+  if (Object.values(rect).some(item => item === undefined) ||
+      rect.width! <= 0 || rect.height! <= 0) return null;
+  if (!Array.isArray(raw.points) || raw.points.length < 2 || index < 0 || index >= raw.points.length) return null;
+  const points: FilmStudioTimelineEnvelopePoint[] = [];
+  for (const item of raw.points) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const point = item as Record<string, unknown>;
+    const at = asOptionalFiniteNumber(point.t);
+    const value = asOptionalFiniteNumber(point.v);
+    if (at === undefined || value === undefined || at < 0 || at > duration || value < 0 || value > 1) return null;
+    if (points.length && at < points[points.length - 1].t) return null;
+    points.push({t:at,v:value});
+  }
+  return {
+    clipId, pointerId,
+    rect: {left:rect.left!,top:rect.top!,width:rect.width!,height:rect.height!},
+    points, index, duration, active:raw.active, changed:raw.changed,
+  };
+};
+
 const asPendingTransaction = (value: unknown): FilmStudioPendingTransaction | null => {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
@@ -310,6 +361,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineDropTarget: null,
       timelineActiveDragIds: null,
       timelineGestureContext: null,
+      timelineEnvelopeGesture: null,
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       pendingExternalRevision: "",
@@ -470,6 +522,8 @@ class FilmStore implements FilmStudioStoreBridge {
       normalized = ids.length ? Array.from(new Set(ids)) : null;
     } else if (key === "timelineGestureContext") {
       normalized = asTimelineGestureContext(value);
+    } else if (key === "timelineEnvelopeGesture") {
+      normalized = asTimelineEnvelopeGesture(value);
     } else if (key === "timelineEnvelopePreview") {
       if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
       else {
@@ -571,6 +625,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["duration", "duration"],
       ["pxPerSec", "pixelsPerSecond"],
       ["drag", "timelineGestureContext"],
+      ["envelopeDrag", "timelineEnvelopeGesture"],
       ["pendingExternalRevision", "pendingExternalRevision"],
       ["insertMode", "insertMode"],
       ["overwriteMode", "overwriteMode"],

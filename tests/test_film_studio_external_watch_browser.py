@@ -1266,22 +1266,35 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     clientX:Math.round(rect.left + rect.width * 0.55),
                     clientY:Math.round(rect.top + rect.height * 0.4)};
                   canvas.dispatchEvent(new PointerEvent('pointerdown', point));
+                  const store = window.filmStudioStore;
                   const ownedAtStart = window.filmStudioOwnsEnvelopeGesturePointer?.(78) === true;
+                  const gesture = store?.getSnapshot()?.timelineEnvelopeGesture;
+                  const gestureStored = gesture?.clipId === "audio-1" && gesture.pointerId === 78 &&
+                    Number.isFinite(gesture.rect?.left) && Number.isFinite(gesture.rect?.top) &&
+                    gesture.rect.width > 0 && gesture.rect.height > 0 && gesture.points.length >= 2 &&
+                    !Object.prototype.hasOwnProperty.call(gesture, "canvas");
                   canvas.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 12, clientY:point.clientY + 8}));
-                  const preview = window.filmStudioStore?.getSnapshot()?.timelineEnvelopePreview;
+                  const updatedGesture = store?.getSnapshot()?.timelineEnvelopeGesture;
+                  const preview = store?.getSnapshot()?.timelineEnvelopePreview;
                   const previewStored = preview?.clipId === 'audio-1' && Array.isArray(preview.points) && preview.points.length >= 2;
+                  const gestureUpdated = gestureStored && updatedGesture?.pointerId === 78 && updatedGesture.changed === true &&
+                    updatedGesture.points.some((item,index) => item.t !== gesture.points[index]?.t || item.v !== gesture.points[index]?.v);
                   canvas.dispatchEvent(new PointerEvent('pointercancel', {...point, buttons:0}));
-                  const previewCleared = window.filmStudioStore?.getSnapshot()?.timelineEnvelopePreview === null;
+                  const previewCleared = store?.getSnapshot()?.timelineEnvelopePreview === null;
+                  const gestureCleared = store?.getSnapshot()?.timelineEnvelopeGesture === null;
                   document.dispatchEvent(new PointerEvent('pointermove', {...point, clientX:point.clientX + 24}));
                   document.dispatchEvent(new PointerEvent('pointerup', {...point, buttons:0}));
                   const selectedBeforeClick = window.filmStudioStore?.getSnapshot()?.selectedId;
                   canvas.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,button:0}));
                   const selectedAfterClick = window.filmStudioStore?.getSnapshot()?.selectedId;
-                  return {ownedAtStart, previewStored, previewCleared, selectedBeforeClick, selectedAfterClick};
+                  return {ownedAtStart, gestureStored, gestureUpdated, previewStored, previewCleared, gestureCleared, selectedBeforeClick, selectedAfterClick};
                 }""")
                 assert cancelled_envelope["ownedAtStart"] is True, cancelled_envelope
+                assert cancelled_envelope["gestureStored"] is True, cancelled_envelope
+                assert cancelled_envelope["gestureUpdated"] is True, cancelled_envelope
                 assert cancelled_envelope["previewStored"] is True, cancelled_envelope
                 assert cancelled_envelope["previewCleared"] is True, cancelled_envelope
+                assert cancelled_envelope["gestureCleared"] is True, cancelled_envelope
                 assert cancelled_envelope["selectedBeforeClick"] == "clip-b", cancelled_envelope
                 assert cancelled_envelope["selectedAfterClick"] == "clip-b", cancelled_envelope
                 page.wait_for_function("() => window.filmStudioOwnsEnvelopeGesturePointer?.(78) !== true")

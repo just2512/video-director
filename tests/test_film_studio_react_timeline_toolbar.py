@@ -62,6 +62,15 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "timelineDropTarget: FilmStudioTimelineDropTarget;" in store
     assert "timelineActiveDragIds: FilmStudioTimelineActiveDragIds;" in store
     assert "timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;" in store
+    assert "timelineEnvelopeGesture: FilmStudioTimelineEnvelopeGesture;" in store
+    assert "const asTimelineEnvelopeGesture =" in store
+    assert "normalized = asTimelineEnvelopeGesture(value);" in store
+    assert '["envelopeDrag", "timelineEnvelopeGesture"]' in store
+    assert "pointerId: number;" in store
+    assert "rect: FilmStudioTimelineEnvelopeRect;" in store
+    assert "canvas:canvas||null" not in studio
+    assert "var envelopeDomCanvas = null;" in studio
+    assert "updateTimelineEnvelopeGesture({" in studio
     assert "setEnvelopePreview(preview: FilmStudioTimelineEnvelopePreview): void;" in component
     assert 'useFilmStoreField("timelineEnvelopePreview")' in component
     assert "const drawVolumeEnvelopeCanvas =" in component

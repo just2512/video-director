@@ -3,6 +3,7 @@
   'use strict';
   var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var gestureDomRefs = null;
+  var envelopeDomCanvas = null;
   if(window.filmStudioStore&&typeof window.filmStudioStore.bindLegacyState==='function')window.filmStudioStore.bindLegacyState(S);
   var $ = function (id) { return document.getElementById(id); };
   function dispatchStudioTransaction(kind,baseRevision,operations,submitter){
@@ -65,6 +66,12 @@
     if(!current)return null;
     S.drag=Object.assign({},current,patch||{});
     return S.drag;
+  }
+  function updateTimelineEnvelopeGesture(patch){
+    var current=S.envelopeDrag;
+    if(!current)return null;
+    S.envelopeDrag=Object.assign({},current,patch||{});
+    return S.envelopeDrag;
   }
 
   function timelineSecondsToPixels(seconds,scale){var m=timelineMath();return m?m.secondsToPixels(seconds,scale):num(seconds,0)*Math.max(0.000001,num(scale,1));}
@@ -1532,9 +1539,13 @@
       if(index<0)index=points.length;
       points.splice(index,0,{t:time,v:value});added=true;
     }
-    S.envelopeDrag={clipId:clip.id,canvas:canvas||null,rect:rect,points:points,index:index,duration:duration,active:added,changed:added};
+    // The Store receives only the stable clip/pointer IDs, numeric rect, and keyframe snapshot.
+    // Legacy canvas references are isolated to the native fallback closure.
+    envelopeDomCanvas=canvas||null;
+    S.envelopeDrag={clipId:clip.id,pointerId:e.pointerId,rect:rect,points:points,index:index,
+      duration:duration,active:added,changed:added};
     if(canvas&&canvas.setPointerCapture)try{canvas.setPointerCapture(e.pointerId);}catch(_){}
-    if(!setTimelineEnvelopePreview(clip.id,points)&&canvas)drawVolumeEnvelope(canvas,points);
+    if(!setTimelineEnvelopePreview(clip.id,points)&&envelopeDomCanvas)drawVolumeEnvelope(envelopeDomCanvas,points);
     return true;
   }
   window.filmStudioBeginEnvelopeGesture=function(e,context){
@@ -1982,17 +1993,24 @@
   }
   function onMove(e) {
     if(S.envelopeDrag){
-      var ed=S.envelopeDrag,rect=ed.canvas?ed.canvas.getBoundingClientRect():ed.rect,point=ed.points[ed.index];
-      if(!point||!rect.width||!rect.height)return;
+      var ed=S.envelopeDrag;
+      if(!e||e.pointerId!==ed.pointerId)return;
+      var rect=envelopeDomCanvas?envelopeDomCanvas.getBoundingClientRect():ed.rect;
+      if(!rect||!rect.width||!rect.height)return;
+      var points=ed.points.map(function(item){return {t:item.t,v:item.v};}),point=points[ed.index];
+      if(!point)return;
       var x=Math.max(0,Math.min(rect.width,(e.clientX-rect.left)));
       var y=Math.max(0,Math.min(rect.height,(e.clientY-rect.top)));
-      if(ed.index>0&&ed.index<ed.points.length-1){
-        var lower=ed.points[ed.index-1].t+0.01,upper=ed.points[ed.index+1].t-0.01;
+      if(ed.index>0&&ed.index<points.length-1){
+        var lower=points[ed.index-1].t+0.01,upper=points[ed.index+1].t-0.01;
         point.t=Math.max(lower,Math.min(upper,x/rect.width*ed.duration));
       }
       point.v=Math.max(0,Math.min(1,1-(y-4)/Math.max(1,rect.height-8)));
-      ed.active=true;ed.changed=true;
-      if(!setTimelineEnvelopePreview(ed.clipId,ed.points))drawVolumeEnvelope(ed.canvas,ed.points);
+      updateTimelineEnvelopeGesture({
+        rect:{left:Number(rect.left),top:Number(rect.top),width:Number(rect.width),height:Number(rect.height)},
+        points:points,active:true,changed:true
+      });
+      if(!setTimelineEnvelopePreview(ed.clipId,points)&&envelopeDomCanvas)drawVolumeEnvelope(envelopeDomCanvas,points);
       e.preventDefault();return;
     }
     var d=S.drag;if(!d)return;
@@ -2131,7 +2149,9 @@
   }
   async function onUp(e) {
     if(S.envelopeDrag){
-      var envelopeEdit=S.envelopeDrag;S.envelopeDrag=null;
+      var envelopeEdit=S.envelopeDrag;
+      if(!e||e.pointerId!==envelopeEdit.pointerId)return;
+      S.envelopeDrag=null;envelopeDomCanvas=null;
       if(S.pendingExternalRevision){
         clearTimelineEnvelopePreview();
         renderTimeline();
@@ -2238,20 +2258,23 @@
     return onUp(e);
   };
   window.filmStudioMoveEnvelopeGesture=function(e,rect){
+    var active=S.envelopeDrag;
     if(!e||!window.filmStudioOwnsEnvelopeGesturePointer||
-       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag)return;
+       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!active||active.pointerId!==e.pointerId)return;
     if(rect&&[rect.left,rect.top,rect.width,rect.height].every(Number.isFinite))
-      S.envelopeDrag.rect={left:rect.left,top:rect.top,width:rect.width,height:rect.height};
+      updateTimelineEnvelopeGesture({rect:{left:rect.left,top:rect.top,width:rect.width,height:rect.height}});
     onMove(e);
   };
   window.filmStudioEndEnvelopeGesture=function(e){
     if(!e||!window.filmStudioOwnsEnvelopeGesturePointer||
-       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag)return;
+       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag||
+       S.envelopeDrag.pointerId!==e.pointerId)return;
     return onUp(e);
   };
   window.filmStudioCancelEnvelopeGesture=function(e){
     if(!e||!window.filmStudioOwnsEnvelopeGesturePointer||
-       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag)return;
+       !window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)||!S.envelopeDrag||
+       S.envelopeDrag.pointerId!==e.pointerId)return;
     cancelPointerGesture();
   };
   document.addEventListener('pointermove',function(e){
@@ -2269,6 +2292,7 @@
     showTimelineSnapGuide(null);
     clearTimelineEnvelopePreview();
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
+    envelopeDomCanvas=null;
     if(S.envelopeDrag)S.envelopeDrag=null;
     if(S.drag){
       var drag=S.drag,dragDomRefs=gestureDomRefs;S.drag=null;clearDragTrackTarget(drag);

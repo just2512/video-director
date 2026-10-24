@@ -6,7 +6,7 @@
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
-最重要的剩余差距不是按钮数量，而是所有权边界：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 的瞬态几何和手势提示；但活动片段手势的操作上下文仍在原生控制器的 `S.drag` 对象里，下一步应把它迁成 FilmStore 的类型化 ID-only 快照，DOM 引用只留给无 bundle fallback。剪辑数学、FilmOperation 组合与 revision 检查仍由共享适配器/FilmDocument 执行；frame(t) 的确定性范围小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
+最重要的剩余差距不是按钮数量，而是所有权边界：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 的瞬态几何与类型化 ID-only 手势上下文；React 路径的 `gestureDomRefs` 为空，DOM 引用只留给原生 fallback。音量包络预览已有 React 绘制，但其活动手势上下文仍需完全纳入 FilmStore，并确保只保存稳定 clip/pointer ID 和数值矩形，不保存 Canvas 引用。剪辑数学、FilmOperation 组合与 revision 检查仍由共享适配器/FilmDocument 执行；frame(t) 的确定性范围小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
 
 ## 目前已有的可复用基础
 
@@ -35,7 +35,8 @@
 
 ## 当前下一阶段落地点
 
-- 活动片段手势上下文以 FilmStore 的 `timelineGestureContext` 类型化保存：只存指针 ID、模式、稳定 clip/track ID、原始时间/时长、吸附/目标轨道状态和多选成员的数值快照。Store 对指针 ID、轨道索引、成员 ID 与手势模式必需字段做严格校验；任何畸形成员、重复 ID 或缺失 roll/slide 基线都拒绝整份上下文，不会静默缩小多选组。不得把 `HTMLElement`、Canvas 或轨道 row 塞进 Store；无 bundle fallback 所需 DOM 引用仅保存在原生适配层闭包。预览仍由 React state 渲染，pointerup 仍通过 FilmDocument revision-checked 事务提交。
+- 普通片段 move/trim/roll/slide/slip 的活动手势上下文已由 FilmStore 的 `timelineGestureContext` 类型化保存：仅含指针 ID、模式、稳定 clip/track ID、原始时间/时长、目标轨道状态及成员数值快照；Store 对必要字段与成员身份做严格校验。React 路径不保存 DOM 引用。
+- 当前增量将音量包络活动手势从带 `canvas` 属性的临时对象迁为 FilmStore 的 `timelineEnvelopeGesture`：只保存 clip ID、pointer ID、数值矩形、持续时间、关键帧快照、索引与活动标志。Canvas 引用只保留在无 bundle fallback 的适配器闭包里；React 仍绘制预览，pointercancel 清空手势与预览，pointerup 经 FilmDocument revision-checked 事务提交。
 
 ## React 时间线输入所有权（当前增量）
 
