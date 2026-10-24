@@ -57,8 +57,12 @@ def test_external_agent_edit_enters_shared_history_and_can_undo_redo(tmp_path, m
 
     fd.undo_redo_project_film(project_id, None, "undo")
     assert film_path.read_text(encoding="utf-8") == FILM
+    history_after_undo = fd._history_read(project_id)
+    assert history_after_undo["future"][-1]["source"] == "external_file"
     fd.undo_redo_project_film(project_id, None, "redo")
     assert film_path.read_text(encoding="utf-8") == external
+    history_after_redo = fd._history_read(project_id)
+    assert history_after_redo["past"][-1]["source"] == "external_file"
 
 
 def test_watcher_does_not_duplicate_an_edit_already_recorded_by_studio_api(tmp_path, monkeypatch):
@@ -135,6 +139,7 @@ def test_external_edit_then_studio_undo_redo_does_not_corrupt_shared_history(tmp
     history_after_undo = fd._history_read(project_id)
     assert len(history_after_undo["past"]) == 0
     assert len(history_after_undo["future"]) == 1
+    assert history_after_undo["future"][0]["source"] == "external_file"
     assert film_path.read_text(encoding="utf-8") == FILM
     assert events == []
 
@@ -142,6 +147,7 @@ def test_external_edit_then_studio_undo_redo_does_not_corrupt_shared_history(tmp
     _poll_changed_file(watcher)
     history_after_redo = fd._history_read(project_id)
     assert len(history_after_redo["past"]) == 1
+    assert history_after_redo["past"][0]["source"] == "external_file"
     assert history_after_redo["past"][0]["after"] == external
     assert history_after_redo["future"] == []
     assert film_path.read_text(encoding="utf-8") == external
