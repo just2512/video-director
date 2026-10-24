@@ -1859,9 +1859,15 @@ window.filmStudioReactAssets = {
 
 window.filmStudioReactTimeline = {
   renderSurface(model) {
-    filmStore.setField("timelineSurface", model);
     const mount = document.getElementById("fs-react-root");
-    if (mount && (!studioRoot || studioRootMount !== mount)) renderStudioReactOwner({});
+    if (mount && (!studioRoot || studioRootMount !== mount)) {
+      filmStore.setField("timelineSurface", model);
+      renderStudioReactOwner({});
+      return;
+    }
+    flushSync(() => {
+      filmStore.setField("timelineSurface", model);
+    });
   },
   setGesturePreview(preview) {
     filmStore.setField("timelineGesturePreview", preview);
@@ -1879,13 +1885,18 @@ window.filmStudioReactTimeline = {
     filmStore.setField("timelineEnvelopePreview", preview);
   },
   clearSurface() {
-    filmStore.setField("timelineGesturePreview", null);
-    filmStore.setField("timelineSnapGuide", null);
-    filmStore.setField("timelineDropTarget", null);
-    filmStore.setField("timelineActiveDragIds", null);
-    filmStore.setField("timelineEnvelopePreview", null);
-    filmStore.setField("timelineContextMenu", null);
-    filmStore.setField("timelineSurface", null);
+    // The legacy project-switch path may immediately replace #fs-timeline children
+    // after this bridge returns. Flush the portal unmount first so React never tries
+    // to remove DOM nodes that the imperative fallback has already removed.
+    flushSync(() => {
+      filmStore.setField("timelineGesturePreview", null);
+      filmStore.setField("timelineSnapGuide", null);
+      filmStore.setField("timelineDropTarget", null);
+      filmStore.setField("timelineActiveDragIds", null);
+      filmStore.setField("timelineEnvelopePreview", null);
+      filmStore.setField("timelineContextMenu", null);
+      filmStore.setField("timelineSurface", null);
+    });
   },
   hasSurface() {
     return filmStore.getField("timelineSurface") !== null;

@@ -55,7 +55,9 @@ def test_react_timeline_keeps_stable_dom_identity_for_tracks_and_clips():
     assert "const StudioReactOwner: React.FC" in component
     assert component.count("createRoot(") == 1
     assert "createPortal" in component
-    assert 'studioPortal("fs-timeline", <TimelineSurface model={state.timeline} />)' in component
+    assert 'studioPortal("fs-timeline", <TimelineSurface model={timelineSurface} />)' in component
+    assert 'const timelineSurface = useFilmStoreField("timelineSurface");' in component
+    assert "studioReactState.timeline" not in component
     assert "window.filmStudioReactTimeline = {" in component
     assert "<TimelineSurface key=" not in component
     assert "key={track.id}" in component

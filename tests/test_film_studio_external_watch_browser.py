@@ -120,24 +120,38 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     "clipIds": expected_surface_clip_ids,
                     "renderedIds": expected_surface_clip_ids,
                 }, timeline_surface_state
-                page.evaluate("""() => {
-                  window.__testTimelineSurface = window.filmStudioStore.getField("timelineSurface");
-                  window.filmStudioReactTimeline.clearSurface();
+                cleared_surface_state = page.evaluate("""() => {
+                  const bridge = window.filmStudioReactTimeline;
+                  const store = window.filmStudioStore;
+                  window.__testTimelineSurface = store.getField("timelineSurface");
+                  bridge.clearSurface();
+                  return {
+                    empty:store.getField("timelineSurface") === null,
+                    hasSurface:bridge.hasSurface(),
+                    domMounted:!!document.querySelector("#fs-timeline .fs-react-timeline-surface")
+                  };
                 }""")
-                page.wait_for_function("""() =>
-                  window.filmStudioStore?.getField("timelineSurface") === null &&
-                  window.filmStudioReactTimeline?.hasSurface() === false &&
-                  !document.querySelector("#fs-timeline .fs-react-timeline-surface")
-                """, timeout=5000)
-                page.evaluate("""() => {
-                  window.filmStudioReactTimeline.renderSurface(window.__testTimelineSurface);
+                assert cleared_surface_state == {
+                    "empty":True,
+                    "hasSurface":False,
+                    "domMounted":False,
+                }, cleared_surface_state
+                restored_surface_state = page.evaluate("""() => {
+                  const bridge = window.filmStudioReactTimeline;
+                  const store = window.filmStudioStore;
+                  bridge.renderSurface(window.__testTimelineSurface);
                   delete window.__testTimelineSurface;
+                  return {
+                    stored:store.getField("timelineSurface") !== null,
+                    hasSurface:bridge.hasSurface(),
+                    domMounted:!!document.querySelector("#fs-timeline .fs-react-timeline-surface")
+                  };
                 }""")
-                page.wait_for_function("""() =>
-                  window.filmStudioStore?.getField("timelineSurface") !== null &&
-                  window.filmStudioReactTimeline?.hasSurface() === true &&
-                  !!document.querySelector("#fs-timeline .fs-react-timeline-surface")
-                """, timeout=5000)
+                assert restored_surface_state == {
+                    "stored":True,
+                    "hasSurface":True,
+                    "domMounted":True,
+                }, restored_surface_state
 
                 # The context menu is part of the shared FilmStore timeline state, not a
                 # second mutable field on the imperative React owner.
