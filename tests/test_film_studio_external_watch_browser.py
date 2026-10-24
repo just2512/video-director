@@ -2172,6 +2172,80 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     for clip in track["clips"] if clip["id"] == "audio-1"
                 )
                 assert "volume_envelope" not in undone_clip["attrs"], undone_clip
+
+                # External file revision arrives while a second envelope gesture is still active.
+                # The pointerup must discard stale preview rather than write over the Agent's file.
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.busy === false && state.pendingTransaction === null &&
+                    state.timelineEnvelopeGesture === null && state.timelineEnvelopePreview === null &&
+                    !state.pendingExternalRevision;
+                }""", timeout=10_000)
+                envelope = page.locator('canvas[data-envelope-clip="audio-1"]')
+                envelope.scroll_into_view_if_needed()
+                conflict_box = envelope.bounding_box()
+                assert conflict_box and conflict_box["width"] > 80, conflict_box
+                before_conflict = fd.read_project_film(project_id)
+                conflict_revision_before = before_conflict["rev"]
+                conflict_edit_count_before = len(film_edit_requests)
+                conflict_x = conflict_box["x"] + conflict_box["width"] * 0.45
+                conflict_y = conflict_box["y"] + conflict_box["height"] * 0.85
+                page.mouse.move(conflict_x, conflict_y)
+                page.mouse.down()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.timelineEnvelopeGesture?.clipId === "audio-1" &&
+                    state.timelineEnvelopeGesture.changed === true &&
+                    state.timelineEnvelopePreview?.clipId === "audio-1";
+                }""", timeout=5_000)
+                page.mouse.move(conflict_x + 18, conflict_y - 7, steps=4)
+
+                external_before = film_path.read_text(encoding="utf-8")
+                clip_start = external_before.index('id="clip-b"')
+                tag_end = external_before.index(">", clip_start)
+                at_marker = external_before.index('at="', clip_start, tag_end)
+                at_start = at_marker + len('at="')
+                at_end = external_before.index('"', at_start, tag_end)
+                external_at = float(external_before[at_start:at_end])
+                next_at = f"{external_at + 0.25:.3f}".rstrip("0").rstrip(".")
+                external_after = external_before[:at_start] + next_at + external_before[at_end:]
+                assert external_after != external_before
+                expected_external_revision = fd.revision_of(external_after)
+                assert expected_external_revision != conflict_revision_before
+                film_path.write_text(external_after, encoding="utf-8")
+
+                # The changed file becomes pending, but must not overwrite the still-active gesture.
+                page.wait_for_function("""expected => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.pendingExternalRevision === expected &&
+                    state?.timelineEnvelopeGesture?.clipId === "audio-1" &&
+                    state?.timelineEnvelopePreview?.clipId === "audio-1";
+                }""", arg=expected_external_revision, timeout=15_000)
+                assert len(film_edit_requests) == conflict_edit_count_before
+                assert fd.read_project_film(project_id)["rev"] == expected_external_revision
+
+                page.mouse.up()
+                page.wait_for_function("""expected => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.revision === expected && !state.pendingExternalRevision &&
+                    state.timelineEnvelopeGesture === null &&
+                    state.timelineEnvelopePreview === null &&
+                    state.busy === false && state.pendingTransaction === null;
+                }""", arg=expected_external_revision, timeout=15_000)
+                assert len(film_edit_requests) == conflict_edit_count_before, film_edit_requests
+                after_conflict = fd.read_project_film(project_id)
+                assert after_conflict["rev"] == expected_external_revision
+                conflict_clip_b = next(
+                    clip for track in after_conflict["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-b"
+                )
+                conflict_audio = next(
+                    clip for track in after_conflict["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "audio-1"
+                )
+                assert abs(float(conflict_clip_b["attrs"]["at"]) - float(next_at)) < 0.001, conflict_clip_b
+                assert "volume_envelope" not in conflict_audio["attrs"], conflict_audio
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
                 browser.close()

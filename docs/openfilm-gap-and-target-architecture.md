@@ -36,7 +36,8 @@
 ## 当前下一阶段落地点
 
 - 普通片段 move/trim/roll/slide/slip 的活动手势上下文已由 FilmStore 的 `timelineGestureContext` 类型化保存：仅含指针 ID、模式、稳定 clip/track ID、原始时间/时长、目标轨道状态及成员数值快照；Store 对必要字段与成员身份做严格校验。React 路径不保存 DOM 引用。
-- 当前增量将音量包络活动手势从带 `canvas` 属性的临时对象迁为 FilmStore 的 `timelineEnvelopeGesture`：只保存 clip ID、pointer ID、数值矩形、持续时间、关键帧快照、索引与活动标志。Canvas 引用只保留在无 bundle fallback 的适配器闭包里；React 仍绘制预览，pointercancel 清空手势与预览，pointerup 经 FilmDocument revision-checked 事务提交。
+- 音量包络活动手势已迁为 FilmStore 的 `timelineEnvelopeGesture`：只保存 clip ID、pointer ID、数值矩形、持续时间、关键帧快照、索引与活动标志；Canvas 引用只保留在无 bundle fallback 的适配器闭包里。真实 Chromium 已验证 ID-only Store 快照、React 预览、pointercancel 清理、pointerup 单事务和 undo。
+- 当前增量补齐一个仍未覆盖的冲突边界：Agent/外部进程在音量包络指针手势期间写入新 revision。必须保留外部文件、拒绝提交旧预览，并在 pointerup 后重载到新 revision；回归同时断言 edit 请求数不增长、活动上下文/预览清空。
 
 ## React 时间线输入所有权（当前增量）
 
