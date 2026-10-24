@@ -73,7 +73,8 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
     # to the actual rendered element, not merely persist the JSON attributes.
     with Image.open(look["image_path"]) as contact_sheet:
         sheet = contact_sheet.convert("RGB")
-        assert sheet.width >= 3200 and sheet.height >= 360
+        # look sheets use at most three 640x360 tiles per row, with a 28px label band.
+        assert sheet.width >= 1920 and sheet.height >= 776
 
         def red_centroid_xy(tile, *, minimum_pixels=200):
             pixels = [
@@ -96,8 +97,9 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
         first_tile = sheet.crop((0, 0, 640, 360))
         quarter_tile = sheet.crop((640, 0, 1280, 360))
         second_tile = sheet.crop((1280, 0, 1920, 360))
-        threequarter_tile = sheet.crop((1920, 0, 2560, 360))
-        third_tile = sheet.crop((2560, 0, 3200, 360))
+        # The fourth and fifth samples wrap to row two (cell height = 360 + 28).
+        threequarter_tile = sheet.crop((0, 388, 640, 748))
+        third_tile = sheet.crop((640, 388, 1280, 748))
         first_center, _ = red_centroid_xy(first_tile)
         quarter_center, _ = red_centroid_xy(quarter_tile)
         second_center, second_center_y = red_centroid_xy(second_tile)
