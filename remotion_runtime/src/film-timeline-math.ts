@@ -64,8 +64,8 @@ export interface FilmTimelineMathBridge {
   snapToFrame(seconds: number, fps: number): number;
 }
 
-const finiteOr = (value: number, fallback: number): number =>
-  Number.isFinite(value) ? value : fallback;
+const finiteOr = (value: number | undefined, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
 export const filmTimelineMath: FilmTimelineMathBridge = {
   secondsToPixels(seconds, pixelsPerSecond) {

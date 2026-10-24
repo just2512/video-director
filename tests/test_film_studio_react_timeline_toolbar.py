@@ -146,7 +146,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "resolveRollGesture(rightAt: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     assert "resolveSlideGesture(centerAt: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
     math_source = (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
-    assert "resolveSlipGesture(rawDeltaSeconds: number, playbackSpeed: number): FilmTimelineSlipResolution;" in math_source
+    assert "resolveSlipGesture(rawDeltaSeconds: number, playbackSpeed: number, snapEnabled?: boolean, frameRate?: number): FilmTimelineSlipResolution;" in math_source
     assert "resolveTimelineSlip(deltaSeconds,slipSpeed).sourceDeltaSeconds" in studio
     assert "resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1)).sourceDeltaSeconds" in studio
 
