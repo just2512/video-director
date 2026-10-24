@@ -90,7 +90,11 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     assert "window.filmStudioToggleTrackLock = function(trackId)" in studio
     assert "window.filmStudioToggleTrackFlag = function(trackId,field)" in studio
     workspace = (root / "webui" / "static" / "js" / "workspace.js").read_text(encoding="utf-8")
-    assert "const filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));" in workspace
+    assert "let filmDocument;" in workspace
+    assert "filmDocument = await apiGet('/api/editor/film?project_id=' + encodeURIComponent(pid));" in workspace
+    assert "if (!filmDocument || typeof filmDocument.exists !== 'boolean')" in workspace
+    assert "if (filmDocument.exists === true)" in workspace
+    assert "// An explicit exists:false is the only valid route into the legacy editor." in workspace
     assert "if (openedStudio) return {" in workspace
     assert "ok:filmDocument.ok===true,mode:'film',authority:'film.html'," in workspace
     assert "error:filmDocument.ok===true?null:(filmDocument.error||'INVALID_FILM')" in workspace

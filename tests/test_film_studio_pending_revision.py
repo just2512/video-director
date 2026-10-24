@@ -26,7 +26,7 @@ def test_studio_discards_timeline_and_envelope_drag_when_external_revision_arriv
 
 def test_studio_does_not_apply_load_response_mid_drag_or_busy_edit():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
-    load = source[source.index("async function filmStudioLoad(force)"):source.index("async function filmStudioInitialize")]
+    load = source[source.index("async function filmStudioLoad("):source.index("async function filmStudioInitialize")]
     load_guard = "if(S.busy||S.drag||S.envelopeDrag||hasUncommittedInspectorEdits()){"
     assert load.index("var r=await apiGet(") < load.index(load_guard)
     assert "S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';" in load
@@ -36,10 +36,10 @@ def test_studio_does_not_apply_load_response_mid_drag_or_busy_edit():
 
 def test_studio_discards_out_of_order_load_responses():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
-    load = source[source.index("async function filmStudioLoad(force)"):source.index("async function filmStudioInitialize")]
+    load = source[source.index("async function filmStudioLoad("):source.index("async function filmStudioInitialize")]
     assert "loadGeneration:0" in source
     assert "var requestGeneration=++S.loadGeneration;" in load
-    assert "if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return;" in load
+    assert "if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;" in load
     assert load.index("requestGeneration!==S.loadGeneration") < load.index("S.data=r;S.rev=r.rev;")
 
 
@@ -80,7 +80,7 @@ def test_dirty_inspector_blocks_export_history_and_project_switch():
     render = source[source.index("window.filmStudioRender=async function()"):source.index("function renderProposalPanel")]
     assert "if(hasUncommittedInspectorEdits())" in render
     assert "避免输出旧 revision" in render
-    load = source[source.index("async function filmStudioLoad(force)"):source.index("async function filmStudioInitialize")]
+    load = source[source.index("async function filmStudioLoad("):source.index("async function filmStudioInitialize")]
     assert "if(changed&&hasUncommittedInspectorEdits())" in load
     assert "selector.value=S.projectId" in load
 
