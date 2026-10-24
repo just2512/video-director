@@ -2287,6 +2287,14 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     state.timelineGestureContext === null && state.timelineGesturePreview === null &&
                     state.timelineActiveDragIds === null && !state.pendingExternalRevision;
                 }""", timeout=10_000)
+                # A plain click on an already-selected member deliberately preserves a
+                # multi-selection. First select an unselected clip to collapse the prior
+                # group, then select clip-b before exercising single-clip external conflicts.
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
+                page.wait_for_function("""() => {
+                  const ids = window.filmStudioStore?.getSnapshot()?.selectedIds || [];
+                  return ids.length === 1 && ids[0] === "clip-a";
+                }""", timeout=5_000)
                 move_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
                 move_clip.click()
                 page.wait_for_function("""() => {
