@@ -146,7 +146,11 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     clip for track in undone_roll["doc"]["tracks"]
                     for clip in track["clips"] if clip["id"] == "clip-left"
                 )
-                assert abs(float(left_after_undo["attrs"]["end"]) - 5.0) < 0.001, left_after_undo
+                # The original source range is encoded in src="#t=0,5"; undo must
+                # restore that range without materializing a new explicit end attribute.
+                assert "#t=0,5" in str(left_after_undo["attrs"].get("src", "")), left_after_undo
+                if "end" in left_after_undo["attrs"]:
+                    assert abs(float(left_after_undo["attrs"]["end"]) - 5.0) < 0.001, left_after_undo
 
                 # Alt+Shift slide the center clip through the same 6s candidate.
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-center"]').click()
