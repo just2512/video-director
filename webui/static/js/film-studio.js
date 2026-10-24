@@ -2412,9 +2412,14 @@
     var selector=$('editor-project');
     var projectId=String(expectedProjectId||selector&&selector.value||'').trim();
     if(!projectId||!selector||String(selector.value||'').trim()!==projectId)return false;
-    var studioVisible=S.open||document.documentElement.classList.contains('fs-studio-open');
-    if(studioVisible){
-      if(S.open&&S.projectId===projectId)return true;
+    if(S.open){
+      if(S.projectId===projectId)return true;
+      // Reuse the mounted Studio and its existing draft/transaction guards rather
+      // than close+reopen, which could discard selection or race another loader.
+      await filmStudioLoad(true);
+      return S.open&&S.projectId===projectId;
+    }
+    if(document.documentElement.classList.contains('fs-studio-open')){
       window.filmStudioClose();
       if(S.open||document.documentElement.classList.contains('fs-studio-open'))return false;
     }
@@ -2423,7 +2428,7 @@
       try{result=await apiGet('/api/editor/film?project_id='+encodeURIComponent(projectId));}
       catch(_){return false;}
     }
-    if(!result||result.exists!==true||!selector||String(selector.value||'').trim()!==projectId)return false;
+    if(!result||result.exists!==true||String(selector.value||'').trim()!==projectId)return false;
     window.filmStudioToggle();
     return S.open||document.documentElement.classList.contains('fs-studio-open');
   };
@@ -2431,9 +2436,9 @@
     var pid=String(projectId||'').trim();
     var studioVisible=S.open||document.documentElement.classList.contains('fs-studio-open');
     if(!studioVisible)return true;
-    // A currently-open Studio remains the authority for its own project even if
-    // its film.html disappears or the preflight response unexpectedly reports false.
-    if(S.open&&S.projectId===pid)return false;
+    // Keep an existing Studio mounted when switching to a legacy project: the
+    // editorLoad wrapper will load its explicit migration screen into this root.
+    if(S.open)return S.projectId!==pid;
     window.filmStudioClose();
     return !S.open&&!document.documentElement.classList.contains('fs-studio-open');
   };
