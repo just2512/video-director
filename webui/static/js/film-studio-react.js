@@ -24273,6 +24273,7 @@
         timelineEnvelopeGesture: null,
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
+        timelineContextMenu: null,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24409,6 +24410,15 @@
       } else if (key === "timelineActiveDragIds") {
         const ids = Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
         normalized = ids.length ? Array.from(new Set(ids)) : null;
+      } else if (key === "timelineContextMenu") {
+        if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
+        else {
+          const raw = value;
+          const clipId = asString(raw.clipId);
+          const x = asOptionalFiniteNumber(raw.x);
+          const y = asOptionalFiniteNumber(raw.y);
+          normalized = clipId && x !== void 0 && y !== void 0 ? { clipId, x, y } : null;
+        }
       } else if (key === "timelineGestureContext") {
         normalized = asTimelineGestureContext(value);
       } else if (key === "timelineEnvelopeGesture") {
@@ -24472,6 +24482,7 @@
         timelineEnvelopeGesture: null,
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
+        timelineContextMenu: null,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -26524,8 +26535,7 @@
     clipInspector: null,
     clipInspectorEmptyMessage: void 0,
     canvasInspectorMounted: false,
-    canvasElement: null,
-    timelineContextMenu: null
+    canvasElement: null
   };
   var studioRoot = null;
   var studioRootMount = null;
@@ -26561,6 +26571,7 @@
     );
   };
   var StudioReactOwner = ({ state }) => {
+    const timelineContextMenu = useFilmStoreField("timelineContextMenu");
     const clip = state.clipInspector;
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
     const element = state.canvasElement;
@@ -26580,7 +26591,7 @@
         "fs-react-canvas-inspector",
         element ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CanvasInspector, { element }, element.clipId + "::" + element.selector) : null
       ) : null,
-      state.timelineContextMenu ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineContextMenu, { model: state.timelineContextMenu }) : null
+      timelineContextMenu ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineContextMenu, { model: timelineContextMenu }) : null
     ] });
   };
   function renderStudioReactOwner(patch) {
@@ -26627,21 +26638,22 @@
       filmStore.setField("timelineDropTarget", null);
       filmStore.setField("timelineActiveDragIds", null);
       filmStore.setField("timelineEnvelopePreview", null);
-      if (studioReactState.timeline !== null || studioReactState.timelineContextMenu !== null) {
-        renderStudioReactOwner({ timeline: null, timelineContextMenu: null });
+      filmStore.setField("timelineContextMenu", null);
+      if (studioReactState.timeline !== null) {
+        renderStudioReactOwner({ timeline: null });
       }
     },
     hasSurface() {
       return studioReactState.timeline !== null;
     },
     openContextMenu(model) {
-      renderStudioReactOwner({ timelineContextMenu: model });
+      filmStore.setField("timelineContextMenu", model);
     },
     closeContextMenu() {
-      if (studioReactState.timelineContextMenu !== null) renderStudioReactOwner({ timelineContextMenu: null });
+      if (filmStore.getField("timelineContextMenu") !== null) filmStore.setField("timelineContextMenu", null);
     },
     isContextMenuOpen() {
-      return studioReactState.timelineContextMenu !== null;
+      return filmStore.getField("timelineContextMenu") !== null;
     }
   };
   window.filmStudioReactToolbar = {
