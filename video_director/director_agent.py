@@ -15,6 +15,8 @@ from typing import Dict, List, Optional, Tuple
 from loguru import logger
 
 from video_director import audio, assets as assets_mod, config, matcher, narration, mpt_semantics, director_checkpoint, creative_candidates
+from video_director import music_policy
+from video_director.music_policy import MusicPolicy
 from video_director import planner as planner_mod
 from video_director import renderer, style as style_mod, subtitle as subtitle_mod
 from video_director import validator, qc as qc_mod
@@ -615,12 +617,15 @@ def _tool_material(spec: dict, state: dict) -> dict:
             # 用 _scenes_for_intent（带 §七.2 契约字段）供 LLM 匹配感知 must_show。
             match_scenes = [s for s in _scenes_for_intent
                             if s["id"] not in locked_scenes]
+            semantic_verdicts: Dict[str, str] = {}
             assignments = matcher.match_assets(
                 match_scenes, all_assets, llm_call,
                 policy_by_scene=source_policy_by_scene,
                 policy_decisions_out=policy_decisions,
                 provenance_out=match_provenance,
+                semantic_verdicts_out=semantic_verdicts,
             ) or {}
+            state["semantic_verdicts"] = semantic_verdicts
         except Exception as exc:
             warnings.append("本地素材匹配失败：" + str(exc))
     elif all_assets and state.get("narration_scenes"):
@@ -981,6 +986,12 @@ def _tool_material(spec: dict, state: dict) -> dict:
         "sequential": "顺序兜底：无可用语义，按素材顺序分配（非语义匹配）",
     }
     selection_reasons = {}
+    # §六 可选语义增强：verdict 汇入选择依据（Inspector「语义校验」可读）。
+    # CONFLICT 保留匹配但如实标注——这是「提供事实验证」而非「擅自改时间线」。
+    _verdict_cn = {"DIRECT_MATCH": "语义校验：直接匹配",
+                   "SUPPORTING": "语义校验：辅助匹配",
+                   "CONFLICT": "语义校验：画面与文案冲突（请人工复核该镜头）",
+                   "UNKNOWN": "语义校验：无法确认"}
     for sid in assignments:
         src = match_provenance.get(sid) or "sequential"
         reason_text = _REASON_BY_SOURCE.get(src, _REASON_BY_SOURCE["sequential"])
@@ -990,6 +1001,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
         selection_reasons[sid] = (
             reason_text + "；并依据来源/复用政策调整" if note and src != "policy" else reason_text
         )
+        v = (state.get("semantic_verdicts") or {}).get(sid)
+        if v and v in _verdict_cn and src != "locked":
+            selection_reasons[sid] += "；" + _verdict_cn[v]
     intent_data = mpt_semantics.material_intent_snapshot(
         state.get("narration_scenes") or [],
         search_terms_by_scene={
@@ -1158,24 +1172,75 @@ def _tool_subtitle(spec: dict, state: dict) -> dict:
     }
 
 
+def _resolve_music_policy(spec: dict, state: dict) -> "MusicPolicy":
+    """§34 统一 BGM 决策入口：spec.bgm + style → MusicPolicy 契约。
+
+    既有行为映射（不改变用户可观察结果）：
+        off/none/disabled → policy=none
+        auto              → policy=local_random（本地库随机）
+        <asset_id>        → policy=local_selected（显式曲目）
+    新增诚实档（MPT §34 MusicPolicy 六档，无 provider 的不伪造可用）：
+        stock/generated/video_matched 经 availability() 判定，不可用则降级。
+    """
+    raw = (spec.get("bgm") or "auto").strip()
+    _kc = state.get("style_contract")
+    _stid = getattr(_kc, "style_id", None) if _kc else None
+    keywords = tuple(str(k) for k in (_stid.split("-") if isinstance(_stid, str) else [])
+                     if str(k).strip())
+    # volume 判 None 而非 falsy：bgm_volume=0 是合法静音，不能被 `or` 吞成默认
+    _v = spec.get("bgm_volume")
+    volume = float(_v) if _v is not None else 0.3
+    if raw in ("none", "off", "disabled"):
+        return MusicPolicy(policy="none")
+    if raw in ("stock", "generated", "video_matched"):
+        pol = MusicPolicy(policy=raw, style_keywords=keywords, volume=volume)
+        if not pol.availability().get("available"):
+            # 诚实降级：该档 provider 未开 → 不伪造，回退 local_random（有本地库时）
+            # 或 none（无本地库），并在 result.reason 标注真实状态。
+            return MusicPolicy(policy="local_random", style_keywords=keywords,
+                               volume=pol.volume)
+        return pol
+    if raw == "auto":
+        return MusicPolicy(policy="local_random", style_keywords=keywords, volume=volume)
+    # 显式 asset_id
+    return MusicPolicy(policy="local_selected", asset_id=raw, volume=volume)
+
+
 def _tool_music(spec: dict, state: dict) -> dict:
-    requested = spec.get("bgm") or "auto"
-    if requested in ("none", "off", "disabled"):
+    # §34 统一经 MusicPolicy 契约：BGM 决策不再各工作流自定
+    pol = _resolve_music_policy(spec, state)
+    state["music_policy"] = pol.policy  # 记录决策档（台账/Inspector 可见）
+    if pol.policy == "none":
         state["bgm_asset_id"] = None
         return {"ok": True, "tool": "music.select", "status": "SKIPPED",
-                "result": {"reason": "用户未要求 BGM"}, "verify": {"ok": True}}
-    aid = audio.resolve_auto_bgm(state["style_contract"].style_id) if requested == "auto" else requested
-    if not aid:
-        state["bgm_asset_id"] = None
-        return {"ok": True, "tool": "music.select", "status": "SKIPPED",
-                "result": {"reason": "音乐库为空，未随机替代"}, "verify": {"ok": True}}
+                "result": {"reason": "用户未要求 BGM", "music_policy": "none"},
+                "verify": {"ok": True}}
+    # local_random：本地库随机（既有 audio.resolve_auto_bgm 路径）
+    if pol.policy == "local_random":
+        aid = audio.resolve_auto_bgm(state["style_contract"].style_id)
+        if not aid:
+            state["bgm_asset_id"] = None
+            return {"ok": True, "tool": "music.select", "status": "SKIPPED",
+                    "result": {"reason": "音乐库为空，未随机替代",
+                               "music_policy": "local_random"},
+                    "verify": {"ok": True}}
+        state["bgm_asset_id"] = aid
+        state["bgm_volume"] = pol.volume
+        return {"ok": True, "tool": "music.select", "status": "APPLIED",
+                "result": {"asset_id": aid, "volume": state["bgm_volume"],
+                           "music_policy": "local_random"},
+                "verify": {"ok": True, "checks": [{"id": "bgm_source", "ok": True}]}}
+    # local_selected：显式曲目（availability 已在 __post_init__ 校验 asset_id 非空）
+    aid = pol.asset_id
     if aid not in audio.scan_library():
         return {"ok": False, "tool": "music.select", "status": "MISSING_REQUIREMENT",
-                "error": "BGM 资产不存在：" + str(aid), "verify": {"ok": False}}
+                "error": "BGM 资产不存在：" + str(aid),
+                "result": {"music_policy": "local_selected"}, "verify": {"ok": False}}
     state["bgm_asset_id"] = aid
-    state["bgm_volume"] = float(spec.get("bgm_volume") or state["style_contract"].bgm_volume)
+    state["bgm_volume"] = pol.volume
     return {"ok": True, "tool": "music.select", "status": "APPLIED",
-            "result": {"asset_id": aid, "volume": state["bgm_volume"]},
+            "result": {"asset_id": aid, "volume": state["bgm_volume"],
+                       "music_policy": "local_selected"},
             "verify": {"ok": True, "checks": [{"id": "bgm_source", "ok": True}]}}
 
 

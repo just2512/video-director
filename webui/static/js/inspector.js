@@ -241,6 +241,22 @@ async function _loadMptSceneContext(sceneId){
         (sceneNotShow.length ? '<div>禁止呈现：' + sceneNotShow.map(function(x){ return esc(x); }).join('、') + '</div>' : '') +
         '</div>'
       : '';
+    // §二十六/二十七 依赖状态五态：本场景用到的 asset 若 MISSING/INVALID，展示告知+操作
+    const depStates = mpt.asset_dependency_states || [];
+    const stateCn = {SATISFIED:'依赖满足', MISSING:'素材缺失', REPLACED:'已替换', CHANGED:'已变更', INVALID:'损坏'};
+    const sceneAssetIds = usage.map(function(u){ return u.asset_id; });
+    const problemDeps = depStates.filter(function(d){
+      return sceneAssetIds.indexOf(d.asset_id) >= 0 &&
+        (d.state === 'MISSING' || d.state === 'INVALID');
+    });
+    const depStateHtml = problemDeps.length
+      ? '<div style="margin-top:5px;color:var(--danger,#c33);font-size:12px">依赖告警：' +
+        problemDeps.map(function(d){
+          return esc(d.asset_id) + ' ' + (stateCn[d.state]||d.state) + '（' + esc(d.reason||'') + '）' +
+            ' <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>' +
+            ' <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">重新上传</button>';
+        }).join('；') + '</div>'
+      : '';
     const candidateHtml = candidates.map(function(candidate){
       const selected = candidate.id === selectedCandidate;
       const sourceText = {
@@ -290,8 +306,11 @@ async function _loadMptSceneContext(sceneId){
     }).join('');
     const windows = usage.length
       ? usage.map(function(u){
+          // §三十八 usage_index 展示：素材被消费的累计次数（MPT source-level usage）
+          const idx = (typeof u.usage_index === 'number' && u.usage_index >= 1)
+            ? ' · 使用：第' + u.usage_index + '次' : '';
           return esc(u.asset_id) + ' · ' + Number(u.source_in || 0).toFixed(1) + 's → ' +
-            Number(u.source_out || 0).toFixed(1) + 's';
+            Number(u.source_out || 0).toFixed(1) + 's' + idx;
         }).join('<br>')
       : '尚未形成 source-window 使用记录';
     box.innerHTML =
@@ -307,7 +326,8 @@ async function _loadMptSceneContext(sceneId){
       ' · ' + esc(intent.diversity_policy || 'prefer_unique_source') +
       ' · ' + esc(intent.reuse_policy || 'reuse_when_needed') + '</div>' +
       '<div style="margin-top:5px">实际消费：</div><div>' + windows + '</div>' +
-      (intent.selection_reason ? '<div style="margin-top:5px">选择依据：' + esc(intent.selection_reason) + '</div>' : '');
+      (intent.selection_reason ? '<div style="margin-top:5px">选择依据：' + esc(intent.selection_reason) + '</div>' : '') +
+      depStateHtml;
   } catch (e) {
     box.textContent = '素材依据暂不可读，不影响编辑。';
   }

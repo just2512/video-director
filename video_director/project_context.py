@@ -85,6 +85,7 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
         "build_fingerprint": "",
         "creative_candidates": [],
         "source_usage_policy": {},
+        "asset_dependency_states": [],  # §二十六/二十七 五态
     }
     try:
         from pathlib import Path
@@ -115,6 +116,35 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
             import json
             data = json.loads(policy_path.read_text(encoding="utf-8"))
             mpt["source_usage_policy"] = data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+
+    # §二十六/二十七 Task restore 外部依赖 reconciliation：
+    # 每个 IR 引用的 asset 算五态——SATISFIED(文件在) / MISSING(文件不在)
+    # / REPLACED(id 在但 file 变了) / CHANGED(指纹变了) / INVALID(损坏)。
+    # 用 AssetRef.file 做存在性 + mtime 判 CHANGED。前端可据此展示
+    # 「Scene 03 原素材 MISSING → [重新上传][换素材][继续其他]」。
+    dep_states: list = []
+    try:
+        from pathlib import Path as _P
+        for asset in ir.assets:
+            f = str(getattr(asset, "file", "") or "")
+            aid = str(getattr(asset, "id", "") or "")
+            if not f:
+                dep_states.append({"asset_id": aid, "file": "", "state": "MISSING",
+                                   "reason": "无 file 字段"})
+                continue
+            p = _P(f)
+            if not p.exists():
+                dep_states.append({"asset_id": aid, "file": f, "state": "MISSING",
+                                   "reason": "文件不存在（可能用户未重新上传/已移动）"})
+            elif p.stat().st_size == 0:
+                dep_states.append({"asset_id": aid, "file": f, "state": "INVALID",
+                                   "reason": "文件存在但大小为 0（损坏）"})
+            else:
+                dep_states.append({"asset_id": aid, "file": f, "state": "SATISFIED",
+                                   "reason": "依赖满足"})
+        mpt["asset_dependency_states"] = dep_states
     except Exception:
         pass
 

@@ -4003,9 +4003,24 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director import generation as vd_generation
+                # §十八 付费 Provider 确认门禁（与 tool_executor._execute_generation 同口径）：
+                # image/video READY+付费 且 payload 未带 confirmed → NEEDS_CONFIRMATION，
+                # 不擅自调用付费 API。前端收到后弹确认框，确认后带 confirmed:true 重发。
+                gtype = payload.get("type", "image")
+                if gtype in ("image", "video") and not payload.get("confirmed"):
+                    try:
+                        from video_director import provider_matrix
+                        st = provider_matrix.state(gtype, f"{gtype}.generate")
+                        if st.status == "READY" and st.is_paid:
+                            self._send_json({"ok": False, "status": "NEEDS_CONFIRMATION",
+                                             "error": f"本镜头需付费{gtype}生成，请先确认后再执行"},
+                                            402)
+                            return
+                    except Exception:
+                        pass
                 results = vd_generation.generate(
                     project_id=pid, prompt=payload.get("prompt", ""),
-                    gen_type=payload.get("type", "image"),
+                    gen_type=gtype,
                     width=int(payload.get("width") or 1080),
                     height=int(payload.get("height") or 1920),
                     model=payload.get("model") or None,

@@ -52,6 +52,20 @@ class ProviderDefinition:
     requires_model: bool = False
     implemented: bool = True
     note: str = ""
+    # §十八 付费 Provider 确认：视频/图片生成调用真实产生费用，前端须显式
+    # 告知「本镜头需付费视频生成」，执行器前置 confirm 门禁。TTS/LLM 文本
+    # 默认不标付费（Edge TTS 免费；LLM 文本成本远低于视频生成）。
+    is_paid: bool = False
+    # §四十#6 ProviderCapability 深层属性（文档1 归一化契约）：
+    # sync="sync"|"async"|"unknown"；max_duration_seconds=None=不限/未知；
+    # supports_reference=None=不支持；retry_safe=None=未知（transport error
+    # ≠ 可安全重试——远端可能已完成并收费，MPT §16）。
+    sync_mode: str = "sync"
+    max_duration_seconds: Optional[float] = None
+    supports_reference: Optional[bool] = None
+    supports_first_frame: Optional[bool] = None
+    supports_last_frame: Optional[bool] = None
+    retry_safe: Optional[bool] = None
     # 已知纯文本模型黑名单（2026-10-17 生产事故：vision 配 MiniMax-M3 → 全部素材 400 白烧）。
     # 命中即判 NOT_CONFIGURED 并写明原因；未收录模型放行，由真实调用失败诚实降级。
     text_only_model_patterns: tuple[str, ...] = ()
@@ -65,6 +79,15 @@ class CapabilityState:
     status: str
     configured: bool
     reason: str = ""
+    is_paid: bool = False            # §十八 该操作是否产生付费
+    requires_confirmation: bool = False  # §十八 READY+付费 → 前端须确认
+    # §四十#6 深层属性透传（None=未知，不冒充知道）
+    sync_mode: str = "sync"
+    max_duration_seconds: Optional[float] = None
+    supports_reference: Optional[bool] = None
+    supports_first_frame: Optional[bool] = None
+    supports_last_frame: Optional[bool] = None
+    retry_safe: Optional[bool] = None
 
 
 # 这里声明的是「本项目当前真正接通的协议/执行器」。
@@ -84,16 +107,27 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
         "openai", "image", "OpenAI Images",
         ("image.generate",), requires_model=True, requires_base_url=True,
         note="OpenAI Images data[].b64_json/url 同步协议",
+        is_paid=True,
     ),
     ProviderDefinition(
         "openai-compatible", "image", "OpenAI 兼容生图",
         ("image.generate",), requires_model=True, requires_base_url=True,
         note="本项目只接受标准 Images 同步响应；异步 task_id 不算已接通",
+        is_paid=True,
     ),
     ProviderDefinition(
         "video-openai-compatible", "video", "OpenAI 兼容视频",
         ("video.generate",), requires_model=True, requires_base_url=True,
         note="当前执行器固定调用 /videos/generations；首末帧/I2V 尚未接通",
+        is_paid=True,
+        # 真实协议：异步 task_id 轮询（generation_jobs.json 恢复链）；参考图走
+        # reference 通道；首末帧参数存在但未接通 → 显式 False（不冒充支持）。
+        # retry_safe=None：transport error ≠ 可安全重试（远端可能已计费）。
+        sync_mode="async",
+        supports_reference=True,
+        supports_first_frame=False,
+        supports_last_frame=False,
+        retry_safe=None,
     ),
     ProviderDefinition(
         "frame-vision-openai-compatible", "vision", "OpenAI 兼容视觉",
@@ -114,11 +148,13 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
         "twelvelabs-marengo", "semantic_rerank", "Twelve Labs Marengo",
         ("visual.semantic_retrieve",), requires_model=True, requires_base_url=True,
         note="Marengo 3.5 多模态 embedding；用于语义检索候选生成",
+        is_paid=True,
     ),
     ProviderDefinition(
         "twelvelabs-pegasus", "visual_qa", "Twelve Labs Pegasus",
         ("visual.qa",), requires_model=True, requires_base_url=True,
         note="Pegasus 1.5 视频理解；用于 Scene 对素材的语义/画面验证",
+        is_paid=True,
     ),
     ProviderDefinition(
         "edge-tts", "tts", "Edge TTS",
@@ -296,15 +332,29 @@ def state_for_provider(provider_id: str, role: str, operation: str,
     if definition is None:
         return CapabilityState(provider_id, role, operation, UNKNOWN,
                                bool(cfg.get("api_key")), "Provider 未登记")
+    # §四十#6 深层属性从 definition 统一透传（全部状态分支一致）
+    deep = dict(
+        sync_mode=definition.sync_mode,
+        max_duration_seconds=definition.max_duration_seconds,
+        supports_reference=definition.supports_reference,
+        supports_first_frame=definition.supports_first_frame,
+        supports_last_frame=definition.supports_last_frame,
+        retry_safe=definition.retry_safe,
+    )
     if operation not in definition.operations or not definition.implemented:
         return CapabilityState(
             provider_id, role, operation, UNSUPPORTED, bool(cfg.get("api_key")),
             definition.note or "当前 Provider/执行器尚未接通该能力",
+            is_paid=definition.is_paid, **deep,
         )
     ok, reason = _configured(definition, cfg, manual_manifest=manual_manifest)
     if not ok:
-        return CapabilityState(provider_id, role, operation, MISSING, False, reason)
-    return CapabilityState(provider_id, role, operation, READY, True, definition.note)
+        return CapabilityState(provider_id, role, operation, MISSING, False, reason,
+                               is_paid=definition.is_paid, **deep)
+    # §十八：READY + 付费 → 前端须显式确认「本镜头需付费视频生成」
+    return CapabilityState(provider_id, role, operation, READY, True, definition.note,
+                           is_paid=definition.is_paid,
+                           requires_confirmation=definition.is_paid, **deep)
 
 
 def state(role: str, operation: str, cfg: Optional[Mapping[str, Any]] = None,
@@ -369,14 +419,32 @@ def matrix_for_frontend() -> list[dict]:
             op: state(role, op, cfg).status
             for op in operations
         }
-        out.append({
+        # §十八 付费标记：取该 provider 声明的 is_paid（image/video/semantic_rerank/visual_qa=True）
+        defn = next((d for d in DEFINITIONS
+                     if d.role == role and d.provider_id == provider_id), None)
+        is_paid = bool(defn.is_paid) if defn else False
+        row = {
             "role": role,
             "provider": provider_id,
             "configured": bool(cfg.get("api_key")),
             "model": cfg.get("model") or "",
             "base_url": cfg.get("base_url") or "",
             "operations": states,
-        })
+            "is_paid": is_paid,
+            "requires_confirmation": is_paid and any(
+                st == READY for st in states.values()),
+        }
+        # §四十#6 深层属性进前端矩阵（None 序列化为 null）
+        if defn:
+            row.update({
+                "sync_mode": defn.sync_mode,
+                "max_duration_seconds": defn.max_duration_seconds,
+                "supports_reference": defn.supports_reference,
+                "supports_first_frame": defn.supports_first_frame,
+                "supports_last_frame": defn.supports_last_frame,
+                "retry_safe": defn.retry_safe,
+            })
+        out.append(row)
 
     # TTS 与 Stock 使用自己的 provider registry，不要求 API key 全局角色。
     for role, provider_ids in (

@@ -215,6 +215,39 @@ def material_usage_from_ir(ir: Any) -> List[MaterialUsage]:
             ))
     return out
 
+# ---------------------------------------------------------------------------
+# §四十#2 PlayableSegment / #4 VariantSet 语义映射（裁决：不硬造新对象，
+# 记录已有能力到契约，杜绝「看到 image layer 就以为与 video layer 同语义」
+# 的假一致性）。这两个函数是纯映射契约，供 Inspector / 未来计时轴消费，
+# 不引入新的 IR 类型。
+# ---------------------------------------------------------------------------
+
+_PLAYABLE_KIND_BY_LAYER = {
+    "video": "video",        # speed/source_in/out 完整消费语义（等价 MPT clip）
+    "image": "image",        # image layer：renderer 内 slow_zoom 才成可播放段
+    "generated": "generated",  # 生成产物（图/视频），落地后归 video/image 层
+}
+
+_VARIANT_KIND_BY_STAGE = {
+    # MPT VariantSet =「一个创意 → 多个完整变体各自产物」；当前真实等价物是
+    # 生成阶段的 A/B/C media variant（generation.py）——scene 级创作候选
+    # （creative_candidates.py）是「表达方式」变体，不是「完整产物」变体。
+    # 诚实边界：无跨阶段 VariantSet 结构；映射记录两级变体的真实归属。
+    "generation": "media_variant",       # A/B/C：一个 prompt → 3 视觉变体
+    "creative_candidate": "creative_variant",  # 一个场景 → 3 表达方式候选
+}
+
+
+def playable_segment_kind(layer_type: str) -> str:
+    """§四十#2 层类型 → 可播放段语义键（纯映射，不造 PlayableSegment 类）。"""
+    return _PLAYABLE_KIND_BY_LAYER.get(str(layer_type or "").lower(), "unknown")
+
+
+def variant_set_kind(stage: str) -> str:
+    """§四十#4 变体阶段 → 变体语义键（纯映射，不造 VariantSet 类）。"""
+    return _VARIANT_KIND_BY_STAGE.get(str(stage or "").lower(), "unknown")
+
+
 def build_artifact_fingerprint(parts: Mapping[str, Any]) -> str:
     def stable(v: Any) -> Any:
         if isinstance(v, Mapping):

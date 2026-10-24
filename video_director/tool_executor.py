@@ -568,6 +568,21 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
     prompt = payload.get("prompt", "")
     if not prompt:
         raise ToolExecutorError("INVALID_PAYLOAD", "generation 缺 prompt")
+    # §十八 付费 Provider 确认门禁：video/image 生成产生真实费用，
+    # payload 未带 confirmed=True 时拒绝调用，前端须先获用户「本镜头需付费
+    # 视频生成」确认。未配置 provider 时由下方 gen.generate 诚实报错，
+    # 这里只拦「已配置但未确认」的付费调用。
+    if gen_type in ("image", "video"):
+        try:
+            from video_director import provider_matrix
+            st = provider_matrix.state(gen_type, f"{gen_type}.generate")
+            if st.status == "READY" and st.is_paid and not payload.get("confirmed"):
+                return _result(tool, False, "NEEDS_CONFIRMATION",
+                               error=f"本镜头需付费{gen_type}生成，请先确认后再执行",
+                               result={"requires_confirmation": True,
+                                       "operation": f"{gen_type}.generate"})
+        except Exception:
+            pass  # provider_matrix 不可用时不阻塞既有生成链
     try:
         results = gen.generate(
             project_id, prompt, gen_type=gen_type,

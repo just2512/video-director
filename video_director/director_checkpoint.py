@@ -10,7 +10,7 @@ STATE_KEYS = (
     "script", "scene_texts", "scene_plan", "narration_file", "word_timeline", "narration_scenes",
     "video_files", "image_files", "assets", "asset_order", "assignments",
     "material_intents", "creative_candidates", "subtitle_file", "subtitle_entries", "bgm_asset_id",
-    "bgm_volume", "composition_path", "manifest_path", "style_path",
+    "bgm_volume", "music_policy", "composition_path", "manifest_path", "style_path",
     "transition_proposals_path", "material_usage_path", "build_fingerprint_path",
     "draft_path", "storyboard_path", "final_path", "qc_report",
     # 音效开关决策（director_agent._apply_sfx_policy 写入）：off→空列表、
