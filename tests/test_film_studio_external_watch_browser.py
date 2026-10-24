@@ -1279,6 +1279,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 # and clicking the envelope surface must not leak selection to its parent clip.
                 envelope = page.locator('canvas[data-envelope-clip="audio-1"]')
                 envelope.wait_for(state="visible")
+                # The audio track may be just below the viewport in a tall multi-track Studio.
+                # Scroll it into view before synthetic hit-testing or real mouse coordinates.
+                envelope.scroll_into_view_if_needed()
                 page.wait_for_function(
                     "() => [...document.querySelectorAll('canvas[data-envelope-clip]')].some(node => node.dataset.envelopeClip === 'audio-1' && node.dataset.reactEnvelopePainted === 'true')",
                     timeout=5_000,
