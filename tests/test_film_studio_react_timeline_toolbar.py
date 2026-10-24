@@ -82,6 +82,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "setTimelineEnvelopePreview(ed.clipId,points)" in studio
     assert "S.envelopeDrag={clipId:clip.id,pointerId:e.pointerId,rect:rect,points:points,index:index" in studio
     assert "canvas:canvas||null" not in studio
+    assert "math.resolveEnvelopePointerDown(points,duration,rect.width,rect.height" in studio
+    assert "math.moveEnvelopeKeyframe(ed.points,ed.index,ed.duration,rect.width,rect.height" in studio
+    assert "math.normalizeEnvelopePoints(envelopeEdit.points)" in studio
+    assert "filmStudioMoveEnvelopeGesture=function(e,rect)" in studio
+    assert "filmStudioBeginEnvelopeGesture?: (event: PointerEvent, context: {clipId: string; rect:" in component
     assert "if(reactTimeline)return;" in studio
     assert "type FilmStudioTimelineWaveformSource = {duration: number; peaks: Uint8Array};" in store
     assert "timelineWaveformSources: FilmStudioTimelineWaveformSources;" in store

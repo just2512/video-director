@@ -47,6 +47,7 @@
 - 片段右键菜单由 React 的单一 Studio root 渲染；复制、重复、粘贴、切分、删除、波纹删除和 Inspector 仍使用共享命令桥，原生 DOM 菜单仅留给无 bundle fallback。菜单开关不写入 FilmDocument revision。
 - `#fs-timeline` 是 React Portal 宿主时，迁移页或文档错误页不能直接改写其子树。切换到 legacy 占位页前先卸载 React 时间线；恢复有效 FilmDocument 时，仅当 React surface 确认未挂载后，清理遗留占位内容并重新挂载，避免 React fiber 仍持有旧节点而浏览器 DOM 已被清空。
 
+- 音量包络 pointerdown 的命中测试、插入/删除判定、关键帧时值/增益约束，以及 pointerup 的三位小数归一化与重复时间合并由 `film-timeline-math.ts` 纯函数承担。React 路径向适配器只传 clip ID 与每帧数值矩形，不保留 Canvas 引用；无 bundle fallback 保留原生计算路径。
 - 时间线手势预览、吸附线、轨道 drop-target、活动拖动 ID、音量包络 preview 与波形峰值源数据作为 FilmStore 的类型化瞬态字段。React TimelineSurface 负责音量包络与音频波形画布绘制；正常 React 路径向包络手势适配器传片段 ID 与每帧矩形数值，不传 canvas/HTMLElement。旧适配器保留受大小/时长限制的异步音频解码缓存，并只将峰值数组发布到 Store。手势适配器仍负责关键帧命中/移动约束，并在 pointerup 经 revision-checked FilmDocument 事务提交；无 bundle fallback 保留原生绘制入口。
 - 修剪起点/终点的原始目标、吸附候选、最小时长边界与最终目标由类型化 `resolveTrimStart/resolveTrimEnd` 同时驱动预览和 pointerup 提交，防止显示位置与落盘时间使用不同的限幅/吸附顺序。
 - Roll/slide 的吸附锚点与可移动区间由类型化 `resolveRollGesture/resolveSlideGesture` 解析；预览和 pointerup 共用同一个 `deltaSeconds`。Roll 以右侧片段入点为锚点，Slide 以中间片段入点为锚点，并保留各自的相邻片段时长约束。

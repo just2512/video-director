@@ -1505,39 +1505,50 @@
     if(![rect.left,rect.top,rect.width,rect.height].every(Number.isFinite))return false;
     if(duration<=0.02){showStatus('片段短于 0.02 秒，无法安全添加内部音量关键帧。','error');return false;}
     if(!rect.width||!rect.height)return false;
-    var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
-    var value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
-    var points=envelopePointsForClip(clip).map(function(p){return {t:Number(p.t),v:Number(p.v)};});
-    var nearest=-1,nearestPx=Infinity;
-    points.forEach(function(p,i){
-      if(p.t<=0.0001||p.t>=duration-0.0001)return;
-      var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
-      if(px<nearestPx){nearestPx=px;nearest=i;}
-    });
-    if((e.button===2||e.shiftKey)&&nearest>=0&&nearestPx<=12){
-      points.splice(nearest,1);
-      if(points.length<2){showStatus('至少需要两个音量关键帧。','error');return false;}
-      filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}]);
-      return false;
-    }
-    if(e.button!==0)return false;
-    var index=-1;
-    points.forEach(function(p,i){
-      var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
-      var renderedY=rect.height-4-p.v*(rect.height-8);
-      var py=Math.abs(renderedY-(e.clientY-rect.top));
-      if(px<=10&&py<=10){index=i;nearestPx=px;}
-    });
-    var added=false;
-    if(index<0){
-      value=volumeEnvelopeAtStudio(points,time);
-      // Clicking the envelope canvas inserts a new local keyframe at the clicked
-      // time and value; dragging immediately after insertion edits its gain.
-      value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
-      time=Math.max(0.01,Math.min(duration-0.01,time));
-      index=points.findIndex(function(p){return p.t>time;});
-      if(index<0)index=points.length;
-      points.splice(index,0,{t:time,v:value});added=true;
+    var math=timelineMath(),points=envelopePointsForClip(clip).map(function(p){return {t:Number(p.t),v:Number(p.v)};}),index=-1,added=false;
+    if(math&&typeof math.resolveEnvelopePointerDown==='function'){
+      var resolution=math.resolveEnvelopePointerDown(points,duration,rect.width,rect.height,
+        e.clientX-rect.left,e.clientY-rect.top,e.button,!!e.shiftKey);
+      if(resolution.kind==='none')return false;
+      if(resolution.kind==='minimum-points'){showStatus('至少需要两个音量关键帧。','error');return false;}
+      if(resolution.kind==='remove'){
+        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}]);
+        return false;
+      }
+      points=resolution.points;index=resolution.index;added=resolution.added;
+    }else{
+      var time=Math.max(0,Math.min(duration,(e.clientX-rect.left)/rect.width*duration));
+      var value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
+      var nearest=-1,nearestPx=Infinity;
+      points.forEach(function(p,i){
+        if(p.t<=0.0001||p.t>=duration-0.0001)return;
+        var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
+        if(px<nearestPx){nearestPx=px;nearest=i;}
+      });
+      if((e.button===2||e.shiftKey)&&nearest>=0&&nearestPx<=12){
+        points.splice(nearest,1);
+        if(points.length<2){showStatus('至少需要两个音量关键帧。','error');return false;}
+        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}]);
+        return false;
+      }
+      if(e.button!==0)return false;
+      points.forEach(function(p,i){
+        var px=Math.abs(p.t/duration*rect.width-(e.clientX-rect.left));
+        var renderedY=rect.height-4-p.v*(rect.height-8);
+        var py=Math.abs(renderedY-(e.clientY-rect.top));
+        if(px<=10&&py<=10){index=i;nearestPx=px;}
+      });
+      if(index<0){
+        value=volumeEnvelopeAtStudio(points,time);
+        // Clicking the envelope canvas inserts a new local keyframe at the clicked
+        // time and value; dragging immediately after insertion edits its gain.
+        value=Math.max(0,Math.min(1,1-((e.clientY-rect.top)-4)/Math.max(1,rect.height-8)));
+        time=Math.max(0.01,Math.min(duration-0.01,time));
+        index=points.findIndex(function(p){return p.t>time;});
+        if(index<0)index=points.length;
+        points.splice(index,0,{t:time,v:value});added=true;
+      }
+  
     }
     // The Store receives only the stable clip/pointer IDs, numeric rect, and keyframe snapshot.
     // Legacy canvas references are isolated to the native fallback closure.
@@ -1997,15 +2008,22 @@
       if(!e||e.pointerId!==ed.pointerId)return;
       var rect=envelopeDomCanvas?envelopeDomCanvas.getBoundingClientRect():ed.rect;
       if(!rect||!rect.width||!rect.height)return;
-      var points=ed.points.map(function(item){return {t:item.t,v:item.v};}),point=points[ed.index];
-      if(!point)return;
-      var x=Math.max(0,Math.min(rect.width,(e.clientX-rect.left)));
-      var y=Math.max(0,Math.min(rect.height,(e.clientY-rect.top)));
-      if(ed.index>0&&ed.index<points.length-1){
-        var lower=points[ed.index-1].t+0.01,upper=points[ed.index+1].t-0.01;
-        point.t=Math.max(lower,Math.min(upper,x/rect.width*ed.duration));
+      var math=timelineMath(),points;
+      if(math&&typeof math.moveEnvelopeKeyframe==='function'){
+        points=math.moveEnvelopeKeyframe(ed.points,ed.index,ed.duration,rect.width,rect.height,
+          e.clientX-rect.left,e.clientY-rect.top);
+        if(!points)return;
+      }else{
+        points=ed.points.map(function(item){return {t:item.t,v:item.v};});
+        var point=points[ed.index];if(!point)return;
+        var x=Math.max(0,Math.min(rect.width,(e.clientX-rect.left)));
+        var y=Math.max(0,Math.min(rect.height,(e.clientY-rect.top)));
+        if(ed.index>0&&ed.index<points.length-1){
+          var lower=points[ed.index-1].t+0.01,upper=points[ed.index+1].t-0.01;
+          point.t=Math.max(lower,Math.min(upper,x/rect.width*ed.duration));
+        }
+        point.v=Math.max(0,Math.min(1,1-(y-4)/Math.max(1,rect.height-8)));
       }
-      point.v=Math.max(0,Math.min(1,1-(y-4)/Math.max(1,rect.height-8)));
       updateTimelineEnvelopeGesture({
         rect:{left:Number(rect.left),top:Number(rect.top),width:Number(rect.width),height:Number(rect.height)},
         points:points,active:true,changed:true
@@ -2160,11 +2178,16 @@
         return;
       }
       if(envelopeEdit.changed){
-        var normalized=envelopeEdit.points.map(function(p){return {t:Number(p.t.toFixed(3)),v:Number(p.v.toFixed(3))};})
-          .sort(function(a,b){return a.t-b.t;});
-        // Coalesce points which became the same time after rounding; preserve the last gesture value.
-        var unique=[];
-        normalized.forEach(function(p){if(unique.length&&Math.abs(unique[unique.length-1].t-p.t)<0.001)unique[unique.length-1]=p;else unique.push(p);});
+        var math=timelineMath(),unique;
+        if(math&&typeof math.normalizeEnvelopePoints==='function'){
+          unique=math.normalizeEnvelopePoints(envelopeEdit.points);
+        }else{
+          var normalized=envelopeEdit.points.map(function(p){return {t:Number(p.t.toFixed(3)),v:Number(p.v.toFixed(3))};})
+            .sort(function(a,b){return a.t-b.t;});
+          // Coalesce points which became the same time after rounding; preserve the last gesture value.
+          unique=[];
+          normalized.forEach(function(p){if(unique.length&&Math.abs(unique[unique.length-1].t-p.t)<0.001)unique[unique.length-1]=p;else unique.push(p);});
+        }
         if(unique.length>=2)await filmStudioCommit([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}]);
       }else if(S.data&&S.data.exists)renderTimeline();
       clearTimelineEnvelopePreview();
