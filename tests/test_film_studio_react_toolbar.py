@@ -22,7 +22,7 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "renderSurface(): void" in component
     assert "const timelineSurface = useMemo(" in component
     assert "buildTimelineSurfaceModel(" in component
-    assert "window.filmStudioReactTimeline.renderSurface();" in studio
+    assert "timelineBridge.renderSurface();" in studio
     assert "window.filmStudioReactTimeline.renderSurface(renderModel);" not in studio
     store = (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
     assert "timelineVisible: boolean;" in store
