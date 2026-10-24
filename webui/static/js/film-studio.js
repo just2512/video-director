@@ -3813,15 +3813,19 @@ window.filmStudioCopyClips=function(){
         return {ok:false,code:'FILM_STATE_UNAVAILABLE'};
       }
 
-      // Only a confirmed absence of film.html may enter the legacy editor.
-      // If Studio is already open, keep it on the selected project and show the
-      // explicit migration screen instead of leaving the previous project's view.
-      // The confirmed absence is the same authority snapshot used above;
-      // pass it through so an already-mounted Studio does not make a third GET.
+      // Switch the authority surface before probing legacy CompositionIR.
+      // The old loader can fail for an unavailable/invalid composition, but that
+      // must not leave the previous FilmDocument timeline visible in an open Studio.
+      // Reuse the confirmed exists:false snapshot; do not start another Film GET.
+      if(S.open){
+        var studioLoaded=await filmStudioLoad(true,state);
+        if(!studioLoaded){
+          showStatus('无法安全切换 Film Studio；旧项目界面未打开。请解决未提交草稿或活动手势后重试。','error');
+          return {ok:false,code:'FILM_STUDIO_SWITCH_BLOCKED'};
+        }
+      }
       var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
-      var result=await legacyEditorLoad.apply(this,legacyArguments);
-      if(S.open)await filmStudioLoad(true,state);
-      return result;
+      return await legacyEditorLoad.apply(this,legacyArguments);
     };
   }
 

@@ -316,7 +316,9 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                                 "fps": 30, "duration": 4.0},
                     "scenes": [
                         {"id": "legacy-scene-1", "start": 0.0, "duration": 4.0,
-                         "text": "legacy", "layers": []}
+                         "text": "legacy", "layers": [
+                             {"id": "legacy-layer-1", "type": "image", "start": 0.0, "duration": 4.0}
+                         ]}
                     ],
                     "audio": [], "watermarks": []
                 }), encoding="utf-8")
@@ -338,6 +340,7 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 assert page.locator("#film-studio-panel.fs-studio-expanded").is_visible()
                 assert "初始化影片文档" in page.locator("#fs-timeline").inner_text()
                 assert page.locator('#fs-timeline .fs-clip[data-clip]').count() == 0
+                assert page.locator("#fs-project-label").inner_text() == legacy_project_id
                 legacy_film_reads = page.evaluate("window.__filmDocumentReadUrls.slice()")
                 assert len(legacy_film_reads) == 1, {
                     "known exists:false response should be reused for the Studio migration screen": legacy_film_reads

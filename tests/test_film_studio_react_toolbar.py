@@ -84,6 +84,9 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     assert "return await filmStudioLoad(true,result);" in studio
     assert "return await window.filmStudioToggle(result);" in studio
     assert "var loaded=await filmStudioLoad(true,knownFilmDocument);" in studio
+    assert studio.index("var studioLoaded=await filmStudioLoad(true,state);") < studio.index("return await legacyEditorLoad.apply(this,legacyArguments);")
+    assert "return {ok:false,code:'FILM_STUDIO_SWITCH_BLOCKED'};" in studio
+
     assert "if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;" in studio
     assert "window.filmStudioToggleTrackLock?.(track.id)" in component
     assert "window.filmStudioToggleTrackFlag?.(track.id, \"sync-lock\")" in component
