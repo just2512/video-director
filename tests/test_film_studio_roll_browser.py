@@ -227,11 +227,19 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert len(roll_committed_requests) == 1, roll_committed_requests
                 assert len(roll_committed_requests[0].get("ops") or []) == 1, roll_committed_requests
                 assert roll_committed_requests[0]["ops"][0].get("op") == "roll", roll_committed_requests
+                roll_delta = float(roll_committed_requests[0]["ops"][0]["delta"])
+                assert abs(roll_delta - 0.5) < 0.001, roll_committed_requests
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
                 assert clips["clip-a"]["attrs"]["src"].endswith("#t=2,7")
                 assert clips[right_id]["attrs"]["src"].endswith("#t=7,12")
-                assert float(clips[right_id]["attrs"]["at"]) == 2.5
+                assert abs(float(clips[right_id]["attrs"]["at"]) - (2 + roll_delta)) < 0.001
+                def source_range(clip):
+                    source = str(clip["attrs"]["src"])
+                    assert "#t=" in source, source
+                    start, end = source.rsplit("#t=", 1)[1].split(",", 1)
+                    return float(start), float(end)
+                assert source_range(clips["clip-a"])[1] == source_range(clips[right_id])[0]
 
                 # Re-split the rolled right segment, then exercise Slide trim through
                 # the actual clip-body modifier gesture (Alt+Shift drag).
@@ -256,6 +264,11 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page.locator('[data-film-action="slide-mode"]:visible').click()
                 assert page.locator('[data-film-action="slide-mode"]:visible').get_attribute("aria-pressed") == "true"
                 slide_document_before = fd.read_project_film(project_id)
+                slide_clips_before = {
+                    item["id"]: item
+                    for track in slide_document_before["doc"]["tracks"]
+                    for item in track["clips"]
+                }
                 slide_geometry_before = page.evaluate("""ids => Object.fromEntries(ids.map(id => {
                   const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]');
                   return [id, node ? {left:node.style.left,width:node.style.width} : null];
@@ -282,49 +295,70 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                             "leftWidthBefore":slide_geometry_before["clip-a"]["width"],
                             "centerLeftBefore":slide_geometry_before[right_id]["left"],
                             "rightLeftBefore":slide_geometry_before[slide_right_id]["left"]}, timeout=5000)
-                slide_preview = page.evaluate("""ids => window.filmStudioStore?.getSnapshot()?.timelineGesturePreview""",
-                                               ["clip-a", right_id, slide_right_id])
-                assert slide_preview and all(id in slide_preview for id in ["clip-a",right_id,slide_right_id]), slide_preview
-                assert slide_preview[right_id].get("mode") == "slide", slide_preview
+                slide_preview = page.evaluate("""ids => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return {
+                    geometry:state?.timelineGesturePreview,
+                    guide:state?.timelineSnapGuide,
+                    fps:Number(state?.film?.fps || 30)
+                  };
+                }""", ["clip-a", right_id, slide_right_id])
+                assert slide_preview["geometry"] and all(id in slide_preview["geometry"] for id in ["clip-a",right_id,slide_right_id]), slide_preview
+                assert slide_preview["geometry"][right_id].get("mode") == "slide", slide_preview
+                assert slide_preview["guide"] and slide_preview["guide"].get("kind") == "帧", slide_preview
+                assert abs(float(slide_preview["guide"]["at"]) * slide_preview["fps"] -
+                           round(float(slide_preview["guide"]["at"]) * slide_preview["fps"])) < 0.00001
                 assert fd.read_project_film(project_id)["rev"] == slide_document_before["rev"]
                 assert len(film_edit_requests) == slide_edit_count_before, film_edit_requests[slide_edit_count_before:]
                 page.mouse.up()
-
-                page.wait_for_function("""async (args) => {
-                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(args.pid));
-                  if (!response.ok) return false;
-                  const doc = await response.json();
-                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
-                  const left = clips.find(clip => clip.id === 'clip-a');
-                  const middle = clips.find(clip => clip.id === args.middleId);
-                  const right = clips.find(clip => clip.id === args.rightId);
-                  return !!left && !!middle && !!right
-                    && String(left.attrs.src).endsWith('#t=2,7.5')
-                    && String(middle.attrs.src).endsWith('#t=7,10')
-                    && Math.abs(Number(middle.attrs.at) - 2.75) < 0.001
-                    && String(right.attrs.src).endsWith('#t=10.5,12')
-                    && Math.abs(Number(right.attrs.at) - 4.25) < 0.001;
-                }""", arg={"pid": project_id, "middleId": right_id, "rightId": slide_right_id}, timeout=10000)
 
                 slide_committed_requests = film_edit_requests[slide_edit_count_before:]
                 assert len(slide_committed_requests) == 1, slide_committed_requests
                 assert len(slide_committed_requests[0].get("ops") or []) == 1, slide_committed_requests
                 assert slide_committed_requests[0]["ops"][0].get("op") == "slide", slide_committed_requests
-                page.locator('[data-film-action="slide-mode"]:visible').click()
-                assert page.locator('[data-film-action="slide-mode"]:visible').get_attribute("aria-pressed") == "false"
+                slide_delta = float(slide_committed_requests[0]["ops"][0]["delta"])
+                before_left_in, before_left_out = source_range(slide_clips_before["clip-a"])
+                before_middle_in, before_middle_out = source_range(slide_clips_before[right_id])
+                before_right_in, before_right_out = source_range(slide_clips_before[slide_right_id])
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') !== 'true'",
+                    timeout=10000,
+                )
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
-                assert clips["clip-a"]["attrs"]["src"].endswith("#t=2,7.5")
-                assert clips[right_id]["attrs"]["src"].endswith("#t=7,10")
-                assert float(clips[right_id]["attrs"]["at"]) == 2.75
-                assert clips[slide_right_id]["attrs"]["src"].endswith("#t=10.5,12")
-                assert float(clips[slide_right_id]["attrs"]["at"]) == 4.25
-                assert fd.clip_end(clips[slide_right_id]) == 5
+                left_in, left_out = source_range(clips["clip-a"])
+                middle_in, middle_out = source_range(clips[right_id])
+                right_in, right_out = source_range(clips[slide_right_id])
+                expected_middle_at = float(slide_clips_before[right_id]["attrs"]["at"]) + slide_delta
+                expected_right_at = float(slide_clips_before[slide_right_id]["attrs"]["at"]) + slide_delta
+                expected_source_shift = 2.0 * slide_delta
+
+                # The shared cut moves by the same speed-adjusted source delta on both adjacent clips.
+                assert abs(left_in - before_left_in) < 0.001
+                assert abs(left_out - (before_left_out + expected_source_shift)) < 0.001, clips["clip-a"]
+                assert abs(middle_in - (before_middle_in + expected_source_shift)) < 0.001, clips[right_id]
+                assert abs(middle_out - (before_middle_out + expected_source_shift)) < 0.001, clips[right_id]
+                assert abs(right_in - (before_right_in + expected_source_shift)) < 0.001, clips[slide_right_id]
+                assert abs(right_out - before_right_out) < 0.001, clips[slide_right_id]
+                assert abs(left_out - middle_in) < 0.001, {"left":left_out,"middle":middle_in}
+                assert abs(middle_out - right_in) < 0.001, {"middle":middle_out,"right":right_in}
+                assert abs(float(clips[right_id]["attrs"]["at"]) - expected_middle_at) < 0.001
+                assert abs(float(clips[slide_right_id]["attrs"]["at"]) - expected_right_at) < 0.001
+                assert abs(float(clips[right_id]["attrs"]["at"]) - float(slide_preview["guide"]["at"])) < 0.001
+                assert abs(float(clips[right_id]["attrs"]["at"]) * slide_preview["fps"] -
+                           round(float(clips[right_id]["attrs"]["at"]) * slide_preview["fps"])) < 0.02
+                assert abs(fd.clip_end(clips[slide_right_id]) - 5) < 0.001
+
+                page.locator('[data-film-action="slide-mode"]:visible').click()
+                page.wait_for_function(
+                    """() => document.querySelector('#fs-react-timeline-toolbar [data-film-action="slide-mode"]')
+                      ?.getAttribute('aria-pressed') === 'false'""",
+                    timeout=5000,
+                )
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') !== 'true'",
                     timeout=15000,
                 )
-
                 # Slip the left clip without moving it or changing its timeline
                 # duration. Use the explicit mode for this integration assertion;
                 # Alt-drag remains a supported shortcut but is not required for discoverability.
