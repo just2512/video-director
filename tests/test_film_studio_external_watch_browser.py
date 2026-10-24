@@ -1831,6 +1831,75 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
         thread.join(timeout=5)
 
 
+def test_legacy_director_controls_remain_available_only_without_film_document(tmp_path, monkeypatch):
+    """Initial planning keeps the CompositionIR controls until film.html exists."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-legacy-planning-browser"
+    (storage_root / project_id).mkdir(parents=True)
+    # A project directory without film.html must enter the explicit migration/planning path.
+    # The test intentionally does not invent a second timeline or any client-side mock state.
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            try:
+                page.set_default_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.locator("#editor-project").wait_for(state="visible")
+                page.evaluate("""pid => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                }""", project_id)
+                page.locator("#film-studio-toggle").click()
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-timeline-meta')?.textContent === '迁移预览'",
+                    timeout=5000,
+                )
+
+                page.locator('[data-film-action="director-mode"]').click()
+                page.wait_for_function("""() => {
+                  const host = document.querySelector('#fs-director-planning-host');
+                  const legacy = document.querySelector('#fs-director-legacy-note');
+                  const authority = document.querySelector('#fs-director-authority-note');
+                  const controls = document.querySelector('#director-control-grid');
+                  const bar = document.querySelector('#director-bar-card');
+                  return !!host && getComputedStyle(host).display !== 'none' &&
+                    !!legacy && getComputedStyle(legacy).display !== 'none' &&
+                    !!authority && getComputedStyle(authority).display === 'none' &&
+                    host.contains(controls) && host.contains(bar);
+                }""", timeout=5000)
+                assert page.locator("#fs-director-planning-host #director-control-grid").count() == 1
+                assert page.locator("#fs-director-planning-host #director-bar-card").count() == 1
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+
+
 def test_studio_displays_source_after_external_file_revision_reload(tmp_path, monkeypatch):
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
