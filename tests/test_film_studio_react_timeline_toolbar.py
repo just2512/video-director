@@ -140,6 +140,11 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
 
     assert "resolveTimelineRoll(d,deltaSeconds,8)" in studio
     assert "resolveTimelineSlide(d,deltaSeconds,8)" in studio
+    gesture_preview = studio[studio.index("function onMove(e)"):studio.index("async function onUp(e)")]
+    assert "showTimelineSnapGuide(slideSnapUsed?slideSnapUsed.at:null,slideSnapUsed&&slideSnapUsed.kind)" in gesture_preview
+    assert "showTimelineSnapGuide(rollSnapUsed?rollSnapUsed.at:null,rollSnapUsed&&rollSnapUsed.kind)" in gesture_preview
+    assert "slideSnap.at" not in gesture_preview
+    assert "rollSnap.at" not in gesture_preview
     assert "if(!setTimelineGesturePreview(trimStartPreview))" in studio
     assert "if(!setTimelineGesturePreview(trimEndPreview))" in studio
     assert "if(!setTimelineGesturePreview(rollPreview))" in studio

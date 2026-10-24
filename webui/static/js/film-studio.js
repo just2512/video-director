@@ -2178,7 +2178,7 @@
     if(d.mode==='slide'){
       var slideResolution=resolveTimelineSlide(d,deltaSeconds,8);
       var deltaSlide=slideResolution.deltaSeconds,slideSnapUsed=slideResolution.snapCandidate;
-      showTimelineSnapGuide(slideSnapUsed?slideSnap.at:null,slideSnapUsed&&slideSnap.kind);
+      showTimelineSnapGuide(slideSnapUsed?slideSnapUsed.at:null,slideSnapUsed&&slideSnapUsed.kind);
       var slideLabel='滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s';
       var slidePreview={};
       slidePreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaSlide,S.pxPerSec))};
@@ -2197,7 +2197,7 @@
     }else if(d.mode==='roll'){
       var rollResolution=resolveTimelineRoll(d,deltaSeconds,8);
       var deltaRoll=rollResolution.deltaSeconds,rollSnapUsed=rollResolution.snapCandidate;
-      showTimelineSnapGuide(rollSnapUsed?rollSnap.at:null,rollSnapUsed&&rollSnap.kind);
+      showTimelineSnapGuide(rollSnapUsed?rollSnapUsed.at:null,rollSnapUsed&&rollSnapUsed.kind);
       var rollLabel='切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s';
       var rollPreview={};
       rollPreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaRoll,S.pxPerSec))};
