@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 
 def test_blank_film_to_multitrack_mp4_with_html_scene_and_audio_mix(tmp_path, monkeypatch):
@@ -101,7 +101,16 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
                    "style": "left:8px;top:64px;width:144px;height:20px"}}},
         {"op": "insert", "track_id": "still-track", "clip": {"id": "still", "tag": "img",
          "attrs": {"src": "assets/still.png#t=0,1", "at": "0",
-                   "style": "left:4px;top:4px;width:20px;height:20px"}}},
+                   "style": "left:4px;top:4px;width:20px;height:20px",
+                   "data-film-keyframes": json.dumps([{
+                       "property": "opacity",
+                       "keyframes": [
+                           {"at": 0, "value": 0.55, "easing": "linear"},
+                           {"at": 1, "value": 1.0, "easing": {
+                               "type": "bezier", "x1": 0.1, "y1": 0.1, "x2": 0.2, "y2": 0.9
+                           }},
+                       ],
+                   }], separators=(",", ":"))}},
         {"op": "insert", "track_id": "video-track", "clip": {"id": "footage", "tag": "video",
          "attrs": {"src": "assets/footage.webm#t=0,1", "at": "0",
                    "style": "left:0px;top:0px;width:160px;height:90px"}}},
@@ -185,7 +194,9 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     assert look.returncode == 0, look.stdout + look.stderr
     look_json = json.loads(look.stdout)
     assert look_json["determinism_status"] == "PASS"
-    assert Path(look_json["image_path"]).is_file()
+    look_sheet_path = Path(look_json["image_path"])
+    assert look_sheet_path.is_file()
+    assert look_json["sample_times"] == [0.0, 0.5]
 
     render = subprocess.run(
         [sys.executable, "-m", "video_director", "film", "render",
@@ -204,6 +215,66 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     assert probe.has_video_stream and probe.has_audio_stream
     assert (probe.width, probe.height) == (160, 90)
     assert probe.duration is not None and abs(float(probe.duration) - 1.0) <= 0.15
+
+    # Compare the real browser-runtime frame from the look contact sheet at t=0.5
+    # with frame 1 (t=0.5 at 2 fps) extracted from the encoded MP4.
+    half_frame_path = tmp_path / "final-frame-half.png"
+    generate("-i", str(output), "-vf", r"select=eq(n\\,1)", "-vsync", "0",
+             "-frames:v", "1", "-y", str(half_frame_path))
+    with Image.open(look_sheet_path) as contact_sheet_source:
+        contact_sheet = contact_sheet_source.convert("RGB")
+        assert contact_sheet.size == (1280, 388), contact_sheet.size
+        preview_half = contact_sheet.crop((640, 0, 1280, 360)).resize(
+            (160, 90), Image.Resampling.BOX
+        )
+    with Image.open(half_frame_path) as encoded_source:
+        encoded_half = encoded_source.convert("RGB")
+        assert encoded_half.size == (160, 90), encoded_half.size
+
+    def cubic_bezier(t: float, first: float, second: float) -> float:
+        inverse = 1.0 - t
+        return 3 * inverse * inverse * t * first + 3 * inverse * t * t * second + t ** 3
+
+    def bezier_ease_at_x(x: float, x1: float, y1: float, x2: float, y2: float) -> float:
+        # Match the runtime's 28-step inversion of the cubic x curve.
+        low, high = 0.0, 1.0
+        for _ in range(28):
+            middle = (low + high) * 0.5
+            if cubic_bezier(middle, x1, x2) < x:
+                low = middle
+            else:
+                high = middle
+        return cubic_bezier((low + high) * 0.5, y1, y2)
+
+    easing_progress = bezier_ease_at_x(0.5, 0.1, 0.1, 0.2, 0.9)
+    expected_opacity = 0.55 + (1.0 - 0.55) * easing_progress
+    assert expected_opacity > 0.88, expected_opacity  # a linear segment would be only 0.775
+    background_pixel = preview_half.getpixel((150, 50))
+    still_pixel_half = preview_half.getpixel((15, 15))
+    expected_blend = tuple(round(
+        background_pixel[channel] * (1.0 - expected_opacity) +
+        (220, 40, 35)[channel] * expected_opacity
+    ) for channel in range(3))
+    assert max(abs(still_pixel_half[channel] - expected_blend[channel]) for channel in range(3)) <= 16, {
+        "easing_progress": easing_progress,
+        "expected_opacity": expected_opacity,
+        "background": background_pixel,
+        "preview_pixel": still_pixel_half,
+        "expected_pixel": expected_blend,
+    }
+
+    # The browser preview and MP4 must agree across the solid interior of the still,
+    # not just happen to produce a successful render result.
+    preview_interior = preview_half.crop((9, 9, 20, 20))
+    encoded_interior = encoded_half.crop((9, 9, 20, 20))
+    mean_abs_pixel_difference = sum(
+        ImageStat.Stat(ImageChops.difference(preview_interior, encoded_interior)).mean
+    ) / 3.0
+    assert mean_abs_pixel_difference <= 10.0, {
+        "mean_abs_pixel_difference": mean_abs_pixel_difference,
+        "preview_pixel": preview_half.getpixel((15, 15)),
+        "encoded_pixel": encoded_half.getpixel((15, 15)),
+    }
 
     # The actual rendered frames must contain each principal visual layer, not
     # merely produce a decodable file: the image is red and the video background blue.
