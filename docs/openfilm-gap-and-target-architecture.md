@@ -135,7 +135,7 @@
 - 通用视觉属性写入 `data-film-keyframes`，音频增益仍使用 `volume_envelope`，不混用两种语义。
 - 关键帧时间是 clip-relative。split、trim、roll、slide 按新片段时长切片/重基准；切入/切出 eased segment 时用后端校验的 `window` 表达式保留插值形状。回归用例分别覆盖两个源时长的切分/修剪与 roll/slide。
 - React Inspector 源码和可运行 fallback 都有曲线、节点拖动、帧步进时间/数值编辑、缓动、增加/删除/清空；时间线上显示关键帧标记，点击跳到影片绝对时间。fallback JSON 高级编辑仍共用同一 FilmDocument operation。
-- 自定义 cubic Bezier 控制柄已在 React Inspector 实现（SVG 可拖控制柄并有 x1/y1/x2/y2 数值输入），并已通过真实 Chromium 修改、应用 FilmDocument、刷新页面后回读持久化值的验收（`tests/test_film_studio_canvas_history_browser.py::test_react_bezier_control_drag_persists_after_browser_reload`）。仍需补完整预览/导出逐帧一致性 Chromium + FFmpeg 验收；控制柄持久化成功不等于渲染出的所有中间帧都符合期望。截至 2026-10-22，真实 Studio Chromium 回归覆盖时间线拖动/写回、轨道标志、关键帧跳转、pointercancel、Ctrl/⌘+滚轮锚点缩放和右边缘自动滚动；完整 AI Director 回归为 1256 passed、0 failed。该证据不覆盖自定义 Bezier 控制柄、全部专业剪辑操作排列或所有网页场景的逐帧确定性。
+- 自定义 cubic Bezier 控制柄已在 React Inspector 实现（SVG 可拖控制柄并有 x1/y1/x2/y2 数值输入），并已通过真实 Chromium 修改、应用 FilmDocument、刷新页面后回读持久化值的验收（`tests/test_film_studio_canvas_history_browser.py::test_react_bezier_control_drag_persists_after_browser_reload`）。本轮新增另一条真实导出验收：无蒙版蓝色层使用非线性 cubic-bezier，分别检查浏览器 look 在 0/0.25/0.5/0.75s 的绝对像素中心确实遵循曲线，并将相同时间戳从 FFmpeg 编码帧回读，比较蓝色层位置。蒙版/相机动态的红色层继续保留独立测试，避免其裁剪影响 Bezier 几何判定。截至 2026-10-22，真实 Studio Chromium 回归覆盖时间线拖动/写回、轨道标志、关键帧跳转、pointercancel、Ctrl/⌘+滚轮锚点缩放和右边缘自动滚动；完整 AI Director 回归为 1256 passed、0 failed。该证据不覆盖自定义 Bezier 控制柄、全部专业剪辑操作排列或所有网页场景的逐帧确定性。
 
 ### D. 最后强化媒体生成与导出
 

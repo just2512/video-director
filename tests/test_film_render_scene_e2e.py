@@ -17,6 +17,7 @@ def _write_html_film_project(tmp_path: Path, monkeypatch) -> tuple[str, str]:
     (project / "scenes").mkdir(parents=True, exist_ok=True)
     (project / "assets").mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (20, 20), (255, 0, 0)).save(project / "assets" / "moving-red.png")
+    Image.new("RGB", (20, 20), (0, 0, 255)).save(project / "assets" / "moving-blue.png")
     film_html = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=160,height=90">
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden}</style></head>
@@ -30,6 +31,12 @@ def _write_html_film_project(tmp_path: Path, monkeypatch) -> tuple[str, str]:
  data-film-keyframes='[{"property":"x","keyframes":[{"at":0,"value":0.125,"easing":"linear"},{"at":1,"value":0.75,"easing":"linear"}]},{"property":"camera_x","keyframes":[{"at":0,"value":0.5,"easing":"linear"},{"at":1,"value":0.45,"easing":"linear"}]},{"property":"camera_scale","keyframes":[{"at":0,"value":1,"easing":"linear"},{"at":1,"value":1.1,"easing":"linear"}]}]'
  data-film-mask-keyframes='[{"at":0,"easing":"linear","value":[[0,0],[0.55,0],[0.55,1],[0,1]]},{"at":1,"easing":"linear","value":[[0.45,0],[1,0],[1,1],[0.45,1]]}]'
  style="left:10px;top:35px;width:20px;height:20px;opacity:1;object-fit:contain;transform-origin:50% 50%;rotate:0deg"/>
+</section>
+<section id="moving-blue-track" data-label="非线性贝塞尔验证层">
+<img id="moving-blue" src="assets/moving-blue.png#t=0,1" at="0"
+ data-film-transform='{"x":0.125,"y":0.15,"scale":1,"rotation":0,"opacity":1,"anchor":"center","stage_width":160,"stage_height":90,"base_width":20,"base_height":20}'
+ data-film-keyframes='[{"property":"x","keyframes":[{"at":0,"value":0.125,"easing":"linear"},{"at":1,"value":0.75,"easing":{"type":"bezier","x1":0.42,"y1":0,"x2":0.58,"y2":1}}]}]'
+ style="left:10px;top:0px;width:20px;height:20px;opacity:1;object-fit:contain;transform-origin:50% 50%;rotate:0deg"/>
 </section></body></html>'''
     scene_html = '''<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -94,6 +101,39 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
         def red_centroid(tile):
             return red_centroid_xy(tile)[0]
 
+        def blue_centroid_xy(tile, *, minimum_pixels=200):
+            pixels = [
+                (x, y)
+                for y in range(tile.height)
+                for x in range(tile.width)
+                if (lambda rgb: rgb[2] > 220 and rgb[0] < 60 and rgb[1] < 80)(tile.getpixel((x, y)))
+            ]
+            assert len(pixels) >= minimum_pixels, (
+                f"blue Bezier layer is absent from the sample ({len(pixels)} pixels)"
+            )
+            return (
+                sum(x for x, _ in pixels) / len(pixels),
+                sum(y for _, y in pixels) / len(pixels),
+            )
+
+        def bezier_progress(progress):
+            # Match film-runtime.js filmBezierEase() for cubic-bezier(.42, 0, .58, 1).
+            x = min(1.0, max(0.0, float(progress)))
+            x1, y1, x2, y2 = 0.42, 0.0, 0.58, 1.0
+            def cubic(u, first, second):
+                inverse = 1.0 - u
+                return 3 * inverse * inverse * u * first + 3 * inverse * u * u * second + u * u * u
+            if x <= 0 or x >= 1:
+                return x
+            low, high = 0.0, 1.0
+            for _ in range(28):
+                middle = (low + high) * 0.5
+                if cubic(middle, x1, x2) < x:
+                    low = middle
+                else:
+                    high = middle
+            return min(1.0, max(0.0, cubic((low + high) * 0.5, y1, y2)))
+
         first_tile = sheet.crop((0, 0, 640, 360))
         quarter_tile = sheet.crop((640, 0, 1280, 360))
         second_tile = sheet.crop((1280, 0, 1920, 360))
@@ -105,6 +145,32 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
         second_center, second_center_y = red_centroid_xy(second_tile)
         threequarter_center, _ = red_centroid_xy(threequarter_tile)
         third_center, _ = red_centroid_xy(third_tile)
+
+        # This unmasked blue layer isolates actual Bezier interpolation from the
+        # red layer's independently animated composition mask and camera transform.
+        look_samples = [
+            (0.0, first_tile),
+            (0.25, quarter_tile),
+            (0.5, second_tile),
+            (0.75, threequarter_tile),
+        ]
+        blue_centers = {}
+        for timestamp, tile in look_samples:
+            blue_x, _ = blue_centroid_xy(tile)
+            blue_center = blue_x / 4.0
+            expected_x = (0.125 + (0.75 - 0.125) * bezier_progress(timestamp)) * 160.0
+            assert abs(blue_center - expected_x) <= 1.5, {
+                "source": "browser look", "timestamp": timestamp,
+                "expected_bezier_center": expected_x, "observed_center": blue_center,
+            }
+            linear_center = (0.125 + (0.75 - 0.125) * timestamp) * 160.0
+            if timestamp in (0.25, 0.75):
+                assert abs(blue_center - linear_center) >= 5.0, {
+                    "timestamp": timestamp, "bezier_center": blue_center,
+                    "linear_center": linear_center,
+                }
+            blue_centers[timestamp] = blue_center
+
         assert quarter_center > first_center + 40, (
             f"Transform keyframes were not applied at t=0.25s: {first_center=}, {quarter_center=}"
         )
@@ -174,6 +240,13 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
             encoded_frame = exported.convert("RGB")
             assert encoded_frame.size == (160, 90), encoded_frame.size
             encoded_center_x, encoded_center_y = red_centroid_xy(encoded_frame, minimum_pixels=40)
+            encoded_blue_x, _ = blue_centroid_xy(encoded_frame, minimum_pixels=40)
+            look_blue_raw_x, _ = blue_centroid_xy(look_tile)
+            look_blue_x = look_blue_raw_x / (look_tile.width / encoded_frame.width)
+            assert abs(encoded_blue_x - look_blue_x) <= 1.5, {
+                "timestamp": timestamp, "look_bezier_center": look_blue_x,
+                "encoded_bezier_center": encoded_blue_x,
+            }
             look_center_raw_x, look_center_raw_y = red_centroid_xy(look_tile)
             look_center_x = look_center_raw_x / (look_tile.width / encoded_frame.width)
             look_center_y = look_center_raw_y / (look_tile.height / encoded_frame.height)
