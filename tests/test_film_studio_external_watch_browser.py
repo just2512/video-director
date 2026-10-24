@@ -214,6 +214,26 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                             zoomScale: store?.getField("pixelsPerSecond") ?? null,
                             revision: store?.getSnapshot()?.revision ?? null,
                             selectedIds: store?.getSnapshot()?.selectedIds ?? null,
+                            envelopeMode: store?.getField("envelopeMode") ?? null,
+                            envelopeGesture: store?.getSnapshot()?.timelineEnvelopeGesture ?? null,
+                            envelopePreview: store?.getSnapshot()?.timelineEnvelopePreview ?? null,
+                            envelopeCanvas: (() => {
+                              const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');
+                              if (!canvas) return null;
+                              const r = canvas.getBoundingClientRect();
+                              const x = r.left + r.width * 0.5, y = r.top + r.height * 0.9;
+                              const hit = document.elementFromPoint(x, y);
+                              return {
+                                rect: {left:r.left,top:r.top,width:r.width,height:r.height},
+                                pointerEvents: getComputedStyle(canvas).pointerEvents,
+                                zIndex: getComputedStyle(canvas).zIndex,
+                                hitIsCanvas: hit === canvas,
+                                hitTag: hit?.tagName || null,
+                                hitClass: String(hit?.className || ""),
+                                hitEnvelopeClip: hit?.getAttribute?.("data-envelope-clip") || null
+                              };
+                            })(),
+                            envelopePointerTrace: window.__envelopePointerTrace || null,
                             film: (() => {
                               const film = store?.getSnapshot()?.film;
                               return film ? {
@@ -1282,7 +1302,33 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 edit_count_before = len(film_edit_requests)
 
                 start_x = box["x"] + box["width"] * 0.50
-                start_y = box["y"] + box["height"] * 0.72
+                start_y = box["y"] + box["height"] * 0.90
+                pointer_target = page.evaluate("""() => {
+                  const canvas = document.querySelector('canvas[data-envelope-clip="audio-1"]');
+                  if (!canvas) return {canvasFound:false};
+                  const rect = canvas.getBoundingClientRect();
+                  const x = rect.left + rect.width * 0.5;
+                  const y = rect.top + rect.height * 0.9;
+                  const hit = document.elementFromPoint(x, y);
+                  window.__envelopePointerTrace = [];
+                  for (const type of ["pointerdown","pointermove","pointerup","pointercancel"]) {
+                    canvas.addEventListener(type, event => {
+                      window.__envelopePointerTrace.push({
+                        type:event.type, pointerId:event.pointerId, button:event.button,
+                        x:event.clientX, y:event.clientY, isPrimary:event.isPrimary
+                      });
+                    }, true);
+                  }
+                  return {
+                    canvasFound:true,
+                    rect:{left:rect.left,top:rect.top,width:rect.width,height:rect.height},
+                    pointerEvents:getComputedStyle(canvas).pointerEvents,
+                    hitIsCanvas:hit===canvas,
+                    hitTag:hit?.tagName || null,
+                    hitClass:String(hit?.className || "")
+                  };
+                }""")
+                assert pointer_target["canvasFound"] and pointer_target["pointerEvents"] == "auto" and pointer_target["hitIsCanvas"], pointer_target
                 page.mouse.move(start_x, start_y)
                 page.mouse.down()
                 page.wait_for_function("""() => {
