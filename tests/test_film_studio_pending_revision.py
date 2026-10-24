@@ -146,5 +146,9 @@ def test_broken_external_document_preserves_current_view_and_defers_reload_until
     assert "保留当前画面并暂停编辑" in broken
     assert "S.pendingExternalRevision=data.revision" not in broken
     assert "flushPendingExternalRevision();" not in broken
-    assert "S.broken=false;" in source[recovered_start:]
-    assert "S.pendingExternalRevision=data.revision;flushPendingExternalRevision();" in source[recovered_start:]
+    recovered = source[recovered_start:]
+    assert "S.broken=false;" in recovered
+    assert "S.pendingExternalRevision=data.revision;" in recovered
+    assert "pendingRevisionSource=data.source||'external_file';" in recovered
+    assert "flushPendingExternalRevision();" in recovered
+    assert recovered.index("S.pendingExternalRevision=data.revision;") < recovered.index("flushPendingExternalRevision();")

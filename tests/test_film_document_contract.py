@@ -298,7 +298,14 @@ def test_apply_proposal_uses_server_registered_operations_not_request_ops():
     client = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     assert '_FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)' in server
     assert '_FILM_PROPOSALS.take(pid, proposal_id, base_revision)' in server
-    assert 'approved["operations"], require_base=True' in server
+    apply_route = server.split('if route == "/api/editor/film/apply-proposal":', 1)[1].split(
+        'except fd.FilmError', 1
+    )[0]
+    assert 'approved["base_revision"]' in apply_route
+    assert 'approved["operations"]' in apply_route
+    assert 'require_base=True, source="ai_proposal"' in apply_route
+    assert apply_route.index('approved["operations"]') < apply_route.index("require_base=True")
+    assert "payload.get(\"ops\")" not in apply_route
     apply_client = client.split("'/api/editor/film/apply-proposal'", 1)[1].split(");", 1)[0]
     assert "ops:proposal.operations" not in apply_client
 
