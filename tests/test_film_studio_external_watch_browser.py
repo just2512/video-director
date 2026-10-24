@@ -116,7 +116,7 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     "open":True,
                 }, context_menu_state
                 page.wait_for_function(
-                    "() => !!document.querySelector('[data-react-context-menu="true"]')",
+                    """() => !!document.querySelector('[data-react-context-menu="true"]')""",
                     timeout=5000,
                 )
                 page.evaluate("window.filmStudioReactTimeline.closeContextMenu()")
