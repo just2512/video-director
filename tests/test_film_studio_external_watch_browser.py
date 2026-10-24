@@ -260,26 +260,28 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible", timeout=10000)
                 initial_reads = page.evaluate("window.__filmDocumentReadUrls.slice()")
-                assert len(initial_reads) == 2, {"initial FilmDocument reads": initial_reads}
+                # The authority preflight payload is passed into the mounted Studio;
+                # opening the same project must not perform a redundant second GET.
+                assert len(initial_reads) == 1, {"initial FilmDocument reads": initial_reads}
                 assert all(f"project_id={project_id}" in url for url in initial_reads), initial_reads
                 legacy_reads = page.evaluate("window.__compositionReadUrls.slice()")
                 assert legacy_reads == [], {
                     "migrated FilmDocument projects must not enter the legacy CompositionIR loader": legacy_reads
                 }
 
-                # Now Studio is open. A second selector change goes through the same
-                # wrapper and must again perform one authority check + one Studio reload.
+                # Studio is already open on this revision. The selector route still performs
+                # one authoritative preflight, then reuses the known document result.
                 page.evaluate("window.__filmDocumentReadUrls.length = 0")
                 page.evaluate("""() => {
                   const select = document.querySelector('#editor-project');
                   select.dispatchEvent(new Event('change', {bubbles:true}));
                 }""")
                 page.wait_for_function(
-                    "() => window.__filmDocumentReadUrls.length >= 2", timeout=5000
+                    "() => window.__filmDocumentReadUrls.length >= 1", timeout=5000
                 )
                 page.wait_for_timeout(350)
                 reads = page.evaluate("window.__filmDocumentReadUrls.slice()")
-                assert len(reads) == 2, {"reads": reads}
+                assert len(reads) == 1, {"reads": reads}
                 assert all(
                     f"project_id={project_id}" in url for url in reads
                 ), reads
