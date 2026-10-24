@@ -596,6 +596,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineDropTarget: null,
       timelineActiveDragIds: null,
       timelineGestureContext: null,
+      timelineEnvelopeGesture: null,
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       pendingExternalRevision: asString(target.pendingExternalRevision),
