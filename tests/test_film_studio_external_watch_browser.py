@@ -102,13 +102,13 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 # Mode classes are projected from FilmStore on the React surface;
                 # normal React mode changes must not mutate the legacy outer panel.
                 mode_revision_before = fd.read_project_film(project_id)["rev"]
-                envelope_button = page.locator('[data-film-action="envelope-mode"]')
+                envelope_button = page.locator('#fs-react-timeline-toolbar [data-film-action="envelope-mode"]')
                 envelope_button.click()
                 page.wait_for_function("""() => {
                   const surface = document.querySelector('.fs-react-timeline-surface');
                   const panel = document.querySelector('#film-studio-panel');
                   const title = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-center"] .fs-clip-title');
-                  const button = document.querySelector('[data-film-action="envelope-mode"]');
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="envelope-mode"]');
                   return surface?.classList.contains('fs-envelope-mode') &&
                     surface.dataset.envelopeMode === 'true' &&
                     !panel?.classList.contains('fs-envelope-mode') &&
@@ -119,20 +119,20 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 page.wait_for_function("""() => {
                   const surface = document.querySelector('.fs-react-timeline-surface');
                   const title = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-center"] .fs-clip-title');
-                  const button = document.querySelector('[data-film-action="envelope-mode"]');
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="envelope-mode"]');
                   return !surface?.classList.contains('fs-envelope-mode') &&
                     surface?.dataset.envelopeMode === 'false' &&
                     button?.getAttribute('aria-pressed') === 'false' &&
                     !!title && getComputedStyle(title).pointerEvents !== 'none';
                 }""", timeout=5000)
 
-                slide_button = page.locator('[data-film-action="slide-mode"]')
+                slide_button = page.locator('#fs-react-timeline-toolbar [data-film-action="slide-mode"]')
                 slide_button.click()
                 page.wait_for_function("""() => {
                   const surface = document.querySelector('.fs-react-timeline-surface');
                   const panel = document.querySelector('#film-studio-panel');
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-kind="video"]');
-                  const button = document.querySelector('[data-film-action="slide-mode"]');
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="slide-mode"]');
                   return surface?.classList.contains('fs-slide-mode') &&
                     surface.dataset.slideMode === 'true' &&
                     !panel?.classList.contains('fs-slide-mode') &&
@@ -142,19 +142,19 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 slide_button.click()
                 page.wait_for_function("""() => {
                   const surface = document.querySelector('.fs-react-timeline-surface');
-                  const button = document.querySelector('[data-film-action="slide-mode"]');
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="slide-mode"]');
                   return !surface?.classList.contains('fs-slide-mode') &&
                     surface?.dataset.slideMode === 'false' &&
                     button?.getAttribute('aria-pressed') === 'false';
                 }""", timeout=5000)
 
-                slip_button = page.locator('[data-film-action="slip-mode"]')
+                slip_button = page.locator('#fs-react-timeline-toolbar [data-film-action="slip-mode"]')
                 slip_button.click()
                 page.wait_for_function("""() => {
                   const surface = document.querySelector('.fs-react-timeline-surface');
                   const panel = document.querySelector('#film-studio-panel');
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-kind="audio"]');
-                  const button = document.querySelector('[data-film-action="slip-mode"]');
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="slip-mode"]');
                   return surface?.classList.contains('fs-slip-mode') &&
                     surface.dataset.slipMode === 'true' &&
                     !panel?.classList.contains('fs-slip-mode') &&
@@ -164,7 +164,7 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 slip_button.click()
                 page.wait_for_function("""() => {
                   const surface = document.querySelector('.fs-react-timeline-surface');
-                  const button = document.querySelector('[data-film-action="slip-mode"]');
+                  const button = document.querySelector('#fs-react-timeline-toolbar [data-film-action="slip-mode"]');
                   return !surface?.classList.contains('fs-slip-mode') &&
                     surface?.dataset.slipMode === 'false' &&
                     button?.getAttribute('aria-pressed') === 'false';
