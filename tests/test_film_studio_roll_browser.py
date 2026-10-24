@@ -69,7 +69,15 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 tracing = True
                 page = context.new_page()
                 page_errors: list[str] = []
+                film_edit_requests: list[dict] = []
                 page.on("pageerror", lambda error: page_errors.append(str(error)))
+                def capture_film_edit_request(request):
+                    if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                        try:
+                            film_edit_requests.append(request.post_data_json)
+                        except Exception:
+                            film_edit_requests.append({"raw": request.post_data})
+                page.on("request", capture_film_edit_request)
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
                 )
@@ -164,11 +172,40 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert bounds and bounds["width"] > 0 and bounds["height"] > 0
                 x = bounds["x"] + bounds["width"] / 2
                 y = bounds["y"] + bounds["height"] / 2
+                roll_document_before = fd.read_project_film(project_id)
+                roll_geometry_before = page.evaluate("""ids => Object.fromEntries(ids.map(id => {
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]');
+                  return [id, node ? {left:node.style.left,width:node.style.width} : null];
+                }))""", ["clip-a", right_id])
+                roll_edit_count_before = len(film_edit_requests)
                 page.keyboard.down("Control")
                 try:
                     page.mouse.move(x, y)
                     page.mouse.down()
                     page.mouse.move(x + 18, y, steps=5)  # +0.5 s at 36 px/s
+                    page.wait_for_function("""args => {
+                      const ids = args.ids;
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const preview = state?.timelineGesturePreview;
+                      const left = document.querySelector('#fs-timeline .fs-clip[data-clip="' + ids[0] + '"]');
+                      const right = document.querySelector('#fs-timeline .fs-clip[data-clip="' + ids[1] + '"]');
+                      return !!preview?.[ids[0]]?.width && !!preview?.[ids[1]]?.left &&
+                        left?.dataset.reactGesturePreview === 'true' &&
+                        right?.dataset.reactGesturePreview === 'true' &&
+                        left.style.width !== args.leftWidthBefore &&
+                        right.style.left !== args.rightLeftBefore;
+                    }""", arg={"ids":["clip-a",right_id],
+                                "leftWidthBefore":roll_geometry_before["clip-a"]["width"],
+                                "rightLeftBefore":roll_geometry_before[right_id]["left"]}, timeout=5000)
+                    roll_preview = page.evaluate("""ids => ({
+                      store:window.filmStudioStore?.getSnapshot()?.timelineGesturePreview,
+                      left:document.querySelector('#fs-timeline .fs-clip[data-clip="' + ids[0] + '"]')?.style.width,
+                      right:document.querySelector('#fs-timeline .fs-clip[data-clip="' + ids[1] + '"]')?.style.left
+                    })""", ["clip-a", right_id])
+                    assert roll_preview["store"] and "clip-a" in roll_preview["store"] and right_id in roll_preview["store"], roll_preview
+                    assert roll_preview["store"]["clip-a"].get("mode") == "roll", roll_preview
+                    assert fd.read_project_film(project_id)["rev"] == roll_document_before["rev"]
+                    assert len(film_edit_requests) == roll_edit_count_before, film_edit_requests[roll_edit_count_before:]
                     page.mouse.up()
                 finally:
                     page.keyboard.up("Control")
@@ -186,6 +223,10 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     && Math.abs(Number(right.attrs.at) - 2.5) < 0.001;
                 }""", arg={"pid": project_id, "rightId": right_id}, timeout=10000)
 
+                roll_committed_requests = film_edit_requests[roll_edit_count_before:]
+                assert len(roll_committed_requests) == 1, roll_committed_requests
+                assert len(roll_committed_requests[0].get("ops") or []) == 1, roll_committed_requests
+                assert roll_committed_requests[0]["ops"][0].get("op") == "roll", roll_committed_requests
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
                 assert clips["clip-a"]["attrs"]["src"].endswith("#t=2,7")
@@ -214,9 +255,39 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
                 page.locator('[data-film-action="slide-mode"]:visible').click()
                 assert page.locator('[data-film-action="slide-mode"]:visible').get_attribute("aria-pressed") == "true"
+                slide_document_before = fd.read_project_film(project_id)
+                slide_geometry_before = page.evaluate("""ids => Object.fromEntries(ids.map(id => {
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]');
+                  return [id, node ? {left:node.style.left,width:node.style.width} : null];
+                }))""", ["clip-a", right_id, slide_right_id])
+                slide_edit_count_before = len(film_edit_requests)
                 page.mouse.move(x, y)
                 page.mouse.down()
                 page.mouse.move(x + 9, y, steps=3)  # +0.25 s at 36 px/s
+                page.wait_for_function("""args => {
+                  const ids = args.ids;
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const preview = state?.timelineGesturePreview;
+                  const left = document.querySelector('#fs-timeline .fs-clip[data-clip="' + ids[0] + '"]');
+                  const center = document.querySelector('#fs-timeline .fs-clip[data-clip="' + ids[1] + '"]');
+                  const right = document.querySelector('#fs-timeline .fs-clip[data-clip="' + ids[2] + '"]');
+                  return !!preview?.[ids[0]]?.width && !!preview?.[ids[1]]?.left &&
+                    !!preview?.[ids[2]]?.left && preview[ids[1]].mode === 'slide' &&
+                    left?.style.width !== args.leftWidthBefore &&
+                    center?.style.left !== args.centerLeftBefore &&
+                    right?.style.left !== args.rightLeftBefore &&
+                    center?.dataset.reactGesturePreview === 'true' &&
+                    right?.dataset.reactGesturePreview === 'true';
+                }""", arg={"ids":["clip-a",right_id,slide_right_id],
+                            "leftWidthBefore":slide_geometry_before["clip-a"]["width"],
+                            "centerLeftBefore":slide_geometry_before[right_id]["left"],
+                            "rightLeftBefore":slide_geometry_before[slide_right_id]["left"]}, timeout=5000)
+                slide_preview = page.evaluate("""ids => window.filmStudioStore?.getSnapshot()?.timelineGesturePreview""",
+                                               ["clip-a", right_id, slide_right_id])
+                assert slide_preview and all(id in slide_preview for id in ["clip-a",right_id,slide_right_id]), slide_preview
+                assert slide_preview[right_id].get("mode") == "slide", slide_preview
+                assert fd.read_project_film(project_id)["rev"] == slide_document_before["rev"]
+                assert len(film_edit_requests) == slide_edit_count_before, film_edit_requests[slide_edit_count_before:]
                 page.mouse.up()
 
                 page.wait_for_function("""async (args) => {
@@ -235,6 +306,10 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     && Math.abs(Number(right.attrs.at) - 4.25) < 0.001;
                 }""", arg={"pid": project_id, "middleId": right_id, "rightId": slide_right_id}, timeout=10000)
 
+                slide_committed_requests = film_edit_requests[slide_edit_count_before:]
+                assert len(slide_committed_requests) == 1, slide_committed_requests
+                assert len(slide_committed_requests[0].get("ops") or []) == 1, slide_committed_requests
+                assert slide_committed_requests[0]["ops"][0].get("op") == "slide", slide_committed_requests
                 page.locator('[data-film-action="slide-mode"]:visible').click()
                 assert page.locator('[data-film-action="slide-mode"]:visible').get_attribute("aria-pressed") == "false"
                 persisted = fd.read_project_film(project_id)
@@ -260,9 +335,27 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 left_box = left_element.bounding_box()
                 assert left_box and left_box["width"] > 40
                 x, y = left_box["x"] + left_box["width"] / 2, left_box["y"] + left_box["height"] / 2
+                slip_document_before = fd.read_project_film(project_id)
+                slip_geometry_before = left_element.evaluate("(node) => ({left:node.style.left,width:node.style.width})")
+                slip_edit_count_before = len(film_edit_requests)
                 page.mouse.move(x, y)
                 page.mouse.down()
                 page.mouse.move(x + 9, y, steps=3)  # +0.25 timeline s × 2× speed = +0.5 source s
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const preview = state?.timelineGesturePreview?.['clip-a'];
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                  return preview?.mode === 'slip' && typeof preview.deltaLabel === 'string' &&
+                    node?.dataset.reactGesturePreview === 'true';
+                }""", timeout=5000)
+                slip_preview = page.evaluate("""() => ({
+                  store:window.filmStudioStore?.getSnapshot()?.timelineGesturePreview?.['clip-a'],
+                  geometry:(() => { const node=document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]'); return node && {left:node.style.left,width:node.style.width}; })()
+                })""")
+                assert slip_preview["store"]["mode"] == "slip", slip_preview
+                assert slip_preview["geometry"] == slip_geometry_before, slip_preview
+                assert fd.read_project_film(project_id)["rev"] == slip_document_before["rev"]
+                assert len(film_edit_requests) == slip_edit_count_before, film_edit_requests[slip_edit_count_before:]
                 page.mouse.up()
 
                 page.wait_for_function("""async (pid) => {
@@ -280,6 +373,10 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     timeout=15000,
                 )
 
+                slip_committed_requests = film_edit_requests[slip_edit_count_before:]
+                assert len(slip_committed_requests) == 1, slip_committed_requests
+                assert len(slip_committed_requests[0].get("ops") or []) == 1, slip_committed_requests
+                assert slip_committed_requests[0]["ops"][0].get("op") == "slip", slip_committed_requests
                 persisted = fd.read_project_film(project_id)
                 clips = {clip["id"]: clip for track in persisted["doc"]["tracks"] for clip in track["clips"]}
                 assert clips["clip-a"]["attrs"]["src"].endswith("#t=2.5,8")
