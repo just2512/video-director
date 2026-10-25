@@ -1369,14 +1369,31 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   }
   proposalAddedTracks.sort((left,right) =>
     Number(left.preview.trackIndex ?? model.tracks.length) - Number(right.preview.trackIndex ?? model.tracks.length));
-  const proposalTracksBeforeIndex = new Map<number, Array<{id:string;preview:FilmStudioTimelineGesturePreviewGeometry}>>();
+  const removedTracks = model.tracks.filter(track => !!previewForTrack(track.id)?.removed);
+  const survivingTracks = model.tracks.filter(track => !previewForTrack(track.id)?.removed);
+  const candidateTrackCount = survivingTracks.length + proposalAddedTracks.length;
+  const proposalTrackAtIndex = new Map<number, typeof proposalAddedTracks[number]>();
   proposalAddedTracks.forEach(item => {
     const rawIndex = item.preview.trackIndex;
-    const index = Number.isInteger(rawIndex) ? Math.max(0,Math.min(model.tracks.length,Number(rawIndex))) : model.tracks.length;
-    const rows = proposalTracksBeforeIndex.get(index) || [];
-    rows.push(item);
-    proposalTracksBeforeIndex.set(index,rows);
+    const index = Number.isInteger(rawIndex)
+      ? Math.max(0,Math.min(Math.max(0,candidateTrackCount-1),Number(rawIndex)))
+      : Math.max(0,candidateTrackCount-1);
+    proposalTrackAtIndex.set(index,item);
   });
+  const candidateTrackRows: Array<
+    {kind:"existing";track:(typeof model.tracks)[number]} |
+    {kind:"added";item:(typeof proposalAddedTracks)[number]}
+  > = [];
+  let survivingTrackIndex = 0;
+  for (let candidateIndex=0;candidateIndex<candidateTrackCount;candidateIndex++) {
+    const addedTrack=proposalTrackAtIndex.get(candidateIndex);
+    if (addedTrack) {
+      candidateTrackRows.push({kind:"added",item:addedTrack});
+      continue;
+    }
+    const existingTrack=survivingTracks[survivingTrackIndex++];
+    if (existingTrack) candidateTrackRows.push({kind:"existing",track:existingTrack});
+  }
   const renderProposalTrack = ({id,preview}: {id:string;preview:FilmStudioTimelineGesturePreviewGeometry}) => {
     const additions = proposalAdditionsByTrack.get(id) || [];
     const movedGhosts = crossTrackGhostsByTrack.get(id) || [];
@@ -1580,11 +1597,11 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         ))}
       </div>
     </div>
-    {model.tracks.map((track,trackIndex) => {
+    {candidateTrackRows.map((row) => {
+      if (row.kind === "added") return renderProposalTrack(row.item);
+      const track = row.track;
       const trackProposal = previewForTrack(track.id);
       return (
-      <React.Fragment key={"timeline-track-group-" + track.id}>
-      {(proposalTracksBeforeIndex.get(trackIndex) || []).map(renderProposalTrack)}
       <div
         className={"fs-track" + (track.locked ? " fs-track-locked" : "") +
           (track.syncLocked ? " fs-sync-locked" : "") + (track.hidden ? " fs-hidden-track" : "") +
@@ -1845,10 +1862,26 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
           ))}
         </div>
       </div>
-      </React.Fragment>
       );
     })}
-    {(proposalTracksBeforeIndex.get(model.tracks.length) || []).map(renderProposalTrack)}
+    {removedTracks.map(track => (
+      <div
+        className="fs-track fs-track-proposal-removed"
+        data-track={track.id}
+        data-proposal-track-removed={track.id}
+        key={"proposal-track-removed-" + track.id}
+        aria-hidden="true"
+        style={{opacity:0.48,outline:"2px dashed #e5a23d",outlineOffset:"-2px"}}
+      >
+        <div className="fs-track-head">
+          <span className="fs-track-label" title={track.label}>{track.label} · 候选删除</span>
+          <span className="fs-track-controls"><span className="fs-proposal-track-state">候选</span></span>
+        </div>
+        <div className="fs-track-body" style={{width:model.laneWidth}}>
+          <span className="fs-empty fs-proposal-empty-track">应用提案后删除这条空轨道</span>
+        </div>
+      </div>
+    ))}
     {snapGuide ? <div id="fs-snap-guide" className="fs-snap-guide"
       style={{left:132 + filmTimelineMath.clipLeft(snapGuide.at,model.pixelsPerSecond)}}
       title={snapGuide.title} data-snap-kind={snapGuide.kind} /> : null}

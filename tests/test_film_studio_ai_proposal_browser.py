@@ -215,7 +215,7 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
         {"op":"set","clip":"audio-1","field":"volume_envelope","value":[{"t":0,"v":1},{"t":20,"v":0}]},
         {"op":"remove","clip":"clip-a"},
         {"op":"split","clip":"clip-c","at":8.5,"new_id":"clip-c-right"},
-        {"op":"track_add","track_id":"track-ai-added","label":"AI 提案新轨道","kind":"video","index":0},
+        {"op":"track_add","track_id":"track-ai-added","label":"AI 提案新轨道","kind":"video","index":2},
         {"op":"move","clip":"clip-b","track_id":"track-ai-added","at":4.0},
         {"op":"track_remove","track_id":"video-spare"},
     ]
@@ -293,7 +293,9 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 added_track=page.locator('#fs-timeline [data-proposal-track-added="track-ai-added"]')
                 assert added_track.is_visible()
                 assert "AI 提案新轨道" in added_track.inner_text()
-                assert page.locator('#fs-timeline .fs-track[data-track]').first.get_attribute("data-track")=="track-ai-added"
+                visual_track_order=page.locator('#fs-timeline .fs-track[data-track]').evaluate_all("(nodes)=>nodes.map(node=>node.getAttribute('data-track'))")
+                assert visual_track_order[:3]==["video-main","track-ai-added","audio-bed"],visual_track_order
+                assert visual_track_order[-1]=="video-spare",visual_track_order
                 moved_ghost=added_track.locator('[data-gesture-ghost-for="clip-b"]')
                 assert moved_ghost.is_visible()
                 assert abs(float(moved_ghost.evaluate("(n)=>parseFloat(getComputedStyle(n).left)"))-4*scale)<0.01
