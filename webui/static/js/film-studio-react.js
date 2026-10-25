@@ -24871,6 +24871,34 @@
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
+  var buildClipInspectorModel = (filmValue, selectedId, playheadValue) => {
+    const film = timelineRecord(filmValue);
+    if (film.exists !== true || !selectedId || !Array.isArray(film.tracks)) return null;
+    const fps = Math.max(1, Math.min(60, asNumber(film.fps, 30)));
+    for (const rawTrack of film.tracks) {
+      const track = timelineRecord(rawTrack);
+      const trackAttrs = timelineRecord(track.attrs);
+      const rawClips = Array.isArray(track.clips) ? track.clips : [];
+      for (const rawClip of rawClips) {
+        const clip = timelineRecord(rawClip);
+        if (String(clip.id ?? "") !== selectedId) continue;
+        const durationNumber = clip.duration == null ? null : Number(clip.duration);
+        const duration = durationNumber == null || !Number.isFinite(durationNumber) ? null : durationNumber;
+        const attrs = timelineRecord(clip.attrs);
+        return {
+          id: selectedId,
+          tag: String(clip.tag || ""),
+          at: asNumber(clip.at ?? attrs.at, 0),
+          duration,
+          attrs,
+          fps,
+          playhead: asNumber(playheadValue, 0),
+          trackLocked: Object.prototype.hasOwnProperty.call(trackAttrs, "locked")
+        };
+      }
+    }
+    return null;
+  };
   var buildCanvasElementOperation = (element, form) => {
     if (!element.clipId || !element.selector.trim()) return { ok: false, message: "\u753B\u5E03\u5143\u7D20\u7F3A\u5C11\u7247\u6BB5 ID \u6216 selector\uFF1B\u8BF7\u91CD\u65B0\u9009\u62E9\u5143\u7D20\u3002" };
     const ranges = [
@@ -26733,7 +26761,6 @@
   var studioReactState = {
     assets: null,
     aiModel: null,
-    clipInspector: null,
     clipInspectorEmptyMessage: void 0
   };
   var studioRoot = null;
@@ -26783,6 +26810,12 @@
     const timelineDuration = useFilmStoreField("duration");
     const timelinePixelsPerSecond = useFilmStoreField("pixelsPerSecond");
     const timelineSelectedIdsVersion = useFilmStoreField("selectedIdsVersion");
+    const clipInspectorSelectedId = useFilmStoreField("selectedId");
+    const clipInspectorPlayhead = useFilmStoreField("playhead");
+    const clip = (0, import_react.useMemo)(
+      () => buildClipInspectorModel(timelineFilm, clipInspectorSelectedId, clipInspectorPlayhead),
+      [timelineFilm, timelineRevision, clipInspectorSelectedId, clipInspectorPlayhead]
+    );
     const timelineSurface = (0, import_react.useMemo)(
       () => timelineVisible ? buildTimelineSurfaceModel(
         timelineFilm,
@@ -26795,7 +26828,6 @@
     );
     const timelineContextMenu = useFilmStoreField("timelineContextMenu");
     const canvasElement = useFilmStoreField("canvasElementSelection");
-    const clip = state.clipInspector;
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
     const element = canvasElement;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
@@ -26933,12 +26965,9 @@
       }
       return window.filmStudioCommitCanvasElement(result.operation, { allowInspectorDraft: true });
     },
-    renderClip(clip, emptyMessage) {
+    renderClip(emptyMessage) {
       filmStore.setField("clipInspectorVisible", true);
-      renderStudioReactOwner({
-        clipInspector: clip,
-        clipInspectorEmptyMessage: emptyMessage
-      });
+      renderStudioReactOwner({ clipInspectorEmptyMessage: emptyMessage });
     },
     render(element) {
       filmStore.setField("canvasElementSelection", element);
