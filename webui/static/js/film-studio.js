@@ -1876,6 +1876,10 @@
       S.proposal=null;S.previewProposalActive=false;S.broken=false;setPlaybackState(false);
     }
     S.projectId=nextId;
+    // The project transition intentionally clears aiDirectorModel. Re-render the
+    // empty, new-project chat immediately so the React portal is not left unmounted
+    // while the authoritative film.html request is in flight.
+    if(changed)renderAiDirector();
     var requestProjectId=nextId;
     var requestGeneration=++S.loadGeneration;
     var r=knownFilmDocument||null;
@@ -1912,23 +1916,24 @@
         var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
       }
       S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;
-      $('film-studio-panel').setAttribute('data-project-id',S.projectId);render();
+      $('film-studio-panel').setAttribute('data-project-id',S.projectId);render();renderAiDirector();
       return true;
     }
     if(r&&r.ok&&!r.exists){
       mountDirectorPlanning(true);
-      S.data=null;S.rev=r.rev;S.runtimeRev='';setPlaybackState(false);S.migration=r;renderMigration();
+      S.data=null;S.rev=r.rev;S.runtimeRev='';setPlaybackState(false);S.migration=r;renderMigration();renderAiDirector();
       return true;
     }
     if(r&&!r.ok&&r.exists===true){
       // An invalid authoritative film still suppresses the legacy Composition writer.
       mountDirectorPlanning(false);
-      renderBrokenFilmState(r);
+      renderBrokenFilmState(r);renderAiDirector();
       return true;
     }
     if(r&&r.code==='INVALID_FILM')S.broken=true;
     S.data=null;S.rev='';S.runtimeRev='';
     showStatus((r&&r.error)||'读取影片文档失败；为防止覆盖，不写入文件。','error');
+    renderAiDirector();
     return false;
   }
   async function filmStudioInitialize(acceptWarnings) {
@@ -1949,7 +1954,7 @@
     if(!r||!r.ok){showStatus((r&&r.error)||'初始化失败。','error');return;}
     S.data=r;S.rev=r.rev;S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
     mountDirectorPlanning(false);
-    showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();
+    showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();renderAiDirector();
   }
   function inspectorFieldDiffersNumber(id, expected, tolerance){
     var input=$(id);if(!input)return false;
