@@ -1414,6 +1414,63 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "malformedRejected": True,
                 }, clipboard_contract
 
+                # All three React timeline control surfaces derive mount visibility from FilmStore.
+                # Toggling these transient UI fields must not mutate the authoritative FilmDocument.
+                control_surface_doc_before = fd.read_project_film(project_id)
+                control_surface_before = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const visible = {
+                    toolbar: store?.getField("toolbarVisible"),
+                    timelineToolbar: store?.getField("timelineToolbarVisible"),
+                    scrub: store?.getField("scrubVisible")
+                  };
+                  return {
+                    visible,
+                    dom: {
+                      toolbar: !!document.querySelector('#fs-react-toolbar [data-film-action="undo"]'),
+                      timelineToolbar: !!document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]'),
+                      scrub: !!document.querySelector('#fs-react-scrub-row #fs-play-toggle')
+                    }
+                  };
+                }""")
+                assert control_surface_before == {
+                    "visible":{"toolbar":True,"timelineToolbar":True,"scrub":True},
+                    "dom":{"toolbar":True,"timelineToolbar":True,"scrub":True},
+                }, control_surface_before
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("toolbarVisible", false);
+                  store.setField("timelineToolbarVisible", false);
+                  store.setField("scrubVisible", false);
+                }""")
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  return store?.getField("toolbarVisible") === false &&
+                    store?.getField("timelineToolbarVisible") === false &&
+                    store?.getField("scrubVisible") === false &&
+                    !document.querySelector('#fs-react-toolbar [data-film-action="undo"]') &&
+                    !document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]') &&
+                    !document.querySelector('#fs-react-scrub-row #fs-play-toggle');
+                }""", timeout=5000)
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("toolbarVisible", true);
+                  store.setField("timelineToolbarVisible", true);
+                  store.setField("scrubVisible", true);
+                }""")
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  return store?.getField("toolbarVisible") === true &&
+                    store?.getField("timelineToolbarVisible") === true &&
+                    store?.getField("scrubVisible") === true &&
+                    !!document.querySelector('#fs-react-toolbar [data-film-action="undo"]') &&
+                    !!document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]') &&
+                    !!document.querySelector('#fs-react-scrub-row #fs-play-toggle');
+                }""", timeout=5000)
+                assert fd.read_project_film(project_id)["rev"] == control_surface_doc_before["rev"], (
+                    "React control-surface visibility is transient FilmStore state; it must not write film.html."
+                )
+
                 # React mode buttons are projections of FilmStore; adapter logic may change state but not their DOM attributes.
                 mode_doc_before = fd.read_project_film(project_id)
                 mode_controls = page.evaluate("""() => {
