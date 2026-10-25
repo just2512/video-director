@@ -24574,7 +24574,49 @@
           return;
         }
         if (revision !== this.snapshot.revision) {
-          this.publish({ ...this.snapshot, film: normalized, revision, timelineContextMenu: null });
+          const validClipIds = /* @__PURE__ */ new Set();
+          if (Array.isArray(record.tracks)) {
+            for (const rawTrack of record.tracks) {
+              if (!rawTrack || typeof rawTrack !== "object" || Array.isArray(rawTrack)) continue;
+              const track = rawTrack;
+              if (!Array.isArray(track.clips)) continue;
+              for (const rawClip of track.clips) {
+                if (!rawClip || typeof rawClip !== "object" || Array.isArray(rawClip)) continue;
+                const clipId = asString(rawClip.id);
+                if (clipId) validClipIds.add(clipId);
+              }
+            }
+          }
+          const previous = this.snapshot;
+          const selectedIds = Array.from(new Set(previous.selectedIds.filter((id) => validClipIds.has(id))));
+          const selectedIdsChanged = selectedIds.length !== previous.selectedIds.length || selectedIds.some((id, index) => id !== previous.selectedIds[index]);
+          if (selectedIdsChanged) this.replaceSelectedIds(selectedIds, false);
+          const selectedId = selectedIds.includes(previous.selectedId) ? previous.selectedId : selectedIds[0] || "";
+          const selectionAnchor = validClipIds.has(previous.selectionAnchor) ? previous.selectionAnchor : selectedId;
+          const previousCanvasSelection = previous.canvasElementSelection;
+          const canvasElementSelection = previousCanvasSelection && validClipIds.has(previousCanvasSelection.clipId) && previousCanvasSelection.baseRevision === previous.revision ? { ...previousCanvasSelection, baseRevision: revision } : null;
+          this.publish({
+            ...previous,
+            film: normalized,
+            revision,
+            selectedId,
+            selectedIds: this.selectedIdsProxy,
+            selectedIdsVersion: previous.selectedIdsVersion + (selectedIdsChanged ? 1 : 0),
+            selectionAnchor,
+            canvasElementSelection,
+            clipInspectorEmptyMessage: null,
+            timelineGesturePreview: null,
+            timelineSnapGuide: null,
+            timelineDropTarget: null,
+            timelineActiveDragIds: null,
+            timelineGestureContext: null,
+            timelineEnvelopeGesture: null,
+            timelineEnvelopePreview: null,
+            timelineWaveformSources: {},
+            timelineContextMenu: null,
+            timelineSkipNextClipClick: false,
+            pendingExternalRevision: ""
+          });
           return;
         }
       }
