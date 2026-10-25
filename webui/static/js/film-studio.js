@@ -4055,38 +4055,40 @@ window.filmStudioCopyClips=function(){
       // The old loader can fail for an unavailable/invalid composition, but that
       // must not leave the previous FilmDocument timeline visible in an open Studio.
       // Reuse the confirmed exists:false snapshot; do not start another Film GET.
-      if(S.open&&!legacyCompositionMode){
-        var studioLoaded=await filmStudioLoad(true,state);
-        if(!studioLoaded){
-          showStatus('无法安全切换 Film Studio；旧项目界面未打开。请解决未提交草稿或活动手势后重试。','error');
-          return {ok:false,code:'FILM_STUDIO_SWITCH_BLOCKED'};
-        }
-      }
-      var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
-      var legacyResult=await legacyEditorLoad.apply(this,legacyArguments);
+      // The compatibility editor is opt-in only. Normal project selection must
+      // not populate ED/CompositionIR behind the Film Studio where hidden keyboard
+      // handlers could still mutate the legacy timeline.
       if(legacyCompositionMode){
-        return legacyResult||{ok:true,mode:'legacy',authority:'CompositionIR',project_id:pid};
+        if(S.open||document.documentElement.classList.contains('fs-studio-open')){
+          showStatus('Film Studio 已打开；为避免双编辑器并行，本次未加载旧 CompositionIR。','error');
+          return {ok:false,code:'STUDIO_OPEN_LEGACY_COMPAT_BLOCKED'};
+        }
+        var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
+        return await legacyEditorLoad.apply(this,legacyArguments);
       }
       // One authority wrapper owns both routes: existing FilmDocument opens directly;
-      // legacy Composition projects enter the same Studio in read-only migration preview.
+      // legacy Composition projects open the same Studio with a read-only migration preview.
       if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
          (selector&&String(selector.value||'').trim()!==String(pid).trim())){
         return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
       }
-      if(!S.open){
-        var migrationStudioOpened=await window.filmStudioToggle(state);
-        if(!migrationStudioOpened){
-          showStatus('旧项目的 Studio 迁移预览未能打开；没有创建 film.html。','error');
-          return {ok:false,code:'FILM_STUDIO_OPEN_FAILED'};
-        }
+      var migrationStudioOpened;
+      if(S.open){
+        migrationStudioOpened=await filmStudioLoad(true,state);
+      }else{
+        migrationStudioOpened=await window.filmStudioToggle(state);
       }
-      if(!S.open||!document.documentElement.classList.contains('fs-studio-open')){
-        showStatus('旧项目尚未进入统一 Studio；没有创建 film.html。','error');
-        return {ok:false,code:'FILM_STUDIO_UNAVAILABLE'};
+      if(!migrationStudioOpened){
+        showStatus('旧项目的 Studio 迁移预览未能打开；没有创建 film.html。','error');
+        return {ok:false,code:'FILM_STUDIO_OPEN_FAILED'};
+      }
+      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
+         (selector&&String(selector.value||'').trim()!==String(pid).trim())||
+         S.projectId!==pid){
+        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
       }
       return {ok:true,mode:'migration',
-        authority:'CompositionIR preview → film.html',project_id:pid,
-        legacyResult:legacyResult||null};
+        authority:'CompositionIR preview → film.html',project_id:pid};
     };
   }
 

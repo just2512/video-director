@@ -91,14 +91,16 @@ async function workspaceOpen(pid, target, options){
       editorToast('当前 Film Studio 尚未安全关闭；本次没有打开旧 CompositionIR。请先完成或放弃未提交修改。', true);
       return {ok:false,mode:'legacy',error:'STUDIO_CLOSE_BLOCKED'};
     }
-    // 3. Load Composition only for projects known not to have film.html.
+    // 3. The editorLoad authority wrapper routes legacy projects to Studio migration preview,
+    // unless a caller explicitly requests the legacy compatibility editor.
     const r = await editorLoad(filmDocument, legacyCompositionMode ? {legacyCompositionMode:true} : undefined);
     if (!r || !r.ok) return r || {ok: false};
     if (typeof directorLoadLatestRun === 'function') {
       await directorLoadLatestRun(pid);
     }
-    // 3. 定位（§45 Review → Editor 带 Selection）
-    if (target) {
+    // Locate actions target CompositionIR only in the opt-in compatibility editor.
+    // Never apply an old scene/layer selection against stale ED state while Film Studio owns the project.
+    if (target && legacyCompositionMode) {
       if (target.type === 'scene') {
         selectScene(target.id, null, 'review-locate');
         timelineScrollToScene(target.id);
