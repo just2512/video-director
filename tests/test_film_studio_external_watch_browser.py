@@ -1425,6 +1425,39 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "malformedRejected": True,
                 }, clipboard_contract
 
+                # The React clip inspector derives the selected clip directly from FilmStore.
+                # The imperative bridge only requests a render and does not pass a copied clip model.
+                inspector_doc_before = fd.read_project_film(project_id)
+                inspector_selection_contract = page.evaluate("""async () => {
+                  const store = window.filmStudioStore;
+                  const before = store.getSnapshot();
+                  const previousSelectedId = before.selectedId;
+                  const previousSelectedIds = [...before.selectedIds];
+                  const previousAnchor = before.selectionAnchor;
+                  const targetId = previousSelectedId === "clip-a" ? "clip-b" : "clip-a";
+                  store.setField("selectedIds", [targetId]);
+                  store.setField("selectedId", targetId);
+                  store.setField("selectionAnchor", targetId);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const selectedNode = document.querySelector('#fs-inspector [data-react-clip-inspector="true"]');
+                  const selectedFromStore = store.getField("selectedId") === targetId &&
+                    selectedNode?.querySelector("strong")?.textContent.trim() === targetId;
+                  store.setField("selectedIds", previousSelectedIds);
+                  store.setField("selectedId", previousSelectedId);
+                  store.setField("selectionAnchor", previousAnchor);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const restoredNode = document.querySelector('#fs-inspector [data-react-clip-inspector="true"]');
+                  const restored = previousSelectedId
+                    ? restoredNode?.querySelector("strong")?.textContent.trim() === previousSelectedId
+                    : !!document.querySelector('#fs-inspector [data-react-clip-inspector-empty="true"]');
+                  return {selectedFromStore,restored,targetId};
+                }""")
+                assert inspector_selection_contract["selectedFromStore"] is True, inspector_selection_contract
+                assert inspector_selection_contract["restored"] is True, inspector_selection_contract
+                assert fd.read_project_film(project_id)["rev"] == inspector_doc_before["rev"], (
+                    "The inspector must derive selection from FilmStore without editing film.html."
+                )
+
                 # All three React timeline control surfaces derive mount visibility from FilmStore.
                 # Toggling these transient UI fields must not mutate the authoritative FilmDocument.
                 control_surface_doc_before = fd.read_project_film(project_id)

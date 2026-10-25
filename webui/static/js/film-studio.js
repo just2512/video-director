@@ -653,7 +653,7 @@
     $('fs-project-label').textContent=S.projectId;$('fs-clip-count').textContent='—';$('fs-timeline-meta').textContent='迁移预览';
     $('fs-assets-list').innerHTML='<div class="fs-empty">当前项目还没有 film.html。初始化将生成可编辑影片文档，不会覆盖旧 Composition。</div>';
     $('fs-timeline').innerHTML='<div class="fs-empty">先检查迁移提示，再初始化。</div>';
-    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip(null,'初始化影片文档后才能编辑片段。');
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip('初始化影片文档后才能编辑片段。');
     else $('fs-inspector').innerHTML='<div class="fs-empty">初始化影片文档后才能编辑片段。</div>';
     resetPreview();
     var variants=Array.isArray(data.variants)?data.variants:[];
@@ -1721,7 +1721,7 @@
   function renderInspector() {
     var clip=findClip(S.selectedId);
     if(!clip){
-      if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip(null);
+      if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip();
       else $('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';
       renderElementInspector(null);
       return;
@@ -1753,7 +1753,7 @@
     fields+='</div><div class="fs-inspector-description fs-inspector-section">更改经统一编辑 API 写入 film.html。锁定轨道会拒绝修改；同轨片段不可重叠。</div>';
     var element=S.selectedElement&&S.selectedElement.clipId===clip.id?S.selectedElement:null;
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
-      window.filmStudioReactInspector.renderClip(Object.assign({},clip,{fps:Math.max(1,Math.min(60,num(S.data&&S.data.fps,30))),playhead:S.playhead}));
+      window.filmStudioReactInspector.renderClip();
       renderElementInspector(element);
       return;
     }
@@ -1981,7 +1981,7 @@
     S.selectedElement=null;
     var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
-      window.filmStudioReactInspector.renderClip(null,'正在重新载入影片文档。');
+      window.filmStudioReactInspector.renderClip('正在重新载入影片文档。');
     }
     if(S.data&&S.data.exists)renderInspector();
     else renderMigration();

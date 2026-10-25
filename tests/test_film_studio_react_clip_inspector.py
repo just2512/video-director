@@ -7,9 +7,16 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     contract = (root / "remotion_runtime" / "src" / "film-timeline-contract.ts").read_text(encoding="utf-8")
-    assert "window.filmStudioReactInspector.renderClip(Object.assign({},clip" in studio
+    assert "window.filmStudioReactInspector.renderClip();" in studio
+    assert "window.filmStudioReactInspector.renderClip(Object.assign({},clip" not in studio
     assert "const ClipInspector: React.FC" in component
     assert 'data-react-clip-inspector="true"' in component
+    assert 'const clipInspectorSelectedId = useFilmStoreField("selectedId");' in component
+    assert 'const clipInspectorPlayhead = useFilmStoreField("playhead");' in component
+    assert "buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead)" in component
+    assert "const clip = state.clipInspector;" not in component
+    assert "clipInspector: FilmClipInspectorModel | null;" not in component
+    assert "renderClip(emptyMessage?: string): void;" in component
     assert 'id="fs-field-at"' in component
     assert 'id="fs-field-speed"' in component
     assert 'id="fs-field-volume"' in component
@@ -21,7 +28,7 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "if (element) this.sync(element);" in render_end
     assert "activeCanvasSelection" not in component
     save_start = component.index("  saveSelected() {")
-    save_end = component.index("  renderClip(clip, emptyMessage) {", save_start)
+    save_end = component.index("  renderClip(emptyMessage) {", save_start)
     store = (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
     assert "canvasElementSelection: FilmStudioCanvasElementSelection | null;" in store
     assert '["selectedElement", "canvasElementSelection"]' in store

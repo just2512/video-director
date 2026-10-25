@@ -322,7 +322,7 @@ const keyframePath = (channel:FilmKeyframeChannel,duration:number,min:number,max
 };
 interface CanvasInspectorBridge {
   render(element: CanvasElementSelection | null): void;
-  renderClip(clip: FilmClipInspectorModel | null, emptyMessage?: string): void;
+  renderClip(emptyMessage?: string): void;
   saveSelected(): Promise<void> | void;
   sync(element: CanvasElementSelection): void;
 }
@@ -437,6 +437,39 @@ declare global {
 const asNumber = (value: unknown, fallback: number): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const buildClipInspectorModel = (
+  filmValue: unknown,
+  selectedId: string,
+  playheadValue: number,
+): FilmClipInspectorModel | null => {
+  const film = timelineRecord(filmValue);
+  if (film.exists !== true || !selectedId || !Array.isArray(film.tracks)) return null;
+  const fps = Math.max(1,Math.min(60,asNumber(film.fps,30)));
+  for (const rawTrack of film.tracks) {
+    const track = timelineRecord(rawTrack);
+    const trackAttrs = timelineRecord(track.attrs);
+    const rawClips = Array.isArray(track.clips) ? track.clips : [];
+    for (const rawClip of rawClips) {
+      const clip = timelineRecord(rawClip);
+      if (String(clip.id ?? "") !== selectedId) continue;
+      const durationNumber = clip.duration == null ? null : Number(clip.duration);
+      const duration = durationNumber == null || !Number.isFinite(durationNumber) ? null : durationNumber;
+      const attrs = timelineRecord(clip.attrs) as Record<string,string>;
+      return {
+        id:selectedId,
+        tag:String(clip.tag || ""),
+        at:asNumber(clip.at ?? attrs.at,0),
+        duration,
+        attrs,
+        fps,
+        playhead:asNumber(playheadValue,0),
+        trackLocked:Object.prototype.hasOwnProperty.call(trackAttrs,"locked"),
+      };
+    }
+  }
+  return null;
 };
 
 type ClipInspectorBuildResult =
@@ -1876,14 +1909,12 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
 type StudioReactState = {
   assets: FilmStudioAssetsModel | null;
   aiModel: FilmStudioAiDirectorModel | null;
-  clipInspector: FilmClipInspectorModel | null;
   clipInspectorEmptyMessage?: string;
 };
 
 const studioReactState: StudioReactState = {
   assets: null,
   aiModel: null,
-  clipInspector: null,
   clipInspectorEmptyMessage: undefined,
 };
 let studioRoot: Root | null = null;
@@ -1937,6 +1968,12 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
   const timelineDuration = useFilmStoreField("duration");
   const timelinePixelsPerSecond = useFilmStoreField("pixelsPerSecond");
   const timelineSelectedIdsVersion = useFilmStoreField("selectedIdsVersion");
+  const clipInspectorSelectedId = useFilmStoreField("selectedId");
+  const clipInspectorPlayhead = useFilmStoreField("playhead");
+  const clip = useMemo(
+    () => buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead),
+    [timelineFilm,timelineRevision,clipInspectorSelectedId,clipInspectorPlayhead],
+  );
   const timelineSurface = useMemo(
     () => timelineVisible
       ? buildTimelineSurfaceModel(
@@ -1951,7 +1988,6 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
   );
   const timelineContextMenu = useFilmStoreField("timelineContextMenu");
   const canvasElement = useFilmStoreField("canvasElementSelection");
-  const clip = state.clipInspector;
   const clipKey = clip
     ? clip.id + ":" + JSON.stringify(clip.attrs || {})
     : "empty:" + (state.clipInspectorEmptyMessage || "");
@@ -2093,12 +2129,9 @@ window.filmStudioReactInspector = {
     }
     return window.filmStudioCommitCanvasElement(result.operation, {allowInspectorDraft:true});
   },
-  renderClip(clip, emptyMessage) {
+  renderClip(emptyMessage) {
     filmStore.setField("clipInspectorVisible", true);
-    renderStudioReactOwner({
-      clipInspector:clip,
-      clipInspectorEmptyMessage:emptyMessage,
-    });
+    renderStudioReactOwner({clipInspectorEmptyMessage:emptyMessage});
   },
   render(element) {
     filmStore.setField("canvasElementSelection", element);
