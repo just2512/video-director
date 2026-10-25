@@ -24543,7 +24543,43 @@
         }
       }
       if (key === "projectId" && !Object.is(this.snapshot.projectId, normalized)) {
-        this.publish({ ...this.snapshot, projectId: normalized, timelineContextMenu: null });
+        this.replaceSelectedIds([], false);
+        const previous = this.snapshot;
+        this.publish({
+          ...previous,
+          projectId: normalized,
+          film: null,
+          assetsModel: null,
+          aiDirectorModel: null,
+          clipInspectorEmptyMessage: null,
+          revision: "",
+          canvasElementSelection: null,
+          selectedId: "",
+          selectedIds: this.selectedIdsProxy,
+          selectedIdsVersion: previous.selectedIdsVersion + 1,
+          selectionAnchor: "",
+          playhead: 0,
+          playing: false,
+          duration: 10,
+          canvasElementInspectMode: false,
+          insertMode: false,
+          overwriteMode: false,
+          envelopeMode: false,
+          slideMode: false,
+          slipMode: false,
+          timelineGesturePreview: null,
+          timelineSnapGuide: null,
+          timelineDropTarget: null,
+          timelineActiveDragIds: null,
+          timelineGestureContext: null,
+          timelineEnvelopeGesture: null,
+          timelineEnvelopePreview: null,
+          timelineWaveformSources: {},
+          timelineContextMenu: null,
+          timelineSkipNextClipClick: false,
+          pendingExternalRevision: "",
+          broken: false
+        });
         return;
       }
       if (Object.is(this.snapshot[key], normalized)) return;
