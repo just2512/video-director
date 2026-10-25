@@ -2068,7 +2068,7 @@
         if(r.rebased){
           S.selectedElement=null;S.hoveredElement=null;
           var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
-        }else if(S.selectedElement)S.selectedElement.baseRevision=S.rev;
+        }else if(S.selectedElement)S.selectedElement=Object.assign({},S.selectedElement,{baseRevision:S.rev});
         var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。';
         render();
         var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
@@ -2791,15 +2791,16 @@
         if(S.elementInspect)renderElementSelection(S.selectedElement||element);
       }else if(message.type==='film-runtime:element-preview'){
         if(S.selectedElement&&S.selectedElement.clipId===element.clipId&&S.selectedElement.selector===element.selector){
-          S.selectedElement.rect=element.rect;S.selectedElement.localRect=element.localRect;
-          S.selectedElement.styles=element.styles;S.selectedElement.baseRevision=S.rev;
+          S.selectedElement=Object.assign({},S.selectedElement,{
+            rect:element.rect,localRect:element.localRect,styles:element.styles,baseRevision:S.rev
+          });
           renderElementSelection(S.selectedElement);syncElementInspectorFields(S.selectedElement);
         }
       }else if(message.type==='film-runtime:element-drag-end'){
         if(S.selectedElement&&S.selectedElement.clipId===element.clipId&&S.selectedElement.selector===element.selector){
-          S.selectedElement.rect=element.rect;S.selectedElement.localRect=element.localRect;
-          S.selectedElement.styles=element.styles;S.selectedElement.text=element.text;
-          S.selectedElement.baseRevision=S.rev;
+          S.selectedElement=Object.assign({},S.selectedElement,{
+            rect:element.rect,localRect:element.localRect,styles:element.styles,text:element.text,baseRevision:S.rev
+          });
         }else{
           S.selectedElement=element;S.selectedId=element.clipId;S.selectedIds=[element.clipId];
         }

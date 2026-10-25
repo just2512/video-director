@@ -22,7 +22,13 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "activeCanvasSelection" not in component
     save_start = component.index("  saveSelected() {")
     save_end = component.index("  renderClip(clip, emptyMessage) {", save_start)
-    assert "const element=studioReactState.canvasElement;" in component[save_start:save_end]
+    store = (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
+    assert "canvasElementSelection: FilmStudioCanvasElementSelection | null;" in store
+    assert '["selectedElement", "canvasElementSelection"]' in store
+    assert 'useFilmStoreField("canvasElementSelection")' in component
+    assert "const element=filmStore.getField(\"canvasElementSelection\");" in component[save_start:save_end]
+    assert "canvasElement: CanvasElementSelection | null;" not in component
+    assert "S.selectedElement.rect=" not in studio and "S.selectedElement.styles=" not in studio
     assert "export const buildCanvasElementOperation =" in component
     assert "changed:Object.keys(style).length>0||textChanged" in component
     assert "const style:Record<string,string>={};" in component

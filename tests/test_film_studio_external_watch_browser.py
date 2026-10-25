@@ -1344,6 +1344,43 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "playheadUnchanged": True,
                 }, suppressed_click
 
+                # The selected canvas element is one canonical FilmStore field shared
+                # by the legacy bridge and React canvas inspector.
+                canvas_selection_contract = page.evaluate("""async () => {
+                  const store = window.filmStudioStore;
+                  const bridge = window.filmStudioReactInspector;
+                  if (!store || !bridge) return {available:false};
+                  const previous = store.getField("canvasElementSelection");
+                  const revision = store.getSnapshot().revision;
+                  const probe = {
+                    clipId:"clip-a", selector:"#canvas-state-probe", tag:"div",
+                    text:"canvas state probe", textEditable:true,
+                    styles:{color:"#123456"},
+                    rect:{x:1,y:2,width:30,height:20},
+                    localRect:{x:1,y:2,width:30,height:20},
+                    baseRevision:revision
+                  };
+                  bridge.render(probe);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const canonical = store.getField("canvasElementSelection");
+                  const node = document.querySelector('[data-react-canvas-inspector="true"]');
+                  const result = {
+                    available:true,
+                    stored:canonical?.selector === probe.selector && canonical?.baseRevision === revision,
+                    rendered:!!node && node.textContent.includes("#canvas-state-probe"),
+                    nestedValuesNormalized:canonical?.rect?.width === 30 && canonical?.styles?.color === "#123456"
+                  };
+                  bridge.render(previous);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  return result;
+                }""")
+                assert canvas_selection_contract == {
+                    "available": True,
+                    "stored": True,
+                    "rendered": True,
+                    "nestedValuesNormalized": True,
+                }, canvas_selection_contract
+
                 # Copy and paste share the FilmStore-owned clipboard through the legacy
                 # bridge. Clipboard shape validation must reject unsafe/partial entries.
                 clipboard_contract = page.evaluate("""(pid) => {

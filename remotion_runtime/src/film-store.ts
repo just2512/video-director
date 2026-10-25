@@ -90,10 +90,24 @@ export type FilmStudioTimelineSurfaceModel = {
   tracks: FilmStudioTimelineSurfaceTrack[];
 };
 
+export type FilmStudioCanvasRect = {x?: number; y?: number; width?: number; height?: number};
+export interface FilmStudioCanvasElementSelection {
+  clipId: string;
+  selector: string;
+  tag: string;
+  text: string;
+  textEditable: boolean;
+  styles: Record<string, string>;
+  rect: FilmStudioCanvasRect;
+  localRect: FilmStudioCanvasRect;
+  baseRevision: string;
+}
+
 export interface FilmStudioStoreSnapshot {
   projectId: string;
   film: unknown | null;
   revision: string;
+  canvasElementSelection: FilmStudioCanvasElementSelection | null;
   selectedId: string;
   selectedIds: string[];
   selectedIdsVersion: number;
@@ -153,6 +167,41 @@ const asOptionalFiniteNumber = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === "") return undefined;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const asFilmStudioCanvasRect = (value: unknown): FilmStudioCanvasRect => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  const rect: FilmStudioCanvasRect = {};
+  for (const key of ["x","y","width","height"] as const) {
+    const number = asOptionalFiniteNumber(raw[key]);
+    if (number !== undefined && ((key !== "width" && key !== "height") || number >= 0)) rect[key] = number;
+  }
+  return rect;
+};
+
+const asCanvasElementSelection = (value: unknown): FilmStudioCanvasElementSelection | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const clipId = asString(raw.clipId);
+  const selector = asString(raw.selector);
+  const tag = asString(raw.tag);
+  if (!clipId || !selector || !tag) return null;
+  const styles: Record<string, string> = {};
+  if (raw.styles && typeof raw.styles === "object" && !Array.isArray(raw.styles)) {
+    for (const [key, styleValue] of Object.entries(raw.styles as Record<string, unknown>)) {
+      if (typeof styleValue === "string") styles[key] = styleValue;
+    }
+  }
+  return {
+    clipId, selector, tag,
+    text: asString(raw.text),
+    textEditable: raw.textEditable !== false,
+    styles,
+    rect: asFilmStudioCanvasRect(raw.rect),
+    localRect: asFilmStudioCanvasRect(raw.localRect),
+    baseRevision: asString(raw.baseRevision),
+  };
 };
 
 const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureContext | null => {
@@ -405,6 +454,7 @@ class FilmStore implements FilmStudioStoreBridge {
       projectId: "",
       film: null,
       revision: "",
+      canvasElementSelection: null,
       selectedId: "",
       selectedIds: this.selectedIdsProxy,
       selectedIdsVersion: 0,
@@ -537,6 +587,8 @@ class FilmStore implements FilmStudioStoreBridge {
     } else if (key === "playhead" || key === "duration") {
       const parsed = asFiniteNumber(value, key === "duration" ? 10 : 0);
       normalized = key === "duration" ? Math.max(0.001, parsed) : Math.max(0, parsed);
+    } else if (key === "canvasElementSelection") {
+      normalized = asCanvasElementSelection(value);
     } else if (key === "pendingTransaction") {
       normalized = asPendingTransaction(value);
     } else if (key === "timelineGesturePreview") {
@@ -656,6 +708,7 @@ class FilmStore implements FilmStudioStoreBridge {
       projectId: asString(target.projectId),
       film,
       revision: filmRevision,
+      canvasElementSelection: asCanvasElementSelection(target.selectedElement),
       selectedId: asString(target.selectedId),
       selectedIds: this.selectedIdsProxy,
       selectedIdsVersion: this.snapshot.selectedIdsVersion,
@@ -695,6 +748,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["projectId", "projectId"],
       ["data", "film"],
       ["rev", "revision"],
+      ["selectedElement", "canvasElementSelection"],
       ["selectedId", "selectedId"],
       ["selectedIds", "selectedIds"],
       ["selectionAnchor", "selectionAnchor"],

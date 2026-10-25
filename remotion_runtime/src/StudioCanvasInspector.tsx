@@ -15,6 +15,7 @@ import {
   type FilmStudioTimelineWaveformSource,
   type FilmStudioTimelineWaveformSources,
   type FilmStudioTimelineContextMenu,
+  type FilmStudioCanvasElementSelection,
   type FilmStudioTimelineSurfaceClip,
   type FilmStudioTimelineSurfaceTrack,
   type FilmStudioTimelineSurfaceModel,
@@ -177,17 +178,7 @@ const buildTimelineSurfaceModel = (
 };
 
 
-export interface CanvasElementSelection {
-  clipId: string;
-  selector: string;
-  tag: string;
-  text: string;
-  textEditable: boolean;
-  styles: Record<string, string>;
-  rect: Rect;
-  localRect: Rect;
-  baseRevision: string;
-}
+export type CanvasElementSelection = FilmStudioCanvasElementSelection;
 type FilmClipInspectorValues = {
   at: string;
   speed: string;
@@ -1892,7 +1883,6 @@ type StudioReactState = {
   clipInspector: FilmClipInspectorModel | null;
   clipInspectorEmptyMessage?: string;
   canvasInspectorMounted: boolean;
-  canvasElement: CanvasElementSelection | null;
 };
 
 const studioReactState: StudioReactState = {
@@ -1905,7 +1895,6 @@ const studioReactState: StudioReactState = {
   clipInspector: null,
   clipInspectorEmptyMessage: undefined,
   canvasInspectorMounted: false,
-  canvasElement: null,
 };
 let studioRoot: Root | null = null;
 let studioRootMount: HTMLElement | null = null;
@@ -1965,11 +1954,12 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
     [timelineVisible,timelineFilm,timelineProjectId,timelineRevision,timelineDuration,timelinePixelsPerSecond,timelineSelectedIdsVersion],
   );
   const timelineContextMenu = useFilmStoreField("timelineContextMenu");
+  const canvasElement = useFilmStoreField("canvasElementSelection");
   const clip = state.clipInspector;
   const clipKey = clip
     ? clip.id + ":" + JSON.stringify(clip.attrs || {})
     : "empty:" + (state.clipInspectorEmptyMessage || "");
-  const element = state.canvasElement;
+  const element = canvasElement;
   return (
     <>
       <FilmStoreDiagnostics />
@@ -2092,7 +2082,7 @@ window.filmStudioReactAi = {
 
 window.filmStudioReactInspector = {
   saveSelected() {
-    const element=studioReactState.canvasElement;
+    const element=filmStore.getField("canvasElementSelection");
     if(!element){window.filmStudioShowInspectorError?.("请先在预览画布中选中一个 HTML 元素。");return;}
     const form=readCanvasElementForm();
     if(!form){window.filmStudioShowInspectorError?.("画布检查器尚未挂载完成，请重新选择元素。");return;}
@@ -2112,10 +2102,8 @@ window.filmStudioReactInspector = {
     });
   },
   render(element) {
-    renderStudioReactOwner({
-      canvasInspectorMounted:true,
-      canvasElement:element,
-    });
+    filmStore.setField("canvasElementSelection", element);
+    renderStudioReactOwner({canvasInspectorMounted:true});
     if (element) this.sync(element);
   },
   sync(element) {
