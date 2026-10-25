@@ -1860,6 +1860,11 @@
     }
     if(changed){
       mountDirectorPlanning(false);
+      // Chat messages and streaming metadata are project context, not global UI
+      // history. Do not republish the previous project's conversation after load.
+      S.messages=[];
+      S.aiActiveMessage='';S.aiStreamText='';S.aiPendingSteer='';
+      S.aiLiveMessageIndex=-1;S.aiRequestId='';S.aiController=null;
       S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
       S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;
       var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
