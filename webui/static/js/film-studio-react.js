@@ -24338,6 +24338,7 @@
         timelineSkipNextClipClick: false,
         timelineClipboard: null,
         timelineVisible: false,
+        canvasElementInspectMode: false,
         pendingExternalRevision: "",
         insertMode: false,
         overwriteMode: false,
@@ -24426,7 +24427,7 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
-      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible" || key === "timelineSkipNextClipClick") {
+      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible" || key === "timelineSkipNextClipClick" || key === "canvasElementInspectMode") {
         normalized = value === true;
       } else if (key === "pixelsPerSecond") {
         normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -24555,6 +24556,7 @@
         timelineSkipNextClipClick: asBoolean(target.skipNextClipClick),
         timelineClipboard: asTimelineClipboard(target.clipClipboard),
         timelineVisible: false,
+        canvasElementInspectMode: target.elementInspect === true,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
         overwriteMode: target.overwriteMode === true,
@@ -24585,6 +24587,7 @@
         ["envelopeDrag", "timelineEnvelopeGesture"],
         ["pendingExternalRevision", "pendingExternalRevision"],
         ["skipNextClipClick", "timelineSkipNextClipClick"],
+        ["elementInspect", "canvasElementInspectMode"],
         ["clipClipboard", "timelineClipboard"],
         ["insertMode", "insertMode"],
         ["overwriteMode", "overwriteMode"],
@@ -26753,6 +26756,7 @@
         "data-envelope-mode": filmSnapshot.envelopeMode ? "true" : "false",
         "data-slide-mode": filmSnapshot.slideMode ? "true" : "false",
         "data-slip-mode": filmSnapshot.slipMode ? "true" : "false",
+        "data-canvas-element-inspect": filmSnapshot.canvasElementInspectMode ? "true" : "false",
         "data-busy": filmSnapshot.busy ? "true" : "false",
         "data-broken": filmSnapshot.broken ? "true" : "false",
         "data-pending-transaction-kind": filmSnapshot.pendingTransaction?.kind || "",
