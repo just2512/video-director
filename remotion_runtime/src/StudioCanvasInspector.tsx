@@ -2050,6 +2050,8 @@ window.filmStudioReactTimeline = {
       filmStore.setField("timelineSnapGuide", null);
       filmStore.setField("timelineDropTarget", null);
       filmStore.setField("timelineActiveDragIds", null);
+      filmStore.setField("timelineGestureContext", null);
+      filmStore.setField("timelineEnvelopeGesture", null);
       filmStore.setField("timelineEnvelopePreview", null);
       filmStore.setField("timelineContextMenu", null);
       filmStore.setField("timelineVisible", false);

@@ -2540,6 +2540,10 @@
       resetInspectorDraft();
     }
     S.open=false;if(S.poll){clearInterval(S.poll);S.poll=null;}
+    // The React timeline menu is portaled to document.body, outside the hidden Studio panel.
+    // Tear down the timeline surface so no menu or pointer-gesture state survives close.
+    var timelineBridge=window.filmStudioReactTimeline;
+    if(timelineBridge&&typeof timelineBridge.clearSurface==='function')timelineBridge.clearSurface();
     var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
     if(panel){panel.classList.remove('fs-studio-expanded');panel.style.display='none';}
     document.documentElement.classList.remove('fs-studio-open');

@@ -605,6 +605,55 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 slide_ops = slide_requests[0].get("ops") or []
                 assert len(slide_ops) == 1 and slide_ops[0].get("op") == "slide", slide_ops
                 assert abs(float(slide_ops[0].get("delta")) - 1.0) < 0.05, slide_ops
+
+                # Closing Studio must unmount the body-portaled context menu and clear
+                # transient pointer state from the shared store, even after an interrupted gesture.
+                close_state_before = page.evaluate("""() => {
+                  const bridge = window.filmStudioReactTimeline;
+                  const store = window.filmStudioStore;
+                  const film = store?.getField("film");
+                  const tracks = (film?.tracks || []).map(track => track.id);
+                  const trackIndex = tracks.indexOf("video-main");
+                  const center = (film?.tracks || []).flatMap(track => track.clips || [])
+                    .find(clip => clip.id === "clip-center");
+                  if (!bridge || !store || trackIndex < 0 || !center) return null;
+                  const at = Number(center.at), duration = Number(center.duration);
+                  bridge.openContextMenu({clipId:"clip-center",x:140,y:160});
+                  store.setField("timelineGestureContext", {
+                    id:"clip-center", mode:"move", pointerId:701, startX:20, startY:30,
+                    startScrollLeft:0, active:true, trackOrder:tracks,
+                    members:[{id:"clip-center",originalAt:at,originalEnd:at+duration,
+                      trackId:"video-main",trackIndex}],
+                    originalAt:at, originalEnd:at+duration, trackId:"video-main",
+                    originalTrackIndex:trackIndex, targetTrackId:"video-main"
+                  });
+                  store.setField("timelineEnvelopeGesture", {
+                    clipId:"snap-audio", pointerId:702,
+                    rect:{left:0,top:0,width:120,height:30},
+                    points:[{t:0,v:1},{t:2,v:0.25}], index:1, duration:2,
+                    active:true, changed:false
+                  });
+                  return {
+                    menuOpen:bridge.isContextMenuOpen(),
+                    gesture:store.getField("timelineGestureContext") !== null,
+                    envelope:store.getField("timelineEnvelopeGesture") !== null
+                  };
+                }""")
+                assert close_state_before == {"menuOpen":True,"gesture":True,"envelope":True}, close_state_before
+                page.wait_for_function(
+                    """() => !!document.querySelector('[data-react-context-menu="true"]')""",
+                    timeout=5000,
+                )
+                page.evaluate("window.filmStudioClose()")
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  return store?.getField("timelineVisible") === false &&
+                    store?.getField("timelineContextMenu") === null &&
+                    store?.getField("timelineGestureContext") === null &&
+                    store?.getField("timelineEnvelopeGesture") === null &&
+                    !document.querySelector('[data-react-context-menu="true"]') &&
+                    !document.querySelector('#fs-timeline .fs-react-timeline-surface');
+                }""", timeout=5000)
                 assert not page_errors, page_errors
             finally:
                 context.close()
