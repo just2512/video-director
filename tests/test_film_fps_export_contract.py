@@ -10,6 +10,7 @@ def test_film_studio_uses_saved_fps_for_export_and_frame_step():
     assert "expected_revision:revision,fps:30" not in studio
     assert "var projectFps=Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)))" in studio
     assert "step=\"'+esc(frameStep)+'\"" in studio
-    assert "fps:Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)))" in studio
+    assert "renderClip(Object.assign({},clip,{fps:" not in studio
+    assert "const fps = Math.max(1,Math.min(60,asNumber(film.fps,30)));" in component
     assert "fps?: number;" in component
     assert "step={1 / Math.max(1, Math.min(60, clip.fps || 30))}" in component
