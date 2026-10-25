@@ -611,6 +611,8 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
                   if (!response.ok) return false;
                   const doc = await response.json();
+                  const state = window.filmStudioStore?.getSnapshot();
+                  if (!state || state.busy || state.pendingTransaction !== null || doc.rev !== state.revision) return false;
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
                   const target = clips.find(clip => clip.id === 'video-target');
                   const later = clips.find(clip => clip.id === 'video-after');
@@ -629,9 +631,10 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
                   const doc = await response.json();
-                  const storeRevision = window.filmStudioStore?.getSnapshot()?.revision;
-                  return !!doc.rev && doc.rev === storeRevision &&
-                    (doc.tracks || []).some(track =>
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!doc.rev && !!state && !state.busy && state.pendingTransaction === null
+                    && doc.rev === state.revision
+                    && (doc.tracks || []).some(track =>
                       (track.clips || []).some(clip => clip.id === 'video-target'));
                 }""", arg=project_id, timeout=10000)
                 assert film_path.read_text(encoding="utf-8") == initial_text
@@ -649,6 +652,8 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
                   if (!response.ok) return false;
                   const doc = await response.json();
+                  const state = window.filmStudioStore?.getSnapshot();
+                  if (!state || state.busy || state.pendingTransaction !== null || doc.rev !== state.revision) return false;
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
                   const target = clips.find(clip => clip.id === 'video-target');
                   const before = clips.find(clip => clip.id === 'video-before');
@@ -686,9 +691,10 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
                   const doc = await response.json();
-                  const storeRevision = window.filmStudioStore?.getSnapshot()?.revision;
+                  const state = window.filmStudioStore?.getSnapshot();
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
-                  return !!doc.rev && doc.rev === storeRevision
+                  return !!doc.rev && !!state && !state.busy && state.pendingTransaction === null
+                    && doc.rev === state.revision
                     && clips.some(clip => clip.id === 'video-target')
                     && clips.some(clip => clip.id === 'audio-long' && String(clip.attrs.src).endsWith('#t=0,6'));
                 }""", arg=project_id, timeout=10000)
