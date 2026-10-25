@@ -721,7 +721,10 @@ class FilmStore implements FilmStudioStoreBridge {
           typeof (normalized as Record<string, unknown>).rev === "string") {
         const revision = (normalized as Record<string, unknown>).rev as string;
         if (revision !== this.snapshot.revision) {
-          this.publish({...this.snapshot, film: normalized, revision});
+          // A context menu targets IDs in one exact FilmDocument revision. Once the
+          // authoritative document changes, close it before the next React commit so
+          // an Agent/external write cannot leave commands pointing at stale clip IDs.
+          this.publish({...this.snapshot, film: normalized, revision, timelineContextMenu: null});
           return;
         }
       }
