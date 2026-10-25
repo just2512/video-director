@@ -4050,7 +4050,27 @@ window.filmStudioCopyClips=function(){
         }
       }
       var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
-      return await legacyEditorLoad.apply(this,legacyArguments);
+      var legacyResult=await legacyEditorLoad.apply(this,legacyArguments);
+      // One authority wrapper owns both routes: existing FilmDocument opens directly;
+      // legacy Composition projects enter the same Studio in read-only migration preview.
+      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
+         (selector&&String(selector.value||'').trim()!==String(pid).trim())){
+        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
+      }
+      if(!S.open){
+        var migrationStudioOpened=await window.filmStudioToggle(state);
+        if(!migrationStudioOpened){
+          showStatus('旧项目的 Studio 迁移预览未能打开；没有创建 film.html。','error');
+          return {ok:false,code:'FILM_STUDIO_OPEN_FAILED'};
+        }
+      }
+      if(!S.open||!document.documentElement.classList.contains('fs-studio-open')){
+        showStatus('旧项目尚未进入统一 Studio；没有创建 film.html。','error');
+        return {ok:false,code:'FILM_STUDIO_UNAVAILABLE'};
+      }
+      return {ok:legacyResult&&legacyResult.ok!==false,mode:'migration',
+        authority:'CompositionIR preview → film.html',project_id:pid,
+        legacyResult:legacyResult||null};
     };
   }
 

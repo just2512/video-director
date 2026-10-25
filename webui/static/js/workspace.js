@@ -128,9 +128,11 @@ async function workspaceOpen(pid, target, options){
       }
       return {ok:true,mode:'migration',authority:'CompositionIR preview → film.html',project_id:pid};
     }
-    return legacyCompositionMode
-      ? {ok:true,mode:'legacy',authority:'CompositionIR',project_id:pid}
-      : {ok:true};
+    if(legacyCompositionMode)
+      return {ok:true,mode:'legacy',authority:'CompositionIR',project_id:pid};
+    if(filmDocument.exists===false)
+      return {ok:true,mode:'migration',authority:'CompositionIR preview → film.html',project_id:pid};
+    return {ok:true,mode:'film',authority:'film.html',project_id:pid};
   } finally {
     WS.opening = false;
   }
