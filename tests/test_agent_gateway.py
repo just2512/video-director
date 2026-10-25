@@ -170,6 +170,33 @@ class TestMCPGatewayProtocol:
         assert [response["id"] for response in resps] == [1, 2, 3, 4], resps
         assert resps[3]["result"] == {}, resps[3]
 
+    def test_notifications_never_return_results_or_dispatch_tools(self):
+        from video_director.agent_gateway import mcp_server
+
+        tool_calls = []
+        original = mcp_server.dispatch
+
+        def guarded_dispatch(name, **args):
+            tool_calls.append((name, args))
+            return original(name, **args)
+
+        from unittest.mock import patch
+        messages = [
+            {"jsonrpc": "2.0", "method": "ping"},
+            {"jsonrpc": "2.0", "method": "tools/list"},
+            {"jsonrpc": "2.0", "method": "tools/call",
+             "params": {"name": "creative.inspect", "arguments": {}}},
+            {"jsonrpc": "2.0", "method": "tools/call", "params": []},
+            {"jsonrpc": "2.0", "id": 9, "method": "ping"},
+            {"jsonrpc": "2.0", "id": 10, "method": "notifications/initialized"},
+        ]
+        with patch.object(mcp_server, "dispatch", side_effect=guarded_dispatch):
+            resps = self._invoke(messages)
+        assert len(resps) == 2, resps
+        assert resps[0]["id"] == 9 and resps[0]["result"] == {}, resps
+        assert resps[1]["id"] == 10 and resps[1]["error"]["code"] == -32600, resps
+        assert tool_calls == [], tool_calls
+
     def test_parse_error(self):
         old_in, old_out = sys.stdin, sys.stdout
         sys.stdin = io.StringIO("not-json\n")

@@ -60,6 +60,16 @@ def test_standalone_mcp_rejects_invalid_request_envelopes_and_tool_params():
         assert response["error"]["code"] == -32602, response
 
 
+    assert mcp.handle_message({"jsonrpc": "2.0", "method": "ping"}) is None
+    assert mcp.handle_message({"jsonrpc": "2.0", "method": "tools/call",
+                               "params": {"name": "film.status"}}) is None
+    invalid_notification = mcp.handle_message({
+        "jsonrpc": "2.0", "id": 12, "method": "notifications/initialized"
+    })
+    assert invalid_notification is not None
+    assert invalid_notification["error"]["code"] == -32600, invalid_notification
+
+
 def test_standalone_mcp_parse_error_does_not_break_stdio_loop(monkeypatch):
     source = io.StringIO(
         "not-json\n"

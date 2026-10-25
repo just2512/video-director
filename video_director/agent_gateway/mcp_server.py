@@ -228,6 +228,14 @@ def _handle(req: Any) -> dict:
             or ("id" in req and not _valid_jsonrpc_id(req_id))):
         response_id = req_id if _valid_jsonrpc_id(req_id) else None
         return _rpc_error(response_id, -32600, "Invalid Request")
+    if method.startswith("notifications/"):
+        if "id" in req:
+            return _rpc_error(req_id, -32600, "Notifications must not include an id")
+        return {}
+    # In JSON-RPC a message without an id is a notification. MCP notifications
+    # are one-way control messages; do not return results/errors or dispatch a tool.
+    if "id" not in req:
+        return {}
     params = req.get("params")
     if params is not None and not isinstance(params, dict):
         return _rpc_error(req_id, -32602, "Invalid params: params must be an object")

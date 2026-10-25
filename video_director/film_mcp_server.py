@@ -364,12 +364,17 @@ def handle_message(message: Any) -> dict[str, Any] | None:
             or ("id" in message and not valid_id)):
         return _rpc_error(request_id if valid_id else None, -32600, "Invalid Request")
     is_notification = "id" not in message
+    if method.startswith("notifications/"):
+        if is_notification:
+            return None
+        return _rpc_error(request_id, -32600, "Notifications must not include an id")
+    # A valid JSON-RPC message without id is a notification and must never
+    # produce a result/error response or execute a side-effecting tool call.
+    if is_notification:
+        return None
     params = message.get("params")
     if params is not None and not isinstance(params, dict):
-        return _rpc_error(request_id if valid_id else None, -32602, "Invalid params: params must be an object")
-
-    if method == "notifications/initialized" and is_notification:
-        return None
+        return _rpc_error(request_id, -32602, "Invalid params: params must be an object")
     if method == "initialize":
         return {
             "jsonrpc": "2.0",
