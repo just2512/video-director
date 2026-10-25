@@ -1,6 +1,6 @@
 # Agent access: Claude Code, Codex, and other MCP-capable coding agents
 
-Video Director exposes one unified local MCP gateway for Director planning, FilmDocument editing, visual verification, and MP4 export. A coding agent can create or continue a Director project, initialize the authoritative timeline, then make revision-safe edits without needing a second MCP registration.
+Video Director exposes one unified local MCP gateway for Director planning, FilmDocument editing, visual verification, and MP4 export. The gateway and standalone Film server support both the stateless MCP protocol dated 2026-07-28 (server/discover and per-request metadata) and the legacy 2025-06-18 initialize handshake. A coding agent can discover both Director and authoritative film.* timeline tools through the same registration, then make revision-safe edits without a second MCP server.
 
 ## Local prerequisites
 

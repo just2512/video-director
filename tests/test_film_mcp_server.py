@@ -34,6 +34,60 @@ def test_mcp_initialize_and_tool_catalog_are_protocol_valid():
     assert mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
 
 
+def test_standalone_mcp_supports_modern_discovery_and_versioned_tool_results(monkeypatch):
+    modern_meta = {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {"name": "contract-test", "version": "1.0.0"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+    discovery = mcp.handle_message({
+        "jsonrpc": "2.0", "id": 1, "method": "server/discover",
+        "params": {"_meta": modern_meta},
+    })
+    result = discovery["result"]
+    assert result["resultType"] == "complete"
+    assert "2026-07-28" in result["supportedVersions"]
+    assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "video-director-film"
+    assert result["capabilities"] == {"tools": {}}
+    assert result["ttlMs"] == 0 and result["cacheScope"] == "private"
+
+    listed = mcp.handle_message({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/list",
+        "params": {"_meta": modern_meta},
+    })
+    assert listed["result"]["resultType"] == "complete"
+    assert listed["result"]["ttlMs"] == 0
+    assert listed["result"]["cacheScope"] == "private"
+    assert any(tool["name"] == "film.status" for tool in listed["result"]["tools"])
+
+    monkeypatch.setattr(mcp, "call_tool", lambda name, args: {
+        "content": [{"type": "text", "text": json.dumps({"name": name, "args": args})}],
+        "isError": False,
+    })
+    called = mcp.handle_message({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"_meta": modern_meta, "name": "film.status", "arguments": {"project_id": "demo"}},
+    })
+    assert called["result"]["resultType"] == "complete"
+    assert called["result"]["isError"] is False
+
+    unsupported = mcp.handle_message({
+        "jsonrpc": "2.0", "id": 4, "method": "tools/list",
+        "params": {"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2099-01-01",
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }},
+    })
+    assert unsupported["error"]["code"] == -32022
+    assert unsupported["error"]["data"]["requested"] == "2099-01-01"
+
+    bad_meta = mcp.handle_message({
+        "jsonrpc": "2.0", "id": 5, "method": "tools/list",
+        "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}},
+    })
+    assert bad_meta["error"]["code"] == -32602
+
+
 def test_standalone_mcp_rejects_invalid_request_envelopes_and_tool_params():
     invalid = [
         None,

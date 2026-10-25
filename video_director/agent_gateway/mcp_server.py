@@ -23,8 +23,17 @@ from typing import Any
 
 from video_director.agent_gateway import HIGH_LEVEL_TOOLS, GatewayError, dispatch
 from video_director.mcp_schema import validate_json_schema
+from video_director.mcp_protocol import (
+    LEGACY_PROTOCOL_VERSION,
+    MODERN_PROTOCOL_VERSION,
+    discover_result,
+    modern_result,
+    request_protocol_version,
+    unsupported_protocol_version_response,
+    validate_modern_request_metadata,
+)
 
-PROTOCOL_VERSION = "2025-06-18"
+PROTOCOL_VERSION = LEGACY_PROTOCOL_VERSION
 SERVER_INFO = {"name": "creative-os-mcp", "version": "1.0.0"}
 
 
@@ -240,7 +249,32 @@ def _handle(req: Any) -> dict:
     params = req.get("params")
     if params is not None and not isinstance(params, dict):
         return _rpc_error(req_id, -32602, "Invalid params: params must be an object")
+    has_protocol_version, requested_protocol_version = request_protocol_version(params)
+    if has_protocol_version and (
+        not isinstance(requested_protocol_version, str)
+        or requested_protocol_version not in {
+            MODERN_PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        }
+    ):
+        return unsupported_protocol_version_response(req_id, requested_protocol_version)
+    is_modern = has_protocol_version and requested_protocol_version == MODERN_PROTOCOL_VERSION
+    if is_modern:
+        metadata_error = validate_modern_request_metadata(params)
+        if metadata_error:
+            return _rpc_error(req_id, -32602, f"Invalid params: {metadata_error}")
     try:
+        if method == "server/discover":
+            return {"jsonrpc": "2.0", "id": req_id, "result": discover_result(
+                SERVER_INFO,
+                {"tools": {}},
+                instructions="Video Director exposes Director planning and revision-checked film.html timeline tools. Use film.status → film.initialize when needed → film.edit → film.validate → film.look → film.render.",
+            )}
+        if is_modern and method == "initialize":
+            return _rpc_error(
+                req_id, -32601,
+                "initialize is not part of MCP 2026-07-28; use server/discover",
+            )
         if method == "initialize":
             return {"jsonrpc": "2.0", "id": req_id, "result": {
                 "protocolVersion": PROTOCOL_VERSION,
@@ -255,7 +289,10 @@ def _handle(req: Any) -> dict:
                               "inputSchema": _tool_schema_for(name)})
             from video_director import film_mcp_server
             tools.extend(film_mcp_server.tool_definitions())
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools}}
+            tool_result = {"tools": tools}
+            if is_modern:
+                tool_result = modern_result(tool_result, cacheable=True)
+            return {"jsonrpc": "2.0", "id": req_id, "result": tool_result}
         if method == "tools/call":
             params = params or {}
             name = params.get("name", "")
@@ -268,17 +305,24 @@ def _handle(req: Any) -> dict:
                 return _rpc_error(req_id, -32602, "Invalid params: tool arguments must be an object")
             if name.startswith("film."):
                 from video_director import film_mcp_server
-                return {"jsonrpc": "2.0", "id": req_id, "result": film_mcp_server.call_tool(name, args)}
+                tool_result = film_mcp_server.call_tool(name, args)
+                if is_modern:
+                    tool_result = modern_result(tool_result)
+                return {"jsonrpc": "2.0", "id": req_id, "result": tool_result}
             if name in HIGH_LEVEL_TOOLS:
                 validation_error = validate_json_schema(args, _tool_schema_for(name))
                 if validation_error:
                     return _rpc_error(req_id, -32602, f"Invalid params for {name}: {validation_error}")
             result = dispatch(name, **args)
-            return {"jsonrpc": "2.0", "id": req_id, "result": {
+            tool_result = {
                 "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}],
-                "isError": bool(result.get("ok") is False)}}
+                "isError": bool(result.get("ok") is False)}
+            if is_modern:
+                tool_result = modern_result(tool_result)
+            return {"jsonrpc": "2.0", "id": req_id, "result": tool_result}
         if method == "ping":
-            return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+            ping_result = modern_result({}) if is_modern else {}
+            return {"jsonrpc": "2.0", "id": req_id, "result": ping_result}
         if "id" in req:
             return {"jsonrpc": "2.0", "id": req_id, "error": {
                 "code": -32601, "message": f"Method not found: {method}"}}

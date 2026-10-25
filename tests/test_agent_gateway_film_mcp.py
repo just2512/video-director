@@ -49,6 +49,67 @@ def test_existing_gateway_lists_and_routes_film_tools(monkeypatch):
     assert body["args"]["project_id"] == "demo-project"
 
 
+def test_gateway_supports_modern_discovery_metadata_and_cacheable_results(monkeypatch):
+    modern_meta = {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {"name": "contract-test", "version": "1.0.0"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+    discover = mcp_server._handle({
+        "jsonrpc": "2.0", "id": "discover", "method": "server/discover",
+        "params": {"_meta": modern_meta},
+    })
+    assert "result" in discover, discover
+    discovery = discover["result"]
+    assert discovery["resultType"] == "complete"
+    assert "2026-07-28" in discovery["supportedVersions"]
+    assert mcp_server.SERVER_INFO == discovery["_meta"]["io.modelcontextprotocol/serverInfo"]
+    assert discovery["capabilities"] == {"tools": {}}
+    assert discovery["ttlMs"] == 0 and discovery["cacheScope"] == "private"
+
+    listed = mcp_server._handle({
+        "jsonrpc": "2.0", "id": "list", "method": "tools/list",
+        "params": {"_meta": modern_meta},
+    })
+    assert listed["result"]["resultType"] == "complete"
+    assert listed["result"]["ttlMs"] == 0
+    assert listed["result"]["cacheScope"] == "private"
+    names = {tool["name"] for tool in listed["result"]["tools"]}
+    assert "creative.inspect" in names and "film.status" in names
+
+    monkeypatch.setattr(film_mcp_server, "call_tool", lambda name, args: {
+        "content": [{"type": "text", "text": json.dumps({"name": name, "args": args})}],
+        "isError": False,
+    })
+    called = mcp_server._handle({
+        "jsonrpc": "2.0", "id": "call", "method": "tools/call",
+        "params": {
+            "_meta": modern_meta,
+            "name": "film.status",
+            "arguments": {"project_id": "demo-project"},
+        },
+    })
+    assert called["result"]["resultType"] == "complete"
+    assert called["result"]["isError"] is False
+
+    unsupported = mcp_server._handle({
+        "jsonrpc": "2.0", "id": "old-client", "method": "tools/list",
+        "params": {"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2099-01-01",
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }},
+    })
+    assert unsupported["error"]["code"] == -32022
+    assert unsupported["error"]["data"]["requested"] == "2099-01-01"
+    assert "2026-07-28" in unsupported["error"]["data"]["supported"]
+
+    missing_capabilities = mcp_server._handle({
+        "jsonrpc": "2.0", "id": "bad-meta", "method": "tools/list",
+        "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}},
+    })
+    assert missing_capabilities["error"]["code"] == -32602
+
+
 def test_film_initialize_requires_the_exact_composition_revision_and_warning_acceptance(tmp_path, monkeypatch):
     storage = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))

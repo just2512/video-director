@@ -14,8 +14,17 @@ from pathlib import Path
 from typing import Any
 
 from video_director.mcp_schema import validate_json_schema
+from video_director.mcp_protocol import (
+    LEGACY_PROTOCOL_VERSION,
+    MODERN_PROTOCOL_VERSION,
+    discover_result,
+    modern_result,
+    request_protocol_version,
+    unsupported_protocol_version_response,
+    validate_modern_request_metadata,
+)
 
-PROTOCOL_VERSION = "2025-06-18"
+PROTOCOL_VERSION = LEGACY_PROTOCOL_VERSION
 SERVER_INFO = {"name": "video-director-film", "version": "1.0.0"}
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MAX_OPERATIONS = 200
@@ -383,6 +392,35 @@ def handle_message(message: Any) -> dict[str, Any] | None:
     params = message.get("params")
     if params is not None and not isinstance(params, dict):
         return _rpc_error(request_id, -32602, "Invalid params: params must be an object")
+    has_protocol_version, requested_protocol_version = request_protocol_version(params)
+    if has_protocol_version and (
+        not isinstance(requested_protocol_version, str)
+        or requested_protocol_version not in {
+            MODERN_PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        }
+    ):
+        return unsupported_protocol_version_response(request_id, requested_protocol_version)
+    is_modern = has_protocol_version and requested_protocol_version == MODERN_PROTOCOL_VERSION
+    if is_modern:
+        metadata_error = validate_modern_request_metadata(params)
+        if metadata_error:
+            return _rpc_error(request_id, -32602, f"Invalid params: {metadata_error}")
+    if method == "server/discover":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": discover_result(
+                SERVER_INFO,
+                {"tools": {}},
+                instructions="Video Director Film tools manage the authoritative film.html timeline. Read film.status first, use revision-checked film.edit, then film.validate and film.look before film.render.",
+            ),
+        }
+    if is_modern and method == "initialize":
+        return _rpc_error(
+            request_id, -32601,
+            "initialize is not part of MCP 2026-07-28; use server/discover",
+        )
     if method == "initialize":
         return {
             "jsonrpc": "2.0",
@@ -396,7 +434,10 @@ def handle_message(message: Any) -> dict[str, Any] | None:
     if method == "ping":
         return {"jsonrpc": "2.0", "id": request_id, "result": {}}
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": _TOOL_DEFINITIONS}}
+        tool_result = {"tools": _TOOL_DEFINITIONS}
+        if is_modern:
+            tool_result = modern_result(tool_result, cacheable=True)
+        return {"jsonrpc": "2.0", "id": request_id, "result": tool_result}
     if method == "tools/call":
         params = params or {}
         name = params.get("name")
@@ -408,6 +449,8 @@ def handle_message(message: Any) -> dict[str, Any] | None:
         if not isinstance(arguments, dict):
             return _rpc_error(request_id, -32602, "Invalid params: tool arguments must be an object")
         result = call_tool(name, arguments)
+        if is_modern:
+            result = modern_result(result)
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
     if is_notification:
         return None
