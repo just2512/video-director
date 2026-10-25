@@ -24534,12 +24534,48 @@
         normalized = sources;
       } else if (key === "film") {
         normalized = value ?? null;
-        if (normalized && typeof normalized === "object" && typeof normalized.rev === "string") {
-          const revision = normalized.rev;
-          if (revision !== this.snapshot.revision) {
-            this.publish({ ...this.snapshot, film: normalized, revision, timelineContextMenu: null });
-            return;
-          }
+        const record = normalized && typeof normalized === "object" ? normalized : null;
+        const revision = record && typeof record.rev === "string" ? record.rev : "";
+        if (!record || record.exists !== true) {
+          this.replaceSelectedIds([], false);
+          const previous = this.snapshot;
+          this.publish({
+            ...previous,
+            film: normalized,
+            revision,
+            assetsModel: null,
+            clipInspectorEmptyMessage: null,
+            canvasElementSelection: null,
+            canvasElementInspectMode: false,
+            selectedId: "",
+            selectedIds: this.selectedIdsProxy,
+            selectedIdsVersion: previous.selectedIdsVersion + 1,
+            selectionAnchor: "",
+            playhead: 0,
+            playing: false,
+            duration: 10,
+            insertMode: false,
+            overwriteMode: false,
+            envelopeMode: false,
+            slideMode: false,
+            slipMode: false,
+            timelineGesturePreview: null,
+            timelineSnapGuide: null,
+            timelineDropTarget: null,
+            timelineActiveDragIds: null,
+            timelineGestureContext: null,
+            timelineEnvelopeGesture: null,
+            timelineEnvelopePreview: null,
+            timelineWaveformSources: {},
+            timelineContextMenu: null,
+            timelineSkipNextClipClick: false,
+            pendingExternalRevision: ""
+          });
+          return;
+        }
+        if (revision !== this.snapshot.revision) {
+          this.publish({ ...this.snapshot, film: normalized, revision, timelineContextMenu: null });
+          return;
         }
       }
       if (key === "projectId" && !Object.is(this.snapshot.projectId, normalized)) {
