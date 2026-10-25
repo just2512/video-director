@@ -195,6 +195,29 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     timeout=5000,
                 )
 
+                # Asset pane mode has one owner in FilmStore. The legacy global is a
+                # compatibility setter; React renders from that canonical value.
+                page.evaluate("window.filmStudioShowAssetMode('library')")
+                page.wait_for_function("""() =>
+                  window.filmStudioStore?.getField("assetMode") === "library" &&
+                  document.querySelector("#fs-react-film-store-state")?.dataset.assetMode === "library" &&
+                  !!document.querySelector('#fs-assets-list [data-react-asset-list="true"]')
+                """, timeout=5000)
+                page.evaluate("window.filmStudioShowAssetMode('director')")
+                page.wait_for_function("""() =>
+                  window.filmStudioStore?.getField("assetMode") === "director" &&
+                  document.querySelector("#fs-react-film-store-state")?.dataset.assetMode === "director" &&
+                  !document.querySelector('#fs-assets-list [data-react-asset-list="true"]')
+                """, timeout=5000)
+                # Unknown modes normalize to the supported default; the legacy
+                # property and React projection must observe the same value.
+                page.evaluate("window.filmStudioStore.setField('assetMode','invalid')")
+                page.wait_for_function("""() =>
+                  window.filmStudioStore?.getField("assetMode") === "clips" &&
+                  document.querySelector("#fs-react-film-store-state")?.dataset.assetMode === "clips"
+                """, timeout=5000)
+                page.evaluate("window.filmStudioShowAssetMode('clips')")
+
                 # Mode classes are projected from FilmStore on the React surface;
                 # normal React mode changes must not mutate the legacy outer panel.
                 mode_revision_before = fd.read_project_film(project_id)["rev"]

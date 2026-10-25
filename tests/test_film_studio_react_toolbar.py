@@ -35,6 +35,10 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "clipInspectorVisible: boolean;" in store
     assert "canvasInspectorVisible: boolean;" in store
     assert "assetsModel: unknown | null;" in store
+    assert "assetMode: FilmStudioAssetMode;" in store
+    assert 'assetMode: "clips"' in store
+    assert '["assetMode", "assetMode"]' in store
+    assert 'key === "assetMode"' in store
     assert "aiDirectorModel: unknown | null;" in store
     assert "clipInspectorEmptyMessage: string | null;" in store
     assert 'const toolbarVisible = useFilmStoreField("toolbarVisible");' in component
@@ -43,6 +47,10 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert 'const clipInspectorVisible = useFilmStoreField("clipInspectorVisible");' in component
     assert 'const canvasInspectorVisible = useFilmStoreField("canvasInspectorVisible");' in component
     assert 'const assetsModel = useFilmStoreField("assetsModel") as FilmStudioAssetsModel | null;' in component
+    assert 'const assetMode = useFilmStoreField("assetMode");' in component
+    assert '<StudioAssets model={assetsModel} mode={assetMode} />' in component
+    assert 'if (mode === "director") return null;' in component
+    assert 'data-asset-mode={filmSnapshot.assetMode}' in component
     assert 'const aiModel = useFilmStoreField("aiDirectorModel") as FilmStudioAiDirectorModel | null;' in component
     assert 'const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");' in component
     assert "type StudioReactState =" not in component

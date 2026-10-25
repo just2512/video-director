@@ -3,6 +3,7 @@ import type {FilmOperation} from "./film-timeline-contract";
 import {filmTimelineMath, type FilmTimelineMathBridge} from "./film-timeline-math";
 import {
   filmStore,
+  type FilmStudioAssetMode,
   type FilmStudioStoreBridge,
   type FilmStudioStoreSnapshot,
   type FilmStudioTimelineGesturePreview,
@@ -346,7 +347,6 @@ type FilmStudioLibraryAsset = {
   meta: string;
 };
 type FilmStudioAssetsModel = {
-  mode: "clips" | "library";
   clips: FilmStudioAssetClip[];
   libraryAssets: FilmStudioLibraryAsset[];
 };
@@ -1687,8 +1687,9 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   );
 };
 
-const StudioAssets: React.FC<{model: FilmStudioAssetsModel}> = ({model}) => {
-  if (model.mode === "library") {
+const StudioAssets: React.FC<{model: FilmStudioAssetsModel; mode: FilmStudioAssetMode}> = ({model,mode}) => {
+  if (mode === "director") return null;
+  if (mode === "library") {
     if (!model.libraryAssets.length) {
       return <div className="fs-react-asset-items" data-react-asset-list="true">
         <div className="fs-empty">素材库没有可直接加入时间线的视频或图片。已上传的项目素材和全局素材会在此显示。</div>
@@ -1927,6 +1928,7 @@ const FilmStoreDiagnostics: React.FC = () => {
         data-film-revision={filmSnapshot.revision}
         data-selected-clip={filmSnapshot.selectedId}
         data-selected-clips={filmSnapshot.selectedIds.join(",")}
+        data-asset-mode={filmSnapshot.assetMode}
         data-pending-revision={filmSnapshot.pendingExternalRevision}
         data-insert-mode={filmSnapshot.insertMode ? "true" : "false"}
         data-overwrite-mode={filmSnapshot.overwriteMode ? "true" : "false"}
@@ -1946,6 +1948,7 @@ const FilmStoreDiagnostics: React.FC = () => {
 
 const StudioReactOwner: React.FC = () => {
   const assetsModel = useFilmStoreField("assetsModel") as FilmStudioAssetsModel | null;
+  const assetMode = useFilmStoreField("assetMode");
   const aiModel = useFilmStoreField("aiDirectorModel") as FilmStudioAiDirectorModel | null;
   const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
   const toolbarVisible = useFilmStoreField("toolbarVisible");
@@ -1987,7 +1990,7 @@ const StudioReactOwner: React.FC = () => {
   return (
     <>
       <FilmStoreDiagnostics />
-      {assetsModel ? studioPortal("fs-assets-list", <StudioAssets model={assetsModel} />) : null}
+      {assetsModel ? studioPortal("fs-assets-list", <StudioAssets model={assetsModel} mode={assetMode} />) : null}
       {timelineSurface ? studioPortal("fs-timeline", <TimelineSurface model={timelineSurface} />) : null}
       {toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
       {timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}

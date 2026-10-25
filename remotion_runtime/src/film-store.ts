@@ -18,6 +18,7 @@ export type FilmStudioTimelineGesturePreview = Record<string, FilmStudioTimeline
 export type FilmStudioTimelineSnapGuide = {at: number; kind: string; title: string} | null;
 export type FilmStudioTimelineDropTarget = {trackId: string; invalid: boolean} | null;
 export type FilmStudioTimelineContextMenu = {clipId: string; x: number; y: number};
+export type FilmStudioAssetMode = "clips" | "library" | "director";
 export type FilmStudioTimelineClipboardItem = {
   sourceId: string; trackId: string; tag: string; duration: number; offset: number; attrs: Record<string, unknown>;
 };
@@ -107,6 +108,7 @@ export interface FilmStudioStoreSnapshot {
   projectId: string;
   film: unknown | null;
   assetsModel: unknown | null;
+  assetMode: FilmStudioAssetMode;
   aiDirectorModel: unknown | null;
   clipInspectorEmptyMessage: string | null;
   revision: string;
@@ -166,6 +168,8 @@ export interface FilmStudioStoreBridge {
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : value == null ? "" : String(value);
 const asBoolean = (value: unknown): boolean => value === true;
+const asFilmStudioAssetMode = (value: unknown): FilmStudioAssetMode =>
+  value === "library" || value === "director" ? value : "clips";
 
 const asFiniteNumber = (value: unknown, fallback: number): number => {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -463,6 +467,7 @@ class FilmStore implements FilmStudioStoreBridge {
       projectId: "",
       film: null,
       assetsModel: null,
+      assetMode: "clips",
       aiDirectorModel: null,
       clipInspectorEmptyMessage: null,
       revision: "",
@@ -595,6 +600,8 @@ class FilmStore implements FilmStudioStoreBridge {
     if (key === "projectId" || key === "revision" || key === "selectedId" ||
         key === "selectionAnchor" || key === "pendingExternalRevision") {
       normalized = asString(value);
+    } else if (key === "assetMode") {
+      normalized = asFilmStudioAssetMode(value);
     } else if (key === "assetsModel" || key === "aiDirectorModel") {
       normalized = value == null ? null : value;
     } else if (key === "clipInspectorEmptyMessage") {
@@ -732,6 +739,7 @@ class FilmStore implements FilmStudioStoreBridge {
       projectId: asString(target.projectId),
       film,
       assetsModel: this.snapshot.assetsModel,
+      assetMode: asFilmStudioAssetMode(target.assetMode),
       aiDirectorModel: this.snapshot.aiDirectorModel,
       clipInspectorEmptyMessage: this.snapshot.clipInspectorEmptyMessage,
       revision: filmRevision,
@@ -779,6 +787,7 @@ class FilmStore implements FilmStudioStoreBridge {
 
     const bindings: Array<[string, keyof FilmStudioStoreSnapshot]> = [
       ["projectId", "projectId"],
+      ["assetMode", "assetMode"],
       ["data", "film"],
       ["rev", "revision"],
       ["selectedElement", "canvasElementSelection"],

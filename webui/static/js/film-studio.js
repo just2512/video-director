@@ -796,7 +796,6 @@
           return {id:id,kind:kind,label:label,meta:kind.toUpperCase()+(a.duration?' · '+Number(a.duration).toFixed(2)+'s':'')+(a.source?' · '+String(a.source):'')};
         });
       window.filmStudioReactAssets.render({
-        mode:S.assetMode==='library'?'library':'clips',
         clips:assetClips,libraryAssets:libraryAssets
       });
       return;
