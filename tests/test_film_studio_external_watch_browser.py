@@ -210,6 +210,12 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                   store.setField("selectedIds", ["clip-center","deleted-clip"]);
                   store.setField("selectedId", "deleted-clip");
                   store.setField("selectionAnchor", "deleted-clip");
+                  store.setField("canvasElementSelection", {
+                    clipId:"clip-center",selector:"h1",tag:"h1",text:"stale selection",textEditable:true,
+                    styles:{},rect:{x:0,y:0,width:100,height:30},localRect:{x:0,y:0,width:100,height:30},
+                    baseRevision:film.rev
+                  });
+                  store.setField("clipInspectorEmptyMessage", "stale inspector message");
                   store.setField("timelineGesturePreview", {
                     "clip-center": {left:999,width:100,targetTrackId:track.id,mode:"move",deltaLabel:"stale"}
                   });
@@ -257,6 +263,8 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     selectedId:state.selectedId,
                     selectionAnchor:state.selectionAnchor,
                     selectionVersionAdvanced:state.selectedIdsVersion > beforeVersion,
+                    canvasElementSelection:state.canvasElementSelection,
+                    clipInspectorEmptyMessage:state.clipInspectorEmptyMessage,
                     gesturePreview:state.timelineGesturePreview,
                     snapGuide:state.timelineSnapGuide,
                     dropTarget:state.timelineDropTarget,
@@ -276,6 +284,8 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     "selectedId":"clip-center",
                     "selectionAnchor":"clip-center",
                     "selectionVersionAdvanced":True,
+                    "canvasElementSelection":None,
+                    "clipInspectorEmptyMessage":None,
                     "gesturePreview":None,
                     "snapGuide":None,
                     "dropTarget":None,
