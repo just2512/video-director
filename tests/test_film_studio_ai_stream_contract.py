@@ -26,7 +26,7 @@ FILM_HTML = """<!doctype html>
 def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Exercise the production command route with a deterministic planner, never a paid API."""
+    """Exercise the production planner and HTTP/SSE route without a paid model API."""
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
 
@@ -136,6 +136,9 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
     ]
     assert result_indexes, {"events": [(e["event"], e["data"]) for e in events]}
     assert len(token_events) == len(output_fragments), {
+        "events": [(e["event"], e["data"]) for e in events]
+    }
+    assert [item["data"].get("fragment") for _, item in token_events] == output_fragments, {
         "events": [(e["event"], e["data"]) for e in events]
     }
     result_index = result_indexes[-1]
