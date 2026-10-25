@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
   var pendingRevisionSource = '';
@@ -473,7 +473,7 @@
     var ph=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
     S.runtimeRev='';S.runtimeCommand='';S.previewProposalActive=false;setPlaybackState(false);
-    S.elementInspect=false;S.selectedElement=null;S.hoveredElement=null;
+    S.elementInspect=false;S.selectedElement=null;
     renderElementInspector(null);
     var selection=$('fs-element-selection');if(selection)selection.hidden=true;
     var inspectButton=$('fs-element-inspect-toggle');if(inspectButton){inspectButton.setAttribute('aria-pressed','false');inspectButton.textContent='选择画面元素';}
@@ -1789,7 +1789,7 @@
     $('fs-project-label').textContent=S.projectId+' · rev '+S.rev;S.duration=Math.max(0.001,num(S.data.duration,10));
     var available=clips().map(function(c){return c.id;});
     if(S.selectedElement&&available.indexOf(S.selectedElement.clipId)<0){
-      S.selectedElement=null;S.hoveredElement=null;
+      S.selectedElement=null;
       var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
     }
     S.selectedIds=(S.selectedIds||[]).filter(function(id){return available.indexOf(id)>=0;});
@@ -1818,7 +1818,7 @@
       migration_preview:{warnings:[]},variants:[]
     };
     S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
-    S.selectedElement=null;S.hoveredElement=null;
+    S.selectedElement=null;
     S.proposal=null;S.previewProposalActive=false;
     renderMigration();
     $('fs-project-label').textContent=S.projectId+' · film.html 无效';
@@ -1852,7 +1852,7 @@
     if(changed){
       mountDirectorPlanning(false);
       S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
-      S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;S.hoveredElement=null;
+      S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;
       var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
       S.proposal=null;S.previewProposalActive=false;S.broken=false;setPlaybackState(false);
     }
@@ -1889,7 +1889,7 @@
     if(r&&r.ok&&r.exists){
       mountDirectorPlanning(false);
       if(S.rev&&r.rev!==S.rev){
-        S.selectedElement=null;S.hoveredElement=null;
+        S.selectedElement=null;
         var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
       }
       S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;
@@ -1978,7 +1978,7 @@
     return hasUncommittedClipInspectorEdits()||hasUncommittedCanvasInspectorEdits();
   }
   function resetInspectorDraft(){
-    S.selectedElement=null;S.hoveredElement=null;
+    S.selectedElement=null;
     var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
     if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
       window.filmStudioReactInspector.renderClip(null,'正在重新载入影片文档。');
@@ -2066,7 +2066,7 @@
         }
         S.data=r;S.rev=r.rev;
         if(r.rebased){
-          S.selectedElement=null;S.hoveredElement=null;
+          S.selectedElement=null;
           var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
         }else if(S.selectedElement)S.selectedElement=Object.assign({},S.selectedElement,{baseRevision:S.rev});
         var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。';
@@ -2649,7 +2649,7 @@
     var previousRevision=S.rev;
     var committed=await filmStudioCommit([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''});
     if(!committed||!S.data||!S.data.exists||S.rev===previousRevision)return;
-    S.selectedElement=null;S.hoveredElement=null;
+    S.selectedElement=null;
     var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
     renderInspector();renderAssets();
     showStatus('画布修改已保存到 film.html。若需继续编辑或让 AI 修改该元素，请在当前画面中重新选择。','success');
@@ -2732,7 +2732,7 @@
       // The runtime and the parent selection geometry were just rebuilt against
       // the new revision. Drop the old geometry/context instead of showing stale
       // text or letting a subsequent AI turn target an obsolete element snapshot.
-      S.selectedElement=null;S.hoveredElement=null;
+      S.selectedElement=null;
       var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
       renderInspector();renderAssets();
       showStatus('画布修改已保存到 film.html。若需继续编辑或让 AI 修改该元素，请在当前画面中重新选择。','success');
@@ -2787,7 +2787,7 @@
         syncClipSelectionVisual();renderInspector();renderAssets();renderElementSelection(element);
         showStatus('已选中 '+element.tag+' 元素：'+element.selector+'；拖动元素可移动，拖动边缘可缩放。','success');
       }else if(message.type==='film-runtime:element-hover'){
-        S.hoveredElement=element;
+        
         if(S.elementInspect)renderElementSelection(S.selectedElement||element);
       }else if(message.type==='film-runtime:element-preview'){
         if(S.selectedElement&&S.selectedElement.clipId===element.clipId&&S.selectedElement.selector===element.selector){

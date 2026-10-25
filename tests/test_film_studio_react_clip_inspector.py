@@ -29,6 +29,7 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "const element=filmStore.getField(\"canvasElementSelection\");" in component[save_start:save_end]
     assert "canvasElement: CanvasElementSelection | null;" not in component
     assert "S.selectedElement.rect=" not in studio and "S.selectedElement.styles=" not in studio
+    assert "hoveredElement" not in studio
     assert "export const buildCanvasElementOperation =" in component
     assert "changed:Object.keys(style).length>0||textChanged" in component
     assert "const style:Record<string,string>={};" in component
