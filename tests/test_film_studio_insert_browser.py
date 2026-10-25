@@ -46,8 +46,11 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
     project_id = "film-studio-insert-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
-    assert fd.read_project_film(project_id)["exists"]
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    initial_text = film_path.read_text(encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -121,6 +124,32 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                 assert audio[audio_right_id]["attrs"]["src"].endswith("#t=2,3")
                 assert float(audio[audio_right_id]["attrs"]["at"]) == 3
                 assert float(audio["audio-later"]["attrs"]["at"]) == 4
+
+                # The synced insert is one FilmDocument history transaction:
+                # one undo must restore both video/audio tracks and the exact
+                # source bytes, not only move the visible clips back.
+                page.evaluate("() => window.filmStudioUndo()")
+                page.wait_for_function("""async pid => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
+                  return !!doc.rev && doc.rev === state?.revision &&
+                    !clips.some(clip => clip.id === 'inserted-asset') &&
+                    clips.some(clip => clip.id === 'video-before' &&
+                      String(clip.attrs.src).endsWith('#t=0,4') && Number(clip.attrs.at) === 0) &&
+                    clips.some(clip => clip.id === 'video-later' &&
+                      String(clip.attrs.src).endsWith('#t=0,2') && Number(clip.attrs.at) === 4) &&
+                    clips.some(clip => clip.id === 'audio-before' &&
+                      String(clip.attrs.src).endsWith('#t=0,3') && Number(clip.attrs.at) === 0) &&
+                    clips.some(clip => clip.id === 'audio-later' &&
+                      String(clip.attrs.src).endsWith('#t=0,4') && Number(clip.attrs.at) === 3);
+                }""", arg=project_id, timeout=10000)
+                assert film_path.read_text(encoding="utf-8") == initial_text
+                restored = fd.read_project_film(project_id)
+                assert restored["rev"] == initial["rev"]
+                assert restored["doc"]["tracks"] == initial["doc"]["tracks"]
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()
