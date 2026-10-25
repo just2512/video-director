@@ -195,6 +195,114 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     timeout=5000,
                 )
 
+                # A new authoritative revision invalidates previews from the old timeline,
+                # while selection is retained only for stable clip IDs that still exist.
+                seeded_revision_state = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const film = store?.getField("film");
+                  if (!store || !film) return null;
+                  const tracks = film.tracks || [];
+                  const trackIndex = tracks.findIndex(track => (track.clips || []).some(clip => clip.id === "clip-center"));
+                  const track = tracks[trackIndex];
+                  const trackOrder = tracks.map(item => item.id);
+                  if (trackIndex < 0 || !track?.id) return null;
+                  window.__filmStoreRevisionResetOriginalFilm = film;
+                  store.setField("selectedIds", ["clip-center","deleted-clip"]);
+                  store.setField("selectedId", "deleted-clip");
+                  store.setField("selectionAnchor", "deleted-clip");
+                  store.setField("timelineGesturePreview", {
+                    "clip-center": {left:999,width:100,targetTrackId:track.id,mode:"move",deltaLabel:"stale"}
+                  });
+                  store.setField("timelineSnapGuide", {at:9,kind:"clip-edge",title:"stale"});
+                  store.setField("timelineDropTarget", {trackId:track.id,invalid:true});
+                  store.setField("timelineActiveDragIds", ["clip-center"]);
+                  store.setField("timelineGestureContext", {
+                    id:"clip-center",mode:"move",pointerId:7,startX:4,startY:5,startScrollLeft:0,active:true,
+                    members:[{id:"clip-center",originalAt:3,originalEnd:5,trackId:track.id,trackIndex}],
+                    trackOrder,originalAt:3,originalEnd:5,trackId:track.id,originalTrackIndex:trackIndex,targetTrackId:track.id
+                  });
+                  store.setField("timelineEnvelopeGesture", {
+                    clipId:"snap-audio",pointerId:8,rect:{left:1,top:1,width:100,height:40},
+                    points:[{t:0,v:1},{t:2,v:0.8}],index:1,duration:2,active:true,changed:true
+                  });
+                  store.setField("timelineEnvelopePreview", {clipId:"snap-audio",points:[{t:0,v:1},{t:2,v:0.8}]});
+                  store.setField("timelineWaveformSources", {"stale-waveform":{duration:2,peaks:new Uint8Array([10,20])}});
+                  store.setField("timelineContextMenu", {clipId:"clip-center",x:120,y:150});
+                  store.setField("timelineSkipNextClipClick", true);
+                  store.setField("pendingExternalRevision", "stale-external-revision");
+                  return {
+                    revision:film.rev,
+                    selectedIds:store.getSnapshot().selectedIds.slice(),
+                    gestureContext:store.getField("timelineGestureContext"),
+                    envelopeGesture:store.getField("timelineEnvelopeGesture"),
+                    contextMenu:store.getField("timelineContextMenu")
+                  };
+                }""")
+                assert seeded_revision_state and seeded_revision_state["gestureContext"], seeded_revision_state
+                assert seeded_revision_state["envelopeGesture"], seeded_revision_state
+                page.wait_for_function(
+                    """() => !!document.querySelector('[data-react-context-menu="true"]')""",
+                    timeout=5000,
+                )
+                reset_revision_state = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const beforeVersion = store.getField("selectedIdsVersion");
+                  const oldFilm = window.__filmStoreRevisionResetOriginalFilm;
+                  const nextFilm = {...oldFilm,rev:String(oldFilm.rev) + "-revision-reset-probe"};
+                  store.setField("film", nextFilm);
+                  const state = store.getSnapshot();
+                  return {
+                    revision:state.revision,
+                    selectedIds:state.selectedIds.slice(),
+                    selectedId:state.selectedId,
+                    selectionAnchor:state.selectionAnchor,
+                    selectionVersionAdvanced:state.selectedIdsVersion > beforeVersion,
+                    gesturePreview:state.timelineGesturePreview,
+                    snapGuide:state.timelineSnapGuide,
+                    dropTarget:state.timelineDropTarget,
+                    activeDragIds:state.timelineActiveDragIds,
+                    gestureContext:state.timelineGestureContext,
+                    envelopeGesture:state.timelineEnvelopeGesture,
+                    envelopePreview:state.timelineEnvelopePreview,
+                    waveformKeys:Object.keys(state.timelineWaveformSources),
+                    contextMenu:state.timelineContextMenu,
+                    skipNextClipClick:state.timelineSkipNextClipClick,
+                    pendingExternalRevision:state.pendingExternalRevision
+                  };
+                }""")
+                assert reset_revision_state == {
+                    "revision":seeded_revision_state["revision"] + "-revision-reset-probe",
+                    "selectedIds":["clip-center"],
+                    "selectedId":"clip-center",
+                    "selectionAnchor":"clip-center",
+                    "selectionVersionAdvanced":True,
+                    "gesturePreview":None,
+                    "snapGuide":None,
+                    "dropTarget":None,
+                    "activeDragIds":None,
+                    "gestureContext":None,
+                    "envelopeGesture":None,
+                    "envelopePreview":None,
+                    "waveformKeys":[],
+                    "contextMenu":None,
+                    "skipNextClipClick":False,
+                    "pendingExternalRevision":"",
+                }, reset_revision_state
+                page.wait_for_function(
+                    """() => !document.querySelector('[data-react-context-menu="true"]')""",
+                    timeout=5000,
+                )
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("film", window.__filmStoreRevisionResetOriginalFilm);
+                  delete window.__filmStoreRevisionResetOriginalFilm;
+                }""")
+                page.wait_for_function(
+                    "revision => window.filmStudioStore?.getField('revision') === revision",
+                    arg=seeded_revision_state["revision"],
+                    timeout=5000,
+                )
+
                 # Asset pane mode and catalog data both belong to FilmStore. React derives
                 # display records from the stored source catalog instead of a legacy copy.
                 saved_asset_catalog = page.evaluate("window.filmStudioStore?.getField('libraryAssets') || []")
