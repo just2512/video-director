@@ -107,6 +107,10 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
                     break
                 if line in (b"\n", b"\r\n"):
                     flush_event()
+                    # SSE servers may keep an HTTP/1.1 connection reusable after
+                    # the terminal event. A client must not wait for EOF to observe it.
+                    if events and events[-1]["event"] == "result":
+                        break
                 elif line.startswith(b"event:"):
                     current_event = line[len(b"event:"):].decode("utf-8").strip()
                 elif line.startswith(b"data:"):
