@@ -23,11 +23,9 @@ def _matches_type(value: Any, expected: str) -> bool:
     if expected == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
     if expected == "number":
-        return (
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(float(value))
-        )
+        # Finiteness is validated separately so callers receive a precise
+        # numeric-bound error instead of a misleading type mismatch.
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
     if expected == "null":
         return value is None
     return True
