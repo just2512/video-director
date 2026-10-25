@@ -761,9 +761,49 @@ class FilmStore implements FilmStudioStoreBridge {
         return;
       }
       if (revision !== this.snapshot.revision) {
-        // A menu targets IDs from one exact FilmDocument revision. Close it on
-        // revision changes, but keep stable-ID selections for the refreshed document.
-        this.publish({...this.snapshot, film: normalized, revision, timelineContextMenu: null});
+        // Gesture geometry and menus belong to one exact FilmDocument revision.
+        // Retain only selected clip IDs that still exist, then discard every preview
+        // derived from the previous document before React projects the new revision.
+        const validClipIds = new Set<string>();
+        if (Array.isArray(record.tracks)) {
+          for (const rawTrack of record.tracks) {
+            if (!rawTrack || typeof rawTrack !== "object" || Array.isArray(rawTrack)) continue;
+            const track = rawTrack as Record<string, unknown>;
+            if (!Array.isArray(track.clips)) continue;
+            for (const rawClip of track.clips) {
+              if (!rawClip || typeof rawClip !== "object" || Array.isArray(rawClip)) continue;
+              const clipId = asString((rawClip as Record<string, unknown>).id);
+              if (clipId) validClipIds.add(clipId);
+            }
+          }
+        }
+        const previous = this.snapshot;
+        const selectedIds = Array.from(new Set(previous.selectedIds.filter(id => validClipIds.has(id))));
+        const selectedIdsChanged = selectedIds.length !== previous.selectedIds.length ||
+          selectedIds.some((id, index) => id !== previous.selectedIds[index]);
+        if (selectedIdsChanged) this.replaceSelectedIds(selectedIds, false);
+        const selectedId = selectedIds.includes(previous.selectedId) ? previous.selectedId : (selectedIds[0] || "");
+        const selectionAnchor = validClipIds.has(previous.selectionAnchor) ? previous.selectionAnchor : selectedId;
+        this.publish({
+          ...previous,
+          film: normalized,
+          revision,
+          selectedId,
+          selectedIds: this.selectedIdsProxy,
+          selectedIdsVersion: previous.selectedIdsVersion + (selectedIdsChanged ? 1 : 0),
+          selectionAnchor,
+          timelineGesturePreview: null,
+          timelineSnapGuide: null,
+          timelineDropTarget: null,
+          timelineActiveDragIds: null,
+          timelineGestureContext: null,
+          timelineEnvelopeGesture: null,
+          timelineEnvelopePreview: null,
+          timelineWaveformSources: {},
+          timelineContextMenu: null,
+          timelineSkipNextClipClick: false,
+          pendingExternalRevision: "",
+        });
         return;
       }
     }
