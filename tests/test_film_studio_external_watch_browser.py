@@ -3462,9 +3462,40 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
 
                 # Keep the menu open during an Agent write. The new authoritative revision
                 # must clear both FilmStore state and its React portal.
-                # If the authoritative document disappears while the Studio stays open,
-                # the menu and revision token must be cleared; restoring the same document
-                # must not resurrect the stale menu.
+                # A missing-document result may still carry source revision metadata. It
+                # must retain that metadata but clear the revision-bound menu and portal.
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  window.__filmBeforeUnavailableTransition = store.getField("film");
+                  window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
+                  store.setField("film", {
+                    exists:false, project_id:store.getField("projectId"),
+                    text:"", rev:"missing-film-revision", doc:null
+                  });
+                }""")
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  return store?.getField("film")?.exists === false &&
+                    store.getField("revision") === "missing-film-revision" &&
+                    store.getField("timelineContextMenu") === null &&
+                    !document.querySelector('[data-react-context-menu="true"]');
+                }""", timeout=5000)
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("film", window.__filmBeforeUnavailableTransition);
+                  delete window.__filmBeforeUnavailableTransition;
+                }""")
+                page.wait_for_function("""expected => {
+                  const store = window.filmStudioStore;
+                  return store?.getField("revision") === expected &&
+                    store.getField("film")?.exists === true &&
+                    store.getField("timelineContextMenu") === null &&
+                    !!document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                }""", arg=initial["rev"], timeout=5000)
+
+                # If the authoritative document becomes null while the Studio stays open,
+                # clear the revision token as well; restoring the same document must not
+                # resurrect the stale menu.
                 page.evaluate("""() => {
                   const store = window.filmStudioStore;
                   window.__filmBeforeNullTransition = store.getField("film");
