@@ -353,8 +353,10 @@
       </div>
     </div>
     <div class="panel" style="margin-top:12px">
-      <b>配音来源</b> <span class="hint" id="voice-providers-line">检测中……</span>
-      <div class="hint">文本/视觉/生图模型在「模型」配置；这里显示当前实际可用的配音服务。</div>
+      <b>配音</b> <span class="hint">引擎：Edge TTS（免费，无需配置）。音色试听与选择在库面板「声音 → 配音」或项目 Inspector 的配音设置。</span>
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn-secondary btn-sm" onclick="edLibDomain('sound','voice')">去音色库试听</button>
+      </div>
     </div>
     <div class="panel" style="margin-top:12px">
       <b>素材（图库）</b>
@@ -369,7 +371,6 @@
     <div class="panel" style="margin-top:12px">
       <b>输出</b>
       <div class="hint">默认在「新建项目」里按次选择：画幅（9:16 / 16:9 / 1:1）· 分辨率（1080p / 4K）· 帧率（24 / 30 / 60）。</div>
-      <div class="hint" id="settings-output-defaults">—</div>
     </div>
     <div class="panel" style="margin-top:12px">
       <b>配置管理</b>

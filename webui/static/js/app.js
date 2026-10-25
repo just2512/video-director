@@ -217,22 +217,8 @@ function toggleLLMPanel(){
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
 }
 
-// §46 配音来源：voice providers 真实可用性（设置页消费 /api/voice/providers）
-async function loadVoiceProviders(){
-  const el = document.getElementById('voice-providers-line');
-  if (!el) return;
-  try {
-    const r = await apiGet('/api/voice/providers');
-    if (r.error) { el.textContent = '检测失败：' + r.error; return; }
-    const provs = (r.providers || []).map(p =>
-      `${p.name || p.id}${p.available ? '' : '（不可用）'}`).join('、');
-    el.textContent = provs
-      ? `当前可用：${provs} · 共 ${r.voices ? r.voices.length : 0} 个音色`
-      : '无可用配音服务';
-  } catch (e) {
-    el.textContent = '检测失败：' + String(e);
-  }
-}
+// §46 配音：设置页不再做孤立文字披露（引擎只有 Edge TTS，配置无意义），
+// 入口改「去音色库试听」（edLibDomain('sound','voice')，那里有真实试听交互）。
 
 // §28 环境自检（人话 + 需要时怎么办）
 async function loadSettings(){
@@ -271,7 +257,6 @@ function toggleCapPanel(){
 // ===========================================================================
 switchTab('home');
 refreshLLMBadge();
-loadVoiceProviders();
 if (typeof devInit === 'function') devInit();
 
 Object.assign(window, {
@@ -280,7 +265,6 @@ Object.assign(window, {
   renderModelRoles,
   saveModelConfig,
   toggleLLMPanel,
-  loadVoiceProviders,
   loadSettings,
   toggleCapPanel,
   devShowBuildId, loadStockStatusLine, settingsExport, settingsImport,

@@ -323,7 +323,7 @@ async function edLibLoad(){
       const r = await apiGet('/api/voice/providers');
       const provs = (r && r.providers) || [];
       const voices = (r && r.voices) || [];
-      box.innerHTML = `<div class="hint">配音来源：${provs.map(p => esc(p.name || p.id) + (p.available ? '' : '（不可用）')).join('、') || '无'}</div>`+
+      box.innerHTML = `<div class="hint">配音引擎：${provs.map(p => esc(p.label || p.id) + (p.available ? '（可用）' : '（未接通，配置无效）')).join('、') || '无'}</div>`+
         `<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>`+
         voices.slice(0, 12).map(v =>
           `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
