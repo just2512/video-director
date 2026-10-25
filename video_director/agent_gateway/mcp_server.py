@@ -274,7 +274,7 @@ def _handle(req: Any) -> dict:
                 "isError": bool(result.get("ok") is False)}}
         if method == "ping":
             return {"jsonrpc": "2.0", "id": req_id, "result": {}}
-        if req_id is not None:
+        if "id" in req:
             return {"jsonrpc": "2.0", "id": req_id, "error": {
                 "code": -32601, "message": f"Method not found: {method}"}}
         return {}

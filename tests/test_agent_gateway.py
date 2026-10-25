@@ -143,6 +143,18 @@ class TestMCPGatewayProtocol:
         resps = self._invoke([{"jsonrpc": "2.0", "id": 9, "method": "bogus.method"}])
         assert resps[0]["error"]["code"] == -32601
 
+    def test_unknown_method_with_explicit_null_id_still_returns_error(self):
+        from video_director.agent_gateway import mcp_server
+
+        response = mcp_server._handle({
+            "jsonrpc": "2.0", "id": None, "method": "bogus.method"
+        })
+        assert response == {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32601, "message": "Method not found: bogus.method"},
+        }, response
+
     def test_invalid_request_envelopes_do_not_terminate_stdio_loop(self):
         resps = self._invoke([
             None,
