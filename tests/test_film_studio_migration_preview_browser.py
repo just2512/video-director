@@ -60,6 +60,16 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.add_init_script("""(() => {
               window.__filmRuntimeLoadedRevs = [];
+              window.__legacyCompositionReadCount = 0;
+              const nativeFetch = window.fetch.bind(window);
+              window.fetch = (input, init) => {
+                const url = typeof input === "string" ? input :
+                  (input && typeof input.url === "string" ? input.url : String(input));
+                if (url.includes("/api/editor/composition?project_id=")) {
+                  window.__legacyCompositionReadCount += 1;
+                }
+                return nativeFetch(input, init);
+              };
               window.addEventListener('message', event => {
                 if (event.data && event.data.type === 'film-runtime:loaded') {
                   window.__filmRuntimeLoadedRevs.push(String(event.data.rev || ''));
@@ -76,6 +86,9 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 opened = page.evaluate("(pid) => workspaceOpen(pid)", project_id)
                 assert opened.get("ok") is True, opened
                 assert opened.get("mode") == "migration", opened
+                assert page.evaluate("window.__legacyCompositionReadCount") == 0, (
+                    "default legacy-project open must not load a hidden CompositionIR editor"
+                )
 
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator("#fs-initialize-button").wait_for(state="visible")
