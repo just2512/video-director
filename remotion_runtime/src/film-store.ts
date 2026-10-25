@@ -131,6 +131,8 @@ export interface FilmStudioStoreSnapshot {
   toolbarVisible: boolean;
   timelineToolbarVisible: boolean;
   scrubVisible: boolean;
+  clipInspectorVisible: boolean;
+  canvasInspectorVisible: boolean;
   canvasElementInspectMode: boolean;
   pendingExternalRevision: string;
   insertMode: boolean;
@@ -482,6 +484,8 @@ class FilmStore implements FilmStudioStoreBridge {
       toolbarVisible: false,
       timelineToolbarVisible: false,
       scrubVisible: false,
+      clipInspectorVisible: false,
+      canvasInspectorVisible: false,
       canvasElementInspectMode: false,
       pendingExternalRevision: "",
       insertMode: false,
@@ -589,7 +593,8 @@ class FilmStore implements FilmStudioStoreBridge {
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
         key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" ||
         key === "timelineVisible" || key === "toolbarVisible" || key === "timelineToolbarVisible" ||
-        key === "scrubVisible" || key === "timelineSkipNextClipClick" || key === "canvasElementInspectMode") {
+        key === "scrubVisible" || key === "clipInspectorVisible" || key === "canvasInspectorVisible" ||
+        key === "timelineSkipNextClipClick" || key === "canvasElementInspectMode") {
       normalized = value === true;
     } else if (key === "pixelsPerSecond") {
       normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -741,6 +746,8 @@ class FilmStore implements FilmStudioStoreBridge {
       toolbarVisible: this.snapshot.toolbarVisible,
       timelineToolbarVisible: this.snapshot.timelineToolbarVisible,
       scrubVisible: this.snapshot.scrubVisible,
+      clipInspectorVisible: this.snapshot.clipInspectorVisible,
+      canvasInspectorVisible: this.snapshot.canvasInspectorVisible,
       canvasElementInspectMode: target.elementInspect === true,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,

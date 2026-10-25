@@ -1876,19 +1876,15 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
 type StudioReactState = {
   assets: FilmStudioAssetsModel | null;
   aiModel: FilmStudioAiDirectorModel | null;
-  clipInspectorMounted: boolean;
   clipInspector: FilmClipInspectorModel | null;
   clipInspectorEmptyMessage?: string;
-  canvasInspectorMounted: boolean;
 };
 
 const studioReactState: StudioReactState = {
   assets: null,
   aiModel: null,
-  clipInspectorMounted: false,
   clipInspector: null,
   clipInspectorEmptyMessage: undefined,
-  canvasInspectorMounted: false,
 };
 let studioRoot: Root | null = null;
 let studioRootMount: HTMLElement | null = null;
@@ -1932,6 +1928,8 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
   const toolbarVisible = useFilmStoreField("toolbarVisible");
   const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");
   const scrubVisible = useFilmStoreField("scrubVisible");
+  const clipInspectorVisible = useFilmStoreField("clipInspectorVisible");
+  const canvasInspectorVisible = useFilmStoreField("canvasInspectorVisible");
   const timelineVisible = useFilmStoreField("timelineVisible");
   const timelineFilm = useFilmStoreField("film");
   const timelineProjectId = useFilmStoreField("projectId");
@@ -1967,11 +1965,11 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
       {timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
       {scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
       {state.aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={state.aiModel} />) : null}
-      {state.clipInspectorMounted ? studioPortal(
+      {clipInspectorVisible ? studioPortal(
         "fs-inspector",
         <ClipInspector key={clipKey} clip={clip} emptyMessage={state.clipInspectorEmptyMessage} />
       ) : null}
-      {state.canvasInspectorMounted ? studioPortal(
+      {canvasInspectorVisible ? studioPortal(
         "fs-react-canvas-inspector",
         element ? <CanvasInspector key={element.clipId + "::" + element.selector} element={element} /> : null
       ) : null}
@@ -2096,15 +2094,16 @@ window.filmStudioReactInspector = {
     return window.filmStudioCommitCanvasElement(result.operation, {allowInspectorDraft:true});
   },
   renderClip(clip, emptyMessage) {
+    filmStore.setField("clipInspectorVisible", true);
     renderStudioReactOwner({
-      clipInspectorMounted:true,
       clipInspector:clip,
       clipInspectorEmptyMessage:emptyMessage,
     });
   },
   render(element) {
     filmStore.setField("canvasElementSelection", element);
-    renderStudioReactOwner({canvasInspectorMounted:true});
+    filmStore.setField("canvasInspectorVisible", true);
+    renderStudioReactOwner({});
     if (element) this.sync(element);
   },
   sync(element) {

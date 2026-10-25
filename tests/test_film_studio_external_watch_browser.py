@@ -1368,8 +1368,16 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     available:true,
                     stored:canonical?.selector === probe.selector && canonical?.baseRevision === revision,
                     rendered:!!node && node.textContent.includes("#canvas-state-probe"),
-                    nestedValuesNormalized:canonical?.rect?.width === 30 && canonical?.styles?.color === "#123456"
+                    nestedValuesNormalized:canonical?.rect?.width === 30 && canonical?.styles?.color === "#123456",
+                    visible:store.getField("canvasInspectorVisible") === true
                   };
+                  store.setField("canvasInspectorVisible", false);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  result.hidden = !document.querySelector('[data-react-canvas-inspector="true"]');
+                  store.setField("canvasInspectorVisible", true);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const restoredNode = document.querySelector('[data-react-canvas-inspector="true"]');
+                  result.restored = !!restoredNode && restoredNode.textContent.includes("#canvas-state-probe");
                   bridge.render(previous);
                   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                   return result;
@@ -1379,6 +1387,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "stored": True,
                     "rendered": True,
                     "nestedValuesNormalized": True,
+                    "visible": True,
+                    "hidden": True,
+                    "restored": True,
                 }, canvas_selection_contract
 
                 # Copy and paste share the FilmStore-owned clipboard through the legacy
@@ -1422,50 +1433,58 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   const visible = {
                     toolbar: store?.getField("toolbarVisible"),
                     timelineToolbar: store?.getField("timelineToolbarVisible"),
-                    scrub: store?.getField("scrubVisible")
+                    scrub: store?.getField("scrubVisible"),
+                    clipInspector: store?.getField("clipInspectorVisible")
                   };
                   return {
                     visible,
                     dom: {
                       toolbar: !!document.querySelector('#fs-react-toolbar [data-film-action="undo"]'),
                       timelineToolbar: !!document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]'),
-                      scrub: !!document.querySelector('#fs-react-scrub-row #fs-play-toggle')
+                      scrub: !!document.querySelector('#fs-react-scrub-row #fs-play-toggle'),
+                      clipInspector: !!document.querySelector('#fs-inspector [data-react-clip-inspector="true"], #fs-inspector [data-react-clip-inspector-empty="true"]')
                     }
                   };
                 }""")
                 assert control_surface_before == {
-                    "visible":{"toolbar":True,"timelineToolbar":True,"scrub":True},
-                    "dom":{"toolbar":True,"timelineToolbar":True,"scrub":True},
+                    "visible":{"toolbar":True,"timelineToolbar":True,"scrub":True,"clipInspector":True},
+                    "dom":{"toolbar":True,"timelineToolbar":True,"scrub":True,"clipInspector":True},
                 }, control_surface_before
                 page.evaluate("""() => {
                   const store = window.filmStudioStore;
                   store.setField("toolbarVisible", false);
                   store.setField("timelineToolbarVisible", false);
                   store.setField("scrubVisible", false);
+                  store.setField("clipInspectorVisible", false);
                 }""")
                 page.wait_for_function("""() => {
                   const store = window.filmStudioStore;
                   return store?.getField("toolbarVisible") === false &&
                     store?.getField("timelineToolbarVisible") === false &&
                     store?.getField("scrubVisible") === false &&
+                    store?.getField("clipInspectorVisible") === false &&
                     !document.querySelector('#fs-react-toolbar [data-film-action="undo"]') &&
                     !document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]') &&
-                    !document.querySelector('#fs-react-scrub-row #fs-play-toggle');
+                    !document.querySelector('#fs-react-scrub-row #fs-play-toggle') &&
+                    !document.querySelector('#fs-inspector [data-react-clip-inspector="true"], #fs-inspector [data-react-clip-inspector-empty="true"]');
                 }""", timeout=5000)
                 page.evaluate("""() => {
                   const store = window.filmStudioStore;
                   store.setField("toolbarVisible", true);
                   store.setField("timelineToolbarVisible", true);
                   store.setField("scrubVisible", true);
+                  store.setField("clipInspectorVisible", true);
                 }""")
                 page.wait_for_function("""() => {
                   const store = window.filmStudioStore;
                   return store?.getField("toolbarVisible") === true &&
                     store?.getField("timelineToolbarVisible") === true &&
                     store?.getField("scrubVisible") === true &&
+                    store?.getField("clipInspectorVisible") === true &&
                     !!document.querySelector('#fs-react-toolbar [data-film-action="undo"]') &&
                     !!document.querySelector('#fs-react-timeline-toolbar [data-film-action="toggle-snap"]') &&
-                    !!document.querySelector('#fs-react-scrub-row #fs-play-toggle');
+                    !!document.querySelector('#fs-react-scrub-row #fs-play-toggle') &&
+                    !!document.querySelector('#fs-inspector [data-react-clip-inspector="true"], #fs-inspector [data-react-clip-inspector-empty="true"]');
                 }""", timeout=5000)
                 assert fd.read_project_film(project_id)["rev"] == control_surface_doc_before["rev"], (
                     "React control-surface visibility is transient FilmStore state; it must not write film.html."

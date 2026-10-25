@@ -32,15 +32,23 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "toolbarVisible: boolean;" in store
     assert "timelineToolbarVisible: boolean;" in store
     assert "scrubVisible: boolean;" in store
+    assert "clipInspectorVisible: boolean;" in store
+    assert "canvasInspectorVisible: boolean;" in store
     assert 'const toolbarVisible = useFilmStoreField("toolbarVisible");' in component
     assert 'const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");' in component
     assert 'const scrubVisible = useFilmStoreField("scrubVisible");' in component
+    assert 'const clipInspectorVisible = useFilmStoreField("clipInspectorVisible");' in component
+    assert 'const canvasInspectorVisible = useFilmStoreField("canvasInspectorVisible");' in component
     assert "state.toolbarVisible" not in component
     assert "state.timelineToolbarVisible" not in component
     assert "state.scrubVisible" not in component
+    assert "state.clipInspectorMounted" not in component
+    assert "state.canvasInspectorMounted" not in component
     assert 'filmStore.setField("toolbarVisible", true);' in component
     assert 'filmStore.setField("timelineToolbarVisible", true);' in component
     assert 'filmStore.setField("scrubVisible", true);' in component
+    assert 'filmStore.setField("clipInspectorVisible", true);' in component
+    assert 'filmStore.setField("canvasInspectorVisible", true);' in component
     assert "timelineSurface: FilmStudioTimelineSurfaceModel | null" not in store
     assert 'data-react-timeline-clip={clip.id}' in component
     assert "const StudioReactOwner: React.FC" in component
