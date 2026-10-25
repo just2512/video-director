@@ -1,6 +1,7 @@
 """Integration tests for the agent-facing authoritative Film MCP server."""
 from __future__ import annotations
 
+import io
 import json
 
 from video_director import config, film_document as fd
@@ -31,6 +32,50 @@ def test_mcp_initialize_and_tool_catalog_are_protocol_valid():
     names = {tool["name"] for tool in listed["result"]["tools"]}
     assert names == {"film.status", "film.initialize", "film.validate", "film.edit", "film.diff", "film.look", "film.render"}
     assert mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+
+
+def test_standalone_mcp_rejects_invalid_request_envelopes_and_tool_params():
+    invalid = [
+        None,
+        [],
+        {"jsonrpc": "1.0", "id": 3, "method": "ping"},
+        {"jsonrpc": "2.0", "id": 4, "method": []},
+        {"jsonrpc": "2.0", "id": True, "method": "ping"},
+    ]
+    for message in invalid:
+        response = mcp.handle_message(message)
+        assert response is not None
+        assert response["error"]["code"] == -32600, response
+    assert mcp.handle_message({"jsonrpc": "2.0", "id": 8, "method": "ping"})["result"] == {}
+
+    invalid_params = [
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": []},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+         "params": {"name": "film.status", "arguments": []}},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": 7}},
+    ]
+    for message in invalid_params:
+        response = mcp.handle_message(message)
+        assert response is not None
+        assert response["error"]["code"] == -32602, response
+
+
+def test_standalone_mcp_parse_error_does_not_break_stdio_loop(monkeypatch):
+    source = io.StringIO(
+        "not-json\\n"
+        + json.dumps({"jsonrpc": "2.0", "id": 9, "method": "ping"})
+        + "\\n"
+    )
+    sink = io.StringIO()
+    monkeypatch.setattr(mcp.sys, "stdin", source)
+    monkeypatch.setattr(mcp.sys, "stdout", sink)
+
+    mcp.main()
+
+    responses = [json.loads(line) for line in sink.getvalue().splitlines()]
+    assert len(responses) == 2, responses
+    assert responses[0]["error"]["code"] == -32700, responses[0]
+    assert responses[1]["id"] == 9 and responses[1]["result"] == {}, responses[1]
 
 
 def test_film_edit_mcp_uses_the_same_revision_guard_and_undo_history(tmp_path, monkeypatch):

@@ -336,13 +336,37 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
         return _text_result(str(exc), True)
 
 
+def _valid_jsonrpc_id(value: Any) -> bool:
+    """JSON-RPC ids may be null, strings, or finite numbers; bool is not a number here."""
+    if value is None or isinstance(value, str):
+        return True
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def _rpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+
+
 def handle_message(message: Any) -> dict[str, Any] | None:
-    """Handle one JSON-RPC message. Notifications intentionally produce no response."""
+    """Validate and handle one JSON-RPC message. Notifications intentionally produce no response."""
     if not isinstance(message, dict):
-        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid Request"}}
-    method = message.get("method")
+        return _rpc_error(None, -32600, "Invalid Request")
     request_id = message.get("id")
+    method = message.get("method")
+    valid_id = _valid_jsonrpc_id(request_id)
+    if (message.get("jsonrpc") != "2.0"
+            or not isinstance(method, str)
+            or not method
+            or ("id" in message and not valid_id)):
+        return _rpc_error(request_id if valid_id else None, -32600, "Invalid Request")
     is_notification = "id" not in message
+    params = message.get("params")
+    if params is not None and not isinstance(params, dict):
+        return _rpc_error(request_id if valid_id else None, -32602, "Invalid params: params must be an object")
 
     if method == "notifications/initialized" and is_notification:
         return None
@@ -361,18 +385,20 @@ def handle_message(message: Any) -> dict[str, Any] | None:
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": _TOOL_DEFINITIONS}}
     if method == "tools/call":
-        params = message.get("params")
-        if not isinstance(params, dict) or not isinstance(params.get("name"), str):
-            return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "tools/call 缺少有效的 name。"}}
-        result = call_tool(params["name"], params.get("arguments", {}))
+        params = params or {}
+        name = params.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return _rpc_error(request_id, -32602, "Invalid params: tools/call requires a non-empty tool name")
+        arguments = params.get("arguments", {})
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            return _rpc_error(request_id, -32602, "Invalid params: tool arguments must be an object")
+        result = call_tool(name, arguments)
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
     if is_notification:
         return None
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": -32601, "message": f"Method not found: {method}"},
-    }
+    return _rpc_error(request_id, -32601, f"Method not found: {method}")
 
 
 def main() -> None:
@@ -387,6 +413,10 @@ def main() -> None:
             if response is not None:
                 sys.stdout.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
                 sys.stdout.flush()
+        except json.JSONDecodeError:
+            response = _rpc_error(None, -32700, "Parse error")
+            sys.stdout.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
+            sys.stdout.flush()
         except Exception as exc:
             request_id = message.get("id") if isinstance(message, dict) else None
             response = {
