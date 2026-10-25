@@ -18,6 +18,10 @@ export type FilmStudioTimelineGesturePreview = Record<string, FilmStudioTimeline
 export type FilmStudioTimelineSnapGuide = {at: number; kind: string; title: string} | null;
 export type FilmStudioTimelineDropTarget = {trackId: string; invalid: boolean} | null;
 export type FilmStudioTimelineContextMenu = {clipId: string; x: number; y: number};
+export type FilmStudioTimelineClipboardItem = {
+  sourceId: string; trackId: string; tag: string; duration: number; offset: number; attrs: Record<string, unknown>;
+};
+export type FilmStudioTimelineClipboard = {projectId: string; items: FilmStudioTimelineClipboardItem[]; duration: number} | null;
 export type FilmStudioTimelineActiveDragIds = string[] | null;
 export type FilmStudioTimelineGestureMode = "move" | "trim-start" | "trim-end" | "roll" | "slide" | "slip";
 export type FilmStudioTimelineGestureMember = {
@@ -108,6 +112,7 @@ export interface FilmStudioStoreSnapshot {
   timelineWaveformSources: FilmStudioTimelineWaveformSources;
   timelineContextMenu: FilmStudioTimelineContextMenu | null;
   timelineSkipNextClipClick: boolean;
+  timelineClipboard: FilmStudioTimelineClipboard;
   timelineVisible: boolean;
   pendingExternalRevision: string;
   insertMode: boolean;
@@ -314,6 +319,35 @@ const asTimelineEnvelopeGesture = (value: unknown): FilmStudioTimelineEnvelopeGe
   };
 };
 
+const asTimelineClipboard = (value: unknown): FilmStudioTimelineClipboard => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const projectId = asString(raw.projectId);
+  const duration = asOptionalFiniteNumber(raw.duration);
+  const rawItems = Array.isArray(raw.items) ? raw.items : null;
+  if (!projectId || duration === undefined || duration <= 0 || !rawItems?.length) return null;
+
+  const items: FilmStudioTimelineClipboardItem[] = [];
+  for (const rawItem of rawItems) {
+    if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) return null;
+    const item = rawItem as Record<string, unknown>;
+    const sourceId = asString(item.sourceId);
+    const trackId = asString(item.trackId);
+    const tag = asString(item.tag);
+    const itemDuration = asOptionalFiniteNumber(item.duration);
+    const offset = asOptionalFiniteNumber(item.offset);
+    const rawAttrs = item.attrs && typeof item.attrs === "object" && !Array.isArray(item.attrs)
+      ? item.attrs as Record<string, unknown> : null;
+    if (!sourceId || !trackId || !tag || itemDuration === undefined || itemDuration <= 0 ||
+        offset === undefined || offset < 0 || !rawAttrs || !asString(rawAttrs.src)) return null;
+    items.push({sourceId,trackId,tag,duration:itemDuration,offset,attrs:{...rawAttrs}});
+  }
+
+  const requiredDuration = Math.max(...items.map(item => item.offset + item.duration));
+  if (!Number.isFinite(requiredDuration) || duration < requiredDuration - 0.001) return null;
+  return {projectId,items,duration:Math.max(duration,requiredDuration)};
+};
+
 const asPendingTransaction = (value: unknown): FilmStudioPendingTransaction | null => {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
@@ -389,6 +423,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineWaveformSources: {},
       timelineContextMenu: null,
       timelineSkipNextClipClick: false,
+      timelineClipboard: null,
       timelineVisible: false,
       pendingExternalRevision: "",
       insertMode: false,
@@ -547,6 +582,8 @@ class FilmStore implements FilmStudioStoreBridge {
     } else if (key === "timelineActiveDragIds") {
       const ids = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
       normalized = ids.length ? Array.from(new Set(ids)) : null;
+    } else if (key === "timelineClipboard") {
+      normalized = asTimelineClipboard(value);
     } else if (key === "timelineContextMenu") {
       if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
       else {
@@ -637,6 +674,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineWaveformSources: {},
       timelineContextMenu: null,
       timelineSkipNextClipClick: asBoolean(target.skipNextClipClick),
+      timelineClipboard: asTimelineClipboard(target.clipClipboard),
       timelineVisible: false,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
@@ -668,6 +706,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["envelopeDrag", "timelineEnvelopeGesture"],
       ["pendingExternalRevision", "pendingExternalRevision"],
       ["skipNextClipClick", "timelineSkipNextClipClick"],
+      ["clipClipboard", "timelineClipboard"],
       ["insertMode", "insertMode"],
       ["overwriteMode", "overwriteMode"],
       ["snapEnabled", "snapEnabled"],
