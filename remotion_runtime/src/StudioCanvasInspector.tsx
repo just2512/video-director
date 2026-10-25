@@ -1906,17 +1906,6 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
   );
 };
 
-type StudioReactState = {
-  assets: FilmStudioAssetsModel | null;
-  aiModel: FilmStudioAiDirectorModel | null;
-  clipInspectorEmptyMessage?: string;
-};
-
-const studioReactState: StudioReactState = {
-  assets: null,
-  aiModel: null,
-  clipInspectorEmptyMessage: undefined,
-};
 let studioRoot: Root | null = null;
 let studioRootMount: HTMLElement | null = null;
 
@@ -1955,7 +1944,10 @@ const FilmStoreDiagnostics: React.FC = () => {
   );
 };
 
-const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+const StudioReactOwner: React.FC = () => {
+  const assetsModel = useFilmStoreField("assetsModel") as FilmStudioAssetsModel | null;
+  const aiModel = useFilmStoreField("aiDirectorModel") as FilmStudioAiDirectorModel | null;
+  const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
   const toolbarVisible = useFilmStoreField("toolbarVisible");
   const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");
   const scrubVisible = useFilmStoreField("scrubVisible");
@@ -1990,20 +1982,20 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
   const canvasElement = useFilmStoreField("canvasElementSelection");
   const clipKey = clip
     ? clip.id + ":" + JSON.stringify(clip.attrs || {})
-    : "empty:" + (state.clipInspectorEmptyMessage || "");
+    : "empty:" + (clipInspectorEmptyMessage || "");
   const element = canvasElement;
   return (
     <>
       <FilmStoreDiagnostics />
-      {state.assets ? studioPortal("fs-assets-list", <StudioAssets model={state.assets} />) : null}
+      {assetsModel ? studioPortal("fs-assets-list", <StudioAssets model={assetsModel} />) : null}
       {timelineSurface ? studioPortal("fs-timeline", <TimelineSurface model={timelineSurface} />) : null}
       {toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
       {timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
       {scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
-      {state.aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={state.aiModel} />) : null}
+      {aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={aiModel} />) : null}
       {clipInspectorVisible ? studioPortal(
         "fs-inspector",
-        <ClipInspector key={clipKey} clip={clip} emptyMessage={state.clipInspectorEmptyMessage} />
+        <ClipInspector key={clipKey} clip={clip} emptyMessage={clipInspectorEmptyMessage ?? undefined} />
       ) : null}
       {canvasInspectorVisible ? studioPortal(
         "fs-react-canvas-inspector",
@@ -2014,17 +2006,15 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
   );
 };
 
-function renderStudioReactOwner(patch: Partial<StudioReactState>): void {
-  Object.assign(studioReactState, patch);
+function renderStudioReactOwner(): void {
   const mount = document.getElementById("fs-react-root");
   if (!mount) return;
   if (!studioRoot || studioRootMount !== mount) {
     studioRoot = createRoot(mount);
     studioRootMount = mount;
   }
-  const snapshot = {...studioReactState};
   flushSync(() => {
-    studioRoot?.render(<StudioReactOwner state={snapshot} />);
+    studioRoot?.render(<StudioReactOwner />);
   });
 }
 
@@ -2032,7 +2022,8 @@ window.filmStudioTimelineMath = filmTimelineMath;
 
 window.filmStudioReactAssets = {
   render(model) {
-    renderStudioReactOwner({assets:model});
+    filmStore.setField("assetsModel", model);
+    renderStudioReactOwner();
   },
 };
 
@@ -2041,7 +2032,7 @@ window.filmStudioReactTimeline = {
     const mount = document.getElementById("fs-react-root");
     if (mount && (!studioRoot || studioRootMount !== mount)) {
       filmStore.setField("timelineVisible", true);
-      renderStudioReactOwner({});
+      renderStudioReactOwner();
       return;
     }
     flushSync(() => {
@@ -2097,21 +2088,22 @@ window.filmStudioReactTimeline = {
 window.filmStudioReactToolbar = {
   render() {
     filmStore.setField("toolbarVisible", true);
-    renderStudioReactOwner({});
+    renderStudioReactOwner();
   },
   renderTimeline() {
     filmStore.setField("timelineToolbarVisible", true);
-    renderStudioReactOwner({});
+    renderStudioReactOwner();
   },
   renderScrub() {
     filmStore.setField("scrubVisible", true);
-    renderStudioReactOwner({});
+    renderStudioReactOwner();
   },
 };
 
 window.filmStudioReactAi = {
   render(model) {
-    renderStudioReactOwner({aiModel:model});
+    filmStore.setField("aiDirectorModel", model);
+    renderStudioReactOwner();
   },
 };
 
@@ -2131,12 +2123,13 @@ window.filmStudioReactInspector = {
   },
   renderClip(emptyMessage) {
     filmStore.setField("clipInspectorVisible", true);
-    renderStudioReactOwner({clipInspectorEmptyMessage:emptyMessage});
+    filmStore.setField("clipInspectorEmptyMessage", emptyMessage ?? null);
+    renderStudioReactOwner();
   },
   render(element) {
     filmStore.setField("canvasElementSelection", element);
     filmStore.setField("canvasInspectorVisible", true);
-    renderStudioReactOwner({});
+    renderStudioReactOwner();
     if (element) this.sync(element);
   },
   sync(element) {

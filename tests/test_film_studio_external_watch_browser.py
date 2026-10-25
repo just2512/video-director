@@ -1425,6 +1425,51 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "malformedRejected": True,
                 }, clipboard_contract
 
+                # Root view models (assets, AI Director and inspector empty-state) live in FilmStore.
+                ui_model_doc_before = fd.read_project_film(project_id)
+                ui_model_store_contract = page.evaluate("""async () => {
+                  const store = window.filmStudioStore;
+                  const previousAssets = store.getField("assetsModel");
+                  const previousAi = store.getField("aiDirectorModel");
+                  const previousMessage = store.getField("clipInspectorEmptyMessage");
+                  const assetProbe = {
+                    mode:"library", clips:[],
+                    libraryAssets:[{id:"film-store-ui-probe",kind:"image",label:"FilmStore probe asset",meta:"state test"}]
+                  };
+                  window.filmStudioReactAssets.render(assetProbe);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const assetsStored = store.getField("assetsModel")?.libraryAssets?.[0]?.id === "film-store-ui-probe";
+                  const assetsRendered = !!document.querySelector('[data-react-library-asset="film-store-ui-probe"]');
+                  const aiProbe = {
+                    messages:[{role:"assistant",text:"FilmStore AI model probe"}],
+                    proposal:null,
+                    currentRevision:store.getField("revision")
+                  };
+                  window.filmStudioReactAi.render(aiProbe);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const aiStored = store.getField("aiDirectorModel")?.messages?.[0]?.text === "FilmStore AI model probe";
+                  const aiRendered = [...document.querySelectorAll('#fs-react-ai-director .fs-chat-message')]
+                    .some(node => node.textContent.includes("FilmStore AI model probe"));
+                  window.filmStudioReactInspector.renderClip("FilmStore inspector empty-state probe");
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  const messageStored = store.getField("clipInspectorEmptyMessage") === "FilmStore inspector empty-state probe";
+                  store.setField("assetsModel", previousAssets);
+                  store.setField("aiDirectorModel", previousAi);
+                  store.setField("clipInspectorEmptyMessage", previousMessage);
+                  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  return {assetsStored,assetsRendered,aiStored,aiRendered,messageStored};
+                }""")
+                assert ui_model_store_contract == {
+                    "assetsStored": True,
+                    "assetsRendered": True,
+                    "aiStored": True,
+                    "aiRendered": True,
+                    "messageStored": True,
+                }, ui_model_store_contract
+                assert fd.read_project_film(project_id)["rev"] == ui_model_doc_before["rev"], (
+                    "React root view-model state must not edit the authoritative FilmDocument."
+                )
+
                 # The React clip inspector derives the selected clip directly from FilmStore.
                 # The imperative bridge only requests a render and does not pass a copied clip model.
                 inspector_doc_before = fd.read_project_film(project_id)

@@ -106,6 +106,9 @@ export interface FilmStudioCanvasElementSelection {
 export interface FilmStudioStoreSnapshot {
   projectId: string;
   film: unknown | null;
+  assetsModel: unknown | null;
+  aiDirectorModel: unknown | null;
+  clipInspectorEmptyMessage: string | null;
   revision: string;
   canvasElementSelection: FilmStudioCanvasElementSelection | null;
   selectedId: string;
@@ -459,6 +462,9 @@ class FilmStore implements FilmStudioStoreBridge {
     this.snapshot = {
       projectId: "",
       film: null,
+      assetsModel: null,
+      aiDirectorModel: null,
+      clipInspectorEmptyMessage: null,
       revision: "",
       canvasElementSelection: null,
       selectedId: "",
@@ -589,6 +595,10 @@ class FilmStore implements FilmStudioStoreBridge {
     if (key === "projectId" || key === "revision" || key === "selectedId" ||
         key === "selectionAnchor" || key === "pendingExternalRevision") {
       normalized = asString(value);
+    } else if (key === "assetsModel" || key === "aiDirectorModel") {
+      normalized = value == null ? null : value;
+    } else if (key === "clipInspectorEmptyMessage") {
+      normalized = typeof value === "string" && value.length ? value : null;
     } else if (key === "busy" || key === "broken" || key === "playing" ||
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
         key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" ||
@@ -721,6 +731,9 @@ class FilmStore implements FilmStudioStoreBridge {
     this.snapshot = {
       projectId: asString(target.projectId),
       film,
+      assetsModel: this.snapshot.assetsModel,
+      aiDirectorModel: this.snapshot.aiDirectorModel,
+      clipInspectorEmptyMessage: this.snapshot.clipInspectorEmptyMessage,
       revision: filmRevision,
       canvasElementSelection: asCanvasElementSelection(target.selectedElement),
       selectedId: asString(target.selectedId),
