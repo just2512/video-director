@@ -493,6 +493,7 @@
     if(frame){try{frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);}catch(_){}frame.style.display='none';}
     var ph=$('fs-monitor-stage')&&$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');
     if(ph){ph.textContent='选择项目并初始化影片文档';ph.style.display='';}
+    clearFilmProposalTimelinePreview();
     S.runtimeRev='';S.runtimeCommand='';S.previewProposalActive=false;setPlaybackState(false);
     S.elementInspect=false;S.selectedElement=null;
     renderElementInspector(null);
@@ -1836,6 +1837,7 @@
     S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
     S.selectedElement=null;
     var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
+    clearFilmProposalTimelinePreview();
     S.proposal=null;S.previewProposalActive=false;
     renderMigration();
     $('fs-project-label').textContent=S.projectId+' · film.html 无效';
@@ -1881,6 +1883,7 @@
       S.data=null;S.rev='';S.runtimeRev='';S.runtimeCommand='';S.migration=null;
       S.selectedId='';S.selectedIds=[];S.selectionAnchor='';S.selectedElement=null;
       var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
+      clearFilmProposalTimelinePreview();
       S.proposal=null;S.previewProposalActive=false;S.broken=false;setPlaybackState(false);
     }
     S.projectId=nextId;
@@ -2083,7 +2086,7 @@
     if(!S.projectId||!S.data||!S.data.exists){clearTimelineGesturePreview();return false;}
     if(S.busy){clearTimelineGesturePreview();showStatus('上一项编辑仍在保存，本次操作未提交；请保存结束后重试。','error');return false;}
     if(S.broken){clearTimelineGesturePreview();showStatus('film.html 无效，暂时不能写入；修复后重新载入。','error');return false;}
-    if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
+    if(S.proposal){clearFilmProposalTimelinePreview();S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     var studioPanel=$('film-studio-panel'),busyTimeline=$('fs-timeline');
     if(studioPanel)studioPanel.setAttribute('data-busy','true');
     if(busyTimeline)busyTimeline.style.pointerEvents='none';
@@ -3420,7 +3423,7 @@ window.filmStudioCopyClips=function(){
       var geometryChanged=trackChanged||Math.abs(oldAt-newAt)>0.0005||
         (oldDur==null)!==(newDur==null)||(oldDur!=null&&newDur!=null&&Math.abs(oldDur-newDur)>0.0005);
       if(geometryChanged){
-        preview[id]={left:timelineClipLeft(newAt,S.pxPerSec),width:timelineClipWidth(newDur,S.pxPerSec,24,2,0,false)};
+        preview[id]={at:newAt,duration:newDur,left:timelineClipLeft(newAt,S.pxPerSec),width:timelineClipWidth(newDur,S.pxPerSec,24,2,0,false)};
         if(trackChanged)preview[id].targetTrackId=String(b.track.id);
       }
       var oldAttrs=oldClip.attrs||{},newAttrs=newClip.attrs||{};
@@ -3745,7 +3748,7 @@ window.filmStudioCopyClips=function(){
           // Preserve the last valid view while the agent is in the middle of
           // writing a broken/partial file. Only a later valid revision may reload.
           S.broken=true;
-          if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
+          if(S.proposal){clearFilmProposalTimelinePreview();S.proposal=null;S.previewProposalActive=false;renderProposalPanel();}
           showStatus('影片文件校验失败，已保留当前画面并暂停编辑：'+String(data.error||'文档解析失败'),'error');
         }else if(packet.event==='film'&&data.phase==='revision_changed'&&data.source==='external_file'&&S.open){
           S.broken=false;

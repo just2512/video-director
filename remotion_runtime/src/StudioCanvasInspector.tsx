@@ -1523,8 +1523,12 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               data-slide-delta={previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : undefined}
               data-slip-delta={previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : undefined}
               style={{
-                left:previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
-                width:previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
+                left:previewForClip(clip.id)?.at != null
+                  ? filmTimelineMath.clipLeft(Number(previewForClip(clip.id)?.at),model.pixelsPerSecond)
+                  : previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
+                width:previewForClip(clip.id)?.duration !== undefined
+                  ? filmTimelineMath.clipWidth(previewForClip(clip.id)?.duration ?? null,model.pixelsPerSecond,24,2,0,false)
+                  : previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
               }}
               title={clip.title}
               key={clip.id}
@@ -1687,8 +1691,12 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 data-kind={clip.tag}
                 aria-hidden="true"
                 style={{
-                  left:preview.left ?? filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
-                  width:preview.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
+                  left:preview.at != null
+                    ? filmTimelineMath.clipLeft(Number(preview.at),model.pixelsPerSecond)
+                    : preview.left ?? filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
+                  width:preview.duration !== undefined
+                    ? filmTimelineMath.clipWidth(preview.duration ?? null,model.pixelsPerSecond,24,2,0,false)
+                    : preview.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
                 }}
               >
                 <span className="fs-clip-title">{clip.title}</span>

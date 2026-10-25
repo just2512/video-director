@@ -257,10 +257,21 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 assert film_path.read_bytes()==original
                 assert fd.read_project_film(project_id)["rev"]==before["rev"]
                 state=page.evaluate("window.filmStudioStore.getSnapshot()")
-                scale=float(state["pixelsPerSecond"])
-                assert abs(state["timelineGesturePreview"]["clip-b"]["width"]-3*scale)<0.01
-                assert abs(state["timelineGesturePreview"]["clip-c"]["left"]-7*scale)<0.01
+                initial_scale=float(state["pixelsPerSecond"])
+                assert abs(state["timelineGesturePreview"]["clip-b"]["width"]-3*initial_scale)<0.01
+                assert abs(state["timelineGesturePreview"]["clip-c"]["left"]-7*initial_scale)<0.01
                 assert state["timelineEnvelopePreview"]["points"]==[{"t":0,"v":1},{"t":20,"v":0}]
+
+                # Zoom must keep the proposal anchored to timeline seconds, not stale pixel offsets.
+                page.evaluate("window.filmStudioZoom(1, 500)")
+                page.wait_for_function("scale => window.filmStudioStore.getSnapshot().pixelsPerSecond > scale",
+                                       arg=initial_scale, timeout=5000)
+                state=page.evaluate("window.filmStudioStore.getSnapshot()")
+                scale=float(state["pixelsPerSecond"])
+                assert abs(float(page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').evaluate(
+                    "(n)=>parseFloat(getComputedStyle(n).width)"))-3*scale)<0.01
+                assert abs(float(page.locator('#fs-timeline .fs-clip[data-clip="clip-c"]').evaluate(
+                    "(n)=>parseFloat(getComputedStyle(n).left)"))-7*scale)<0.01
                 clip=page.locator('#fs-timeline .fs-clip[data-clip="audio-1"]')
                 assert clip.get_attribute("data-preview-fade-out")=="1"
                 assert clip.locator('[data-fade-preview="out"]').is_visible()
