@@ -3479,9 +3479,21 @@ window.filmStudioCopyClips=function(){
     var before=Object.create(null),after=Object.create(null),preview=Object.create(null),envelopes=[];
     (S.data.tracks||[]).forEach(function(t){(t.clips||[]).forEach(function(c){before[String(c.id)]={clip:c,track:t};});});
     (proposal.candidate.tracks||[]).forEach(function(t){(t.clips||[]).forEach(function(c){after[String(c.id)]={clip:c,track:t};});});
+    Object.keys(before).forEach(function(id){
+      if(!after[id])preview[id]={removed:true};
+    });
     Object.keys(after).forEach(function(id){
-      var a=before[id],b=after[id];if(!a||!b)return;
-      var oldClip=a.clip,newClip=b.clip,oldAt=num(oldClip.at,0),newAt=num(newClip.at,0);
+      var a=before[id],b=after[id];if(!b)return;
+      var newClip=b.clip,newAttrs=newClip.attrs||{};
+      if(!a){
+        var newAt=num(newClip.at,0),newDuration=newClip.duration==null?null:num(newClip.duration,0);
+        preview["__proposal_added__:"+id]={
+          added:true,previewTitle:String(newAttrs.title||id),previewTag:String(newClip.tag||"video"),
+          targetTrackId:String(b.track.id),at:newAt,duration:newDuration
+        };
+        return;
+      }
+      var oldClip=a.clip,oldAt=num(oldClip.at,0),newAt=num(newClip.at,0);
       var oldDur=oldClip.duration==null?null:num(oldClip.duration,0),newDur=newClip.duration==null?null:num(newClip.duration,0);
       var trackChanged=String(a.track.id)!==String(b.track.id);
       var geometryChanged=trackChanged||Math.abs(oldAt-newAt)>0.0005||
@@ -3490,7 +3502,7 @@ window.filmStudioCopyClips=function(){
         preview[id]={at:newAt,duration:newDur,left:timelineClipLeft(newAt,S.pxPerSec),width:timelineClipWidth(newDur,S.pxPerSec,24,2,0,false)};
         if(trackChanged)preview[id].targetTrackId=String(b.track.id);
       }
-      var oldAttrs=oldClip.attrs||{},newAttrs=newClip.attrs||{};
+      var oldAttrs=oldClip.attrs||{};newAttrs=newClip.attrs||{};
       if(String(oldAttrs.fade||'0,0')!==String(newAttrs.fade||'0,0')){
         var fade=proposalFadeParts(newAttrs.fade);preview[id]=preview[id]||{};
         preview[id].fadeIn=fade.fadeIn;preview[id].fadeOut=fade.fadeOut;
@@ -4068,7 +4080,7 @@ window.filmStudioCopyClips=function(){
         showStatus('旧项目尚未进入统一 Studio；没有创建 film.html。','error');
         return {ok:false,code:'FILM_STUDIO_UNAVAILABLE'};
       }
-      return {ok:legacyResult&&legacyResult.ok!==false,mode:'migration',
+      return {ok:true,mode:'migration',
         authority:'CompositionIR preview → film.html',project_id:pid,
         legacyResult:legacyResult||null};
     };

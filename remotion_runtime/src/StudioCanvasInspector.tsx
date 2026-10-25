@@ -1339,6 +1339,16 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     return entry || null;
   };
   const crossTrackGhostsByTrack = new Map<string, FilmTimelineSurfaceClip[]>();
+  const proposalAdditionsByTrack = new Map<string, Array<{id:string; preview:FilmStudioTimelineGesturePreviewGeometry}>>();
+  for (const [previewKey,rawEntry] of Object.entries(gesturePreview || {})) {
+    if (typeof rawEntry === "number" || !rawEntry || rawEntry.added !== true) continue;
+    const id = previewKey.startsWith("__proposal_added__:") ? previewKey.slice("__proposal_added__:".length) : previewKey;
+    const targetTrackId = rawEntry.targetTrackId;
+    if (!id || !targetTrackId || rawEntry.at == null) continue;
+    const additions = proposalAdditionsByTrack.get(targetTrackId) || [];
+    additions.push({id,preview:rawEntry});
+    proposalAdditionsByTrack.set(targetTrackId,additions);
+  }
   for (const sourceTrack of model.tracks) {
     for (const clip of sourceTrack.clips) {
       const targetTrackId = previewForClip(clip.id)?.targetTrackId;
@@ -1510,7 +1520,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 (activeDragIds?.includes(clip.id) ? " fs-dragging" : "") +
                 (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") +
                 (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") +
-                (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : "")}
+                (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : "") +
+                (previewForClip(clip.id)?.removed ? " fs-clip-proposal-removed" : "")}
               data-clip={clip.id}
               data-clip-locked={clip.locked ? "true" : "false"}
               data-track={clip.trackId}
@@ -1519,6 +1530,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               data-react-gesture-preview={previewForClip(clip.id) ? "true" : "false"}
               data-preview-fade-in={previewForClip(clip.id)?.fadeIn}
               data-preview-fade-out={previewForClip(clip.id)?.fadeOut}
+              data-proposal-removed={previewForClip(clip.id)?.removed ? "true" : undefined}
               data-roll-delta={previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : undefined}
               data-slide-delta={previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : undefined}
               data-slip-delta={previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : undefined}
@@ -1529,6 +1541,9 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 width:previewForClip(clip.id)?.duration !== undefined
                   ? filmTimelineMath.clipWidth(previewForClip(clip.id)?.duration ?? null,model.pixelsPerSecond,24,2,0,false)
                   : previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
+                opacity:previewForClip(clip.id)?.removed ? 0.32 : undefined,
+                outline:previewForClip(clip.id)?.removed ? "2px dashed #e5a23d" : undefined,
+                outlineOffset:previewForClip(clip.id)?.removed ? "-2px" : undefined,
               }}
               title={clip.title}
               key={clip.id}
@@ -1650,6 +1665,11 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                   }}
                 />
               ))}
+              {previewForClip(clip.id)?.removed ? <span
+                data-proposal-remove-label={clip.id}
+                aria-hidden="true"
+                style={{position:"absolute",zIndex:6,right:4,top:2,pointerEvents:"none",fontSize:10,fontWeight:700,color:"#6b3710",background:"rgba(255,238,208,.96)",border:"1px dashed #e5a23d",padding:"1px 3px"}}
+              >候选删除</span> : null}
               {clip.locked ? <span className="fs-clip-lock-mark" aria-label="片段已锁定">🔒</span> : null}
               {clip.trimHandles ? <>
                 <span className="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点" />
@@ -1704,6 +1724,28 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               </div>
             );
           })}
+          {(proposalAdditionsByTrack.get(track.id) || []).map(({id,preview}) => (
+            <div
+              className="fs-clip fs-clip-gesture-ghost fs-clip-proposal-added"
+              key={"proposal-added-" + id}
+              data-proposal-added={id}
+              data-gesture-target-track={track.id}
+              data-kind={preview.previewTag || "video"}
+              aria-hidden="true"
+              title={"候选新增：" + String(preview.previewTitle || id)}
+              style={{
+                left:filmTimelineMath.clipLeft(Number(preview.at || 0),model.pixelsPerSecond),
+                width:filmTimelineMath.clipWidth(preview.duration ?? null,model.pixelsPerSecond,24,2,0,false),
+                opacity:0.88,
+                outline:"2px dashed #65a7dc",
+                outlineOffset:"-2px",
+                background:"rgba(80,145,200,.2)",
+              }}
+            >
+              <span className="fs-clip-title">{String(preview.previewTitle || id)} · 候选新增</span>
+              <span className="fs-clip-subtitle">{formatFilmTime(Number(preview.at || 0))} · {preview.duration == null ? "时长未知" : Number(preview.duration).toFixed(2)+"s"}</span>
+            </div>
+          ))}
         </div>
       </div>
     ))}

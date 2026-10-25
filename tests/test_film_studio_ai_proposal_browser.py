@@ -212,6 +212,8 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
         {"op":"move","clip":"clip-c","track_id":"video-main","at":7.0},
         {"op":"set","clip":"audio-1","field":"fade","value":"0,1"},
         {"op":"set","clip":"audio-1","field":"volume_envelope","value":[{"t":0,"v":1},{"t":20,"v":0}]},
+        {"op":"remove","clip":"clip-a"},
+        {"op":"split","clip":"clip-c","at":8.5,"new_id":"clip-c-right"},
     ]
     class FakeModel:
         def generate(self,_prompt):
@@ -253,7 +255,9 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 page.locator('[data-film-action="ask"]:visible').click()
                 page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]').wait_for(state="visible",timeout=10000)
                 page.wait_for_function("""()=>{const s=window.filmStudioStore?.getSnapshot(),p=s?.timelineGesturePreview,e=s?.timelineEnvelopePreview;
-                  return !!p?.['clip-b']&&!!p?.['clip-c']&&p['audio-1']?.fadeOut===1&&e?.clipId==='audio-1'&&e.points.length===2;}""",timeout=10000)
+                  return !!p?.['clip-b']&&!!p?.['clip-c']&&p['audio-1']?.fadeOut===1&&
+                    p['clip-a']?.removed===true&&p['__proposal_added__:clip-c-right']?.added===true&&
+                    e?.clipId==='audio-1'&&e.points.length===2;}""",timeout=10000)
                 assert film_path.read_bytes()==original
                 assert fd.read_project_film(project_id)["rev"]==before["rev"]
                 state=page.evaluate("window.filmStudioStore.getSnapshot()")
@@ -272,6 +276,13 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                     "(n)=>parseFloat(getComputedStyle(n).width)"))-3*scale)<0.01
                 assert abs(float(page.locator('#fs-timeline .fs-clip[data-clip="clip-c"]').evaluate(
                     "(n)=>parseFloat(getComputedStyle(n).left)"))-7*scale)<0.01
+                removed=page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                assert removed.get_attribute("data-proposal-removed")=="true"
+                assert removed.locator('[data-proposal-remove-label="clip-a"]').inner_text()=="候选删除"
+                added=page.locator('#fs-timeline [data-proposal-added="clip-c-right"]')
+                assert added.is_visible()
+                assert abs(float(added.evaluate("(n)=>parseFloat(getComputedStyle(n).left)"))-8.5*scale)<0.01
+                assert abs(float(added.evaluate("(n)=>parseFloat(getComputedStyle(n).width)"))-2.5*scale)<0.01
                 clip=page.locator('#fs-timeline .fs-clip[data-clip="audio-1"]')
                 assert clip.get_attribute("data-preview-fade-out")=="1"
                 assert clip.locator('[data-fade-preview="out"]').is_visible()
@@ -289,7 +300,12 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 after=fd.read_project_film(project_id);after_bytes=film_path.read_bytes()
                 assert len(applies)==1 and applies[0]["base_revision"]==before["rev"] and "ops" not in applies[0]
                 clips={x["id"]:x for t in after["doc"]["tracks"] for x in t["clips"]}
+                assert "clip-a" not in clips
+                assert "clip-c-right" in clips
                 assert abs(float(clips["clip-c"]["attrs"]["at"])-7)<0.001
+                assert abs(float(clips["clip-c-right"]["attrs"]["at"])-8.5)<0.001
+                assert abs(fd.clip_duration(clips["clip-c"])-1.5)<0.001
+                assert abs(fd.clip_duration(clips["clip-c-right"])-2.5)<0.001
                 assert clips["audio-1"]["attrs"]["fade"]=="0,1"
                 assert json.loads(clips["audio-1"]["attrs"]["volume_envelope"])==[{"t":0.0,"v":1.0},{"t":20.0,"v":0.0}]
                 assert not errors,errors
@@ -297,6 +313,8 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=before["rev"],timeout=10000)
                 assert film_path.read_bytes()==original
+                assert page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').is_visible()
+                assert page.locator('#fs-timeline [data-proposal-added="clip-c-right"]').count()==0
                 undo_geometry=page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
                   const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
                   return [id,{left:parseFloat(getComputedStyle(n).left),width:parseFloat(getComputedStyle(n).width)}];}))""")
@@ -310,6 +328,8 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 page.evaluate("window.filmStudioRedo()")
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=after["rev"],timeout=10000)
                 assert film_path.read_bytes()==after_bytes
+                assert page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').count()==0
+                assert page.locator('#fs-timeline [data-proposal-added="clip-c-right"]').is_visible()
                 redo_geometry=page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
                   const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
                   return [id,{left:parseFloat(getComputedStyle(n).left),width:parseFloat(getComputedStyle(n).width)}];}))""")
