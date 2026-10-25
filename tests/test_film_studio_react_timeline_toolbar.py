@@ -111,13 +111,17 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "const AudioWaveformCanvas: React.FC<AudioWaveformCanvasProps>" in component
     assert "canvas.dataset.reactWaveformPainted = \"true\";" in component
     assert "data-waveform-key={waveformKey}" in component
-    assert "function syncTimelineWaveformSources()" in studio
+    assert "function readTimelineWaveformSources()" in studio
+    assert "function writeTimelineWaveformSource(key,source)" in studio
+    assert "S.waveformCache" not in studio
+    assert "syncTimelineWaveformSources" not in studio
+    assert "bridge.setField('timelineWaveformSources',next)" in studio
     assert "删除并保留空隙" in component
     assert "波纹删除（收拢时间线）" in component
     assert "删除并保留空隙" in studio
     assert "波纹删除（收拢时间线）" in studio
     assert "并保留时间线空隙" in studio
-    assert "if(reactTimeline){syncTimelineWaveformSources();return;}" in studio
+    assert "if(reactTimeline)return;" in studio
 
     assert "setField<K extends keyof FilmStudioStoreSnapshot>(key: K, value: FilmStudioStoreSnapshot[K]): void;" in store
     assert 'useFilmStoreField("timelineGesturePreview")' in component

@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformCache:Object.create(null), waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, hoveredElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
   var pendingRevisionSource = '';
@@ -1394,21 +1394,31 @@
     setPlayheadVisual();
     renderAudioWaveforms();
   }
-  function syncTimelineWaveformSources(){
+  var fallbackWaveformSources=Object.create(null);
+  function readTimelineWaveformSources(){
     var bridge=window.filmStudioStore;
-    if(!bridge||typeof bridge.getField!=='function'||typeof bridge.setField!=='function')return false;
-    var current=bridge.getField('timelineWaveformSources')||{},cache=S.waveformCache||{},keys=Object.keys(cache),currentKeys=Object.keys(current);
-    if(keys.length===currentKeys.length&&keys.every(function(key){
-      return current[key]&&current[key].duration===cache[key].duration&&current[key].peaks===cache[key].peaks;
-    }))return false;
-    var next={};
-    keys.forEach(function(key){next[key]={duration:cache[key].duration,peaks:cache[key].peaks};});
-    bridge.setField('timelineWaveformSources',next);
-    return true;
+    if(bridge&&typeof bridge.getField==='function'&&typeof bridge.setField==='function')
+      return bridge.getField('timelineWaveformSources')||{};
+    return fallbackWaveformSources;
+  }
+  function writeTimelineWaveformSource(key,source){
+    var bridge=window.filmStudioStore;
+    var current=readTimelineWaveformSources(),next={},keys;
+    Object.keys(current).forEach(function(existingKey){
+      if(existingKey!==key)next[existingKey]=current[existingKey];
+    });
+    next[key]=source;
+    keys=Object.keys(next);
+    while(keys.length>8){delete next[keys.shift()];}
+    if(bridge&&typeof bridge.getField==='function'&&typeof bridge.setField==='function')
+      bridge.setField('timelineWaveformSources',next);
+    else fallbackWaveformSources=next;
+    return readTimelineWaveformSources()[key]||source;
   }
   async function decodeAudioWaveform(url){
     var key=String(url||'').split('#',1)[0];
-    if(S.waveformCache[key]){syncTimelineWaveformSources();return S.waveformCache[key];}
+    var cachedSources=readTimelineWaveformSources();
+    if(cachedSources[key])return cachedSources[key];
     if(S.waveformPending[key])return S.waveformPending[key];
     var task=(async function(){
       var response=await fetch(key,{credentials:'same-origin'});
@@ -1440,11 +1450,7 @@
           peaks[b]=Math.max(0,Math.min(255,Math.round(peak*255)));
         }
         var result={duration:buffer.duration,peaks:peaks};
-        S.waveformCache[key]=result;
-        var keys=Object.keys(S.waveformCache);
-        while(keys.length>8){delete S.waveformCache[keys.shift()];}
-        syncTimelineWaveformSources();
-        return result;
+        return writeTimelineWaveformSource(key,result);
       }finally{try{await context.close();}catch(_){}}
     })();
     S.waveformPending[key]=task;
@@ -1457,7 +1463,7 @@
       var data=await decodeAudioWaveform(clip.media_url);
       if(!canvas.isConnected)return;
       var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
-      if(reactTimeline){syncTimelineWaveformSources();return;}
+      if(reactTimeline)return;
       var width=timelineClipWidth(clip.duration||1,S.pxPerSec,16,1,1800,true);
       var height=Math.max(18,Math.min(40,canvas.parentElement?canvas.parentElement.clientHeight-6:30));
       canvas.width=width;canvas.height=height;
