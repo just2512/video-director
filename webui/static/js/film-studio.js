@@ -3501,7 +3501,8 @@ window.filmStudioCopyClips=function(){
       preview["__proposal_track_added__:"+id]={
         added:true,previewTrack:true,targetTrackId:id,
         trackLabel:String(attrs["data-label"]||track.label||id),
-        trackKind:(track.clips||[]).some(function(c){return c.tag==="audio";})?"audio":"video"
+        trackKind:(track.clips||[]).some(function(c){return c.tag==="audio";})?"audio":"video",
+        trackIndex:(proposal.candidate.tracks||[]).findIndex(function(candidateTrack){return String(candidateTrack.id)===id;})
       };
     });
     Object.keys(before).forEach(function(id){

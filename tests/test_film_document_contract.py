@@ -1113,6 +1113,53 @@ def test_ai_planner_gets_stable_timeline_ordinals_can_remove_and_preserves_summa
     assert summary["summary"] == "删除第二个视觉片段"
 
 
+def test_ai_planner_can_add_track_move_existing_clip_and_remove_empty_track_only():
+    class FakeLLM:
+        def generate(self, _prompt):
+            return json.dumps({
+                "summary": "新建轨道并调整片段归属，删除空轨道",
+                "operations": [
+                    {"op": "track_add", "track_id": "track-ai-added", "label": "AI 新轨道", "kind": "video", "index": 0},
+                    {"op": "move", "clip": "clip-b", "track_id": "track-ai-added", "at": 6},
+                    {"op": "track_remove", "track_id": "empty-spare"},
+                ],
+            }, ensure_ascii=False)
+
+    source = SAMPLE.replace("</body>", '<section id="empty-spare" data-label="空轨道"></section></body>')
+    document = fd.parse_film(source)
+    state = {"exists": True, "doc": document, "rev": fd.revision_of(source)}
+    operations = fd.plan_film_command(FakeLLM(), state, "新增一条轨道，把第二段移动过去，并删除空轨道")
+    assert [op["op"] for op in operations] == ["track_add", "move", "track_remove"]
+    candidate, normalized = fd.apply_ops(document, operations)
+    assert candidate["tracks"][0]["id"] == "track-ai-added"
+    assert candidate["tracks"][0]["attrs"]["data-kind"] == "video"
+    assert any(clip["id"] == "clip-b" for clip in candidate["tracks"][0]["clips"])
+    assert all(track["id"] != "empty-spare" for track in candidate["tracks"])
+    assert normalized[0]["kind"] == "video"
+
+
+def test_ai_planner_rejects_asset_insertion_and_removing_nonempty_track():
+    class FakeLLM:
+        def __init__(self, operations):
+            self.operations = operations
+        def generate(self, _prompt):
+            return json.dumps({"summary": "测试", "operations": self.operations}, ensure_ascii=False)
+
+    state = {"exists": True, "doc": fd.parse_film(SAMPLE), "rev": "test-revision"}
+    with pytest.raises(fd.FilmError, match="不允许的操作"):
+        fd.plan_film_command(FakeLLM([
+            {"op": "track_add", "track_id": "track-ai-added", "label": "安全测试", "index": 0},
+            {"op": "insert", "track_id": "track-ai-added", "clip": {
+                "id": "unauthorized-asset", "tag": "video",
+                "attrs": {"id": "unauthorized-asset", "src": "../assets/unsafe.mp4#t=0,1", "at": "0"},
+            }},
+        ]), state, "新增并插入一段素材")
+    with pytest.raises(fd.FilmError, match="预先为空的轨道"):
+        fd.plan_film_command(FakeLLM([
+            {"op": "track_remove", "track_id": "video-main"},
+        ]), state, "删除主画面轨道")
+
+
 def test_ai_no_op_can_return_a_clarifying_question_for_the_chat():
     class FakeLLM:
         def generate(self, prompt):

@@ -1367,6 +1367,87 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
       crossTrackGhostsByTrack.set(targetTrackId, ghosts);
     }
   }
+  proposalAddedTracks.sort((left,right) =>
+    Number(left.preview.trackIndex ?? model.tracks.length) - Number(right.preview.trackIndex ?? model.tracks.length));
+  const proposalTracksBeforeIndex = new Map<number, Array<{id:string;preview:FilmStudioTimelineGesturePreviewGeometry}>>();
+  proposalAddedTracks.forEach(item => {
+    const rawIndex = item.preview.trackIndex;
+    const index = Number.isInteger(rawIndex) ? Math.max(0,Math.min(model.tracks.length,Number(rawIndex))) : model.tracks.length;
+    const rows = proposalTracksBeforeIndex.get(index) || [];
+    rows.push(item);
+    proposalTracksBeforeIndex.set(index,rows);
+  });
+  const renderProposalTrack = ({id,preview}: {id:string;preview:FilmStudioTimelineGesturePreviewGeometry}) => {
+    const additions = proposalAdditionsByTrack.get(id) || [];
+    const movedGhosts = crossTrackGhostsByTrack.get(id) || [];
+    return (
+      <div
+        className="fs-track fs-track-proposal-added"
+        data-track={id}
+        data-proposal-track-added={id}
+        key={"proposal-track-added-" + id}
+        aria-hidden="true"
+        style={{opacity:0.92,outline:"2px dashed #65a7dc",outlineOffset:"-2px",background:"rgba(80,145,200,.08)"}}
+      >
+        <div className="fs-track-head">
+          <span className="fs-track-label" title={String(preview.trackLabel || id)}>
+            {String(preview.trackLabel || id)} · 候选新增轨道
+          </span>
+          <span className="fs-track-controls"><span className="fs-proposal-track-state">候选</span></span>
+        </div>
+        <div className="fs-track-body" style={{width:model.laneWidth}}>
+          {movedGhosts.map(clip => {
+            const clipPreview = previewForClip(clip.id);
+            if (!clipPreview) return null;
+            return (
+              <div
+                className="fs-clip fs-clip-gesture-ghost"
+                key={"proposal-track-moved-" + clip.id}
+                data-gesture-ghost-for={clip.id}
+                data-gesture-target-track={id}
+                data-kind={clip.tag}
+                aria-hidden="true"
+                title={"候选移动：" + clip.title}
+                style={{
+                  left:clipPreview.at != null ? filmTimelineMath.clipLeft(Number(clipPreview.at),model.pixelsPerSecond)
+                    : clipPreview.left ?? filmTimelineMath.clipLeft(clip.at,model.pixelsPerSecond),
+                  width:clipPreview.duration !== undefined
+                    ? filmTimelineMath.clipWidth(clipPreview.duration ?? null,model.pixelsPerSecond,24,2,0,false)
+                    : clipPreview.width ?? filmTimelineMath.clipWidth(clip.duration,model.pixelsPerSecond,24,2),
+                  opacity:0.88,outline:"2px dashed #65a7dc",outlineOffset:"-2px",
+                  background:"rgba(80,145,200,.2)",
+                }}
+              >
+                <span className="fs-clip-title">{clip.title} · 候选移动</span>
+                <span className="fs-clip-subtitle">{formatFilmTime(Number(clipPreview.at ?? clip.at))} · {clipPreview.duration == null ? "时长未知" : Number(clipPreview.duration ?? clip.duration).toFixed(2)+"s"}</span>
+              </div>
+            );
+          })}
+          {additions.map(({id:clipId,preview:clipPreview}) => (
+            <div
+              className="fs-clip fs-clip-gesture-ghost fs-clip-proposal-added"
+              key={"proposal-track-clip-" + clipId}
+              data-proposal-added={clipId}
+              data-gesture-target-track={id}
+              data-kind={clipPreview.previewTag || "video"}
+              aria-hidden="true"
+              title={"候选新增：" + String(clipPreview.previewTitle || clipId)}
+              style={{
+                left:filmTimelineMath.clipLeft(Number(clipPreview.at || 0),model.pixelsPerSecond),
+                width:filmTimelineMath.clipWidth(clipPreview.duration ?? null,model.pixelsPerSecond,24,2,0,false),
+                opacity:0.88,outline:"2px dashed #65a7dc",outlineOffset:"-2px",
+                background:"rgba(80,145,200,.2)",
+              }}
+            >
+              <span className="fs-clip-title">{String(clipPreview.previewTitle || clipId)} · 候选新增</span>
+              <span className="fs-clip-subtitle">{formatFilmTime(Number(clipPreview.at || 0))} · {clipPreview.duration == null ? "时长未知" : Number(clipPreview.duration).toFixed(2)+"s"}</span>
+            </div>
+          ))}
+          {additions.length === 0 && movedGhosts.length === 0 ? <span className="fs-empty fs-proposal-empty-track">候选新增空轨道</span> : null}
+        </div>
+      </div>
+    );
+  };
   const activePointerId = useRef<number | null>(null);
   const activeEnvelopePointerId = useRef<number | null>(null);
   const activeScrubPointerId = useRef<number | null>(null);
@@ -1499,9 +1580,11 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
         ))}
       </div>
     </div>
-    {model.tracks.map((track) => {
+    {model.tracks.map((track,trackIndex) => {
       const trackProposal = previewForTrack(track.id);
       return (
+      <React.Fragment key={"timeline-track-group-" + track.id}>
+      {(proposalTracksBeforeIndex.get(trackIndex) || []).map(renderProposalTrack)}
       <div
         className={"fs-track" + (track.locked ? " fs-track-locked" : "") +
           (track.syncLocked ? " fs-sync-locked" : "") + (track.hidden ? " fs-hidden-track" : "") +
@@ -1762,51 +1845,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
           ))}
         </div>
       </div>
+      </React.Fragment>
       );
     })}
-    {proposalAddedTracks.map(({id,preview}) => {
-      const additions = proposalAdditionsByTrack.get(id) || [];
-      return (
-        <div
-          className="fs-track fs-track-proposal-added"
-          data-track={id}
-          data-proposal-track-added={id}
-          key={"proposal-track-added-" + id}
-          aria-hidden="true"
-          style={{opacity:0.92,outline:"2px dashed #65a7dc",outlineOffset:"-2px",background:"rgba(80,145,200,.08)"}}
-        >
-          <div className="fs-track-head">
-            <span className="fs-track-label" title={String(preview.trackLabel || id)}>
-              {String(preview.trackLabel || id)} · 候选新增轨道
-            </span>
-            <span className="fs-track-controls"><span className="fs-proposal-track-state">候选</span></span>
-          </div>
-          <div className="fs-track-body" style={{width:model.laneWidth}}>
-            {additions.map(({id:clipId,preview:clipPreview}) => (
-              <div
-                className="fs-clip fs-clip-gesture-ghost fs-clip-proposal-added"
-                key={"proposal-track-clip-" + clipId}
-                data-proposal-added={clipId}
-                data-gesture-target-track={id}
-                data-kind={clipPreview.previewTag || "video"}
-                aria-hidden="true"
-                title={"候选新增：" + String(clipPreview.previewTitle || clipId)}
-                style={{
-                  left:filmTimelineMath.clipLeft(Number(clipPreview.at || 0),model.pixelsPerSecond),
-                  width:filmTimelineMath.clipWidth(clipPreview.duration ?? null,model.pixelsPerSecond,24,2,0,false),
-                  opacity:0.88,outline:"2px dashed #65a7dc",outlineOffset:"-2px",
-                  background:"rgba(80,145,200,.2)",
-                }}
-              >
-                <span className="fs-clip-title">{String(clipPreview.previewTitle || clipId)} · 候选新增</span>
-                <span className="fs-clip-subtitle">{formatFilmTime(Number(clipPreview.at || 0))} · {clipPreview.duration == null ? "时长未知" : Number(clipPreview.duration).toFixed(2)+"s"}</span>
-              </div>
-            ))}
-            {additions.length === 0 ? <span className="fs-empty fs-proposal-empty-track">候选新增空轨道</span> : null}
-          </div>
-        </div>
-      );
-    })}
+    {(proposalTracksBeforeIndex.get(model.tracks.length) || []).map(renderProposalTrack)}
     {snapGuide ? <div id="fs-snap-guide" className="fs-snap-guide"
       style={{left:132 + filmTimelineMath.clipLeft(snapGuide.at,model.pixelsPerSecond)}}
       title={snapGuide.title} data-snap-kind={snapGuide.kind} /> : null}

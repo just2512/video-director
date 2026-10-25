@@ -21,6 +21,7 @@ export type FilmStudioTimelineGesturePreviewGeometry = {
   previewTrack?: boolean;
   trackLabel?: string;
   trackKind?: "video" | "audio";
+  trackIndex?: number;
   mode?: "roll" | "slide" | "slip";
   deltaLabel?: string;
 };
@@ -666,6 +667,7 @@ class FilmStore implements FilmStudioStoreBridge {
           if (raw.previewTrack === true) geometry.previewTrack = true;
           if (typeof raw.trackLabel === "string") geometry.trackLabel = raw.trackLabel.slice(0, 160);
           if (raw.trackKind === "video" || raw.trackKind === "audio") geometry.trackKind = raw.trackKind;
+          if (typeof raw.trackIndex === "number" && Number.isInteger(raw.trackIndex) && raw.trackIndex >= 0 && raw.trackIndex <= 500) geometry.trackIndex = raw.trackIndex;
           if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
           if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
           if (Object.keys(geometry).length) entries[clipId] = geometry;

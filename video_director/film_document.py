@@ -2305,7 +2305,10 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             if str(op.get("kind") or ""):
                 attrs["data-kind"] = str(op.get("kind"))[:24]
             out["tracks"].insert(index, {"id": track_id, "attrs": attrs, "clips": []})
-            normalized.append({"op": "track_add", "track_id": track_id, "label": attrs["data-label"], "index": index})
+            track_operation = {"op": "track_add", "track_id": track_id, "label": attrs["data-label"], "index": index}
+            if attrs.get("data-kind"):
+                track_operation["kind"] = attrs["data-kind"]
+            normalized.append(track_operation)
         elif kind == "track":
             track = _find_track(out, str(op.get("track_id") or ""))
             field, value = str(op.get("field") or ""), op.get("value")
@@ -5673,6 +5676,8 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         "可用 split 操作: {op:'split',clip:准确ID,at:片段内部时间秒}; " "可用 join 操作: {op:'join',clip:左片段ID,other_clip:右片段ID}。只在用户明确要求愈合切口/合并同源切开片段时使用；需要同轨相邻、源区间连续、属性一致。" "可用 roll 操作: {op:'roll',clip:左片段ID,other_clip:右片段ID,delta:秒}。只在用户明确要求滚动修剪切口时使用；仅允许同源连续切口；正数延长左段并缩短右段，负数相反，总时长不变。"
         "可用 trim 操作: {op:'trim',clip:准确ID,edge:'start',at:新的时间线入点} 或 {op:'trim',clip:准确ID,edge:'end',end:新的时间线出点}; "
         "可用 remove 操作: {op:'remove',clip:明确要删除的片段ID}。删除可撤销，只在用户明确要求删除时使用。"
+        "可用 track_add 操作: {op:'track_add',track_id:新的稳定轨道ID,label:轨道名称,kind:'video'|'audio',index:整数位置}。只在用户明确要求新增轨道或需要把已有片段移到新轨道时使用；必须先新增轨道，再用 move 移动当前已存在的片段。不得通过 AI 新建/插入素材，也不得修改 src。"
+        "可用 track_remove 操作: {op:'track_remove',track_id:当前已存在的空轨道ID}。仅允许删除当前没有片段、且不是最后一条轨道的轨道；只在用户明确要求删除空轨道时使用。不能先删除其中片段再借此删除轨道。"
         "可用 ripple_delete 操作: {op:'ripple_delete',clip:准确片段ID,scope:'all'}。仅当用户明确要求波纹删除或删除并收拢时间线时使用；会影响全部轨道，并切分跨越删除区间的片段。"
         "可用 element_set 操作: {op:'element_set',clip:当前选中 HTML 镜头 ID,selector:当前选中元素的精确 selector,text?:字符串,style?:{color:'色值',backgroundColor:'色值',fontSize:'32px',left:'20px',top:'20px',width:'300px',height:'100px',rotate:'10deg',...}}。只允许修改系统提供的当前选中元素；不能猜测其他 selector；仅当用户明确要求修改该画面元素时使用。style 仅允许 color/backgroundColor/fontSize/fontWeight/textAlign/lineHeight/letterSpacing/left/top/width/height/position/opacity/transform/borderRadius/rotate，CSS 值会经过服务端安全校验。不要通过 set 直接修改 overrides。"
         "visual_index 是按时间排序的视觉片段序号且不包含音频；track_index 是影片文档轨道顺序；clip_index 是轨道内按时间排序的片段序号。"
@@ -5717,10 +5722,46 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
     if len(operations) > 40:
         raise FilmError("LLM_INVALID_PLAN", "AI 计划超过 40 项操作上限", 422)
     valid_ids = {c["id"] for t in doc["tracks"] for c in t["clips"]}
-    valid_tracks = {t["id"] for t in doc["tracks"]}
+    original_tracks = {str(track["id"]): track for track in doc["tracks"]}
+    valid_tracks = set(original_tracks)
+    added_track_ids = set()
+    allowed_operations = {
+        "set", "move", "split", "trim", "remove", "ripple_delete", "slip",
+        "join", "roll", "slide", "element_set", "track_add", "track_remove",
+    }
     for op in operations:
-        if not isinstance(op, dict) or op.get("op") not in {"set", "move", "split", "trim", "remove", "ripple_delete", "slip", "join", "roll", "slide", "element_set"}:
+        if not isinstance(op, dict) or op.get("op") not in allowed_operations:
             raise FilmError("LLM_INVALID_PLAN", "AI 计划包含不允许的操作", 422)
+        operation_kind = op["op"]
+        if operation_kind == "track_add":
+            track_id = str(op.get("track_id") or "").strip()
+            label = op.get("label", "新轨道")
+            raw_index = op.get("index", 0)
+            kind = op.get("kind")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", track_id):
+                raise FilmError("LLM_INVALID_PLAN", "AI 新增轨道必须使用安全稳定的 ID", 422)
+            if track_id in valid_tracks:
+                raise FilmError("LLM_INVALID_PLAN", f"AI 新增轨道 ID 已存在：{track_id}", 422)
+            if not isinstance(label, str) or len(label.strip()) > 120:
+                raise FilmError("LLM_INVALID_PLAN", "AI 轨道名称必须是最多 120 字符的文本", 422)
+            if isinstance(raw_index, bool) or not isinstance(raw_index, int) or not 0 <= raw_index <= len(valid_tracks):
+                raise FilmError("LLM_INVALID_PLAN", "AI 新增轨道 index 必须是当前轨道范围内的整数", 422)
+            if kind is not None and kind not in {"video", "audio"}:
+                raise FilmError("LLM_INVALID_PLAN", "AI 轨道 kind 只允许 video 或 audio", 422)
+            valid_tracks.add(track_id)
+            added_track_ids.add(track_id)
+            continue
+        if operation_kind == "track_remove":
+            track_id = str(op.get("track_id") or "").strip()
+            if track_id not in valid_tracks or track_id in added_track_ids:
+                raise FilmError("LLM_INVALID_PLAN", f"AI 删除轨道必须指定原有轨道：{track_id or '缺少 ID'}", 422)
+            track = original_tracks.get(track_id)
+            if track is None or (track.get("clips") or []):
+                raise FilmError("LLM_INVALID_PLAN", "AI 只允许删除预先为空的轨道；不允许通过先删除片段来绕过此限制", 422)
+            if len(valid_tracks) <= 1:
+                raise FilmError("LLM_INVALID_PLAN", "AI 不能删除最后一条轨道", 422)
+            valid_tracks.remove(track_id)
+            continue
         if op["op"] == "element_set":
             target = next((clip for track in doc["tracks"] for clip in track["clips"]
                            if clip["id"] == op.get("clip")), None)
@@ -5765,5 +5806,5 @@ def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = ""
         if op.get("clip") not in valid_ids:
             raise FilmError("LLM_INVALID_PLAN", f"AI 使用了未知片段 ID：{op.get('clip')}", 422)
         if op["op"] == "move" and op.get("track_id") not in valid_tracks:
-            raise FilmError("LLM_INVALID_PLAN", f"AI 使用了未知轨道 ID：{op.get('track_id')}", 422)
+            raise FilmError("LLM_INVALID_PLAN", f"AI 使用了未知轨道 ID 或移动到了尚未声明的新轨道：{op.get('track_id')}", 422)
     return operations
