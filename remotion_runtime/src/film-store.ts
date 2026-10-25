@@ -10,6 +10,8 @@ export type FilmStudioTimelineGesturePreviewGeometry = {
   left?: number;
   width?: number;
   targetTrackId?: string;
+  fadeIn?: number;
+  fadeOut?: number;
   mode?: "roll" | "slide" | "slip";
   deltaLabel?: string;
 };
@@ -643,6 +645,8 @@ class FilmStore implements FilmStudioStoreBridge {
           if (typeof raw.left === "number" && Number.isFinite(raw.left)) geometry.left = raw.left;
           if (typeof raw.width === "number" && Number.isFinite(raw.width) && raw.width > 0) geometry.width = raw.width;
           if (typeof raw.targetTrackId === "string" && raw.targetTrackId.trim()) geometry.targetTrackId = raw.targetTrackId;
+          if (typeof raw.fadeIn === "number" && Number.isFinite(raw.fadeIn) && raw.fadeIn >= 0) geometry.fadeIn = raw.fadeIn;
+          if (typeof raw.fadeOut === "number" && Number.isFinite(raw.fadeOut) && raw.fadeOut >= 0) geometry.fadeOut = raw.fadeOut;
           if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
           if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
           if (Object.keys(geometry).length) entries[clipId] = geometry;

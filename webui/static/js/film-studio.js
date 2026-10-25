@@ -419,12 +419,16 @@
     if(pending&&pending!=='__reload__')return pending;
     return String(proposal&&proposal.observed_revision||S.rev||'');
   }
+  function clearFilmProposalTimelinePreview(){
+    clearTimelineGesturePreview();
+    clearTimelineEnvelopePreview();
+  }
   function markFilmProposalStale(revision,message){
     var proposal=S.proposal;
     if(!proposal)return false;
     var observed=String(revision||'');
     if(observed)proposal.observed_revision=observed;
-    S.previewProposalActive=false;S.runtimeRev='';
+    S.previewProposalActive=false;S.runtimeRev='';clearFilmProposalTimelinePreview();
     if(observed&&proposal.stale_notified_revision!==observed){
       proposal.stale_notified_revision=observed;
       appendMessage(message||'影片 revision 已变化。旧 AI 提案仍可查看或拒绝，但不能预览/应用。','assistant');
@@ -440,7 +444,7 @@
     var stale=!!pending||!current||String(proposal.base_revision||'')!==current;
     if(!stale)return false;
     if(current&&current!=='__reload__')proposal.observed_revision=current;
-    S.previewProposalActive=false;S.runtimeRev='';
+    S.previewProposalActive=false;S.runtimeRev='';clearFilmProposalTimelinePreview();
     renderProposalPanel();
     showStatus('当前影片 revision 已变化（当前：'+(current&&current!=='__reload__'?current:'未知')+'）。旧提案不能'+action+'；请重新生成，或拒绝旧提案。','error');
     return true;
@@ -1145,6 +1149,7 @@
         var clipId=String(context.clipId||(el&&el.getAttribute('data-clip'))||'');
         if(e.button!==0||context.targetIsButton)return;
         if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
+        if(S.previewProposalActive){e.preventDefault();showStatus('AI 候选时间线预览期间，请先应用或拒绝提案，再直接编辑时间线。');return;}
         var clip=findClip(clipId);if(!clip)return;
         if(Object.prototype.hasOwnProperty.call(clip.attrs||{},'data-clip-locked')){
           selectClipWithModifiers(clip.id,e);
@@ -1609,6 +1614,7 @@
     return true;
   }
   window.filmStudioBeginEnvelopeGesture=function(e,context){
+    if(S.previewProposalActive){showStatus('AI 候选时间线预览期间，请先应用或拒绝提案，再编辑音量曲线。');return false;}
     return beginVolumeEnvelopeGesture(e,context,null);
   };
   function bindVolumeEnvelopeCanvas(canvas){
@@ -2120,7 +2126,7 @@
       return;
     }
     if(S.broken){showStatus('影片文件无效，暂时不能撤销或重做。','error');return;}
-    if(S.proposal){S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
+    if(S.proposal){clearFilmProposalTimelinePreview();S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';}
     try{
       await dispatchStudioTransaction(action,S.rev,[],async function(){
         var r=await apiPost('/api/editor/film/'+action,{project_id:S.projectId,base:S.rev});
@@ -3385,6 +3391,52 @@ window.filmStudioCopyClips=function(){
     return {entries:entries,affected:shownAffected,affectedTruncatedCount:Math.max(0,completeAffectedCount-shownAffected.length),
       truncatedCount:Math.max(0,operations.length-shown.length),operationCount:operations.length};
   }
+  function parseProposalEnvelopePoints(value,duration){
+    var parsed=value;
+    if(typeof parsed==='string'){try{parsed=JSON.parse(parsed);}catch(_){parsed=null;}}
+    var points=Array.isArray(parsed)?parsed.map(function(p){return {t:Number(p&&p.t),v:Number(p&&p.v)};})
+      .filter(function(p){return Number.isFinite(p.t)&&p.t>=0&&Number.isFinite(p.v);})
+      .map(function(p){return {t:p.t,v:Math.max(0,Math.min(1,p.v))};})
+      .sort(function(a,b){return a.t-b.t;}):[];
+    var safeDuration=Math.max(0.04,Number.isFinite(Number(duration))?Number(duration):0.04);
+    return points.length>=2?points:[{t:0,v:1},{t:safeDuration,v:1}];
+  }
+  function proposalFadeParts(value){
+    var parts=String(value||'0,0').split(',');
+    return {fadeIn:Math.max(0,num(parts[0],0)),fadeOut:Math.max(0,num(parts[1],0))};
+  }
+  function previewFilmProposalTimeline(proposal){
+    clearFilmProposalTimelinePreview();
+    if(!proposal||!proposal.candidate||!S.data||!Array.isArray(S.data.tracks)||
+       !Array.isArray(proposal.candidate.tracks))return false;
+    var before=Object.create(null),after=Object.create(null),preview=Object.create(null),envelopes=[];
+    (S.data.tracks||[]).forEach(function(t){(t.clips||[]).forEach(function(c){before[String(c.id)]={clip:c,track:t};});});
+    (proposal.candidate.tracks||[]).forEach(function(t){(t.clips||[]).forEach(function(c){after[String(c.id)]={clip:c,track:t};});});
+    Object.keys(after).forEach(function(id){
+      var a=before[id],b=after[id];if(!a||!b)return;
+      var oldClip=a.clip,newClip=b.clip,oldAt=num(oldClip.at,0),newAt=num(newClip.at,0);
+      var oldDur=oldClip.duration==null?null:num(oldClip.duration,0),newDur=newClip.duration==null?null:num(newClip.duration,0);
+      var trackChanged=String(a.track.id)!==String(b.track.id);
+      var geometryChanged=trackChanged||Math.abs(oldAt-newAt)>0.0005||
+        (oldDur==null)!==(newDur==null)||(oldDur!=null&&newDur!=null&&Math.abs(oldDur-newDur)>0.0005);
+      if(geometryChanged){
+        preview[id]={left:timelineClipLeft(newAt,S.pxPerSec),width:timelineClipWidth(newDur,S.pxPerSec,24,2,0,false)};
+        if(trackChanged)preview[id].targetTrackId=String(b.track.id);
+      }
+      var oldAttrs=oldClip.attrs||{},newAttrs=newClip.attrs||{};
+      if(String(oldAttrs.fade||'0,0')!==String(newAttrs.fade||'0,0')){
+        var fade=proposalFadeParts(newAttrs.fade);preview[id]=preview[id]||{};
+        preview[id].fadeIn=fade.fadeIn;preview[id].fadeOut=fade.fadeOut;
+      }
+      var oldEnvelope=oldAttrs.volume_envelope==null?'':String(oldAttrs.volume_envelope);
+      var newEnvelope=newAttrs.volume_envelope==null?'':String(newAttrs.volume_envelope);
+      if(oldEnvelope!==newEnvelope&&(newClip.tag==='audio'||newClip.tag==='video'))
+        envelopes.push({clipId:id,points:parseProposalEnvelopePoints(newAttrs.volume_envelope,newDur)});
+    });
+    setTimelineGesturePreview(Object.keys(preview).length?preview:null);
+    if(envelopes.length)setTimelineEnvelopePreview(envelopes[0].clipId,envelopes[0].points);
+    return true;
+  }
   function renderProposalPanel(){
     if(renderAiDirector())return;
     var panel=$('fs-proposal-panel'),proposal=S.proposal;
@@ -3415,12 +3467,14 @@ window.filmStudioCopyClips=function(){
     if(blockStaleFilmProposalAction(proposal,'预览'))return;
     window.filmStudioSetSideMode('ai');
     S.previewProposalActive=true;S.runtimeRev='';
+    previewFilmProposalTimeline(proposal);
     syncRuntime('seek-pause');
     showStatus('正在预览 AI 候选版本；正式 film.html 尚未更改。');
   };
   window.filmStudioRejectProposal=function(){
     if(!S.proposal)return;
     appendMessage('已拒绝本次 AI 提案。正式影片文档与 revision 未改变。','assistant');
+    clearFilmProposalTimelinePreview();
     S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.runtimeRev='';
     syncRuntime('seek-pause');
     showStatus('已拒绝提案；未修改正式影片。','success');
@@ -3441,12 +3495,13 @@ window.filmStudioCopyClips=function(){
           appendMessage((result&&result.error)||'提案应用失败。','assistant');
           showStatus((result&&result.error)||'提案应用失败。','error');
           if(result&&result.code==='REVISION_CONFLICT'){
-            S.previewProposalActive=false;S.runtimeRev='';
+            S.previewProposalActive=false;S.runtimeRev='';clearFilmProposalTimelinePreview();
             delete proposal.observed_revision;delete proposal.stale_notified_revision;
             reloadAfterConflict=true;
           }
           return false;
         }
+        clearFilmProposalTimelinePreview();
         S.proposal=null;S.previewProposalActive=false;renderProposalPanel();S.data=result;S.rev=result.rev;S.runtimeRev='';
         appendMessage('已确认并应用提案，提交 '+(result.ops||[]).length+' 项操作。','assistant');
         render();showStatus('AI 提案已应用并写入 revision '+S.rev+'。','success');
@@ -3456,7 +3511,7 @@ window.filmStudioCopyClips=function(){
     }catch(error){
       var proposalErrorCode=error&&error.code||'';
       if(proposalErrorCode==='FILM_REVISION_CONFLICT'||proposalErrorCode==='FILM_EXTERNAL_REVISION_PENDING'){
-        S.previewProposalActive=false;S.runtimeRev='';
+        S.previewProposalActive=false;S.runtimeRev='';clearFilmProposalTimelinePreview();
         delete proposal.observed_revision;delete proposal.stale_notified_revision;
         await filmStudioLoad(true);
         renderProposalPanel();

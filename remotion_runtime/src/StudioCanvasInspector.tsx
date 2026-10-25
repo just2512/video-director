@@ -1517,6 +1517,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               data-kind={clip.tag}
               data-react-timeline-clip={clip.id}
               data-react-gesture-preview={previewForClip(clip.id) ? "true" : "false"}
+              data-preview-fade-in={previewForClip(clip.id)?.fadeIn}
+              data-preview-fade-out={previewForClip(clip.id)?.fadeOut}
               data-roll-delta={previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : undefined}
               data-slide-delta={previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : undefined}
               data-slip-delta={previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : undefined}
@@ -1649,6 +1651,26 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 <span className="fs-trim-handle fs-trim-left" data-trim="start" title="修剪入点" />
                 <span className="fs-trim-handle fs-trim-right" data-trim="end" title="修剪出点" />
               </> : null}
+              {(previewForClip(clip.id)?.fadeIn ?? 0) > 0 ? <span
+                className="fs-clip-fade-preview fs-clip-fade-in" data-fade-preview="in" aria-hidden="true"
+                title={"候选淡入 " + Number(previewForClip(clip.id)?.fadeIn || 0).toFixed(2) + "s"}
+                style={{
+                  position:"absolute",zIndex:5,pointerEvents:"none",top:0,bottom:0,left:0,
+                  width:(Math.max(0,Math.min(100,(previewForClip(clip.id)?.fadeIn || 0)/Math.max(0.001,clip.duration ?? 1)*100)))+"%",
+                  background:"linear-gradient(to right, rgba(255,255,255,.72), rgba(255,255,255,0))",
+                  borderLeft:"2px solid rgba(255,255,255,.82)",
+                }}
+              /> : null}
+              {(previewForClip(clip.id)?.fadeOut ?? 0) > 0 ? <span
+                className="fs-clip-fade-preview fs-clip-fade-out" data-fade-preview="out" aria-hidden="true"
+                title={"候选淡出 " + Number(previewForClip(clip.id)?.fadeOut || 0).toFixed(2) + "s"}
+                style={{
+                  position:"absolute",zIndex:5,pointerEvents:"none",top:0,bottom:0,right:0,
+                  width:(Math.max(0,Math.min(100,(previewForClip(clip.id)?.fadeOut || 0)/Math.max(0.001,clip.duration ?? 1)*100)))+"%",
+                  background:"linear-gradient(to left, rgba(255,255,255,.72), rgba(255,255,255,0))",
+                  borderRight:"2px solid rgba(255,255,255,.82)",
+                }}
+              /> : null}
               <span className="fs-clip-title">{clip.title}</span>
               <span className="fs-clip-subtitle">{clip.atLabel}{clip.durationLabel}</span>
             </div>

@@ -182,3 +182,118 @@ def test_ai_proposal_diff_is_readable_and_stale_revision_blocks_preview_apply(tm
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+
+def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp_path, monkeypatch):
+    """Real Chromium verifies visual-only preview plus one apply/undo/redo transaction."""
+    root=tmp_path/"storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT",str(root))
+    import webui.server as web_server
+    web_server=importlib.reload(web_server)
+    web_server.COMPOSER_ROOT=root
+    project_id="film-studio-ai-proposal-apply-browser"
+    project_root=root/project_id
+    project_root.mkdir(parents=True)
+    film_path=project_root/fd.FILM_NAME
+    film_path.write_text(
+        """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head><body>
+<section id="video-main" data-label="主画面">
+<video id="clip-a" src="../assets/a.mp4#t=0,4" at="0"></video>
+<video id="clip-b" src="../assets/b.mp4#t=0,4" at="4"></video>
+<video id="clip-c" src="../assets/c.mp4#t=0,4" at="8"></video></section>
+<section id="audio-bed" data-label="背景音乐">
+<audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio></section></body></html>""",
+        encoding="utf-8")
+    original=film_path.read_bytes()
+    before=fd.read_project_film(project_id)
+    ops=[
+        {"op":"trim","clip":"clip-b","edge":"end","end":7.0},
+        {"op":"move","clip":"clip-c","track_id":"video-main","at":7.0},
+        {"op":"set","clip":"audio-1","field":"fade","value":"0,1"},
+        {"op":"set","clip":"audio-1","field":"volume_envelope","value":[{"t":0,"v":1},{"t":20,"v":0}],
+    ]
+    class FakeModel:
+        def generate(self,_prompt):
+            return json.dumps({"summary":"缩短第二镜头、闭合空隙并让背景音乐结尾渐弱","operations":ops},ensure_ascii=False)
+    monkeypatch.setattr(web_server.vd_llm,"get_llm",lambda:FakeModel())
+    server=ThreadingHTTPServer(("127.0.0.1",0),web_server.Handler)
+    thread=threading.Thread(target=server.serve_forever,daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser=playwright.chromium.launch(headless=True)
+            context=browser.new_context(viewport={"width":1440,"height":1000})
+            page=context.new_page()
+            errors=[];applies=[]
+            page.on("pageerror",lambda error:errors.append(str(error)))
+            page.on("request",lambda request: applies.append(json.loads(request.post_data or "{}"))
+                    if request.method=="POST" and request.url.endswith("/api/editor/film/apply-proposal") else None)
+            try:
+                response=page.goto(f"http://127.0.0.1:{server.server_port}/",wait_until="domcontentloaded")
+                assert response and response.status==200
+                page.wait_for_function("typeof window.filmStudioAsk==='function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function("() => !!document.querySelector('#editor-project')?.options.length")
+                page.evaluate("""pid=>{const s=document.querySelector('#editor-project');let o=[...s.options].find(x=>x.value===pid);
+                  if(!o){o=new Option(pid,pid);s.add(o);}s.value=pid;s.dispatchEvent(new Event('change',{bubbles:true}));}""",project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator(".fs-react-timeline-surface").wait_for(state="visible")
+                env=page.locator('#fs-timeline canvas[data-envelope-clip="audio-1"]')
+                env.wait_for(state="visible")
+                initial_png=env.evaluate("(c)=>c.toDataURL()")
+                initial_geom=page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
+                  const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
+                  return [id,{left:getComputedStyle(n).left,width:getComputedStyle(n).width}];}))""")
+                assert page.evaluate("window.filmStudioStore.getSnapshot().revision")==before["rev"]
+
+                page.evaluate("window.filmStudioSetSideMode('ai')")
+                page.locator("#fs-chat-input").fill("缩短第二镜头一秒，闭合空隙，背景音乐结尾渐弱")
+                page.locator('[data-film-action="ask"]:visible').click()
+                page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]').wait_for(state="visible",timeout=10000)
+                page.wait_for_function("""()=>{const s=window.filmStudioStore?.getSnapshot(),p=s?.timelineGesturePreview,e=s?.timelineEnvelopePreview;
+                  return !!p?.['clip-b']&&!!p?.['clip-c']&&p['audio-1']?.fadeOut===1&&e?.clipId==='audio-1'&&e.points.length===2;}""",timeout=10000)
+                assert film_path.read_bytes()==original
+                assert fd.read_project_film(project_id)["rev"]==before["rev"]
+                state=page.evaluate("window.filmStudioStore.getSnapshot()")
+                scale=float(state["pixelsPerSecond"])
+                assert abs(state["timelineGesturePreview"]["clip-b"]["width"]-3*scale)<0.01
+                assert abs(state["timelineGesturePreview"]["clip-c"]["left"]-7*scale)<0.01
+                assert state["timelineEnvelopePreview"]["points"]==[{"t":0,"v":1},{"t":20,"v":0}]
+                clip=page.locator('#fs-timeline .fs-clip[data-clip="audio-1"]')
+                assert clip.get_attribute("data-preview-fade-out")=="1"
+                assert clip.locator('[data-fade-preview="out"]').is_visible()
+                assert env.get_attribute("data-react-envelope-source")=="preview"
+                assert env.evaluate("(c)=>c.toDataURL()")!=initial_png
+                b=page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                c=page.locator('#fs-timeline .fs-clip[data-clip="clip-c"]')
+                assert abs(float(b.evaluate("(n)=>getComputedStyle(n).width.replace('px','')"))-3*scale)<0.01
+                assert abs(float(c.evaluate("(n)=>getComputedStyle(n).left.replace('px','')"))-7*scale)<0.01
+                assert applies==[]
+
+                page.locator('[data-film-action="apply-proposal"]:visible').click()
+                page.wait_for_function("""r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision!==r&&s.timelineGesturePreview===null&&s.timelineEnvelopePreview===null;}""",
+                                       arg=before["rev"],timeout=10000)
+                after=fd.read_project_film(project_id);after_bytes=film_path.read_bytes()
+                assert len(applies)==1 and applies[0]["base_revision"]==before["rev"] and "ops" not in applies[0]
+                clips={x["id"]:x for t in after["doc"]["tracks"] for x in t["clips"]}
+                assert abs(float(clips["clip-c"]["attrs"]["at"])-7)<0.001
+                assert clips["audio-1"]["attrs"]["fade"]=="0,1"
+                assert json.loads(clips["audio-1"]["attrs"]["volume_envelope"])==[{"t":0.0,"v":1.0},{"t":20.0,"v":0.0}]
+                assert not errors,errors
+
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=before["rev"],timeout=10000)
+                assert film_path.read_bytes()==original
+                assert page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
+                  const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
+                  return [id,{left:getComputedStyle(n).left,width:getComputedStyle(n).width}];}))""")==initial_geom
+                page.evaluate("window.filmStudioRedo()")
+                page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=after["rev"],timeout=10000)
+                assert film_path.read_bytes()==after_bytes
+                assert not errors,errors
+            finally:
+                context.close();browser.close()
+    finally:
+        server.shutdown();server.server_close();thread.join(timeout=5)
