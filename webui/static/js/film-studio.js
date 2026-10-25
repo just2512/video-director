@@ -790,14 +790,7 @@
           thumbnail:thumbnail,selected:c.id===S.selectedId
         };
       });
-      var libraryAssets=S.libraryAssets.filter(function(a){return ['video','image','audio'].indexOf(String(a.type||'').toLowerCase())>=0;})
-        .map(function(a){
-          var id=String(a.asset_id||a.id||''),kind=String(a.type||'').toLowerCase(),label=String(a.description||a.name||a.filename||id);
-          return {id:id,kind:kind,label:label,meta:kind.toUpperCase()+(a.duration?' · '+Number(a.duration).toFixed(2)+'s':'')+(a.source?' · '+String(a.source):'')};
-        });
-      window.filmStudioReactAssets.render({
-        clips:assetClips,libraryAssets:libraryAssets
-      });
+      window.filmStudioReactAssets.render({clips:assetClips});
       return;
     }
     if(S.assetMode==='library'){renderLibraryAssets();return;}

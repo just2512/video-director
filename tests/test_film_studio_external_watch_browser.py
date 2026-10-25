@@ -195,9 +195,24 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     timeout=5000,
                 )
 
-                # Asset pane mode has one owner in FilmStore. The legacy global is a
-                # compatibility setter; React renders from that canonical value.
-                page.evaluate("window.filmStudioShowAssetMode('library')")
+                # Asset pane mode and catalog data both belong to FilmStore. React derives
+                # display records from the stored source catalog instead of a legacy copy.
+                saved_asset_catalog = page.evaluate("window.filmStudioStore?.getField('libraryAssets') || []")
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const current = store.getField("libraryAssets") || [];
+                  store.setField("libraryAssets", [...current, {
+                    asset_id:"film-studio-store-library-probe",type:"video",
+                    name:"Store catalog probe.mp4",duration:2,source:"test-fixture"
+                  }]);
+                  window.filmStudioShowAssetMode("library");
+                }""")
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  const item = document.querySelector('#fs-assets-list [data-react-library-asset="film-studio-store-library-probe"]');
+                  return store?.getField("libraryAssets")?.some(asset => asset.asset_id === "film-studio-store-library-probe") &&
+                    item?.querySelector(".fs-asset-name")?.textContent.includes("Store catalog probe.mp4");
+                }""", timeout=5000)
                 page.wait_for_function("""() =>
                   window.filmStudioStore?.getField("assetMode") === "library" &&
                   document.querySelector("#fs-react-film-store-state")?.dataset.assetMode === "library" &&
@@ -216,6 +231,7 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                   window.filmStudioStore?.getField("assetMode") === "clips" &&
                   document.querySelector("#fs-react-film-store-state")?.dataset.assetMode === "clips"
                 """, timeout=5000)
+                page.evaluate("(assets) => window.filmStudioStore.setField('libraryAssets', assets)", saved_asset_catalog)
                 page.evaluate("window.filmStudioShowAssetMode('clips')")
 
                 # Mode classes are projected from FilmStore on the React surface;

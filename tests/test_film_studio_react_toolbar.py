@@ -36,6 +36,10 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "canvasInspectorVisible: boolean;" in store
     assert "assetsModel: unknown | null;" in store
     assert "assetMode: FilmStudioAssetMode;" in store
+    assert "libraryAssets: unknown[];" in store
+    assert 'libraryAssets: []' in store
+    assert '["libraryAssets", "libraryAssets"]' in store
+    assert 'key === "libraryAssets"' in store
     assert 'assetMode: "clips"' in store
     assert '["assetMode", "assetMode"]' in store
     assert 'key === "assetMode"' in store
@@ -47,6 +51,9 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert 'const clipInspectorVisible = useFilmStoreField("clipInspectorVisible");' in component
     assert 'const canvasInspectorVisible = useFilmStoreField("canvasInspectorVisible");' in component
     assert 'const assetsModel = useFilmStoreField("assetsModel") as FilmStudioAssetsModel | null;' in component
+    assert 'const libraryAssetsSource = useFilmStoreField("libraryAssets");' in component
+    assert 'const libraryAssets = useMemo<FilmStudioLibraryAsset[]>(() => libraryAssetsSource' in component
+    assert "libraryAssets: FilmStudioLibraryAsset[];" not in component
     assert 'const assetMode = useFilmStoreField("assetMode");' in component
     assert '<StudioAssets model={assetsModel} mode={assetMode} />' in component
     assert 'if (mode === "director") return null;' in component
@@ -93,6 +100,8 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "window.filmStudioCopyClips" in studio
     assert "window.filmStudioPasteClips" in studio
     assert "window.filmStudioReactAssets.render({" in studio
+    assert "window.filmStudioReactAssets.render({clips:assetClips});" in studio
+    assert "var libraryAssets=S.libraryAssets.filter" not in studio
     assert 'data-react-asset-list="true"' in component
     assert 'id="fs-assets-list"' in html
     assert 'id="fs-react-scrub-row"' in html

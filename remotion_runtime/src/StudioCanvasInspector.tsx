@@ -348,7 +348,6 @@ type FilmStudioLibraryAsset = {
 };
 type FilmStudioAssetsModel = {
   clips: FilmStudioAssetClip[];
-  libraryAssets: FilmStudioLibraryAsset[];
 };
 interface FilmStudioReactAssetsBridge {
   render(model: FilmStudioAssetsModel): void;
@@ -1688,15 +1687,31 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
 };
 
 const StudioAssets: React.FC<{model: FilmStudioAssetsModel; mode: FilmStudioAssetMode}> = ({model,mode}) => {
+  const libraryAssetsSource = useFilmStoreField("libraryAssets");
+  const libraryAssets = useMemo<FilmStudioLibraryAsset[]>(() => libraryAssetsSource
+    .filter((asset): asset is Record<string, unknown> =>
+      !!asset && typeof asset === "object" && !Array.isArray(asset))
+    .filter(asset => ["video","image","audio"].includes(String(asset.type || "").toLowerCase()))
+    .map(asset => {
+      const id=String(asset.asset_id || asset.id || "");
+      const kind=String(asset.type || "").toLowerCase();
+      const label=String(asset.description || asset.name || asset.filename || id);
+      const duration=asset.duration;
+      const source=asset.source;
+      return {
+        id,kind,label,
+        meta:kind.toUpperCase()+(duration ? " · "+Number(duration).toFixed(2)+"s" : "")+(source ? " · "+String(source) : ""),
+      };
+    }), [libraryAssetsSource]);
   if (mode === "director") return null;
   if (mode === "library") {
-    if (!model.libraryAssets.length) {
+    if (!libraryAssets.length) {
       return <div className="fs-react-asset-items" data-react-asset-list="true">
         <div className="fs-empty">素材库没有可直接加入时间线的视频或图片。已上传的项目素材和全局素材会在此显示。</div>
       </div>;
     }
     return <div className="fs-react-asset-items" data-react-asset-list="true">
-      {model.libraryAssets.map((asset) => (
+      {libraryAssets.map((asset) => (
         <div className="fs-asset-item" data-react-library-asset={asset.id} key={asset.id}>
           <span className="fs-asset-icon">{asset.kind.toUpperCase()}</span>
           <span className="fs-asset-name" title={asset.label}>

@@ -109,6 +109,7 @@ export interface FilmStudioStoreSnapshot {
   film: unknown | null;
   assetsModel: unknown | null;
   assetMode: FilmStudioAssetMode;
+  libraryAssets: unknown[];
   aiDirectorModel: unknown | null;
   clipInspectorEmptyMessage: string | null;
   revision: string;
@@ -468,6 +469,7 @@ class FilmStore implements FilmStudioStoreBridge {
       film: null,
       assetsModel: null,
       assetMode: "clips",
+      libraryAssets: [],
       aiDirectorModel: null,
       clipInspectorEmptyMessage: null,
       revision: "",
@@ -602,6 +604,8 @@ class FilmStore implements FilmStudioStoreBridge {
       normalized = asString(value);
     } else if (key === "assetMode") {
       normalized = asFilmStudioAssetMode(value);
+    } else if (key === "libraryAssets") {
+      normalized = Array.isArray(value) ? value.slice() : [];
     } else if (key === "assetsModel" || key === "aiDirectorModel") {
       normalized = value == null ? null : value;
     } else if (key === "clipInspectorEmptyMessage") {
@@ -740,6 +744,7 @@ class FilmStore implements FilmStudioStoreBridge {
       film,
       assetsModel: this.snapshot.assetsModel,
       assetMode: asFilmStudioAssetMode(target.assetMode),
+      libraryAssets: Array.isArray(target.libraryAssets) ? target.libraryAssets.slice() : [],
       aiDirectorModel: this.snapshot.aiDirectorModel,
       clipInspectorEmptyMessage: this.snapshot.clipInspectorEmptyMessage,
       revision: filmRevision,
@@ -788,6 +793,7 @@ class FilmStore implements FilmStudioStoreBridge {
     const bindings: Array<[string, keyof FilmStudioStoreSnapshot]> = [
       ["projectId", "projectId"],
       ["assetMode", "assetMode"],
+      ["libraryAssets", "libraryAssets"],
       ["data", "film"],
       ["rev", "revision"],
       ["selectedElement", "canvasElementSelection"],
