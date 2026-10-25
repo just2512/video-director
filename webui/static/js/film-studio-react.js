@@ -24483,6 +24483,10 @@
             if (raw.removed === true) geometry.removed = true;
             if (typeof raw.previewTitle === "string") geometry.previewTitle = raw.previewTitle.slice(0, 240);
             if (typeof raw.previewTag === "string" && ["iframe", "video", "img", "audio"].includes(raw.previewTag)) geometry.previewTag = raw.previewTag;
+            if (raw.previewTrack === true) geometry.previewTrack = true;
+            if (typeof raw.trackLabel === "string") geometry.trackLabel = raw.trackLabel.slice(0, 160);
+            if (raw.trackKind === "video" || raw.trackKind === "audio") geometry.trackKind = raw.trackKind;
+            if (typeof raw.trackIndex === "number" && Number.isInteger(raw.trackIndex) && raw.trackIndex >= 0 && raw.trackIndex <= 500) geometry.trackIndex = raw.trackIndex;
             if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
             if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
             if (Object.keys(geometry).length) entries[clipId] = geometry;
@@ -26250,10 +26254,19 @@
       if (typeof entry === "number") return { left: entry };
       return entry || null;
     };
+    const previewForTrack = (trackId) => {
+      const entry = gesturePreview?.["__proposal_track_removed__:" + trackId];
+      return typeof entry === "number" ? null : entry || null;
+    };
+    const proposalAddedTracks = [];
     const crossTrackGhostsByTrack = /* @__PURE__ */ new Map();
     const proposalAdditionsByTrack = /* @__PURE__ */ new Map();
     for (const [previewKey, rawEntry] of Object.entries(gesturePreview || {})) {
-      if (typeof rawEntry === "number" || !rawEntry || rawEntry.added !== true) continue;
+      if (typeof rawEntry === "number" || !rawEntry) continue;
+      if (rawEntry.previewTrack === true && rawEntry.added === true && rawEntry.targetTrackId) {
+        proposalAddedTracks.push({ id: rawEntry.targetTrackId, preview: rawEntry });
+      }
+      if (rawEntry.added !== true) continue;
       const id = previewKey.startsWith("__proposal_added__:") ? previewKey.slice("__proposal_added__:".length) : previewKey;
       const targetTrackId = rawEntry.targetTrackId;
       if (!id || !targetTrackId || rawEntry.at == null) continue;
@@ -26270,6 +26283,108 @@
         crossTrackGhostsByTrack.set(targetTrackId, ghosts);
       }
     }
+    proposalAddedTracks.sort((left, right) => Number(left.preview.trackIndex ?? model.tracks.length) - Number(right.preview.trackIndex ?? model.tracks.length));
+    const proposalTracksBeforeIndex = /* @__PURE__ */ new Map();
+    proposalAddedTracks.forEach((item) => {
+      const rawIndex = item.preview.trackIndex;
+      const index = Number.isInteger(rawIndex) ? Math.max(0, Math.min(model.tracks.length, Number(rawIndex))) : model.tracks.length;
+      const rows = proposalTracksBeforeIndex.get(index) || [];
+      rows.push(item);
+      proposalTracksBeforeIndex.set(index, rows);
+    });
+    const renderProposalTrack = ({ id, preview }) => {
+      const additions = proposalAdditionsByTrack.get(id) || [];
+      const movedGhosts = crossTrackGhostsByTrack.get(id) || [];
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        "div",
+        {
+          className: "fs-track fs-track-proposal-added",
+          "data-track": id,
+          "data-proposal-track-added": id,
+          "aria-hidden": "true",
+          style: { opacity: 0.92, outline: "2px dashed #65a7dc", outlineOffset: "-2px", background: "rgba(80,145,200,.08)" },
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-head", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-track-label", title: String(preview.trackLabel || id), children: [
+                String(preview.trackLabel || id),
+                " \xB7 \u5019\u9009\u65B0\u589E\u8F68\u9053"
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-track-controls", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-proposal-track-state", children: "\u5019\u9009" }) })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: [
+              movedGhosts.map((clip) => {
+                const clipPreview = previewForClip(clip.id);
+                if (!clipPreview) return null;
+                return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                  "div",
+                  {
+                    className: "fs-clip fs-clip-gesture-ghost",
+                    "data-gesture-ghost-for": clip.id,
+                    "data-gesture-target-track": id,
+                    "data-kind": clip.tag,
+                    "aria-hidden": "true",
+                    title: "\u5019\u9009\u79FB\u52A8\uFF1A" + clip.title,
+                    style: {
+                      left: clipPreview.at != null ? filmTimelineMath.clipLeft(Number(clipPreview.at), model.pixelsPerSecond) : clipPreview.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                      width: clipPreview.duration !== void 0 ? filmTimelineMath.clipWidth(clipPreview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : clipPreview.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2),
+                      opacity: 0.88,
+                      outline: "2px dashed #65a7dc",
+                      outlineOffset: "-2px",
+                      background: "rgba(80,145,200,.2)"
+                    },
+                    children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-title", children: [
+                        clip.title,
+                        " \xB7 \u5019\u9009\u79FB\u52A8"
+                      ] }),
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                        formatFilmTime(Number(clipPreview.at ?? clip.at)),
+                        " \xB7 ",
+                        clipPreview.duration == null ? "\u65F6\u957F\u672A\u77E5" : Number(clipPreview.duration ?? clip.duration).toFixed(2) + "s"
+                      ] })
+                    ]
+                  },
+                  "proposal-track-moved-" + clip.id
+                );
+              }),
+              additions.map(({ id: clipId, preview: clipPreview }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                "div",
+                {
+                  className: "fs-clip fs-clip-gesture-ghost fs-clip-proposal-added",
+                  "data-proposal-added": clipId,
+                  "data-gesture-target-track": id,
+                  "data-kind": clipPreview.previewTag || "video",
+                  "aria-hidden": "true",
+                  title: "\u5019\u9009\u65B0\u589E\uFF1A" + String(clipPreview.previewTitle || clipId),
+                  style: {
+                    left: filmTimelineMath.clipLeft(Number(clipPreview.at || 0), model.pixelsPerSecond),
+                    width: filmTimelineMath.clipWidth(clipPreview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false),
+                    opacity: 0.88,
+                    outline: "2px dashed #65a7dc",
+                    outlineOffset: "-2px",
+                    background: "rgba(80,145,200,.2)"
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-title", children: [
+                      String(clipPreview.previewTitle || clipId),
+                      " \xB7 \u5019\u9009\u65B0\u589E"
+                    ] }),
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                      formatFilmTime(Number(clipPreview.at || 0)),
+                      " \xB7 ",
+                      clipPreview.duration == null ? "\u65F6\u957F\u672A\u77E5" : Number(clipPreview.duration).toFixed(2) + "s"
+                    ] })
+                  ]
+                },
+                "proposal-track-clip-" + clipId
+              )),
+              additions.length === 0 && movedGhosts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-empty fs-proposal-empty-track", children: "\u5019\u9009\u65B0\u589E\u7A7A\u8F68\u9053" }) : null
+            ] })
+          ]
+        },
+        "proposal-track-added-" + id
+      );
+    };
     const activePointerId = (0, import_react.useRef)(null);
     const activeEnvelopePointerId = (0, import_react.useRef)(null);
     const activeScrubPointerId = (0, import_react.useRef)(null);
@@ -26397,332 +26512,344 @@
               }
             )
           ] }),
-          model.tracks.map((track) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-            "div",
-            {
-              className: "fs-track" + (track.locked ? " fs-track-locked" : "") + (track.syncLocked ? " fs-sync-locked" : "") + (track.hidden ? " fs-hidden-track" : "") + (track.muted ? " fs-muted-track" : "") + (dropTarget?.trackId === track.id ? dropTarget.invalid ? " fs-track-drop-invalid" : " fs-track-drop-target" : ""),
-              "data-track": track.id,
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-head", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-track-label", title: track.label, children: track.label }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-track-controls", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                      "button",
-                      {
-                        type: "button",
-                        className: "fs-btn",
-                        "data-track-lock": track.id,
-                        title: track.locked ? "\u89E3\u9501\u8F68\u9053" : "\u9501\u5B9A\u8F68\u9053",
-                        onClick: (event) => {
-                          event.stopPropagation();
-                          void window.filmStudioToggleTrackLock?.(track.id);
-                        },
-                        children: track.locked ? "\u{1F512}" : "\u9501"
-                      }
-                    ),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "sync-lock", "data-track-key": track.id, "aria-pressed": track.syncLocked ? "true" : "false", title: track.syncLocked ? "\u53D6\u6D88\u540C\u6B65\u9501\u5B9A" : "\u542F\u7528\u540C\u6B65\u9501\u5B9A", onClick: (event) => {
-                      event.stopPropagation();
-                      void window.filmStudioToggleTrackFlag?.(track.id, "sync-lock");
-                    }, children: track.syncLocked ? "\u21C4" : "\u540C\u6B65" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "hidden", "data-track-key": track.id, title: track.hidden ? "\u663E\u793A\u8F68\u9053" : "\u9690\u85CF\u8F68\u9053", onClick: (event) => {
-                      event.stopPropagation();
-                      void window.filmStudioToggleTrackFlag?.(track.id, "hidden");
-                    }, children: track.hidden ? "\u663E" : "\u9690" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "muted", "data-track-key": track.id, title: track.muted ? "\u53D6\u6D88\u9759\u97F3" : "\u9759\u97F3\u8F68\u9053", onClick: (event) => {
-                      event.stopPropagation();
-                      void window.filmStudioToggleTrackFlag?.(track.id, "muted");
-                    }, children: track.muted ? "\u{1F50A}" : "\u{1F507}" })
-                  ] })
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: [
-                  track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-                    "div",
-                    {
-                      className: "fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "") + (activeDragIds?.includes(clip.id) ? " fs-dragging" : "") + (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") + (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") + (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : "") + (previewForClip(clip.id)?.removed ? " fs-clip-proposal-removed" : ""),
-                      "data-clip": clip.id,
-                      "data-clip-locked": clip.locked ? "true" : "false",
-                      "data-track": clip.trackId,
-                      "data-kind": clip.tag,
-                      "data-react-timeline-clip": clip.id,
-                      "data-react-gesture-preview": previewForClip(clip.id) ? "true" : "false",
-                      "data-preview-fade-in": previewForClip(clip.id)?.fadeIn,
-                      "data-preview-fade-out": previewForClip(clip.id)?.fadeOut,
-                      "data-proposal-removed": previewForClip(clip.id)?.removed ? "true" : void 0,
-                      "data-roll-delta": previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : void 0,
-                      "data-slide-delta": previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : void 0,
-                      "data-slip-delta": previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : void 0,
-                      style: {
-                        left: previewForClip(clip.id)?.at != null ? filmTimelineMath.clipLeft(Number(previewForClip(clip.id)?.at), model.pixelsPerSecond) : previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
-                        width: previewForClip(clip.id)?.duration !== void 0 ? filmTimelineMath.clipWidth(previewForClip(clip.id)?.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2),
-                        opacity: previewForClip(clip.id)?.removed ? 0.32 : void 0,
-                        outline: previewForClip(clip.id)?.removed ? "2px dashed #e5a23d" : void 0,
-                        outlineOffset: previewForClip(clip.id)?.removed ? "-2px" : void 0
-                      },
-                      title: clip.title,
-                      onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
-                      onContextMenu: (event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        window.filmStudioOpenTimelineContextMenu?.(clip.id, event.clientX, event.clientY);
-                      },
-                      onPointerDown: (event) => {
-                        const target = event.target;
-                        const elementTarget = target instanceof Element ? target : null;
-                        const trim = elementTarget?.closest("[data-trim]");
-                        const rawTrimEdge = trim?.getAttribute("data-trim");
-                        const started = window.filmStudioBeginClipGesture?.(event.nativeEvent, {
-                          clipId: clip.id,
-                          trimEdge: rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
-                          targetIsButton: !!elementTarget?.closest("button")
-                        });
-                        if (started) {
-                          activePointerId.current = event.nativeEvent.pointerId;
-                          try {
-                            event.currentTarget.setPointerCapture(event.nativeEvent.pointerId);
-                          } catch {
-                          }
-                        }
-                      },
-                      onPointerMove: (event) => {
-                        if (activePointerId.current === event.nativeEvent.pointerId) window.filmStudioMoveClipGesture?.(event.nativeEvent);
-                      },
-                      onPointerUp: (event) => {
-                        const pointerId = event.nativeEvent.pointerId;
-                        if (activePointerId.current !== pointerId) return;
-                        const pending = window.filmStudioEndClipGesture?.(event.nativeEvent);
-                        const clear = () => {
-                          if (activePointerId.current === pointerId) activePointerId.current = null;
-                        };
-                        Promise.resolve(pending).then(clear, clear);
-                      },
-                      onPointerCancel: (event) => {
-                        const pointerId = event.nativeEvent.pointerId;
-                        if (activePointerId.current !== pointerId) return;
-                        window.filmStudioCancelClipGesture?.(event.nativeEvent);
-                        Promise.resolve().then(() => {
-                          if (activePointerId.current === pointerId) activePointerId.current = null;
-                        });
-                      },
-                      children: [
-                        clip.thumbnail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "fs-clip-thumb", src: clip.thumbnail, loading: "lazy", alt: "", onError: (event) => {
-                          event.currentTarget.style.display = "none";
-                        } }) : null,
-                        clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                          AudioWaveformCanvas,
-                          {
-                            clipId: clip.id,
-                            waveformKey: clip.waveformKey,
-                            duration: clip.duration ?? 1,
-                            pixelsPerSecond: model.pixelsPerSecond,
-                            sourceStart: clip.sourceStart,
-                            sourceEnd: clip.sourceEnd,
-                            source: waveformSources[clip.waveformKey]
-                          }
-                        ) : null,
-                        clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                          VolumeEnvelopeCanvas,
-                          {
-                            clipId: clip.id,
-                            duration: clip.duration ?? 0,
-                            pixelsPerSecond: model.pixelsPerSecond,
-                            points: clip.envelopePoints,
-                            preview: envelopePreview,
-                            onContextMenu: (event) => event.preventDefault(),
-                            onClick: (event) => event.stopPropagation(),
-                            onPointerDown: (event) => {
-                              if (event.button !== 0 && event.button !== 2) return;
-                              event.preventDefault();
-                              event.stopPropagation();
-                              const pointerId = event.nativeEvent.pointerId;
-                              const bounds = event.currentTarget.getBoundingClientRect();
-                              const started = window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {
-                                clipId: clip.id,
-                                rect: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }
-                              });
-                              if (started) {
-                                activeEnvelopePointerId.current = pointerId;
-                                try {
-                                  event.currentTarget.setPointerCapture(pointerId);
-                                } catch {
-                                }
-                              }
-                            },
-                            onPointerMove: (event) => {
-                              if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
-                                const bounds = event.currentTarget.getBoundingClientRect();
-                                window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {
-                                  left: bounds.left,
-                                  top: bounds.top,
-                                  width: bounds.width,
-                                  height: bounds.height
-                                });
-                              }
-                            },
-                            onPointerUp: (event) => {
-                              const pointerId = event.nativeEvent.pointerId;
-                              if (activeEnvelopePointerId.current !== pointerId) return;
-                              const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
-                              const clear = () => {
-                                if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
-                              };
-                              Promise.resolve(pending).then(clear, clear);
-                            },
-                            onPointerCancel: (event) => {
-                              const pointerId = event.nativeEvent.pointerId;
-                              if (activeEnvelopePointerId.current !== pointerId) return;
-                              window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
-                              Promise.resolve().then(() => {
-                                if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
-                              });
-                            }
-                          }
-                        ) : null,
-                        clip.keyframeMarks.map((mark) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          model.tracks.map((track, trackIndex) => {
+            const trackProposal = previewForTrack(track.id);
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.default.Fragment, { children: [
+              (proposalTracksBeforeIndex.get(trackIndex) || []).map(renderProposalTrack),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                "div",
+                {
+                  className: "fs-track" + (track.locked ? " fs-track-locked" : "") + (track.syncLocked ? " fs-sync-locked" : "") + (track.hidden ? " fs-hidden-track" : "") + (track.muted ? " fs-muted-track" : "") + (trackProposal?.removed ? " fs-track-proposal-removed" : "") + (dropTarget?.trackId === track.id ? dropTarget.invalid ? " fs-track-drop-invalid" : " fs-track-drop-target" : ""),
+                  "data-track": track.id,
+                  "data-proposal-track-removed": trackProposal?.removed ? track.id : void 0,
+                  style: trackProposal?.removed ? { opacity: 0.48, outline: "2px dashed #e5a23d", outlineOffset: "-2px" } : void 0,
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-head", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-track-label", title: track.label, children: [
+                        track.label,
+                        trackProposal?.removed ? " \xB7 \u5019\u9009\u5220\u9664" : ""
+                      ] }),
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-track-controls", children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                           "button",
                           {
                             type: "button",
-                            className: "fs-clip-keyframe-marker",
-                            "data-film-keyframe-marker": clip.id,
-                            "data-keyframe-at": mark.at,
-                            title: "\u5173\u952E\u5E27 " + mark.at.toFixed(3) + "s \xB7 " + mark.properties.join(", "),
-                            "aria-label": "\u8DF3\u8F6C\u5230 " + mark.at.toFixed(3) + " \u79D2\u5173\u952E\u5E27",
-                            style: { left: (clip.duration && clip.duration > 0 ? Math.max(0, Math.min(100, mark.at / clip.duration * 100)) : 0) + "%" },
-                            onPointerDown: (event) => {
-                              event.stopPropagation();
-                            },
+                            className: "fs-btn",
+                            "data-track-lock": track.id,
+                            title: track.locked ? "\u89E3\u9501\u8F68\u9053" : "\u9501\u5B9A\u8F68\u9053",
                             onClick: (event) => {
-                              event.preventDefault();
                               event.stopPropagation();
-                              window.filmStudioJumpToKeyframe?.(clip.id, mark.at);
+                              void window.filmStudioToggleTrackLock?.(track.id);
+                            },
+                            children: track.locked ? "\u{1F512}" : "\u9501"
+                          }
+                        ),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "sync-lock", "data-track-key": track.id, "aria-pressed": track.syncLocked ? "true" : "false", title: track.syncLocked ? "\u53D6\u6D88\u540C\u6B65\u9501\u5B9A" : "\u542F\u7528\u540C\u6B65\u9501\u5B9A", onClick: (event) => {
+                          event.stopPropagation();
+                          void window.filmStudioToggleTrackFlag?.(track.id, "sync-lock");
+                        }, children: track.syncLocked ? "\u21C4" : "\u540C\u6B65" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "hidden", "data-track-key": track.id, title: track.hidden ? "\u663E\u793A\u8F68\u9053" : "\u9690\u85CF\u8F68\u9053", onClick: (event) => {
+                          event.stopPropagation();
+                          void window.filmStudioToggleTrackFlag?.(track.id, "hidden");
+                        }, children: track.hidden ? "\u663E" : "\u9690" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "fs-btn", "data-track-flag": "muted", "data-track-key": track.id, title: track.muted ? "\u53D6\u6D88\u9759\u97F3" : "\u9759\u97F3\u8F68\u9053", onClick: (event) => {
+                          event.stopPropagation();
+                          void window.filmStudioToggleTrackFlag?.(track.id, "muted");
+                        }, children: track.muted ? "\u{1F50A}" : "\u{1F507}" })
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-track-body", style: { width: model.laneWidth }, children: [
+                      track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                        "div",
+                        {
+                          className: "fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "") + (activeDragIds?.includes(clip.id) ? " fs-dragging" : "") + (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") + (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") + (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : "") + (previewForClip(clip.id)?.removed ? " fs-clip-proposal-removed" : ""),
+                          "data-clip": clip.id,
+                          "data-clip-locked": clip.locked ? "true" : "false",
+                          "data-track": clip.trackId,
+                          "data-kind": clip.tag,
+                          "data-react-timeline-clip": clip.id,
+                          "data-react-gesture-preview": previewForClip(clip.id) ? "true" : "false",
+                          "data-preview-fade-in": previewForClip(clip.id)?.fadeIn,
+                          "data-preview-fade-out": previewForClip(clip.id)?.fadeOut,
+                          "data-proposal-removed": previewForClip(clip.id)?.removed ? "true" : void 0,
+                          "data-roll-delta": previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : void 0,
+                          "data-slide-delta": previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : void 0,
+                          "data-slip-delta": previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : void 0,
+                          style: {
+                            left: previewForClip(clip.id)?.at != null ? filmTimelineMath.clipLeft(Number(previewForClip(clip.id)?.at), model.pixelsPerSecond) : previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                            width: previewForClip(clip.id)?.duration !== void 0 ? filmTimelineMath.clipWidth(previewForClip(clip.id)?.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2),
+                            opacity: previewForClip(clip.id)?.removed ? 0.32 : void 0,
+                            outline: previewForClip(clip.id)?.removed ? "2px dashed #e5a23d" : void 0,
+                            outlineOffset: previewForClip(clip.id)?.removed ? "-2px" : void 0
+                          },
+                          title: clip.title,
+                          onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
+                          onContextMenu: (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            window.filmStudioOpenTimelineContextMenu?.(clip.id, event.clientX, event.clientY);
+                          },
+                          onPointerDown: (event) => {
+                            const target = event.target;
+                            const elementTarget = target instanceof Element ? target : null;
+                            const trim = elementTarget?.closest("[data-trim]");
+                            const rawTrimEdge = trim?.getAttribute("data-trim");
+                            const started = window.filmStudioBeginClipGesture?.(event.nativeEvent, {
+                              clipId: clip.id,
+                              trimEdge: rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
+                              targetIsButton: !!elementTarget?.closest("button")
+                            });
+                            if (started) {
+                              activePointerId.current = event.nativeEvent.pointerId;
+                              try {
+                                event.currentTarget.setPointerCapture(event.nativeEvent.pointerId);
+                              } catch {
+                              }
                             }
                           },
-                          mark.at
-                        )),
-                        previewForClip(clip.id)?.removed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                          "span",
-                          {
-                            "data-proposal-remove-label": clip.id,
-                            "aria-hidden": "true",
-                            style: { position: "absolute", zIndex: 6, right: 4, top: 2, pointerEvents: "none", fontSize: 10, fontWeight: 700, color: "#6b3710", background: "rgba(255,238,208,.96)", border: "1px dashed #e5a23d", padding: "1px 3px" },
-                            children: "\u5019\u9009\u5220\u9664"
-                          }
-                        ) : null,
-                        clip.locked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-lock-mark", "aria-label": "\u7247\u6BB5\u5DF2\u9501\u5B9A", children: "\u{1F512}" }) : null,
-                        clip.trimHandles ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-left", "data-trim": "start", title: "\u4FEE\u526A\u5165\u70B9" }),
-                          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-right", "data-trim": "end", title: "\u4FEE\u526A\u51FA\u70B9" })
-                        ] }) : null,
-                        (previewForClip(clip.id)?.fadeIn ?? 0) > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                          "span",
-                          {
-                            className: "fs-clip-fade-preview fs-clip-fade-in",
-                            "data-fade-preview": "in",
-                            "aria-hidden": "true",
-                            title: "\u5019\u9009\u6DE1\u5165 " + Number(previewForClip(clip.id)?.fadeIn || 0).toFixed(2) + "s",
-                            style: {
-                              position: "absolute",
-                              zIndex: 5,
-                              pointerEvents: "none",
-                              top: 0,
-                              bottom: 0,
-                              left: 0,
-                              width: Math.max(0, Math.min(100, (previewForClip(clip.id)?.fadeIn || 0) / Math.max(1e-3, clip.duration ?? 1) * 100)) + "%",
-                              background: "linear-gradient(to right, rgba(255,255,255,.72), rgba(255,255,255,0))",
-                              borderLeft: "2px solid rgba(255,255,255,.82)"
-                            }
-                          }
-                        ) : null,
-                        (previewForClip(clip.id)?.fadeOut ?? 0) > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                          "span",
-                          {
-                            className: "fs-clip-fade-preview fs-clip-fade-out",
-                            "data-fade-preview": "out",
-                            "aria-hidden": "true",
-                            title: "\u5019\u9009\u6DE1\u51FA " + Number(previewForClip(clip.id)?.fadeOut || 0).toFixed(2) + "s",
-                            style: {
-                              position: "absolute",
-                              zIndex: 5,
-                              pointerEvents: "none",
-                              top: 0,
-                              bottom: 0,
-                              right: 0,
-                              width: Math.max(0, Math.min(100, (previewForClip(clip.id)?.fadeOut || 0) / Math.max(1e-3, clip.duration ?? 1) * 100)) + "%",
-                              background: "linear-gradient(to left, rgba(255,255,255,.72), rgba(255,255,255,0))",
-                              borderRight: "2px solid rgba(255,255,255,.82)"
-                            }
-                          }
-                        ) : null,
-                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
-                        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
-                          clip.atLabel,
-                          clip.durationLabel
-                        ] })
-                      ]
-                    },
-                    clip.id
-                  )),
-                  (crossTrackGhostsByTrack.get(track.id) || []).map((clip) => {
-                    const preview = previewForClip(clip.id);
-                    if (!preview) return null;
-                    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-                      "div",
-                      {
-                        className: "fs-clip fs-clip-gesture-ghost",
-                        "data-gesture-ghost-for": clip.id,
-                        "data-gesture-target-track": track.id,
-                        "data-kind": clip.tag,
-                        "aria-hidden": "true",
-                        style: {
-                          left: preview.at != null ? filmTimelineMath.clipLeft(Number(preview.at), model.pixelsPerSecond) : preview.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
-                          width: preview.duration !== void 0 ? filmTimelineMath.clipWidth(preview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : preview.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
+                          onPointerMove: (event) => {
+                            if (activePointerId.current === event.nativeEvent.pointerId) window.filmStudioMoveClipGesture?.(event.nativeEvent);
+                          },
+                          onPointerUp: (event) => {
+                            const pointerId = event.nativeEvent.pointerId;
+                            if (activePointerId.current !== pointerId) return;
+                            const pending = window.filmStudioEndClipGesture?.(event.nativeEvent);
+                            const clear = () => {
+                              if (activePointerId.current === pointerId) activePointerId.current = null;
+                            };
+                            Promise.resolve(pending).then(clear, clear);
+                          },
+                          onPointerCancel: (event) => {
+                            const pointerId = event.nativeEvent.pointerId;
+                            if (activePointerId.current !== pointerId) return;
+                            window.filmStudioCancelClipGesture?.(event.nativeEvent);
+                            Promise.resolve().then(() => {
+                              if (activePointerId.current === pointerId) activePointerId.current = null;
+                            });
+                          },
+                          children: [
+                            clip.thumbnail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "fs-clip-thumb", src: clip.thumbnail, loading: "lazy", alt: "", onError: (event) => {
+                              event.currentTarget.style.display = "none";
+                            } }) : null,
+                            clip.waveform ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                              AudioWaveformCanvas,
+                              {
+                                clipId: clip.id,
+                                waveformKey: clip.waveformKey,
+                                duration: clip.duration ?? 1,
+                                pixelsPerSecond: model.pixelsPerSecond,
+                                sourceStart: clip.sourceStart,
+                                sourceEnd: clip.sourceEnd,
+                                source: waveformSources[clip.waveformKey]
+                              }
+                            ) : null,
+                            clip.envelope ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                              VolumeEnvelopeCanvas,
+                              {
+                                clipId: clip.id,
+                                duration: clip.duration ?? 0,
+                                pixelsPerSecond: model.pixelsPerSecond,
+                                points: clip.envelopePoints,
+                                preview: envelopePreview,
+                                onContextMenu: (event) => event.preventDefault(),
+                                onClick: (event) => event.stopPropagation(),
+                                onPointerDown: (event) => {
+                                  if (event.button !== 0 && event.button !== 2) return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  const pointerId = event.nativeEvent.pointerId;
+                                  const bounds = event.currentTarget.getBoundingClientRect();
+                                  const started = window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {
+                                    clipId: clip.id,
+                                    rect: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }
+                                  });
+                                  if (started) {
+                                    activeEnvelopePointerId.current = pointerId;
+                                    try {
+                                      event.currentTarget.setPointerCapture(pointerId);
+                                    } catch {
+                                    }
+                                  }
+                                },
+                                onPointerMove: (event) => {
+                                  if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
+                                    const bounds = event.currentTarget.getBoundingClientRect();
+                                    window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {
+                                      left: bounds.left,
+                                      top: bounds.top,
+                                      width: bounds.width,
+                                      height: bounds.height
+                                    });
+                                  }
+                                },
+                                onPointerUp: (event) => {
+                                  const pointerId = event.nativeEvent.pointerId;
+                                  if (activeEnvelopePointerId.current !== pointerId) return;
+                                  const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
+                                  const clear = () => {
+                                    if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
+                                  };
+                                  Promise.resolve(pending).then(clear, clear);
+                                },
+                                onPointerCancel: (event) => {
+                                  const pointerId = event.nativeEvent.pointerId;
+                                  if (activeEnvelopePointerId.current !== pointerId) return;
+                                  window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
+                                  Promise.resolve().then(() => {
+                                    if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
+                                  });
+                                }
+                              }
+                            ) : null,
+                            clip.keyframeMarks.map((mark) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                              "button",
+                              {
+                                type: "button",
+                                className: "fs-clip-keyframe-marker",
+                                "data-film-keyframe-marker": clip.id,
+                                "data-keyframe-at": mark.at,
+                                title: "\u5173\u952E\u5E27 " + mark.at.toFixed(3) + "s \xB7 " + mark.properties.join(", "),
+                                "aria-label": "\u8DF3\u8F6C\u5230 " + mark.at.toFixed(3) + " \u79D2\u5173\u952E\u5E27",
+                                style: { left: (clip.duration && clip.duration > 0 ? Math.max(0, Math.min(100, mark.at / clip.duration * 100)) : 0) + "%" },
+                                onPointerDown: (event) => {
+                                  event.stopPropagation();
+                                },
+                                onClick: (event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  window.filmStudioJumpToKeyframe?.(clip.id, mark.at);
+                                }
+                              },
+                              mark.at
+                            )),
+                            previewForClip(clip.id)?.removed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                              "span",
+                              {
+                                "data-proposal-remove-label": clip.id,
+                                "aria-hidden": "true",
+                                style: { position: "absolute", zIndex: 6, right: 4, top: 2, pointerEvents: "none", fontSize: 10, fontWeight: 700, color: "#6b3710", background: "rgba(255,238,208,.96)", border: "1px dashed #e5a23d", padding: "1px 3px" },
+                                children: "\u5019\u9009\u5220\u9664"
+                              }
+                            ) : null,
+                            clip.locked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-lock-mark", "aria-label": "\u7247\u6BB5\u5DF2\u9501\u5B9A", children: "\u{1F512}" }) : null,
+                            clip.trimHandles ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-left", "data-trim": "start", title: "\u4FEE\u526A\u5165\u70B9" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-right", "data-trim": "end", title: "\u4FEE\u526A\u51FA\u70B9" })
+                            ] }) : null,
+                            (previewForClip(clip.id)?.fadeIn ?? 0) > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                              "span",
+                              {
+                                className: "fs-clip-fade-preview fs-clip-fade-in",
+                                "data-fade-preview": "in",
+                                "aria-hidden": "true",
+                                title: "\u5019\u9009\u6DE1\u5165 " + Number(previewForClip(clip.id)?.fadeIn || 0).toFixed(2) + "s",
+                                style: {
+                                  position: "absolute",
+                                  zIndex: 5,
+                                  pointerEvents: "none",
+                                  top: 0,
+                                  bottom: 0,
+                                  left: 0,
+                                  width: Math.max(0, Math.min(100, (previewForClip(clip.id)?.fadeIn || 0) / Math.max(1e-3, clip.duration ?? 1) * 100)) + "%",
+                                  background: "linear-gradient(to right, rgba(255,255,255,.72), rgba(255,255,255,0))",
+                                  borderLeft: "2px solid rgba(255,255,255,.82)"
+                                }
+                              }
+                            ) : null,
+                            (previewForClip(clip.id)?.fadeOut ?? 0) > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                              "span",
+                              {
+                                className: "fs-clip-fade-preview fs-clip-fade-out",
+                                "data-fade-preview": "out",
+                                "aria-hidden": "true",
+                                title: "\u5019\u9009\u6DE1\u51FA " + Number(previewForClip(clip.id)?.fadeOut || 0).toFixed(2) + "s",
+                                style: {
+                                  position: "absolute",
+                                  zIndex: 5,
+                                  pointerEvents: "none",
+                                  top: 0,
+                                  bottom: 0,
+                                  right: 0,
+                                  width: Math.max(0, Math.min(100, (previewForClip(clip.id)?.fadeOut || 0) / Math.max(1e-3, clip.duration ?? 1) * 100)) + "%",
+                                  background: "linear-gradient(to left, rgba(255,255,255,.72), rgba(255,255,255,0))",
+                                  borderRight: "2px solid rgba(255,255,255,.82)"
+                                }
+                              }
+                            ) : null,
+                            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
+                            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                              clip.atLabel,
+                              clip.durationLabel
+                            ] })
+                          ]
                         },
-                        children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
-                          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
-                            clip.atLabel,
-                            clip.durationLabel
-                          ] })
-                        ]
-                      },
-                      "gesture-ghost-" + clip.id
-                    );
-                  }),
-                  (proposalAdditionsByTrack.get(track.id) || []).map(({ id, preview }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-                    "div",
-                    {
-                      className: "fs-clip fs-clip-gesture-ghost fs-clip-proposal-added",
-                      "data-proposal-added": id,
-                      "data-gesture-target-track": track.id,
-                      "data-kind": preview.previewTag || "video",
-                      "aria-hidden": "true",
-                      title: "\u5019\u9009\u65B0\u589E\uFF1A" + String(preview.previewTitle || id),
-                      style: {
-                        left: filmTimelineMath.clipLeft(Number(preview.at || 0), model.pixelsPerSecond),
-                        width: filmTimelineMath.clipWidth(preview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false),
-                        opacity: 0.88,
-                        outline: "2px dashed #65a7dc",
-                        outlineOffset: "-2px",
-                        background: "rgba(80,145,200,.2)"
-                      },
-                      children: [
-                        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-title", children: [
-                          String(preview.previewTitle || id),
-                          " \xB7 \u5019\u9009\u65B0\u589E"
-                        ] }),
-                        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
-                          formatFilmTime(Number(preview.at || 0)),
-                          " \xB7 ",
-                          preview.duration == null ? "\u65F6\u957F\u672A\u77E5" : Number(preview.duration).toFixed(2) + "s"
-                        ] })
-                      ]
-                    },
-                    "proposal-added-" + id
-                  ))
-                ] })
-              ]
-            },
-            track.id
-          )),
+                        clip.id
+                      )),
+                      (crossTrackGhostsByTrack.get(track.id) || []).map((clip) => {
+                        const preview = previewForClip(clip.id);
+                        if (!preview) return null;
+                        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                          "div",
+                          {
+                            className: "fs-clip fs-clip-gesture-ghost",
+                            "data-gesture-ghost-for": clip.id,
+                            "data-gesture-target-track": track.id,
+                            "data-kind": clip.tag,
+                            "aria-hidden": "true",
+                            style: {
+                              left: preview.at != null ? filmTimelineMath.clipLeft(Number(preview.at), model.pixelsPerSecond) : preview.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                              width: preview.duration !== void 0 ? filmTimelineMath.clipWidth(preview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : preview.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
+                            },
+                            children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
+                              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                                clip.atLabel,
+                                clip.durationLabel
+                              ] })
+                            ]
+                          },
+                          "gesture-ghost-" + clip.id
+                        );
+                      }),
+                      (proposalAdditionsByTrack.get(track.id) || []).map(({ id, preview }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                        "div",
+                        {
+                          className: "fs-clip fs-clip-gesture-ghost fs-clip-proposal-added",
+                          "data-proposal-added": id,
+                          "data-gesture-target-track": track.id,
+                          "data-kind": preview.previewTag || "video",
+                          "aria-hidden": "true",
+                          title: "\u5019\u9009\u65B0\u589E\uFF1A" + String(preview.previewTitle || id),
+                          style: {
+                            left: filmTimelineMath.clipLeft(Number(preview.at || 0), model.pixelsPerSecond),
+                            width: filmTimelineMath.clipWidth(preview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false),
+                            opacity: 0.88,
+                            outline: "2px dashed #65a7dc",
+                            outlineOffset: "-2px",
+                            background: "rgba(80,145,200,.2)"
+                          },
+                          children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-title", children: [
+                              String(preview.previewTitle || id),
+                              " \xB7 \u5019\u9009\u65B0\u589E"
+                            ] }),
+                            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                              formatFilmTime(Number(preview.at || 0)),
+                              " \xB7 ",
+                              preview.duration == null ? "\u65F6\u957F\u672A\u77E5" : Number(preview.duration).toFixed(2) + "s"
+                            ] })
+                          ]
+                        },
+                        "proposal-added-" + id
+                      ))
+                    ] })
+                  ]
+                },
+                track.id
+              )
+            ] }, "timeline-track-group-" + track.id);
+          }),
+          (proposalTracksBeforeIndex.get(model.tracks.length) || []).map(renderProposalTrack),
           snapGuide ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             "div",
             {
