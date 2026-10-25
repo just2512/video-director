@@ -721,10 +721,48 @@ class FilmStore implements FilmStudioStoreBridge {
         ? normalized as Record<string, unknown>
         : null;
       const revision = record && typeof record.rev === "string" ? record.rev : "";
-      if (!record || record.exists !== true || revision !== this.snapshot.revision) {
-        // A context menu is only valid while the authoritative FilmDocument exists
-        // at the same revision. Null/uninitialized/error results must not leave a
-        // menu or revision token pointing at a document that is no longer active.
+      if (!record || record.exists !== true) {
+        // No active FilmDocument means all clip/gesture selections refer to stale
+        // content. Clear transient timeline state before React renders the next view.
+        this.replaceSelectedIds([], false);
+        const previous = this.snapshot;
+        this.publish({
+          ...previous,
+          film: normalized,
+          revision,
+          assetsModel: null,
+          clipInspectorEmptyMessage: null,
+          canvasElementSelection: null,
+          canvasElementInspectMode: false,
+          selectedId: "",
+          selectedIds: this.selectedIdsProxy,
+          selectedIdsVersion: previous.selectedIdsVersion + 1,
+          selectionAnchor: "",
+          playhead: 0,
+          playing: false,
+          duration: 10,
+          insertMode: false,
+          overwriteMode: false,
+          envelopeMode: false,
+          slideMode: false,
+          slipMode: false,
+          timelineGesturePreview: null,
+          timelineSnapGuide: null,
+          timelineDropTarget: null,
+          timelineActiveDragIds: null,
+          timelineGestureContext: null,
+          timelineEnvelopeGesture: null,
+          timelineEnvelopePreview: null,
+          timelineWaveformSources: {},
+          timelineContextMenu: null,
+          timelineSkipNextClipClick: false,
+          pendingExternalRevision: "",
+        });
+        return;
+      }
+      if (revision !== this.snapshot.revision) {
+        // A menu targets IDs from one exact FilmDocument revision. Close it on
+        // revision changes, but keep stable-ID selections for the refreshed document.
         this.publish({...this.snapshot, film: normalized, revision, timelineContextMenu: null});
         return;
       }
