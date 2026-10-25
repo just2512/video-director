@@ -24316,6 +24316,9 @@
       this.snapshot = {
         projectId: "",
         film: null,
+        assetsModel: null,
+        aiDirectorModel: null,
+        clipInspectorEmptyMessage: null,
         revision: "",
         canvasElementSelection: null,
         selectedId: "",
@@ -24432,6 +24435,10 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
+      } else if (key === "assetsModel" || key === "aiDirectorModel") {
+        normalized = value == null ? null : value;
+      } else if (key === "clipInspectorEmptyMessage") {
+        normalized = typeof value === "string" && value.length ? value : null;
       } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible" || key === "toolbarVisible" || key === "timelineToolbarVisible" || key === "scrubVisible" || key === "clipInspectorVisible" || key === "canvasInspectorVisible" || key === "timelineSkipNextClipClick" || key === "canvasElementInspectMode") {
         normalized = value === true;
       } else if (key === "pixelsPerSecond") {
@@ -24539,6 +24546,9 @@
       this.snapshot = {
         projectId: asString(target.projectId),
         film,
+        assetsModel: this.snapshot.assetsModel,
+        aiDirectorModel: this.snapshot.aiDirectorModel,
+        clipInspectorEmptyMessage: this.snapshot.clipInspectorEmptyMessage,
         revision: filmRevision,
         canvasElementSelection: asCanvasElementSelection(target.selectedElement),
         selectedId: asString(target.selectedId),
@@ -26758,11 +26768,6 @@
       )
     ] });
   };
-  var studioReactState = {
-    assets: null,
-    aiModel: null,
-    clipInspectorEmptyMessage: void 0
-  };
   var studioRoot = null;
   var studioRootMount = null;
   var studioPortal = (targetId, child) => {
@@ -26797,7 +26802,10 @@
       }
     );
   };
-  var StudioReactOwner = ({ state }) => {
+  var StudioReactOwner = () => {
+    const assetsModel = useFilmStoreField("assetsModel");
+    const aiModel = useFilmStoreField("aiDirectorModel");
+    const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
     const toolbarVisible = useFilmStoreField("toolbarVisible");
     const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");
     const scrubVisible = useFilmStoreField("scrubVisible");
@@ -26828,19 +26836,19 @@
     );
     const timelineContextMenu = useFilmStoreField("timelineContextMenu");
     const canvasElement = useFilmStoreField("canvasElementSelection");
-    const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
+    const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (clipInspectorEmptyMessage || "");
     const element = canvasElement;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmStoreDiagnostics, {}),
-      state.assets ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: state.assets })) : null,
+      assetsModel ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: assetsModel })) : null,
       timelineSurface ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: timelineSurface })) : null,
       toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
       timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
       scrubVisible ? studioPortal("fs-react-scrub-row", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioScrubRow, {})) : null,
-      state.aiModel ? studioPortal("fs-react-ai-director", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAiDirector, { model: state.aiModel }, "ai-director")) : null,
+      aiModel ? studioPortal("fs-react-ai-director", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAiDirector, { model: aiModel }, "ai-director")) : null,
       clipInspectorVisible ? studioPortal(
         "fs-inspector",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipInspector, { clip, emptyMessage: state.clipInspectorEmptyMessage }, clipKey)
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipInspector, { clip, emptyMessage: clipInspectorEmptyMessage ?? void 0 }, clipKey)
       ) : null,
       canvasInspectorVisible ? studioPortal(
         "fs-react-canvas-inspector",
@@ -26849,23 +26857,22 @@
       timelineContextMenu ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineContextMenu, { model: timelineContextMenu }) : null
     ] });
   };
-  function renderStudioReactOwner(patch) {
-    Object.assign(studioReactState, patch);
+  function renderStudioReactOwner() {
     const mount = document.getElementById("fs-react-root");
     if (!mount) return;
     if (!studioRoot || studioRootMount !== mount) {
       studioRoot = (0, import_client.createRoot)(mount);
       studioRootMount = mount;
     }
-    const snapshot = { ...studioReactState };
     (0, import_react_dom.flushSync)(() => {
-      studioRoot?.render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioReactOwner, { state: snapshot }));
+      studioRoot?.render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioReactOwner, {}));
     });
   }
   window.filmStudioTimelineMath = filmTimelineMath;
   window.filmStudioReactAssets = {
     render(model) {
-      renderStudioReactOwner({ assets: model });
+      filmStore.setField("assetsModel", model);
+      renderStudioReactOwner();
     }
   };
   window.filmStudioReactTimeline = {
@@ -26873,7 +26880,7 @@
       const mount = document.getElementById("fs-react-root");
       if (mount && (!studioRoot || studioRootMount !== mount)) {
         filmStore.setField("timelineVisible", true);
-        renderStudioReactOwner({});
+        renderStudioReactOwner();
         return;
       }
       (0, import_react_dom.flushSync)(() => {
@@ -26925,20 +26932,21 @@
   window.filmStudioReactToolbar = {
     render() {
       filmStore.setField("toolbarVisible", true);
-      renderStudioReactOwner({});
+      renderStudioReactOwner();
     },
     renderTimeline() {
       filmStore.setField("timelineToolbarVisible", true);
-      renderStudioReactOwner({});
+      renderStudioReactOwner();
     },
     renderScrub() {
       filmStore.setField("scrubVisible", true);
-      renderStudioReactOwner({});
+      renderStudioReactOwner();
     }
   };
   window.filmStudioReactAi = {
     render(model) {
-      renderStudioReactOwner({ aiModel: model });
+      filmStore.setField("aiDirectorModel", model);
+      renderStudioReactOwner();
     }
   };
   window.filmStudioReactInspector = {
@@ -26967,12 +26975,13 @@
     },
     renderClip(emptyMessage) {
       filmStore.setField("clipInspectorVisible", true);
-      renderStudioReactOwner({ clipInspectorEmptyMessage: emptyMessage });
+      filmStore.setField("clipInspectorEmptyMessage", emptyMessage ?? null);
+      renderStudioReactOwner();
     },
     render(element) {
       filmStore.setField("canvasElementSelection", element);
       filmStore.setField("canvasInspectorVisible", true);
-      renderStudioReactOwner({});
+      renderStudioReactOwner();
       if (element) this.sync(element);
     },
     sync(element) {
