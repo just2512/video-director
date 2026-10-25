@@ -24070,6 +24070,41 @@
     const parsed = typeof value === "number" ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : void 0;
   };
+  var asFilmStudioCanvasRect = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const raw = value;
+    const rect = {};
+    for (const key of ["x", "y", "width", "height"]) {
+      const number = asOptionalFiniteNumber(raw[key]);
+      if (number !== void 0 && (key !== "width" && key !== "height" || number >= 0)) rect[key] = number;
+    }
+    return rect;
+  };
+  var asCanvasElementSelection = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const raw = value;
+    const clipId = asString(raw.clipId);
+    const selector = asString(raw.selector);
+    const tag = asString(raw.tag);
+    if (!clipId || !selector || !tag) return null;
+    const styles = {};
+    if (raw.styles && typeof raw.styles === "object" && !Array.isArray(raw.styles)) {
+      for (const [key, styleValue] of Object.entries(raw.styles)) {
+        if (typeof styleValue === "string") styles[key] = styleValue;
+      }
+    }
+    return {
+      clipId,
+      selector,
+      tag,
+      text: asString(raw.text),
+      textEditable: raw.textEditable !== false,
+      styles,
+      rect: asFilmStudioCanvasRect(raw.rect),
+      localRect: asFilmStudioCanvasRect(raw.localRect),
+      baseRevision: asString(raw.baseRevision)
+    };
+  };
   var asTimelineGestureContext = (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const raw = value;
@@ -24282,6 +24317,7 @@
         projectId: "",
         film: null,
         revision: "",
+        canvasElementSelection: null,
         selectedId: "",
         selectedIds: this.selectedIdsProxy,
         selectedIdsVersion: 0,
@@ -24397,6 +24433,8 @@
       } else if (key === "playhead" || key === "duration") {
         const parsed = asFiniteNumber(value, key === "duration" ? 10 : 0);
         normalized = key === "duration" ? Math.max(1e-3, parsed) : Math.max(0, parsed);
+      } else if (key === "canvasElementSelection") {
+        normalized = asCanvasElementSelection(value);
       } else if (key === "pendingTransaction") {
         normalized = asPendingTransaction(value);
       } else if (key === "timelineGesturePreview") {
@@ -24496,6 +24534,7 @@
         projectId: asString(target.projectId),
         film,
         revision: filmRevision,
+        canvasElementSelection: asCanvasElementSelection(target.selectedElement),
         selectedId: asString(target.selectedId),
         selectedIds: this.selectedIdsProxy,
         selectedIdsVersion: this.snapshot.selectedIdsVersion,
@@ -24534,6 +24573,7 @@
         ["projectId", "projectId"],
         ["data", "film"],
         ["rev", "revision"],
+        ["selectedElement", "canvasElementSelection"],
         ["selectedId", "selectedId"],
         ["selectedIds", "selectedIds"],
         ["selectionAnchor", "selectionAnchor"],
@@ -26686,8 +26726,7 @@
     clipInspectorMounted: false,
     clipInspector: null,
     clipInspectorEmptyMessage: void 0,
-    canvasInspectorMounted: false,
-    canvasElement: null
+    canvasInspectorMounted: false
   };
   var studioRoot = null;
   var studioRootMount = null;
@@ -26741,9 +26780,10 @@
       [timelineVisible, timelineFilm, timelineProjectId, timelineRevision, timelineDuration, timelinePixelsPerSecond, timelineSelectedIdsVersion]
     );
     const timelineContextMenu = useFilmStoreField("timelineContextMenu");
+    const canvasElement = useFilmStoreField("canvasElementSelection");
     const clip = state.clipInspector;
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (state.clipInspectorEmptyMessage || "");
-    const element = state.canvasElement;
+    const element = canvasElement;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmStoreDiagnostics, {}),
       state.assets ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: state.assets })) : null,
@@ -26854,7 +26894,7 @@
   };
   window.filmStudioReactInspector = {
     saveSelected() {
-      const element = studioReactState.canvasElement;
+      const element = filmStore.getField("canvasElementSelection");
       if (!element) {
         window.filmStudioShowInspectorError?.("\u8BF7\u5148\u5728\u9884\u89C8\u753B\u5E03\u4E2D\u9009\u4E2D\u4E00\u4E2A HTML \u5143\u7D20\u3002");
         return;
@@ -26884,10 +26924,8 @@
       });
     },
     render(element) {
-      renderStudioReactOwner({
-        canvasInspectorMounted: true,
-        canvasElement: element
-      });
+      filmStore.setField("canvasElementSelection", element);
+      renderStudioReactOwner({ canvasInspectorMounted: true });
       if (element) this.sync(element);
     },
     sync(element) {
