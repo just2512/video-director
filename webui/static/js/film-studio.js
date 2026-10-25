@@ -6,6 +6,23 @@
   var envelopeDomCanvas = null;
   var pendingRevisionSource = '';
   if(window.filmStudioStore&&typeof window.filmStudioStore.bindLegacyState==='function')window.filmStudioStore.bindLegacyState(S);
+  function bindPlaybackCompatibilityAlias(){
+    var store=window.filmStudioStore;
+    if(!store||typeof store.getField!=='function'||typeof store.setField!=='function')return;
+    var initial=typeof window.filmStudioPlaying==='boolean'?window.filmStudioPlaying:store.getField('playing')===true;
+    store.setField('playing',initial);
+    try{
+      Object.defineProperty(window,'filmStudioPlaying',{
+        configurable:true,
+        enumerable:true,
+        get:function(){return store.getField('playing')===true;},
+        set:function(value){store.setField('playing',value===true);}
+      });
+    }catch(error){
+      window.filmStudioPlaying=initial;
+    }
+  }
+  bindPlaybackCompatibilityAlias();
   var $ = function (id) { return document.getElementById(id); };
   function dispatchStudioTransaction(kind,baseRevision,operations,submitter){
     var list=Array.isArray(operations)?operations.map(function(operation){

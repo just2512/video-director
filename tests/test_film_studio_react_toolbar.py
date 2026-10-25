@@ -94,6 +94,15 @@ def test_react_studio_toolbar_has_a_compatibility_fallback():
     assert "bridge.renderScrub();" in studio
 
 
+def test_legacy_playback_global_is_a_film_store_compatibility_view():
+    root = Path(__file__).resolve().parents[1]
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "function bindPlaybackCompatibilityAlias()" in studio
+    assert "Object.defineProperty(window,'filmStudioPlaying'" in studio
+    assert "get:function(){return store.getField('playing')===true;}" in studio
+    assert "set:function(value){store.setField('playing',value===true);}" in studio
+
+
 def test_react_timeline_keeps_stable_dom_identity_for_tracks_and_clips():
     root = Path(__file__).resolve().parents[1]
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")

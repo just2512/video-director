@@ -1637,6 +1637,26 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 # Playback label and pressed state are React projections of the shared runtime state.
                 playback_doc_before = fd.read_project_film(project_id)
                 play_button = page.locator('#fs-react-scrub-row #fs-play-toggle')
+                playback_alias_contract = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const before = store?.getField("playing");
+                  const beforeGlobal = window.filmStudioPlaying;
+                  if (typeof before !== "boolean") return null;
+                  window.filmStudioPlaying = !before;
+                  const after = store.getField("playing");
+                  const afterGlobal = window.filmStudioPlaying;
+                  window.filmStudioPlaying = before;
+                  return {
+                    before, beforeGlobal, after, afterGlobal,
+                    restored: store.getField("playing"), global: window.filmStudioPlaying
+                  };
+                }""")
+                assert playback_alias_contract is not None, playback_alias_contract
+                assert playback_alias_contract["beforeGlobal"] is playback_alias_contract["before"], playback_alias_contract
+                assert playback_alias_contract["after"] is not playback_alias_contract["before"], playback_alias_contract
+                assert playback_alias_contract["afterGlobal"] is playback_alias_contract["after"], playback_alias_contract
+                assert playback_alias_contract["restored"] is playback_alias_contract["before"], playback_alias_contract
+                assert playback_alias_contract["global"] is playback_alias_contract["before"], playback_alias_contract
                 initial_playing = page.evaluate("window.filmStudioStore?.getSnapshot()?.playing")
                 page.wait_for_function(
                     """expected => {
