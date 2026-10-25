@@ -3176,6 +3176,13 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
 
+    same_revision_project_id = project_id + "-same-revision"
+    same_revision_root = storage_root / same_revision_project_id
+    same_revision_root.mkdir(parents=True)
+    (same_revision_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    same_revision = fd.read_project_film(same_revision_project_id)
+    assert same_revision["exists"] and same_revision["rev"] == initial["rev"]
+
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
@@ -3227,35 +3234,143 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
                 assert page.locator("#fs-react-ai-director").is_visible()
 
-                # Context-menu state is tied to the current FilmDocument revision.
-                # An external Agent write must close the menu as part of the authoritative
-                # revision update, not leave commands targeting the previous document.
+                # Project switches must clear every project-owned FilmStore projection
+                # before the next document finishes loading—even when both projects have
+                # byte-identical film.html and therefore the same revision.
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').click()
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state?.assetsModel && (state?.selectedIds || []).includes("clip-b");
+                }""", timeout=5000)
+
+                page.locator('[data-film-action="director-mode"]').click()
+                page.wait_for_function("""() => {
+                  const host = document.querySelector('#fs-director-planning-host');
+                  const authority = document.querySelector('#fs-director-authority-note');
+                  const legacy = document.querySelector('#fs-director-legacy-note');
+                  const aiRoot = document.querySelector('#fs-react-ai-director');
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!host && getComputedStyle(host).display !== 'none' &&
+                    !!authority && getComputedStyle(authority).display !== 'none' &&
+                    !!legacy && getComputedStyle(legacy).display === 'none' &&
+                    !!aiRoot && getComputedStyle(aiRoot).display !== 'none' &&
+                    !host.contains(document.querySelector('#director-control-grid')) &&
+                    !host.contains(document.querySelector('#director-bar-card')) &&
+                    !!state?.aiDirectorModel;
+                }""", timeout=5000)
+                assert page.locator("#fs-director-planning-host #director-control-grid").count() == 0
+                assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
+                assert page.locator("#fs-react-ai-director").is_visible()
+
+                # Seed representative project-specific transient state, then prove the
+                # real selector workflow synchronously clears it before its GET resolves.
                 page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("timelineGesturePreview", {"clip-b":{left:123,width:87,mode:"slide"}});
+                  store.setField("timelineSnapGuide", {at:5,kind:"播放头",title:"播放头"});
+                  store.setField("timelineDropTarget", {trackId:"video-main",invalid:true});
+                  store.setField("timelineActiveDragIds", ["clip-b"]);
+                  store.setField("timelineEnvelopePreview", {
+                    clipId:"audio-1",points:[{t:0,v:1},{t:5,v:0.5}]
+                  });
+                  store.setField("timelineWaveformSources", {
+                    "audio-1":{duration:5,peaks:[20,40]}
+                  });
+                  store.setField("canvasElementSelection", {
+                    clipId:"clip-b",selector:"#clip-b",tag:"video",text:"old project",
+                    textEditable:true,styles:{},rect:{x:0,y:0,width:10,height:10},
+                    localRect:{x:0,y:0,width:10,height:10},baseRevision:store.getField("revision")
+                  });
                   window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
                 }""")
                 page.wait_for_function("""() =>
                   window.filmStudioStore?.getField("timelineContextMenu")?.clipId === "clip-b" &&
                   !!document.querySelector('[data-react-context-menu="true"]')
                 """, timeout=5000)
-
-                # A project switch must close the menu even before the next document
-                # loads; the incoming project may have a byte-identical revision.
-                project_revision_before_switch = page.evaluate(
-                    "window.filmStudioStore.getField('revision')"
-                )
-                page.evaluate("""() => {
-                  window.filmStudioStore.setField("projectId", "context-menu-switch-probe");
+                before_switch = page.evaluate("""() => {
+                  const s = window.filmStudioStore?.getSnapshot();
+                  return {
+                    projectId:s?.projectId,revision:s?.revision,
+                    hasFilm:!!s?.film,hasAssets:!!s?.assetsModel,hasAi:!!s?.aiDirectorModel,
+                    selection:[...(s?.selectedIds||[])],
+                    preview:s?.timelineGesturePreview,snapGuide:s?.timelineSnapGuide,
+                    dropTarget:s?.timelineDropTarget,activeDragIds:s?.timelineActiveDragIds,
+                    envelopePreview:s?.timelineEnvelopePreview,
+                    waveformKeys:Object.keys(s?.timelineWaveformSources||{}),
+                    canvasElement:s?.canvasElementSelection,menu:s?.timelineContextMenu
+                  };
                 }""")
-                page.wait_for_function("""expectedRevision => {
+                assert before_switch["hasFilm"] and before_switch["hasAssets"] and before_switch["hasAi"], before_switch
+                assert before_switch["preview"] and before_switch["snapGuide"] and before_switch["dropTarget"], before_switch
+                assert before_switch["activeDragIds"] == ["clip-b"] and before_switch["envelopePreview"], before_switch
+                assert before_switch["waveformKeys"] == ["audio-1"] and before_switch["canvasElement"], before_switch
+                assert before_switch["menu"]["clipId"] == "clip-b", before_switch
+
+                def select_project_in_browser(target_project_id):
+                    return page.evaluate("""(pid) => {
+                      const select = document.querySelector('#editor-project');
+                      let option = [...select.options].find(item => item.value === pid);
+                      if (!option) {
+                        option = new Option(pid, pid);
+                        select.add(option);
+                      }
+                      select.value = pid;
+                      select.dispatchEvent(new Event('change', {bubbles:true}));
+                      const s = window.filmStudioStore?.getSnapshot();
+                      return {
+                        projectId:s?.projectId,revision:s?.revision,film:s?.film,
+                        assetsModel:s?.assetsModel,aiDirectorModel:s?.aiDirectorModel,
+                        clipInspectorEmptyMessage:s?.clipInspectorEmptyMessage,
+                        selectedId:s?.selectedId,selectedIds:[...(s?.selectedIds||[])],
+                        selectionAnchor:s?.selectionAnchor,playhead:s?.playhead,playing:s?.playing,
+                        gesturePreview:s?.timelineGesturePreview,snapGuide:s?.timelineSnapGuide,
+                        dropTarget:s?.timelineDropTarget,activeDragIds:s?.timelineActiveDragIds,
+                        gestureContext:s?.timelineGestureContext,envelopeGesture:s?.timelineEnvelopeGesture,
+                        envelopePreview:s?.timelineEnvelopePreview,waveformSources:s?.timelineWaveformSources,
+                        canvasElementSelection:s?.canvasElementSelection,menu:s?.timelineContextMenu,
+                        pendingExternalRevision:s?.pendingExternalRevision,broken:s?.broken
+                      };
+                    }""", target_project_id)
+
+                alternate_transition = select_project_in_browser(same_revision_project_id)
+                assert alternate_transition["projectId"] == same_revision_project_id, alternate_transition
+                assert alternate_transition["revision"] == "" and alternate_transition["film"] is None, alternate_transition
+                assert alternate_transition["assetsModel"] is None and alternate_transition["aiDirectorModel"] is None, alternate_transition
+                assert alternate_transition["clipInspectorEmptyMessage"] is None, alternate_transition
+                assert alternate_transition["selectedId"] == "" and alternate_transition["selectedIds"] == [], alternate_transition
+                assert alternate_transition["selectionAnchor"] == "" and alternate_transition["playhead"] == 0, alternate_transition
+                assert alternate_transition["playing"] is False, alternate_transition
+                assert alternate_transition["gesturePreview"] is None and alternate_transition["snapGuide"] is None, alternate_transition
+                assert alternate_transition["dropTarget"] is None and alternate_transition["activeDragIds"] is None, alternate_transition
+                assert alternate_transition["gestureContext"] is None and alternate_transition["envelopeGesture"] is None, alternate_transition
+                assert alternate_transition["envelopePreview"] is None and alternate_transition["waveformSources"] == {}, alternate_transition
+                assert alternate_transition["canvasElementSelection"] is None and alternate_transition["menu"] is None, alternate_transition
+                assert alternate_transition["pendingExternalRevision"] == "" and alternate_transition["broken"] is False, alternate_transition
+                page.wait_for_function("""expected => {
                   const state = window.filmStudioStore?.getSnapshot();
-                  return state?.projectId === "context-menu-switch-probe" &&
-                    state?.revision === expectedRevision &&
-                    state?.timelineContextMenu === null &&
-                    !document.querySelector('[data-react-context-menu="true"]');
-                }""", arg=project_revision_before_switch, timeout=5000)
-                page.evaluate("""(projectId) => {
-                  window.filmStudioStore.setField("projectId", projectId);
-                }""", project_id)
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  return state?.projectId === expected.projectId &&
+                    state?.revision === expected.revision &&
+                    state?.film?.project_id === expected.projectId && !!clip;
+                }""", arg={"projectId":same_revision_project_id,"revision":initial["rev"]}, timeout=10000)
+
+                original_transition = select_project_in_browser(project_id)
+                assert original_transition["projectId"] == project_id, original_transition
+                assert original_transition["revision"] == "" and original_transition["film"] is None, original_transition
+                assert original_transition["assetsModel"] is None and original_transition["aiDirectorModel"] is None, original_transition
+                assert original_transition["selectedIds"] == [] and original_transition["menu"] is None, original_transition
+                assert original_transition["gesturePreview"] is None and original_transition["snapGuide"] is None, original_transition
+                assert original_transition["envelopePreview"] is None and original_transition["waveformSources"] == {}, original_transition
+                page.wait_for_function("""expected => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  return state?.projectId === expected.projectId &&
+                    state?.revision === expected.revision &&
+                    state?.film?.project_id === expected.projectId && !!clip;
+                }""", arg={"projectId":project_id,"revision":initial["rev"]}, timeout=10000)
+
+                # Keep the menu open during an Agent write. The new authoritative revision
+                # must clear both FilmStore state and its React portal.
                 page.evaluate("""() => {
                   window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
                 }""")
