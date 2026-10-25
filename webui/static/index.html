@@ -100,14 +100,14 @@
     <!-- 项目切换行（始终可见：§9 工作台必须有打开的 Project；legacy 不入列） -->
     <div class="btn-row" style="align-items:center;margin-top:0">
       <select id="editor-project" style="max-width:320px" title="切换项目（只列可编辑项目）"
-              onchange="if(this.value)editorLoad()"></select>
-      <button class="btn-secondary btn-sm" onclick="editorLoad()">打开</button>
+              onchange="if(this.value)workspaceOpen(this.value)"></select>
+      <button class="btn-secondary btn-sm" onclick="workspaceOpen(document.getElementById('editor-project').value)">打开</button>
       <span class="hint" id="editor-lib-hint">选中场景/图层后，Inspector 会给出对应的修改项</span>
     </div>
     <div class="film-studio-launch panel">
       <div>
         <strong>统一影片工作台</strong>
-        <p>已初始化的影片项目在切换项目时直接进入 Studio；导演规划负责生成初版，film.html 是人和任意编程智能体共同编辑的最终时间线。支持多轨剪辑、属性编辑、撤销重做、AI 指挥与 revision 绑定导出。</p>
+        <p>打开任意可编辑项目都进入同一 Studio：旧项目先显示经过校验的候选画面与导演规划，显式确认后才创建 film.html；初始化后，film.html 成为人工剪辑、AI 指挥与任意编程智能体共同使用的唯一时间线。支持多轨剪辑、属性编辑、撤销重做与 revision 绑定导出。</p>
       </div>
       <button class="btn-sm" id="film-studio-toggle" type="button" data-film-action="toggle">打开统一 Studio</button>
     </div>

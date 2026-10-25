@@ -1054,7 +1054,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     window.filmStudioPrepareLegacyProjectOpen = () => { counters.prepareLegacy += 1; return true; };
                     window.editorToast = message => counters.messages.push(String(message));
                     const snapshot = async () => {
-                        const result = await window.workspaceOpen(pid);
+                        const result = await window.workspaceOpen(pid, undefined, {legacyCompositionMode:true});
                         return {result,legacyLoad:counters.legacyLoad,filmOpen:counters.filmOpen,
                             prepareLegacy:counters.prepareLegacy,message:counters.messages.at(-1)||''};
                     };
@@ -1090,7 +1090,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                         const addedNextOption = !nextOption;
                         if (!nextOption) { nextOption = new Option(nextPid, nextPid); selector.add(nextOption); }
                         selector.value = pid;
-                        const staleOpenPromise = window.workspaceOpen(pid);
+                        const staleOpenPromise = window.workspaceOpen(pid, undefined, {legacyCompositionMode:true});
                         await requestStarted;
                         selector.value = nextPid;
                         resolveAuthority({ok:true,exists:false,project_id:pid,rev:'stale-authority-rev'});

@@ -63,7 +63,7 @@ def test_word_subtitle_cues_move_trim_preview_and_persist(tmp_path, monkeypatch)
                 page.wait_for_function(
                     "() => typeof workspaceOpen === 'function' && typeof previewSeek === 'function'"
                 )
-                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
                 assert opened and opened.get("ok"), f"workspace did not open: {opened}"
                 api_composition = page.evaluate("""async (projectId) => {
                   const response = await fetch('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
@@ -137,7 +137,7 @@ def test_word_subtitle_cues_move_trim_preview_and_persist(tmp_path, monkeypatch)
                 assert trimmed["end"] < 0.75, "trim unexpectedly crossed the next subtitle"
 
                 # Reopening the project proves the moved/trimmed anchor was persisted.
-                reopened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                reopened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
                 assert reopened and reopened.get("ok"), reopened
                 page.wait_for_function(
                     "(expected) => Math.abs(ED.comp.subtitle_track.cues[0].start - expected.start) < 0.002"

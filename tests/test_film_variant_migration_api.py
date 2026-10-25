@@ -61,13 +61,19 @@ def test_film_migration_api_requires_and_persists_explicit_variant_selection(tmp
         assert {item["id"] for item in unselected["variants"]} == {"cut-a", "cut-b"}
 
         selected_url = base_url + "/api/editor/film?" + urlencode({
-            "project_id": project_id, "selected_variant_id": "cut-b",
+            "project_id": project_id, "selected_variant_id": "cut-b", "preview": "1",
         })
         with urlopen(selected_url, timeout=10) as response:
             selected = json.loads(response.read().decode("utf-8"))
         assert selected["migration_available"] is True
         assert selected["migration_preview"]["selected_variant_id"] == "cut-b"
         assert selected["migration_preview"]["duration"] == 2
+        candidate = selected["migration_preview"]["film_payload"]
+        assert candidate["exists"] is True
+        assert candidate["rev"].startswith("migration-preview:")
+        assert candidate["duration"] == 2
+        assert sum(len(track["clips"]) for track in candidate["tracks"]) == 1
+        assert fd.read_project_film(project_id)["exists"] is False, "preview must not create film.html"
 
         payload = {
             "project_id": project_id,

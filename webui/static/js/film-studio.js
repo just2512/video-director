@@ -501,13 +501,25 @@
     var inspectButton=$('fs-element-inspect-toggle');if(inspectButton){inspectButton.setAttribute('aria-pressed','false');inspectButton.textContent='选择画面元素';}
     syncPlaybackButtonText();
   }
+  function migrationPreviewPayload(){
+    var migration=S.migration,preview=migration&&migration.migration_preview;
+    var payload=preview&&preview.film_payload;
+    return payload&&payload.exists===true&&Array.isArray(payload.tracks)?payload:null;
+  }
+  function migrationPreviewRevision(){
+    var migration=S.migration||{},preview=migration.migration_preview||{};
+    return 'migration-preview:'+S.projectId+':'+
+      String(migration.source_composition_version||preview.source_composition_version||'unknown')+':'+
+      String(preview.selected_variant_id||'default');
+  }
   function syncRuntime(type) {
     var frame=$('fs-preview-composition');
     if(type)S.runtimeCommand=type;
     else if(!S.runtimeCommand)S.runtimeCommand=window.filmStudioPlaying?'play':'seek';
     var candidateActive=!!(S.previewProposalActive&&S.proposal);
-    var runtimeData=candidateActive?S.proposal.candidate:S.data;
-    var runtimeRevision=candidateActive?'proposal:'+S.proposal.id:S.rev;
+    var migrationPayload=(!S.data||!S.data.exists)?migrationPreviewPayload():null;
+    var runtimeData=candidateActive?S.proposal.candidate:(migrationPayload||S.data);
+    var runtimeRevision=candidateActive?'proposal:'+S.proposal.id:(migrationPayload?migrationPreviewRevision():S.rev);
     if(!frame||!frame.contentWindow||!S.runtimeReady||!runtimeData||!runtimeData.exists)return;
     frame.style.display='block';
     var ph=$('fs-monitor-stage').querySelector('.fs-monitor-placeholder');if(ph)ph.style.display='none';
@@ -530,7 +542,8 @@
     try{doc=frame.contentDocument;}catch(_){}
     if(S.runtimeReady&&doc&&doc===S.runtimeDocument)return;
     S.runtimeReady=true;S.runtimeDocument=doc;S.runtimeRev='';
-    if(S.data&&S.data.exists)syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
+    if((S.data&&S.data.exists)||migrationPreviewPayload())
+      syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
   }
   var runtimeFrame=$('fs-preview-composition');
   if(runtimeFrame){
@@ -542,7 +555,10 @@
     }catch(_){}
   }
   function previewCurrent() {
-    if(!S.data||!S.data.exists){resetPreview();return;}
+    if(!S.data||!S.data.exists){
+      if(migrationPreviewPayload()){syncRuntime();return;}
+      resetPreview();return;
+    }
     syncRuntime();
   }
   function setPlayheadVisual() {
@@ -672,6 +688,9 @@
     var timelineBridge=window.filmStudioReactTimeline;
     if(timelineBridge&&typeof timelineBridge.clearSurface==='function')timelineBridge.clearSurface();
     var data=S.migration||{}, preview=data.migration_preview||{}, warnings=preview.warnings||[];
+    S.duration=Math.max(0.001,num(preview.duration,10));
+    S.playhead=Math.max(0,Math.min(S.playhead,S.duration));
+    S.assetMode='director';
     $('fs-project-label').textContent=S.projectId;$('fs-clip-count').textContent='—';$('fs-timeline-meta').textContent='迁移预览';
     $('fs-assets-list').innerHTML='<div class="fs-empty">当前项目还没有 film.html。初始化将生成可编辑影片文档，不会覆盖旧 Composition。</div>';
     $('fs-timeline').innerHTML='<div class="fs-empty">先检查迁移提示，再初始化。</div>';
@@ -685,6 +704,8 @@
       ?'可从当前 Composition 初始化 film.html。预计 '+(preview.duration||0)+' 秒、'+(preview.track_count||0)+' 条轨道、'+(preview.clip_count||0)+' 个片段。'
       :(needsVariantChoice?'旧项目包含多个候选版本，请先选择本次要迁移的版本。':'无法初始化：'+(data.migration_error||'当前项目没有可编辑的 CompositionIR。'));
     if(warnings.length)message+=' 迁移提示：'+warnings.join('；');
+    if(data.migration_available&&!migrationPreviewPayload())
+      message+=' 迁移候选画面尚未成功载入；在预览可见前不会创建 film.html。';
     showStatus(message,data.migration_available?'':'error');
     var selectedVariantId=String(preview.selected_variant_id||data.active_variant_id||'');
     var variantPicker='';
@@ -702,16 +723,34 @@
       var variantSelect=$('fs-migration-variant');
       if(variantSelect)variantSelect.addEventListener('change',async function(){
         variantSelect.disabled=true;
-        var url='/api/editor/film?project_id='+encodeURIComponent(S.projectId)+'&selected_variant_id='+encodeURIComponent(variantSelect.value);
+        var migrationProjectId=S.projectId;
+        var previousVariant=String(preview.selected_variant_id||'');
+        var url='/api/editor/film?project_id='+encodeURIComponent(migrationProjectId)+
+          '&selected_variant_id='+encodeURIComponent(variantSelect.value)+'&preview=1';
         try{
           var next=await apiGet(url);
-          if(next&&next.ok&&!next.exists){S.migration=next;renderMigration();}
-          else{variantSelect.disabled=false;showStatus((next&&next.error)||'读取所选版本预览失败。','error');}
-        }catch(error){variantSelect.disabled=false;showStatus('读取所选版本预览失败：'+String(error&&error.message||error),'error');}
+          if(migrationProjectId!==S.projectId||!S.open)return;
+          if(next&&next.ok&&next.exists===false&&next.migration_available===true&&
+             next.migration_preview&&next.migration_preview.film_payload){
+            S.migration=next;renderMigration();
+          }else{
+            variantSelect.value=previousVariant;
+            variantSelect.disabled=false;
+            showStatus((next&&next.error)||'读取所选版本的可视候选失败；未初始化影片文档。','error');
+          }
+        }catch(error){
+          if(migrationProjectId!==S.projectId)return;
+          variantSelect.value=previousVariant;
+          variantSelect.disabled=false;
+          showStatus('读取所选版本预览失败：'+String(error&&error.message||error),'error');
+        }
       });
       var initializeButton=$('fs-initialize-button');
       if(initializeButton)initializeButton.addEventListener('click',function(){filmStudioInitialize(false);});
     }
+    syncAssetPaneMode();
+    setPlayheadVisual();
+    if(migrationPreviewPayload())syncRuntime('seek-pause');
   }
   function renderLibraryAssets() {
     var supported=S.libraryAssets.filter(function(a){return ['video','image','audio'].indexOf(String(a.type||'').toLowerCase())>=0;});
@@ -1877,6 +1916,7 @@
       mountDirectorPlanning(false);
       // Chat messages and streaming metadata are project context, not global UI
       // history. Do not republish the previous project's conversation after load.
+      S.assetMode='clips';
       S.messages=[];
       S.aiActiveMessage='';S.aiStreamText='';S.aiPendingSteer='';
       S.aiLiveMessageIndex=-1;S.aiRequestId='';S.aiController=null;
@@ -1919,6 +1959,30 @@
       if(hasUncommittedInspectorEdits())showStatus('影片读取结果已暂存；Inspector 有未提交的属性草稿。应用修改或选择重新载入。','error');
       else showStatus('影片读取结果已暂存；时间线操作结束后再完成载入。','error');
       return false;
+    }
+    if(r&&r.ok&&r.exists===false&&r.migration_available===true&&
+       !(r.migration_preview&&r.migration_preview.film_payload)){
+      var migrationVariant=r.migration_preview&&r.migration_preview.selected_variant_id;
+      var previewUrl='/api/editor/film?project_id='+encodeURIComponent(requestProjectId)+'&preview=1'+
+        (migrationVariant?'&selected_variant_id='+encodeURIComponent(migrationVariant):'');
+      try{
+        var candidateResponse=await apiGet(previewUrl);
+        if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;
+        if(candidateResponse&&candidateResponse.ok&&candidateResponse.exists===false&&
+           candidateResponse.migration_available===true&&candidateResponse.migration_preview&&
+           candidateResponse.migration_preview.film_payload){
+          r=candidateResponse;
+        }else{
+          r.migration_available=false;
+          r.migration_error=(candidateResponse&&candidateResponse.error)||'候选画面无法安全载入';
+          r.migration_error_code=(candidateResponse&&candidateResponse.code)||'MIGRATION_PREVIEW_UNAVAILABLE';
+        }
+      }catch(error){
+        if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;
+        r.migration_available=false;
+        r.migration_error='候选画面读取失败：'+String(error&&error.message||error);
+        r.migration_error_code='MIGRATION_PREVIEW_UNAVAILABLE';
+      }
     }
     if(r&&r.ok&&r.exists){
       mountDirectorPlanning(false);
@@ -1963,7 +2027,7 @@
       showStatus('已取消初始化，没有创建 film.html。');return;
     }
     if(!r||!r.ok){showStatus((r&&r.error)||'初始化失败。','error');return;}
-    S.data=r;S.rev=r.rev;S.migration=null;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
+    S.data=r;S.rev=r.rev;S.migration=null;S.assetMode='clips';S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
     mountDirectorPlanning(false);
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();renderAiDirector();
   }

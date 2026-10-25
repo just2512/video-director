@@ -162,7 +162,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 page.wait_for_function(
                     "() => typeof workspaceOpen === 'function' && typeof shotbookLoad === 'function'"
                 )
-                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
                 assert opened.get("ok"), f"workspace did not open: {opened}"
                 # The actual composition endpoint must round-trip persisted overlay
                 # clips and expose the referenced source, not just an in-memory UI mock.
@@ -1105,7 +1105,7 @@ def test_cross_scene_drag_lifts_still_into_real_global_track(tmp_path, monkeypat
             tracing = True
             response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
             assert response and response.status == 200
-            opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+            opened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
             assert opened.get("ok"), f"workspace did not open: {opened}"
             page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
             source = page.locator('#editor-timeline .ed-layer[data-scene="S001"][data-idx="0"]')
@@ -1223,7 +1223,7 @@ def test_selected_main_clip_can_be_lifted_to_playhead_from_toolbar(tmp_path, mon
                     wait_until="networkidle",
                 )
                 assert response and response.status == 200
-                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
                 assert opened.get("ok"), opened
                 page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
 
@@ -1344,7 +1344,7 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                     wait_until="networkidle",
                 )
                 assert response and response.status == 200
-                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
                 assert opened.get("ok"), opened
                 page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
 
@@ -1464,7 +1464,7 @@ def test_expand_main_timeline_button_runs_one_atomic_command_in_chromium(tmp_pat
                     wait_until="networkidle",
                 )
                 assert response and response.status == 200
-                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", project_id)
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", project_id)
                 assert opened.get("ok"), opened
                 page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
                 button = page.locator("#ed-expand-main-timeline")

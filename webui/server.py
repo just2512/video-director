@@ -1091,6 +1091,17 @@ class Handler(BaseHTTPRequestHandler):
                             "selected_variant_id": plan.get("selected_variant_id"),
                         },
                     })
+                    # Keep ordinary authority probes small; only an explicit preview request
+                    # returns the already-validated candidate to the Studio runtime.
+                    if (qs.get("preview", [""])[0] or "").strip() == "1":
+                        preview["migration_preview"]["film_payload"] = fd.film_payload(pid, {
+                            "exists": True,
+                            "doc": plan["document"],
+                            "rev": (
+                                f"migration-preview:{version}:"
+                                f"{plan.get('selected_variant_id') or 'default'}"
+                            ),
+                        })
                 except Exception as exc:
                     preview["migration_error"] = str(exc)
                     preview["migration_error_code"] = getattr(exc, "code", None)

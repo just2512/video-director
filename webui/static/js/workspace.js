@@ -26,8 +26,9 @@ function pollUntil(predicate, timeoutMs = 5000, intervalMs = 100){
 
 /** 工作台打开项目（唯一入口：项目页/审阅页/GFX 确认/模板实例化全走这里）。
  *  target 可选 {type:'scene'|'layer'|'scene_pair', id}——Review Locate 带定位跳转（§45）。 */
-async function workspaceOpen(pid, target){
+async function workspaceOpen(pid, target, options){
   if (!pid) { editorToast('缺少项目', true); return {ok: false}; }
+  const legacyCompositionMode = !!(options && options.legacyCompositionMode === true);
   WS.opening = true;
   try {
     switchTab('editor');
@@ -115,7 +116,21 @@ async function workspaceOpen(pid, target){
         inspectorOpenSection(target.openSection);
       }
     }
-    return {ok: true};
+    if (!legacyCompositionMode && !document.documentElement.classList.contains('fs-studio-open')) {
+      if (typeof window.filmStudioToggle !== 'function') {
+        editorToast('统一 Studio 加载桥不可用；没有创建 film.html。', true);
+        return {ok:false,mode:'migration',error:'FILM_STUDIO_UNAVAILABLE'};
+      }
+      const openedStudio = await window.filmStudioToggle(filmDocument);
+      if (!openedStudio) {
+        editorToast('迁移候选 Studio 未能打开；没有创建 film.html。', true);
+        return {ok:false,mode:'migration',error:'FILM_STUDIO_OPEN_FAILED'};
+      }
+      return {ok:true,mode:'migration',authority:'CompositionIR preview → film.html',project_id:pid};
+    }
+    return legacyCompositionMode
+      ? {ok:true,mode:'legacy',authority:'CompositionIR',project_id:pid}
+      : {ok:true};
   } finally {
     WS.opening = false;
   }
