@@ -45,18 +45,33 @@ class TestTextChannelRetry:
         p._model = "test-model"
         return p
 
+    @staticmethod
+    def _fake_client(flaky):
+        """带 flaky.create 的假 client。"""
+        class _C:
+            chat = type("chat", (), {})()
+        _C.chat.completions = type("completions", (), {
+            "create": staticmethod(flaky.chat_completions_create)})()
+        return _C()
+
+    def _wire(self, p, flaky, monkeypatch):
+        """client 接线 + 重建语义：生产代码重试时 _client=None 后调
+        _ensure_client 重建——注入的重建函数返回同款 flaky client，
+        成败节奏由 _Flaky 全局计数控制（跨 client 对象）。"""
+        p._client = self._fake_client(flaky)
+
+        def _rebuild(self):
+            self._client = self._fake_client(flaky)
+
+        p._fake_client = self._fake_client  # 实例上挂同款工厂
+        monkeypatch.setattr(llm_provider.OpenAICompatibleProvider,
+                            "_ensure_client", _rebuild)
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+
     def test_retry_until_success(self, monkeypatch):
         p = self._provider()
         flaky = _Flaky(fail_times=3, exc_factory=lambda: TimeoutError("read timeout"))
-        # 直接替换 client（绕过真实 OpenAI 构造）
-        class _C:
-            chat = type("chat", (), {})()
-        p._client = _C
-        monkeypatch.setattr(_C, "chat", type("chat", (), {
-            "completions": type("completions", (), {
-                "create": staticmethod(flaky.chat_completions_create)})()
-        })(), raising=False)
-        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+        self._wire(p, flaky, monkeypatch)
         out = p.generate("hi")
         assert out == "好的"
         assert flaky.calls == 4  # 3 次失败 + 1 次成功
@@ -64,14 +79,7 @@ class TestTextChannelRetry:
     def test_gives_up_after_10(self, monkeypatch):
         p = self._provider()
         flaky = _Flaky(fail_times=99, exc_factory=lambda: TimeoutError("t"))
-        class _C:
-            chat = type("chat", (), {})()
-        p._client = _C
-        monkeypatch.setattr(_C, "chat", type("chat", (), {
-            "completions": type("completions", (), {
-                "create": staticmethod(flaky.chat_completions_create)})()
-        })(), raising=False)
-        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+        self._wire(p, flaky, monkeypatch)
         try:
             p.generate("hi")
             raise AssertionError("应抛 RuntimeError")
@@ -84,14 +92,7 @@ class TestTextChannelRetry:
         class _ApiErr(Exception):
             status_code = 401
         flaky = _Flaky(fail_times=99, exc_factory=_ApiErr)
-        class _C:
-            chat = type("chat", (), {})()
-        p._client = _C
-        monkeypatch.setattr(_C, "chat", type("chat", (), {
-            "completions": type("completions", (), {
-                "create": staticmethod(flaky.chat_completions_create)})()
-        })(), raising=False)
-        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+        self._wire(p, flaky, monkeypatch)
         try:
             p.generate("hi")
             raise AssertionError("应抛 RuntimeError")
@@ -100,8 +101,57 @@ class TestTextChannelRetry:
         assert flaky.calls == 1  # 不重试
 
     def test_constants_meet_user_ruling(self):
+        # 2026-10-25 用户裁决修正：固定 10s 重试间隔（不再递增）。
         assert llm_provider.LLM_MAX_RETRIES == 10
-        assert llm_provider.LLM_ATTEMPT_TIMEOUT_S >= 180
+        assert llm_provider.LLM_RETRY_WAIT_S == 10.0
+        # 单次尝试超时 120s：正常长生成足够，挂死网关 120s 内暴露。
+        assert llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120
+
+    def test_retry_drops_dead_client_connection(self, monkeypatch):
+        """2026-10-25 生产事故回归锁：网关挂死时 httpx 连接池里的死连接
+        必须在重试时被丢弃（self._client = None + 重建），不能复用。"""
+        p = self._provider()
+        calls = {"n": 0, "clients": []}
+
+        def _make_client():
+            client_id = object()
+
+            class _C:
+                chat = type("chat", (), {})()
+            _C.chat.completions = type("completions", (), {
+                "create": staticmethod(
+                    lambda **kw: _attempt(client_id))})()
+            _C._id = client_id
+            return _C()
+
+        def _attempt(client_id):
+            calls["n"] += 1
+            calls["clients"].append(client_id)
+            if calls["n"] == 1:
+                raise ConnectionError("网关挂死")
+            return _ok_response()
+
+        p._client = _make_client()
+        # _ensure_client 记录重建：证明重试真的丢弃旧 client
+        rebuilt = {"n": 0}
+        monkeypatch.setattr(llm_provider.OpenAICompatibleProvider,
+                            "_ensure_client",
+                            lambda self: (rebuilt.__setitem__("n", rebuilt["n"] + 1),
+                                          setattr(self, "_client", _make_client())))
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+        out = p.generate("hi")
+        assert out == "好的"
+        assert rebuilt["n"] >= 1                     # 重试触发了 client 重建
+        assert calls["clients"][0] is not calls["clients"][1]  # 两次尝试用不同 client
+
+    def test_retry_state_snapshot(self, monkeypatch):
+        """进程级重试状态：retry_state() 透出重试进度（诊断可查）。"""
+        p = self._provider()
+        flaky = _Flaky(fail_times=1, exc_factory=lambda: TimeoutError("t"))
+        self._wire(p, flaky, monkeypatch)
+        p.generate("hi")
+        st = llm_provider.retry_state()
+        assert st["attempt"] == 1 and "t" in st["last_error"]
 
 
 class TestVisionChannelRetry:

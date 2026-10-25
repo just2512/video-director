@@ -39,11 +39,21 @@ ENV_MODEL = "VD_LLM_MODEL"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4o-mini"
 
-# 2026-10-20 用户裁决：LLM 调用失败给 10 次重试机会；每次重试超时预留
-# 不能少于 3 分钟。长文案/长分镜的真实生成耗时在 60~150s 量级，此前 openai
-# 默认 read timeout（600s）虽够但无重试，一次网络抖动即整链降级。
+# 2026-10-20 用户裁决：LLM 调用失败给 10 次重试机会。
+# 2026-10-25 用户裁决修正：递增等待（15/30/45/60s）在网关静默挂死场景下
+# 把 10 次重试拖成 8-15 分钟假卡死；改固定 10s 间隔。
 LLM_MAX_RETRIES = 10
-LLM_ATTEMPT_TIMEOUT_S = 180  # 单次尝试超时（≥180s = 3 分钟）
+LLM_RETRY_WAIT_S = 10.0       # 固定重试间隔（用户裁决 2026-10-25）
+LLM_ATTEMPT_TIMEOUT_S = 120   # 单次尝试超时：正常长生成 60~150s，挂死网关 120s 内暴露
+
+# 进程级 LLM 重试状态（诊断）：最近一次 generate 的重试进度——健康检查/
+# 状态查询读它区分「长时间生成」与「LLM 正在重试」。
+_last_retry_state: dict = {"attempt": 0, "max": LLM_MAX_RETRIES, "last_error": "", "ts": 0.0}
+
+
+def retry_state() -> dict:
+    """最近一次 generate 的重试进度快照（只读诊断）。"""
+    return dict(_last_retry_state)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +149,7 @@ class OpenAICompatibleProvider:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
         last_exc: Optional[Exception] = None
+        _last_retry_state.update({"attempt": 0, "last_error": "", "ts": time.time()})
         for attempt in range(1, LLM_MAX_RETRIES + 1):
             try:
                 resp = self._client.chat.completions.create(
@@ -162,11 +173,20 @@ class OpenAICompatibleProvider:
                         f"LLM generate 客户端错误 {status}，不重试: {str(exc)[:160]}")
                     raise RuntimeError(f"LLM generate 失败: {exc}") from exc
                 if attempt < LLM_MAX_RETRIES:
-                    wait = min(15.0 * attempt, 60.0)
+                    # 2026-10-25 生产事故：nvidia 网关上游挂死时 TCP 连接被
+                    # 静默挂起（models 200 但 chat 无响应）。重试必须丢弃旧
+                    # client——httpx 连接池里的死连接会让后续重试全挂在同一条
+                    # 连接上，10 次重试全部 Connection error（生产 7 连败实录）。
+                    self._client = None
+                    self._ensure_client()
+                    _last_retry_state.update({
+                        "attempt": attempt, "last_error": str(exc)[:160],
+                        "ts": time.time(),
+                    })
                     logger.warning(
                         f"LLM generate 第 {attempt}/{LLM_MAX_RETRIES} 次失败"
-                        f"（{wait:.0f}s 后重试）: {str(exc)[:160]}")
-                    time.sleep(wait)
+                        f"（{LLM_RETRY_WAIT_S:.0f}s 后重试）: {str(exc)[:160]}")
+                    time.sleep(LLM_RETRY_WAIT_S)
         raise RuntimeError(
             f"LLM generate 失败（重试 {LLM_MAX_RETRIES} 次后）: {last_exc}") from last_exc
 
