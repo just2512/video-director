@@ -1314,6 +1314,36 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').wait_for(state="visible")
 
+                # A post-drag click suppression is one-shot timeline interaction state.
+                # The legacy click bridge must consume it through FilmStore, without
+                # changing selection or seeking the playhead.
+                suppressed_click = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const before = store.getSnapshot();
+                  const selectedIds = [...before.selectedIds];
+                  const selectedId = before.selectedId;
+                  const playhead = before.playhead;
+                  store.setField("timelineSkipNextClipClick", true);
+                  window.filmStudioClickClip("clip-b", new MouseEvent("click", {bubbles:true}));
+                  const after = store.getSnapshot();
+                  const result = {
+                    consumed: after.timelineSkipNextClipClick === false,
+                    selectionUnchanged: after.selectedId === selectedId &&
+                      JSON.stringify(after.selectedIds) === JSON.stringify(selectedIds),
+                    playheadUnchanged: after.playhead === playhead
+                  };
+                  store.setField("selectedId", selectedId);
+                  store.setField("selectedIds", selectedIds);
+                  store.setField("playhead", playhead);
+                  store.setField("timelineSkipNextClipClick", false);
+                  return result;
+                }""")
+                assert suppressed_click == {
+                    "consumed": True,
+                    "selectionUnchanged": True,
+                    "playheadUnchanged": True,
+                }, suppressed_click
+
                 # React mode buttons are projections of FilmStore; adapter logic may change state but not their DOM attributes.
                 mode_doc_before = fd.read_project_film(project_id)
                 mode_controls = page.evaluate("""() => {
