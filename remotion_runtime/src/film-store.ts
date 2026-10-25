@@ -720,9 +720,7 @@ class FilmStore implements FilmStudioStoreBridge {
       const record = normalized && typeof normalized === "object"
         ? normalized as Record<string, unknown>
         : null;
-      const revision = record?.exists === true && typeof record.rev === "string"
-        ? record.rev
-        : "";
+      const revision = record && typeof record.rev === "string" ? record.rev : "";
       if (!record || record.exists !== true || revision !== this.snapshot.revision) {
         // A context menu is only valid while the authoritative FilmDocument exists
         // at the same revision. Null/uninitialized/error results must not leave a
