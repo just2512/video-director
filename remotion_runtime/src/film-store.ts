@@ -730,10 +730,40 @@ class FilmStore implements FilmStudioStoreBridge {
       }
     }
     if (key === "projectId" && !Object.is(this.snapshot.projectId, normalized)) {
-      // Menu commands are scoped to a project as well as its document revision.
-      // A project switch can legitimately load byte-identical film.html (same rev),
-      // so revision-based cleanup alone is not sufficient.
-      this.publish({...this.snapshot, projectId: normalized as string, timelineContextMenu: null});
+      // Project-derived UI state must not survive while the next film.html is loading.
+      // The clipboard is intentionally retained with its projectId guard; paste rejects
+      // cross-project use. All live gesture previews and derived asset/AI models reset.
+      this.replaceSelectedIds([], false);
+      const previous = this.snapshot;
+      this.publish({
+        ...previous,
+        projectId: normalized as string,
+        film: null,
+        assetsModel: null,
+        aiDirectorModel: null,
+        clipInspectorEmptyMessage: null,
+        revision: "",
+        canvasElementSelection: null,
+        selectedId: "",
+        selectedIds: this.selectedIdsProxy,
+        selectedIdsVersion: previous.selectedIdsVersion + 1,
+        selectionAnchor: "",
+        playhead: 0,
+        playing: false,
+        duration: 10,
+        timelineGesturePreview: null,
+        timelineSnapGuide: null,
+        timelineDropTarget: null,
+        timelineActiveDragIds: null,
+        timelineGestureContext: null,
+        timelineEnvelopeGesture: null,
+        timelineEnvelopePreview: null,
+        timelineWaveformSources: {},
+        timelineContextMenu: null,
+        timelineSkipNextClipClick: false,
+        pendingExternalRevision: "",
+        broken: false,
+      });
       return;
     }
     if (Object.is(this.snapshot[key], normalized)) return;
