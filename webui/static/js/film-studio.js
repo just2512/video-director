@@ -3476,9 +3476,34 @@ window.filmStudioCopyClips=function(){
     clearFilmProposalTimelinePreview();
     if(!proposal||!proposal.candidate||!S.data||!Array.isArray(S.data.tracks)||
        !Array.isArray(proposal.candidate.tracks))return false;
-    var before=Object.create(null),after=Object.create(null),preview=Object.create(null),envelopes=[];
-    (S.data.tracks||[]).forEach(function(t){(t.clips||[]).forEach(function(c){before[String(c.id)]={clip:c,track:t};});});
-    (proposal.candidate.tracks||[]).forEach(function(t){(t.clips||[]).forEach(function(c){after[String(c.id)]={clip:c,track:t};});});
+    var before=Object.create(null),after=Object.create(null),beforeTracks=Object.create(null),
+        afterTracks=Object.create(null),preview=Object.create(null),envelopes=[];
+    (S.data.tracks||[]).forEach(function(t){
+      beforeTracks[String(t.id)]=t;
+      (t.clips||[]).forEach(function(c){before[String(c.id)]={clip:c,track:t};});
+    });
+    (proposal.candidate.tracks||[]).forEach(function(t){
+      afterTracks[String(t.id)]=t;
+      (t.clips||[]).forEach(function(c){after[String(c.id)]={clip:c,track:t};});
+    });
+    Object.keys(beforeTracks).forEach(function(id){
+      if(afterTracks[id])return;
+      var track=beforeTracks[id],attrs=track.attrs||{};
+      preview["__proposal_track_removed__:"+id]={
+        removed:true,previewTrack:true,targetTrackId:id,
+        trackLabel:String(attrs["data-label"]||track.label||id),
+        trackKind:(track.clips||[]).some(function(c){return c.tag==="audio";})?"audio":"video"
+      };
+    });
+    Object.keys(afterTracks).forEach(function(id){
+      if(beforeTracks[id])return;
+      var track=afterTracks[id],attrs=track.attrs||{};
+      preview["__proposal_track_added__:"+id]={
+        added:true,previewTrack:true,targetTrackId:id,
+        trackLabel:String(attrs["data-label"]||track.label||id),
+        trackKind:(track.clips||[]).some(function(c){return c.tag==="audio";})?"audio":"video"
+      };
+    });
     Object.keys(before).forEach(function(id){
       if(!after[id])preview[id]={removed:true};
     });

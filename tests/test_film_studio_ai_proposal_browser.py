@@ -202,6 +202,7 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
 <video id="clip-a" src="../assets/a.mp4#t=0,4" at="0"></video>
 <video id="clip-b" src="../assets/b.mp4#t=0,4" at="4"></video>
 <video id="clip-c" src="../assets/c.mp4#t=0,4" at="8"></video></section>
+<section id="video-spare" data-label="备用空轨道"></section>
 <section id="audio-bed" data-label="背景音乐">
 <audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio></section></body></html>""",
         encoding="utf-8")
@@ -214,6 +215,10 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
         {"op":"set","clip":"audio-1","field":"volume_envelope","value":[{"t":0,"v":1},{"t":20,"v":0}]},
         {"op":"remove","clip":"clip-a"},
         {"op":"split","clip":"clip-c","at":8.5,"new_id":"clip-c-right"},
+        {"op":"track_add","track_id":"track-ai-added","label":"AI 提案新轨道","kind":"video","index":0},
+        {"op":"insert","track_id":"track-ai-added","clip":{"id":"clip-new-track","tag":"video",
+          "attrs":{"id":"clip-new-track","src":"../assets/d.mp4#t=0,2","at":"1","volume":"1"}}},
+        {"op":"track_remove","track_id":"video-spare"},
     ]
     class FakeModel:
         def generate(self,_prompt):
@@ -257,6 +262,9 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 page.wait_for_function("""()=>{const s=window.filmStudioStore?.getSnapshot(),p=s?.timelineGesturePreview,e=s?.timelineEnvelopePreview;
                   return !!p?.['clip-b']&&!!p?.['clip-c']&&p['audio-1']?.fadeOut===1&&
                     p['clip-a']?.removed===true&&p['__proposal_added__:clip-c-right']?.added===true&&
+                    p['__proposal_track_added__:track-ai-added']?.previewTrack===true&&
+                    p['__proposal_track_removed__:video-spare']?.removed===true&&
+                    p['__proposal_added__:clip-new-track']?.added===true&&
                     e?.clipId==='audio-1'&&e.points.length===2;}""",timeout=10000)
                 assert film_path.read_bytes()==original
                 assert fd.read_project_film(project_id)["rev"]==before["rev"]
@@ -283,6 +291,16 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 assert added.is_visible()
                 assert abs(float(added.evaluate("(n)=>parseFloat(getComputedStyle(n).left)"))-8.5*scale)<0.01
                 assert abs(float(added.evaluate("(n)=>parseFloat(getComputedStyle(n).width)"))-2.5*scale)<0.01
+                added_track=page.locator('#fs-timeline [data-proposal-track-added="track-ai-added"]')
+                assert added_track.is_visible()
+                assert "AI 提案新轨道" in added_track.inner_text()
+                new_track_clip=added_track.locator('[data-proposal-added="clip-new-track"]')
+                assert new_track_clip.is_visible()
+                assert abs(float(new_track_clip.evaluate("(n)=>parseFloat(getComputedStyle(n).left)"))-1*scale)<0.01
+                assert abs(float(new_track_clip.evaluate("(n)=>parseFloat(getComputedStyle(n).width)"))-2*scale)<0.01
+                removed_track=page.locator('#fs-timeline [data-proposal-track-removed="video-spare"]')
+                assert removed_track.is_visible()
+                assert "候选删除" in removed_track.inner_text()
                 clip=page.locator('#fs-timeline .fs-clip[data-clip="audio-1"]')
                 assert clip.get_attribute("data-preview-fade-out")=="1"
                 assert clip.locator('[data-fade-preview="out"]').is_visible()
@@ -302,6 +320,10 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 clips={x["id"]:x for t in after["doc"]["tracks"] for x in t["clips"]}
                 assert "clip-a" not in clips
                 assert "clip-c-right" in clips
+                assert "clip-new-track" in clips
+                assert not any(track["id"]=="video-spare" for track in after["doc"]["tracks"])
+                added_track_state=next(track for track in after["doc"]["tracks"] if track["id"]=="track-ai-added")
+                assert any(clip["id"]=="clip-new-track" for clip in added_track_state["clips"])
                 assert abs(float(clips["clip-c"]["attrs"]["at"])-7)<0.001
                 assert abs(float(clips["clip-c-right"]["attrs"]["at"])-8.5)<0.001
                 assert abs(fd.clip_duration(clips["clip-c"])-1.5)<0.001
