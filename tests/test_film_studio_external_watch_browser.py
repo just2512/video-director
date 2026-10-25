@@ -3326,17 +3326,15 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 assert before_switch["menu"]["clipId"] == "clip-b", before_switch
 
                 def select_project_in_browser(target_project_id):
-                    return page.evaluate("""(pid) => {
+                    return page.evaluate("""async (pid) => {
+                      const store = window.filmStudioStore;
                       const select = document.querySelector('#editor-project');
                       let option = [...select.options].find(item => item.value === pid);
                       if (!option) {
                         option = new Option(pid, pid);
                         select.add(option);
                       }
-                      select.value = pid;
-                      select.dispatchEvent(new Event('change', {bubbles:true}));
-                      const s = window.filmStudioStore?.getSnapshot();
-                      return {
+                      const snapshot = s => ({
                         projectId:s?.projectId,revision:s?.revision,film:s?.film,
                         assetsModel:s?.assetsModel,aiDirectorModel:s?.aiDirectorModel,
                         clipInspectorEmptyMessage:s?.clipInspectorEmptyMessage,
@@ -3352,7 +3350,35 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                         envelopeMode:s?.envelopeMode,slideMode:s?.slideMode,slipMode:s?.slipMode,
                         rendering:s?.rendering,selectedProjectId:select?.value,
                         pendingExternalRevision:s?.pendingExternalRevision,broken:s?.broken
-                      };
+                      });
+                      return await new Promise((resolve, reject) => {
+                        let settled = false;
+                        let timer = null;
+                        let unsubscribe = () => {};
+                        const inspect = () => {
+                          const s = store?.getSnapshot();
+                          // editorLoad first verifies authority over HTTP. Capture the
+                          // synchronous empty state emitted when filmStudioLoad accepts
+                          // the new project, before that project's document is hydrated.
+                          if (settled || s?.projectId !== pid || s?.revision !== "" || s?.film !== null) return;
+                          settled = true;
+                          if (timer !== null) window.clearTimeout(timer);
+                          unsubscribe();
+                          resolve(snapshot(s));
+                        };
+                        unsubscribe = store.subscribe(inspect);
+                        select.value = pid;
+                        select.dispatchEvent(new Event('change', {bubbles:true}));
+                        inspect();
+                        if (!settled) {
+                          timer = window.setTimeout(() => {
+                            if (settled) return;
+                            settled = true;
+                            unsubscribe();
+                            reject(new Error("Did not observe the empty FilmStore project transition for " + pid));
+                          }, 10000);
+                        }
+                      });
                     }""", target_project_id)
 
                 alternate_transition = select_project_in_browser(same_revision_project_id)
@@ -3405,7 +3431,28 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 # An active export is bound to the current project/revision. The selector
                 # must be restored and FilmStore must remain on this project until it ends.
                 page.evaluate("window.filmStudioStore.setField('rendering', true)")
-                blocked_transition = select_project_in_browser(same_revision_project_id)
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                  select.dispatchEvent(new Event('change', {bubbles:true}));
+                }""", same_revision_project_id)
+                # The wrapper first reads authoritative film.html, then the render
+                # guard restores the selector without ever resetting the current store.
+                page.wait_for_function("""expected => {
+                  const select = document.querySelector('#editor-project');
+                  return select?.value === expected &&
+                    window.filmStudioStore?.getField("projectId") === expected;
+                }""", arg=project_id, timeout=10000)
+                blocked_transition = page.evaluate("""() => {
+                  const s = window.filmStudioStore?.getSnapshot();
+                  return {
+                    projectId:s?.projectId,revision:s?.revision,film:s?.film,
+                    selectedProjectId:document.querySelector('#editor-project')?.value,
+                    rendering:s?.rendering,menu:s?.timelineContextMenu
+                  };
+                }""")
                 assert blocked_transition["projectId"] == project_id, blocked_transition
                 assert blocked_transition["selectedProjectId"] == project_id, blocked_transition
                 assert blocked_transition["rendering"] is True, blocked_transition
