@@ -17,9 +17,11 @@ camera.apply/pip.configure/visual.morph/...）——§19「内部仍然使用」
 from __future__ import annotations
 
 import json
+import math
 import sys
+from typing import Any
 
-from video_director.agent_gateway import GatewayError, dispatch
+from video_director.agent_gateway import HIGH_LEVEL_TOOLS, GatewayError, dispatch
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "creative-os-mcp", "version": "1.0.0"}
@@ -200,9 +202,35 @@ def _tool_schema_for(name: str) -> dict:
         name, {"type": "object", "properties": {}, "additionalProperties": False}
     ))
 
-def _handle(req: dict) -> dict:
-    method = req.get("method", "")
+def _valid_jsonrpc_id(value: Any) -> bool:
+    """JSON-RPC ids are null, strings, or finite numbers; booleans are not numbers here."""
+    if value is None or isinstance(value, str):
+        return True
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def _rpc_error(req_id: Any, code: int, message: str) -> dict:
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+def _handle(req: Any) -> dict:
+    if not isinstance(req, dict):
+        return _rpc_error(None, -32600, "Invalid Request")
     req_id = req.get("id")
+    method = req.get("method")
+    if (req.get("jsonrpc") != "2.0"
+            or not isinstance(method, str)
+            or not method
+            or ("id" in req and not _valid_jsonrpc_id(req_id))):
+        response_id = req_id if _valid_jsonrpc_id(req_id) else None
+        return _rpc_error(response_id, -32600, "Invalid Request")
+    params = req.get("params")
+    if params is not None and not isinstance(params, dict):
+        return _rpc_error(req_id, -32602, "Invalid params: params must be an object")
     try:
         if method == "initialize":
             return {"jsonrpc": "2.0", "id": req_id, "result": {
@@ -213,19 +241,22 @@ def _handle(req: dict) -> dict:
             return {}  # 通知无响应
         if method == "tools/list":
             tools = []
-            for name, fn in dispatch.__globals__["HIGH_LEVEL_TOOLS"].items():
+            for name, fn in HIGH_LEVEL_TOOLS.items():
                 tools.append({"name": name, "description": (fn.__doc__ or "").strip().split("\n")[0],
                               "inputSchema": _tool_schema_for(name)})
             from video_director import film_mcp_server
             tools.extend(film_mcp_server.tool_definitions())
             return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools}}
         if method == "tools/call":
-            params = req.get("params") or {}
+            params = params or {}
             name = params.get("name", "")
-            args = params.get("arguments") or {}
+            if not isinstance(name, str) or not name.strip():
+                return _rpc_error(req_id, -32602, "Invalid params: tools/call requires a non-empty tool name")
+            args = params.get("arguments", {})
+            if args is None:
+                args = {}
             if not isinstance(args, dict):
-                return {"jsonrpc": "2.0", "id": req_id, "error": {
-                    "code": -32602, "message": "Tool arguments must be an object"}}
+                return _rpc_error(req_id, -32602, "Invalid params: tool arguments must be an object")
             if name.startswith("film."):
                 from video_director import film_mcp_server
                 return {"jsonrpc": "2.0", "id": req_id, "result": film_mcp_server.call_tool(name, args)}

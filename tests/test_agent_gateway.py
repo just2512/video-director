@@ -143,6 +143,33 @@ class TestMCPGatewayProtocol:
         resps = self._invoke([{"jsonrpc": "2.0", "id": 9, "method": "bogus.method"}])
         assert resps[0]["error"]["code"] == -32601
 
+    def test_invalid_request_envelopes_do_not_terminate_stdio_loop(self):
+        resps = self._invoke([
+            None,
+            [],
+            {"jsonrpc": "1.0", "id": 3, "method": "ping"},
+            {"jsonrpc": "2.0", "id": 4, "method": 17},
+            {"jsonrpc": "2.0", "id": True, "method": "ping"},
+            {"jsonrpc": "2.0", "id": 5, "method": "ping"},
+        ])
+        assert len(resps) == 6, resps
+        assert [response["id"] for response in resps] == [None, None, 3, 4, None, 5], resps
+        assert [response["error"]["code"] for response in resps[:5]] == [-32600] * 5, resps
+        assert resps[5]["result"] == {}, resps[5]
+
+    def test_tools_call_rejects_non_object_params_and_arguments(self):
+        resps = self._invoke([
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": []},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": {"name": "creative.inspect", "arguments": []}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": 7}},
+            {"jsonrpc": "2.0", "id": 4, "method": "ping"},
+        ])
+        assert len(resps) == 4, resps
+        assert [response["error"]["code"] for response in resps[:3]] == [-32602] * 3, resps
+        assert [response["id"] for response in resps] == [1, 2, 3, 4], resps
+        assert resps[3]["result"] == {}, resps[3]
+
     def test_parse_error(self):
         old_in, old_out = sys.stdin, sys.stdout
         sys.stdin = io.StringIO("not-json\n")
