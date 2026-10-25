@@ -62,9 +62,9 @@ def test_standalone_mcp_rejects_invalid_request_envelopes_and_tool_params():
 
 def test_standalone_mcp_parse_error_does_not_break_stdio_loop(monkeypatch):
     source = io.StringIO(
-        "not-json\\n"
+        "not-json\n"
         + json.dumps({"jsonrpc": "2.0", "id": 9, "method": "ping"})
-        + "\\n"
+        + "\n"
     )
     sink = io.StringIO()
     monkeypatch.setattr(mcp.sys, "stdin", source)
