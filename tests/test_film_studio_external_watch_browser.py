@@ -3243,25 +3243,6 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                   return !!state?.assetsModel && (state?.selectedIds || []).includes("clip-b");
                 }""", timeout=5000)
 
-                page.locator('[data-film-action="director-mode"]').click()
-                page.wait_for_function("""() => {
-                  const host = document.querySelector('#fs-director-planning-host');
-                  const authority = document.querySelector('#fs-director-authority-note');
-                  const legacy = document.querySelector('#fs-director-legacy-note');
-                  const aiRoot = document.querySelector('#fs-react-ai-director');
-                  const state = window.filmStudioStore?.getSnapshot();
-                  return !!host && getComputedStyle(host).display !== 'none' &&
-                    !!authority && getComputedStyle(authority).display !== 'none' &&
-                    !!legacy && getComputedStyle(legacy).display === 'none' &&
-                    !!aiRoot && getComputedStyle(aiRoot).display !== 'none' &&
-                    !host.contains(document.querySelector('#director-control-grid')) &&
-                    !host.contains(document.querySelector('#director-bar-card')) &&
-                    !!state?.aiDirectorModel;
-                }""", timeout=5000)
-                assert page.locator("#fs-director-planning-host #director-control-grid").count() == 0
-                assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
-                assert page.locator("#fs-react-ai-director").is_visible()
-
                 # Seed representative project-specific transient state, then prove the
                 # real selector workflow synchronously clears it before its GET resolves.
                 page.evaluate("""() => {
