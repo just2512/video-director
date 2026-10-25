@@ -3462,6 +3462,35 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
 
                 # Keep the menu open during an Agent write. The new authoritative revision
                 # must clear both FilmStore state and its React portal.
+                # If the authoritative document disappears while the Studio stays open,
+                # the menu and revision token must be cleared; restoring the same document
+                # must not resurrect the stale menu.
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  window.__filmBeforeNullTransition = store.getField("film");
+                  window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
+                  store.setField("film", null);
+                }""")
+                page.wait_for_function("""() => {
+                  const store = window.filmStudioStore;
+                  return store?.getField("film") === null &&
+                    store.getField("revision") === "" &&
+                    store.getField("timelineContextMenu") === null &&
+                    !document.querySelector('[data-react-context-menu="true"]');
+                }""", timeout=5000)
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("film", window.__filmBeforeNullTransition);
+                  delete window.__filmBeforeNullTransition;
+                }""")
+                page.wait_for_function("""expected => {
+                  const store = window.filmStudioStore;
+                  return store?.getField("revision") === expected &&
+                    store.getField("film")?.exists === true &&
+                    store.getField("timelineContextMenu") === null &&
+                    !!document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                }""", arg=initial["rev"], timeout=5000)
+
                 page.evaluate("""() => {
                   window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
                 }""")
