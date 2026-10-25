@@ -646,3 +646,194 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+
+def test_overwrite_rejects_external_revision_change_while_asset_resolution_is_pending(
+    tmp_path, monkeypatch
+):
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    asset_insert_started = threading.Event()
+    release_asset_insert = threading.Event()
+
+    def fake_library_asset_clip(project_id, asset_id, at, still_duration):
+        assert asset_id == "fixture-asset"
+        asset_insert_started.set()
+        if not release_asset_insert.wait(timeout=20):
+            raise RuntimeError("test did not release the pending overwrite")
+        return {
+            "id": "stale-overwrite-asset",
+            "tag": "video",
+            "attrs": {
+                "id": "stale-overwrite-asset",
+                "src": "../assets/new.mp4#t=0,1",
+                "at": str(at),
+                "volume": "1",
+            },
+        }
+
+    monkeypatch.setattr(fd, "library_asset_clip", fake_library_asset_clip)
+    project_id = "film-studio-overwrite-external-conflict"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    initial_text = film_path.read_text(encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            insert_responses: list[dict] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def capture_insert_response(response):
+                if response.url.endswith("/api/editor/film/insert-asset"):
+                    try:
+                        body = response.json()
+                    except Exception:
+                        body = {}
+                    insert_responses.append({"status": response.status, "body": body})
+
+            page.on("response", capture_insert_response)
+            page.route(
+                "**/api/assets_library*",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(
+                        [{"asset_id": "fixture-asset", "type": "video",
+                          "description": "覆盖冲突测试素材", "duration": 1}]
+                    ),
+                ),
+            )
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                }""", project_id)
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="video-before"]').wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="video-before"]').click()
+                page.evaluate("window.filmStudioSeek(2)")
+                page.locator('[data-film-action="overwrite-mode"]:visible').click()
+                page.evaluate("window.filmStudioLoadLibrary()")
+                page.locator('[data-add-asset="fixture-asset"]').wait_for(state="visible")
+                page.locator('[data-add-asset="fixture-asset"]').click()
+
+                assert asset_insert_started.wait(timeout=5), "asset insert handler was not reached"
+                try:
+                    pending = page.evaluate("""() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return {
+                        busy: state?.busy,
+                        revision: state?.revision,
+                        transaction: state?.pendingTransaction && {
+                          kind: state.pendingTransaction.kind,
+                          baseRevision: state.pendingTransaction.baseRevision,
+                          operationCount: state.pendingTransaction.operationCount,
+                        },
+                      };
+                    }""")
+                    assert pending["busy"] is True, pending
+                    assert pending["revision"] == initial["rev"], pending
+                    assert pending["transaction"] == {
+                        "kind": "asset-overwrite",
+                        "baseRevision": initial["rev"],
+                        "operationCount": 1,
+                    }, pending
+
+                    external_text = initial_text.replace(
+                        'id="video-later" src="../assets/c.mp4#t=0,2" at="4"',
+                        'id="video-later" src="../assets/c.mp4#t=0,2" at="5"',
+                        1,
+                    )
+                    assert external_text != initial_text, "external edit fixture did not match"
+                    film_path.write_text(external_text, encoding="utf-8")
+                    external = fd.read_project_film(project_id)
+                    assert external["exists"] is True
+                    assert external["rev"] != initial["rev"]
+
+                    # Exercise the actual external-watcher/store path while the
+                    # insert transaction is busy. The pending revision must be
+                    # deferred rather than replacing the timeline mid-transaction.
+                    page.wait_for_function(
+                        """expected => {
+                          const state = window.filmStudioStore?.getSnapshot();
+                          return !!state && state.busy === true &&
+                            state.pendingExternalRevision === expected;
+                        }""",
+                        arg=external["rev"],
+                        timeout=10_000,
+                    )
+                finally:
+                    release_asset_insert.set()
+
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && state.busy === false &&
+                        state.pendingTransaction === null &&
+                        state.pendingExternalRevision === "" &&
+                        state.revision === expected;
+                    }""",
+                    arg=external["rev"],
+                    timeout=15_000,
+                )
+
+                assert insert_responses, "overwrite API response was not observed"
+                assert insert_responses[-1]["status"] == 409, insert_responses
+                assert insert_responses[-1]["body"].get("code") == "REVISION_CONFLICT", insert_responses
+                assert insert_responses[-1]["body"].get("ok") is False, insert_responses
+
+                # A stale overwrite must neither remove/split source clips nor
+                # write its generated asset over the external editor's revision.
+                assert film_path.read_text(encoding="utf-8") == external_text
+                persisted = fd.read_project_film(project_id)
+                assert persisted["rev"] == external["rev"]
+                assert persisted["doc"]["tracks"] == external["doc"]["tracks"]
+                clips = [
+                    clip
+                    for track in persisted["doc"]["tracks"]
+                    for clip in track["clips"]
+                ]
+                assert not any(clip["id"] == "stale-overwrite-asset" for clip in clips)
+                video = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-main")
+                later = next(clip for clip in video["clips"] if clip["id"] == "video-later")
+                assert float(later["attrs"]["at"]) == 5
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                release_asset_insert.set()
+                page.close()
+                browser.close()
+    finally:
+        release_asset_insert.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
