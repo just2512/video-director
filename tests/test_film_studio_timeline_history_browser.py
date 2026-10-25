@@ -407,6 +407,12 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                     bubbles:true,cancelable:true,pointerId:wrongPointer,
                     clientX:rect.left+rect.width*0.5,clientY:rect.top+rect.height*0.5
                   };
+                  const secondClip=document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  if(!secondClip)throw new Error('second React clip not found');
+                  secondClip.dispatchEvent(new PointerEvent('pointerdown',{
+                    ...eventInit,button:0,pointerType:'touch',isPrimary:false
+                  }));
+                  const afterDown=store.getSnapshot();
                   document.dispatchEvent(new PointerEvent('pointermove',eventInit));
                   const afterMove=store.getSnapshot();
                   const afterMoveTrack=afterMove.timelineGestureContext?.targetTrackId??null;
@@ -416,6 +422,8 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                   const afterUp=store.getSnapshot();
                   return {
                     pointerId:gesture.pointerId,
+                    afterDownPointerId:afterDown.timelineGestureContext?.pointerId??null,
+                    afterDownTargetTrackId:afterDown.timelineGestureContext?.targetTrackId??null,
                     afterMoveTrack,
                     afterCancelPointerId:afterCancel.timelineGestureContext?.pointerId??null,
                     afterUpPointerId:afterUp.timelineGestureContext?.pointerId??null,
@@ -424,6 +432,8 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                     busy:afterUp.busy
                   };
                 }""")
+                assert unrelated_release["afterDownPointerId"] == unrelated_release["pointerId"], unrelated_release
+                assert unrelated_release["afterDownTargetTrackId"] == "video-secondary", unrelated_release
                 assert unrelated_release["afterMoveTrack"] == "video-secondary", unrelated_release
                 assert unrelated_release["afterCancelPointerId"] == unrelated_release["pointerId"], unrelated_release
                 assert unrelated_release["afterUpPointerId"] == unrelated_release["pointerId"], unrelated_release

@@ -1185,6 +1185,13 @@
     }
   };
   function beginClipGesture(e,context,el){
+        // A clip or envelope edit is one pointer-owned transaction. Do not let a
+        // second pointer replace the active gesture or alter selection underneath it.
+        if(S.drag||S.envelopeDrag){
+          if(e&&typeof e.preventDefault==='function')e.preventDefault();
+          if(e&&typeof e.stopPropagation==='function')e.stopPropagation();
+          return false;
+        }
         context=context||{};
         var clipId=String(context.clipId||(el&&el.getAttribute('data-clip'))||'');
         if(e.button!==0||context.targetIsButton)return;
@@ -1586,6 +1593,12 @@
     return points[points.length-1].v;
   }
   function beginVolumeEnvelopeGesture(e,surface,legacyCanvas){
+    // Envelope-point edits and clip moves share one transaction slot.
+    if(S.drag||S.envelopeDrag){
+      if(e&&typeof e.preventDefault==='function')e.preventDefault();
+      if(e&&typeof e.stopPropagation==='function')e.stopPropagation();
+      return false;
+    }
     var canvas=legacyCanvas||(surface&&typeof surface.getAttribute==='function'?surface:null);
     var context=canvas?{clipId:canvas.getAttribute('data-envelope-clip')}:surface||{};
     var clip=findClip(String(context.clipId||''));
