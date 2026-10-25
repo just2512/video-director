@@ -792,6 +792,8 @@ class FilmStore implements FilmStudioStoreBridge {
           selectedIds: this.selectedIdsProxy,
           selectedIdsVersion: previous.selectedIdsVersion + (selectedIdsChanged ? 1 : 0),
           selectionAnchor,
+          canvasElementSelection: null,
+          clipInspectorEmptyMessage: null,
           timelineGesturePreview: null,
           timelineSnapGuide: null,
           timelineDropTarget: null,
