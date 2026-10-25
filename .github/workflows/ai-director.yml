@@ -1,6 +1,13 @@
 name: AI Director regression
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_live_llm:
+        description: "Run a real configured provider token-stream smoke test (may incur provider cost)"
+        required: true
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
   push:
@@ -181,6 +188,24 @@ jobs:
       - name: Compile all test modules before pytest collection
         if: steps.ensure_checkout.outcome == 'success'
         run: '"$PY311_BIN/python3.11" -m compileall -q tests'
+      - name: Configure opt-in live model token-stream smoke
+        if: github.event_name == 'workflow_dispatch' && inputs.run_live_llm
+        shell: bash
+        env:
+          VD_LLM_API_KEY_SECRET: ${{ secrets.VD_LLM_API_KEY }}
+          VD_LLM_BASE_URL_CONFIG: ${{ vars.VD_LLM_BASE_URL }}
+          VD_LLM_MODEL_CONFIG: ${{ vars.VD_LLM_MODEL }}
+        run: |
+          set -euo pipefail
+          # Override local runner values only when repository secrets/vars exist.
+          if [ -n "${VD_LLM_API_KEY_SECRET:-}" ]; then printf 'VD_LLM_API_KEY=%s\n' "$VD_LLM_API_KEY_SECRET" >> "$GITHUB_ENV"; fi
+          if [ -n "${VD_LLM_BASE_URL_CONFIG:-}" ]; then printf 'VD_LLM_BASE_URL=%s\n' "$VD_LLM_BASE_URL_CONFIG" >> "$GITHUB_ENV"; fi
+          if [ -n "${VD_LLM_MODEL_CONFIG:-}" ]; then printf 'VD_LLM_MODEL=%s\n' "$VD_LLM_MODEL_CONFIG" >> "$GITHUB_ENV"; fi
+          : "${VD_LLM_API_KEY:?Set secret VD_LLM_API_KEY or configure the runner environment}"
+          : "${VD_LLM_BASE_URL:?Set variable VD_LLM_BASE_URL or configure the runner environment}"
+          : "${VD_LLM_MODEL:?Set variable VD_LLM_MODEL or configure the runner environment}"
+          printf 'VD_LLM_LIVE_STREAM_TEST=1\n' >> "$GITHUB_ENV"
+
       - name: Install Remotion rendering runtime dependencies
         if: always() && steps.ensure_checkout.outcome == 'success'
         working-directory: remotion_runtime
@@ -300,6 +325,8 @@ jobs:
           timeout --signal=TERM --kill-after=10s 5m "$PY311_BIN/python3.11" -m pytest -q --tb=short \
             tests/test_film_document_contract.py \
             tests/test_film_studio_external_watch_browser.py \
+            tests/test_film_studio_migration_preview_browser.py \
+            tests/test_film_variant_migration_api.py \
             tests/test_film_studio_react_timeline_toolbar.py \
             tests/test_film_studio_react_toolbar.py \
             tests/test_studio_build_contract.py
