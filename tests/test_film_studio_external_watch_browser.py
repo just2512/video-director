@@ -3227,6 +3227,17 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
                 assert page.locator("#fs-react-ai-director").is_visible()
 
+                # Context-menu state is tied to the current FilmDocument revision.
+                # An external Agent write must close the menu as part of the authoritative
+                # revision update, not leave commands targeting the previous document.
+                page.evaluate("""() => {
+                  window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
+                }""")
+                page.wait_for_function("""() =>
+                  window.filmStudioStore?.getField("timelineContextMenu")?.clipId === "clip-b" &&
+                  !!document.querySelector('[data-react-context-menu="true"]')
+                """, timeout=5000)
+
                 external = SAMPLE.replace(
                     'id="clip-b" src="../assets/b.mp4#t=0,5" at="5"',
                     'id="clip-b" src="../assets/b.mp4#t=0,5" at="5.5"',
@@ -3240,6 +3251,8 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                       const alert = document.querySelector('#film-studio-alert');
                       const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
                       return state?.revision === expected && !!clip &&
+                        state?.timelineContextMenu === null &&
+                        !document.querySelector('[data-react-context-menu="true"]') &&
                         !!alert && alert.textContent.includes('修改来源：外部文件 / Agent 直接改写');
                     }""",
                     arg=expected_revision,
