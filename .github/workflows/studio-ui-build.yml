@@ -168,6 +168,7 @@ jobs:
             tests/test_film_scene_runtime.py \
             tests/test_film_render_scene_e2e.py \
             tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_timeline_history_browser.py \
             tests/test_film_studio_pending_revision.py \
             tests/test_film_studio_roll_browser.py \
             tests/test_film_studio_insert_browser.py \
