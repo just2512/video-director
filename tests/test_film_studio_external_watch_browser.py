@@ -1469,15 +1469,23 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 ui_model_store_contract = page.evaluate("""async () => {
                   const store = window.filmStudioStore;
                   const previousAssets = store.getField("assetsModel");
+                  const previousLibraryAssets = store.getField("libraryAssets");
+                  const previousAssetMode = store.getField("assetMode");
                   const previousAi = store.getField("aiDirectorModel");
                   const previousMessage = store.getField("clipInspectorEmptyMessage");
-                  const assetProbe = {
-                    mode:"library", clips:[],
-                    libraryAssets:[{id:"film-store-ui-probe",kind:"image",label:"FilmStore probe asset",meta:"state test"}]
-                  };
+                  const assetProbe = {clips:[]};
+                  const libraryProbe = [{
+                    asset_id:"film-store-ui-probe",type:"image",
+                    name:"FilmStore probe asset",source:"state test"
+                  }];
+                  store.setField("libraryAssets", libraryProbe);
+                  store.setField("assetMode", "library");
                   window.filmStudioReactAssets.render(assetProbe);
                   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-                  const assetsStored = store.getField("assetsModel")?.libraryAssets?.[0]?.id === "film-store-ui-probe";
+                  const currentAssets = store.getField("assetsModel");
+                  const assetsStored = Array.isArray(currentAssets?.clips) &&
+                    currentAssets.clips.length === 0 &&
+                    store.getField("libraryAssets")?.[0]?.asset_id === "film-store-ui-probe";
                   const assetsRendered = !!document.querySelector('[data-react-library-asset="film-store-ui-probe"]');
                   const aiProbe = {
                     messages:[{role:"assistant",text:"FilmStore AI model probe"}],
@@ -1492,6 +1500,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                   window.filmStudioReactInspector.renderClip("FilmStore inspector empty-state probe");
                   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                   const messageStored = store.getField("clipInspectorEmptyMessage") === "FilmStore inspector empty-state probe";
+                  store.setField("libraryAssets", previousLibraryAssets);
+                  store.setField("assetMode", previousAssetMode);
                   store.setField("assetsModel", previousAssets);
                   store.setField("aiDirectorModel", previousAi);
                   store.setField("clipInspectorEmptyMessage", previousMessage);
