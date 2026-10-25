@@ -38,6 +38,8 @@ UI_ONLY_PREFIXES = (
     "edVoiceLoadOptions(",  # 数据装载
     # 2026-10-25 创作要求面板（表单收集器：读 textarea → 后端 brief/retry 端点）
     "directorLoadBrief(", "directorSaveBrief(", "directorRerunFromBrief(",
+    # 2026-10-25 创作流程窗口（进度视图切换/取消返回表单/预填装载）
+    "cfEnterProgressMode(", "cfCancelAndEdit(", "cfDismissProgress(", "cfPrefillFromProject(",
     # 表单收集器（读输入框 → 内部走 executeAction / 后端链）
     "editorApplyDuration(", "editorApplyTrim(", "editorApplySpeed(",
     "editorSetVisualTransform(", "editorAddKeyframe(", "editorRemoveKeyframe(",

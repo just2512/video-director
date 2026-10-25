@@ -402,6 +402,43 @@ def _normalize_value(field: str, value: str) -> Optional[str]:
     return v
 
 
+def resolve_rule_intents(brief: str) -> Dict[str, str]:
+    """规则层意图解析（毫秒级、零 LLM、零网络）——create HTTP 线程专用。
+
+    LLM 泛化层由后台 run 的 understand 节点补跑（merge_llm_intents），
+    结果写回 spec 供下游节点消费。规则层命中的意图（时长/音量/镜头秒数
+    等确定性模式）create 时即生效。
+    """
+    rule, unresolved = _rule_resolve(brief or "")
+    merged = dict(rule)
+    if unresolved:
+        merged["_unresolved"] = ",".join(unresolved)
+    return merged
+
+
+def merge_llm_intents(spec: dict, brief: str) -> dict:
+    """后台 understand 节点：LLM 泛化层补解析并合并进 spec（规则层已给的优先）。
+
+    返回合并后的 spec（原地更新）。LLM 层失败只记 warning——规则层结果
+    已在，创作链不受阻。
+    """
+    llm = _llm_resolve(brief or "")
+    if not llm:
+        return spec
+    _RULE_OWNED = ("duration", "clip_duration", "voice_rate", "bgm_volume",
+                   "narration_volume", "resolution")
+    filled = {}
+    for k, v in llm.items():
+        if k in _RULE_OWNED and spec.get(k):
+            continue  # 规则层确定性值优先
+        if not spec.get(k):
+            spec[k] = v
+            filled[k] = v
+    if filled:
+        logger.info(f"意图 LLM 泛化层补齐字段: {list(filled.keys())}")
+    return spec
+
+
 def resolve_director_intents(brief: str) -> Dict[str, str]:
     """brief → {spec_field: normalized_value}。规则层 + LLM 层合并，规则层优先。
 

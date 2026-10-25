@@ -178,8 +178,12 @@ def create_director_run(payload: dict) -> dict:
     # 「40 秒以上」「放慢配音速度」都只存在 brief 文本里，从不进 spec——AI 导演
     # 「看不到」这些要求。这里用能力目录驱动解析，结果只回填 payload 未显式给的
     # 字段（显式前端选择永远优先，用户意图是兜底不是覆盖）。
+    # 2026-10-25 用户报障根修：HTTP 线程只跑规则层（毫秒级，create 秒回）；
+    # LLM 泛化层移进后台 run 的 understand 节点（_resolve_llm_intents_async）
+    # ——此前同步 LLM 解析在网关挂死时把 create 拖到 15s+，浏览器/代理
+    # 断连 → 前端 TypeError: Failed to fetch，任务提交不出去。
     from video_director import director_intent
-    intent = director_intent.resolve_director_intents(brief)
+    intent = director_intent.resolve_rule_intents(brief)
     import logging as _logging
     _logging.getLogger(__name__).info(
         "自然语言意图解析结果（brief=%.60s）: %s", brief or "", intent or {}

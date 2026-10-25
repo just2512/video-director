@@ -205,6 +205,8 @@ function _pmMenuItems(p){
     p.legacy
       ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmPreviewLegacy('${esc(p.project_id)}')">预览旧成品</button>`
       : (actions.preview && p.has_final ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmPreviewFinal('${esc(p.project_id)}')">预览</button>` : ''),
+    // 2026-10-25 用户裁决：随时回到新建项目对话框——回填该项目的创作要求/文案。
+    p.legacy ? '' : `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();openCreate('${esc(p.project_id)}')">修改要求重新创作</button>`,
     actions.rename ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmAskRename('${esc(p.project_id)}')">重命名</button>` : '',
     actions.duplicate ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmClone('${esc(p.project_id)}')">复制项目</button>` : '',
     p.archived
