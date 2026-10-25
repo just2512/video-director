@@ -784,6 +784,12 @@ class FilmStore implements FilmStudioStoreBridge {
         if (selectedIdsChanged) this.replaceSelectedIds(selectedIds, false);
         const selectedId = selectedIds.includes(previous.selectedId) ? previous.selectedId : (selectedIds[0] || "");
         const selectionAnchor = validClipIds.has(previous.selectionAnchor) ? previous.selectionAnchor : selectedId;
+        const previousCanvasSelection = previous.canvasElementSelection;
+        const canvasElementSelection = previousCanvasSelection &&
+          validClipIds.has(previousCanvasSelection.clipId) &&
+          previousCanvasSelection.baseRevision === previous.revision
+          ? {...previousCanvasSelection, baseRevision: revision}
+          : null;
         this.publish({
           ...previous,
           film: normalized,
@@ -792,7 +798,7 @@ class FilmStore implements FilmStudioStoreBridge {
           selectedIds: this.selectedIdsProxy,
           selectedIdsVersion: previous.selectedIdsVersion + (selectedIdsChanged ? 1 : 0),
           selectionAnchor,
-          canvasElementSelection: null,
+          canvasElementSelection,
           clipInspectorEmptyMessage: null,
           timelineGesturePreview: null,
           timelineSnapGuide: null,
