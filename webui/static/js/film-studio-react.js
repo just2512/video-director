@@ -24474,6 +24474,11 @@
             if (typeof raw.left === "number" && Number.isFinite(raw.left)) geometry.left = raw.left;
             if (typeof raw.width === "number" && Number.isFinite(raw.width) && raw.width > 0) geometry.width = raw.width;
             if (typeof raw.targetTrackId === "string" && raw.targetTrackId.trim()) geometry.targetTrackId = raw.targetTrackId;
+            if (typeof raw.at === "number" && Number.isFinite(raw.at) && raw.at >= 0) geometry.at = raw.at;
+            if (raw.duration === null) geometry.duration = null;
+            else if (typeof raw.duration === "number" && Number.isFinite(raw.duration) && raw.duration >= 0) geometry.duration = raw.duration;
+            if (typeof raw.fadeIn === "number" && Number.isFinite(raw.fadeIn) && raw.fadeIn >= 0) geometry.fadeIn = raw.fadeIn;
+            if (typeof raw.fadeOut === "number" && Number.isFinite(raw.fadeOut) && raw.fadeOut >= 0) geometry.fadeOut = raw.fadeOut;
             if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
             if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
             if (Object.keys(geometry).length) entries[clipId] = geometry;
@@ -26426,12 +26431,14 @@
                       "data-kind": clip.tag,
                       "data-react-timeline-clip": clip.id,
                       "data-react-gesture-preview": previewForClip(clip.id) ? "true" : "false",
+                      "data-preview-fade-in": previewForClip(clip.id)?.fadeIn,
+                      "data-preview-fade-out": previewForClip(clip.id)?.fadeOut,
                       "data-roll-delta": previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : void 0,
                       "data-slide-delta": previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : void 0,
                       "data-slip-delta": previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : void 0,
                       style: {
-                        left: previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
-                        width: previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
+                        left: previewForClip(clip.id)?.at != null ? filmTimelineMath.clipLeft(Number(previewForClip(clip.id)?.at), model.pixelsPerSecond) : previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                        width: previewForClip(clip.id)?.duration !== void 0 ? filmTimelineMath.clipWidth(previewForClip(clip.id)?.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
                       },
                       title: clip.title,
                       onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
@@ -26578,6 +26585,46 @@
                           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-left", "data-trim": "start", title: "\u4FEE\u526A\u5165\u70B9" }),
                           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-right", "data-trim": "end", title: "\u4FEE\u526A\u51FA\u70B9" })
                         ] }) : null,
+                        (previewForClip(clip.id)?.fadeIn ?? 0) > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                          "span",
+                          {
+                            className: "fs-clip-fade-preview fs-clip-fade-in",
+                            "data-fade-preview": "in",
+                            "aria-hidden": "true",
+                            title: "\u5019\u9009\u6DE1\u5165 " + Number(previewForClip(clip.id)?.fadeIn || 0).toFixed(2) + "s",
+                            style: {
+                              position: "absolute",
+                              zIndex: 5,
+                              pointerEvents: "none",
+                              top: 0,
+                              bottom: 0,
+                              left: 0,
+                              width: Math.max(0, Math.min(100, (previewForClip(clip.id)?.fadeIn || 0) / Math.max(1e-3, clip.duration ?? 1) * 100)) + "%",
+                              background: "linear-gradient(to right, rgba(255,255,255,.72), rgba(255,255,255,0))",
+                              borderLeft: "2px solid rgba(255,255,255,.82)"
+                            }
+                          }
+                        ) : null,
+                        (previewForClip(clip.id)?.fadeOut ?? 0) > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                          "span",
+                          {
+                            className: "fs-clip-fade-preview fs-clip-fade-out",
+                            "data-fade-preview": "out",
+                            "aria-hidden": "true",
+                            title: "\u5019\u9009\u6DE1\u51FA " + Number(previewForClip(clip.id)?.fadeOut || 0).toFixed(2) + "s",
+                            style: {
+                              position: "absolute",
+                              zIndex: 5,
+                              pointerEvents: "none",
+                              top: 0,
+                              bottom: 0,
+                              right: 0,
+                              width: Math.max(0, Math.min(100, (previewForClip(clip.id)?.fadeOut || 0) / Math.max(1e-3, clip.duration ?? 1) * 100)) + "%",
+                              background: "linear-gradient(to left, rgba(255,255,255,.72), rgba(255,255,255,0))",
+                              borderRight: "2px solid rgba(255,255,255,.82)"
+                            }
+                          }
+                        ) : null,
                         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
                         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
                           clip.atLabel,
@@ -26599,8 +26646,8 @@
                         "data-kind": clip.tag,
                         "aria-hidden": "true",
                         style: {
-                          left: preview.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
-                          width: preview.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
+                          left: preview.at != null ? filmTimelineMath.clipLeft(Number(preview.at), model.pixelsPerSecond) : preview.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
+                          width: preview.duration !== void 0 ? filmTimelineMath.clipWidth(preview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : preview.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
                         },
                         children: [
                           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-title", children: clip.title }),
