@@ -3238,6 +3238,32 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                   !!document.querySelector('[data-react-context-menu="true"]')
                 """, timeout=5000)
 
+                # A project switch must close the menu even before the next document
+                # loads; the incoming project may have a byte-identical revision.
+                project_revision_before_switch = page.evaluate(
+                    "window.filmStudioStore.getField('revision')"
+                )
+                page.evaluate("""() => {
+                  window.filmStudioStore.setField("projectId", "context-menu-switch-probe");
+                }""")
+                page.wait_for_function("""expectedRevision => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.projectId === "context-menu-switch-probe" &&
+                    state?.revision === expectedRevision &&
+                    state?.timelineContextMenu === null &&
+                    !document.querySelector('[data-react-context-menu="true"]');
+                }""", arg=project_revision_before_switch, timeout=5000)
+                page.evaluate("""(projectId) => {
+                  window.filmStudioStore.setField("projectId", projectId);
+                }""", project_id)
+                page.evaluate("""() => {
+                  window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
+                }""")
+                page.wait_for_function("""() =>
+                  window.filmStudioStore?.getField("timelineContextMenu")?.clipId === "clip-b" &&
+                  !!document.querySelector('[data-react-context-menu="true"]')
+                """, timeout=5000)
+
                 external = SAMPLE.replace(
                     'id="clip-b" src="../assets/b.mp4#t=0,5" at="5"',
                     'id="clip-b" src="../assets/b.mp4#t=0,5" at="5.5"',
