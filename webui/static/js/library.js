@@ -164,10 +164,32 @@ async function edLibSaveSemantics(assetId){
 // ---------------------------------------------------------------------------
 // 各子入口装载
 // ---------------------------------------------------------------------------
+/** 声音域「配音」子域渲染（全局能力，不依赖项目——设置页入口可达）。
+ * 音色试听走 /api/voice_preview 全局合成；配音设置（音色/语速/音量入轨）
+ * 在项目 Inspector，无项目时如实提示。 */
+async function _edLibLoadVoice(box){
+  const r = await apiGet('/api/voice/providers');
+  const provs = (r && r.providers) || [];
+  const voices = (r && r.voices) || [];
+  box.innerHTML = `<div class="hint">配音引擎：${provs.map(p => esc(p.label || p.id) + (p.available ? '（可用）' : '（未接通，配置无效）')).join('、') || '无'}</div>`+
+    (ED.pid
+      ? '<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>'
+      : '<div class="hint">当前未打开项目：可试听音色；配音入轨请先打开项目。</div>')+
+    voices.slice(0, 12).map(v =>
+      `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
+      `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}')">试听</button></div>`).join('');
+}
+
 async function edLibLoad(){
   const box = document.getElementById('ed-lib-list');
   if (!box) return;
   if (!ED.comp || !ED.pid) {
+    // 声音域「配音」子域不依赖项目（音色试听是全局合成），无项目也可用——
+    // 否则设置页「去音色库试听」在未开项目时点进去是一个死面板。
+    if (ED_LIB.domain === 'sound' && ED_LIB.sub === 'voice') {
+      await _edLibLoadVoice(box);
+      return;
+    }
     box.innerHTML = '<div class="hint">先打开一个项目（上方选择项目）。</div>';
     return;
   }
@@ -320,14 +342,7 @@ async function edLibLoad(){
     }
     // ---- 声音域 ----
     else if (sub === 'voice') {
-      const r = await apiGet('/api/voice/providers');
-      const provs = (r && r.providers) || [];
-      const voices = (r && r.voices) || [];
-      box.innerHTML = `<div class="hint">配音引擎：${provs.map(p => esc(p.label || p.id) + (p.available ? '（可用）' : '（未接通，配置无效）')).join('、') || '无'}</div>`+
-        `<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>`+
-        voices.slice(0, 12).map(v =>
-          `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
-          `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}')">试听</button></div>`).join('');
+      await _edLibLoadVoice(box);
     } else if (sub === 'bgm' || sub === 'sfx') {
       const kind = sub;
       const lib = await apiGet(kind === 'bgm' ? '/api/bgm' : '/api/sfx');
