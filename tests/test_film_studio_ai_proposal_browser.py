@@ -314,7 +314,7 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=before["rev"],timeout=10000)
                 assert film_path.read_bytes()==original
                 assert page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').is_visible()
-                assert page.locator('#fs-timeline [data-proposal-added="clip-c-right"]').count()==0
+                assert page.locator('#fs-timeline .fs-clip[data-clip="clip-c-right"]').count()==0
                 undo_geometry=page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
                   const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
                   return [id,{left:parseFloat(getComputedStyle(n).left),width:parseFloat(getComputedStyle(n).width)}];}))""")
@@ -329,7 +329,7 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=after["rev"],timeout=10000)
                 assert film_path.read_bytes()==after_bytes
                 assert page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').count()==0
-                assert page.locator('#fs-timeline [data-proposal-added="clip-c-right"]').is_visible()
+                assert page.locator('#fs-timeline .fs-clip[data-clip="clip-c-right"]').is_visible()
                 redo_geometry=page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
                   const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
                   return [id,{left:parseFloat(getComputedStyle(n).left),width:parseFloat(getComputedStyle(n).width)}];}))""")

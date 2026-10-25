@@ -84,7 +84,8 @@ async function workspaceOpen(pid, target, options){
       editorToast('该项目存在 film.html，但无法打开权威 Film Studio；未回退到旧 CompositionIR。请检查未提交修改或刷新后重试。', true);
       return {ok:false,mode:'film',error:'FILM_STUDIO_OPEN_FAILED'};
     }
-    // An explicit exists:false is the only valid route into the legacy editor.
+    // Explicit exists:false is the only route to the compatibility editor.
+    // Normal product entry keeps the project in Film Studio's migration surface.
     if (typeof window.filmStudioPrepareLegacyProjectOpen === 'function' &&
         !window.filmStudioPrepareLegacyProjectOpen(pid)) {
       editorToast('当前 Film Studio 尚未安全关闭；本次没有打开旧 CompositionIR。请先完成或放弃未提交修改。', true);
