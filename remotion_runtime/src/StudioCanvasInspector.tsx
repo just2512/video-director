@@ -2089,11 +2089,9 @@ window.filmStudioReactAi = {
   },
 };
 
-let activeCanvasSelection: CanvasElementSelection | null = null;
-
 window.filmStudioReactInspector = {
   saveSelected() {
-    const element=activeCanvasSelection;
+    const element=studioReactState.canvasElement;
     if(!element){window.filmStudioShowInspectorError?.("请先在预览画布中选中一个 HTML 元素。");return;}
     const form=readCanvasElementForm();
     if(!form){window.filmStudioShowInspectorError?.("画布检查器尚未挂载完成，请重新选择元素。");return;}
@@ -2113,7 +2111,6 @@ window.filmStudioReactInspector = {
     });
   },
   render(element) {
-    activeCanvasSelection=element;
     renderStudioReactOwner({
       canvasInspectorMounted:true,
       canvasElement:element,

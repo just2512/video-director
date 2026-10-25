@@ -19,6 +19,10 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     source = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     render_end = source[source.index('  render(element) {'):source.index('  sync(element) {')]
     assert "if (element) this.sync(element);" in render_end
+    assert "activeCanvasSelection" not in component
+    save_start = component.index("  saveSelected() {")
+    save_end = component.index("  renderClip(clip, emptyMessage) {", save_start)
+    assert "const element=studioReactState.canvasElement;" in component[save_start:save_end]
     assert "export const buildCanvasElementOperation =" in component
     assert "changed:Object.keys(style).length>0||textChanged" in component
     assert "const style:Record<string,string>={};" in component
