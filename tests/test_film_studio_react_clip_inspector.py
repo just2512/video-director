@@ -119,3 +119,23 @@ def test_react_film_operation_contract_covers_the_supported_editor_operations():
         assert f'op: "{operation}"' in contract, f"TypeScript FilmOperation is missing {operation}"
     for field in ("src", "volume_envelope", "overrides", "sync-lock"):
         assert f'"{field}"' in contract, f"TypeScript FilmOperation is missing field {field}"
+
+def test_clearing_canvas_selection_also_hides_the_legacy_outline():
+    """The selection rectangle is outside React and must follow the store-owned selection."""
+    root = Path(__file__).resolve().parents[1]
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+
+    render_start = studio.index("function render() {")
+    broken_start = studio.index("function renderBrokenFilmState", render_start)
+    render_body = studio[render_start:broken_start]
+    assert "if(!S.selectedElement&&elementBox)elementBox.hidden=true;" in render_body
+
+    broken_end = studio.index("async function filmStudioLoad", broken_start)
+    broken_body = studio[broken_start:broken_end]
+    assert "S.selectedElement=null;" in broken_body
+    assert "var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;" in broken_body
+
+    stale_start = studio.index("window.filmStudioCommitCanvasElement=async function(operation,options)")
+    stale_end = studio.index("window.filmStudioSaveSelectedElement=async function()", stale_start)
+    stale_guard = studio[stale_start:stale_end]
+    assert "var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;" in stale_guard

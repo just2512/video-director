@@ -1797,10 +1797,11 @@
     if(!S.data||!S.data.exists){renderMigration();return;}
     $('fs-project-label').textContent=S.projectId+' · rev '+S.rev;S.duration=Math.max(0.001,num(S.data.duration,10));
     var available=clips().map(function(c){return c.id;});
-    if(S.selectedElement&&available.indexOf(S.selectedElement.clipId)<0){
-      S.selectedElement=null;
-      var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
-    }
+    var elementBox=$('fs-element-selection');
+    if(S.selectedElement&&available.indexOf(S.selectedElement.clipId)<0)S.selectedElement=null;
+    // The selection outline lives outside React; always project the authoritative
+    // selection state so a store reset cannot leave a floating stale rectangle.
+    if(!S.selectedElement&&elementBox)elementBox.hidden=true;
     S.selectedIds=(S.selectedIds||[]).filter(function(id){return available.indexOf(id)>=0;});
     if(!findClip(S.selectedId)){var first=clips().filter(function(c){return c.tag!=='audio';})[0];S.selectedId=first?first.id:'';}
     if(S.selectedIds.indexOf(S.selectedId)<0&&S.selectedId)S.selectedIds.push(S.selectedId);
@@ -1828,6 +1829,7 @@
     };
     S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
     S.selectedElement=null;
+    var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
     S.proposal=null;S.previewProposalActive=false;
     renderMigration();
     $('fs-project-label').textContent=S.projectId+' · film.html 无效';
@@ -2665,7 +2667,9 @@
     if(!selected){showStatus('画布选择已经失效，请重新选取元素。','error');return;}
     if(selected.baseRevision!==S.rev){
       showStatus('影片 revision 已变化；为防止覆盖旧画布状态，请重新选择元素。','error');
-      S.selectedElement=null;renderInspector();flushPendingExternalRevision();return;
+      S.selectedElement=null;
+      var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
+      renderInspector();flushPendingExternalRevision();return;
     }
     if(!operation||operation.op!=='element_set'||operation.clip!==selected.clipId||operation.selector!==selected.selector){
       showStatus('画布编辑目标与当前选择不一致；本次没有写入。','error');return;
