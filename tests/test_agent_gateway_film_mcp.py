@@ -13,10 +13,27 @@ def _payload(result: dict) -> dict:
     return json.loads(result["content"][0]["text"])
 
 
+def _gateway_call(name: str, arguments: dict, request_id: int = 100) -> tuple[dict, bool]:
+    response = mcp_server._handle({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": arguments},
+    })
+    assert "result" in response, response
+    result = response["result"]
+    return _payload(result), bool(result.get("isError"))
+
+
 def test_existing_gateway_lists_and_routes_film_tools(monkeypatch):
     listed = mcp_server._handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     names = {item["name"] for item in listed["result"]["tools"]}
     assert {"film.status", "film.initialize", "film.validate", "film.edit", "film.diff", "film.look", "film.render"} <= names
+    gateway_film_tools = {
+        item["name"]: item for item in listed["result"]["tools"] if item["name"].startswith("film.")
+    }
+    standalone_film_tools = {item["name"]: item for item in film_mcp_server.tool_definitions()}
+    assert gateway_film_tools == standalone_film_tools
 
     monkeypatch.setattr(film_mcp_server, "call_tool", lambda name, args: {
         "content": [{"type": "text", "text": json.dumps({"ok": True, "name": name, "args": args})}],
@@ -79,18 +96,20 @@ def test_film_initialize_requires_the_exact_composition_revision_and_warning_acc
         }],
     })
     editor.save_composition(project_id, ir)
-    status = _payload(film_mcp_server.call_tool("film.status", {"project_id": project_id}))
+    status, status_error = _gateway_call("film.status", {"project_id": project_id}, request_id=20)
+    assert status_error is False
     assert status["ok"] is True and status["exists"] is False
     assert status["source_composition_available"] is True
     source_version = status["source_composition_version"]
     assert source_version == editor.composition_version(project_id)
     assert status["migration_preview"]["source_composition_version"] == source_version
 
-    stale = _payload(film_mcp_server.call_tool("film.initialize", {
+    stale, stale_error = _gateway_call("film.initialize", {
         "project_id": project_id,
         "expected_composition_version": source_version + 1,
         "accept_warnings": True,
-    }))
+    }, request_id=21)
+    assert stale_error is True
     assert stale["ok"] is False and stale["code"] == "COMPOSITION_CHANGED"
     assert not (project_root / fd.FILM_NAME).exists()
 
@@ -98,10 +117,13 @@ def test_film_initialize_requires_the_exact_composition_revision_and_warning_acc
         "project_id": project_id,
         "expected_composition_version": source_version,
     }
-    initialized = _payload(film_mcp_server.call_tool("film.initialize", requested))
+    initialized, initialized_error = _gateway_call("film.initialize", requested, request_id=22)
     if not initialized.get("ok") and initialized.get("code") == "MIGRATION_WARNINGS_REQUIRE_CONFIRMATION":
-        assert initialized["warnings"]
-        initialized = _payload(film_mcp_server.call_tool("film.initialize", {**requested, "accept_warnings": True}))
+        assert initialized_error is True and initialized["warnings"]
+        initialized, initialized_error = _gateway_call(
+            "film.initialize", {**requested, "accept_warnings": True}, request_id=23
+        )
+    assert initialized_error is False
     assert initialized["ok"] is True and initialized["initialized"] is True
     assert (project_root / fd.FILM_NAME).is_file()
     current = fd.read_project_film(project_id)
