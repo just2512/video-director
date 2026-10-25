@@ -107,6 +107,7 @@ export interface FilmStudioStoreSnapshot {
   timelineEnvelopePreview: FilmStudioTimelineEnvelopePreview;
   timelineWaveformSources: FilmStudioTimelineWaveformSources;
   timelineContextMenu: FilmStudioTimelineContextMenu | null;
+  timelineSkipNextClipClick: boolean;
   timelineVisible: boolean;
   pendingExternalRevision: string;
   insertMode: boolean;
@@ -136,6 +137,7 @@ export interface FilmStudioStoreBridge {
 
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : value == null ? "" : String(value);
+const asBoolean = (value: unknown): boolean => value === true;
 
 const asFiniteNumber = (value: unknown, fallback: number): number => {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -386,6 +388,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       timelineContextMenu: null,
+      timelineSkipNextClipClick: false,
       timelineVisible: false,
       pendingExternalRevision: "",
       insertMode: false,
@@ -492,7 +495,7 @@ class FilmStore implements FilmStudioStoreBridge {
     } else if (key === "busy" || key === "broken" || key === "playing" ||
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
         key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" ||
-        key === "timelineVisible") {
+        key === "timelineVisible" || key === "timelineSkipNextClipClick") {
       normalized = value === true;
     } else if (key === "pixelsPerSecond") {
       normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -633,6 +636,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineEnvelopePreview: null,
       timelineWaveformSources: {},
       timelineContextMenu: null,
+      timelineSkipNextClipClick: asBoolean(target.skipNextClipClick),
       timelineVisible: false,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
@@ -663,6 +667,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["drag", "timelineGestureContext"],
       ["envelopeDrag", "timelineEnvelopeGesture"],
       ["pendingExternalRevision", "pendingExternalRevision"],
+      ["skipNextClipClick", "timelineSkipNextClipClick"],
       ["insertMode", "insertMode"],
       ["overwriteMode", "overwriteMode"],
       ["snapEnabled", "snapEnabled"],
