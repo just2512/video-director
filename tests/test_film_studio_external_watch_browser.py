@@ -1209,14 +1209,20 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 assert page.locator('#fs-timeline .fs-clip[data-clip]').count() == 0
                 assert page.locator("#fs-project-label").inner_text() == legacy_project_id
                 legacy_film_reads = page.evaluate("window.__filmDocumentReadUrls.slice()")
-                assert len(legacy_film_reads) == 1, {
-                    "known exists:false response should be reused for the Studio migration screen": legacy_film_reads
+                authority_reads = [url for url in legacy_film_reads if "preview=1" not in url]
+                preview_reads = [url for url in legacy_film_reads if "preview=1" in url]
+                assert len(authority_reads) == 1, {
+                    "one authority preflight should be reused when opening migration preview": legacy_film_reads
                 }
-                assert f"project_id={legacy_project_id}" in legacy_film_reads[0], legacy_film_reads
+                assert len(preview_reads) == 1, {
+                    "one explicit read-only candidate request should supply the runtime payload": legacy_film_reads
+                }
+                assert f"project_id={legacy_project_id}" in authority_reads[0], authority_reads
+                assert f"project_id={legacy_project_id}" in preview_reads[0], preview_reads
                 legacy_composition_reads = page.evaluate("window.__compositionReadUrls.slice()")
-                assert legacy_composition_reads and all(
-                    f"project_id={legacy_project_id}" in url for url in legacy_composition_reads
-                ), legacy_composition_reads
+                assert legacy_composition_reads == [], {
+                    "the default Studio route must not load a hidden CompositionIR editor": legacy_composition_reads
+                }
                 assert page.locator("#fs-project-label").inner_text() == legacy_project_id
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
