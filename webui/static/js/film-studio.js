@@ -2234,7 +2234,7 @@
       if(!setTimelineEnvelopePreview(ed.clipId,points)&&envelopeDomCanvas)drawVolumeEnvelope(envelopeDomCanvas,points);
       e.preventDefault();return;
     }
-    var d=S.drag;if(!d)return;
+    var d=S.drag;if(!d||!e||e.pointerId!==d.pointerId)return;
     var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
     if(!e.skipAutoScroll){
       if(e.clientX<rect.left+28)scroll.scrollLeft=Math.max(0,scroll.scrollLeft-18);
@@ -2398,7 +2398,10 @@
       return;
     }
     var d=S.drag;
-    if(!d){gestureDomRefs=null;clearDragAutoScroll();setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    if(!d){clearDragAutoScroll();showTimelineSnapGuide(null);clearDragTrackTarget(null);gestureDomRefs=null;setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    // Document-level fallbacks also observe pointer events from other contacts; only the
+    // pointer that began this transaction may finish or commit it.
+    if(!e||e.pointerId!==d.pointerId)return;
     var dragDomRefs=gestureDomRefs;
     S.drag=null;clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
     showTimelineSnapGuide(null);clearDragTrackTarget(d);
@@ -2559,6 +2562,9 @@
     if(reactTimeline&&reactClip&&!nativeEnvelope)return;
     if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
     if(window.filmStudioOwnsEnvelopeGesturePointer&&window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId))return;
+    // An unrelated pointercancel must never roll back another pointer's active gesture.
+    if(S.drag&&S.drag.pointerId!==e.pointerId)return;
+    if(S.envelopeDrag&&S.envelopeDrag.pointerId!==e.pointerId)return;
     cancelPointerGesture();
   });
   window.filmStudioSetSideMode=function(mode){

@@ -393,6 +393,46 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                 assert film_path.read_bytes() == original_bytes
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]
 
+                # A second touch/pointer must not move, cancel, or commit this gesture.
+                unrelated_release = page.evaluate("""() => {
+                  const store=window.filmStudioStore;
+                  const before=store.getSnapshot();
+                  const gesture=before.timelineGestureContext;
+                  if(!gesture?.active)throw new Error('expected an active timeline gesture');
+                  const otherTrack=document.querySelector('#fs-timeline .fs-track[data-track="video-main"]');
+                  const rect=otherTrack?.getBoundingClientRect();
+                  if(!rect)throw new Error('source track row not found');
+                  const wrongPointer=gesture.pointerId+1000;
+                  const eventInit={
+                    bubbles:true,cancelable:true,pointerId:wrongPointer,
+                    clientX:rect.left+rect.width*0.5,clientY:rect.top+rect.height*0.5
+                  };
+                  document.dispatchEvent(new PointerEvent('pointermove',eventInit));
+                  const afterMove=store.getSnapshot();
+                  const afterMoveTrack=afterMove.timelineGestureContext?.targetTrackId??null;
+                  document.dispatchEvent(new PointerEvent('pointercancel',eventInit));
+                  const afterCancel=store.getSnapshot();
+                  document.dispatchEvent(new PointerEvent('pointerup',eventInit));
+                  const afterUp=store.getSnapshot();
+                  return {
+                    pointerId:gesture.pointerId,
+                    afterMoveTrack,
+                    afterCancelPointerId:afterCancel.timelineGestureContext?.pointerId??null,
+                    afterUpPointerId:afterUp.timelineGestureContext?.pointerId??null,
+                    targetTrackId:afterUp.timelineGestureContext?.targetTrackId??null,
+                    revision:afterUp.revision,
+                    busy:afterUp.busy
+                  };
+                }""")
+                assert unrelated_release["afterMoveTrack"] == "video-secondary", unrelated_release
+                assert unrelated_release["afterCancelPointerId"] == unrelated_release["pointerId"], unrelated_release
+                assert unrelated_release["afterUpPointerId"] == unrelated_release["pointerId"], unrelated_release
+                assert unrelated_release["targetTrackId"] == "video-secondary", unrelated_release
+                assert unrelated_release["revision"] == original["rev"], unrelated_release
+                assert unrelated_release["busy"] is False, unrelated_release
+                assert edit_requests == []
+                assert film_path.read_bytes() == original_bytes
+
                 # Dispatch pointercancel to the React-owned clip with the actual active pointer ID.
                 cancelled = page.evaluate("""() => {
                   const state=window.filmStudioStore.getSnapshot();
