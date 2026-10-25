@@ -167,7 +167,13 @@
 ## 本次直接落地
 
 画布 Inspector 已补齐背景填色开关/背景色、不透明度、字重和文字对齐；背景透明语义被显式保留，额外属性只在确有变化时写入 overrides。时间线已加入帧吸附开关/参考线、右键上下文菜单、重复片段和关键帧跳转；AI 规划已加入 SSE token 增量反馈、停止和“取消当前请求后按新要求重规划”。React 源码与无构建时 fallback 均有关键帧曲线编辑入口，且共享 FilmDocument 校验与写盘路径。  
-**当前仍未关闭的验收门禁：** React 已有可运行构建产物并拥有单一根、scrubber 订阅、轨道控制、时码尺、片段手势分发与关键帧跳转；音量包络/波形和部分上下文菜单仍由原生事件处理。导演与 Studio 的产品入口尚未完全收敛；Bezier 控制柄已实现但需要真实浏览器保存/回读验收；多轨同步移动、Lift/Ripple/Delete/Insert 的完整组合仍需补充冲突和恢复测试；多种网页动画/异步资源仍不能宣称必然确定性。后续必须以具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
+**已通过的时间线验收（2026-10-25）：** React/FilmStore 已拥有时间线视图、选择、拖动/包络预览、吸附/跨轨目标、波形来源与右键菜单的状态和呈现；共享旧适配器继续负责来源感知的剪辑数学、FilmOperation 组合与 revision 校验写盘，不再作为这些 React 视图状态的第二份所有者。
+
+- [Studio #425](https://github.com/just2512/video-director/actions/runs/40186157116) 的真实 Chromium 回归验证：素材覆盖等待解析时若外部进程写入新 revision，服务端返回 REVISION_CONFLICT，外部文件字节保留，过期事务不会覆盖新内容。
+- [Studio #426](https://github.com/just2512/video-director/actions/runs/40186377769) 验证同步锁多轨插入在一次 Undo 后恢复原始 film.html 字节。
+- [Studio #427](https://github.com/just2512/video-director/actions/runs/40186926343) 验证成功覆盖在一次 Undo 后恢复原始 film.html 字节，并且此前的 stale/busy/submitter-failure 清理探针不会污染编辑历史。
+
+**仍未关闭的验收门禁：** 导演与 Studio 的产品入口尚未完全收敛；多轨移动、Lift/Ripple/Delete/Insert/Overwrite 在所有操作顺序、外部 revision 与 undo/redo 组合下的完整矩阵仍需补充；Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输仍需 opt-in 端到端烟测。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
 
 
 - 时间尺 click 与 scrub 共用 React 指针生命周期：父时间尺统一捕获指针，刻度点击在 pointerup 按 `data-at` 精确定位，真实移动超过 4px 才启动 scrub；拖动结束不会被子刻度的合成 click 拉回起点。
