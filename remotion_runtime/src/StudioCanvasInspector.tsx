@@ -1875,9 +1875,6 @@ const CanvasInspector: React.FC<{element: CanvasElementSelection}> = ({element})
 
 type StudioReactState = {
   assets: FilmStudioAssetsModel | null;
-  toolbarVisible: boolean;
-  timelineToolbarVisible: boolean;
-  scrubVisible: boolean;
   aiModel: FilmStudioAiDirectorModel | null;
   clipInspectorMounted: boolean;
   clipInspector: FilmClipInspectorModel | null;
@@ -1887,9 +1884,6 @@ type StudioReactState = {
 
 const studioReactState: StudioReactState = {
   assets: null,
-  toolbarVisible: false,
-  timelineToolbarVisible: false,
-  scrubVisible: false,
   aiModel: null,
   clipInspectorMounted: false,
   clipInspector: null,
@@ -1935,6 +1929,9 @@ const FilmStoreDiagnostics: React.FC = () => {
 };
 
 const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
+  const toolbarVisible = useFilmStoreField("toolbarVisible");
+  const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");
+  const scrubVisible = useFilmStoreField("scrubVisible");
   const timelineVisible = useFilmStoreField("timelineVisible");
   const timelineFilm = useFilmStoreField("film");
   const timelineProjectId = useFilmStoreField("projectId");
@@ -1966,9 +1963,9 @@ const StudioReactOwner: React.FC<{state: StudioReactState}> = ({state}) => {
       <FilmStoreDiagnostics />
       {state.assets ? studioPortal("fs-assets-list", <StudioAssets model={state.assets} />) : null}
       {timelineSurface ? studioPortal("fs-timeline", <TimelineSurface model={timelineSurface} />) : null}
-      {state.toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
-      {state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
-      {state.scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
+      {toolbarVisible ? studioPortal("fs-react-toolbar", <StudioToolbar />) : null}
+      {timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
+      {scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
       {state.aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={state.aiModel} />) : null}
       {state.clipInspectorMounted ? studioPortal(
         "fs-inspector",
@@ -2065,13 +2062,16 @@ window.filmStudioReactTimeline = {
 
 window.filmStudioReactToolbar = {
   render() {
-    renderStudioReactOwner({toolbarVisible:true});
+    filmStore.setField("toolbarVisible", true);
+    renderStudioReactOwner({});
   },
   renderTimeline() {
-    renderStudioReactOwner({timelineToolbarVisible:true});
+    filmStore.setField("timelineToolbarVisible", true);
+    renderStudioReactOwner({});
   },
   renderScrub() {
-    renderStudioReactOwner({scrubVisible:true});
+    filmStore.setField("scrubVisible", true);
+    renderStudioReactOwner({});
   },
 };
 
