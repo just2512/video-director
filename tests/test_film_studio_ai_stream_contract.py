@@ -34,7 +34,7 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
 
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
-    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: object())
+    # Patched below with a deterministic streaming fake; no provider is contacted.
 
     project_id = "film-mock-stream-" + uuid.uuid4().hex[:12]
     project_root = storage_root / project_id
@@ -45,25 +45,33 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["rev"]
 
-    fragments = ["将", " clip-b", " 移动到 8.5 秒"]
-    def deterministic_planner(
-        _llm, state, _message, _selected_clip_id, *,
-        summary_out=None, selected_element=None, on_token=None,
-        on_stream_open=None, cancel_event=None,
-    ):
-        assert selected_element is None
-        for fragment in fragments:
-            if cancel_event is not None and cancel_event.is_set():
-                raise ConnectionAbortedError("cancelled by test")
-            assert on_token is not None
-            on_token(fragment)
-            # Make buffering regressions observable without a live model or credentials.
-            time.sleep(0.12)
-        if summary_out is not None:
-            summary_out["summary"] = "将 clip-b 移动到 8.5 秒"
-        return [{"op": "move", "clip": "clip-b", "at": 8.5}]
+    # Exercise the real plan_film_command() and HTTP/SSE route. Only the model
+    # client is faked, so this verifies production token-delta forwarding and JSON
+    # plan validation without credentials, network access, or model-call costs.
+    output_fragments = [
+        '{"summary":"',
+        '将 clip-b ',
+        '移动到 8.5 秒',
+        '","operations":[',
+        '{"op":"move",',
+        '"clip":"clip-b",',
+        '"at":',
+        '8.5',
+        '}]}',
+    ]
+    expected_model_output = "".join(output_fragments)
 
-    monkeypatch.setattr(fd, "plan_film_command", deterministic_planner)
+    class DeterministicStreamingLLM:
+        def generate_stream(self, _prompt, *, on_delta=None):
+            assert callable(on_delta)
+            for fragment in output_fragments:
+                on_delta(fragment)
+                # Make buffering regressions observable without a live model.
+                time.sleep(0.06)
+            return expected_model_output
+
+    llm = DeterministicStreamingLLM()
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: llm)
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -127,7 +135,7 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
         if item["event"] == "token" and item["data"].get("fragment", "").strip()
     ]
     assert result_indexes, {"events": [(e["event"], e["data"]) for e in events]}
-    assert len(token_events) == len(fragments), {
+    assert len(token_events) == len(output_fragments), {
         "events": [(e["event"], e["data"]) for e in events]
     }
     result_index = result_indexes[-1]
