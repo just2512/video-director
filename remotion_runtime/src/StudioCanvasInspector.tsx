@@ -1924,6 +1924,7 @@ const FilmStoreDiagnostics: React.FC = () => {
         data-envelope-mode={filmSnapshot.envelopeMode ? "true" : "false"}
         data-slide-mode={filmSnapshot.slideMode ? "true" : "false"}
         data-slip-mode={filmSnapshot.slipMode ? "true" : "false"}
+        data-canvas-element-inspect={filmSnapshot.canvasElementInspectMode ? "true" : "false"}
         data-busy={filmSnapshot.busy ? "true" : "false"}
         data-broken={filmSnapshot.broken ? "true" : "false"}
         data-pending-transaction-kind={filmSnapshot.pendingTransaction?.kind || ""}

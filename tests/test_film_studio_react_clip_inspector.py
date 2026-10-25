@@ -25,6 +25,10 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     store = (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
     assert "canvasElementSelection: FilmStudioCanvasElementSelection | null;" in store
     assert '["selectedElement", "canvasElementSelection"]' in store
+    assert "canvasElementInspectMode: boolean;" in store
+    assert '["elementInspect", "canvasElementInspectMode"]' in store
+    assert 'key === "canvasElementInspectMode"' in store
+    assert 'data-canvas-element-inspect={filmSnapshot.canvasElementInspectMode ? "true" : "false"}' in component
     assert 'useFilmStoreField("canvasElementSelection")' in component
     assert "const element=filmStore.getField(\"canvasElementSelection\");" in component[save_start:save_end]
     assert "canvasElement: CanvasElementSelection | null;" not in component

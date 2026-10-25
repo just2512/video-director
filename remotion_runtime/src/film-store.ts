@@ -128,6 +128,7 @@ export interface FilmStudioStoreSnapshot {
   timelineSkipNextClipClick: boolean;
   timelineClipboard: FilmStudioTimelineClipboard;
   timelineVisible: boolean;
+  canvasElementInspectMode: boolean;
   pendingExternalRevision: string;
   insertMode: boolean;
   overwriteMode: boolean;
@@ -475,6 +476,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineSkipNextClipClick: false,
       timelineClipboard: null,
       timelineVisible: false,
+      canvasElementInspectMode: false,
       pendingExternalRevision: "",
       insertMode: false,
       overwriteMode: false,
@@ -580,7 +582,7 @@ class FilmStore implements FilmStudioStoreBridge {
     } else if (key === "busy" || key === "broken" || key === "playing" ||
         key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" ||
         key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" ||
-        key === "timelineVisible" || key === "timelineSkipNextClipClick") {
+        key === "timelineVisible" || key === "timelineSkipNextClipClick" || key === "canvasElementInspectMode") {
       normalized = value === true;
     } else if (key === "pixelsPerSecond") {
       normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -729,6 +731,7 @@ class FilmStore implements FilmStudioStoreBridge {
       timelineSkipNextClipClick: asBoolean(target.skipNextClipClick),
       timelineClipboard: asTimelineClipboard(target.clipClipboard),
       timelineVisible: false,
+      canvasElementInspectMode: target.elementInspect === true,
       pendingExternalRevision: asString(target.pendingExternalRevision),
       insertMode: target.insertMode === true,
       overwriteMode: target.overwriteMode === true,
@@ -760,6 +763,7 @@ class FilmStore implements FilmStudioStoreBridge {
       ["envelopeDrag", "timelineEnvelopeGesture"],
       ["pendingExternalRevision", "pendingExternalRevision"],
       ["skipNextClipClick", "timelineSkipNextClipClick"],
+      ["elementInspect", "canvasElementInspectMode"],
       ["clipClipboard", "timelineClipboard"],
       ["insertMode", "insertMode"],
       ["overwriteMode", "overwriteMode"],
