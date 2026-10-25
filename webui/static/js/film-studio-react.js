@@ -24061,6 +24061,7 @@
   // ../remotion_runtime/src/film-store.ts
   var asString = (value) => typeof value === "string" ? value : value == null ? "" : String(value);
   var asBoolean = (value) => value === true;
+  var asFilmStudioAssetMode = (value) => value === "library" || value === "director" ? value : "clips";
   var asFiniteNumber = (value, fallback) => {
     const parsed = typeof value === "number" ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -24317,6 +24318,8 @@
         projectId: "",
         film: null,
         assetsModel: null,
+        assetMode: "clips",
+        libraryAssets: [],
         aiDirectorModel: null,
         clipInspectorEmptyMessage: null,
         revision: "",
@@ -24435,6 +24438,10 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
+      } else if (key === "assetMode") {
+        normalized = asFilmStudioAssetMode(value);
+      } else if (key === "libraryAssets") {
+        normalized = Array.isArray(value) ? value.slice() : [];
       } else if (key === "assetsModel" || key === "aiDirectorModel") {
         normalized = value == null ? null : value;
       } else if (key === "clipInspectorEmptyMessage") {
@@ -24547,6 +24554,8 @@
         projectId: asString(target.projectId),
         film,
         assetsModel: this.snapshot.assetsModel,
+        assetMode: asFilmStudioAssetMode(target.assetMode),
+        libraryAssets: Array.isArray(target.libraryAssets) ? target.libraryAssets.slice() : [],
         aiDirectorModel: this.snapshot.aiDirectorModel,
         clipInspectorEmptyMessage: this.snapshot.clipInspectorEmptyMessage,
         revision: filmRevision,
@@ -24593,6 +24602,8 @@
       this.publish(this.snapshot);
       const bindings = [
         ["projectId", "projectId"],
+        ["assetMode", "assetMode"],
+        ["libraryAssets", "libraryAssets"],
         ["data", "film"],
         ["rev", "revision"],
         ["selectedElement", "canvasElementSelection"],
@@ -26511,12 +26522,27 @@
       }
     );
   };
-  var StudioAssets = ({ model }) => {
-    if (model.mode === "library") {
-      if (!model.libraryAssets.length) {
+  var StudioAssets = ({ model, mode }) => {
+    const libraryAssetsSource = useFilmStoreField("libraryAssets");
+    const libraryAssets = (0, import_react.useMemo)(() => libraryAssetsSource.filter((asset) => !!asset && typeof asset === "object" && !Array.isArray(asset)).filter((asset) => ["video", "image", "audio"].includes(String(asset.type || "").toLowerCase())).map((asset) => {
+      const id = String(asset.asset_id || asset.id || "");
+      const kind = String(asset.type || "").toLowerCase();
+      const label = String(asset.description || asset.name || asset.filename || id);
+      const duration = asset.duration;
+      const source = asset.source;
+      return {
+        id,
+        kind,
+        label,
+        meta: kind.toUpperCase() + (duration ? " \xB7 " + Number(duration).toFixed(2) + "s" : "") + (source ? " \xB7 " + String(source) : "")
+      };
+    }), [libraryAssetsSource]);
+    if (mode === "director") return null;
+    if (mode === "library") {
+      if (!libraryAssets.length) {
         return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-react-asset-items", "data-react-asset-list": "true", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-empty", children: "\u7D20\u6750\u5E93\u6CA1\u6709\u53EF\u76F4\u63A5\u52A0\u5165\u65F6\u95F4\u7EBF\u7684\u89C6\u9891\u6216\u56FE\u7247\u3002\u5DF2\u4E0A\u4F20\u7684\u9879\u76EE\u7D20\u6750\u548C\u5168\u5C40\u7D20\u6750\u4F1A\u5728\u6B64\u663E\u793A\u3002" }) });
       }
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-react-asset-items", "data-react-asset-list": "true", children: model.libraryAssets.map((asset) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-asset-item", "data-react-library-asset": asset.id, children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-react-asset-items", "data-react-asset-list": "true", children: libraryAssets.map((asset) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-asset-item", "data-react-library-asset": asset.id, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-asset-icon", children: asset.kind.toUpperCase() }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-asset-name", title: asset.label, children: [
           asset.label,
@@ -26786,6 +26812,7 @@
         "data-film-revision": filmSnapshot.revision,
         "data-selected-clip": filmSnapshot.selectedId,
         "data-selected-clips": filmSnapshot.selectedIds.join(","),
+        "data-asset-mode": filmSnapshot.assetMode,
         "data-pending-revision": filmSnapshot.pendingExternalRevision,
         "data-insert-mode": filmSnapshot.insertMode ? "true" : "false",
         "data-overwrite-mode": filmSnapshot.overwriteMode ? "true" : "false",
@@ -26804,6 +26831,7 @@
   };
   var StudioReactOwner = () => {
     const assetsModel = useFilmStoreField("assetsModel");
+    const assetMode = useFilmStoreField("assetMode");
     const aiModel = useFilmStoreField("aiDirectorModel");
     const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
     const toolbarVisible = useFilmStoreField("toolbarVisible");
@@ -26840,7 +26868,7 @@
     const element = canvasElement;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmStoreDiagnostics, {}),
-      assetsModel ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: assetsModel })) : null,
+      assetsModel ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: assetsModel, mode: assetMode })) : null,
       timelineSurface ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: timelineSurface })) : null,
       toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
       timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
