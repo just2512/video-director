@@ -1344,6 +1344,39 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "playheadUnchanged": True,
                 }, suppressed_click
 
+                # Copy and paste share the FilmStore-owned clipboard through the legacy
+                # bridge. Clipboard shape validation must reject unsafe/partial entries.
+                clipboard_contract = page.evaluate("""(pid) => {
+                  const store = window.filmStudioStore;
+                  const before = store.getSnapshot();
+                  const previousIds = [...before.selectedIds];
+                  const previousClipboard = store.getField("timelineClipboard");
+                  store.setField("selectedId", "clip-a");
+                  store.setField("selectedIds", ["clip-a"]);
+                  store.setField("selectionAnchor", "clip-a");
+                  const copied = window.filmStudioCopyClips();
+                  const clipboard = store.getField("timelineClipboard");
+                  const valid = copied === true && clipboard?.projectId === pid &&
+                    clipboard.items.length === 1 && clipboard.items[0].sourceId === "clip-a" &&
+                    clipboard.items[0].trackId === "video-main" &&
+                    Number.isFinite(clipboard.items[0].duration) && clipboard.items[0].duration > 0;
+                  store.setField("timelineClipboard", {
+                    projectId:pid,
+                    duration:1,
+                    items:[{sourceId:"bad",trackId:"video-main",tag:"clip",duration:-1,offset:0,attrs:{src:"bad.mp4"}}]
+                  });
+                  const malformedRejected = store.getField("timelineClipboard") === null;
+                  store.setField("selectedId", before.selectedId);
+                  store.setField("selectedIds", previousIds);
+                  store.setField("selectionAnchor", before.selectionAnchor);
+                  store.setField("timelineClipboard", previousClipboard);
+                  return {valid, malformedRejected};
+                }""", project_id)
+                assert clipboard_contract == {
+                    "valid": True,
+                    "malformedRejected": True,
+                }, clipboard_contract
+
                 # React mode buttons are projections of FilmStore; adapter logic may change state but not their DOM attributes.
                 mode_doc_before = fd.read_project_film(project_id)
                 mode_controls = page.evaluate("""() => {
