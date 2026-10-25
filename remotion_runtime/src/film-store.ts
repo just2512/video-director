@@ -717,16 +717,18 @@ class FilmStore implements FilmStudioStoreBridge {
       normalized = sources;
     } else if (key === "film") {
       normalized = value ?? null;
-      if (normalized && typeof normalized === "object" &&
-          typeof (normalized as Record<string, unknown>).rev === "string") {
-        const revision = (normalized as Record<string, unknown>).rev as string;
-        if (revision !== this.snapshot.revision) {
-          // A context menu targets IDs in one exact FilmDocument revision. Once the
-          // authoritative document changes, close it before the next React commit so
-          // an Agent/external write cannot leave commands pointing at stale clip IDs.
-          this.publish({...this.snapshot, film: normalized, revision, timelineContextMenu: null});
-          return;
-        }
+      const record = normalized && typeof normalized === "object"
+        ? normalized as Record<string, unknown>
+        : null;
+      const revision = record?.exists === true && typeof record.rev === "string"
+        ? record.rev
+        : "";
+      if (!record || record.exists !== true || revision !== this.snapshot.revision) {
+        // A context menu is only valid while the authoritative FilmDocument exists
+        // at the same revision. Null/uninitialized/error results must not leave a
+        // menu or revision token pointing at a document that is no longer active.
+        this.publish({...this.snapshot, film: normalized, revision, timelineContextMenu: null});
+        return;
       }
     }
     if (key === "projectId" && !Object.is(this.snapshot.projectId, normalized)) {
