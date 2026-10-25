@@ -24060,6 +24060,7 @@
 
   // ../remotion_runtime/src/film-store.ts
   var asString = (value) => typeof value === "string" ? value : value == null ? "" : String(value);
+  var asBoolean = (value) => value === true;
   var asFiniteNumber = (value, fallback) => {
     const parsed = typeof value === "number" ? value : Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -24203,6 +24204,30 @@
       changed: raw.changed
     };
   };
+  var asTimelineClipboard = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const raw = value;
+    const projectId = asString(raw.projectId);
+    const duration = asOptionalFiniteNumber(raw.duration);
+    const rawItems = Array.isArray(raw.items) ? raw.items : null;
+    if (!projectId || duration === void 0 || duration <= 0 || !rawItems?.length) return null;
+    const items = [];
+    for (const rawItem of rawItems) {
+      if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) return null;
+      const item = rawItem;
+      const sourceId = asString(item.sourceId);
+      const trackId = asString(item.trackId);
+      const tag = asString(item.tag);
+      const itemDuration = asOptionalFiniteNumber(item.duration);
+      const offset = asOptionalFiniteNumber(item.offset);
+      const rawAttrs = item.attrs && typeof item.attrs === "object" && !Array.isArray(item.attrs) ? item.attrs : null;
+      if (!sourceId || !trackId || !tag || itemDuration === void 0 || itemDuration <= 0 || offset === void 0 || offset < 0 || !rawAttrs || !asString(rawAttrs.src)) return null;
+      items.push({ sourceId, trackId, tag, duration: itemDuration, offset, attrs: { ...rawAttrs } });
+    }
+    const requiredDuration = Math.max(...items.map((item) => item.offset + item.duration));
+    if (!Number.isFinite(requiredDuration) || duration < requiredDuration - 1e-3) return null;
+    return { projectId, items, duration: Math.max(duration, requiredDuration) };
+  };
   var asPendingTransaction = (value) => {
     if (!value || typeof value !== "object") return null;
     const raw = value;
@@ -24274,6 +24299,8 @@
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         timelineContextMenu: null,
+        timelineSkipNextClipClick: false,
+        timelineClipboard: null,
         timelineVisible: false,
         pendingExternalRevision: "",
         insertMode: false,
@@ -24363,7 +24390,7 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
-      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible") {
+      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible" || key === "timelineSkipNextClipClick") {
         normalized = value === true;
       } else if (key === "pixelsPerSecond") {
         normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -24411,6 +24438,8 @@
       } else if (key === "timelineActiveDragIds") {
         const ids = Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
         normalized = ids.length ? Array.from(new Set(ids)) : null;
+      } else if (key === "timelineClipboard") {
+        normalized = asTimelineClipboard(value);
       } else if (key === "timelineContextMenu") {
         if (!value || typeof value !== "object" || Array.isArray(value)) normalized = null;
         else {
@@ -24484,6 +24513,8 @@
         timelineEnvelopePreview: null,
         timelineWaveformSources: {},
         timelineContextMenu: null,
+        timelineSkipNextClipClick: asBoolean(target.skipNextClipClick),
+        timelineClipboard: asTimelineClipboard(target.clipClipboard),
         timelineVisible: false,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
@@ -24513,6 +24544,8 @@
         ["drag", "timelineGestureContext"],
         ["envelopeDrag", "timelineEnvelopeGesture"],
         ["pendingExternalRevision", "pendingExternalRevision"],
+        ["skipNextClipClick", "timelineSkipNextClipClick"],
+        ["clipClipboard", "timelineClipboard"],
         ["insertMode", "insertMode"],
         ["overwriteMode", "overwriteMode"],
         ["snapEnabled", "snapEnabled"],
@@ -26818,10 +26851,9 @@
       renderStudioReactOwner({ aiModel: model });
     }
   };
-  var activeCanvasSelection = null;
   window.filmStudioReactInspector = {
     saveSelected() {
-      const element = activeCanvasSelection;
+      const element = studioReactState.canvasElement;
       if (!element) {
         window.filmStudioShowInspectorError?.("\u8BF7\u5148\u5728\u9884\u89C8\u753B\u5E03\u4E2D\u9009\u4E2D\u4E00\u4E2A HTML \u5143\u7D20\u3002");
         return;
@@ -26851,7 +26883,6 @@
       });
     },
     render(element) {
-      activeCanvasSelection = element;
       renderStudioReactOwner({
         canvasInspectorMounted: true,
         canvasElement: element
