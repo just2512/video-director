@@ -4000,7 +4000,8 @@ window.filmStudioCopyClips=function(){
   var legacyEditorLoad=window.editorLoad;
   var editorAuthorityRequestGeneration=0;
   if(typeof legacyEditorLoad==='function'){
-    window.editorLoad=async function(knownFilmDocument){
+    window.editorLoad=async function(knownFilmDocument,options){
+      var legacyCompositionMode=!!(options&&options.legacyCompositionMode===true);
       var authorityRequestGeneration=++editorAuthorityRequestGeneration;
       var selector=$('editor-project'),pid=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||'';
       if(!pid)return await legacyEditorLoad.apply(this,arguments);
@@ -4054,7 +4055,7 @@ window.filmStudioCopyClips=function(){
       // The old loader can fail for an unavailable/invalid composition, but that
       // must not leave the previous FilmDocument timeline visible in an open Studio.
       // Reuse the confirmed exists:false snapshot; do not start another Film GET.
-      if(S.open){
+      if(S.open&&!legacyCompositionMode){
         var studioLoaded=await filmStudioLoad(true,state);
         if(!studioLoaded){
           showStatus('无法安全切换 Film Studio；旧项目界面未打开。请解决未提交草稿或活动手势后重试。','error');
@@ -4063,6 +4064,9 @@ window.filmStudioCopyClips=function(){
       }
       var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
       var legacyResult=await legacyEditorLoad.apply(this,legacyArguments);
+      if(legacyCompositionMode){
+        return legacyResult||{ok:true,mode:'legacy',authority:'CompositionIR',project_id:pid};
+      }
       // One authority wrapper owns both routes: existing FilmDocument opens directly;
       // legacy Composition projects enter the same Studio in read-only migration preview.
       if(authorityRequestGeneration!==editorAuthorityRequestGeneration||

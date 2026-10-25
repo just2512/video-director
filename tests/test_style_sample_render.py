@@ -104,7 +104,7 @@ def test_native_style_sample_renders_valid_mp4_without_mutating_project(tmp_path
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             try:
                 page.goto(base, wait_until="networkidle")
-                opened = page.evaluate("(projectId) => workspaceOpen(projectId)", pid)
+                opened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
                 assert opened and opened.get("ok"), opened
                 page.locator("#tb-style-sample").click()
                 button = page.locator('[data-style-sample="style.documentary-calm"]')

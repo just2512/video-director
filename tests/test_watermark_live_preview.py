@@ -71,7 +71,7 @@ def test_timed_text_watermark_appears_and_disappears_on_shared_live_preview_cloc
                 page.wait_for_function(
                     "() => typeof workspaceOpen === 'function' && typeof previewSeek === 'function'"
                 )
-                opened = page.evaluate("(id) => workspaceOpen(id)", project_id)
+                opened = page.evaluate("(id) => workspaceOpen(id, undefined, {legacyCompositionMode:true})", project_id)
                 assert opened and opened.get("ok"), opened
                 page.wait_for_function(
                     "() => ED.comp && ED.comp.watermarks && ED.comp.watermarks.some(w => w.id === 'wm-live-window')",
