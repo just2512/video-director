@@ -3294,6 +3294,12 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                     textEditable:true,styles:{},rect:{x:0,y:0,width:10,height:10},
                     localRect:{x:0,y:0,width:10,height:10},baseRevision:store.getField("revision")
                   });
+                  store.setField("canvasElementInspectMode", true);
+                  store.setField("insertMode", true);
+                  store.setField("overwriteMode", true);
+                  store.setField("envelopeMode", true);
+                  store.setField("slideMode", true);
+                  store.setField("slipMode", true);
                   window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
                 }""")
                 page.wait_for_function("""() =>
@@ -3341,6 +3347,10 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                         gestureContext:s?.timelineGestureContext,envelopeGesture:s?.timelineEnvelopeGesture,
                         envelopePreview:s?.timelineEnvelopePreview,waveformSources:s?.timelineWaveformSources,
                         canvasElementSelection:s?.canvasElementSelection,menu:s?.timelineContextMenu,
+                        canvasElementInspectMode:s?.canvasElementInspectMode,
+                        insertMode:s?.insertMode,overwriteMode:s?.overwriteMode,
+                        envelopeMode:s?.envelopeMode,slideMode:s?.slideMode,slipMode:s?.slipMode,
+                        rendering:s?.rendering,selectedProjectId:select?.value,
                         pendingExternalRevision:s?.pendingExternalRevision,broken:s?.broken
                       };
                     }""", target_project_id)
@@ -3358,6 +3368,9 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 assert alternate_transition["gestureContext"] is None and alternate_transition["envelopeGesture"] is None, alternate_transition
                 assert alternate_transition["envelopePreview"] is None and alternate_transition["waveformSources"] == {}, alternate_transition
                 assert alternate_transition["canvasElementSelection"] is None and alternate_transition["menu"] is None, alternate_transition
+                assert alternate_transition["canvasElementInspectMode"] is False, alternate_transition
+                assert alternate_transition["insertMode"] is False and alternate_transition["overwriteMode"] is False, alternate_transition
+                assert alternate_transition["envelopeMode"] is False and alternate_transition["slideMode"] is False and alternate_transition["slipMode"] is False, alternate_transition
                 assert alternate_transition["pendingExternalRevision"] == "" and alternate_transition["broken"] is False, alternate_transition
                 page.wait_for_function("""expected => {
                   const state = window.filmStudioStore?.getSnapshot();
@@ -3376,6 +3389,9 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 assert original_transition["selectedIds"] == [] and original_transition["menu"] is None, original_transition
                 assert original_transition["gesturePreview"] is None and original_transition["snapGuide"] is None, original_transition
                 assert original_transition["envelopePreview"] is None and original_transition["waveformSources"] == {}, original_transition
+                assert original_transition["canvasElementInspectMode"] is False, original_transition
+                assert original_transition["insertMode"] is False and original_transition["overwriteMode"] is False, original_transition
+                assert original_transition["envelopeMode"] is False and original_transition["slideMode"] is False and original_transition["slipMode"] is False, original_transition
                 page.wait_for_function("""expected => {
                   const state = window.filmStudioStore?.getSnapshot();
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
@@ -3385,6 +3401,17 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                     ![...document.querySelectorAll("#fs-react-ai-director .fs-chat-message")]
                       .some(node => node.textContent.includes("Synthetic previous-project"));
                 }""", arg={"projectId":project_id,"revision":initial["rev"]}, timeout=10000)
+
+                # An active export is bound to the current project/revision. The selector
+                # must be restored and FilmStore must remain on this project until it ends.
+                page.evaluate("window.filmStudioStore.setField('rendering', true)")
+                blocked_transition = select_project_in_browser(same_revision_project_id)
+                assert blocked_transition["projectId"] == project_id, blocked_transition
+                assert blocked_transition["selectedProjectId"] == project_id, blocked_transition
+                assert blocked_transition["rendering"] is True, blocked_transition
+                assert blocked_transition["film"]["project_id"] == project_id, blocked_transition
+                assert blocked_transition["revision"] == initial["rev"], blocked_transition
+                page.evaluate("window.filmStudioStore.setField('rendering', false)")
 
                 # Keep the menu open during an Agent write. The new authoritative revision
                 # must clear both FilmStore state and its React portal.

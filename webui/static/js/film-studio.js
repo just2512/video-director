@@ -1844,6 +1844,11 @@
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return false;}
     if(S.busy){showStatus('上一项影片操作仍在保存；本次项目切换未执行。','error');return false;}
     var changed=nextId!==S.projectId;
+    if(changed&&S.rendering){
+      if(selector&&S.projectId)selector.value=S.projectId;
+      showStatus('当前项目正在导出；为避免混淆导出结果与另一条时间线，导出结束前不能切换项目。','error');
+      return false;
+    }
     if(changed&&(S.drag||S.envelopeDrag)){
       if(selector&&S.projectId)selector.value=S.projectId;
       showStatus('时间线手势尚未结束；本次项目切换未执行。请先完成或取消拖动。','error');
