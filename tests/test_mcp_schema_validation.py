@@ -18,6 +18,10 @@ def test_schema_validator_checks_numeric_bounds_enums_and_finite_numbers():
     assert "type" in validate_json_schema("wide", number_schema)
     assert "at most 1" in validate_json_schema(2, number_schema)
     assert "finite" in validate_json_schema(float("inf"), number_schema)
+    assert "finite" in validate_json_schema(float("-inf"), number_schema)
+    assert "finite" in validate_json_schema(float("nan"), number_schema)
+    assert "at most 1" in validate_json_schema(10**10000, number_schema)
+    assert validate_json_schema(10**10000, {"type": "integer"}) is None
     assert validate_json_schema(0.5, number_schema) is None
     assert "one of" in validate_json_schema("unknown", {"type": "string", "enum": ["a", "b"]})
 

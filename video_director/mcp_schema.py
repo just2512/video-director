@@ -56,7 +56,9 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "argume
             return f"{path} does not match the required pattern"
 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if not math.isfinite(float(value)):
+        # Integers are always finite. Do not coerce an arbitrary-size int to
+        # float here: that can overflow before the schema's range check runs.
+        if isinstance(value, float) and not math.isfinite(value):
             return f"{path} must be finite"
         minimum = schema.get("minimum")
         maximum = schema.get("maximum")
