@@ -729,6 +729,13 @@ class FilmStore implements FilmStudioStoreBridge {
         }
       }
     }
+    if (key === "projectId" && !Object.is(this.snapshot.projectId, normalized)) {
+      // Menu commands are scoped to a project as well as its document revision.
+      // A project switch can legitimately load byte-identical film.html (same rev),
+      // so revision-based cleanup alone is not sufficient.
+      this.publish({...this.snapshot, projectId: normalized as string, timelineContextMenu: null});
+      return;
+    }
     if (Object.is(this.snapshot[key], normalized)) return;
     this.publish({...this.snapshot, [key]: normalized} as FilmStudioStoreSnapshot);
   }
