@@ -53,7 +53,7 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
         '将 clip-b ',
         '移动到 8.5 秒',
         '","operations":[',
-        '{"op":"move",',
+        '{"op":"move","track_id":"video-main",',
         '"clip":"clip-b",',
         '"at":',
         '8.5',
@@ -151,6 +151,7 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
     assert len(operations) == 1
     assert operations[0].get("op") == "move"
     assert operations[0].get("clip") == "clip-b"
+    assert operations[0].get("track_id") == "video-main"
     assert abs(float(operations[0].get("at", -1)) - 8.5) < 0.001
 
     # Streaming is feedback only; the candidate must remain unapplied until approval.
