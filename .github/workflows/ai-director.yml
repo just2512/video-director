@@ -198,9 +198,18 @@ jobs:
         run: |
           set -euo pipefail
           # Override local runner values only when repository secrets/vars exist.
-          if [ -n "${VD_LLM_API_KEY_SECRET:-}" ]; then printf 'VD_LLM_API_KEY=%s\n' "$VD_LLM_API_KEY_SECRET" >> "$GITHUB_ENV"; fi
-          if [ -n "${VD_LLM_BASE_URL_CONFIG:-}" ]; then printf 'VD_LLM_BASE_URL=%s\n' "$VD_LLM_BASE_URL_CONFIG" >> "$GITHUB_ENV"; fi
-          if [ -n "${VD_LLM_MODEL_CONFIG:-}" ]; then printf 'VD_LLM_MODEL=%s\n' "$VD_LLM_MODEL_CONFIG" >> "$GITHUB_ENV"; fi
+          if [ -n "${VD_LLM_API_KEY_SECRET:-}" ]; then
+            export VD_LLM_API_KEY="$VD_LLM_API_KEY_SECRET"
+            printf 'VD_LLM_API_KEY=%s\n' "$VD_LLM_API_KEY" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${VD_LLM_BASE_URL_CONFIG:-}" ]; then
+            export VD_LLM_BASE_URL="$VD_LLM_BASE_URL_CONFIG"
+            printf 'VD_LLM_BASE_URL=%s\n' "$VD_LLM_BASE_URL" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${VD_LLM_MODEL_CONFIG:-}" ]; then
+            export VD_LLM_MODEL="$VD_LLM_MODEL_CONFIG"
+            printf 'VD_LLM_MODEL=%s\n' "$VD_LLM_MODEL" >> "$GITHUB_ENV"
+          fi
           : "${VD_LLM_API_KEY:?Set secret VD_LLM_API_KEY or configure the runner environment}"
           : "${VD_LLM_BASE_URL:?Set variable VD_LLM_BASE_URL or configure the runner environment}"
           : "${VD_LLM_MODEL:?Set variable VD_LLM_MODEL or configure the runner environment}"

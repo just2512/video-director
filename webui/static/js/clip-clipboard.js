@@ -578,6 +578,9 @@
   }, true);
 
   document.addEventListener('keydown', async event => {
+    // The legacy clipboard listens in capture phase; explicitly yield all
+    // shortcuts to Film Studio to prevent writes against stale ED state.
+    if (document.documentElement.classList.contains('fs-studio-open')) return;
     const target = event.target;
     if (target && target.closest && target.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (!window.ED || !ED.pid || !ED.comp) return;

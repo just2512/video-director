@@ -153,6 +153,10 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     html = (root / "webui" / "static" / "index.html").read_text(encoding="utf-8")
+    legacy_timeline = (root / "webui" / "static" / "js" / "timeline.js").read_text(encoding="utf-8")
+    legacy_clipboard = (root / "webui" / "static" / "js" / "clip-clipboard.js").read_text(encoding="utf-8")
+    assert "if (document.documentElement.classList.contains('fs-studio-open')) return;" in legacy_timeline
+    assert "if (document.documentElement.classList.contains('fs-studio-open')) return;" in legacy_clipboard
     assert "window.filmStudioOpenIfCurrentProjectHasFilm = async function(expectedProjectId,knownFilmDocument)" in studio
     assert "async function filmStudioLoad(force,knownFilmDocument)" in studio
     assert "return await filmStudioLoad(true,result);" in studio
@@ -163,7 +167,7 @@ def test_react_owns_clip_gesture_move_and_up_dispatch_and_projects_enter_film_st
     assert studio.index("if(legacyCompositionMode){") < studio.index("var migrationStudioOpened;")
     assert "migrationStudioOpened=await filmStudioLoad(true,state);" in studio
     assert "migrationStudioOpened=await window.filmStudioToggle(state);" in studio
-    assert "return {ok:false,code:'FILM_STUDIO_SWITCH_BLOCKED'};" in studio
+    assert "return {ok:false,code:'STUDIO_OPEN_LEGACY_COMPAT_BLOCKED'};" in studio
 
     assert "if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;" in studio
     assert "window.filmStudioToggleTrackLock?.(track.id)" in component

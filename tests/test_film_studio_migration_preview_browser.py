@@ -89,6 +89,11 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert page.evaluate("window.__legacyCompositionReadCount") == 0, (
                     "default legacy-project open must not load a hidden CompositionIR editor"
                 )
+                reopened = page.evaluate("(pid) => workspaceOpen(pid)", project_id)
+                assert reopened.get("ok") is True, reopened
+                assert reopened.get("mode") == "migration", reopened
+                assert page.locator("#film-studio-panel.fs-studio-expanded").count() == 1
+                assert page.evaluate("window.__legacyCompositionReadCount") == 0
 
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator("#fs-initialize-button").wait_for(state="visible")

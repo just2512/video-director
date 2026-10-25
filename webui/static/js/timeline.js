@@ -1831,6 +1831,9 @@ function _tlBindWatermarkDrag(){
 // §17 键盘（Space 播放/暂停、Delete 删除、Ctrl+Z 撤销、Ctrl+Shift+Z 重做、Esc 取消）
 // ---------------------------------------------------------------------------
 document.addEventListener('keydown', ev => {
+  // Film Studio owns editing commands whenever it is mounted; never route
+  // Delete/Undo/Redo to a stale hidden CompositionIR session.
+  if (document.documentElement.classList.contains('fs-studio-open')) return;
   const tag = (ev.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
   if (!ED.pid || document.getElementById('pane-editor').style.display === 'none') return;

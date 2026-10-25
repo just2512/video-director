@@ -86,7 +86,8 @@ async function workspaceOpen(pid, target, options){
     }
     // Explicit exists:false is the only route to the compatibility editor.
     // Normal product entry keeps the project in Film Studio's migration surface.
-    if (typeof window.filmStudioPrepareLegacyProjectOpen === 'function' &&
+    if (legacyCompositionMode &&
+        typeof window.filmStudioPrepareLegacyProjectOpen === 'function' &&
         !window.filmStudioPrepareLegacyProjectOpen(pid)) {
       editorToast('当前 Film Studio 尚未安全关闭；本次没有打开旧 CompositionIR。请先完成或放弃未提交修改。', true);
       return {ok:false,mode:'legacy',error:'STUDIO_CLOSE_BLOCKED'};
