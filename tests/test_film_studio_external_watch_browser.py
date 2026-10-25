@@ -263,7 +263,10 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     selectedId:state.selectedId,
                     selectionAnchor:state.selectionAnchor,
                     selectionVersionAdvanced:state.selectedIdsVersion > beforeVersion,
-                    canvasElementSelection:state.canvasElementSelection,
+                    canvasElementSelection:state.canvasElementSelection ? {
+                      clipId:state.canvasElementSelection.clipId,
+                      baseRevision:state.canvasElementSelection.baseRevision
+                    } : null,
                     clipInspectorEmptyMessage:state.clipInspectorEmptyMessage,
                     gesturePreview:state.timelineGesturePreview,
                     snapGuide:state.timelineSnapGuide,
@@ -284,7 +287,10 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     "selectedId":"clip-center",
                     "selectionAnchor":"clip-center",
                     "selectionVersionAdvanced":True,
-                    "canvasElementSelection":None,
+                    "canvasElementSelection":{
+                      "clipId":"clip-center",
+                      "baseRevision":seeded_revision_state["revision"] + "-revision-reset-probe",
+                    },
                     "clipInspectorEmptyMessage":None,
                     "gesturePreview":None,
                     "snapGuide":None,
@@ -306,6 +312,43 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                   const store = window.filmStudioStore;
                   store.setField("film", window.__filmStoreRevisionResetOriginalFilm);
                   delete window.__filmStoreRevisionResetOriginalFilm;
+                }""")
+                page.wait_for_function(
+                    "revision => window.filmStudioStore?.getField('revision') === revision",
+                    arg=seeded_revision_state["revision"],
+                    timeout=5000,
+                )
+
+                # A canvas selection that was already stale before the revision changes
+                # must still be rejected; only a selection bound to the prior current
+                # revision can be rebased across a valid in-app edit.
+                stale_canvas_state = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const oldFilm = store.getField("film");
+                  store.setField("canvasElementSelection", {
+                    clipId:"clip-center",selector:"h1",tag:"h1",text:"stale selection",textEditable:true,
+                    styles:{},rect:{x:0,y:0,width:100,height:30},localRect:{x:0,y:0,width:100,height:30},
+                    baseRevision:"not-the-current-revision"
+                  });
+                  store.setField("clipInspectorEmptyMessage", "stale inspector message");
+                  store.setField("film", {...oldFilm,rev:String(oldFilm.rev) + "-stale-canvas-reset-probe"});
+                  const state=store.getSnapshot();
+                  window.__filmStoreStaleCanvasOriginalFilm=oldFilm;
+                  return {
+                    canvasElementSelection:state.canvasElementSelection,
+                    clipInspectorEmptyMessage:state.clipInspectorEmptyMessage,
+                    revision:state.revision
+                  };
+                }""")
+                assert stale_canvas_state == {
+                    "canvasElementSelection":None,
+                    "clipInspectorEmptyMessage":None,
+                    "revision":seeded_revision_state["revision"] + "-stale-canvas-reset-probe",
+                }, stale_canvas_state
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("film", window.__filmStoreStaleCanvasOriginalFilm);
+                  delete window.__filmStoreStaleCanvasOriginalFilm;
                 }""")
                 page.wait_for_function(
                     "revision => window.filmStudioStore?.getField('revision') === revision",
