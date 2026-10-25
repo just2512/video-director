@@ -63,7 +63,7 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
             summary_out["summary"] = "将 clip-b 移动到 8.5 秒"
         return [{"op": "move", "clip": "clip-b", "at": 8.5}]
 
-    monkeypatch.setattr(web_server.fd, "plan_film_command", deterministic_planner)
+    monkeypatch.setattr(fd, "plan_film_command", deterministic_planner)
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
