@@ -3234,6 +3234,38 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
                 assert page.locator("#fs-react-ai-director").is_visible()
 
+                # Exercise a real AI chat turn without calling an external model. The
+                # resulting messages are old-project context and must not appear after a
+                # project switch, even though the AI pane itself is reused.
+                ai_fixture = page.evaluate("""async () => {
+                  const originalFetch = window.fetch.bind(window);
+                  window.fetch = (input, init) => {
+                    const url = typeof input === "string" ? input : String(input?.url || "");
+                    if (url.includes("/api/editor/film/command")) {
+                      return Promise.resolve(new Response(
+                        JSON.stringify({ok:false,error:"Synthetic previous-project AI marker"}),
+                        {status:200,headers:{"Content-Type":"application/json"}}
+                      ));
+                    }
+                    return originalFetch(input, init);
+                  };
+                  try {
+                    await window.filmStudioAsk("Synthetic previous-project user prompt");
+                  } finally {
+                    window.fetch = originalFetch;
+                  }
+                  return {
+                    busy:window.filmStudioStore?.getField("busy"),
+                    texts:[...document.querySelectorAll("#fs-react-ai-director .fs-chat-message")]
+                      .map(node => node.textContent)
+                  };
+                }""")
+                assert ai_fixture["busy"] is False, ai_fixture
+                page.wait_for_function("""() =>
+                  [...document.querySelectorAll("#fs-react-ai-director .fs-chat-message")]
+                    .some(node => node.textContent.includes("Synthetic previous-project AI marker"))
+                """, timeout=5000)
+
                 # Project switches must clear every project-owned FilmStore projection
                 # before the next document finishes loading—even when both projects have
                 # byte-identical film.html and therefore the same revision.
@@ -3332,7 +3364,9 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
                   return state?.projectId === expected.projectId &&
                     state?.revision === expected.revision &&
-                    state?.film?.project_id === expected.projectId && !!clip;
+                    state?.film?.project_id === expected.projectId && !!clip &&
+                    ![...document.querySelectorAll("#fs-react-ai-director .fs-chat-message")]
+                      .some(node => node.textContent.includes("Synthetic previous-project"));
                 }""", arg={"projectId":same_revision_project_id,"revision":initial["rev"]}, timeout=10000)
 
                 original_transition = select_project_in_browser(project_id)
@@ -3347,7 +3381,9 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                   const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
                   return state?.projectId === expected.projectId &&
                     state?.revision === expected.revision &&
-                    state?.film?.project_id === expected.projectId && !!clip;
+                    state?.film?.project_id === expected.projectId && !!clip &&
+                    ![...document.querySelectorAll("#fs-react-ai-director .fs-chat-message")]
+                      .some(node => node.textContent.includes("Synthetic previous-project"));
                 }""", arg={"projectId":project_id,"revision":initial["rev"]}, timeout=10000)
 
                 # Keep the menu open during an Agent write. The new authoritative revision
