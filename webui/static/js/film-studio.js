@@ -3141,7 +3141,7 @@ window.filmStudioCopyClips=function(){
     if(!window.confirm('将删除 '+fmtTime(clip.at)+'–'+fmtTime(clip.end)+'，并收拢全部轨道后续内容。跨越该时间段的片段会被切分；锁定轨道或未知时长会导致整笔拒绝。继续？'))return;
     await filmStudioCommit([{op:'ripple_delete',clip:clip.id,scope:'all'}]);
   };
-  window.filmStudioUndo=function(){filmStudioHistory('undo');};window.filmStudioRedo=function(){filmStudioHistory('redo');};
+  window.filmStudioUndo=function(){return filmStudioHistory('undo');};window.filmStudioRedo=function(){return filmStudioHistory('redo');};
   window.filmStudioRender=async function(){
     if(!S.projectId||!S.data||!S.data.exists){showStatus('请先载入或初始化 film.html。','error');return;}
     if(hasUncommittedInspectorEdits()){showStatus('影片有未提交的 Inspector 草稿；先应用属性或重新载入后再导出，避免输出旧 revision。','error');return;}

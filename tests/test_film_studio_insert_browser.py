@@ -569,13 +569,15 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert len(remove_ops) == 1 and remove_ops[0].get("op") == "remove", remove_ops
 
                 # Undo lift to compare ripple behavior against exactly the same source document.
-                page.evaluate("window.filmStudioUndo()")
+                page.evaluate("() => window.filmStudioUndo()")
                 page.wait_for_function("""async (pid) => {
-                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
                   const doc = await response.json();
-                  return (doc.tracks || []).some(track =>
-                    (track.clips || []).some(clip => clip.id === 'video-target'));
+                  const storeRevision = window.filmStudioStore?.getSnapshot()?.revision;
+                  return !!doc.rev && doc.rev === storeRevision &&
+                    (doc.tracks || []).some(track =>
+                      (track.clips || []).some(clip => clip.id === 'video-target'));
                 }""", arg=project_id, timeout=10000)
                 assert film_path.read_text(encoding="utf-8") == initial_text
 
@@ -624,13 +626,15 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert float(audio_by_id[right_id]["attrs"]["at"]) == 2
 
                 # Undo restores the exact pre-ripple film.html bytes.
-                page.evaluate("window.filmStudioUndo()")
+                page.evaluate("() => window.filmStudioUndo()")
                 page.wait_for_function("""async (pid) => {
-                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
                   const doc = await response.json();
+                  const storeRevision = window.filmStudioStore?.getSnapshot()?.revision;
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
-                  return clips.some(clip => clip.id === 'video-target')
+                  return !!doc.rev && doc.rev === storeRevision
+                    && clips.some(clip => clip.id === 'video-target')
                     && clips.some(clip => clip.id === 'audio-long' && String(clip.attrs.src).endsWith('#t=0,6'));
                 }""", arg=project_id, timeout=10000)
                 assert film_path.read_text(encoding="utf-8") == before_ripple_text
