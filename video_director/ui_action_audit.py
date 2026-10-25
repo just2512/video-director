@@ -40,6 +40,7 @@ UI_ONLY_PREFIXES = (
     "directorLoadBrief(", "directorSaveBrief(", "directorRerunFromBrief(",
     # 2026-10-25 创作流程窗口（进度视图切换/取消返回表单/预填装载）
     "cfEnterProgressMode(", "cfCancelAndEdit(", "cfDismissProgress(", "cfPrefillFromProject(",
+    "cfStopCreation(",
     # 表单收集器（读输入框 → 内部走 executeAction / 后端链）
     "editorApplyDuration(", "editorApplyTrim(", "editorApplySpeed(",
     "editorSetVisualTransform(", "editorAddKeyframe(", "editorRemoveKeyframe(",

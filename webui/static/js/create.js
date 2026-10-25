@@ -892,6 +892,7 @@ async function createProject(){
 /** 创作流程窗口模式：表单隐藏，弹窗变成进度面板（步骤+警告+取消返回修改）。 */
 let _cfProgressTimer = null;
 function cfEnterProgressMode(runId){
+  window._cfActiveRunId = runId;
   const form = document.getElementById('cf-form');
   const status = document.getElementById('cf-status');
   if (!form || !status) return;
@@ -904,10 +905,11 @@ function cfEnterProgressMode(runId){
     form.parentNode.insertBefore(panel, form.nextSibling);
   }
   form.style.display = 'none';
-  panel.innerHTML = '<div class="hint">创作已开始，正在执行……（可随时取消并返回修改要求）</div>' +
+  panel.innerHTML = '<div class="hint">创作已开始，正在执行……每一步都列在下面；<b>停止创作</b>会在当前步骤完成后立即停下（已完成步骤保留在检查点）。</div>' +
     '<div id="cf-progress-steps"></div>' +
     '<div class="btn-row" style="margin-top:8px">' +
-    '<button class="btn-secondary btn-sm" onclick="cfCancelAndEdit()">取消创作并返回修改要求</button>' +
+    '<button class="btn-sm" style="background:var(--danger,#c33);color:#fff" onclick="cfStopCreation()">停止创作</button>' +
+    '<button class="btn-secondary btn-sm" onclick="cfCancelAndEdit()">停止并返回修改要求</button>' +
     '<button class="btn-secondary btn-sm" onclick="cfDismissProgress()">后台继续，关闭窗口</button>' +
     '</div>';
   if (_cfProgressTimer) clearInterval(_cfProgressTimer);
@@ -923,7 +925,9 @@ function cfEnterProgressMode(runId){
         if (st) st.querySelector('.hint').textContent =
           run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION'
             ? '创作完成，正在打开工作台……'
-            : '创作失败：' + (run.error || '未知') + '。可点「取消并返回修改要求」调整后重试。';
+            : run.status === 'CANCELLED'
+              ? '已停止创作。已完成步骤保留在检查点；可点「停止并返回修改要求」调整后重新创作。'
+              : '创作失败：' + (run.error || '未知') + '。可点「停止并返回修改要求」调整后重试。';
         if (run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION') {
           const result = run.result || {};
           CF.state = run.status === 'WAITING_CONFIRMATION' ? 'awaiting_confirm' : 'editing';
@@ -934,6 +938,8 @@ function cfEnterProgressMode(runId){
             await directorLoadRun(runId);
           }
           loadProjects();
+        } else if (run.status === 'CANCELLED') {
+          CF.state = 'idle';  // 已停止：表单可改可重提
         } else {
           CF.state = 'failed';
         }
@@ -955,6 +961,20 @@ function cfRenderProgressSteps(run){
       : '';
     return line + warn;
   }).join('');
+}
+
+/** 停止创作：请求服务端取消（run→CANCELLED，当前步骤完成后不再继续）。 */
+async function cfStopCreation(){
+  const rid = window._cfActiveRunId;
+  if (!rid) { editorToast('没有正在进行的创作'); return; }
+  const r = await apiPost('/api/workflows/cancel', {run_id: rid});
+  if (r && r.ok) {
+    editorToast(r.note || '已请求停止：当前步骤完成后立即停止');
+    const hint = document.querySelector('#cf-progress .hint');
+    if (hint) hint.textContent = '已请求停止——当前步骤完成后立即停下（已完成步骤保留）。';
+  } else {
+    editorToast('停止失败：' + ((r && r.error) || '未知'), true);
+  }
 }
 
 /** 取消创作并返回修改要求：停止轮询，弹窗还原表单（用户要求原样保留）。 */
@@ -1080,5 +1100,5 @@ Object.assign(window, {
   openCreate, closeCreate, createLoadDefaults,
   createPlatformSync, createProject, createEnhance, createAcceptEnhanced,
   cfMakeGraphicPlan, cfAnalyzeReference, cfImportArticle, cfClearArticleSource, cfScanRepo, cfVoiceModeSync, cfSeriesSync, createSeriesFromCreatePanel, CF,
-  cfEnterProgressMode, cfRenderProgressSteps, cfCancelAndEdit, cfDismissProgress, cfPrefillFromProject,
+  cfEnterProgressMode, cfRenderProgressSteps, cfCancelAndEdit, cfDismissProgress, cfPrefillFromProject, cfStopCreation,
 });

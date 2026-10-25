@@ -1795,6 +1795,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"runs": vd_wf.list_runs(project_id=pid or None)})
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/workflows/cancel":
+            # 2026-10-25 用户裁决：停止创作——run 转入 CANCELLED，节点循环
+            # 在下一步边界检测并收口；已完成节点保留在检查点。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            run_id = str(payload.get("run_id") or "").strip()
+            if not run_id:
+                self._send_json({"ok": False, "error": "缺少 run_id"}, 400)
+                return
+            try:
+                from video_director import workflow_run as vd_wf
+                run = vd_wf.get_run(run_id)
+                if run is None:
+                    self._send_json({"ok": False, "error": "run 不存在"}, 404)
+                    return
+                if run.get("status") != "RUNNING":
+                    self._send_json({"ok": True, "status": run.get("status"),
+                                     "note": "任务已不在执行中，无需停止"})
+                    return
+                vd_wf.request_cancel(run_id)
+                self._send_json({"ok": True,
+                                 "note": "已请求停止：当前步骤完成后立即停止（不会开启下一步）"})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)[:200]}, 500)
+            return
         elif route.startswith("/api/workflows/"):
             # §52 GET /api/workflows/{run_id}：run 详情 + steps[]（持久化状态）
             try:

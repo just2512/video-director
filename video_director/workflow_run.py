@@ -65,6 +65,33 @@ def _db_path() -> "config.Path":
     return config.composer_storage_root() / "studio.db"
 
 
+# 2026-10-25 用户裁决：停止创作——用户必须能随时叫停，不能后端偷偷跑完。
+# 进程内取消标志（单进程 webui，run→flag）；节点循环每步之间检查。
+_RUN_CANCEL_FLAGS: set = set()
+_RUN_CANCEL_LOCK = __import__("threading").Lock()
+
+
+def request_cancel(run_id: str) -> bool:
+    """用户请求停止创作：设置标志位；节点循环在下一步边界检测并收口 CANCELLED。"""
+    with _RUN_CANCEL_LOCK:
+        _RUN_CANCEL_FLAGS.add(run_id)
+    return True
+
+
+class RunCancelled(Exception):
+    """用户主动停止创作（区别于失败：已完成节点保留在检查点）。"""
+
+
+def _cancel_requested(run_id: str) -> bool:
+    with _RUN_CANCEL_LOCK:
+        return run_id in _RUN_CANCEL_FLAGS
+
+
+def _clear_cancel(run_id: str) -> None:
+    with _RUN_CANCEL_LOCK:
+        _RUN_CANCEL_FLAGS.discard(run_id)
+
+
 def _ensure_table(conn: sqlite3.Connection) -> None:
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS workflow_runs (
@@ -577,6 +604,13 @@ def _compose_worker(run_id: str, spec: dict) -> None:
             return
         finish_run(run_id, WAITING_CONFIRMATION if pending else COMPLETED,
                    result=result)
+    except RunCancelled as exc:
+        # 2026-10-25 用户裁决：停止创作收口 CANCELLED（非失败）——
+        # 已完成节点保留在检查点，用户可修改要求后重新创作。
+        logger.info(f"workflow {run_id} cancelled by user: {exc}")
+        finish_run(run_id, CANCELLED, result={},
+                   error=str(exc)[:400])
+        _clear_cancel(run_id)
     except Exception as exc:  # noqa: BLE001 失败落 run，前端能看到失败阶段
         logger.exception(f"workflow compose {run_id} failed")
         failed_plan = (spec.get("director_plan") or {})

@@ -1901,6 +1901,16 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
     })
 
     for _ in range(guard):
+        # 2026-10-25 用户裁决：停止创作——用户点「停止」后节点循环在每个
+        # 节点边界检测取消标志，立即收口 CANCELLED（不再继续后面的节点）。
+        # 正在执行的单节点（如 LLM 重试中）不可中断，但不会开启下一个节点。
+        from video_director import workflow_run as _wf
+        if _wf._cancel_requested(run_id):
+            _wf._clear_cancel(run_id)
+            for n in plan.get("nodes", []):
+                if n.get("status") == "RUNNING":
+                    n["status"] = "PENDING"
+            raise _wf.RunCancelled("用户停止创作（未完成的节点保留在检查点，可修改要求后重新创作）")
         ready = _ready_nodes(plan)
         all_done = all(n.get("status") in ("DONE", "SKIPPED")
                        for n in plan.get("nodes", []))
