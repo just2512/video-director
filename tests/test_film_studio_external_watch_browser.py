@@ -3464,20 +3464,74 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                 # must clear both FilmStore state and its React portal.
                 # A missing-document result may still carry source revision metadata. It
                 # must retain that metadata but clear the revision-bound menu and portal.
-                page.evaluate("""() => {
+                unavailable_seed = page.evaluate("""() => {
                   const store = window.filmStudioStore;
                   window.__filmBeforeUnavailableTransition = store.getField("film");
+                  store.setField("selectedId", "clip-b");
+                  store.setField("selectedIds", ["clip-b", "audio-1"]);
+                  store.setField("selectionAnchor", "clip-b");
+                  store.setField("playhead", 5);
+                  store.setField("playing", true);
+                  store.setField("insertMode", true);
+                  store.setField("overwriteMode", true);
+                  store.setField("envelopeMode", true);
+                  store.setField("slideMode", true);
+                  store.setField("slipMode", true);
+                  store.setField("timelineGesturePreview", {"clip-b":{left:240,width:180,mode:"move"}});
+                  store.setField("timelineSnapGuide", {at:6,kind:"片段边缘",title:"片段边缘"});
+                  store.setField("timelineDropTarget", {trackId:"video-main",invalid:true});
+                  store.setField("timelineActiveDragIds", ["clip-b"]);
+                  store.setField("timelineGestureContext", {
+                    id:"clip-b",mode:"move",pointerId:1,startX:100,startY:100,startScrollLeft:0,
+                    active:true,members:[{id:"clip-b",originalAt:5,originalEnd:10,trackId:"video-main",trackIndex:0}],
+                    trackOrder:["video-main","audio-bed"],originalAt:5,originalEnd:10,
+                    trackId:"video-main",originalTrackIndex:0,targetTrackId:"video-main"
+                  });
+                  store.setField("timelineEnvelopeGesture", {
+                    clipId:"audio-1",pointerId:2,rect:{left:0,top:0,width:100,height:40},
+                    points:[{t:0,v:1},{t:5,v:0.5}],index:1,duration:5,active:true,changed:true
+                  });
+                  store.setField("timelineEnvelopePreview", {clipId:"audio-1",points:[{t:0,v:1},{t:5,v:0.5}]});
+                  store.setField("timelineWaveformSources", {"audio-1":{duration:5,peaks:[20,40]}});
+                  store.setField("canvasElementSelection", {
+                    clipId:"clip-b",selector:"#clip-b",tag:"video",text:"old element",textEditable:true,
+                    styles:{},rect:{x:0,y:0,width:10,height:10},localRect:{x:0,y:0,width:10,height:10},
+                    baseRevision:store.getField("revision")
+                  });
+                  store.setField("canvasElementInspectMode", true);
+                  store.setField("timelineSkipNextClipClick", true);
                   window.filmStudioReactTimeline.openContextMenu({clipId:"clip-b",x:120,y:140});
+                  const seeded = {
+                    selected:store.getField("selectedIds").length === 2,
+                    gesture:store.getField("timelineGestureContext")?.id === "clip-b",
+                    envelope:store.getField("timelineEnvelopeGesture")?.clipId === "audio-1",
+                    preview:store.getField("timelineEnvelopePreview")?.clipId === "audio-1",
+                    menu:store.getField("timelineContextMenu")?.clipId === "clip-b"
+                  };
                   store.setField("film", {
                     exists:false, project_id:store.getField("projectId"),
                     text:"", rev:"missing-film-revision", doc:null
                   });
+                  return seeded;
                 }""")
+                assert unavailable_seed == {
+                    "selected":True,"gesture":True,"envelope":True,"preview":True,"menu":True
+                }, unavailable_seed
                 page.wait_for_function("""() => {
-                  const store = window.filmStudioStore;
-                  return store?.getField("film")?.exists === false &&
-                    store.getField("revision") === "missing-film-revision" &&
-                    store.getField("timelineContextMenu") === null &&
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.film?.exists === false &&
+                    state.revision === "missing-film-revision" &&
+                    state.selectedId === "" && state.selectedIds.length === 0 &&
+                    state.selectionAnchor === "" && state.playhead === 0 && state.playing === false &&
+                    state.assetsModel === null && state.canvasElementSelection === null &&
+                    state.canvasElementInspectMode === false &&
+                    state.insertMode === false && state.overwriteMode === false &&
+                    state.envelopeMode === false && state.slideMode === false && state.slipMode === false &&
+                    state.timelineGesturePreview === null && state.timelineSnapGuide === null &&
+                    state.timelineDropTarget === null && state.timelineActiveDragIds === null &&
+                    state.timelineGestureContext === null && state.timelineEnvelopeGesture === null &&
+                    state.timelineEnvelopePreview === null && Object.keys(state.timelineWaveformSources).length === 0 &&
+                    state.timelineContextMenu === null && state.timelineSkipNextClipClick === false &&
                     !document.querySelector('[data-react-context-menu="true"]');
                 }""", timeout=5000)
                 page.evaluate("""() => {
