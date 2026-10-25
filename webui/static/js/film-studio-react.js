@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -24479,6 +24479,10 @@
             else if (typeof raw.duration === "number" && Number.isFinite(raw.duration) && raw.duration >= 0) geometry.duration = raw.duration;
             if (typeof raw.fadeIn === "number" && Number.isFinite(raw.fadeIn) && raw.fadeIn >= 0) geometry.fadeIn = raw.fadeIn;
             if (typeof raw.fadeOut === "number" && Number.isFinite(raw.fadeOut) && raw.fadeOut >= 0) geometry.fadeOut = raw.fadeOut;
+            if (raw.added === true) geometry.added = true;
+            if (raw.removed === true) geometry.removed = true;
+            if (typeof raw.previewTitle === "string") geometry.previewTitle = raw.previewTitle.slice(0, 240);
+            if (typeof raw.previewTag === "string" && ["iframe", "video", "img", "audio"].includes(raw.previewTag)) geometry.previewTag = raw.previewTag;
             if (raw.mode === "roll" || raw.mode === "slide" || raw.mode === "slip") geometry.mode = raw.mode;
             if (typeof raw.deltaLabel === "string") geometry.deltaLabel = raw.deltaLabel;
             if (Object.keys(geometry).length) entries[clipId] = geometry;
@@ -26247,6 +26251,16 @@
       return entry || null;
     };
     const crossTrackGhostsByTrack = /* @__PURE__ */ new Map();
+    const proposalAdditionsByTrack = /* @__PURE__ */ new Map();
+    for (const [previewKey, rawEntry] of Object.entries(gesturePreview || {})) {
+      if (typeof rawEntry === "number" || !rawEntry || rawEntry.added !== true) continue;
+      const id = previewKey.startsWith("__proposal_added__:") ? previewKey.slice("__proposal_added__:".length) : previewKey;
+      const targetTrackId = rawEntry.targetTrackId;
+      if (!id || !targetTrackId || rawEntry.at == null) continue;
+      const additions = proposalAdditionsByTrack.get(targetTrackId) || [];
+      additions.push({ id, preview: rawEntry });
+      proposalAdditionsByTrack.set(targetTrackId, additions);
+    }
     for (const sourceTrack of model.tracks) {
       for (const clip of sourceTrack.clips) {
         const targetTrackId = previewForClip(clip.id)?.targetTrackId;
@@ -26424,7 +26438,7 @@
                   track.clips.map((clip) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
                     "div",
                     {
-                      className: "fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "") + (activeDragIds?.includes(clip.id) ? " fs-dragging" : "") + (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") + (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") + (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : ""),
+                      className: "fs-clip" + (selectedIds.includes(clip.id) ? " fs-clip-selected" : "") + (clip.locked ? " fs-clip-locked" : "") + (activeDragIds?.includes(clip.id) ? " fs-dragging" : "") + (previewForClip(clip.id)?.mode === "roll" ? " fs-rolling" : "") + (previewForClip(clip.id)?.mode === "slide" ? " fs-sliding" : "") + (previewForClip(clip.id)?.mode === "slip" ? " fs-slipping" : "") + (previewForClip(clip.id)?.removed ? " fs-clip-proposal-removed" : ""),
                       "data-clip": clip.id,
                       "data-clip-locked": clip.locked ? "true" : "false",
                       "data-track": clip.trackId,
@@ -26433,12 +26447,16 @@
                       "data-react-gesture-preview": previewForClip(clip.id) ? "true" : "false",
                       "data-preview-fade-in": previewForClip(clip.id)?.fadeIn,
                       "data-preview-fade-out": previewForClip(clip.id)?.fadeOut,
+                      "data-proposal-removed": previewForClip(clip.id)?.removed ? "true" : void 0,
                       "data-roll-delta": previewForClip(clip.id)?.mode === "roll" ? previewForClip(clip.id)?.deltaLabel : void 0,
                       "data-slide-delta": previewForClip(clip.id)?.mode === "slide" ? previewForClip(clip.id)?.deltaLabel : void 0,
                       "data-slip-delta": previewForClip(clip.id)?.mode === "slip" ? previewForClip(clip.id)?.deltaLabel : void 0,
                       style: {
                         left: previewForClip(clip.id)?.at != null ? filmTimelineMath.clipLeft(Number(previewForClip(clip.id)?.at), model.pixelsPerSecond) : previewForClip(clip.id)?.left ?? filmTimelineMath.clipLeft(clip.at, model.pixelsPerSecond),
-                        width: previewForClip(clip.id)?.duration !== void 0 ? filmTimelineMath.clipWidth(previewForClip(clip.id)?.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2)
+                        width: previewForClip(clip.id)?.duration !== void 0 ? filmTimelineMath.clipWidth(previewForClip(clip.id)?.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false) : previewForClip(clip.id)?.width ?? filmTimelineMath.clipWidth(clip.duration, model.pixelsPerSecond, 24, 2),
+                        opacity: previewForClip(clip.id)?.removed ? 0.32 : void 0,
+                        outline: previewForClip(clip.id)?.removed ? "2px dashed #e5a23d" : void 0,
+                        outlineOffset: previewForClip(clip.id)?.removed ? "-2px" : void 0
                       },
                       title: clip.title,
                       onClick: (event) => window.filmStudioClickClip?.(clip.id, event.nativeEvent),
@@ -26580,6 +26598,15 @@
                           },
                           mark.at
                         )),
+                        previewForClip(clip.id)?.removed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                          "span",
+                          {
+                            "data-proposal-remove-label": clip.id,
+                            "aria-hidden": "true",
+                            style: { position: "absolute", zIndex: 6, right: 4, top: 2, pointerEvents: "none", fontSize: 10, fontWeight: 700, color: "#6b3710", background: "rgba(255,238,208,.96)", border: "1px dashed #e5a23d", padding: "1px 3px" },
+                            children: "\u5019\u9009\u5220\u9664"
+                          }
+                        ) : null,
                         clip.locked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-clip-lock-mark", "aria-label": "\u7247\u6BB5\u5DF2\u9501\u5B9A", children: "\u{1F512}" }) : null,
                         clip.trimHandles ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
                           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "fs-trim-handle fs-trim-left", "data-trim": "start", title: "\u4FEE\u526A\u5165\u70B9" }),
@@ -26659,7 +26686,38 @@
                       },
                       "gesture-ghost-" + clip.id
                     );
-                  })
+                  }),
+                  (proposalAdditionsByTrack.get(track.id) || []).map(({ id, preview }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                    "div",
+                    {
+                      className: "fs-clip fs-clip-gesture-ghost fs-clip-proposal-added",
+                      "data-proposal-added": id,
+                      "data-gesture-target-track": track.id,
+                      "data-kind": preview.previewTag || "video",
+                      "aria-hidden": "true",
+                      title: "\u5019\u9009\u65B0\u589E\uFF1A" + String(preview.previewTitle || id),
+                      style: {
+                        left: filmTimelineMath.clipLeft(Number(preview.at || 0), model.pixelsPerSecond),
+                        width: filmTimelineMath.clipWidth(preview.duration ?? null, model.pixelsPerSecond, 24, 2, 0, false),
+                        opacity: 0.88,
+                        outline: "2px dashed #65a7dc",
+                        outlineOffset: "-2px",
+                        background: "rgba(80,145,200,.2)"
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-title", children: [
+                          String(preview.previewTitle || id),
+                          " \xB7 \u5019\u9009\u65B0\u589E"
+                        ] }),
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "fs-clip-subtitle", children: [
+                          formatFilmTime(Number(preview.at || 0)),
+                          " \xB7 ",
+                          preview.duration == null ? "\u65F6\u957F\u672A\u77E5" : Number(preview.duration).toFixed(2) + "s"
+                        ] })
+                      ]
+                    },
+                    "proposal-added-" + id
+                  ))
                 ] })
               ]
             },
