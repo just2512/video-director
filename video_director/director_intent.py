@@ -235,11 +235,44 @@ def _rule_resolve(brief: str) -> Tuple[Dict[str, str], List[str]]:
     return out, []
 
 
+def _llm_resolve_call(provider, prompt: str, system: str):
+    """意图增强层的独立短耐心调用：15s 硬超时 + 单次不重试。
+
+    generate 不可中断（openai client 无 cancel），用守护线程 + join(timeout)
+    丢弃法——超时后放弃该线程（网关挂死时它自己会按主链重试策略终态），
+    调用方立刻降规则层。15s 对「小 prompt 意图抽取」绰绰有余。
+    """
+    import threading
+    box: dict = {}
+
+    def _worker():
+        try:
+            box["raw"] = provider.generate(prompt, system=system).strip()
+        except Exception as exc:
+            box["exc"] = exc
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=15.0)
+    if t.is_alive():
+        logger.warning("意图解析 LLM 层 15s 超时，仅规则层解析生效（网关可能挂死）")
+        return None
+    if "exc" in box:
+        logger.warning(f"意图解析 LLM 层失败，仅规则层解析生效: {box['exc']}")
+        return None
+    return box.get("raw") or ""
+
+
 def _llm_resolve(brief: str) -> Dict[str, str]:
     """LLM 泛化层：目录驱动，把规则层没命中的语义意图映射到字段。
 
     诚实可观测：provider 缺失/调用失败/解析失败都在日志留痕（INFO/WARNING），
     不再静默吞掉——用户在后台日志必须能看到「意图 LLM 层为什么没生效」。
+
+    2026-10-25 生产事故：本函数在 /api/director/create 的 HTTP 线程内同步
+    执行——网关挂死时若共享主链 10 次重试，创建请求 20 分钟不返回 run_id，
+    前端「点了没反应」。增强层必须有独立短耐心：单次尝试 + 15s 硬超时，
+    失败立刻降规则层（规则层兜底完整，损失仅泛化解析）。
     """
     from video_director import llm_provider
     provider = llm_provider.get_llm()
@@ -260,10 +293,8 @@ def _llm_resolve(brief: str) -> Dict[str, str]:
         "只输出 JSON，不要解释、不要 markdown 代码块。"
     )
     prompt = "可映射字段：\n" + catalog + "\n\n用户要求：\n" + brief
-    try:
-        raw = provider.generate(prompt, system=system).strip()
-    except Exception as exc:
-        logger.warning(f"意图解析 LLM 层失败，仅规则层解析生效: {exc}")
+    raw = _llm_resolve_call(provider, prompt, system)
+    if raw is None:
         return {}
     start, end = raw.find("{"), raw.rfind("}")
     if start < 0:
