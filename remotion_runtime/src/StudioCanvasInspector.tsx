@@ -2054,6 +2054,7 @@ window.filmStudioReactTimeline = {
       filmStore.setField("timelineEnvelopeGesture", null);
       filmStore.setField("timelineEnvelopePreview", null);
       filmStore.setField("timelineContextMenu", null);
+      filmStore.setField("timelineSkipNextClipClick", false);
       filmStore.setField("timelineVisible", false);
     });
   },

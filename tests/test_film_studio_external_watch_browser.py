@@ -2794,6 +2794,34 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 )
                 assert abs(float(conflict_clip_b["attrs"]["at"]) - float(next_at)) < 0.001, conflict_clip_b
                 assert "volume_envelope" not in conflict_audio["attrs"], conflict_audio
+
+                # Switching/closing the React timeline must discard the one-shot click
+                # suppression bit; it must not leak into the next timeline session.
+                cleanup_state = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("timelineSkipNextClipClick", true);
+                  store.setField("timelineContextMenu", {clipId:"clip-b",x:20,y:20});
+                  window.filmStudioReactTimeline.clearSurface();
+                  return {
+                    clickSuppressionCleared: store.getField("timelineSkipNextClipClick") === false,
+                    contextMenuCleared: store.getField("timelineContextMenu") === null,
+                    timelineHidden: store.getField("timelineVisible") === false,
+                    gestureCleared: store.getField("timelineGestureContext") === null,
+                    envelopeCleared: store.getField("timelineEnvelopeGesture") === null &&
+                      store.getField("timelineEnvelopePreview") === null
+                  };
+                }""")
+                assert cleanup_state == {
+                    "clickSuppressionCleared": True,
+                    "contextMenuCleared": True,
+                    "timelineHidden": True,
+                    "gestureCleared": True,
+                    "envelopeCleared": True,
+                }, cleanup_state
+                page.wait_for_function(
+                    """() => !document.querySelector('[data-react-context-menu="true"]')""",
+                    timeout=5000,
+                )
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
