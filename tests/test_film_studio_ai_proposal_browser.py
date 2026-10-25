@@ -297,12 +297,27 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=before["rev"],timeout=10000)
                 assert film_path.read_bytes()==original
-                assert page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
+                undo_geometry=page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
                   const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
-                  return [id,{left:getComputedStyle(n).left,width:getComputedStyle(n).width}];}))""")==initial_geom
+                  return [id,{left:parseFloat(getComputedStyle(n).left),width:parseFloat(getComputedStyle(n).width)}];}))""")
+                # Undo restores source timing/duration at the new zoom scale, not the old pre-zoom pixels.
+                assert abs(undo_geometry["clip-b"]["left"]-4*scale)<0.01,undo_geometry
+                assert abs(undo_geometry["clip-b"]["width"]-4*scale)<0.01,undo_geometry
+                assert abs(undo_geometry["clip-c"]["left"]-8*scale)<0.01,undo_geometry
+                assert abs(undo_geometry["clip-c"]["width"]-4*scale)<0.01,undo_geometry
+                assert abs(undo_geometry["audio-1"]["left"])<0.01,undo_geometry
+                assert abs(undo_geometry["audio-1"]["width"]-20*scale)<0.01,undo_geometry
                 page.evaluate("window.filmStudioRedo()")
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=after["rev"],timeout=10000)
                 assert film_path.read_bytes()==after_bytes
+                redo_geometry=page.evaluate("""()=>Object.fromEntries(['clip-b','clip-c','audio-1'].map(id=>{
+                  const n=document.querySelector('#fs-timeline .fs-clip[data-clip="'+id+'"]');
+                  return [id,{left:parseFloat(getComputedStyle(n).left),width:parseFloat(getComputedStyle(n).width)}];}))""")
+                assert abs(redo_geometry["clip-b"]["left"]-4*scale)<0.01,redo_geometry
+                assert abs(redo_geometry["clip-b"]["width"]-3*scale)<0.01,redo_geometry
+                assert abs(redo_geometry["clip-c"]["left"]-7*scale)<0.01,redo_geometry
+                assert abs(redo_geometry["audio-1"]["left"])<0.01,redo_geometry
+                assert abs(redo_geometry["audio-1"]["width"]-20*scale)<0.01,redo_geometry
                 assert not errors,errors
             finally:
                 context.close();browser.close()
