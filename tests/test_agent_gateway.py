@@ -200,6 +200,26 @@ class TestMCPGatewayProtocol:
         assert "unexpected" in response["error"]["message"], response
         dispatch.assert_not_called()
 
+    def test_tools_call_validates_schema_types_enums_and_required_fields(self):
+        from unittest.mock import patch
+        from video_director.agent_gateway import mcp_server
+
+        invalid_requests = [
+            {"name": "creative.preview", "arguments": {"project_id": "demo", "scale": "wide"}},
+            {"name": "creative.preview", "arguments": {"project_id": "demo", "scale": 2}},
+            {"name": "director.continue", "arguments": {"project_id": "demo", "target": "unknown"}},
+            {"name": "director.status", "arguments": {}},
+            {"name": "director.create", "arguments": {"payload": {"resolution": "not-a-resolution"}}},
+        ]
+        with patch.object(mcp_server, "dispatch") as dispatch:
+            for index, item in enumerate(invalid_requests, start=30):
+                response = mcp_server._handle({
+                    "jsonrpc": "2.0", "id": index, "method": "tools/call",
+                    "params": item,
+                })
+                assert response["error"]["code"] == -32602, (item, response)
+        dispatch.assert_not_called()
+
     def test_notifications_never_return_results_or_dispatch_tools(self):
         from video_director.agent_gateway import mcp_server
 

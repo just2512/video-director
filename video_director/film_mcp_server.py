@@ -13,6 +13,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from video_director.mcp_schema import validate_json_schema
+
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "video-director-film", "version": "1.0.0"}
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -179,14 +181,9 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
 
     definition = next(tool for tool in _TOOL_DEFINITIONS if tool["name"] == name)
     schema = definition.get("inputSchema", {})
-    if schema.get("additionalProperties") is False:
-        properties = schema.get("properties", {})
-        unexpected = sorted(str(key) for key in arguments if key not in properties)
-        if unexpected:
-            return _text_result(
-                f"INVALID_ARGUMENTS：工具 {name} 不接受未声明参数：{', '.join(unexpected)}。",
-                True,
-            )
+    validation_error = validate_json_schema(arguments, schema)
+    if validation_error:
+        return _text_result(f"INVALID_ARGUMENTS：{validation_error}。", True)
 
     try:
         project_id = _validate_project_id_arg(arguments)

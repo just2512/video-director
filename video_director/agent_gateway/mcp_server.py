@@ -22,6 +22,7 @@ import sys
 from typing import Any
 
 from video_director.agent_gateway import HIGH_LEVEL_TOOLS, GatewayError, dispatch
+from video_director.mcp_schema import validate_json_schema
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "creative-os-mcp", "version": "1.0.0"}
@@ -202,15 +203,6 @@ def _tool_schema_for(name: str) -> dict:
         name, {"type": "object", "properties": {}, "additionalProperties": False}
     ))
 
-def _undeclared_tool_arguments(name: str, arguments: dict[str, Any]) -> list[str]:
-    """Return undeclared top-level arguments for a strict advertised schema."""
-    schema = _tool_schema_for(name)
-    if schema.get("additionalProperties", True) is not False:
-        return []
-    properties = schema.get("properties", {})
-    return sorted(str(key) for key in arguments if key not in properties)
-
-
 def _valid_jsonrpc_id(value: Any) -> bool:
     """JSON-RPC ids are null, strings, or finite numbers; booleans are not numbers here."""
     if value is None or isinstance(value, str):
@@ -278,13 +270,9 @@ def _handle(req: Any) -> dict:
                 from video_director import film_mcp_server
                 return {"jsonrpc": "2.0", "id": req_id, "result": film_mcp_server.call_tool(name, args)}
             if name in HIGH_LEVEL_TOOLS:
-                unexpected = _undeclared_tool_arguments(name, args)
-                if unexpected:
-                    return _rpc_error(
-                        req_id,
-                        -32602,
-                        f"Invalid params: undeclared arguments for {name}: {', '.join(unexpected)}",
-                    )
+                validation_error = validate_json_schema(args, _tool_schema_for(name))
+                if validation_error:
+                    return _rpc_error(req_id, -32602, f"Invalid params for {name}: {validation_error}")
             result = dispatch(name, **args)
             return {"jsonrpc": "2.0", "id": req_id, "result": {
                 "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}],

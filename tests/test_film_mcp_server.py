@@ -48,6 +48,10 @@ def test_standalone_mcp_rejects_invalid_request_envelopes_and_tool_params():
         assert response["error"]["code"] == -32600, response
     assert mcp.handle_message({"jsonrpc": "2.0", "id": 8, "method": "ping"})["result"] == {}
 
+    schema_invalid = mcp.call_tool("film.render", {"project_id": "some-project", "fps": "fast"})
+    assert schema_invalid["isError"] is True, schema_invalid
+    assert "fps" in schema_invalid["content"][0]["text"], schema_invalid
+
     invalid_params = [
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": []},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
