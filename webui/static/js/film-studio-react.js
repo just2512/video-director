@@ -24338,6 +24338,11 @@
         timelineSkipNextClipClick: false,
         timelineClipboard: null,
         timelineVisible: false,
+        toolbarVisible: false,
+        timelineToolbarVisible: false,
+        scrubVisible: false,
+        clipInspectorVisible: false,
+        canvasInspectorVisible: false,
         canvasElementInspectMode: false,
         pendingExternalRevision: "",
         insertMode: false,
@@ -24427,7 +24432,7 @@
       let normalized = value;
       if (key === "projectId" || key === "revision" || key === "selectedId" || key === "selectionAnchor" || key === "pendingExternalRevision") {
         normalized = asString(value);
-      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible" || key === "timelineSkipNextClipClick" || key === "canvasElementInspectMode") {
+      } else if (key === "busy" || key === "broken" || key === "playing" || key === "insertMode" || key === "overwriteMode" || key === "snapEnabled" || key === "envelopeMode" || key === "slideMode" || key === "slipMode" || key === "rendering" || key === "timelineVisible" || key === "toolbarVisible" || key === "timelineToolbarVisible" || key === "scrubVisible" || key === "clipInspectorVisible" || key === "canvasInspectorVisible" || key === "timelineSkipNextClipClick" || key === "canvasElementInspectMode") {
         normalized = value === true;
       } else if (key === "pixelsPerSecond") {
         normalized = Math.max(12, Math.min(120, asFiniteNumber(value, 36)));
@@ -24556,6 +24561,11 @@
         timelineSkipNextClipClick: asBoolean(target.skipNextClipClick),
         timelineClipboard: asTimelineClipboard(target.clipClipboard),
         timelineVisible: false,
+        toolbarVisible: this.snapshot.toolbarVisible,
+        timelineToolbarVisible: this.snapshot.timelineToolbarVisible,
+        scrubVisible: this.snapshot.scrubVisible,
+        clipInspectorVisible: this.snapshot.clipInspectorVisible,
+        canvasInspectorVisible: this.snapshot.canvasInspectorVisible,
         canvasElementInspectMode: target.elementInspect === true,
         pendingExternalRevision: asString(target.pendingExternalRevision),
         insertMode: target.insertMode === true,
@@ -26722,14 +26732,9 @@
   };
   var studioReactState = {
     assets: null,
-    toolbarVisible: false,
-    timelineToolbarVisible: false,
-    scrubVisible: false,
     aiModel: null,
-    clipInspectorMounted: false,
     clipInspector: null,
-    clipInspectorEmptyMessage: void 0,
-    canvasInspectorMounted: false
+    clipInspectorEmptyMessage: void 0
   };
   var studioRoot = null;
   var studioRootMount = null;
@@ -26766,6 +26771,11 @@
     );
   };
   var StudioReactOwner = ({ state }) => {
+    const toolbarVisible = useFilmStoreField("toolbarVisible");
+    const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");
+    const scrubVisible = useFilmStoreField("scrubVisible");
+    const clipInspectorVisible = useFilmStoreField("clipInspectorVisible");
+    const canvasInspectorVisible = useFilmStoreField("canvasInspectorVisible");
     const timelineVisible = useFilmStoreField("timelineVisible");
     const timelineFilm = useFilmStoreField("film");
     const timelineProjectId = useFilmStoreField("projectId");
@@ -26792,15 +26802,15 @@
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmStoreDiagnostics, {}),
       state.assets ? studioPortal("fs-assets-list", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAssets, { model: state.assets })) : null,
       timelineSurface ? studioPortal("fs-timeline", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineSurface, { model: timelineSurface })) : null,
-      state.toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
-      state.timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
-      state.scrubVisible ? studioPortal("fs-react-scrub-row", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioScrubRow, {})) : null,
+      toolbarVisible ? studioPortal("fs-react-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioToolbar, {})) : null,
+      timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
+      scrubVisible ? studioPortal("fs-react-scrub-row", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioScrubRow, {})) : null,
       state.aiModel ? studioPortal("fs-react-ai-director", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAiDirector, { model: state.aiModel }, "ai-director")) : null,
-      state.clipInspectorMounted ? studioPortal(
+      clipInspectorVisible ? studioPortal(
         "fs-inspector",
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipInspector, { clip, emptyMessage: state.clipInspectorEmptyMessage }, clipKey)
       ) : null,
-      state.canvasInspectorMounted ? studioPortal(
+      canvasInspectorVisible ? studioPortal(
         "fs-react-canvas-inspector",
         element ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CanvasInspector, { element }, element.clipId + "::" + element.selector) : null
       ) : null,
@@ -26882,13 +26892,16 @@
   };
   window.filmStudioReactToolbar = {
     render() {
-      renderStudioReactOwner({ toolbarVisible: true });
+      filmStore.setField("toolbarVisible", true);
+      renderStudioReactOwner({});
     },
     renderTimeline() {
-      renderStudioReactOwner({ timelineToolbarVisible: true });
+      filmStore.setField("timelineToolbarVisible", true);
+      renderStudioReactOwner({});
     },
     renderScrub() {
-      renderStudioReactOwner({ scrubVisible: true });
+      filmStore.setField("scrubVisible", true);
+      renderStudioReactOwner({});
     }
   };
   window.filmStudioReactAi = {
@@ -26921,15 +26934,16 @@
       return window.filmStudioCommitCanvasElement(result.operation, { allowInspectorDraft: true });
     },
     renderClip(clip, emptyMessage) {
+      filmStore.setField("clipInspectorVisible", true);
       renderStudioReactOwner({
-        clipInspectorMounted: true,
         clipInspector: clip,
         clipInspectorEmptyMessage: emptyMessage
       });
     },
     render(element) {
       filmStore.setField("canvasElementSelection", element);
-      renderStudioReactOwner({ canvasInspectorMounted: true });
+      filmStore.setField("canvasInspectorVisible", true);
+      renderStudioReactOwner({});
       if (element) this.sync(element);
     },
     sync(element) {
