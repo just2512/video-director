@@ -188,6 +188,7 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
     film_path.write_text(SAMPLE, encoding="utf-8")
+    initial_text = film_path.read_text(encoding="utf-8")
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
     audio_before = next(track for track in initial["doc"]["tracks"] if track["id"] == "audio-bed")
@@ -484,6 +485,31 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                 assert failed_transaction["busy"] is False, failed_transaction
                 assert failed_transaction["pending"] is None, failed_transaction
                 assert failed_transaction["revision"] == final["rev"], failed_transaction
+
+                # A committed overwrite is still one undo unit. The prior
+                # stale/busy/failure probes must not have polluted its history.
+                page.evaluate("() => window.filmStudioUndo()")
+                page.wait_for_function("""async pid => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const clips = (doc.tracks || []).flatMap(track => track.clips || []);
+                  return !!doc.rev && doc.rev === state?.revision &&
+                    !clips.some(clip => clip.id === 'overwrite-asset') &&
+                    clips.some(clip => clip.id === 'video-before' &&
+                      String(clip.attrs.src).endsWith('#t=0,4') && Number(clip.attrs.at) === 0) &&
+                    clips.some(clip => clip.id === 'video-later' &&
+                      String(clip.attrs.src).endsWith('#t=0,2') && Number(clip.attrs.at) === 4) &&
+                    clips.some(clip => clip.id === 'audio-before' &&
+                      String(clip.attrs.src).endsWith('#t=0,3') && Number(clip.attrs.at) === 0) &&
+                    clips.some(clip => clip.id === 'audio-later' &&
+                      String(clip.attrs.src).endsWith('#t=0,4') && Number(clip.attrs.at) === 3);
+                }""", arg=project_id, timeout=10000)
+                assert film_path.read_text(encoding="utf-8") == initial_text
+                restored = fd.read_project_film(project_id)
+                assert restored["rev"] == initial["rev"]
+                assert restored["doc"]["tracks"] == initial["doc"]["tracks"]
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()
