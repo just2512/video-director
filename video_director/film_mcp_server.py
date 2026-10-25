@@ -177,6 +177,17 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
     if name not in known:
         return _text_result(f"UNKNOWN_TOOL：不支持的影片工具 {name!r}。", True)
 
+    definition = next(tool for tool in _TOOL_DEFINITIONS if tool["name"] == name)
+    schema = definition.get("inputSchema", {})
+    if schema.get("additionalProperties") is False:
+        properties = schema.get("properties", {})
+        unexpected = sorted(str(key) for key in arguments if key not in properties)
+        if unexpected:
+            return _text_result(
+                f"INVALID_ARGUMENTS：工具 {name} 不接受未声明参数：{', '.join(unexpected)}。",
+                True,
+            )
+
     try:
         project_id = _validate_project_id_arg(arguments)
 

@@ -182,6 +182,24 @@ class TestMCPGatewayProtocol:
         assert [response["id"] for response in resps] == [1, 2, 3, 4], resps
         assert resps[3]["result"] == {}, resps[3]
 
+    def test_tools_call_rejects_undeclared_arguments_before_dispatch(self):
+        from unittest.mock import patch
+        from video_director.agent_gateway import mcp_server
+
+        request = {
+            "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+            "params": {
+                "name": "creative.preview",
+                "arguments": {"project_id": "demo-project", "unexpected": True},
+            },
+        }
+        with patch.object(mcp_server, "dispatch") as dispatch:
+            response = mcp_server._handle(request)
+
+        assert response["error"]["code"] == -32602, response
+        assert "unexpected" in response["error"]["message"], response
+        dispatch.assert_not_called()
+
     def test_notifications_never_return_results_or_dispatch_tools(self):
         from video_director.agent_gateway import mcp_server
 

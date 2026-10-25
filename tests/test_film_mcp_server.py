@@ -149,6 +149,19 @@ def test_mcp_rejects_invalid_or_oversized_edit_before_invoking_cli(monkeypatch):
     assert unknown["isError"] is True
 
 
+def test_standalone_mcp_rejects_undeclared_arguments_before_side_effects(monkeypatch):
+    def forbidden_run(*args, **kwargs):
+        raise AssertionError("CLI must not run for undeclared arguments")
+
+    monkeypatch.setattr(mcp.subprocess, "run", forbidden_run)
+    result = mcp.call_tool("film.validate", {
+        "project_id": "some-project",
+        "unexpected": True,
+    })
+    assert result["isError"] is True, result
+    assert "unexpected" in result["content"][0]["text"], result
+
+
 def test_mcp_look_rejects_nonfinite_and_boolean_times(monkeypatch):
     def forbidden_run(*args, **kwargs):
         raise AssertionError("CLI must not run for invalid input")
