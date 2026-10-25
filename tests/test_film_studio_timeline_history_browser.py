@@ -283,3 +283,155 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+
+def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_path, monkeypatch):
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-pointer-cancel-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    source_text = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#182030}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+  <video id="clip-a" src="../assets/a.mp4#t=0,2" at="0"></video>
+  <video id="clip-b" src="../assets/b.mp4#t=0,2" at="6"></video>
+</section>
+<section id="video-secondary" data-label="备用画面"></section>
+</body></html>'''
+    film_path.write_text(source_text, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    original = fd.read_project_film(project_id)
+    assert original["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                source_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                target_track = page.locator('#fs-timeline .fs-track[data-track="video-secondary"]')
+                source_clip.wait_for(state="visible")
+                target_track.wait_for(state="visible")
+
+                scale = float(page.evaluate("window.filmStudioStore.getSnapshot().pixelsPerSecond"))
+                source_box = source_clip.bounding_box()
+                target_box = target_track.bounding_box()
+                assert source_box and target_box and scale > 0
+                start_x = source_box["x"] + source_box["width"] / 2
+                start_y = source_box["y"] + source_box["height"] / 2
+                target_x = start_x + 6 * scale
+                target_y = target_box["y"] + target_box["height"] / 2
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(target_x, target_y, steps=8)
+
+                page.wait_for_function(
+                    """() => {
+                      const s=window.filmStudioStore?.getSnapshot();
+                      return !!s?.timelineGestureContext?.active &&
+                        s.timelineGestureContext.targetTrackId==='video-secondary' &&
+                        s.timelineDropTarget?.trackId==='video-secondary' &&
+                        s.timelineGesturePreview?.['clip-a']?.targetTrackId==='video-secondary' &&
+                        Math.abs(Number(s.timelineSnapGuide?.at)-6)<0.001;
+                    }""",
+                    timeout=5000,
+                )
+                assert edit_requests == []
+                assert film_path.read_bytes() == original_bytes
+                assert fd.read_project_film(project_id)["rev"] == original["rev"]
+
+                # Dispatch pointercancel to the React-owned clip with the actual active pointer ID.
+                cancelled = page.evaluate("""() => {
+                  const state=window.filmStudioStore.getSnapshot();
+                  const pointerId=state.timelineGestureContext.pointerId;
+                  const clip=document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
+                  if(!clip)throw new Error('React-owned source clip not found');
+                  clip.dispatchEvent(new PointerEvent('pointercancel',{
+                    bubbles:true,cancelable:true,pointerId,
+                    clientX:window.__cancelPointerX||0,clientY:window.__cancelPointerY||0
+                  }));
+                  return pointerId;
+                }""")
+                assert isinstance(cancelled, int)
+                page.wait_for_function(
+                    """() => {
+                      const s=window.filmStudioStore?.getSnapshot();
+                      return !!s && !s.busy && s.pendingTransaction===null &&
+                        s.timelineGestureContext===null &&
+                        s.timelineGesturePreview===null &&
+                        s.timelineSnapGuide===null &&
+                        s.timelineDropTarget===null &&
+                        s.timelineActiveDragIds===null;
+                    }""",
+                    timeout=5000,
+                )
+                page.mouse.up()
+                assert page.locator('#fs-timeline .fs-track-drop-target, #fs-timeline .fs-track-drop-invalid').count() == 0
+                assert page.locator('#fs-timeline #fs-snap-guide').count() == 0
+                assert source_clip.get_attribute("class") is not None
+                assert "fs-dragging" not in (source_clip.get_attribute("class") or "")
+                assert page.locator('#fs-timeline [data-gesture-ghost-for="clip-a"]').count() == 0
+                assert edit_requests == []
+                assert film_path.read_bytes() == original_bytes
+                assert fd.read_project_film(project_id)["rev"] == original["rev"]
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
