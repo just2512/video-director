@@ -211,7 +211,7 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
         {"op":"trim","clip":"clip-b","edge":"end","end":7.0},
         {"op":"move","clip":"clip-c","track_id":"video-main","at":7.0},
         {"op":"set","clip":"audio-1","field":"fade","value":"0,1"},
-        {"op":"set","clip":"audio-1","field":"volume_envelope","value":[{"t":0,"v":1},{"t":20,"v":0}],
+        {"op":"set","clip":"audio-1","field":"volume_envelope","value":[{"t":0,"v":1},{"t":20,"v":0}]},
     ]
     class FakeModel:
         def generate(self,_prompt):
