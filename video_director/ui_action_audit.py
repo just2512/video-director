@@ -36,6 +36,8 @@ UI_ONLY_PREFIXES = (
     "cfVoiceModeSync(", "createPlatformSync(", "setCreateSource(",
     "createLoadDefaults(", "createEnhance(", "createAcceptEnhanced(",
     "edVoiceLoadOptions(",  # 数据装载
+    # 2026-10-25 创作要求面板（表单收集器：读 textarea → 后端 brief/retry 端点）
+    "directorLoadBrief(", "directorSaveBrief(", "directorRerunFromBrief(",
     # 表单收集器（读输入框 → 内部走 executeAction / 后端链）
     "editorApplyDuration(", "editorApplyTrim(", "editorApplySpeed(",
     "editorSetVisualTransform(", "editorAddKeyframe(", "editorRemoveKeyframe(",

@@ -861,8 +861,13 @@ async function createProject(){
       const cur = run.current ? (labels[run.current] || run.current) : '';
       const doneSteps = (run.steps || []).filter(s => s.status === 'DONE').length;
       const totalSteps = (run.steps || []).length;
-      status.textContent = run.status === 'RUNNING' || run.status === 'WAITING_CONFIRMATION'
-        ? `${cur ? cur + '……' : '处理中……'}（${doneSteps}/${totalSteps} 步）`
+      // 2026-10-25 用户报障：步骤降级说明（detail）在弹窗轮询期间就要可见——
+      // 「你的要求未被 AI 理解」不能等成片后才（永远不）告诉用户。
+      const warnDetail = (run.steps || []).filter(s => s.detail).map(s =>
+        '⚠ ' + (labels[s.id] || s.id) + '：' + s.detail).join('；');
+      status.textContent = (run.status === 'RUNNING' || run.status === 'WAITING_CONFIRMATION')
+        ? (cur ? cur + '……' : '处理中……') + `（${doneSteps}/${totalSteps} 步）`
+          + (warnDetail ? ' ' + warnDetail : '')
         : status.textContent;
       if (run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION') {
         clearInterval(pollTimer);

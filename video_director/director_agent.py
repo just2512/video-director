@@ -261,8 +261,17 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
     except Exception:
         pass
     if provider is None:
+        # 2026-10-25 用户报障根修：rule 兜底此前完全丢弃 brief（用户自然语言
+        # 剪辑要求只在 LLM 路径被理解）。规则模式做不到语义理解，但必须：
+        # ①把 brief 作为创作意图原样记录进 scene_plan（Inspector/后续重跑可见
+        #   ——用户能看到「系统记住了我的要求」，也能作为 LLM 恢复后重跑的输入）
+        # ②如实标注 source=rule_fallback，前端据此醒目告知「规则模式」。
+        brief_text = str((state.get("bundle") or {}).get("brief") or
+                         spec.get("brief") or spec.get("creative_brief") or "").strip()
         data = {
-            "source": "rule",
+            "source": "rule_fallback",
+            "creative_brief": brief_text,
+            "brief_acknowledged": False,  # 诚实标记：规则模式未理解要求，仅记录
             "scenes": [{
                 "text": t,
                 "visual_intent": t,
@@ -328,8 +337,12 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
             # 分镜节点此前直接 raise 停摆整条链。分镜有确定性 rule 兜底能力
             # （provider None 分支），临时故障应降级并如实告知，不是假成功。
             logger.warning(f"scene_plan LLM 调用失败，降级规则分镜: {exc}")
+            brief_text = str((state.get("bundle") or {}).get("brief") or
+                             spec.get("brief") or spec.get("creative_brief") or "").strip()
             data = {
-                "source": "rule",
+                "source": "rule_fallback",
+                "creative_brief": brief_text,
+                "brief_acknowledged": False,  # LLM 失败：要求未被理解，仅记录
                 "scenes": [{
                     "text": t,
                     "visual_intent": t,
@@ -342,8 +355,9 @@ def _tool_scene_plan(spec: dict, state: dict) -> dict:
                 } for t in state["scene_texts"]],
             }
             state.setdefault("llm_degraded_warnings", []).append(
-                f"分镜规划降级：文本大模型暂不可用（{str(exc)[:80]}），已按规则切分场景，"
-                "候选与 stock 搜索词将简化")
+                f"⚠ 分镜规划降级：文本大模型调用失败（{str(exc)[:80]}），已按规则切分场景。"
+                "你的自然语言剪辑要求未被 AI 理解执行（仅原样记录），候选与搜索词已简化。"
+                "LLM 恢复后可修改要求重新生成。")
         else:
             raw = _strip_code_fence(raw)
             a, b = raw.find("{"), raw.rfind("}")
@@ -1943,6 +1957,10 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 str(v) for v in result_values.values()
                 if isinstance(v, str) and Path(v).is_file()
             ]
+            # 2026-10-25 用户报障：节点 warnings（如「分镜规划降级，你的要求
+            # 未被理解」）必须透进步骤 detail——WorkflowRun steps 是前端
+            # 唯一可见通道，警告只在后端 log = 用户永远看不到。
+            node_warnings = list(tool_result.get("result", {}).get("warnings") or [])
             update_node(
                 run_id, pid, plan, node_id, status,
                 outputs=list(node.get("outputs") or []),
@@ -1954,6 +1972,7 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 decision={"reason": reason},
                 verify=verify,
                 artifacts=artifacts,
+                detail="；".join(node_warnings)[:240] if node_warnings else None,
             )
             director_checkpoint.save(pid, state, config.project_dir)
             last_result = {"ok": True, **tool_result}

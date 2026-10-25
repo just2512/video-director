@@ -51,6 +51,10 @@ async function workspaceOpen(pid, target){
     if (typeof directorLoadLatestRun === 'function') {
       await directorLoadLatestRun(pid);
     }
+    // 2026-10-25：创作要求面板装载（brief 可见/可改/重跑）
+    if (typeof directorLoadBrief === 'function') {
+      directorLoadBrief();
+    }
     // 3. 定位（§45 Review → Editor 带 Selection）
     if (target) {
       if (target.type === 'scene') {

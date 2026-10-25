@@ -270,6 +270,17 @@
         </div>
         <div id="director-plan-nodes" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0 2px"></div>
         <div id="director-plan-detail" class="hint"></div>
+        <!-- 2026-10-25 用户报障：创作要求可见可改可重跑（弹窗关闭后要求不再消失） -->
+        <details style="margin-top:8px" id="director-brief-details">
+          <summary class="hint" style="cursor:pointer">我的创作要求（可修改后重新生成）</summary>
+          <div id="director-brief-warn" style="display:none;color:var(--danger,#c33);font-size:12px;margin-top:4px"></div>
+          <textarea id="director-brief-text" class="rev-input" style="width:100%;min-height:56px;margin-top:4px" placeholder="你的创作要求"></textarea>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn-sm" onclick="directorSaveBrief()">保存要求</button>
+            <button class="btn-secondary btn-sm" onclick="directorRerunFromBrief()">按此要求重新创作</button>
+            <span class="hint" id="director-brief-status"></span>
+          </div>
+        </details>
       </div>
       <div id="director-control-grid" class="panel" style="padding:0"></div>
       <!-- AI Command Bar：当前对象的修改器（上下文行 + 输入 + 结果区） -->

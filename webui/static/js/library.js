@@ -674,15 +674,26 @@ function directorRenderPlan(run, detail){
   if (goal) goal.textContent = plan.goal ? '· ' + String(plan.goal).slice(0, 90) : '';
   if (status) status.textContent = run.status === 'COMPLETED' ? '已完成' : run.status === 'WAITING_CONFIRMATION' ? '等待确认' : run.status === 'FAILED' ? '失败' : '进行中';
   const stepState = {};
-  (detail && detail.steps || []).forEach(s => { stepState[s.id] = s.status; });
+  const stepDetail = {};
+  (detail && detail.steps || []).forEach(s => { stepState[s.id] = s.status; stepDetail[s.id] = s.detail || ''; });
   const labelFor = {understand:'理解', script:'文案', scene_plan:'分镜', narration:'配音', material_match:'画面', subtitle:'字幕', music:'音乐', watermark:'品牌', composition:'时间线', preview:'预览', verify:'预检', render:'成片'};
-  const stateText = s => s === 'DONE' ? '完成' : s === 'RUNNING' ? '执行中' : s === 'FAILED' ? '失败' : '待处理';
+  const stateText = s => s === 'DONE' ? '完成' : s === 'RUNNING' ? '执行中' : s === 'FAILED' ? '失败' : s === 'SKIPPED' ? '跳过' : '待处理';
+  // 2026-10-25 用户报障：步骤 detail（降级/失败人话说明）必须可见——
+  // 后端偷偷降级、前端不展示 = 用户永远不知道要求没被执行。
+  const warnSteps = Object.keys(stepDetail).filter(k => stepDetail[k]);
+  const warnHtml = warnSteps.length
+    ? '<div style="margin-top:6px;color:var(--danger,#c33);font-size:12px">' +
+      warnSteps.map(k => '⚠ ' + esc(labelFor[k] || k) + '：' + esc(stepDetail[k])).join('<br>') + '</div>'
+    : '';
   nodesBox.innerHTML = plan.nodes.map(n => {
     let st = stepState[n.id] || 'PENDING';
     if (n.id === 'understand') st = detail ? 'DONE' : 'PENDING';
     if (n.id === 'render' && run.status === 'COMPLETED') st = 'DONE';
-    return `<button class="btn-secondary btn-sm" data-director-node="${esc(n.id)}" style="min-width:78px;text-align:left;white-space:nowrap"><b>${esc(labelFor[n.id] || n.label || n.id)}</b><br><span class="hint">${stateText(st)}</span></button>`;
+    return `<button class="btn-secondary btn-sm" data-director-node="${esc(n.id)}" style="min-width:78px;text-align:left;white-space:nowrap"><b>${esc(labelFor[n.id] || n.label || n.id)}</b><br><span class="hint">${stateText(st)}${stepDetail[n.id] ? ' ⚠' : ''}</span></button>`;
   }).join('<span style="align-self:center;color:var(--muted)">→</span>');
+  if (detailBox && warnHtml) {
+    detailBox.insertAdjacentHTML('beforeend', warnHtml);
+  }
   nodesBox.querySelectorAll('[data-director-node]').forEach(btn => {
     btn.onclick = () => {
       const n = plan.nodes.find(x => x.id === btn.dataset.directorNode);
@@ -715,9 +726,78 @@ function directorRenderPlan(run, detail){
   }
 }
 
+let _directorRunPollTimer = null;
+
+// 2026-10-25 用户报障：创作要求可见/可改/重跑。
+// GET /api/director/brief 读 bundle.brief；PUT 写回；重跑走既有 retry。
+async function directorLoadBrief(){
+  if (!ED.pid) return;
+  const warn = document.getElementById('director-brief-warn');
+  const ta = document.getElementById('director-brief-text');
+  try {
+    const r = await apiPost('/api/director/brief', {project_id: ED.pid});
+    if (r && r.ok && ta && ta.value === '') {
+      ta.value = r.brief || '';
+    }
+  } catch (e) { /* 端点读失败不阻塞面板 */ }
+  if (warn && ta) {
+    // scene_plan 降级标注：规则模式=要求未被 AI 理解
+    fetch('/api/director/context?project_id=' + encodeURIComponent(ED.pid))
+      .then(r => r.json()).then(ctx => {
+        const scenePlan = ctx && ctx.mpt && ctx.mpt.scene_plan;
+        if (scenePlan && (scenePlan.source === 'rule_fallback'
+                          || scenePlan.brief_acknowledged === false)) {
+          warn.style.display = '';
+          warn.textContent = '⚠ 上次创作时文本大模型不可用：AI 未理解你的要求（规则模式剪辑）。'
+            + '修改要求并点「按此要求重新创作」。';
+        } else {
+          warn.style.display = 'none';
+        }
+      }).catch(() => {});
+  }
+}
+
+async function directorSaveBrief(){
+  const ta = document.getElementById('director-brief-text');
+  const st = document.getElementById('director-brief-status');
+  if (!ta || !ta.value.trim()) { if (st) st.textContent = '要求不能为空'; return; }
+  if (st) st.textContent = '保存中……';
+  const r = await apiPost('/api/director/brief', {project_id: ED.pid, brief: ta.value.trim()});
+  if (st) st.textContent = r && r.ok ? '已保存（点「按此要求重新创作」生效）'
+    : '保存失败：' + ((r && r.error) || '未知');
+}
+
+async function directorRerunFromBrief(){
+  const st = document.getElementById('director-brief-status');
+  const ta = document.getElementById('director-brief-text');
+  if (ta && ta.value.trim()) await directorSaveBrief();
+  if (st) st.textContent = '正在按新要求重新创作……（创作过程中下方节点实时更新）';
+  const r = await apiPost('/api/director/retry', {project_id: ED.pid});
+  if (!r || !r.ok) {
+    if (st) st.textContent = '重新创作失败：' + ((r && r.error) || '项目可能正在执行中');
+    return;
+  }
+  if (st) st.textContent = '已开始重新创作（run：' + String(r.run_id || '').slice(0, 8) + '）';
+  directorLoadRun(r.run_id);
+}
+
 async function directorLoadRun(runId){
   if (!runId) return;
   try { const d = await apiGet('/api/workflows/' + encodeURIComponent(runId)); if (d && !d.error) directorRenderPlan(d, d); } catch (e) {}
+  // 2026-10-25 用户报障：RUNNING 期间自动轮询——创作中打开工作台能看到
+  // 每步实时变化，而不是打开瞬间的死快照。终态（COMPLETED/FAILED/
+  // WAITING_CONFIRMATION）停止轮询。
+  if (_directorRunPollTimer) { clearInterval(_directorRunPollTimer); _directorRunPollTimer = null; }
+  _directorRunPollTimer = setInterval(async () => {
+    try {
+      const d = await apiGet('/api/workflows/' + encodeURIComponent(runId));
+      if (!d || d.error) return;
+      directorRenderPlan(d, d);
+      if (d.status && d.status !== 'RUNNING') {
+        clearInterval(_directorRunPollTimer); _directorRunPollTimer = null;
+      }
+    } catch (e) { /* 下次轮询再试 */ }
+  }, 5000);
 }
 
 async function directorLoadLatestRun(projectId){
@@ -903,6 +983,7 @@ Object.assign(window, {
   edLibStockSearch,
   edLibOpenTemplate, instantiateTemplate, AP,
   directorRefreshContext, directorLoadCapCount, directorRenderPlan, directorLoadRun, directorLoadLatestRun, directorExecute,
+  directorLoadBrief, directorSaveBrief, directorRerunFromBrief,
   editorCmd, editorBatchCmd, editorApplyDuration, editorMovePrompt, editorAddBrollPrompt,
   editorOpenMotionPicker, editorOpenShotPicker, editorApplyShot, edLibApplyMotionTo,
 });

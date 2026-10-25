@@ -2766,6 +2766,40 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        if parsed.path == "/api/director/brief":
+            # 2026-10-25 用户报障：创作后 brief 消失不可改。GET 读、PUT 写
+            # bundle.brief（写回 director_inputs.json，retry 重建 spec 时消费）。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = str(payload.get("project_id") or "")
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import director_inputs as _di
+                bundle = _di.load_bundle(pid)
+                if not bundle:
+                    self._send_json(
+                        {"ok": False, "error": "项目没有创作要求记录（可能来自旧流程）"},
+                        404)
+                    return
+                if self.command == "PUT":
+                    new_brief = str(payload.get("brief") or "").strip()
+                    if not new_brief:
+                        self._send_json({"ok": False, "error": "创作要求不能为空"}, 400)
+                        return
+                    bundle["brief"] = new_brief
+                    _di.persist_bundle(pid, bundle)
+                self._send_json({"ok": True, "brief": str(bundle.get("brief") or "")})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)[:200]}, 500)
+            return
         if parsed.path == "/api/director/retry":
             length = int(self.headers.get("Content-Length", 0))
             try:

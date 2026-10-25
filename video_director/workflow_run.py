@@ -127,7 +127,12 @@ def _emit(run_id: str, event: str, data: dict) -> None:
 
 def step_update(run_id: str, step: str, status: str,
                 detail: Optional[str] = None) -> None:
-    """更新单步状态（PENDING/RUNNING/DONE/FAILED/SKIPPED）+ 事件。"""
+    """更新单步状态（PENDING/RUNNING/DONE/FAILED/SKIPPED）+ 事件。
+
+    detail（2026-10-25 用户报障）：步骤级人话说明（降级原因/失败原因）。
+    存进 steps_status[step] 的结构化值；get_run 兼容读出（str=旧格式）。
+    前端步骤面板据此展示「为什么这一步降级了」。
+    """
     now = time.time()
     with _DB_LOCK, _conn() as conn:
         _ensure_table(conn)
@@ -137,7 +142,16 @@ def step_update(run_id: str, step: str, status: str,
         if row is None:
             return
         steps_status = json.loads(row["steps_status_json"] or "{}")
-        steps_status[step] = status
+        if detail:
+            steps_status[step] = {"status": status, "detail": str(detail)[:240]}
+        else:
+            # 无 detail 用纯 status（保持旧格式，前端兼容读）
+            prev = steps_status.get(step)
+            if isinstance(prev, dict):
+                steps_status[step] = {"status": status,
+                                     "detail": prev.get("detail") or ""}
+            else:
+                steps_status[step] = status
         current = step if status == "RUNNING" else _next_pending(steps_status)
         conn.execute(
             "UPDATE workflow_runs SET steps_status_json=?, current=?, updated_at=? "
@@ -151,7 +165,9 @@ def step_update(run_id: str, step: str, status: str,
 
 def _next_pending(steps_status: dict) -> Optional[str]:
     for s, st in steps_status.items():
-        if st in ("PENDING", "RUNNING"):
+        # 2026-10-25：兼容新结构 {status, detail} 与旧纯 status 字符串
+        v = st.get("status") if isinstance(st, dict) else st
+        if v in ("PENDING", "RUNNING"):
             return s
     return None
 
@@ -182,7 +198,15 @@ def get_run(run_id: str) -> Optional[dict]:
         return None
     d = dict(row)
     steps_status = json.loads(d.pop("steps_status_json") or "{}")
-    steps = [{"id": s, "status": st} for s, st in steps_status.items()]
+    # 2026-10-25：steps_status[step] 新结构 {status, detail}（降级/失败人话原因）；
+    # 兼容旧纯 status 字符串。
+    steps = []
+    for s, st in steps_status.items():
+        if isinstance(st, dict):
+            steps.append({"id": s, "status": st.get("status") or "PENDING",
+                          "detail": st.get("detail") or ""})
+        else:
+            steps.append({"id": s, "status": st, "detail": ""})
     result = json.loads(d.pop("result_json") or "{}")
     d.update({
         "steps": steps,
@@ -586,8 +610,10 @@ def _compose_worker(run_id: str, spec: dict) -> None:
 def _director_update_node(run_id: str, project_id: str, plan: dict, node_id: str,
                           status: str, **kwargs) -> None:
     from video_director import director_inputs as _di
+    # detail 是步骤层人话说明（2026-10-25），不进 plan 节点结构——剥出后传 step。
+    detail = kwargs.pop("detail", None) or kwargs.get("error") or None
     _di.update_node(project_id, plan, node_id, status, **kwargs)
-    step_update(run_id, node_id, status, detail=kwargs.get("error") or None)
+    step_update(run_id, node_id, status, detail=detail)
 
 
 def _director_scene_plan(bundle: dict, script: str) -> dict:
@@ -598,8 +624,11 @@ def _director_scene_plan(bundle: dict, script: str) -> dict:
     if provider is None:
         from video_director.pipeline import split_script_scenes
         scenes = split_script_scenes(script)
+        # 2026-10-25 用户报障：rule 兜底必须记录 brief（未被理解，仅原样保留）
         return {
             "source": "rule_fallback",
+            "creative_brief": str(bundle.get("brief") or "").strip(),
+            "brief_acknowledged": False,
             "scenes": [{"text": s, "visual_intent": s, "source_preference": "user_asset"} for s in scenes],
         }
     context = di.build_agent_scene_context(bundle, script)
