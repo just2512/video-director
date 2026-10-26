@@ -140,4 +140,4 @@ def test_react_timeline_owns_move_preview_and_legacy_move_dispatch_delegates():
     assert 'filmStore.setField("timelineSnapGuide"' in component
     assert "reactTimeline.moveClipGesture(e)" in legacy
     assert "if(snapshot&&snapshot.timelineGestureContext&&snapshot.timelineGestureContext.mode==='move'&&" in legacy
-\n
+
