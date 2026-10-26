@@ -189,7 +189,7 @@ jobs:
         if: steps.ensure_checkout.outcome == 'success'
         run: '"$PY311_BIN/python3.11" -m compileall -q tests'
       - name: Configure opt-in live model token-stream smoke
-        if: github.event_name == 'workflow_dispatch' && inputs.run_live_llm
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_live_llm) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-stream-smoke]'))
         shell: bash
         env:
           VD_LLM_API_KEY_SECRET: ${{ secrets.VD_LLM_API_KEY }}
