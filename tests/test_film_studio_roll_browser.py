@@ -706,3 +706,180 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+CROSS_TRACK_SAMPLE = """<!doctype html>
+<html><head><meta charset="utf-8"><style>body{margin:0}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+  <video id="clip-a" src="../assets/a.mp4#t=0,5" at="0"></video>
+</section>
+<section id="video-alt" data-label="备用画面">
+  <video id="clip-c" src="../assets/a.mp4#t=0,5" at="0"></video>
+</section>
+</body></html>"""
+
+
+def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track(tmp_path, monkeypatch):
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    asset_root = storage_root / "assets"
+    asset_root.mkdir(parents=True, exist_ok=True)
+    from video_director import renderer
+    generated = subprocess.run(
+        [renderer._ffmpeg(), "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=20",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", "-y",
+         str(asset_root / "a.mp4")],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert generated.returncode == 0, generated.stderr
+
+    project_id = "film-studio-cross-track-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(CROSS_TRACK_SAMPLE, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"] and before["doc"]["tracks"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            try:
+                page = context.new_page()
+                page_errors: list[str] = []
+                film_edit_requests: list[dict] = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+                def capture_film_edit_request(request):
+                    if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                        try:
+                            film_edit_requests.append(request.post_data_json)
+                        except Exception:
+                            film_edit_requests.append({"raw": request.post_data})
+
+                page.on("request", capture_film_edit_request)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); return !!select && select.options.length > 0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select = document.querySelector('#editor-project');
+                  if (!select) throw new Error('project selector is missing');
+                  let option = [...select.options].find(item => item.value === pid);
+                  if (!option) { option = new Option(pid, pid); select.add(option); }
+                  select.value = pid;
+                }""", project_id)
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                if os.environ.get("VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO") == "1":
+                    page.locator('#fs-react-timeline-toolbar [data-film-action="split"]').wait_for(state="visible")
+                    assert not page.locator("#fs-static-timeline-toolbar").is_visible()
+
+                source_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                target_track = page.locator('#fs-timeline .fs-track[data-track="video-alt"]')
+                target_body = target_track.locator(".fs-track-body")
+                source_clip.wait_for(state="visible")
+                target_body.wait_for(state="visible")
+                target_body.scroll_into_view_if_needed()
+                # Resolve geometry only after scrolling has settled, so the pointer
+                # starts on clip-a and finishes inside the alternate video track.
+                source_box = source_clip.bounding_box()
+                target_box = target_body.bounding_box()
+                assert source_box and target_box and source_box["width"] > 0 and target_box["height"] > 0
+                scale = float(page.evaluate(
+                    "window.filmStudioStore?.getSnapshot()?.pixelsPerSecond || 36"
+                ))
+                start_x = source_box["x"] + source_box["width"] * 0.55
+                start_y = source_box["y"] + source_box["height"] / 2
+                target_y = target_box["y"] + target_box["height"] / 2
+                # clip-c occupies [0,5); snapping clip-a's start to 5s makes
+                # the destination intervals contiguous rather than overlapping.
+                target_x = start_x + 5 * scale
+                request_count = len(film_edit_requests)
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(target_x, target_y, steps=12)
+
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const preview = state?.timelineGesturePreview?.['clip-a'];
+                  const drop = state?.timelineDropTarget;
+                  const ghost = document.querySelector(
+                    '#fs-timeline [data-gesture-ghost-for="clip-a"][data-gesture-target-track="video-alt"]'
+                  );
+                  const row = document.querySelector('#fs-timeline .fs-track[data-track="video-alt"]');
+                  return preview?.targetTrackId === 'video-alt'
+                    && Math.abs(Number(preview.left) - 180) < 1
+                    && drop?.trackId === 'video-alt' && drop.invalid === false
+                    && !!ghost && row?.classList.contains('fs-track-drop-target');
+                }""", timeout=8000)
+
+                preview_state = page.evaluate("""() => ({
+                  preview:window.filmStudioStore?.getSnapshot()?.timelineGesturePreview?.['clip-a'],
+                  drop:window.filmStudioStore?.getSnapshot()?.timelineDropTarget,
+                  ghost:[...document.querySelectorAll('#fs-timeline [data-gesture-ghost-for="clip-a"]')]
+                    .map(node => ({track:node.getAttribute('data-gesture-target-track'),left:node.style.left}))
+                })""")
+                assert preview_state["preview"]["targetTrackId"] == "video-alt", preview_state
+                assert preview_state["drop"] == {"trackId": "video-alt", "invalid": False}, preview_state
+                assert preview_state["ghost"] and preview_state["ghost"][0]["track"] == "video-alt", preview_state
+                assert fd.read_project_film(project_id)["rev"] == before["rev"], "drag preview must not write FilmDocument"
+                assert len(film_edit_requests) == request_count, film_edit_requests[request_count:]
+
+                page.mouse.up()
+                page.wait_for_function("""async (pid) => {
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  if (!response.ok) return false;
+                  const doc = await response.json();
+                  const tracks = doc.tracks || [];
+                  const source = tracks.find(track => track.id === 'video-main');
+                  const target = tracks.find(track => track.id === 'video-alt');
+                  return !!source && !!target
+                    && !(source.clips || []).some(clip => clip.id === 'clip-a')
+                    && (target.clips || []).some(clip =>
+                      clip.id === 'clip-a' && Math.abs(Number(clip.attrs.at) - 5) < 0.001
+                    );
+                }""", arg=project_id, timeout=15000)
+
+                committed_requests = film_edit_requests[request_count:]
+                assert len(committed_requests) == 1, committed_requests
+                operations = committed_requests[0].get("ops") or []
+                assert operations == [{
+                    "op": "move", "clip": "clip-a", "track_id": "video-alt", "at": 5
+                }], committed_requests
+
+                persisted = fd.read_project_film(project_id)
+                source_track = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-main")
+                target_track_doc = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-alt")
+                assert not any(clip["id"] == "clip-a" for clip in source_track["clips"])
+                moved = next(clip for clip in target_track_doc["clips"] if clip["id"] == "clip-a")
+                assert abs(float(moved["attrs"]["at"]) - 5) < 0.001, moved
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.pendingTransaction === null
+                    && state.timelineGesturePreview === null
+                    && state.timelineDropTarget === null;
+                }""", timeout=5000)
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
