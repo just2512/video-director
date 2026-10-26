@@ -136,6 +136,7 @@ def test_react_playhead_updates_are_isolated_from_track_tree_rendering():
     playhead_line = component.split("const TimelinePlayheadLine: React.FC", 1)[1].split("const TimelineScrubRuler: React.FC", 1)[0]
 
     assert 'useFilmStoreField("playhead")' not in timeline_surface
+    assert 'const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(({model}) => {' in component
     assert 'useFilmStoreField("duration")' not in timeline_surface
     assert 'useFilmStoreField("playhead")' in scrub_ruler
     assert 'useFilmStoreField("duration")' in scrub_ruler

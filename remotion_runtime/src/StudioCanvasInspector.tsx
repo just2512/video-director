@@ -1681,7 +1681,7 @@ const TimelineScrubRuler: React.FC<{model:FilmTimelineSurfaceModel}> = ({model})
   );
 };
 
-const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
+const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(({model}) => {
   const gesturePreview = useFilmStoreField("timelineGesturePreview");
   const snapGuide = useFilmStoreField("timelineSnapGuide");
   const dropTarget = useFilmStoreField("timelineDropTarget");
@@ -2350,7 +2350,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     <TimelinePlayheadLine pixelsPerSecond={model.pixelsPerSecond} />
   </div>
   );
-};
+});
 
 const StudioAssets: React.FC<{model: FilmStudioAssetsModel; mode: FilmStudioAssetMode}> = ({model,mode}) => {
   const libraryAssetsSource = useFilmStoreField("libraryAssets");
