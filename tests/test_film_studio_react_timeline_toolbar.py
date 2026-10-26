@@ -210,7 +210,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "S.playhead=clip.at;setPlayheadVisual();previewCurrent();\n        var mode=" not in gesture_start
     assert "if(d.mode==='slide'||d.mode==='slip')" in studio
     assert "var clickedClip=findClip(d.id);" in studio
-    gesture_preview = studio[studio.index("function onMove(e)"):studio.index("async function onUp(e)")]
+    gesture_preview = studio[studio.index("function onMove(e)"):studio.index("async function onUp(e,")]
     assert "showTimelineSnapGuide(slideSnapUsed?slideSnapUsed.at:null,slideSnapUsed&&slideSnapUsed.kind)" in gesture_preview
     assert "showTimelineSnapGuide(rollSnapUsed?rollSnapUsed.at:null,rollSnapUsed&&rollSnapUsed.kind)" in gesture_preview
     assert "slideSnap.at" not in gesture_preview

@@ -134,7 +134,8 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     legacy = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
 
     assert "previewClipGesture(event:FilmStudioGesturePointerInput): void;" in component
-    assert "const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): void =>" in component
+    assert "const resolveReactClipGesturePreview = (" in component
+    assert "forCommit = false" in component
     for call in (
         "filmTimelineGestureController.buildMovePreview(input)",
         "filmTimelineGestureController.resolveTrimGesture({",
