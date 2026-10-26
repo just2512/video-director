@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
 
+import pytest
 from playwright.sync_api import sync_playwright
 
 from video_director import film_document as fd
@@ -720,7 +721,8 @@ CROSS_TRACK_SAMPLE = """<!doctype html>
 </body></html>"""
 
 
-def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track(tmp_path, monkeypatch):
+@pytest.mark.parametrize("target_locked", [False, True], ids=["valid-target", "locked-target"])
+def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track(tmp_path, monkeypatch, target_locked):
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
     import webui.server as web_server
@@ -739,10 +741,17 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
     )
     assert generated.returncode == 0, generated.stderr
 
-    project_id = "film-studio-cross-track-browser"
+    project_id = "film-studio-cross-track-browser" + ("-locked" if target_locked else "")
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(CROSS_TRACK_SAMPLE, encoding="utf-8")
+    film_source = CROSS_TRACK_SAMPLE
+    if target_locked:
+        film_source = film_source.replace(
+            '<section id="video-alt" data-label="备用画面">',
+            '<section id="video-alt" data-label="备用画面" locked>',
+        )
+        assert film_source != CROSS_TRACK_SAMPLE
+    (project_root / fd.FILM_NAME).write_text(film_source, encoding="utf-8")
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["doc"]["tracks"]
 
@@ -814,6 +823,46 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 page.mouse.move(start_x, start_y)
                 page.mouse.down()
                 page.mouse.move(target_x, target_y, steps=12)
+
+                if target_locked:
+                    page.wait_for_function("""() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const drop = state?.timelineDropTarget;
+                      const row = document.querySelector('#fs-timeline .fs-track[data-track="video-alt"]');
+                      const message = state?.timelineGestureContext?.invalidTargetMessage || '';
+                      return drop?.trackId === 'video-alt' && drop.invalid === true
+                        && row?.classList.contains('fs-track-drop-invalid')
+                        && message.includes('已锁定');
+                    }""", timeout=8000)
+                    invalid_state = page.evaluate("""() => ({
+                      message:window.filmStudioStore?.getSnapshot()?.timelineGestureContext?.invalidTargetMessage || '',
+                      drop:window.filmStudioStore?.getSnapshot()?.timelineDropTarget,
+                      ghosts:[...document.querySelectorAll('#fs-timeline [data-gesture-ghost-for="clip-a"]')]
+                        .map(node => node.getAttribute('data-gesture-target-track')),
+                    })""")
+                    assert '已锁定' in invalid_state['message'], invalid_state
+                    assert invalid_state['drop'] == {"trackId": "video-alt", "invalid": True}, invalid_state
+                    assert 'video-alt' not in invalid_state['ghosts'], invalid_state
+                    assert fd.read_project_film(project_id)['rev'] == before['rev'], "invalid preview must not write FilmDocument"
+                    assert len(film_edit_requests) == request_count, film_edit_requests[request_count:]
+
+                    page.mouse.up()
+                    page.wait_for_function("""() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && state.timelineGestureContext === null
+                        && state.timelineGesturePreview === null
+                        && state.timelineDropTarget === null
+                        && state.pendingTransaction === null;
+                    }""", timeout=5000)
+                    persisted = fd.read_project_film(project_id)
+                    source_track = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-main")
+                    target_track_doc = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-alt")
+                    assert persisted["rev"] == before["rev"], persisted
+                    assert any(clip["id"] == "clip-a" for clip in source_track["clips"])
+                    assert not any(clip["id"] == "clip-a" for clip in target_track_doc["clips"])
+                    assert not film_edit_requests[request_count:], film_edit_requests[request_count:]
+                    assert not page_errors, f"browser JavaScript errors: {page_errors}"
+                    return
 
                 page.wait_for_function("""() => {
                   const state = window.filmStudioStore?.getSnapshot();
