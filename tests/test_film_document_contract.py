@@ -1072,7 +1072,12 @@ def test_trim_edge_extension_is_bounded_by_real_media_duration(tmp_path, monkeyp
     start_markup = SAMPLE.replace(
         '<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2" volume="1"></video>',
         '<video id="clip-a" src="../assets/a.mp4#t=2,12" at="20" speed="2" volume="1"></video>',
-    ).replace("../assets/b.mp4#t=0,5", "../assets/b.mp4#t=2,7")
+    ).replace("../assets/b.mp4#t=0,5", "../assets/b.mp4#t=2,7").replace(
+        '<video id="clip-b" src="../assets/b.mp4#t=2,7" at="5"></video>',
+        '<video id="clip-b" src="../assets/b.mp4#t=2,7" at="5" '
+        'volume_envelope=\'[{"t":0,"v":1},{"t":4,"v":0.2}]\' '
+        'data-film-keyframes=\'[{"property":"opacity","keyframes":[{"at":0,"value":0,"easing":"linear"},{"at":4,"value":1,"easing":"linear"}]}]\'></video>',
+    )
     (start_root / fd.FILM_NAME).write_text(start_markup, encoding="utf-8")
     start_before = fd.read_project_film(start_project)
     start_extended = fd.edit_project_film(
@@ -1086,6 +1091,10 @@ def test_trim_edge_extension_is_bounded_by_real_media_duration(tmp_path, monkeyp
     )
     assert start_clip["attrs"]["src"].endswith("#t=0,7")
     assert float(start_clip["attrs"]["at"]) == pytest.approx(3)
+    shifted_envelope = json.loads(start_clip["attrs"]["volume_envelope"])
+    assert shifted_envelope == [{"t": 2.0, "v": 1.0}, {"t": 6.0, "v": 0.2}]
+    shifted_keyframes = json.loads(start_clip["attrs"]["data-film-keyframes"])[0]["keyframes"]
+    assert [point["at"] for point in shifted_keyframes] == [2.0, 6.0]
     stable_start = fd.read_project_film(start_project)
     with pytest.raises(fd.FilmError, match="不能小于"):
         fd.edit_project_film(

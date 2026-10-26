@@ -2043,6 +2043,43 @@ def _apply_element_set(doc: dict, op: dict) -> dict:
     return normalized
 
 
+def _shift_volume_envelope_for_extension(attrs: dict, extension: float) -> None:
+    """Keep clip-relative gain points attached to their original source frames."""
+    if "volume_envelope" not in attrs:
+        return
+    points = _parse_volume_envelope(attrs["volume_envelope"])
+    if not points:
+        attrs.pop("volume_envelope", None)
+        return
+    for point in points:
+        point["t"] = float(_fmt(float(point["t"]) + extension))
+    attrs["volume_envelope"] = _normalize_volume_envelope(points)
+
+
+def _shift_film_keyframes_for_extension(attrs: dict, extension: float) -> None:
+    """Move clip-relative keyframes later when a left trim reveals earlier source frames."""
+    raw = attrs.get("data-film-keyframes")
+    if raw is None:
+        return
+    try:
+        channels = json.loads(raw) if isinstance(raw, str) else copy.deepcopy(raw)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧 JSON 无效，不能随源区间扩展移动", 422) from exc
+    if not isinstance(channels, list):
+        raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧必须是 JSON 数组", 422)
+    for channel in channels:
+        if not isinstance(channel, dict) or not isinstance(channel.get("keyframes"), list):
+            raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧通道结构无效，不能随源区间扩展移动", 422)
+        for point in channel["keyframes"]:
+            if not isinstance(point, dict) or "at" not in point:
+                raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧缺少 at 时间，不能随源区间扩展移动", 422)
+            try:
+                point["at"] = float(_fmt(float(point["at"]) + extension))
+            except (TypeError, ValueError):
+                raise FilmError("INVALID_FILM_KEYFRAMES", "视觉关键帧时间无效，不能随源区间扩展移动", 422) from None
+    attrs["data-film-keyframes"] = json.dumps(channels, ensure_ascii=False, separators=(",", ":"))
+
+
 def apply_ops(
     doc: dict, ops: list[dict], *, allow_source_extension: bool = False,
 ) -> tuple[dict, list[dict]]:
@@ -2275,8 +2312,13 @@ def apply_ops(
                     raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
                 attrs["src"] = _with_source_range(attrs["src"], new_src_in, new_src_out)
                 attrs["at"] = _fmt(new_start)
-                _slice_volume_envelope(attrs, delta, duration)
-                _slice_film_keyframes(attrs, delta, duration)
+                if allow_source_extension and delta < -0.001:
+                    extension = -delta
+                    _shift_volume_envelope_for_extension(attrs, extension)
+                    _shift_film_keyframes_for_extension(attrs, extension)
+                else:
+                    _slice_volume_envelope(attrs, delta, duration)
+                    _slice_film_keyframes(attrs, delta, duration)
                 _store_fade(attrs, trimmed_fade)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "start", "at": _fmt(new_start)})
             elif edge == "end":
