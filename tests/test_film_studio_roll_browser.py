@@ -473,6 +473,60 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 )
                 duplicated_again = fd.read_project_film(project_id)
                 assert sum(len(track["clips"]) for track in duplicated_again["doc"]["tracks"]) == before_count + 2
+
+                # A regular edge trim is a visual-only preview until pointer-up, then one authoritative operation.
+                trim_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                trim_handle = trim_clip.locator('[data-trim="end"]')
+                trim_handle.scroll_into_view_if_needed()
+                trim_box = trim_handle.bounding_box()
+                assert trim_box and trim_box["width"] > 0 and trim_box["height"] > 0
+                trim_before = fd.read_project_film(project_id)
+                clip_before = next(
+                    clip for track in trim_before["doc"]["tracks"] for clip in track["clips"]
+                    if clip["id"] == "clip-b"
+                )
+                trim_src_before = str(clip_before["attrs"]["src"])
+                trim_end_before = fd.clip_end(clip_before)
+                trim_scale = float(page.evaluate("window.filmStudioStore?.getSnapshot()?.pixelsPerSecond || 36"))
+                trim_geometry_before = trim_clip.evaluate("(node) => node.style.width")
+                trim_request_count = len(film_edit_requests)
+                tx = trim_box["x"] + trim_box["width"] / 2
+                ty = trim_box["y"] + trim_box["height"] / 2
+                page.mouse.move(tx, ty)
+                page.mouse.down()
+                page.mouse.move(tx + trim_scale * 0.5, ty, steps=5)
+                page.wait_for_function("""args => {
+                  const preview = window.filmStudioStore?.getSnapshot()?.timelineGesturePreview?.[args.id];
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + args.id + '"]');
+                  return typeof window.filmStudioTimelineController?.resolveTrimGesture === 'function'
+                    && !!preview && typeof preview.width === 'number'
+                    && node?.dataset.reactGesturePreview === 'true'
+                    && node.style.width !== args.widthBefore;
+                }""", arg={"id":"clip-b","widthBefore":trim_geometry_before}, timeout=5000)
+                assert fd.read_project_film(project_id)["rev"] == trim_before["rev"], "drag preview must not write film.html"
+                assert len(film_edit_requests) == trim_request_count, film_edit_requests[trim_request_count:]
+                page.mouse.up()
+                expected_timeline_end = float(trim_end_before) + 0.5
+                expected_source_out = float(trim_src_before.rsplit("#t=", 1)[1].split(",", 1)[1]) + 0.5
+                page.wait_for_function("""args => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + args.id + '"]');
+                  return !!state && !state.busy && state.pendingTransaction === null
+                    && node?.dataset.reactGesturePreview !== 'true';
+                }""", arg={"id":"clip-b"}, timeout=15000)
+                trim_requests = film_edit_requests[trim_request_count:]
+                assert len(trim_requests) == 1, trim_requests
+                trim_ops = trim_requests[0].get("ops") or []
+                assert len(trim_ops) == 1 and trim_ops[0].get("op") == "trim", trim_requests
+                assert trim_ops[0].get("edge") == "end", trim_ops
+                assert abs(float(trim_ops[0].get("end", -1)) - expected_timeline_end) < 0.001, trim_ops
+                trim_after = fd.read_project_film(project_id)
+                clip_after = next(
+                    clip for track in trim_after["doc"]["tracks"] for clip in track["clips"]
+                    if clip["id"] == "clip-b"
+                )
+                assert clip_after["attrs"]["src"].endswith(f"#t=0,{expected_source_out:g}"), clip_after
+                assert abs(fd.clip_end(clip_after) - expected_timeline_end) < 0.001, clip_after
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:

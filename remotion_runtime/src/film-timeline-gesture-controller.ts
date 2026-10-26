@@ -1,4 +1,5 @@
-import {filmTimelineMath, type FilmTimelineMoveResolution, type FilmTimelineSnapCandidate} from "./film-timeline-math";
+import type {FilmOperation} from "./film-timeline-contract";
+import {filmTimelineMath, type FilmTimelineMoveResolution, type FilmTimelineTrimResolution, type FilmTimelineSnapCandidate} from "./film-timeline-math";
 
 export interface FilmTimelineMoveMemberSnapshot {
   id: string;
@@ -56,6 +57,25 @@ export interface FilmTimelineMoveOperation {
   clip: string;
   track_id: string;
   at: number;
+}
+
+export interface FilmTimelineTrimGestureInput {
+  clipId: string;
+  edge: "start" | "end";
+  originalAt: number;
+  originalEnd: number;
+  rawDeltaSeconds: number;
+  candidates: readonly FilmTimelineSnapCandidate[];
+  pixelsPerSecond: number;
+  thresholdPixels: number;
+  snapEnabled: boolean;
+  frameRate: number;
+}
+
+export interface FilmTimelineTrimGestureResult {
+  resolution: FilmTimelineTrimResolution;
+  preview: {left: number; width: number};
+  operation: FilmOperation;
 }
 
 const resolveMove = (input: FilmTimelineMoveResolutionInput): FilmTimelineMoveResolution =>
@@ -216,8 +236,52 @@ const buildMoveOperations = (input: FilmTimelineMoveControllerInput): FilmTimeli
   return operations.length === members.length ? operations : null;
 };
 
+const resolveTrimGesture = (input: FilmTimelineTrimGestureInput): FilmTimelineTrimGestureResult | null => {
+  const clipId = String(input.clipId || "").trim();
+  const originalAt = input.originalAt;
+  const originalEnd = input.originalEnd;
+  if (!clipId || (input.edge !== "start" && input.edge !== "end") ||
+      !Number.isFinite(originalAt) || !Number.isFinite(originalEnd) ||
+      originalAt < 0 || originalEnd <= originalAt ||
+      !Number.isFinite(input.rawDeltaSeconds) ||
+      !Number.isFinite(input.pixelsPerSecond) || input.pixelsPerSecond <= 0) return null;
+
+  // Preview and pointer-up commit share this exact snap and boundary resolution.
+  const resolution = input.edge === "start"
+    ? filmTimelineMath.resolveTrimStart(
+      originalAt, originalEnd, input.rawDeltaSeconds, input.candidates,
+      input.pixelsPerSecond, input.thresholdPixels, input.snapEnabled, input.frameRate,
+    )
+    : filmTimelineMath.resolveTrimEnd(
+      originalAt, originalEnd, input.rawDeltaSeconds, input.candidates,
+      input.pixelsPerSecond, input.thresholdPixels, input.snapEnabled, input.frameRate,
+    );
+  if (!Number.isFinite(resolution.target)) return null;
+
+  const previewStart = input.edge === "start" ? resolution.target : originalAt;
+  const previewEnd = input.edge === "end" ? resolution.target : originalEnd;
+  const frameRate = Number.isFinite(input.frameRate) ? input.frameRate : 0;
+  const frameAligned = frameRate > 0 &&
+    Math.abs(resolution.target * frameRate - Math.round(resolution.target * frameRate)) < 0.00002;
+  const preserveFramePrecision = resolution.snapCandidate?.kind === "帧" || frameAligned;
+  const target = Number(resolution.target.toFixed(preserveFramePrecision ? 6 : 3));
+  const operation: FilmOperation = input.edge === "start"
+    ? {op: "trim", clip: clipId, edge: "start", at: target}
+    : {op: "trim", clip: clipId, edge: "end", end: target};
+
+  return {
+    resolution,
+    preview: {
+      left: filmTimelineMath.clipLeft(previewStart, input.pixelsPerSecond),
+      width: Math.max(3, filmTimelineMath.secondsToPixels(previewEnd - previewStart, input.pixelsPerSecond)),
+    },
+    operation,
+  };
+};
+
 export const filmTimelineGestureController = {
   resolveMoveGesture: resolveMove,
+  resolveTrimGesture,
   validateMoveTarget,
   buildMovePreview,
   buildMoveOperations,

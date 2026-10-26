@@ -2344,27 +2344,67 @@
         clipElement.classList.add('fs-slipping');
       }
     }else if(d.mode==='trim-start'){
-      var trimStartResolution=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      var newStart=trimStartResolution.target,startSnapUsed=trimStartResolution.snapCandidate;
-      showTimelineSnapGuide(startSnapUsed?startSnapUsed.at:null,startSnapUsed&&startSnapUsed.kind);
-      var trimStartPreview={};
-      trimStartPreview[d.id]={left:timelineSecondsToPixels(newStart,S.pxPerSec),width:Math.max(3,timelineSecondsToPixels(d.originalEnd-newStart,S.pxPerSec))};
-      if(!setTimelineGesturePreview(trimStartPreview)){
-        var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
-        if(!clipElement)return;
-        clipElement.style.left=trimStartPreview[d.id].left+'px';
-        clipElement.style.width=trimStartPreview[d.id].width+'px';
+      var startTrimPreviewController=window.filmStudioTimelineController;
+      var startTrimPreviewResult=startTrimPreviewController&&typeof startTrimPreviewController.resolveTrimGesture==='function'
+        ?startTrimPreviewController.resolveTrimGesture({
+          clipId:d.id,edge:'start',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
+          pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+        })
+        :null;
+      if(startTrimPreviewResult){
+        var startTrimGuide=startTrimPreviewResult.resolution.snapCandidate;
+        showTimelineSnapGuide(startTrimGuide?startTrimGuide.at:null,startTrimGuide&&startTrimGuide.kind);
+        var startTrimPreview={};startTrimPreview[d.id]=startTrimPreviewResult.preview;
+        if(!setTimelineGesturePreview(startTrimPreview)){
+          var startTrimElement=gestureDomRefs&&gestureDomRefs.clipElement;
+          if(!startTrimElement)return;
+          startTrimElement.style.left=startTrimPreviewResult.preview.left+'px';
+          startTrimElement.style.width=startTrimPreviewResult.preview.width+'px';
+        }
+      }else{
+        var trimStartResolution=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
+        var newStart=trimStartResolution.target,startSnapUsed=trimStartResolution.snapCandidate;
+        showTimelineSnapGuide(startSnapUsed?startSnapUsed.at:null,startSnapUsed&&startSnapUsed.kind);
+        var trimStartPreview={};
+        trimStartPreview[d.id]={left:timelineSecondsToPixels(newStart,S.pxPerSec),width:Math.max(3,timelineSecondsToPixels(d.originalEnd-newStart,S.pxPerSec))};
+        if(!setTimelineGesturePreview(trimStartPreview)){
+          var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
+          if(!clipElement)return;
+          clipElement.style.left=trimStartPreview[d.id].left+'px';
+          clipElement.style.width=trimStartPreview[d.id].width+'px';
+        }
       }
     }else if(d.mode==='trim-end'){
-      var trimEndResolution=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      var newEnd=trimEndResolution.target,endSnapUsed=trimEndResolution.snapCandidate;
-      showTimelineSnapGuide(endSnapUsed?endSnapUsed.at:null,endSnapUsed&&endSnapUsed.kind);
-      var trimEndPreview={};
-      trimEndPreview[d.id]={width:Math.max(3,timelineSecondsToPixels(newEnd-d.originalAt,S.pxPerSec))};
-      if(!setTimelineGesturePreview(trimEndPreview)){
-        var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
-        if(!clipElement)return;
-        clipElement.style.width=trimEndPreview[d.id].width+'px';
+      var endTrimPreviewController=window.filmStudioTimelineController;
+      var endTrimPreviewResult=endTrimPreviewController&&typeof endTrimPreviewController.resolveTrimGesture==='function'
+        ?endTrimPreviewController.resolveTrimGesture({
+          clipId:d.id,edge:'end',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
+          pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+        })
+        :null;
+      if(endTrimPreviewResult){
+        var endTrimGuide=endTrimPreviewResult.resolution.snapCandidate;
+        showTimelineSnapGuide(endTrimGuide?endTrimGuide.at:null,endTrimGuide&&endTrimGuide.kind);
+        var endTrimPreview={};endTrimPreview[d.id]=endTrimPreviewResult.preview;
+        if(!setTimelineGesturePreview(endTrimPreview)){
+          var endTrimElement=gestureDomRefs&&gestureDomRefs.clipElement;
+          if(!endTrimElement)return;
+          endTrimElement.style.left=endTrimPreviewResult.preview.left+'px';
+          endTrimElement.style.width=endTrimPreviewResult.preview.width+'px';
+        }
+      }else{
+        var trimEndResolution=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
+        var newEnd=trimEndResolution.target,endSnapUsed=trimEndResolution.snapCandidate;
+        showTimelineSnapGuide(endSnapUsed?endSnapUsed.at:null,endSnapUsed&&endSnapUsed.kind);
+        var trimEndPreview={};
+        trimEndPreview[d.id]={width:Math.max(3,timelineSecondsToPixels(newEnd-d.originalAt,S.pxPerSec))};
+        if(!setTimelineGesturePreview(trimEndPreview)){
+          var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
+          if(!clipElement)return;
+          clipElement.style.width=trimEndPreview[d.id].width+'px';
+        }
       }
     }else{
       var chosenIds=(d.members||[]).map(function(member){return member.id;});
@@ -2505,10 +2545,28 @@
       await filmStudioCommit([{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}]);return;
     }
     if(d.mode==='trim-start'){
+      var startTrimCommitController=window.filmStudioTimelineController;
+      var startTrimCommitResult=startTrimCommitController&&typeof startTrimCommitController.resolveTrimGesture==='function'
+        ?startTrimCommitController.resolveTrimGesture({
+          clipId:d.id,edge:'start',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
+          pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+        })
+        :null;
+      if(startTrimCommitResult){await filmStudioCommit([startTrimCommitResult.operation]);return;}
       var trimStartCommit=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:timelineOperationNumber(trimStartCommit.target,(trimStartCommit.snapCandidate&&trimStartCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimStartCommit.target))}]);return;
     }
     if(d.mode==='trim-end'){
+      var endTrimCommitController=window.filmStudioTimelineController;
+      var endTrimCommitResult=endTrimCommitController&&typeof endTrimCommitController.resolveTrimGesture==='function'
+        ?endTrimCommitController.resolveTrimGesture({
+          clipId:d.id,edge:'end',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
+          pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+        })
+        :null;
+      if(endTrimCommitResult){await filmStudioCommit([endTrimCommitResult.operation]);return;}
       var trimEndCommit=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}]);return;
     }
