@@ -427,56 +427,6 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert abs((slip_source_after[1] - slip_original_source_range[1]) - slip_delta_source) < 0.001, clips["clip-a"]
                 assert abs(fd.clip_duration(clips["clip-a"]) - slip_original_duration) < 0.001, clips["clip-a"]
 
-                # Same-project keyboard copy/paste must preserve the source range
-                # and speed, allocate a new stable ID, and avoid track overlap.
-                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
-                keyframe_marker = page.locator('#fs-timeline [data-film-keyframe-marker="clip-a"][data-keyframe-at="1"]')
-                keyframe_marker.wait_for(state="visible", timeout=5000)
-                keyframe_marker.click()
-                assert abs(float(page.locator("#fs-playhead").input_value()) - 1.0) < 0.001
-                before_paste = fd.read_project_film(project_id)
-                before_count = sum(len(track["clips"]) for track in before_paste["doc"]["tracks"])
-                page.keyboard.press("Control+C")
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已复制 1 个片段')",
-                    timeout=5000,
-                )
-                page.keyboard.press("Control+V")
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
-                    timeout=15000,
-                )
-                pasted = fd.read_project_film(project_id)
-                assert sum(len(track["clips"]) for track in pasted["doc"]["tracks"]) == before_count + 1
-                video_track = next(track for track in pasted["doc"]["tracks"] if track["id"] == "video-main")
-                copied_source_range = source_range(clips["clip-a"])
-                copies = [
-                    clip for clip in video_track["clips"]
-                    if clip["id"] != "clip-a"
-                    and all(abs(actual - expected) < 0.001
-                            for actual, expected in zip(source_range(clip), copied_source_range))
-                ]
-                assert len(copies) == 1
-                duplicate = copies[0]
-                assert duplicate["attrs"]["speed"] == "2"
-                assert abs(fd.clip_duration(duplicate) - fd.clip_duration(clips["clip-a"])) < 0.001
-                for existing in video_track["clips"]:
-                    if existing["id"] == duplicate["id"]:
-                        continue
-                    assert not (float(duplicate["attrs"]["at"]) < fd.clip_end(existing) - 0.001
-                                and fd.clip_end(duplicate) > float(existing["attrs"]["at"]) + 0.001)
-
-                # The clip context menu must invoke the same undoable duplicate transaction.
-                page.locator('#fs-timeline .fs-clip[data-clip="' + duplicate["id"] + '"]').click(button="right")
-                page.locator('.fs-context-menu [data-context-action="duplicate"]').wait_for(state="visible", timeout=5000)
-                page.locator('.fs-context-menu [data-context-action="duplicate"]').click()
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
-                    timeout=15000,
-                )
-                duplicated_again = fd.read_project_film(project_id)
-                assert sum(len(track["clips"]) for track in duplicated_again["doc"]["tracks"]) == before_count + 2
-
                 # A regular edge trim is a visual-only preview until pointer-up, then one authoritative operation.
                 trim_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
                 trim_handle = trim_clip.locator('[data-trim="end"]')
@@ -606,6 +556,58 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert second_clip_after["attrs"]["src"].endswith(f"#t=0,{expected_second_source_out:g}"), second_clip_after
                 assert abs(fd.clip_end(second_clip_after) - expected_second_end) < 0.001, second_clip_after
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
+
+                # Same-project keyboard copy/paste must preserve the source range
+                # and speed, allocate a new stable ID, and avoid track overlap.
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
+                keyframe_marker = page.locator('#fs-timeline [data-film-keyframe-marker="clip-a"][data-keyframe-at="1"]')
+                keyframe_marker.wait_for(state="visible", timeout=5000)
+                keyframe_marker.click()
+                assert abs(float(page.locator("#fs-playhead").input_value()) - 1.0) < 0.001
+                before_paste = fd.read_project_film(project_id)
+                before_count = sum(len(track["clips"]) for track in before_paste["doc"]["tracks"])
+                page.keyboard.press("Control+C")
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已复制 1 个片段')",
+                    timeout=5000,
+                )
+                page.keyboard.press("Control+V")
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
+                    timeout=15000,
+                )
+                pasted = fd.read_project_film(project_id)
+                assert sum(len(track["clips"]) for track in pasted["doc"]["tracks"]) == before_count + 1
+                video_track = next(track for track in pasted["doc"]["tracks"] if track["id"] == "video-main")
+                copied_source_range = source_range(clips["clip-a"])
+                copies = [
+                    clip for clip in video_track["clips"]
+                    if clip["id"] != "clip-a"
+                    and all(abs(actual - expected) < 0.001
+                            for actual, expected in zip(source_range(clip), copied_source_range))
+                ]
+                assert len(copies) == 1
+                duplicate = copies[0]
+                assert duplicate["attrs"]["speed"] == "2"
+                assert abs(fd.clip_duration(duplicate) - fd.clip_duration(clips["clip-a"])) < 0.001
+                for existing in video_track["clips"]:
+                    if existing["id"] == duplicate["id"]:
+                        continue
+                    assert not (float(duplicate["attrs"]["at"]) < fd.clip_end(existing) - 0.001
+                                and fd.clip_end(duplicate) > float(existing["attrs"]["at"]) + 0.001)
+
+                # The clip context menu must invoke the same undoable duplicate transaction.
+                page.locator('#fs-timeline .fs-clip[data-clip="' + duplicate["id"] + '"]').click(button="right")
+                page.locator('.fs-context-menu [data-context-action="duplicate"]').wait_for(state="visible", timeout=5000)
+                page.locator('.fs-context-menu [data-context-action="duplicate"]').click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
+                    timeout=15000,
+                )
+                duplicated_again = fd.read_project_film(project_id)
+                assert sum(len(track["clips"]) for track in duplicated_again["doc"]["tracks"]) == before_count + 2
+
+
             except Exception:
                 if tracing:
                     context.tracing.stop(path=str(trace_path))
