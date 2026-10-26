@@ -242,7 +242,7 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
     snapEnabled:state.snapEnabled,
     frameRate,
   });
-  publish(result.preview,null);
+  publish(result?.preview ?? null,null);
 };
 type TimelineRecord = Record<string, unknown>;
 
