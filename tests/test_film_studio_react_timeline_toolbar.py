@@ -177,11 +177,21 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "resolveSlipGesture(rawDeltaSeconds: number, playbackSpeed: number, snapEnabled?: boolean, frameRate?: number): FilmTimelineSlipResolution;" in math_source
     assert math_source.count("filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels, frameRate)") >= 2
     assert math_source.count("filmTimelineMath.resolveSnapCandidate(anchor + rawDelta, candidates, pixelsPerSecond, thresholdPixels, frameRate)") >= 2
-    assert "resolveTimelineSlip(deltaSeconds,slipSpeed).sourceDeltaSeconds" in studio
-    assert "resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1)).sourceDeltaSeconds" in studio
+    assert "resolveTimelineSlip(deltaSeconds,slipSpeed,d.id).sourceDeltaSeconds" in studio
+    assert "resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1),d.id)" in studio
 
     assert "resolveTimelineRoll(d,deltaSeconds,8)" in studio
     assert "resolveTimelineSlide(d,deltaSeconds,8)" in studio
+    controller_source = (root / "remotion_runtime" / "src" / "film-timeline-gesture-controller.ts").read_text(encoding="utf-8")
+    assert "resolveRollGesture" in controller_source
+    assert "resolveSlideGesture" in controller_source
+    assert "resolveSlipGesture" in controller_source
+    assert "controller.resolveRollGesture" in studio
+    assert "controller.resolveSlideGesture" in studio
+    assert "controller.resolveSlipGesture" in studio
+    assert "rollCommitResolution.operation||" in studio
+    assert "slideCommitResolution.operation||" in studio
+    assert "slipResolution.operation||" in studio
     gesture_start = studio[studio.index("function beginClipGesture"):studio.index("window.filmStudioBeginClipGesture")]
     assert "if(mode==='move'){S.playhead=clip.at;setPlayheadVisual();previewCurrent();}" in gesture_start
     assert "S.playhead=clip.at;setPlayheadVisual();previewCurrent();\n        var mode=" not in gesture_start
