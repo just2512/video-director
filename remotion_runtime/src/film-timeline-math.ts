@@ -138,7 +138,9 @@ export const filmTimelineMath: FilmTimelineMathBridge = {
       ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels, frameRate)
       : null;
     const proposed = candidate ? candidate.at : rawTarget;
-    const target = Math.max(start + 0.04, Math.min(end - 0.04, proposed));
+    // The previous endpoint is a reference, not an upper limit: trimming out may
+    // extend the source window. FilmDocument validates available source duration.
+    const target = Math.max(start + 0.04, proposed);
     const snapCandidate = candidate && Math.abs(target - candidate.at) < 0.001 ? candidate : null;
     return {target, deltaSeconds: target - end, snapCandidate};
   },

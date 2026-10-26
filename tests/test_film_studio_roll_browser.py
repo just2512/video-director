@@ -527,6 +527,54 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 )
                 assert clip_after["attrs"]["src"].endswith(f"#t=0,{expected_source_out:g}"), clip_after
                 assert abs(fd.clip_end(clip_after) - expected_timeline_end) < 0.001, clip_after
+
+                # Trimming back in must remain supported after extending the same source window.
+                second_trim_box = trim_handle.bounding_box()
+                assert second_trim_box and second_trim_box["width"] > 0
+                second_before = fd.read_project_film(project_id)
+                second_clip_before = next(
+                    clip for track in second_before["doc"]["tracks"] for clip in track["clips"]
+                    if clip["id"] == "clip-b"
+                )
+                second_source_out = float(str(second_clip_before["attrs"]["src"]).rsplit("#t=", 1)[1].split(",", 1)[1])
+                second_end = fd.clip_end(second_clip_before)
+                second_request_count = len(film_edit_requests)
+                sx = second_trim_box["x"] + second_trim_box["width"] / 2
+                sy = second_trim_box["y"] + second_trim_box["height"] / 2
+                page.mouse.move(sx, sy)
+                page.mouse.down()
+                page.mouse.move(sx - trim_scale * 0.5, sy, steps=5)
+                page.wait_for_function("""args => {
+                  const preview = window.filmStudioStore?.getSnapshot()?.timelineGesturePreview?.[args.id];
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + args.id + '"]');
+                  return !!preview && typeof preview.width === 'number'
+                    && node?.dataset.reactGesturePreview === 'true'
+                    && node.style.width !== args.widthBefore;
+                }""", arg={"id":"clip-b","widthBefore":trim_clip.evaluate("(node) => node.style.width")}, timeout=5000)
+                assert fd.read_project_film(project_id)["rev"] == second_before["rev"]
+                assert len(film_edit_requests) == second_request_count
+                page.mouse.up()
+                expected_second_end = second_end - 0.5
+                expected_second_source_out = second_source_out - 0.5
+                page.wait_for_function("""args => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + args.id + '"]');
+                  return !!state && !state.busy && state.pendingTransaction === null
+                    && node?.dataset.reactGesturePreview !== 'true';
+                }""", arg={"id":"clip-b"}, timeout=15000)
+                second_requests = film_edit_requests[second_request_count:]
+                assert len(second_requests) == 1, second_requests
+                second_ops = second_requests[0].get("ops") or []
+                assert len(second_ops) == 1 and second_ops[0].get("op") == "trim", second_requests
+                assert second_ops[0].get("edge") == "end", second_ops
+                assert abs(float(second_ops[0].get("end", -1)) - expected_second_end) < 0.001, second_ops
+                second_after = fd.read_project_film(project_id)
+                second_clip_after = next(
+                    clip for track in second_after["doc"]["tracks"] for clip in track["clips"]
+                    if clip["id"] == "clip-b"
+                )
+                assert second_clip_after["attrs"]["src"].endswith(f"#t=0,{expected_second_source_out:g}"), second_clip_after
+                assert abs(fd.clip_end(second_clip_after) - expected_second_end) < 0.001, second_clip_after
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             except Exception:
                 if tracing:
