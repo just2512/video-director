@@ -975,6 +975,14 @@
     setTimelineDropTarget(null,false);
   }
   function groupMoveTargetError(d,targetTrackId,rawDeltaSeconds){
+    var controller=window.filmStudioTimelineController;
+    if(controller&&typeof controller.validateMoveTarget==='function')
+      return controller.validateMoveTarget({
+        gesture:d,targetTrackId:targetTrackId,tracks:S.data&&S.data.tracks||[],
+        minimumStart:(d&&d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity),
+        rawDeltaSeconds:Number(rawDeltaSeconds)||0,candidates:timelineSnapCandidates((d&&d.members||[]).map(function(member){return member.id;})),
+        pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+      });
     var order=d&&d.trackOrder||[],targetIndex=order.indexOf(targetTrackId);
     if(targetIndex<0)return '目标轨道不存在，多选移动已取消。';
     var originIndex=Number.isInteger(d.originalTrackIndex)?d.originalTrackIndex:order.indexOf(d.trackId);
@@ -1097,7 +1105,12 @@
     return frameDistance<=thresholdPx?{at:frameAt,kind:'帧'}:null;
   }
   function resolveTimelineMove(minimumStart,deltaSeconds,excludedIds,thresholdPx){
-    var candidates=timelineSnapCandidates(excludedIds),math=timelineMath();
+    var candidates=timelineSnapCandidates(excludedIds),math=timelineMath(),controller=window.filmStudioTimelineController;
+    if(controller&&typeof controller.resolveMoveGesture==='function')
+      return controller.resolveMoveGesture({
+        minimumStart:minimumStart,rawDeltaSeconds:deltaSeconds,candidates:candidates,
+        pixelsPerSecond:S.pxPerSec,thresholdPixels:thresholdPx,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+      });
     if(math&&typeof math.resolveMoveGesture==='function')
       return math.resolveMoveGesture(minimumStart,deltaSeconds,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
     var start=Math.max(0,num(minimumStart,0)),rawAt=Math.max(0,start+num(deltaSeconds,0));
@@ -2355,29 +2368,50 @@
       }
     }else{
       var chosenIds=(d.members||[]).map(function(member){return member.id;});
-      var minStart=(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity);
-      var moveResolution=resolveTimelineMove(minStart,deltaSeconds,chosenIds,8);
-      var snappedDelta=moveResolution.deltaSeconds,moveSnapUsed=moveResolution.snapCandidate;
-      showTimelineSnapGuide(moveSnapUsed?moveSnapUsed.at:null,moveSnapUsed&&moveSnapUsed.kind);
-      var previewLeftByClipId={};
-      var previewTargetIndex=d.trackOrder.indexOf(d.targetTrackId||d.trackId);
-      if(previewTargetIndex<0)previewTargetIndex=d.originalTrackIndex;
-      var previewTrackDelta=previewTargetIndex-d.originalTrackIndex;
-      var canPreviewCrossTrack=!d.invalidTargetMessage&&Number.isInteger(previewTargetIndex)&&Number.isInteger(d.originalTrackIndex);
-      (d.members||[]).forEach(function(member){
-        var previewEntry={left:timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)};
-        var destinationIndex=member.trackIndex+previewTrackDelta;
-        if(canPreviewCrossTrack&&destinationIndex>=0&&destinationIndex<d.trackOrder.length){
-          var destinationTrackId=d.trackOrder[destinationIndex];
-          if(destinationTrackId!==member.trackId)previewEntry.targetTrackId=destinationTrackId;
+      var controller=window.filmStudioTimelineController;
+      var managedPreview=controller&&typeof controller.buildMovePreview==='function'
+        ?controller.buildMovePreview({
+          gesture:d,tracks:S.data&&S.data.tracks||[],targetTrackId:d.targetTrackId||d.trackId,
+          minimumStart:(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity),
+          rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates(chosenIds),
+          pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+        })
+        :null;
+      if(managedPreview){
+        var managedSnap=managedPreview.resolution.snapCandidate;
+        showTimelineSnapGuide(managedSnap?managedSnap.at:null,managedSnap&&managedSnap.kind);
+        if(!setTimelineGesturePreview(managedPreview.preview)){
+          (d.members||[]).forEach(function(member){
+            var element=gestureDomRefs&&gestureDomRefs.memberElements[member.id];
+            var entry=managedPreview.preview[member.id];
+            if(element&&entry)element.style.left=entry.left+'px';
+          });
         }
-        previewLeftByClipId[member.id]=previewEntry;
-      });
-      if(!setTimelineGesturePreview(previewLeftByClipId)){
+      }else{
+        var minStart=(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity);
+        var moveResolution=resolveTimelineMove(minStart,deltaSeconds,chosenIds,8);
+        var snappedDelta=moveResolution.deltaSeconds,moveSnapUsed=moveResolution.snapCandidate;
+        showTimelineSnapGuide(moveSnapUsed?moveSnapUsed.at:null,moveSnapUsed&&moveSnapUsed.kind);
+        var previewLeftByClipId={};
+        var previewTargetIndex=d.trackOrder.indexOf(d.targetTrackId||d.trackId);
+        if(previewTargetIndex<0)previewTargetIndex=d.originalTrackIndex;
+        var previewTrackDelta=previewTargetIndex-d.originalTrackIndex;
+        var canPreviewCrossTrack=!d.invalidTargetMessage&&Number.isInteger(previewTargetIndex)&&Number.isInteger(d.originalTrackIndex);
         (d.members||[]).forEach(function(member){
-          var element=gestureDomRefs&&gestureDomRefs.memberElements[member.id];
-          if(element)element.style.left=previewLeftByClipId[member.id].left+'px';
+          var previewEntry={left:timelineClipLeft(member.originalAt+snappedDelta,S.pxPerSec)};
+          var destinationIndex=member.trackIndex+previewTrackDelta;
+          if(canPreviewCrossTrack&&destinationIndex>=0&&destinationIndex<d.trackOrder.length){
+            var destinationTrackId=d.trackOrder[destinationIndex];
+            if(destinationTrackId!==member.trackId)previewEntry.targetTrackId=destinationTrackId;
+          }
+          previewLeftByClipId[member.id]=previewEntry;
         });
+        if(!setTimelineGesturePreview(previewLeftByClipId)){
+          (d.members||[]).forEach(function(member){
+            var element=gestureDomRefs&&gestureDomRefs.memberElements[member.id];
+            if(element)element.style.left=previewLeftByClipId[member.id].left+'px';
+          });
+        }
       }
     }
   }
@@ -2477,6 +2511,19 @@
     if(d.mode==='trim-end'){
       var trimEndCommit=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}]);return;
+    }
+    var moveController=window.filmStudioTimelineController;
+    if(moveController&&typeof moveController.buildMoveOperations==='function'){
+      var moveControllerOperations=moveController.buildMoveOperations({
+        gesture:d,tracks:S.data&&S.data.tracks||[],targetTrackId:d.targetTrackId||d.trackId,
+        minimumStart:(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity),
+        rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates((d.members||[]).map(function(member){return member.id;})),
+        pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+      });
+      if(!moveControllerOperations||(d.members||[]).length!==moveControllerOperations.length){
+        clearTimelineGesturePreview();renderTimeline();return;
+      }
+      await filmStudioCommit(moveControllerOperations);return;
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
     var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));

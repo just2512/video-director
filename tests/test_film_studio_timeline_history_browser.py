@@ -566,6 +566,9 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.wait_for_function(
                     "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& typeof window.filmStudioTimelineController?.buildMovePreview === 'function' "
+                    "&& typeof window.filmStudioTimelineController?.buildMoveOperations === 'function' "
+                    "&& typeof window.filmStudioTimelineController?.validateMoveTarget === 'function' "
                     "&& !!document.querySelector('.fs-react-timeline-surface')",
                     timeout=10000,
                 )

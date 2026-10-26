@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
 import {filmTimelineMath, type FilmTimelineMathBridge} from "./film-timeline-math";
+import {filmTimelineGestureController} from "./film-timeline-gesture-controller";
 import {
   filmStore,
   type FilmStudioAssetMode,
@@ -403,6 +404,7 @@ declare global {
     filmStudioSeek?: (value: string | number) => void;
     filmStudioJumpToKeyframe?: (clipId: string, at: number) => void;
     filmStudioTimelineMath?: FilmTimelineMathBridge;
+    filmStudioTimelineController?: typeof filmTimelineGestureController;
     filmStudioZoom?: (direction: number, anchorClientX?: number) => void;
     filmStudioStore?: FilmStudioStoreBridge;
     filmStudioReactAssets?: FilmStudioReactAssetsBridge;
@@ -2242,6 +2244,7 @@ function renderStudioReactOwner(): void {
 }
 
 window.filmStudioTimelineMath = filmTimelineMath;
+window.filmStudioTimelineController = filmTimelineGestureController;
 
 window.filmStudioReactAssets = {
   render(model) {
