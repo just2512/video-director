@@ -58,6 +58,9 @@ export type FilmStudioTimelineGestureContext = {
   originalEnd: number | undefined;
   trackId: string | undefined;
   originalTrackIndex: number | undefined;
+  clipTag: string | undefined;
+  originalSourceIn: number | undefined;
+  originalSpeed: number | undefined;
   targetTrackId: string | undefined;
   invalidTargetMessage: string | undefined;
   leftClipId: string | undefined;
@@ -278,14 +281,17 @@ const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureCont
     return number;
   };
   const numberKeys = [
-    "originalAt","originalEnd","originalTrackIndex","rightAt","centerAt",
-    "leftDuration","centerDuration","rightDuration",
+    "originalAt","originalEnd","originalTrackIndex","originalSourceIn","originalSpeed",
+    "rightAt","centerAt","leftDuration","centerDuration","rightDuration",
   ];
   if (numberKeys.some(key => raw[key] !== undefined && raw[key] !== null && optionalNumber(key) === undefined)) {
     return null;
   }
   const originalAt = optionalNumber("originalAt");
   const originalEnd = optionalNumber("originalEnd");
+  const clipTag = optionalString("clipTag");
+  const originalSourceIn = optionalNumber("originalSourceIn");
+  const originalSpeed = optionalNumber("originalSpeed");
   const trackId = optionalString("trackId");
   const originalTrackIndex = optionalNumber("originalTrackIndex");
   const targetTrackId = optionalString("targetTrackId");
@@ -298,7 +304,10 @@ const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureCont
   const centerDuration = optionalNumber("centerDuration");
   const rightDuration = optionalNumber("rightDuration");
 
-  if ((originalAt === undefined) !== (originalEnd === undefined) ||
+  if ((originalSourceIn !== undefined && originalSourceIn < 0) ||
+      (originalSpeed !== undefined && originalSpeed <= 0) ||
+      (clipTag !== undefined && !["video","audio","img","iframe"].includes(clipTag)) ||
+      (originalAt === undefined) !== (originalEnd === undefined) ||
       (originalAt !== undefined && originalEnd !== undefined && originalEnd < originalAt) ||
       (trackId === undefined) !== (originalTrackIndex === undefined) ||
       (trackId && !trackOrder.includes(trackId)) ||
@@ -343,6 +352,9 @@ const asTimelineGestureContext = (value: unknown): FilmStudioTimelineGestureCont
     originalEnd,
     trackId,
     originalTrackIndex,
+    clipTag,
+    originalSourceIn,
+    originalSpeed,
     targetTrackId,
     invalidTargetMessage: optionalString("invalidTargetMessage"),
     leftClipId,

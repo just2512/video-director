@@ -66,6 +66,12 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "timelineOperationNumber(slideDelta" in studio
     assert "timelineOperationNumber(Math.max(0,member.originalAt+delta)" in studio
     assert "resolveMoveGesture(minimumStart: number, rawDeltaSeconds: number" in (root / "remotion_runtime" / "src" / "film-timeline-math.ts").read_text(encoding="utf-8")
+    # Trim source bounds must survive the shared FilmStore's strict gesture-context normalizer.
+    assert "clipTag: string | undefined;" in store
+    assert 'const clipTag = optionalString("clipTag");' in store
+    assert 'const originalSourceIn = optionalNumber("originalSourceIn");' in store
+    assert 'const originalSpeed = optionalNumber("originalSpeed");' in store
+    assert "clipTag," in store and "originalSourceIn," in store and "originalSpeed," in store
     assert "type FilmTimelineGesturePreviewGeometry" in component
     assert "setGesturePreview(preview: FilmTimelineGesturePreview): void" in component
     assert "targetTrackId?: string;" in (root / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
