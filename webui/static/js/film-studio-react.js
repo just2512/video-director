@@ -26,9 +26,9 @@
     mod
   ));
 
-  // node_modules/react/cjs/react.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "node_modules/react/cjs/react.development.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // node_modules/react/index.js
+  // ../remotion_runtime/node_modules/react/index.js
   var require_react = __commonJS({
-    "node_modules/react/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // node_modules/react-dom/index.js
+  // ../remotion_runtime/node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "node_modules/react-dom/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // node_modules/scheduler/cjs/scheduler.development.js
+  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // node_modules/scheduler/index.js
+  // ../remotion_runtime/node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "node_modules/scheduler/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom-client.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // node_modules/react-dom/client.js
+  // ../remotion_runtime/node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "node_modules/react-dom/client.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // node_modules/react/cjs/react-jsx-runtime.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // node_modules/react/jsx-runtime.js
+  // ../remotion_runtime/node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "node_modules/react/jsx-runtime.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -24056,6 +24056,149 @@
       const safeFps = Math.max(1, Math.min(120, finiteOr(fps, 30)));
       return Math.round(finiteOr(seconds, 0) * safeFps) / safeFps;
     }
+  };
+
+  // ../remotion_runtime/src/film-timeline-gesture-controller.ts
+  var resolveMove = (input) => filmTimelineMath.resolveMoveGesture(
+    input.minimumStart,
+    input.rawDeltaSeconds,
+    input.candidates,
+    input.pixelsPerSecond,
+    input.thresholdPixels,
+    input.snapEnabled,
+    input.frameRate
+  );
+  var minimumSelectedStart = (gesture) => gesture.members.reduce((minimum, member) => Math.min(minimum, member.originalAt), Number.POSITIVE_INFINITY);
+  var tracksFor = (input) => Array.isArray(input.tracks) ? input.tracks : [];
+  var findClip = (tracks, clipId) => {
+    for (const track of tracks) {
+      const clip = (track.clips || []).find((item) => item.id === clipId);
+      if (clip) return clip;
+    }
+    return void 0;
+  };
+  var validateMoveTarget = (input) => {
+    const gesture = input.gesture;
+    const order = gesture.trackOrder || [];
+    const targetTrackId = String(input.targetTrackId || gesture.targetTrackId || "");
+    const targetIndex = order.indexOf(targetTrackId);
+    if (targetIndex < 0) return "\u76EE\u6807\u8F68\u9053\u4E0D\u5B58\u5728\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002";
+    const originIndex = Number.isInteger(gesture.originalTrackIndex) ? Number(gesture.originalTrackIndex) : order.indexOf(String(gesture.trackId || ""));
+    if (originIndex < 0) return "\u65E0\u6CD5\u786E\u8BA4\u539F\u8F68\u9053\u4F4D\u7F6E\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002";
+    const members = gesture.members || [];
+    const selectedIds = new Set(members.map((member) => member.id));
+    const resolution = resolveMove({
+      minimumStart: minimumSelectedStart(gesture),
+      rawDeltaSeconds: Number(input.rawDeltaSeconds) || 0,
+      candidates: input.candidates,
+      pixelsPerSecond: input.pixelsPerSecond,
+      thresholdPixels: input.thresholdPixels,
+      snapEnabled: input.snapEnabled,
+      frameRate: input.frameRate
+    });
+    const horizontalDelta = resolution.deltaSeconds;
+    const tracks = tracksFor(input);
+    for (const member of members) {
+      const destinationIndex = member.trackIndex + targetIndex - originIndex;
+      if (destinationIndex < 0 || destinationIndex >= order.length) {
+        return "\u591A\u9009\u79FB\u52A8\u8D85\u51FA\u8F68\u9053\u8303\u56F4\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      }
+      const destinationId = order[destinationIndex];
+      const destination = tracks.find((track) => track.id === destinationId);
+      if (!destination) return "\u76EE\u6807\u8F68\u9053 " + destinationId + " \u5DF2\u4E0D\u5B58\u5728\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002";
+      if (Object.prototype.hasOwnProperty.call(destination.attrs || {}, "locked")) {
+        return "\u76EE\u6807\u8F68\u9053 " + destinationId + " \u5DF2\u9501\u5B9A\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002";
+      }
+      const sourceClip = findClip(tracks, member.id);
+      if (!sourceClip || sourceClip.end == null || !Number.isFinite(Number(sourceClip.end))) continue;
+      const targetStart = Math.max(0, member.originalAt + horizontalDelta);
+      const duration = Math.max(0, Number(sourceClip.end) - Number(sourceClip.at));
+      const targetEnd = targetStart + duration;
+      for (const other of destination.clips || []) {
+        if (selectedIds.has(other.id) || other.end == null) continue;
+        const otherStart = Number(other.at);
+        const otherEnd = Number(other.end);
+        if (!Number.isFinite(otherStart) || !Number.isFinite(otherEnd)) continue;
+        if (targetStart < otherEnd - 1e-3 && otherStart < targetEnd - 1e-3) {
+          return "\u591A\u9009\u79FB\u52A8\u540E\u7247\u6BB5 " + member.id + " \u4E0E\u76EE\u6807\u8F68\u9053 " + destinationId + " \u4E0A\u7684\u7247\u6BB5 " + other.id + " \u65F6\u95F4\u91CD\u53E0\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+        }
+      }
+    }
+    return null;
+  };
+  var buildMovePreview = (input) => {
+    const gesture = input.gesture;
+    const members = gesture.members || [];
+    const resolution = resolveMove({
+      minimumStart: minimumSelectedStart(gesture),
+      rawDeltaSeconds: input.rawDeltaSeconds,
+      candidates: input.candidates,
+      pixelsPerSecond: input.pixelsPerSecond,
+      thresholdPixels: input.thresholdPixels,
+      snapEnabled: input.snapEnabled,
+      frameRate: input.frameRate
+    });
+    let targetIndex = (gesture.trackOrder || []).indexOf(
+      String(input.targetTrackId || gesture.targetTrackId || gesture.trackId || "")
+    );
+    if (targetIndex < 0) targetIndex = Number(gesture.originalTrackIndex);
+    const originIndex = Number(gesture.originalTrackIndex);
+    const trackDelta = targetIndex - originIndex;
+    const canPreviewCrossTrack = !gesture.invalidTargetMessage && Number.isInteger(targetIndex) && Number.isInteger(originIndex);
+    const preview = {};
+    for (const member of members) {
+      const entry = {
+        left: filmTimelineMath.clipLeft(member.originalAt + resolution.deltaSeconds, input.pixelsPerSecond)
+      };
+      const destinationIndex = member.trackIndex + trackDelta;
+      if (canPreviewCrossTrack && destinationIndex >= 0 && destinationIndex < gesture.trackOrder.length) {
+        const destinationTrackId = gesture.trackOrder[destinationIndex];
+        if (destinationTrackId !== member.trackId) entry.targetTrackId = destinationTrackId;
+      }
+      preview[member.id] = entry;
+    }
+    return { resolution, preview };
+  };
+  var buildMoveOperations = (input) => {
+    const gesture = input.gesture;
+    const members = gesture.members || [];
+    const resolution = resolveMove({
+      minimumStart: minimumSelectedStart(gesture),
+      rawDeltaSeconds: input.rawDeltaSeconds,
+      candidates: input.candidates,
+      pixelsPerSecond: input.pixelsPerSecond,
+      thresholdPixels: input.thresholdPixels,
+      snapEnabled: input.snapEnabled,
+      frameRate: input.frameRate
+    });
+    let targetIndex = (gesture.trackOrder || []).indexOf(
+      String(input.targetTrackId || gesture.targetTrackId || gesture.trackId || "")
+    );
+    if (targetIndex < 0) targetIndex = Number(gesture.originalTrackIndex);
+    const originIndex = Number(gesture.originalTrackIndex);
+    const trackDelta = targetIndex - originIndex;
+    if (!Number.isInteger(targetIndex) || !Number.isInteger(originIndex)) return null;
+    const operations = [];
+    for (const member of members) {
+      const destinationIndex = member.trackIndex + trackDelta;
+      if (destinationIndex < 0 || destinationIndex >= gesture.trackOrder.length) return null;
+      const at = Math.max(0, member.originalAt + resolution.deltaSeconds);
+      const frameAligned = input.snapEnabled && Math.abs(at * input.frameRate - Math.round(at * input.frameRate)) < 2e-5;
+      const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned;
+      operations.push({
+        op: "move",
+        clip: member.id,
+        track_id: gesture.trackOrder[destinationIndex],
+        at: Number(at.toFixed(preserveFramePrecision ? 6 : 3))
+      });
+    }
+    return operations.length === members.length ? operations : null;
+  };
+  var filmTimelineGestureController = {
+    resolveMoveGesture: resolveMove,
+    validateMoveTarget,
+    buildMovePreview,
+    buildMoveOperations
   };
 
   // ../remotion_runtime/src/film-store.ts
@@ -27278,6 +27421,7 @@
     });
   }
   window.filmStudioTimelineMath = filmTimelineMath;
+  window.filmStudioTimelineController = filmTimelineGestureController;
   window.filmStudioReactAssets = {
     render(model) {
       filmStore.setField("assetsModel", model);
