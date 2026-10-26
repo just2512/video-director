@@ -48,10 +48,10 @@ const formatFilmTime = (value: number): string => {
   return String(minutes).padStart(2, "0") + ":" + seconds.toFixed(3).padStart(6, "0");
 };
 
-const resolveReactMoveGesturePreview = (event:FilmStudioGesturePointerInput): void => {
+const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): void => {
   const before = filmStore.getSnapshot();
   const firstGesture = before.timelineGestureContext;
-  if (!firstGesture || firstGesture.mode !== "move" || firstGesture.pointerId !== event.pointerId) return;
+  if (!firstGesture || firstGesture.pointerId !== event.pointerId) return;
   const scroll = document.getElementById("fs-timeline-scroll");
   if (!scroll) return;
   const scrollDelta = scroll.scrollLeft-firstGesture.startScrollLeft;
@@ -63,7 +63,7 @@ const resolveReactMoveGesturePreview = (event:FilmStudioGesturePointerInput): vo
   }
   const state = filmStore.getSnapshot();
   const gesture = state.timelineGestureContext;
-  if (!gesture || gesture.mode !== "move" || gesture.pointerId !== event.pointerId) return;
+  if (!gesture || gesture.pointerId !== event.pointerId) return;
   const film = timelineRecord(state.film);
   const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
   const tracks:FilmTimelineMoveTrackSnapshot[] = rawTracks.map(rawTrack => {
@@ -83,12 +83,24 @@ const resolveReactMoveGesturePreview = (event:FilmStudioGesturePointerInput): vo
       }),
     };
   });
-  const selectedIds = new Set(gesture.members.map(member => member.id));
-  const selectedClipStartIsPlayhead = gesture.members.some(member =>
-    Math.abs(filmTimelineMath.secondsToPixels(
-      member.originalAt-state.playhead,state.pixelsPerSecond
-    )) <= 0.5
-  );
+  let excludedIds:string[] = [gesture.id];
+  if (gesture.mode === "move") excludedIds = gesture.members.map(member => member.id);
+  else if (gesture.mode === "roll") excludedIds = [gesture.leftClipId,gesture.rightClipId].filter((id): id is string => !!id);
+  else if (gesture.mode === "slide") {
+    excludedIds = [gesture.leftClipId,gesture.centerClipId,gesture.rightClipId].filter((id): id is string => !!id);
+  }
+  const selectedIds = new Set(excludedIds);
+  const selectedClipStartIsPlayhead = excludedIds.some(id => {
+    for (const track of tracks) {
+      const clip = (track.clips || []).find(item => item.id === id);
+      if (!clip) continue;
+      const at = Number(clip.at);
+      return Number.isFinite(at) && Math.abs(filmTimelineMath.secondsToPixels(
+        at-state.playhead,state.pixelsPerSecond
+      )) <= 0.5;
+    }
+    return false;
+  });
   const candidates:FilmTimelineSnapCandidate[] = [{at:0,kind:"片头"}];
   if (!selectedClipStartIsPlayhead) candidates.push({at:state.playhead,kind:"播放头"});
   for (const track of tracks) {
@@ -103,41 +115,135 @@ const resolveReactMoveGesturePreview = (event:FilmStudioGesturePointerInput): vo
   const rawFps = Number(film.fps);
   const frameRate = Number.isFinite(rawFps) && rawFps > 0
     ? Math.max(1,Math.min(120,rawFps)) : 30;
-  const minimumStart = gesture.members.reduce(
-    (minimum,member) => Math.min(minimum,member.originalAt),Number.POSITIVE_INFINITY
-  );
   const rawDeltaSeconds = filmTimelineMath.dragDeltaSeconds(
     pointerDelta,scrollDelta,state.pixelsPerSecond
   );
-  const input:FilmTimelineMoveControllerInput = {
-    gesture: {
-      members:gesture.members,
-      trackId:gesture.trackId,
-      originalTrackIndex:gesture.originalTrackIndex,
-      trackOrder:gesture.trackOrder,
-      targetTrackId:gesture.targetTrackId || gesture.trackId,
-      invalidTargetMessage:gesture.invalidTargetMessage,
-    },
-    tracks,
-    targetTrackId:gesture.targetTrackId || gesture.trackId,
-    minimumStart,
+  const publish = (
+    preview:FilmStudioTimelineGesturePreview,
+    snap:FilmTimelineSnapCandidate | null,
+  ) => {
+    filmStore.setField("timelineGesturePreview",preview);
+    filmStore.setField("timelineSnapGuide",snap ? {
+      at:Math.max(0,snap.at),
+      kind:String(snap.kind || "时间点"),
+      title:"吸附到 "+String(snap.kind || "时间点")+" · "+formatFilmTime(snap.at),
+    } : null);
+  };
+
+  if (gesture.mode === "move") {
+    const minimumStart = gesture.members.reduce(
+      (minimum,member) => Math.min(minimum,member.originalAt),Number.POSITIVE_INFINITY
+    );
+    const targetTrackId = gesture.targetTrackId || gesture.trackId;
+    const input:FilmTimelineMoveControllerInput = {
+      gesture: {
+        members:gesture.members,
+        trackId:gesture.trackId,
+        originalTrackIndex:gesture.originalTrackIndex,
+        trackOrder:gesture.trackOrder,
+        targetTrackId,
+        invalidTargetMessage:gesture.invalidTargetMessage,
+      },
+      tracks,
+      targetTrackId,
+      minimumStart,
+      rawDeltaSeconds,
+      candidates,
+      pixelsPerSecond:state.pixelsPerSecond,
+      thresholdPixels:8,
+      snapEnabled:state.snapEnabled,
+      frameRate,
+    };
+    const result = filmTimelineGestureController.buildMovePreview(input);
+    publish(result.preview,result.resolution.snapCandidate);
+    return;
+  }
+
+  if (gesture.mode === "trim-start" || gesture.mode === "trim-end") {
+    if (gesture.originalAt === undefined || gesture.originalEnd === undefined) {
+      publish(null,null);
+      return;
+    }
+    const result = filmTimelineGestureController.resolveTrimGesture({
+      clipId:gesture.id,
+      edge:gesture.mode === "trim-start" ? "start" : "end",
+      originalAt:gesture.originalAt,
+      originalEnd:gesture.originalEnd,
+      clipTag:gesture.clipTag || "video",
+      sourceIn:gesture.originalSourceIn ?? 0,
+      playbackSpeed:gesture.originalSpeed ?? 1,
+      rawDeltaSeconds,
+      candidates,
+      pixelsPerSecond:state.pixelsPerSecond,
+      thresholdPixels:8,
+      snapEnabled:state.snapEnabled,
+      frameRate,
+    });
+    publish(result ? {[gesture.id]:result.preview} : null,result?.resolution.snapCandidate ?? null);
+    return;
+  }
+
+  if (gesture.mode === "roll") {
+    const {leftClipId,rightClipId, rightAt,leftDuration,rightDuration} = gesture;
+    if (!leftClipId || !rightClipId || rightAt === undefined ||
+        leftDuration === undefined || rightDuration === undefined) {
+      publish(null,null);
+      return;
+    }
+    const result = filmTimelineGestureController.resolveRollGesture({
+      leftClipId,
+      rightClipId,
+      activeClipId:gesture.id,
+      rightAt,
+      leftDuration,
+      rightDuration,
+      rawDeltaSeconds,
+      candidates,
+      pixelsPerSecond:state.pixelsPerSecond,
+      thresholdPixels:8,
+      snapEnabled:state.snapEnabled,
+      frameRate,
+    });
+    publish(result?.preview ?? null,result?.resolution.snapCandidate ?? null);
+    return;
+  }
+
+  if (gesture.mode === "slide") {
+    const {leftClipId,centerClipId,rightClipId,centerAt,rightAt,leftDuration,centerDuration,rightDuration} = gesture;
+    if (!leftClipId || !centerClipId || !rightClipId || centerAt === undefined || rightAt === undefined ||
+        leftDuration === undefined || centerDuration === undefined || rightDuration === undefined) {
+      publish(null,null);
+      return;
+    }
+    const result = filmTimelineGestureController.resolveSlideGesture({
+      leftClipId,
+      centerClipId,
+      rightClipId,
+      centerAt,
+      rightAt,
+      leftDuration,
+      centerDuration,
+      rightDuration,
+      rawDeltaSeconds,
+      candidates,
+      pixelsPerSecond:state.pixelsPerSecond,
+      thresholdPixels:8,
+      snapEnabled:state.snapEnabled,
+      frameRate,
+    });
+    publish(result?.preview ?? null,result?.resolution.snapCandidate ?? null);
+    return;
+  }
+
+  const result = filmTimelineGestureController.resolveSlipGesture({
+    clipId:gesture.id,
     rawDeltaSeconds,
-    candidates,
-    pixelsPerSecond:state.pixelsPerSecond,
-    thresholdPixels:8,
+    playbackSpeed:gesture.originalSpeed ?? 1,
     snapEnabled:state.snapEnabled,
     frameRate,
-  };
-  const result = filmTimelineGestureController.buildMovePreview(input);
-  filmStore.setField("timelineGesturePreview",result.preview);
-  const snap = result.resolution.snapCandidate;
-  filmStore.setField("timelineSnapGuide",snap ? {
-    at:Math.max(0,snap.at),
-    kind:String(snap.kind || "时间点"),
-    title:"吸附到 "+String(snap.kind || "时间点")+" · "+formatFilmTime(snap.at),
-  } : null);
+  });
+  publish(result.preview,null);
 };
-
 type TimelineRecord = Record<string, unknown>;
 
 const timelineRecord = (value: unknown): TimelineRecord =>
@@ -463,7 +569,7 @@ type FilmTimelineActiveDragIds = FilmStudioTimelineActiveDragIds;
 
 interface FilmStudioReactTimelineBridge {
   renderSurface(): void;
-  moveClipGesture(event:FilmStudioGesturePointerInput): void;
+  previewClipGesture(event:FilmStudioGesturePointerInput): void;
   setGesturePreview(preview: FilmTimelineGesturePreview): void;
   setSnapGuide(guide: FilmTimelineSnapGuide): void;
   setTrackDropTarget(target: FilmTimelineDropTarget): void;
@@ -2572,8 +2678,8 @@ window.filmStudioReactAssets = {
 };
 
 window.filmStudioReactTimeline = {
-  moveClipGesture(event) {
-    resolveReactMoveGesturePreview(event);
+  previewClipGesture(event) {
+    resolveReactClipGesturePreview(event);
   },
   zoom(direction,anchorClientX) {
     const scroll = document.getElementById("fs-timeline-scroll");

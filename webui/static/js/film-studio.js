@@ -2615,9 +2615,9 @@
     var snapshot=window.filmStudioStore&&window.filmStudioStore.getSnapshot
       ?window.filmStudioStore.getSnapshot():null;
     var reactTimeline=window.filmStudioReactTimeline;
-    if(snapshot&&snapshot.timelineGestureContext&&snapshot.timelineGestureContext.mode==='move'&&
-       reactTimeline&&typeof reactTimeline.moveClipGesture==='function'){
-      reactTimeline.moveClipGesture(e);
+    if(snapshot&&snapshot.timelineGestureContext&&
+       reactTimeline&&typeof reactTimeline.previewClipGesture==='function'){
+      reactTimeline.previewClipGesture(e);
       return;
     }
     onMove(e);
