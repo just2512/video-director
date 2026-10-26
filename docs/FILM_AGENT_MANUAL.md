@@ -152,6 +152,14 @@ The Studio canvas picker returns an exact scene clip ID plus a CSS selector. The
 
 The selector-based `overrides` subset supports text and bounded style properties validated by FilmDocument: `color`, `backgroundColor`, `fontSize`, `fontWeight`, `textAlign`, `lineHeight`, `letterSpacing`, `left`, `top`, `width`, `height`, `position`, `opacity`, `transform`, `borderRadius`, and `rotate`. The Studio Inspector exposes text, position, dimensions, text/background colour, opacity, font weight, text alignment, line height, letter spacing, font size and rotation. Line height and letter spacing accept the server's bounded numeric CSS lengths (for example `1.25`, `32px`, `1.2em`); a blank field means “leave unchanged.” Canvas edits are sparse: only fields that actually differ from the selected element are sent, and a no-op form does not create a FilmDocument revision. A transparent background is not materialized unless the user enables a fill; unchecking an existing fill explicitly restores transparency. Legacy/non-selector override records are preserved as-is by an element edit, but the current runtime only applies the selector-based subset it understands. For an element with nested children, do not replace its whole `textContent`; edit an explicit leaf element instead.
 
+## AI 流式指挥的验收边界
+
+向 `POST /api/editor/film/command` 请求 `stream: true` 时，Studio 以 SSE 发送增量 `token` 事件，最终 `result` 必须包含基于请求 `base` revision 的待确认提案。生成过程是只读的：在用户明确确认前，不得改写 `film.html` 或增加 FilmDocument revision。任务生命周期事件（例如 started/progress/completed）不是模型 token；只有实际模型产生的文本增量才能算作 token 流。
+
+常规 CI 的 `tests/test_film_studio_ai_stream_contract.py` 使用确定性上游替身，验证生产 HTTP/SSE 路由逐段转发 token、token 先于 result 到达以及提案生成不写盘；这不能证明真实提供方或代理没有缓冲。真实验收由 `tests/test_film_studio_live_ai_streaming.py` 完成：它调用当前配置的 OpenAI-compatible 模型，要求至少两个非空 token 片段在 result 前到达，检查首 token 与最终 result 的时间间隔，并核实提案 revision 和原始文档字节未变化。
+
+普通全量回归不会自动调用付费模型。需要真实提供方验证时，使用 AI Director workflow dispatch 的 `run_live_llm=true`，或让主线提交说明包含 `[live-stream-smoke]`。此模式必须具备 `VD_LLM_API_KEY`、`VD_LLM_BASE_URL` 和 `VD_LLM_MODEL`；缺少任一项时 workflow 应 fail closed。成功的模拟 SSE 测试与成功的真实模型流式 smoke 必须分开报告。
+
 ## Failure policy
 
 Return a concrete `MISSING`, `UNSUPPORTED`, or error explanation when a resource or rendering behavior cannot be verified. Do not silently skip broken clips, convert unknown durations to guessed values, bypass revision conflicts, or label an unrendered candidate as a completed video.
