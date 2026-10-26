@@ -92,7 +92,7 @@ function renderProjectList(){
       </span>
       <span class="pm-name" onclick="pmOpenDetail('${esc(p.project_id)}')"><b>${esc(name)}</b>
         <span class="hint">${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
-      <span class="pm-st ${pmStatusCls(p)}">${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
+      <span class="pm-st ${pmStatusCls(p)}"${p.active_job ? ` onclick="pmShowProgress('${esc(p.project_id)}')" style="cursor:pointer" title="点击查看创作过程"` : ''}>${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
       <span class="pm-dur">${dur}</span>
       <span class="pm-when">${when}</span>
       <span class="pm-ops">${busyAct ? '<span class="hint">处理中……</span>'
@@ -425,8 +425,52 @@ function pmShowModal(inner){
   document.body.appendChild(mask);
 }
 function pmCloseModal(){
+  if (_pmProgressTimer) { clearInterval(_pmProgressTimer); _pmProgressTimer = null; }
   const mask = document.getElementById('pm-modal-mask');
   if (mask) mask.remove();
+}
+
+// 2026-10-26 用户报障：创作过程全程可见——项目列表「生成中 N%」点击即可
+// 打开步骤面板（关掉弹窗后也能在这里看/停止），不再只有在笼统百分比。
+let _pmProgressTimer = null;
+async function pmShowProgress(pid){
+  let rid = '';
+  try {
+    const list = await apiGet('/api/workflows?project_id=' + encodeURIComponent(pid));
+    const runs = (list && list.runs) || [];
+    rid = runs.length ? runs[0].run_id : '';
+  } catch (e) { rid = ''; }
+  if (!rid) { editorToast('没有找到创作任务', true); return; }
+  pmCloseModal();
+  await _pmRenderProgress(rid);
+  pmShowModal(
+    '<div><b>创作过程</b> <span class="hint" id="pm-progress-head"></span></div>' +
+    '<div id="pm-progress-steps" style="margin-top:8px;max-height:52vh;overflow-y:auto"></div>' +
+    '<div class="btn-row" style="margin-top:10px">' +
+    '<button class="btn-sm" style="background:var(--danger,#c33);color:#fff" onclick="_pmStop(\'' + esc(rid) + '\')">停止创作</button>' +
+    '<button class="btn-secondary btn-sm" onclick="pmCloseModal()">关闭</button></div>');
+  _pmProgressTimer = setInterval(() => _pmRenderProgress(rid), 2000);
+}
+
+async function _pmRenderProgress(rid){
+  try {
+    const d = await apiGet('/api/workflows/' + encodeURIComponent(rid));
+    if (!d || d.error) return;
+    const stepsBox = document.getElementById('pm-progress-steps');
+    const head = document.getElementById('pm-progress-head');
+    if (stepsBox) stepsBox.innerHTML = (typeof cfRenderProgressSteps === 'function')
+      ? cfRenderProgressSteps(d) : '（步骤加载中）';
+    if (head) head.textContent = d.status === 'RUNNING' ? ' · 运行中'
+      : d.status === 'CANCELLED' ? ' · 已停止' : ' · ' + (d.status || '');
+    if (d.status !== 'RUNNING' && _pmProgressTimer) {
+      clearInterval(_pmProgressTimer); _pmProgressTimer = null;
+    }
+  } catch (e) { /* 轮询失败下次再试 */ }
+}
+
+async function _pmStop(rid){
+  const r = await apiPost('/api/workflows/cancel', {run_id: rid});
+  editorToast(r && r.ok ? (r.note || '已请求停止') : '停止失败：' + ((r && r.error) || '未知'));
 }
 
 /** 项目详情抽屉（行名称点击展开：§5 打开/预览/继续处理）。 */
@@ -473,6 +517,7 @@ Object.assign(window, {
   projectAction, renameProject, continueProject, pmClone, pmArchive, pmRestore,
   convertLegacyProject, pmReopenFailed, pmShowFailure, pmPreviewFinal, pmPreviewLegacy,
   pmAskDelete, deleteProject, pmAskRename, pmShowModal, pmCloseModal,
+  pmShowProgress, _pmRenderProgress, _pmStop,
   pmShowMore, pmOpenDetail, pmRowMenu, pmCloseRowMenu,
   pmToggleSelected, pmToggleAll, pmRefreshBulkBar, pmAskBulkDelete, pmBulkAction,
   PM, PM_STATUS_CN, PM_PAGE,

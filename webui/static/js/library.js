@@ -171,13 +171,22 @@ async function _edLibLoadVoice(box){
   const r = await apiGet('/api/voice/providers');
   const provs = (r && r.providers) || [];
   const voices = (r && r.voices) || [];
-  box.innerHTML = `<div class="hint">配音引擎：${provs.map(p => esc(p.label || p.id) + (p.available ? '（可用）' : '（未接通，配置无效）')).join('、') || '无'}</div>`+
+  // 2026-10-26 用户报障：6 个引擎 5 个「未接通」铺开纯噪音。只展示可用的，
+  // 未接通的折叠成一句（诚实但不刷屏）——系统仅 Edge TTS 有执行器，其余
+  // provider_matrix 显式 UNSUPPORTED，配置界面也没有意义（填 key 也不生效）。
+  const avail = provs.filter(p => p.available);
+  const unavail = provs.filter(p => !p.available);
+  const engineLine = '<div class="hint">配音引擎：' +
+    (avail.length ? avail.map(p => esc(p.label || p.id)).join('、') : '无可用引擎') +
+    (unavail.length ? '<span class="hint">（另有 ' + unavail.length + ' 个引擎未接通，当前不可选）</span>' : '') +
+    '</div>';
+  box.innerHTML = engineLine +
     (ED.pid
       ? '<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>'
       : '<div class="hint">当前未打开项目：可试听音色；配音入轨请先打开项目。</div>')+
     voices.slice(0, 12).map(v =>
       `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
-      `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}')">试听</button></div>`).join('');
+      `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}', this)">试听</button></div>`).join('');
 }
 
 async function edLibLoad(){
@@ -356,7 +365,7 @@ async function edLibLoad(){
       box.innerHTML = autoMatchBtn + (list.length ? list.map(a =>
         `<div class="proj-row"><span><b>${esc(a.label || a.id)}</b><span class="hint">${esc(a.id)}</span></span>`+
         `<span class="btn-row">`+
-        `<button class="btn-secondary btn-sm" onclick="edLibAudioTry('${esc(a.id)}')">试听</button>`+
+        `<button class="btn-secondary btn-sm" onclick="edLibAudioTry('${esc(a.id)}', this)">试听</button>`+
         `<button class="btn-sm" onclick="edLibAudioApply('${kind}','${esc(a.id)}')">应用</button></span></div>`).join('')
         : '<div class="hint">音频库为空（可在设置上传本地音乐）</div>');
     }

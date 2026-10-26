@@ -41,6 +41,8 @@ UI_ONLY_PREFIXES = (
     # 2026-10-25 创作流程窗口（进度视图切换/取消返回表单/预填装载）
     "cfEnterProgressMode(", "cfCancelAndEdit(", "cfDismissProgress(", "cfPrefillFromProject(",
     "cfStopCreation(",
+    # 2026-10-26 项目列表观看/停止创作进度（读 run → 步骤面板；停→cancel 端点）
+    "pmShowProgress(", "_pmRenderProgress(", "_pmStop(",
     # 表单收集器（读输入框 → 内部走 executeAction / 后端链）
     "editorApplyDuration(", "editorApplyTrim(", "editorApplySpeed(",
     "editorSetVisualTransform(", "editorAddKeyframe(", "editorRemoveKeyframe(",
