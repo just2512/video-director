@@ -1989,8 +1989,9 @@ class Handler(BaseHTTPRequestHandler):
         #   kind: compose（spec 同 /api/compose 字段）| render_draft | render_final
         #   前端轮询 GET /api/workflows/{run_id} 或走 SSE workflow.* 事件。
         if parsed.path == "/api/workflows/cancel":
-            # 2026-10-25 用户裁决：停止创作（POST）——run 转 CANCELLED，
-            # 节点循环下一步边界收口；已完成节点保留在检查点。
+            # 2026-10-26 用户裁决「停止就停止」：request_cancel 设置标志后，
+            # 正在执行的 LLM 调用在重试循环内每秒检测，立即中断收口 CANCELLED
+            # （不再等当前节点跑完）。已完成节点保留在检查点。
             length = int(self.headers.get("Content-Length", 0))
             try:
                 payload = json.loads(
@@ -2015,7 +2016,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 vd_wf.request_cancel(run_id)
                 self._send_json({"ok": True,
-                                 "note": "已请求停止：当前步骤完成后立即停止（不会开启下一步）"})
+                                 "note": "已请求停止：正在立即中断（当前 LLM 调用会在数秒内停止，不再开启下一步）"})
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)[:200]}, 500)
             return

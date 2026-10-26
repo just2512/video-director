@@ -905,7 +905,7 @@ function cfEnterProgressMode(runId){
     form.parentNode.insertBefore(panel, form.nextSibling);
   }
   form.style.display = 'none';
-  panel.innerHTML = '<div class="hint">创作已开始，正在执行……每一步都列在下面；<b>停止创作</b>会在当前步骤完成后立即停下（已完成步骤保留在检查点）。</div>' +
+  panel.innerHTML = '<div class="hint">创作已开始，正在执行……每一步做什么都列在下面；<b>停止创作</b>会立即中断（已完成步骤保留在检查点）。</div>' +
     '<div id="cf-progress-steps"></div>' +
     '<div class="btn-row" style="margin-top:8px">' +
     '<button class="btn-sm" style="background:var(--danger,#c33);color:#fff" onclick="cfStopCreation()">停止创作</button>' +
@@ -952,26 +952,45 @@ function cfRenderProgressSteps(run){
   const labels = run.labels || {};
   const stCn = {DONE: '✅ 完成', RUNNING: '⏳ 执行中', FAILED: '❌ 失败',
                 SKIPPED: '⚪ 跳过', PENDING: '· 待处理', INSPECTED: '✅ 完成'};
+  // 2026-10-26 用户裁决「每一步动态展示在干什么」：RUNNING 节点若正处 LLM
+  // 重试，实时显示「第 N/10 次尝试失败：xxx（X 秒前）」；否则显示该节点正在
+  // 做的事（动作说明）。后端 get_run 已在 RUNNING 步骤的 detail 里写入动作。
+  const llmRetry = run.llm_retry || {};
+  const liveLine = (llmRetry.attempt || 0) > 0
+    ? '<div style="color:#c77700;font-size:12px;margin:2px 0 6px 14px">'
+      + '⏳ 文本模型正在重试：第 ' + esc(llmRetry.attempt) + '/' + esc(llmRetry.max)
+      + ' 次失败（' + esc(llmRetry.last_error || '未知') + '，'
+      + esc(llmRetry.age_s || 0) + ' 秒前更新）</div>'
+    : '';
   return (run.steps || []).map(s => {
     const line = '<div style="margin:4px 0"><b>' + esc(labels[s.id] || s.id) + '</b> ' +
       (stCn[s.status] || s.status) + '</div>';
-    const warn = s.detail
-      ? '<div style="color:var(--danger,#c33);font-size:12px;margin:2px 0 6px 14px">⚠ ' +
-        esc(s.detail) + '</div>'
-      : '';
-    return line + warn;
+    // RUNNING 节点挂实时 LLM 重试进度（橙字=进行中）；FAILED/降级 detail 红字=问题
+    const live = (s.status === 'RUNNING' && (llmRetry.attempt || 0) > 0) ? liveLine : '';
+    // RUNNING 的动作说明是中性灰（正在做什么），FAILED/完成后降级原因才是红⚠
+    let warn = '';
+    if (s.detail) {
+      if (s.status === 'RUNNING') {
+        warn = '<div style="color:var(--muted,#889);font-size:12px;margin:2px 0 6px 14px">'
+          + esc(s.detail) + '</div>';
+      } else {
+        warn = '<div style="color:var(--danger,#c33);font-size:12px;margin:2px 0 6px 14px">⚠ '
+          + esc(s.detail) + '</div>';
+      }
+    }
+    return line + live + warn;
   }).join('');
 }
 
-/** 停止创作：请求服务端取消（run→CANCELLED，当前步骤完成后不再继续）。 */
+/** 停止创作：请求服务端取消（run→CANCELLED，正在执行的 LLM 调用立即中断）。 */
 async function cfStopCreation(){
   const rid = window._cfActiveRunId;
   if (!rid) { editorToast('没有正在进行的创作'); return; }
   const r = await apiPost('/api/workflows/cancel', {run_id: rid});
   if (r && r.ok) {
-    editorToast(r.note || '已请求停止：当前步骤完成后立即停止');
+    editorToast(r.note || '已请求停止：正在立即中断，请稍候……');
     const hint = document.querySelector('#cf-progress .hint');
-    if (hint) hint.textContent = '已请求停止——当前步骤完成后立即停下（已完成步骤保留）。';
+    if (hint) hint.textContent = '已请求停止——正在立即中断（已完成步骤保留在检查点）。';
   } else {
     editorToast('停止失败：' + ((r && r.error) || '未知'), true);
   }

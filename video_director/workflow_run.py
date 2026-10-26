@@ -55,6 +55,22 @@ STEP_LABEL_CN = {
     "render": "渲染成片",
 }
 
+#: 2026-10-26 用户裁决「每一步动态展示在干什么」：每个节点的进行中动作说明，
+#: RUNNING 时前端显示它而非只有「执行中」三个字。get_run 动态注入到步骤 detail。
+NODE_ACTION_CN = {
+    "script": "正在让 AI 理解你的剪辑要求，并把文案按句拆成分镜素材",
+    "scene_plan": "正在调用文本大模型设计分镜方案（镜头/检索词/画面候选），网络慢时会自动重试",
+    "narration": "正在为每句文案生成旁白配音",
+    "material_match": "正在为每个镜头匹配画面素材（你的素材优先）",
+    "subtitle": "正在生成字幕",
+    "music": "正在配背景音乐",
+    "watermark": "正在叠加品牌元素",
+    "composition": "正在把镜头/字幕/配乐搭进时间线",
+    "preview": "正在生成草稿预览",
+    "verify": "正在自动检查成片质量（黑帧/时长/转场）",
+    "render": "正在渲染成片（这一步最耗时，取决于视频长度与机器性能）",
+}
+
 #: §20 链路的标称步骤序（一键创作链：CreativeBrief→…→Render）
 DEFAULT_STEPS = ["script", "scene_plan", "narration", "material_match",
                  "subtitle", "music", "watermark", "composition",
@@ -230,15 +246,37 @@ def get_run(run_id: str) -> Optional[dict]:
     steps = []
     for s, st in steps_status.items():
         if isinstance(st, dict):
+            detail = st.get("detail") or ""
+            # 2026-10-26 用户裁决「每一步动态展示在干什么」：RUNNING 节点无
+            # 具体 detail 时，注入该节点的进行中动作说明（而非只显示「执行中」）。
+            if st.get("status") == "RUNNING" and not detail:
+                detail = NODE_ACTION_CN.get(s, "正在执行…")
             steps.append({"id": s, "status": st.get("status") or "PENDING",
-                          "detail": st.get("detail") or ""})
+                          "detail": detail})
         else:
-            steps.append({"id": s, "status": st, "detail": ""})
+            # 旧纯 status 字符串格式：RUNNING 同样注入动作说明
+            detail = NODE_ACTION_CN.get(s, "正在执行…") if st == "RUNNING" else ""
+            steps.append({"id": s, "status": st, "detail": detail})
     result = json.loads(d.pop("result_json") or "{}")
+    # 2026-10-26 用户裁决「每一步动态展示在干什么」：把 llm_provider 进程级
+    # 重试进度快照合并进响应。前端 RUNNING 步骤据此显示「LLM 第 N/10 次尝试
+    # 失败：xxx（X 秒前）」，而非只显示「执行中」三个字。快照过旧（>180s）视为
+    # 无活跃重试不返回（进程级单值，仅单跑场景精确）。
+    llm_retry = {}
+    try:
+        from video_director import llm_provider as _lp
+        rs = _lp.retry_state()
+        if rs.get("attempt", 0) > 0 and (time.time() - rs.get("ts", 0)) < 180:
+            llm_retry = {"attempt": rs["attempt"], "max": rs["max"],
+                         "last_error": rs["last_error"],
+                         "ts": rs["ts"], "age_s": int(time.time() - rs["ts"])}
+    except Exception:  # noqa: BLE001 诊断字段失败不影响主响应
+        llm_retry = {}
     d.update({
         "steps": steps,
         "result": result,
         "labels": {s: STEP_LABEL_CN.get(s, s) for s in steps_status},
+        "llm_retry": llm_retry,
     })
     return d
 
@@ -591,26 +629,38 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
 
 def _compose_worker(run_id: str, spec: dict) -> None:
     """compose/director 工作线程：Director 创建走统一 Agent；旧 compose 保持原执行链。"""
+    # 2026-10-26 用户裁决「停止就停止」：把本 run 的取消标志注入 llm_provider，
+    # 让 LLM 重试循环在每次尝试前 + 每秒等待间隙都能检测到停止请求——
+    # 停止不再等整个节点跑完，正在执行的 LLM 调用也能被打断。
+    # 进程级单值，worker 结束时清除（单 run 场景；多 run 并发时为最后注册的 run）。
+    from video_director import llm_provider as _lp
+    _lp.set_cancel_check(lambda: _cancel_requested(run_id))
     try:
-        if spec.get("_run_kind") == "director_create":
-            result = _execute_director_create(spec, run_id)
-        else:
-            result = _execute_compose(spec, run_id)
-        pending = bool(result.get("pending_confirm"))
-        director_verify_ok = result.get("director_verify_ok", True)
-        if spec.get("_run_kind") == "director_create" and not director_verify_ok:
-            finish_run(run_id, FAILED, result=result,
-                       error="AI Director 创建链验证未通过")
-            return
-        finish_run(run_id, WAITING_CONFIRMATION if pending else COMPLETED,
-                   result=result)
+        try:
+            if spec.get("_run_kind") == "director_create":
+                result = _execute_director_create(spec, run_id)
+            else:
+                result = _execute_compose(spec, run_id)
+            pending = bool(result.get("pending_confirm"))
+            director_verify_ok = result.get("director_verify_ok", True)
+            if spec.get("_run_kind") == "director_create" and not director_verify_ok:
+                finish_run(run_id, FAILED, result=result,
+                           error="AI Director 创建链验证未通过")
+                return
+            finish_run(run_id, WAITING_CONFIRMATION if pending else COMPLETED,
+                       result=result)
+        except _lp.GenerationCancelled as exc:
+            # 2026-10-26 用户裁决「停止就停止」：LLM 调用中断收口 CANCELLED
+            #（与 RunCancelled 同语义——已完成节点保留，非失败）。
+            logger.info(f"workflow {run_id} cancelled (LLM aborted): {exc}")
+            finish_run(run_id, CANCELLED, result={},
+                       error=str(exc)[:400])
     except RunCancelled as exc:
         # 2026-10-25 用户裁决：停止创作收口 CANCELLED（非失败）——
         # 已完成节点保留在检查点，用户可修改要求后重新创作。
         logger.info(f"workflow {run_id} cancelled by user: {exc}")
         finish_run(run_id, CANCELLED, result={},
                    error=str(exc)[:400])
-        _clear_cancel(run_id)
     except Exception as exc:  # noqa: BLE001 失败落 run，前端能看到失败阶段
         logger.exception(f"workflow compose {run_id} failed")
         failed_plan = (spec.get("director_plan") or {})
@@ -639,6 +689,11 @@ def _compose_worker(run_id: str, spec: dict) -> None:
         finish_run(run_id, FAILED,
                    result={"director_plan": failed_plan} if failed_plan else {},
                    error=str(exc)[:800])
+    finally:
+        # 2026-10-26：worker 收口后清除取消标志与 LLM 取消钩子，避免下一个
+        # run 复用到本 run 的残留状态。
+        _clear_cancel(run_id)
+        _lp.set_cancel_check(None)
 
 
 def _director_update_node(run_id: str, project_id: str, plan: dict, node_id: str,
