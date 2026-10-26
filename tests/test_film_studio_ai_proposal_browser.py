@@ -536,7 +536,7 @@ def test_ai_director_renders_streamed_tokens_before_final_proposal_without_writi
                 page.locator(
                     '#fs-proposal-panel[data-react-ai-proposal="true"]'
                 ).wait_for(state="visible", timeout=10000)
-                assert page.locator("#fs-proposal-summary").inner_text() == proposal["summary"]
+                assert page.locator('#fs-proposal-panel[data-react-ai-proposal="true"] #fs-proposal-summary').inner_text() == proposal["summary"]
                 assert fd.read_project_film(project_id)["rev"] == before["rev"]
                 assert film_path.read_bytes() == original_bytes
                 assert apply_requests == []
