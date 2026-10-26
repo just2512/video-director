@@ -68,53 +68,7 @@ const resolveReactClipGesturePreview = (
   const gesture = state.timelineGestureContext;
   if (!gesture || gesture.pointerId !== event.pointerId) return;
   const film = timelineRecord(state.film);
-  const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
-  const tracks:FilmTimelineMoveTrackSnapshot[] = rawTracks.map(rawTrack => {
-    const track = timelineRecord(rawTrack);
-    const rawClips = Array.isArray(track.clips) ? track.clips : [];
-    return {
-      id:String(track.id ?? ""),
-      attrs:timelineRecord(track.attrs),
-      clips:rawClips.map(rawClip => {
-        const clip = timelineRecord(rawClip);
-        return {
-          id:String(clip.id ?? ""),
-          at:clip.at,
-          end:clip.end,
-          attrs:timelineRecord(clip.attrs),
-        };
-      }),
-    };
-  });
-  let excludedIds:string[] = [gesture.id];
-  if (gesture.mode === "move") excludedIds = gesture.members.map(member => member.id);
-  else if (gesture.mode === "roll") excludedIds = [gesture.leftClipId,gesture.rightClipId].filter((id): id is string => !!id);
-  else if (gesture.mode === "slide") {
-    excludedIds = [gesture.leftClipId,gesture.centerClipId,gesture.rightClipId].filter((id): id is string => !!id);
-  }
-  const selectedIds = new Set(excludedIds);
-  const selectedClipStartIsPlayhead = excludedIds.some(id => {
-    for (const track of tracks) {
-      const clip = (track.clips || []).find(item => item.id === id);
-      if (!clip) continue;
-      const at = Number(clip.at);
-      return Number.isFinite(at) && Math.abs(filmTimelineMath.secondsToPixels(
-        at-state.playhead,state.pixelsPerSecond
-      )) <= 0.5;
-    }
-    return false;
-  });
-  const candidates:FilmTimelineSnapCandidate[] = [{at:0,kind:"片头"}];
-  if (!selectedClipStartIsPlayhead) candidates.push({at:state.playhead,kind:"播放头"});
-  for (const track of tracks) {
-    for (const clip of track.clips || []) {
-      if (selectedIds.has(clip.id)) continue;
-      const at = Number(clip.at);
-      if (Number.isFinite(at)) candidates.push({at,kind:"片段入点"});
-      const end = Number(clip.end);
-      if (Number.isFinite(end)) candidates.push({at:end,kind:"片段出点"});
-    }
-  }
+  const {tracks,candidates} = reactMoveGestureSnapshot(event,state,gesture);
   const rawFps = Number(film.fps);
   const frameRate = Number.isFinite(rawFps) && rawFps > 0
     ? Math.max(1,Math.min(120,rawFps)) : 30;
@@ -267,6 +221,89 @@ type TimelineRecord = Record<string, unknown>;
 
 const timelineRecord = (value: unknown): TimelineRecord =>
   value && typeof value === "object" && !Array.isArray(value) ? value as TimelineRecord : {};
+
+type ReactMoveGestureSnapshot = {
+  film: unknown;
+  playhead: number;
+  pixelsPerSecond: number;
+  signature: string;
+  tracks: FilmTimelineMoveTrackSnapshot[];
+  candidates: FilmTimelineSnapCandidate[];
+};
+
+// Both the React drop-target validator and move-preview resolver run for the
+// same native pointer event. Share this read-only snapshot so large timelines
+// are cloned and scanned for snap points once per event, not twice.
+const reactMoveGestureSnapshots = new WeakMap<object, ReactMoveGestureSnapshot>();
+
+const reactMoveGestureSnapshot = (
+  event: object,
+  state: FilmStudioStoreSnapshot,
+  gesture: NonNullable<FilmStudioStoreSnapshot["timelineGestureContext"]>,
+): ReactMoveGestureSnapshot => {
+  const excludedIds = gesture.mode === "move"
+    ? gesture.members.map(member => member.id)
+    : gesture.mode === "roll"
+      ? [gesture.leftClipId,gesture.rightClipId].filter((id): id is string => !!id)
+      : gesture.mode === "slide"
+        ? [gesture.leftClipId,gesture.centerClipId,gesture.rightClipId].filter((id): id is string => !!id)
+        : [gesture.id];
+  const signature = gesture.mode + "\u001f" + gesture.id + "\u001f" + excludedIds.join("\u001e");
+  const cached = reactMoveGestureSnapshots.get(event);
+  if (cached && cached.film === state.film && cached.playhead === state.playhead &&
+      cached.pixelsPerSecond === state.pixelsPerSecond && cached.signature === signature) {
+    return cached;
+  }
+
+  const film = timelineRecord(state.film);
+  const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
+  const tracks:FilmTimelineMoveTrackSnapshot[] = rawTracks.map(rawTrack => {
+    const track = timelineRecord(rawTrack);
+    const rawClips = Array.isArray(track.clips) ? track.clips : [];
+    return {
+      id:String(track.id ?? ""),
+      attrs:timelineRecord(track.attrs),
+      clips:rawClips.map(rawClip => {
+        const clip = timelineRecord(rawClip);
+        return {
+          id:String(clip.id ?? ""),
+          at:clip.at,
+          end:clip.end,
+          attrs:timelineRecord(clip.attrs),
+        };
+      }),
+    };
+  });
+
+  const selectedIds = new Set(excludedIds);
+  const selectedClipStartIsPlayhead = excludedIds.some(id => {
+    for (const track of tracks) {
+      const clip = (track.clips || []).find(item => item.id === id);
+      if (!clip) continue;
+      const at = Number(clip.at);
+      return Number.isFinite(at) && Math.abs(filmTimelineMath.secondsToPixels(
+        at-state.playhead,state.pixelsPerSecond
+      )) <= 0.5;
+    }
+    return false;
+  });
+  const candidates:FilmTimelineSnapCandidate[] = [{at:0,kind:"片头"}];
+  if (!selectedClipStartIsPlayhead) candidates.push({at:state.playhead,kind:"播放头"});
+  for (const track of tracks) {
+    for (const clip of track.clips || []) {
+      if (selectedIds.has(clip.id)) continue;
+      const at = Number(clip.at);
+      if (Number.isFinite(at)) candidates.push({at,kind:"片段入点"});
+      const end = Number(clip.end);
+      if (Number.isFinite(end)) candidates.push({at:end,kind:"片段出点"});
+    }
+  }
+  const snapshot = {film:state.film,playhead:state.playhead,
+    pixelsPerSecond:state.pixelsPerSecond,signature,tracks,candidates};
+  reactMoveGestureSnapshots.set(event,snapshot);
+  return snapshot;
+};
+
 
 const timelineKeyframeMarks = (
   tag: string,
@@ -1785,25 +1822,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
 
     const scroll = document.getElementById("fs-timeline-scroll");
     if (!scroll) return;
-    const film = timelineRecord(state.film);
-    const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
-    const tracks:FilmTimelineMoveTrackSnapshot[] = rawTracks.map(rawTrack => {
-      const track = timelineRecord(rawTrack);
-      const rawClips = Array.isArray(track.clips) ? track.clips : [];
-      return {
-        id:String(track.id ?? ""),
-        attrs:timelineRecord(track.attrs),
-        clips:rawClips.map(rawClip => {
-          const clip = timelineRecord(rawClip);
-          return {
-            id:String(clip.id ?? ""),
-            at:clip.at,
-            end:clip.end,
-            attrs:timelineRecord(clip.attrs),
-          };
-        }),
-      };
-    });
+    const {tracks,candidates} = reactMoveGestureSnapshot(event,state,gesture);
 
     const element = document.elementFromPoint(event.clientX,event.clientY);
     const row = element instanceof Element ? element.closest(".fs-track") : null;
@@ -1815,24 +1834,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     let invalidTargetMessage:string | undefined;
 
     if (hasTargetTrack) {
-      const selectedIds = new Set(gesture.members.map(member => member.id));
-      const selectedClipStartIsPlayhead = gesture.members.some(member =>
-        Math.abs(filmTimelineMath.secondsToPixels(
-          member.originalAt-state.playhead,state.pixelsPerSecond
-        )) <= 0.5
-      );
-      const candidates:FilmTimelineSnapCandidate[] = [{at:0,kind:"片头"}];
-      if (!selectedClipStartIsPlayhead) candidates.push({at:state.playhead,kind:"播放头"});
-      for (const track of tracks) {
-        for (const clip of track.clips || []) {
-          if (selectedIds.has(clip.id)) continue;
-          const at = Number(clip.at);
-          if (Number.isFinite(at)) candidates.push({at,kind:"片段入点"});
-          const end = Number(clip.end);
-          if (Number.isFinite(end)) candidates.push({at:end,kind:"片段出点"});
-        }
-      }
-      const rawFps = Number(film.fps);
+      const rawFps = Number(timelineRecord(state.film).fps);
+
       const frameRate = Number.isFinite(rawFps) && rawFps > 0
         ? Math.max(1,Math.min(120,rawFps)) : 30;
       const minimumStart = gesture.members.reduce(

@@ -127,6 +127,19 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "updateReactGestureTarget(pointerEvent)" in component
     assert "if(d.mode==='move'&&gestureDomRefs){" in legacy
 
+def test_react_move_target_and_preview_share_one_pointer_event_snapshot():
+    """Hit testing and preview use one immutable read of tracks/snap points per pointer event."""
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+
+    assert "const reactMoveGestureSnapshots = new WeakMap<object, ReactMoveGestureSnapshot>();" in component
+    assert "const reactMoveGestureSnapshot = (" in component
+    assert component.count("reactMoveGestureSnapshot(event,state,gesture)") == 2
+    assert "cached.film === state.film" in component
+    assert "cached.signature === signature" in component
+    assert "filmTimelineGestureController.validateMoveTarget(input)" in component
+
+
 def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates():
     """React calculates move/trim/roll/slide/slip previews; old JS only remains fallback."""
     root = Path(__file__).resolve().parents[1]
