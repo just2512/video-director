@@ -1069,7 +1069,10 @@ def test_trim_edge_extension_is_bounded_by_real_media_duration(tmp_path, monkeyp
     start_project = "film-trim-source-start"
     start_root = storage / start_project
     start_root.mkdir(parents=True)
-    start_markup = SAMPLE.replace("../assets/b.mp4#t=0,5", "../assets/b.mp4#t=2,7")
+    start_markup = SAMPLE.replace(
+        '<video id="clip-a" src="../assets/a.mp4#t=2,12" at="0" speed="2" volume="1"></video>',
+        '<video id="clip-a" src="../assets/a.mp4#t=2,12" at="20" speed="2" volume="1"></video>',
+    ).replace("../assets/b.mp4#t=0,5", "../assets/b.mp4#t=2,7")
     (start_root / fd.FILM_NAME).write_text(start_markup, encoding="utf-8")
     start_before = fd.read_project_film(start_project)
     start_extended = fd.edit_project_film(
