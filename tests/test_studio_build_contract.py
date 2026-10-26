@@ -127,6 +127,26 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "updateReactGestureTarget(pointerEvent)" in component
     assert "if(d.mode==='move'&&gestureDomRefs){" in legacy
 
+def test_react_playhead_updates_are_isolated_from_track_tree_rendering():
+    """High-frequency scrub/playback updates only rerender the ruler and playhead leaf nodes."""
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    timeline_surface = component.split("const TimelineSurface: React.FC", 1)[1].split("const StudioAssets", 1)[0]
+    scrub_ruler = component.split("const TimelineScrubRuler: React.FC", 1)[1].split("const TimelineSurface: React.FC", 1)[0]
+    playhead_line = component.split("const TimelinePlayheadLine: React.FC", 1)[1].split("const TimelineScrubRuler: React.FC", 1)[0]
+
+    assert 'useFilmStoreField("playhead")' not in timeline_surface
+    assert 'useFilmStoreField("duration")' not in timeline_surface
+    assert 'useFilmStoreField("playhead")' in scrub_ruler
+    assert 'useFilmStoreField("duration")' in scrub_ruler
+    assert 'useFilmStoreField("playhead")' in playhead_line
+    assert '<TimelineScrubRuler model={model} />' in timeline_surface
+    assert '<TimelinePlayheadLine pixelsPerSecond={model.pixelsPerSecond} />' in timeline_surface
+    assert 'data-react-scrub-ready="true"' in scrub_ruler
+    assert 'Math.hypot(dx, dy) < 4' in scrub_ruler
+    assert 'onPointerCancel={event => {' in scrub_ruler
+
+
 def test_react_move_target_and_preview_share_one_pointer_event_snapshot():
     """Hit testing and preview use one immutable read of tracks/snap points per pointer event."""
     root = Path(__file__).resolve().parents[1]

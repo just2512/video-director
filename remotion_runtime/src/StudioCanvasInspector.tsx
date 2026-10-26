@@ -1582,6 +1582,105 @@ const VolumeEnvelopeCanvas: React.FC<VolumeEnvelopeCanvasProps> = ({
   );
 };
 
+const TimelinePlayheadLine: React.FC<{pixelsPerSecond:number}> = ({pixelsPerSecond}) => {
+  const playhead=useFilmStoreField("playhead");
+  return <div className="fs-playhead" id="fs-playhead-line"
+    style={{left:132 + filmTimelineMath.clipLeft(playhead,pixelsPerSecond)}} />;
+};
+
+const TimelineScrubRuler: React.FC<{model:FilmTimelineSurfaceModel}> = ({model}) => {
+  const playhead=useFilmStoreField("playhead");
+  const duration=useFilmStoreField("duration");
+  const activeScrubPointerId = useRef<number | null>(null);
+  const pendingScrubPointer = useRef<{
+    pointerId: number; startX: number; startY: number; startedOnTick: boolean; tickAt: number | null;
+  } | null>(null);
+  const seekFromRulerPointer = (clientX: number, body: HTMLDivElement) => {
+    const rect = body.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const seconds = Math.max(0, Math.min(duration, localX / Math.max(0.000001, model.pixelsPerSecond)));
+    window.filmStudioSeek?.(seconds);
+  };
+  return (
+    <div className="fs-ruler" style={{width:model.totalWidth}}>
+      <div className="fs-ruler-head">时码</div>
+      <div
+        className="fs-ruler-body"
+        id="fs-ruler-body"
+        data-react-scrub-ready="true"
+        role="slider"
+        aria-label="时间尺播放头位置；点击刻度跳转，拖动或使用方向键定位"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={Math.min(duration, Math.max(0, playhead))}
+        aria-valuetext={Math.min(duration, Math.max(0, playhead)).toFixed(2) + " 秒"}
+        tabIndex={0}
+        style={{width:model.laneWidth}}
+        onKeyDown={event => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          event.stopPropagation();
+          const step = event.shiftKey ? 0.1 : 1;
+          window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
+        }}
+        onPointerDown={event => {
+          if (event.button !== 0) return;
+          const target = event.target;
+          const tick = target instanceof Element ? target.closest(".fs-ruler-mark") : null;
+          const rawTickAt = tick ? Number(tick.getAttribute("data-at")) : NaN;
+          const tickAt = Number.isFinite(rawTickAt) ? rawTickAt : null;
+          pendingScrubPointer.current = {
+            pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
+            startedOnTick:!!tick,tickAt
+          };
+          // Capture once, at the owning surface. Clicks on marks are resolved by
+          // pointerup using data-at; a real drag is activated only after 4px.
+          event.currentTarget.setPointerCapture(event.pointerId);
+          if (!tick) seekFromRulerPointer(event.clientX, event.currentTarget);
+        }}
+        onPointerMove={event => {
+          const pending = pendingScrubPointer.current;
+          if (!pending || pending.pointerId !== event.pointerId) return;
+          if (activeScrubPointerId.current !== event.pointerId) {
+            const dx = event.clientX - pending.startX;
+            const dy = event.clientY - pending.startY;
+            if (Math.hypot(dx, dy) < 4) return;
+            activeScrubPointerId.current = event.pointerId;
+          }
+          if (activeScrubPointerId.current === event.pointerId) {
+            seekFromRulerPointer(event.clientX, event.currentTarget);
+          }
+        }}
+        onPointerUp={event => {
+          const pending = pendingScrubPointer.current;
+          if (pending?.pointerId === event.pointerId) {
+            // Manual tick resolution avoids depending on synthetic child click after
+            // pointer capture, and prevents a drag started on a tick from snapping back.
+            if (activeScrubPointerId.current !== event.pointerId &&
+                pending.startedOnTick && pending.tickAt !== null) {
+              window.filmStudioSeek?.(pending.tickAt);
+            }
+            pendingScrubPointer.current = null;
+          }
+          if (activeScrubPointerId.current !== event.pointerId) return;
+          activeScrubPointerId.current = null;
+        }}
+        onPointerCancel={event => {
+          if (pendingScrubPointer.current?.pointerId === event.pointerId) {
+            pendingScrubPointer.current = null;
+          }
+          if (activeScrubPointerId.current !== event.pointerId) return;
+          activeScrubPointerId.current = null;
+        }}
+      >
+        {model.ticks.map((tick) => (
+          <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at}>{tick.label}</div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) => {
   const gesturePreview = useFilmStoreField("timelineGesturePreview");
   const snapGuide = useFilmStoreField("timelineSnapGuide");
@@ -1593,8 +1692,6 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   const slideMode = useFilmStoreField("slideMode");
   const slipMode = useFilmStoreField("slipMode");
   const selectedIdsVersion=useFilmStoreField("selectedIdsVersion");
-  const playhead=useFilmStoreField("playhead");
-  const duration=useFilmStoreField("duration");
   const selectedIds=filmStore.getSnapshot().selectedIds;
   // The version is the scalar subscription token; the array proxy is stable by design.
   void selectedIdsVersion;
@@ -1904,16 +2001,6 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     dragPointerSample.current = null;
     stopReactDragAutoScroll();
   }, [stopReactDragAutoScroll]);
-  const activeScrubPointerId = useRef<number | null>(null);
-  const pendingScrubPointer = useRef<{
-    pointerId: number; startX: number; startY: number; startedOnTick: boolean; tickAt: number | null;
-  } | null>(null);
-  const seekFromRulerPointer = (clientX: number, body: HTMLDivElement) => {
-    const rect = body.getBoundingClientRect();
-    const localX = clientX - rect.left;
-    const seconds = Math.max(0, Math.min(duration, localX / Math.max(0.000001, model.pixelsPerSecond)));
-    window.filmStudioSeek?.(seconds);
-  };
   useLayoutEffect(() => {
     const ownsPointer = (pointerId:number) => activePointerId.current === pointerId;
     window.filmStudioOwnsClipGesturePointer = ownsPointer;
@@ -1964,82 +2051,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     data-slide-mode={slideMode ? "true" : "false"}
     data-slip-mode={slipMode ? "true" : "false"}
     style={{width:model.totalWidth,position:"relative"}}>
-    <div className="fs-ruler" style={{width:model.totalWidth}}>
-      <div className="fs-ruler-head">时码</div>
-      <div
-        className="fs-ruler-body"
-        id="fs-ruler-body"
-        data-react-scrub-ready="true"
-        role="slider"
-        aria-label="时间尺播放头位置；点击刻度跳转，拖动或使用方向键定位"
-        aria-valuemin={0}
-        aria-valuemax={duration}
-        aria-valuenow={Math.min(duration, Math.max(0, playhead))}
-        aria-valuetext={Math.min(duration, Math.max(0, playhead)).toFixed(2) + " 秒"}
-        tabIndex={0}
-        style={{width:model.laneWidth}}
-        onKeyDown={event => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-          event.preventDefault();
-          event.stopPropagation();
-          const step = event.shiftKey ? 0.1 : 1;
-          window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
-        }}
-        onPointerDown={event => {
-          if (event.button !== 0) return;
-          const target = event.target;
-          const tick = target instanceof Element ? target.closest(".fs-ruler-mark") : null;
-          const rawTickAt = tick ? Number(tick.getAttribute("data-at")) : NaN;
-          const tickAt = Number.isFinite(rawTickAt) ? rawTickAt : null;
-          pendingScrubPointer.current = {
-            pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
-            startedOnTick:!!tick,tickAt
-          };
-          // Capture once, at the owning surface. Clicks on marks are resolved by
-          // pointerup using data-at; a real drag is activated only after 4px.
-          event.currentTarget.setPointerCapture(event.pointerId);
-          if (!tick) seekFromRulerPointer(event.clientX, event.currentTarget);
-        }}
-        onPointerMove={event => {
-          const pending = pendingScrubPointer.current;
-          if (!pending || pending.pointerId !== event.pointerId) return;
-          if (activeScrubPointerId.current !== event.pointerId) {
-            const dx = event.clientX - pending.startX;
-            const dy = event.clientY - pending.startY;
-            if (Math.hypot(dx, dy) < 4) return;
-            activeScrubPointerId.current = event.pointerId;
-          }
-          if (activeScrubPointerId.current === event.pointerId) {
-            seekFromRulerPointer(event.clientX, event.currentTarget);
-          }
-        }}
-        onPointerUp={event => {
-          const pending = pendingScrubPointer.current;
-          if (pending?.pointerId === event.pointerId) {
-            // Manual tick resolution avoids depending on synthetic child click after
-            // pointer capture, and prevents a drag started on a tick from snapping back.
-            if (activeScrubPointerId.current !== event.pointerId &&
-                pending.startedOnTick && pending.tickAt !== null) {
-              window.filmStudioSeek?.(pending.tickAt);
-            }
-            pendingScrubPointer.current = null;
-          }
-          if (activeScrubPointerId.current !== event.pointerId) return;
-          activeScrubPointerId.current = null;
-        }}
-        onPointerCancel={event => {
-          if (pendingScrubPointer.current?.pointerId === event.pointerId) {
-            pendingScrubPointer.current = null;
-          }
-          if (activeScrubPointerId.current !== event.pointerId) return;
-          activeScrubPointerId.current = null;
-        }}
-      >
-        {model.ticks.map((tick) => (
-          <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at}>{tick.label}</div>
-        ))}
-      </div>
-    </div>
+    <TimelineScrubRuler model={model} />
     {candidateTrackRows.map((row) => {
       if (row.kind === "added") return renderProposalTrack(row.item);
       const track = row.track;
@@ -2335,8 +2347,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     {snapGuide ? <div id="fs-snap-guide" className="fs-snap-guide"
       style={{left:132 + filmTimelineMath.clipLeft(snapGuide.at,model.pixelsPerSecond)}}
       title={snapGuide.title} data-snap-kind={snapGuide.kind} /> : null}
-    <div className="fs-playhead" id="fs-playhead-line"
-      style={{left:132 + filmTimelineMath.clipLeft(playhead,model.pixelsPerSecond)}} />
+    <TimelinePlayheadLine pixelsPerSecond={model.pixelsPerSecond} />
   </div>
   );
 };
