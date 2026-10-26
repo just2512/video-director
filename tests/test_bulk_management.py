@@ -147,22 +147,20 @@ def test_running_series_episode_run_protects_generated_project_from_delete(
     run = workflow_run.get_run(run_id)
     assert run["project_id"] == pid, "镜像 run 缺 project_id（mid-render 删除保护失效）"
 
-    # 渲染中（run RUNNING + job running）：delete 必须被拒
+    # 2026-10-26 用户裁决契约翻转：渲染中也可删（delete 先自动取消再删，
+    # 无条件化）。镜像 run 挂 pid 的价值保留（取消与状态可见性依赖它）。
     config.init_project_dirs(config.project_dir(pid))
     store.create_project(pid, "系列单集", {})
     from video_director import project_manager as pm
-    with pytest.raises(pm.ProjectActionError) as exc:
-        pm.delete(pid)
-    assert exc.value.code == "ACTIVE_JOB"
-
-    # 真实生命周期结束（job done + run COMPLETED）→ 删除放行
-    vd_studio._set_job(job_ids[0], "done", result={"project_id": pid})
-    workflow_run.finish_run(run_id, workflow_run.COMPLETED, result={})
-    assert pm.delete(pid)["ok"] is True
+    r = pm.delete(pid)
+    assert r["ok"] is True
+    assert store.get_project(pid) is None
 
 
 def test_sync_confirm_render_registers_running_workflow_run(isolated_storage):
-    """§四 /api/confirm 同步渲染也必须登记 RUNNING run（渲染中删除保护）。"""
+    """§四 /api/confirm 同步渲染必须登记 RUNNING run。
+    2026-10-26 用户裁决契约翻转：渲染中也不再 REJECT 删除——delete 内部
+    先自动取消（≤3s 等收口）再删，项目删除无条件化。"""
     pid = "web-confirm-run"
     base = config.project_dir(pid)
     config.init_project_dirs(base)
@@ -175,15 +173,11 @@ def test_sync_confirm_render_registers_running_workflow_run(isolated_storage):
     assert run["status"] == workflow_run.RUNNING
     assert run["project_id"] == pid
 
-    # 渲染中：删除被拒（run 是 active_job 事实源）
+    # 渲染中：删除不再被拒——先自动取消再删（用户裁决：任何状态无条件可删）
     import video_director.project_manager as pm
-    with pytest.raises(pm.ProjectActionError) as exc:
-        pm.delete(pid)
-    assert exc.value.code == "ACTIVE_JOB"
-
-    # 渲染结束：run COMPLETED → 不再锁项目
-    workflow_run.finish_run(run_id, workflow_run.COMPLETED, result={})
-    assert pm.delete(pid)["ok"] is True
+    r = pm.delete(pid)
+    assert r["ok"] is True
+    assert store.get_project(pid) is None
 
 
 def test_frontend_bulk_contracts_and_ci_coverage():

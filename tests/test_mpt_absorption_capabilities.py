@@ -72,11 +72,15 @@ class TestStockProviders:
 
 class TestVoiceProviders:
     def test_tts_provider_registry(self):
-        """§13：TTSProvider Registry——edge-tts 无 key 可用，其余需 key。"""
+        """§13 TTS Registry（2026-10-26 用户裁决后）：只保留三个真实 provider
+        ——edge-tts 免 key；azure/elevenlabs 需 key 且有真实 REST 执行器；
+        gemini/siliconflow/kokoro 已删除（无真实执行器不挂假名）。"""
         provs = {p["id"]: p for p in voice.list_providers()}
         assert provs["edge-tts"]["requires_key"] is False
         assert provs["edge-tts"]["available"] is True
-        assert provs["gemini"]["requires_key"] is True
+        assert provs["azure"]["requires_key"] is True
+        assert provs["elevenlabs"]["requires_key"] is True
+        assert "gemini" not in provs and "siliconflow" not in provs and "kokoro" not in provs
 
     def test_voice_profile_fields(self):
         """§14：VoiceProfile 含 provider/voiceId/name/language/gender/style。"""
