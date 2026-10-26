@@ -149,6 +149,25 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert page.locator("#editor-project-switch-home #editor-project-switch-row").count() == 0
                 assert page.locator("#editor-project").count() == 1
 
+                # Moving the shared selector must not weaken draft protection:
+                # a changed Inspector value blocks switching and remains intact.
+                page.locator("#fs-timeline .fs-clip[data-clip]").first.click()
+                title_input = page.locator("#fs-field-title")
+                title_input.wait_for(state="visible")
+                original_title = title_input.input_value()
+                draft_title = original_title + " 未提交草稿"
+                title_input.fill(draft_title)
+                page.locator("#editor-project").select_option(target_project_id)
+                page.wait_for_function(
+                    "(pid) => document.querySelector('#editor-project').value === pid",
+                    arg=project_id,
+                    timeout=10000,
+                )
+                assert page.evaluate("() => window.filmStudioStore.getSnapshot().projectId") == project_id
+                assert "未提交的属性草稿" in page.locator("#film-studio-alert").inner_text()
+                assert title_input.input_value() == draft_title
+                title_input.fill(original_title)
+
                 page.locator("#editor-project").select_option(target_project_id)
                 page.wait_for_function(
                     "(pid) => window.filmStudioStore?.getSnapshot()?.projectId === pid",
