@@ -121,6 +121,62 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 before_text = film_path.read_text(encoding="utf-8")
                 before = fd.read_project_film(project_id)
                 before_revision = before["rev"]
+                # Exercise the extracted React ruler in Chromium: keyboard, tick click,
+                # and pointer drag must update only playhead UI, never film revision/content.
+                ruler = page.locator("#fs-timeline #fs-ruler-body")
+                ruler.wait_for(state="visible")
+                ruler_state = page.evaluate(
+                    """() => {
+                      const state=window.filmStudioStore.getSnapshot();
+                      return {playhead:Number(state.playhead),duration:Number(state.duration),
+                        revision:state.revision,pixelsPerSecond:Number(state.pixelsPerSecond)};
+                    }"""
+                )
+                ruler_start = float(ruler_state["playhead"])
+                ruler_duration = float(ruler_state["duration"])
+                ruler_revision = ruler_state["revision"]
+                ruler_scale = float(ruler_state["pixelsPerSecond"])
+                assert abs(ruler_start) < 0.001, ruler_state
+                assert ruler_duration >= 5 and ruler_scale > 0, ruler_state
+                ruler_edits_before = len(film_edit_requests)
+
+                def wait_for_ruler_seek(expected: float) -> None:
+                    page.wait_for_function(
+                        """expected => {
+                          const state=window.filmStudioStore?.getSnapshot();
+                          const ruler=document.querySelector('#fs-timeline #fs-ruler-body');
+                          return !!state && Math.abs(Number(state.playhead)-expected)<0.001 &&
+                            Math.abs(Number(ruler?.getAttribute('aria-valuenow'))-expected)<0.001;
+                        }""",
+                        arg=expected,
+                        timeout=5000,
+                    )
+
+                ruler.focus()
+                page.keyboard.press("ArrowRight")
+                wait_for_ruler_seek(1.0)
+                page.keyboard.press("ArrowLeft")
+                wait_for_ruler_seek(0.0)
+                ruler.locator('.fs-ruler-mark[data-at="5"]').click()
+                wait_for_ruler_seek(5.0)
+
+                ruler_bounds = ruler.bounding_box()
+                assert ruler_bounds
+                ruler_y = ruler_bounds["y"] + ruler_bounds["height"] / 2
+                page.mouse.move(ruler_bounds["x"] + 1, ruler_y)
+                page.mouse.down()
+                page.mouse.move(ruler_bounds["x"] + 5 * ruler_scale, ruler_y, steps=8)
+                wait_for_ruler_seek(5.0)
+                page.mouse.up()
+                wait_for_ruler_seek(5.0)
+                ruler.locator('.fs-ruler-mark[data-at="0"]').click()
+                wait_for_ruler_seek(0.0)
+
+                assert page.evaluate("window.filmStudioStore.getSnapshot().revision") == ruler_revision
+                assert fd.read_project_film(project_id)["rev"] == before_revision
+                assert film_path.read_text(encoding="utf-8") == before_text
+                assert len(film_edit_requests) == ruler_edits_before, film_edit_requests
+
 
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').click(
