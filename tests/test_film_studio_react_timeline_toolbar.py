@@ -184,6 +184,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "resolveTimelineRoll(d,deltaSeconds,8)" in studio
     assert "resolveTimelineSlide(d,deltaSeconds,8)" in studio
     controller_source = (root / "remotion_runtime" / "src" / "film-timeline-gesture-controller.ts").read_text(encoding="utf-8")
+    assert "const resolveTrimGesture = (input: FilmTimelineTrimGestureInput)" in controller_source
     assert "const buildMovePreview = (input: FilmTimelineMoveControllerInput): FilmTimelineMovePreviewResult =>" in controller_source
     assert "operations: buildMoveOperationsForResolution(input, resolution)" in controller_source
     assert "moveControllerResult=moveController.buildMovePreview({" in studio
