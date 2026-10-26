@@ -1,7 +1,12 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import type {FilmOperation} from "./film-timeline-contract";
-import {filmTimelineMath, type FilmTimelineMathBridge} from "./film-timeline-math";
-import {filmTimelineGestureController} from "./film-timeline-gesture-controller";
+import {filmTimelineMath, type FilmTimelineMathBridge, type FilmTimelineSnapCandidate} from "./film-timeline-math";
+import {
+  filmTimelineGestureController,
+  type FilmTimelineMoveControllerInput,
+  type FilmTimelineMoveGestureSnapshot,
+  type FilmTimelineMoveTrackSnapshot,
+} from "./film-timeline-gesture-controller";
 import {
   filmStore,
   type FilmStudioAssetMode,
@@ -1553,6 +1558,123 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     else stopReactDragAutoScroll();
   }, [startReactDragAutoScroll, stopReactDragAutoScroll]);
 
+  const updateReactGestureTarget = useCallback((event:PointerEvent) => {
+    const state = filmStore.getSnapshot();
+    const gesture = state.timelineGestureContext;
+    if (!gesture || gesture.mode !== "move" || gesture.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX-gesture.startX;
+    const deltaY = event.clientY-gesture.startY;
+    if (!gesture.active && Math.hypot(deltaX,deltaY) < 5) return;
+
+    const scroll = document.getElementById("fs-timeline-scroll");
+    if (!scroll) return;
+    const film = timelineRecord(state.film);
+    const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
+    const tracks:FilmTimelineMoveTrackSnapshot[] = rawTracks.map(rawTrack => {
+      const track = timelineRecord(rawTrack);
+      const rawClips = Array.isArray(track.clips) ? track.clips : [];
+      return {
+        id:String(track.id ?? ""),
+        attrs:timelineRecord(track.attrs),
+        clips:rawClips.map(rawClip => {
+          const clip = timelineRecord(rawClip);
+          return {
+            id:String(clip.id ?? ""),
+            at:clip.at,
+            end:clip.end,
+            attrs:timelineRecord(clip.attrs),
+          };
+        }),
+      };
+    });
+
+    const element = document.elementFromPoint(event.clientX,event.clientY);
+    const row = element instanceof Element ? element.closest(".fs-track") : null;
+    const rowTrackId = row?.getAttribute("data-track") || "";
+    const hasTargetTrack = !!row && !!rowTrackId && gesture.trackOrder.includes(rowTrackId);
+    const targetTrackId = hasTargetTrack
+      ? rowTrackId
+      : String(gesture.trackId || gesture.members[0]?.trackId || "");
+    let invalidTargetMessage:string | undefined;
+
+    if (hasTargetTrack) {
+      const selectedIds = new Set(gesture.members.map(member => member.id));
+      const selectedClipStartIsPlayhead = gesture.members.some(member =>
+        Math.abs(filmTimelineMath.secondsToPixels(
+          member.originalAt-state.playhead,state.pixelsPerSecond
+        )) <= 0.5
+      );
+      const candidates:FilmTimelineSnapCandidate[] = [{at:0,kind:"片头"}];
+      if (!selectedClipStartIsPlayhead) candidates.push({at:state.playhead,kind:"播放头"});
+      for (const track of tracks) {
+        for (const clip of track.clips || []) {
+          if (selectedIds.has(clip.id)) continue;
+          const at = Number(clip.at);
+          if (Number.isFinite(at)) candidates.push({at,kind:"片段入点"});
+          const end = Number(clip.end);
+          if (Number.isFinite(end)) candidates.push({at:end,kind:"片段出点"});
+        }
+      }
+      const rawFps = Number(film.fps);
+      const frameRate = Number.isFinite(rawFps) && rawFps > 0
+        ? Math.max(1,Math.min(120,rawFps)) : 30;
+      const minimumStart = gesture.members.reduce(
+        (minimum,member) => Math.min(minimum,member.originalAt),Number.POSITIVE_INFINITY
+      );
+      const rawDeltaSeconds = filmTimelineMath.dragDeltaSeconds(
+        event.clientX-gesture.startX,
+        scroll.scrollLeft-gesture.startScrollLeft,
+        state.pixelsPerSecond
+      );
+      const moveGesture:FilmTimelineMoveGestureSnapshot = {
+        members:gesture.members,
+        trackId:gesture.trackId,
+        originalTrackIndex:gesture.originalTrackIndex,
+        trackOrder:gesture.trackOrder,
+        targetTrackId,
+        invalidTargetMessage:gesture.invalidTargetMessage,
+      };
+      const input:FilmTimelineMoveControllerInput = {
+        gesture:moveGesture,
+        tracks,
+        targetTrackId,
+        minimumStart,
+        rawDeltaSeconds,
+        candidates,
+        pixelsPerSecond:state.pixelsPerSecond,
+        thresholdPixels:8,
+        snapEnabled:state.snapEnabled,
+        frameRate,
+      };
+      invalidTargetMessage = filmTimelineGestureController.validateMoveTarget(input) || undefined;
+    } else {
+      invalidTargetMessage = row
+        ? "目标轨道不存在，多选移动已取消。"
+        : "请将片段放置到有效轨道上，多选移动已取消。";
+    }
+
+    const normalizedError = invalidTargetMessage || undefined;
+    const contextChanged = gesture.targetTrackId !== targetTrackId ||
+      gesture.invalidTargetMessage !== normalizedError;
+    if (contextChanged) {
+      filmStore.setField("timelineGestureContext", {
+        ...gesture,
+        targetTrackId,
+        invalidTargetMessage:normalizedError,
+      });
+    }
+    const shouldHighlight = hasTargetTrack &&
+      (targetTrackId !== gesture.trackId || !!normalizedError || contextChanged);
+    const nextDropTarget = shouldHighlight
+      ? {trackId:targetTrackId,invalid:!!normalizedError}
+      : null;
+    const currentDropTarget = state.timelineDropTarget;
+    if (currentDropTarget?.trackId !== nextDropTarget?.trackId ||
+        currentDropTarget?.invalid !== nextDropTarget?.invalid) {
+      filmStore.setField("timelineDropTarget",nextDropTarget);
+    }
+  }, []);
+
   const finishReactDragAutoScroll = useCallback((pointerId:number) => {
     if (dragPointerSample.current?.pointerId === pointerId) dragPointerSample.current = null;
     stopReactDragAutoScroll();
@@ -1786,6 +1908,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               onPointerMove={event => {
                 const pointerEvent=event.nativeEvent;
                 if(activePointerId.current!==pointerEvent.pointerId)return;
+                updateReactGestureTarget(pointerEvent);
                 window.filmStudioMoveClipGesture?.(pointerEvent);
                 updateReactDragAutoScroll(pointerEvent);
               }}

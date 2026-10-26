@@ -2262,7 +2262,7 @@
     if(!d.active)d=updateTimelineGestureContext({active:true})||d;
     // Only plain clip moves can change tracks. Trim/roll/slip/slide gestures
     // must remain bound to their original track even if the pointer crosses rows.
-    if(d.mode==='move'){
+    if(d.mode==='move'&&gestureDomRefs){
       var target=document.elementFromPoint(e.clientX,e.clientY),row=target&&target.closest('.fs-track');
       if(row){
         var nextTrack=row.getAttribute('data-track'),targetError=groupMoveTargetError(d,nextTrack,deltaSeconds);

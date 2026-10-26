@@ -114,3 +114,16 @@ def test_react_timeline_owns_pointer_anchored_zoom_and_legacy_toolbar_delegates(
     legacy_zoom = legacy.split("window.filmStudioZoom=function(direction,anchorClientX){", 1)[1].split("};", 1)[0]
     assert "timeline.zoom(direction,anchorClientX)" in legacy_zoom
 
+def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gated():
+    """React resolves drop rows and validates the drop; legacy hit-testing is fallback-only."""
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    legacy = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+
+    assert "const updateReactGestureTarget = useCallback((event:PointerEvent)" in component
+    assert "document.elementFromPoint(event.clientX,event.clientY)" in component
+    assert "filmTimelineGestureController.validateMoveTarget(input)" in component
+    assert "filmStore.setField(\"timelineGestureContext\"" in component
+    assert "updateReactGestureTarget(pointerEvent)" in component
+    assert "if(d.mode==='move'&&gestureDomRefs){" in legacy
+
