@@ -493,6 +493,27 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 trim_scale = float(page.evaluate("window.filmStudioStore?.getSnapshot()?.pixelsPerSecond || 36"))
                 trim_geometry_before = trim_clip.evaluate("(node) => node.style.width")
                 trim_request_count = len(film_edit_requests)
+                # Capture the exact resolver inputs/results used by the real React-owned pointer gesture.
+                page.evaluate("""() => {
+                  const controller = window.filmStudioTimelineController;
+                  const resolve = controller?.resolveTrimGesture;
+                  if (typeof resolve !== "function") throw new Error("React trim controller is missing");
+                  window.__filmStudioTrimResolverCalls = [];
+                  controller.resolveTrimGesture = input => {
+                    const result = resolve(input);
+                    window.__filmStudioTrimResolverCalls.push({
+                      input: {
+                        edge: input.edge, clipTag: input.clipTag, sourceIn: input.sourceIn,
+                        playbackSpeed: input.playbackSpeed, originalAt: input.originalAt,
+                        originalEnd: input.originalEnd, rawDeltaSeconds: input.rawDeltaSeconds,
+                        pixelsPerSecond: input.pixelsPerSecond, snapEnabled: input.snapEnabled,
+                        frameRate: input.frameRate
+                      },
+                      result: result ? {target: result.resolution.target, operation: result.operation} : null
+                    });
+                    return result;
+                  };
+                }""")
                 tx = trim_box["x"] + trim_box["width"] / 2
                 ty = trim_box["y"] + trim_box["height"] / 2
                 page.mouse.move(tx, ty)
@@ -518,6 +539,11 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     && node?.dataset.reactGesturePreview !== 'true';
                 }""", arg={"id":"clip-b"}, timeout=15000)
                 trim_requests = film_edit_requests[trim_request_count:]
+                resolver_calls = page.evaluate("window.__filmStudioTrimResolverCalls || []")
+                assert resolver_calls, "no TypeScript trim resolver calls reached the real drag"
+                assert resolver_calls[-1]["input"]["clipTag"] == "video", resolver_calls
+                assert abs(float(resolver_calls[-1]["input"]["rawDeltaSeconds"]) - 0.5) < 0.08, resolver_calls
+                assert abs(float(resolver_calls[-1]["result"]["operation"]["end"]) - expected_timeline_end) < 0.001, resolver_calls
                 assert len(trim_requests) == 1, trim_requests
                 trim_ops = trim_requests[0].get("ops") or []
                 assert len(trim_ops) == 1 and trim_ops[0].get("op") == "trim", trim_requests
