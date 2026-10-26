@@ -36,12 +36,15 @@ python run_webui.py
 python -m video_director auto --script 文案.txt --videos 素材目录/
 
 # film.html 智能体工作流（项目已初始化影片文档后）
+# 先读取稳定片段/轨道 ID 与 BASE_REVISION
 python -m video_director film status --project-id PROJECT_ID
 python -m video_director film validate --project-id PROJECT_ID
-python -m video_director film edit --project-id PROJECT_ID --base-revision REV_FROM_STATUS --ops-file ops.json
-python -m video_director film look --project-id PROJECT_ID --revision REV_FROM_STATUS
-python -m video_director film diff --project-id PROJECT_ID
-python -m video_director film render --project-id PROJECT_ID
+python -m video_director film edit --project-id PROJECT_ID --base-revision BASE_REVISION --ops-file ops.json
+# 编辑成功后重新读取 revision；不要复用 BASE_REVISION
+python -m video_director film status --project-id PROJECT_ID
+python -m video_director film look --project-id PROJECT_ID --revision CURRENT_REVISION
+python -m video_director film diff --project-id PROJECT_ID --from-revision BASE_REVISION
+python -m video_director film render --project-id PROJECT_ID --expected-revision CURRENT_REVISION
 ```
 
 外部编程智能体可以直接读取和修改项目内的 `film.html`、`scenes/*.html` 与 `assets/*`；Studio 通过文件监视实时刷新。HTML 镜头如需参与逐帧导出，应实现 `window.film.frame(t)`，并可通过 `window.film.ready` 暴露异步资源就绪状态。执行 `film look` 会生成真实浏览器接触表并反序检查重复时刻的一致性。
@@ -54,7 +57,7 @@ python -m video_director film render --project-id PROJECT_ID
 ]
 ```
 
-先从 `film status` 读取最新 revision 与稳定片段/轨道 ID，再将该 revision 传给 `--base-revision`。编辑成功后重新读取状态；旧 revision 不得复用。`film render` 使用 `--expected-revision` 固定导出版本，返回值中的 `rendered_revision` 才是成片实际对应的版本。
+先从 `film status` 读取最新 revision 与稳定片段/轨道 ID，将该 revision 作为 `--base-revision`。编辑成功后必须再次读取状态：`film look` 应使用新的 `--revision`，`film diff` 使用旧的 `--from-revision` 对比，`film render` 使用新的 `--expected-revision` 固定导出版本。不要把编辑前的 revision 继续用于 look/render。返回值中的 `rendered_revision` 才是成片实际对应的版本。
 
 编程智能体的完整文件协议、`frame(t)` 约定、冲突规则、离线资源边界与验收步骤见 [Film Agent Manual](docs/FILM_AGENT_MANUAL.md)。
 
