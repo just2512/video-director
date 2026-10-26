@@ -1053,6 +1053,8 @@
           stopDragAutoScroll();return;
         }
       }
+      // Reuse the owning pointer ID: onMove validates gesture ownership even
+      // when a timer, rather than a physical pointer event, advances edge scrolling.
       onMove({
         pointerId:S.drag.pointerId,
         clientX:S.dragPointer.clientX,clientY:S.dragPointer.clientY,

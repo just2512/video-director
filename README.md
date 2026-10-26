@@ -38,10 +38,10 @@ python -m video_director auto --script 文案.txt --videos 素材目录/
 # film.html 智能体工作流（项目已初始化影片文档后）
 # 先读取稳定片段/轨道 ID 与 BASE_REVISION
 python -m video_director film status --project-id PROJECT_ID
-python -m video_director film validate --project-id PROJECT_ID
 python -m video_director film edit --project-id PROJECT_ID --base-revision BASE_REVISION --ops-file ops.json
 # 编辑成功后重新读取 revision；不要复用 BASE_REVISION
 python -m video_director film status --project-id PROJECT_ID
+python -m video_director film validate --project-id PROJECT_ID
 python -m video_director film look --project-id PROJECT_ID --revision CURRENT_REVISION
 python -m video_director film diff --project-id PROJECT_ID --from-revision BASE_REVISION
 python -m video_director film render --project-id PROJECT_ID --expected-revision CURRENT_REVISION
