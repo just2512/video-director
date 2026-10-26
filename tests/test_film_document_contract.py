@@ -188,6 +188,36 @@ def test_overlap_failure_does_not_mutate_original_document():
     assert fd.serialize_film(doc)==before
 
 
+def test_cross_track_move_overlap_is_rejected_before_mutating_original_document():
+    doc = fd.parse_film(SAMPLE)
+    doc["tracks"].append({
+        "id": "video-secondary",
+        "attrs": {"id": "video-secondary", "data-label": "辅助画面"},
+        "clips": [{
+            "id": "clip-target",
+            "tag": "video",
+            "attrs": {
+                "id": "clip-target",
+                "src": "../assets/target.mp4#t=0,2",
+                "at": "8",
+            },
+        }],
+    })
+    fd._validate_doc(doc)
+    before = fd.serialize_film(doc)
+
+    # clip-a spans 0–5 seconds with its 2× playback speed; placing it at 7
+    # seconds would overlap the destination's existing 8–10 second clip.
+    with pytest.raises(fd.FilmError, match="重叠"):
+        fd.apply_ops(doc, [{
+            "op": "move",
+            "clip": "clip-a",
+            "track_id": "video-secondary",
+            "at": 7,
+        }])
+    assert fd.serialize_film(doc) == before
+
+
 def test_attribute_edit_preserves_unrelated_html_text_and_comments(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-preserve"

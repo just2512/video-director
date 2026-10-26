@@ -170,7 +170,10 @@ const findClip = (
   return undefined;
 };
 
-const validateMoveTarget = (input: FilmTimelineMoveControllerInput): string | null => {
+const validateMoveTarget = (
+  input: FilmTimelineMoveControllerInput,
+  resolved?: FilmTimelineMoveResolution,
+): string | null => {
   const gesture = input.gesture;
   const order = gesture.trackOrder || [];
   const targetTrackId = String(input.targetTrackId || gesture.targetTrackId || "");
@@ -184,7 +187,7 @@ const validateMoveTarget = (input: FilmTimelineMoveControllerInput): string | nu
 
   const members = gesture.members || [];
   const selectedIds = new Set(members.map(member => member.id));
-  const resolution = resolveMove({
+  const resolution = resolved || resolveMove({
     minimumStart: minimumSelectedStart(gesture),
     rawDeltaSeconds: Number(input.rawDeltaSeconds) || 0,
     candidates: input.candidates,
@@ -235,7 +238,7 @@ const buildMoveOperationsForResolution = (
   // The public operation builders are an authority boundary, not just geometry
   // helpers. Revalidate here so callers cannot persist locked, out-of-range, or
   // overlapping cross-track moves by bypassing the UI's pointer-target guard.
-  if (gesture.invalidTargetMessage || validateMoveTarget(input)) return null;
+  if (gesture.invalidTargetMessage || validateMoveTarget(input, resolution)) return null;
   const members = gesture.members || [];
   let targetIndex = (gesture.trackOrder || []).indexOf(
     String(input.targetTrackId || gesture.targetTrackId || gesture.trackId || ""),
