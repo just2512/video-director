@@ -1,4 +1,4 @@
-"""Real Chromium acceptance for one-gesture multi-select move, undo, and redo."""
+"""Real Chromium acceptance for timeline gestures, pointer-anchored zoom, and history."""
 from __future__ import annotations
 
 import importlib
@@ -706,6 +706,222 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
+    tmp_path, monkeypatch
+):
+    """Real wheel and pointer input must preserve the zoom anchor and keep drag preview in sync with edge scrolling."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-anchor-zoom-autoscroll-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    long_film = """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#182030}</style></head>
+<body><section id="video-main" data-label="主画面">
+  <video id="clip-a" src="../assets/a.mp4#t=0,2" at="0"></video>
+  <video id="clip-b" src="../assets/b.mp4#t=0,2" at="30"></video>
+  <video id="clip-c" src="../assets/c.mp4#t=0,2" at="60"></video>
+</section></body></html>"""
+    film_path.write_text(long_film, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+    assert _clip_positions(project_id)["clip-b"] == 30.0
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                for clip_id in ("clip-a", "clip-b", "clip-c"):
+                    page.locator(f'#fs-timeline .fs-clip[data-clip="{clip_id}"]').wait_for(
+                        state="visible"
+                    )
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& document.querySelector('.fs-react-timeline-surface')?.dataset.reactTimelineSurface === 'true' "
+                    "&& document.getElementById('fs-timeline-scroll')?.dataset.reactZoomReady === 'true'",
+                    timeout=10_000,
+                )
+
+                # Use a real Ctrl+wheel event over the React timeline. Zoom must keep
+                # the same timeline second beneath the pointer, not just scale the ruler.
+                before_zoom = page.evaluate("""() => {
+                  const scroll=document.getElementById('fs-timeline-scroll');
+                  scroll.scrollLeft=220;
+                  const rect=scroll.getBoundingClientRect();
+                  const anchorX=rect.left+scroll.clientWidth*0.5;
+                  const localX=anchorX-rect.left;
+                  const pps=window.filmStudioStore.getSnapshot().pixelsPerSecond;
+                  return {
+                    anchorX,anchorY:rect.top+Math.min(80,rect.height/2),
+                    scrollLeft:scroll.scrollLeft,pps,
+                    anchorTime:(scroll.scrollLeft+localX-132)/pps,
+                    scrollWidth:scroll.scrollWidth,clientWidth:scroll.clientWidth
+                  };
+                }""")
+                assert before_zoom["scrollWidth"] > before_zoom["clientWidth"] + 200, before_zoom
+                page.mouse.move(before_zoom["anchorX"], before_zoom["anchorY"])
+                page.keyboard.down("Control")
+                page.mouse.wheel(0, -120)
+                page.keyboard.up("Control")
+                page.wait_for_function(
+                    "before => window.filmStudioStore.getSnapshot().pixelsPerSecond !== before.pps",
+                    arg=before_zoom,
+                    timeout=5000,
+                )
+                after_zoom = page.evaluate("""anchorX => {
+                  const scroll=document.getElementById('fs-timeline-scroll');
+                  const rect=scroll.getBoundingClientRect();
+                  const localX=anchorX-rect.left;
+                  const pps=window.filmStudioStore.getSnapshot().pixelsPerSecond;
+                  return {
+                    scrollLeft:scroll.scrollLeft,pps,
+                    anchorTime:(scroll.scrollLeft+localX-132)/pps
+                  };
+                }""", before_zoom["anchorX"])
+                assert after_zoom["pps"] != before_zoom["pps"], after_zoom
+                assert abs(after_zoom["anchorTime"]-before_zoom["anchorTime"]) < 0.05, {
+                    "before": before_zoom, "after": after_zoom
+                }
+
+                # Start a real React clip drag and hold the pointer against the
+                # right edge. The scroll timer must replay the gesture using the
+                # owning pointer ID; otherwise onMove rejects it and the preview
+                # remains at an obsolete content offset while the viewport scrolls.
+                scroll = page.locator("#fs-timeline-scroll")
+                scroll_box = scroll.bounding_box()
+                clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                clip_box = clip.bounding_box()
+                assert scroll_box and clip_box, {"scroll": scroll_box, "clip": clip_box}
+                start_x = clip_box["x"] + clip_box["width"] / 2
+                start_y = clip_box["y"] + clip_box["height"] / 2
+                target_x = scroll_box["x"] + scroll_box["width"] - 8
+                assert scroll_box["x"] < start_x < target_x < 1440, {
+                    "scroll": scroll_box, "clip": clip_box, "target_x": target_x
+                }
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(target_x, start_y, steps=12)
+                page.wait_for_function(
+                    """() => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      const preview=state?.timelineGesturePreview?.['clip-b'];
+                      return !!state?.timelineGestureContext?.active && Number.isFinite(Number(preview?.left));
+                    }""",
+                    timeout=5000,
+                )
+                baseline = page.evaluate("""() => {
+                  const scroll=document.getElementById('fs-timeline-scroll');
+                  const state=window.filmStudioStore.getSnapshot();
+                  return {
+                    scrollLeft:scroll.scrollLeft,
+                    left:Number(state.timelineGesturePreview?.['clip-b']?.left),
+                    revision:state.revision,
+                    pps:state.pixelsPerSecond
+                  };
+                }""")
+                assert baseline["left"] > 0, baseline
+                page.wait_for_function(
+                    """baseline => {
+                      const scroll=document.getElementById('fs-timeline-scroll');
+                      const state=window.filmStudioStore?.getSnapshot();
+                      const preview=state?.timelineGesturePreview?.['clip-b'];
+                      const left=Number(preview?.left);
+                      const scrollDelta=scroll.scrollLeft-baseline.scrollLeft;
+                      return scrollDelta >= 64 && Number.isFinite(left) &&
+                        Math.abs((left-baseline.left)-scrollDelta) < 2;
+                    }""",
+                    arg=baseline,
+                    timeout=5000,
+                )
+                during_drag = page.evaluate("""() => {
+                  const scroll=document.getElementById('fs-timeline-scroll');
+                  const state=window.filmStudioStore.getSnapshot();
+                  return {
+                    scrollLeft:scroll.scrollLeft,
+                    left:Number(state.timelineGesturePreview?.['clip-b']?.left),
+                    revision:state.revision
+                  };
+                }""")
+                assert during_drag["revision"] == initial["rev"], during_drag
+                assert edit_requests == [], edit_requests
+                assert film_path.read_bytes() == original_bytes
+
+                page.mouse.up()
+                page.wait_for_function(
+                    "revision => {const s=window.filmStudioStore?.getSnapshot();"
+                    "return !!s && !s.busy && s.pendingTransaction === null && s.revision !== revision;}",
+                    arg=initial["rev"],
+                    timeout=10_000,
+                )
+                assert len(edit_requests) == 1, edit_requests
+                operations = edit_requests[0].get("ops") or []
+                assert len(operations) == 1 and operations[0].get("op") == "move", edit_requests
+                assert operations[0].get("clip") == "clip-b", operations
+                assert float(operations[0].get("at", 0)) > 30.0, operations
+
+                final = fd.read_project_film(project_id)
+                final_clip = next(
+                    clip for track in final["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-b"
+                )
+                assert float(final_clip["attrs"]["at"]) > 30.0, final_clip
+                assert final["rev"] != initial["rev"]
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
                 browser.close()
     finally:
         server.shutdown()

@@ -1054,6 +1054,7 @@
         }
       }
       onMove({
+        pointerId:S.drag.pointerId,
         clientX:S.dragPointer.clientX,clientY:S.dragPointer.clientY,
         skipAutoScroll:true,preventDefault:function(){}
       });
