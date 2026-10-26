@@ -3060,6 +3060,12 @@
     }
   });
   window.filmStudioZoom=function(direction,anchorClientX){
+    var timeline=window.filmStudioReactTimeline;
+    if(timeline&&typeof timeline.zoom==='function'){
+      timeline.zoom(direction,anchorClientX);
+      return;
+    }
+    // Unbundled fallback only: the active React timeline owns zoom and anchoring.
     var scroll=$('fs-timeline-scroll'),rect=scroll&&scroll.getBoundingClientRect();
     var localX=rect?(Number.isFinite(anchorClientX)?anchorClientX-rect.left:rect.width/2):0;
     var anchorTime=scroll?Math.max(0,timelineZoomAnchorTime(scroll.scrollLeft,localX,S.pxPerSec,132)):S.playhead;

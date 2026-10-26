@@ -99,3 +99,18 @@ def test_explicit_live_model_stream_gate_fails_closed_when_configuration_is_miss
     assert "exit 1" in step
     assert "Real-model token-stream smoke was not run" not in step
     assert "VD_LLM_LIVE_STREAM_TEST=1" in step
+
+def test_react_timeline_owns_pointer_anchored_zoom_and_legacy_toolbar_delegates():
+    """The built React timeline owns zoom scale/anchor; legacy toolbar is compatibility only."""
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    legacy = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+
+    assert "zoom(direction: number, anchorClientX?: number): void;" in component
+    assert "filmTimelineMath.zoomAnchorTime(" in component
+    assert "filmTimelineMath.zoomScrollLeft(" in component
+    assert 'filmStore.setField("pixelsPerSecond",nextScale)' in component
+    assert "timeline.zoom(direction,event.clientX)" in component
+    legacy_zoom = legacy.split("window.filmStudioZoom=function(direction,anchorClientX){", 1)[1].split("};", 1)[0]
+    assert "timeline.zoom(direction,anchorClientX)" in legacy_zoom
+

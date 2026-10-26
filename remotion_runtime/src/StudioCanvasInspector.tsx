@@ -378,6 +378,7 @@ interface FilmStudioReactTimelineBridge {
   openContextMenu(model: FilmTimelineContextMenu): void;
   closeContextMenu(): void;
   isContextMenuOpen(): boolean;
+  zoom(direction: number, anchorClientX?: number): void;
 }
 type FilmStudioAiMessage = {text: string; role: string};
 type FilmStudioAiOperationPreview = {
@@ -1595,7 +1596,13 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
     const onWheel = (event: WheelEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return;
       event.preventDefault();
-      window.filmStudioZoom?.(event.deltaY < 0 ? 1 : -1, event.clientX);
+      const direction = event.deltaY < 0 ? 1 : -1;
+      const timeline = window.filmStudioReactTimeline;
+      if (timeline && typeof timeline.zoom === "function") {
+        timeline.zoom(direction,event.clientX);
+      } else {
+        window.filmStudioZoom?.(direction,event.clientX);
+      }
     };
     scroll.addEventListener("wheel", onWheel, {passive:false});
     scroll.dataset.reactZoomReady = "true";
@@ -2351,6 +2358,28 @@ window.filmStudioReactAssets = {
 };
 
 window.filmStudioReactTimeline = {
+  zoom(direction,anchorClientX) {
+    const scroll = document.getElementById("fs-timeline-scroll");
+    const rect = scroll?.getBoundingClientRect() ?? null;
+    const snapshot = filmStore.getSnapshot();
+    const localX = rect
+      ? (Number.isFinite(anchorClientX) ? Number(anchorClientX)-rect.left : rect.width/2)
+      : 0;
+    const anchorTime = scroll && rect
+      ? Math.max(0,filmTimelineMath.zoomAnchorTime(
+          scroll.scrollLeft,localX,snapshot.pixelsPerSecond,132
+        ))
+      : snapshot.playhead;
+    const nextScale = filmTimelineMath.zoomScale(snapshot.pixelsPerSecond,direction,12,120);
+    flushSync(() => {
+      filmStore.setField("pixelsPerSecond",nextScale);
+    });
+    if (scroll && rect) {
+      scroll.scrollLeft = filmTimelineMath.zoomScrollLeft(
+        anchorTime,localX,filmStore.getField("pixelsPerSecond"),132
+      );
+    }
+  },
   renderSurface() {
     const mount = document.getElementById("fs-react-root");
     if (mount && (!studioRoot || studioRootMount !== mount)) {
