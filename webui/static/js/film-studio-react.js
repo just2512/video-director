@@ -26775,7 +26775,104 @@
       }
     );
   };
-  var TimelineSurface = ({ model }) => {
+  var TimelinePlayheadLine = ({ pixelsPerSecond }) => {
+    const playhead = useFilmStoreField("playhead");
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "div",
+      {
+        className: "fs-playhead",
+        id: "fs-playhead-line",
+        style: { left: 132 + filmTimelineMath.clipLeft(playhead, pixelsPerSecond) }
+      }
+    );
+  };
+  var TimelineScrubRuler = ({ model }) => {
+    const playhead = useFilmStoreField("playhead");
+    const duration = useFilmStoreField("duration");
+    const activeScrubPointerId = (0, import_react.useRef)(null);
+    const pendingScrubPointer = (0, import_react.useRef)(null);
+    const seekFromRulerPointer = (clientX, body) => {
+      const rect = body.getBoundingClientRect();
+      const localX = clientX - rect.left;
+      const seconds = Math.max(0, Math.min(duration, localX / Math.max(1e-6, model.pixelsPerSecond)));
+      window.filmStudioSeek?.(seconds);
+    };
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-ruler", style: { width: model.totalWidth }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-head", children: "\u65F6\u7801" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "div",
+        {
+          className: "fs-ruler-body",
+          id: "fs-ruler-body",
+          "data-react-scrub-ready": "true",
+          role: "slider",
+          "aria-label": "\u65F6\u95F4\u5C3A\u64AD\u653E\u5934\u4F4D\u7F6E\uFF1B\u70B9\u51FB\u523B\u5EA6\u8DF3\u8F6C\uFF0C\u62D6\u52A8\u6216\u4F7F\u7528\u65B9\u5411\u952E\u5B9A\u4F4D",
+          "aria-valuemin": 0,
+          "aria-valuemax": duration,
+          "aria-valuenow": Math.min(duration, Math.max(0, playhead)),
+          "aria-valuetext": Math.min(duration, Math.max(0, playhead)).toFixed(2) + " \u79D2",
+          tabIndex: 0,
+          style: { width: model.laneWidth },
+          onKeyDown: (event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            event.stopPropagation();
+            const step = event.shiftKey ? 0.1 : 1;
+            window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
+          },
+          onPointerDown: (event) => {
+            if (event.button !== 0) return;
+            const target = event.target;
+            const tick = target instanceof Element ? target.closest(".fs-ruler-mark") : null;
+            const rawTickAt = tick ? Number(tick.getAttribute("data-at")) : NaN;
+            const tickAt = Number.isFinite(rawTickAt) ? rawTickAt : null;
+            pendingScrubPointer.current = {
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startY: event.clientY,
+              startedOnTick: !!tick,
+              tickAt
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+            if (!tick) seekFromRulerPointer(event.clientX, event.currentTarget);
+          },
+          onPointerMove: (event) => {
+            const pending = pendingScrubPointer.current;
+            if (!pending || pending.pointerId !== event.pointerId) return;
+            if (activeScrubPointerId.current !== event.pointerId) {
+              const dx = event.clientX - pending.startX;
+              const dy = event.clientY - pending.startY;
+              if (Math.hypot(dx, dy) < 4) return;
+              activeScrubPointerId.current = event.pointerId;
+            }
+            if (activeScrubPointerId.current === event.pointerId) {
+              seekFromRulerPointer(event.clientX, event.currentTarget);
+            }
+          },
+          onPointerUp: (event) => {
+            const pending = pendingScrubPointer.current;
+            if (pending?.pointerId === event.pointerId) {
+              if (activeScrubPointerId.current !== event.pointerId && pending.startedOnTick && pending.tickAt !== null) {
+                window.filmStudioSeek?.(pending.tickAt);
+              }
+              pendingScrubPointer.current = null;
+            }
+            if (activeScrubPointerId.current !== event.pointerId) return;
+            activeScrubPointerId.current = null;
+          },
+          onPointerCancel: (event) => {
+            if (pendingScrubPointer.current?.pointerId === event.pointerId) {
+              pendingScrubPointer.current = null;
+            }
+            if (activeScrubPointerId.current !== event.pointerId) return;
+            activeScrubPointerId.current = null;
+          },
+          children: model.ticks.map((tick) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-mark", "data-at": tick.at, style: { left: tick.left }, children: tick.label }, tick.at))
+        }
+      )
+    ] });
+  };
+  var TimelineSurface = import_react.default.memo(({ model }) => {
     const gesturePreview = useFilmStoreField("timelineGesturePreview");
     const snapGuide = useFilmStoreField("timelineSnapGuide");
     const dropTarget = useFilmStoreField("timelineDropTarget");
@@ -26786,8 +26883,6 @@
     const slideMode = useFilmStoreField("slideMode");
     const slipMode = useFilmStoreField("slipMode");
     const selectedIdsVersion = useFilmStoreField("selectedIdsVersion");
-    const playhead = useFilmStoreField("playhead");
-    const duration = useFilmStoreField("duration");
     const selectedIds = filmStore.getSnapshot().selectedIds;
     void selectedIdsVersion;
     const previewForClip = (clipId) => {
@@ -27091,14 +27186,6 @@
       dragPointerSample.current = null;
       stopReactDragAutoScroll();
     }, [stopReactDragAutoScroll]);
-    const activeScrubPointerId = (0, import_react.useRef)(null);
-    const pendingScrubPointer = (0, import_react.useRef)(null);
-    const seekFromRulerPointer = (clientX, body) => {
-      const rect = body.getBoundingClientRect();
-      const localX = clientX - rect.left;
-      const seconds = Math.max(0, Math.min(duration, localX / Math.max(1e-6, model.pixelsPerSecond)));
-      window.filmStudioSeek?.(seconds);
-    };
     (0, import_react.useLayoutEffect)(() => {
       const ownsPointer = (pointerId) => activePointerId.current === pointerId;
       window.filmStudioOwnsClipGesturePointer = ownsPointer;
@@ -27148,80 +27235,7 @@
         "data-slip-mode": slipMode ? "true" : "false",
         style: { width: model.totalWidth, position: "relative" },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-ruler", style: { width: model.totalWidth }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-head", children: "\u65F6\u7801" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              "div",
-              {
-                className: "fs-ruler-body",
-                id: "fs-ruler-body",
-                "data-react-scrub-ready": "true",
-                role: "slider",
-                "aria-label": "\u65F6\u95F4\u5C3A\u64AD\u653E\u5934\u4F4D\u7F6E\uFF1B\u70B9\u51FB\u523B\u5EA6\u8DF3\u8F6C\uFF0C\u62D6\u52A8\u6216\u4F7F\u7528\u65B9\u5411\u952E\u5B9A\u4F4D",
-                "aria-valuemin": 0,
-                "aria-valuemax": duration,
-                "aria-valuenow": Math.min(duration, Math.max(0, playhead)),
-                "aria-valuetext": Math.min(duration, Math.max(0, playhead)).toFixed(2) + " \u79D2",
-                tabIndex: 0,
-                style: { width: model.laneWidth },
-                onKeyDown: (event) => {
-                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const step = event.shiftKey ? 0.1 : 1;
-                  window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
-                },
-                onPointerDown: (event) => {
-                  if (event.button !== 0) return;
-                  const target = event.target;
-                  const tick = target instanceof Element ? target.closest(".fs-ruler-mark") : null;
-                  const rawTickAt = tick ? Number(tick.getAttribute("data-at")) : NaN;
-                  const tickAt = Number.isFinite(rawTickAt) ? rawTickAt : null;
-                  pendingScrubPointer.current = {
-                    pointerId: event.pointerId,
-                    startX: event.clientX,
-                    startY: event.clientY,
-                    startedOnTick: !!tick,
-                    tickAt
-                  };
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  if (!tick) seekFromRulerPointer(event.clientX, event.currentTarget);
-                },
-                onPointerMove: (event) => {
-                  const pending = pendingScrubPointer.current;
-                  if (!pending || pending.pointerId !== event.pointerId) return;
-                  if (activeScrubPointerId.current !== event.pointerId) {
-                    const dx = event.clientX - pending.startX;
-                    const dy = event.clientY - pending.startY;
-                    if (Math.hypot(dx, dy) < 4) return;
-                    activeScrubPointerId.current = event.pointerId;
-                  }
-                  if (activeScrubPointerId.current === event.pointerId) {
-                    seekFromRulerPointer(event.clientX, event.currentTarget);
-                  }
-                },
-                onPointerUp: (event) => {
-                  const pending = pendingScrubPointer.current;
-                  if (pending?.pointerId === event.pointerId) {
-                    if (activeScrubPointerId.current !== event.pointerId && pending.startedOnTick && pending.tickAt !== null) {
-                      window.filmStudioSeek?.(pending.tickAt);
-                    }
-                    pendingScrubPointer.current = null;
-                  }
-                  if (activeScrubPointerId.current !== event.pointerId) return;
-                  activeScrubPointerId.current = null;
-                },
-                onPointerCancel: (event) => {
-                  if (pendingScrubPointer.current?.pointerId === event.pointerId) {
-                    pendingScrubPointer.current = null;
-                  }
-                  if (activeScrubPointerId.current !== event.pointerId) return;
-                  activeScrubPointerId.current = null;
-                },
-                children: model.ticks.map((tick) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-mark", "data-at": tick.at, style: { left: tick.left }, children: tick.label }, tick.at))
-              }
-            )
-          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelineScrubRuler, { model }),
           candidateTrackRows.map((row) => {
             if (row.kind === "added") return renderProposalTrack(row.item);
             const track = row.track;
@@ -27596,18 +27610,11 @@
               "data-snap-kind": snapGuide.kind
             }
           ) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "div",
-            {
-              className: "fs-playhead",
-              id: "fs-playhead-line",
-              style: { left: 132 + filmTimelineMath.clipLeft(playhead, model.pixelsPerSecond) }
-            }
-          )
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TimelinePlayheadLine, { pixelsPerSecond: model.pixelsPerSecond })
         ]
       }
     );
-  };
+  });
   var StudioAssets = ({ model, mode }) => {
     const libraryAssetsSource = useFilmStoreField("libraryAssets");
     const libraryAssets = (0, import_react.useMemo)(() => libraryAssetsSource.filter((asset) => !!asset && typeof asset === "object" && !Array.isArray(asset)).filter((asset) => ["video", "image", "audio"].includes(String(asset.type || "").toLowerCase())).map((asset) => {
@@ -27915,11 +27922,23 @@
       }
     );
   };
+  var StudioClipInspectorPanel = () => {
+    const timelineFilm = useFilmStoreField("film");
+    const timelineRevision = useFilmStoreField("revision");
+    const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
+    const clipInspectorSelectedId = useFilmStoreField("selectedId");
+    const clipInspectorPlayhead = useFilmStoreField("playhead");
+    const clip = (0, import_react.useMemo)(
+      () => buildClipInspectorModel(timelineFilm, clipInspectorSelectedId, clipInspectorPlayhead),
+      [timelineFilm, timelineRevision, clipInspectorSelectedId, clipInspectorPlayhead]
+    );
+    const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (clipInspectorEmptyMessage || "");
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipInspector, { clip, emptyMessage: clipInspectorEmptyMessage ?? void 0 }, clipKey);
+  };
   var StudioReactOwner = () => {
     const assetsModel = useFilmStoreField("assetsModel");
     const assetMode = useFilmStoreField("assetMode");
     const aiModel = useFilmStoreField("aiDirectorModel");
-    const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
     const toolbarVisible = useFilmStoreField("toolbarVisible");
     const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");
     const scrubVisible = useFilmStoreField("scrubVisible");
@@ -27932,12 +27951,6 @@
     const timelineDuration = useFilmStoreField("duration");
     const timelinePixelsPerSecond = useFilmStoreField("pixelsPerSecond");
     const timelineSelectedIdsVersion = useFilmStoreField("selectedIdsVersion");
-    const clipInspectorSelectedId = useFilmStoreField("selectedId");
-    const clipInspectorPlayhead = useFilmStoreField("playhead");
-    const clip = (0, import_react.useMemo)(
-      () => buildClipInspectorModel(timelineFilm, clipInspectorSelectedId, clipInspectorPlayhead),
-      [timelineFilm, timelineRevision, clipInspectorSelectedId, clipInspectorPlayhead]
-    );
     const timelineSurface = (0, import_react.useMemo)(
       () => timelineVisible ? buildTimelineSurfaceModel(
         timelineFilm,
@@ -27950,7 +27963,6 @@
     );
     const timelineContextMenu = useFilmStoreField("timelineContextMenu");
     const canvasElement = useFilmStoreField("canvasElementSelection");
-    const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (clipInspectorEmptyMessage || "");
     const element = canvasElement;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmStoreDiagnostics, {}),
@@ -27960,10 +27972,7 @@
       timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioTimelineToolbar, {})) : null,
       scrubVisible ? studioPortal("fs-react-scrub-row", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioScrubRow, {})) : null,
       aiModel ? studioPortal("fs-react-ai-director", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioAiDirector, { model: aiModel }, "ai-director")) : null,
-      clipInspectorVisible ? studioPortal(
-        "fs-inspector",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipInspector, { clip, emptyMessage: clipInspectorEmptyMessage ?? void 0 }, clipKey)
-      ) : null,
+      clipInspectorVisible ? studioPortal("fs-inspector", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StudioClipInspectorPanel, {})) : null,
       canvasInspectorVisible ? studioPortal(
         "fs-react-canvas-inspector",
         element ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CanvasInspector, { element }, element.clipId + "::" + element.selector) : null
