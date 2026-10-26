@@ -321,9 +321,9 @@ jobs:
 
 
       # The browser serves the checked-in bundle, not an ephemeral build directory.
-      # Gate asset publication on the authoritative timeline contract and real-browser
-      # gesture/external-write suite as well as build, focused smoke tests, and JS syntax.
-      # Unrelated full-suite failures remain visible; targeted Studio failures block publication.
+      # Publication requires real gesture/undo, insert/roll, stale-revision, watcher,
+      # CLI/MCP, scene-frame and render/export regressions as well as the React build.
+      # The broad suite remains visible separately; failures in this curated release gate block publication.
       # A GitHub-token push intentionally does not fan out another workflow run.
       - name: Gate Studio asset publication on timeline browser regressions
         id: timeline_regression_gate
@@ -331,7 +331,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          timeout --signal=TERM --kill-after=10s 5m "$PY311_BIN/python3.11" -m pytest -q --tb=short \
+          timeout --signal=TERM --kill-after=10s 12m "$PY311_BIN/python3.11" -m pytest -q --tb=short \
             tests/test_film_document_contract.py \
             tests/test_film_studio_external_watch_browser.py \
             tests/test_film_studio_migration_preview_browser.py \
@@ -339,6 +339,21 @@ jobs:
             tests/test_film_studio_ai_proposal_browser.py \
             tests/test_film_studio_react_timeline_toolbar.py \
             tests/test_film_studio_react_toolbar.py \
+            tests/test_film_agent_cli.py \
+            tests/test_film_mcp_server.py \
+            tests/test_film_full_pipeline_e2e.py \
+            tests/test_film_render_scene_e2e.py \
+            tests/test_film_runtime_video_frame_wait.py \
+            tests/test_film_scene_runtime.py \
+            tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_timeline_history_browser.py \
+            tests/test_film_studio_pending_revision.py \
+            tests/test_film_studio_roll_browser.py \
+            tests/test_film_studio_insert_browser.py \
+            tests/test_film_external_watch_history.py \
+            tests/test_film_variant_transform_keyframes.py \
+            tests/test_film_volume_keyframe_migration.py \
+            tests/test_film_runtime_mask_keyframes_browser.py \
             tests/test_studio_build_contract.py
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
