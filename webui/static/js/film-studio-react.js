@@ -24127,6 +24127,32 @@
     }
     return null;
   };
+  var buildMoveOperationsForResolution = (input, resolution) => {
+    const gesture = input.gesture;
+    const members = gesture.members || [];
+    let targetIndex = (gesture.trackOrder || []).indexOf(
+      String(input.targetTrackId || gesture.targetTrackId || gesture.trackId || "")
+    );
+    if (targetIndex < 0) targetIndex = Number(gesture.originalTrackIndex);
+    const originIndex = Number(gesture.originalTrackIndex);
+    const trackDelta = targetIndex - originIndex;
+    if (!Number.isInteger(targetIndex) || !Number.isInteger(originIndex)) return null;
+    const operations = [];
+    for (const member of members) {
+      const destinationIndex = member.trackIndex + trackDelta;
+      if (destinationIndex < 0 || destinationIndex >= gesture.trackOrder.length) return null;
+      const at = Math.max(0, member.originalAt + resolution.deltaSeconds);
+      const frameAligned2 = input.snapEnabled && Math.abs(at * input.frameRate - Math.round(at * input.frameRate)) < 2e-5;
+      const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned2;
+      operations.push({
+        op: "move",
+        clip: member.id,
+        track_id: gesture.trackOrder[destinationIndex],
+        at: Number(at.toFixed(preserveFramePrecision ? 6 : 3))
+      });
+    }
+    return operations.length === members.length ? operations : null;
+  };
   var buildMovePreview = (input) => {
     const gesture = input.gesture;
     const members = gesture.members || [];
@@ -24158,13 +24184,15 @@
       }
       preview[member.id] = entry;
     }
-    return { resolution, preview };
+    return {
+      resolution,
+      preview,
+      operations: buildMoveOperationsForResolution(input, resolution)
+    };
   };
   var buildMoveOperations = (input) => {
-    const gesture = input.gesture;
-    const members = gesture.members || [];
     const resolution = resolveMove({
-      minimumStart: minimumSelectedStart(gesture),
+      minimumStart: minimumSelectedStart(input.gesture),
       rawDeltaSeconds: input.rawDeltaSeconds,
       candidates: input.candidates,
       pixelsPerSecond: input.pixelsPerSecond,
@@ -24172,28 +24200,7 @@
       snapEnabled: input.snapEnabled,
       frameRate: input.frameRate
     });
-    let targetIndex = (gesture.trackOrder || []).indexOf(
-      String(input.targetTrackId || gesture.targetTrackId || gesture.trackId || "")
-    );
-    if (targetIndex < 0) targetIndex = Number(gesture.originalTrackIndex);
-    const originIndex = Number(gesture.originalTrackIndex);
-    const trackDelta = targetIndex - originIndex;
-    if (!Number.isInteger(targetIndex) || !Number.isInteger(originIndex)) return null;
-    const operations = [];
-    for (const member of members) {
-      const destinationIndex = member.trackIndex + trackDelta;
-      if (destinationIndex < 0 || destinationIndex >= gesture.trackOrder.length) return null;
-      const at = Math.max(0, member.originalAt + resolution.deltaSeconds);
-      const frameAligned2 = input.snapEnabled && Math.abs(at * input.frameRate - Math.round(at * input.frameRate)) < 2e-5;
-      const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned2;
-      operations.push({
-        op: "move",
-        clip: member.id,
-        track_id: gesture.trackOrder[destinationIndex],
-        at: Number(at.toFixed(preserveFramePrecision ? 6 : 3))
-      });
-    }
-    return operations.length === members.length ? operations : null;
+    return buildMoveOperationsForResolution(input, resolution);
   };
   var resolveTrimGesture = (input) => {
     const clipId = String(input.clipId || "").trim();
