@@ -539,6 +539,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 second_source_out = float(str(second_clip_before["attrs"]["src"]).rsplit("#t=", 1)[1].split(",", 1)[1])
                 second_end = fd.clip_end(second_clip_before)
                 second_request_count = len(film_edit_requests)
+                second_trim_geometry_before = trim_clip.evaluate("(node) => node.style.width")
                 sx = second_trim_box["x"] + second_trim_box["width"] / 2
                 sy = second_trim_box["y"] + second_trim_box["height"] / 2
                 page.mouse.move(sx, sy)
@@ -550,7 +551,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                   return !!preview && typeof preview.width === 'number'
                     && node?.dataset.reactGesturePreview === 'true'
                     && node.style.width !== args.widthBefore;
-                }""", arg={"id":"clip-b","widthBefore":trim_clip.evaluate("(node) => node.style.width")}, timeout=5000)
+                }""", arg={"id":"clip-b","widthBefore":second_trim_geometry_before}, timeout=5000)
                 assert fd.read_project_film(project_id)["rev"] == second_before["rev"]
                 assert len(film_edit_requests) == second_request_count
                 page.mouse.up()
