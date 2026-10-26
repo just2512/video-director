@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, dragAutoScrollTimer:null, dragPointer:null, dragScrollDirection:0, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
   var pendingRevisionSource = '';
@@ -1020,47 +1020,6 @@
       }
     }
     return null;
-  }
-  function stopDragAutoScroll(){
-    if(S.dragAutoScrollTimer){clearInterval(S.dragAutoScrollTimer);S.dragAutoScrollTimer=null;}
-    S.dragScrollDirection=0;
-  }
-  function clearDragAutoScroll(){
-    stopDragAutoScroll();
-    S.dragPointer=null;
-  }
-  function updateDragAutoScroll(event){
-    if(event.skipAutoScroll)return;
-    var scroll=$('fs-timeline-scroll');
-    if(!scroll){stopDragAutoScroll();return;}
-    S.dragPointer={clientX:event.clientX,clientY:event.clientY};
-    var rect=scroll.getBoundingClientRect(),direction=0;
-    if(event.clientX<rect.left+28)direction=-1;
-    else if(event.clientX>rect.right-28)direction=1;
-    S.dragScrollDirection=direction;
-    if(!direction){stopDragAutoScroll();return;}
-    if(S.dragAutoScrollTimer)return;
-    S.dragAutoScrollTimer=setInterval(function(){
-      if(!S.drag||!S.drag.active||!S.dragPointer||!S.dragScrollDirection){
-        stopDragAutoScroll();return;
-      }
-      var node=$('fs-timeline-scroll');
-      if(!node){stopDragAutoScroll();return;}
-      var before=node.scrollLeft,maxScroll=Math.max(0,node.scrollWidth-node.clientWidth);
-      node.scrollLeft=Math.max(0,Math.min(maxScroll,before+S.dragScrollDirection*16));
-      if(Math.abs(node.scrollLeft-before)<0.5){
-        if((S.dragScrollDirection<0&&node.scrollLeft<=0)||(S.dragScrollDirection>0&&node.scrollLeft>=maxScroll)){
-          stopDragAutoScroll();return;
-        }
-      }
-      // Reuse the owning pointer ID: onMove validates gesture ownership even
-      // when a timer, rather than a physical pointer event, advances edge scrolling.
-      onMove({
-        pointerId:S.drag.pointerId,
-        clientX:S.dragPointer.clientX,clientY:S.dragPointer.clientY,
-        skipAutoScroll:true,preventDefault:function(){}
-      });
-    },24);
   }
   function timelineFrameRate(){
     var fps=Number(S.data&&S.data.fps);
@@ -2295,16 +2254,12 @@
       e.preventDefault();return;
     }
     var d=S.drag;if(!d||!e||e.pointerId!==d.pointerId)return;
-    var scroll=$('fs-timeline-scroll'),rect=scroll.getBoundingClientRect();
-    if(!e.skipAutoScroll){
-      if(e.clientX<rect.left+28)scroll.scrollLeft=Math.max(0,scroll.scrollLeft-18);
-      else if(e.clientX>rect.right-28)scroll.scrollLeft=Math.min(Math.max(0,scroll.scrollWidth-scroll.clientWidth),scroll.scrollLeft+18);
-    }
+    var scroll=$('fs-timeline-scroll');
+    if(!scroll)return;
     var pointerDelta=e.clientX-d.startX,scrollDelta=scroll.scrollLeft-d.startScrollLeft;
     var dx=pointerDelta+scrollDelta,deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
     if(!d.active&&Math.sqrt(dx*dx+(e.clientY-d.startY)*(e.clientY-d.startY))<5)return;
     if(!d.active)d=updateTimelineGestureContext({active:true})||d;
-    updateDragAutoScroll(e);
     // Only plain clip moves can change tracks. Trim/roll/slip/slide gestures
     // must remain bound to their original track even if the pointer crosses rows.
     if(d.mode==='move'){
@@ -2531,12 +2486,12 @@
       return;
     }
     var d=S.drag;
-    if(!d){clearDragAutoScroll();showTimelineSnapGuide(null);clearDragTrackTarget(null);gestureDomRefs=null;setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    if(!d){showTimelineSnapGuide(null);clearDragTrackTarget(null);gestureDomRefs=null;setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
     // Document-level fallbacks also observe pointer events from other contacts; only the
     // pointer that began this transaction may finish or commit it.
     if(!e||e.pointerId!==d.pointerId)return;
     var dragDomRefs=gestureDomRefs;
-    S.drag=null;clearDragAutoScroll();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
+    S.drag=null;S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
     showTimelineSnapGuide(null);clearDragTrackTarget(d);
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
     if(!reactOwnsActiveDrag)(d.members||[]).forEach(function(member){
@@ -2695,7 +2650,6 @@
     onUp(e);
   });
   function cancelPointerGesture(){
-    clearDragAutoScroll();
     showTimelineSnapGuide(null);
     clearTimelineEnvelopePreview();
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);

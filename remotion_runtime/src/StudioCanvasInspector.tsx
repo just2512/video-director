@@ -26,6 +26,9 @@ import {createPortal, flushSync} from "react-dom";
 import {createRoot, type Root} from "react-dom/client";
 
 type Rect = {x?: number; y?: number; width?: number; height?: number};
+type FilmStudioGesturePointerInput = Pick<PointerEvent,"pointerId"|"clientX"|"clientY"|"preventDefault"> & {
+  skipAutoScroll?: boolean;
+};
 
 function useFilmStoreField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K] {
   const subscribe = useCallback((listener: () => void) => filmStore.subscribeField(key, listener), [key]);
@@ -417,7 +420,7 @@ declare global {
     filmStudioBeginClipGesture?: (event: PointerEvent, context: {
       clipId: string; trimEdge: "start" | "end" | null; targetIsButton: boolean;
     }) => boolean | void;
-    filmStudioMoveClipGesture?: (event: PointerEvent) => void;
+    filmStudioMoveClipGesture?: (event: FilmStudioGesturePointerInput) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
@@ -1469,6 +1472,95 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
   };
   const activePointerId = useRef<number | null>(null);
   const activeEnvelopePointerId = useRef<number | null>(null);
+  const dragPointerSample = useRef<{pointerId:number; clientX:number; clientY:number} | null>(null);
+  const dragAutoScrollFrame = useRef<number | null>(null);
+  const dragAutoScrollLastFrameTime = useRef<number | null>(null);
+
+  const stopReactDragAutoScroll = useCallback(() => {
+    if (dragAutoScrollFrame.current !== null) {
+      window.cancelAnimationFrame(dragAutoScrollFrame.current);
+      dragAutoScrollFrame.current = null;
+    }
+    dragAutoScrollLastFrameTime.current = null;
+  }, []);
+
+  const startReactDragAutoScroll = useCallback(() => {
+    if (dragAutoScrollFrame.current !== null) return;
+    const tick = (timestamp:number) => {
+      dragAutoScrollFrame.current = null;
+      const sample = dragPointerSample.current;
+      if (!sample || activePointerId.current !== sample.pointerId) {
+        dragAutoScrollLastFrameTime.current = null;
+        return;
+      }
+      const scroll = document.getElementById("fs-timeline-scroll");
+      if (!scroll) {
+        dragAutoScrollLastFrameTime.current = null;
+        return;
+      }
+      const rect = scroll.getBoundingClientRect();
+      const direction = sample.clientX < rect.left + 28 ? -1
+        : sample.clientX > rect.right - 28 ? 1 : 0;
+      if (!direction) {
+        dragAutoScrollLastFrameTime.current = null;
+        return;
+      }
+      const maxScroll = Math.max(0,scroll.scrollWidth-scroll.clientWidth);
+      const before = scroll.scrollLeft;
+      const previous = dragAutoScrollLastFrameTime.current;
+      const elapsed = previous === null ? 16 : Math.max(0,Math.min(32,timestamp-previous));
+      dragAutoScrollLastFrameTime.current = timestamp;
+      // Keep a steady ~650px/s edge scroll independent of display refresh rate.
+      const delta = Math.max(1,elapsed*0.65);
+      scroll.scrollLeft = Math.max(0,Math.min(maxScroll,before+direction*delta));
+      const moved = Math.abs(scroll.scrollLeft-before) >= 0.5;
+      const atBoundary = direction < 0 ? scroll.scrollLeft <= 0 : scroll.scrollLeft >= maxScroll;
+      if (moved) {
+        const current = dragPointerSample.current;
+        if (current && current.pointerId === sample.pointerId) {
+          window.filmStudioMoveClipGesture?.({
+            pointerId:current.pointerId,
+            clientX:current.clientX,
+            clientY:current.clientY,
+            skipAutoScroll:true,
+            preventDefault:() => {},
+          });
+        }
+      } else if (atBoundary) {
+        dragAutoScrollLastFrameTime.current = null;
+        return;
+      }
+      dragAutoScrollFrame.current = window.requestAnimationFrame(tick);
+    };
+    dragAutoScrollFrame.current = window.requestAnimationFrame(tick);
+  }, []);
+
+  const updateReactDragAutoScroll = useCallback((event:PointerEvent) => {
+    dragPointerSample.current = {
+      pointerId:event.pointerId,
+      clientX:event.clientX,
+      clientY:event.clientY,
+    };
+    const scroll = document.getElementById("fs-timeline-scroll");
+    if (!scroll) {
+      stopReactDragAutoScroll();
+      return;
+    }
+    const rect = scroll.getBoundingClientRect();
+    const atEdge = event.clientX < rect.left + 28 || event.clientX > rect.right - 28;
+    if (atEdge) startReactDragAutoScroll();
+    else stopReactDragAutoScroll();
+  }, [startReactDragAutoScroll, stopReactDragAutoScroll]);
+
+  const finishReactDragAutoScroll = useCallback((pointerId:number) => {
+    if (dragPointerSample.current?.pointerId === pointerId) dragPointerSample.current = null;
+    stopReactDragAutoScroll();
+  }, [stopReactDragAutoScroll]);
+
+  useEffect(() => () => {
+    dragPointerSample.current = null;
+    stopReactDragAutoScroll();
+  }, [stopReactDragAutoScroll]);
   const activeScrubPointerId = useRef<number | null>(null);
   const pendingScrubPointer = useRef<{
     pointerId: number; startX: number; startY: number; startedOnTick: boolean; tickAt: number | null;
@@ -1685,11 +1777,15 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
                 }
               }}
               onPointerMove={event => {
-                if(activePointerId.current===event.nativeEvent.pointerId)window.filmStudioMoveClipGesture?.(event.nativeEvent);
+                const pointerEvent=event.nativeEvent;
+                if(activePointerId.current!==pointerEvent.pointerId)return;
+                window.filmStudioMoveClipGesture?.(pointerEvent);
+                updateReactDragAutoScroll(pointerEvent);
               }}
               onPointerUp={event => {
                 const pointerId=event.nativeEvent.pointerId;
                 if(activePointerId.current!==pointerId)return;
+                finishReactDragAutoScroll(pointerId);
                 const pending=window.filmStudioEndClipGesture?.(event.nativeEvent);
                 const clear=()=>{if(activePointerId.current===pointerId)activePointerId.current=null;};
                 Promise.resolve(pending).then(clear,clear);
@@ -1697,6 +1793,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               onPointerCancel={event => {
                 const pointerId=event.nativeEvent.pointerId;
                 if(activePointerId.current!==pointerId)return;
+                finishReactDragAutoScroll(pointerId);
                 window.filmStudioCancelClipGesture?.(event.nativeEvent);
                 Promise.resolve().then(() => {
                   if(activePointerId.current===pointerId)activePointerId.current=null;
