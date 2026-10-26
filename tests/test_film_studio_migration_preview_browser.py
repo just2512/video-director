@@ -45,6 +45,24 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
     film_path = project_root / fd.FILM_NAME
     assert not film_path.exists()
 
+    # A second, already-initialized FilmDocument proves that the same selector
+    # can change project authority without leaving the fullscreen Studio.
+    target_project_id = "unified-studio-switch-target"
+    store.create_project(target_project_id, "Studio 项目切换目标", {"name": "Studio 项目切换目标"})
+    target_root = config.project_dir(target_project_id)
+    target_assets = target_root / "assets"
+    target_assets.mkdir(parents=True, exist_ok=True)
+    (target_assets / "switch-still.png").write_bytes(still.read_bytes())
+    target_film_path = target_root / fd.FILM_NAME
+    target_film_path.write_text(
+        '<!doctype html><html><head><meta charset="utf-8"></head><body>'
+        '<section id="video-main" data-label="主画面">'
+        '<img id="switch-clip" src="../assets/switch-still.png#t=0,1" at="0">'
+        '</section></body></html>',
+        encoding="utf-8",
+    )
+    assert fd.read_project_film(target_project_id)["exists"]
+
     import webui.server as web_server
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage
@@ -125,7 +143,36 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert film_path.exists()
                 assert page.locator("#film-studio-panel.fs-studio-expanded").is_visible()
                 assert page.locator("#fs-timeline .fs-clip[data-clip]").count() >= 1
+                # The project switcher is moved into the fullscreen header as the
+                # same DOM node, so there must never be a hidden duplicate selector.
+                assert page.locator("#fs-project-switch-host #editor-project-switch-row").count() == 1
+                assert page.locator("#editor-project-switch-home #editor-project-switch-row").count() == 0
+                assert page.locator("#editor-project").count() == 1
+
+                page.locator("#editor-project").select_option(target_project_id)
+                page.wait_for_function(
+                    "(pid) => window.filmStudioStore?.getSnapshot()?.projectId === pid",
+                    arg=target_project_id,
+                    timeout=10000,
+                )
+                page.wait_for_function(
+                    "() => !!document.querySelector('#fs-timeline .fs-clip[data-clip=switch-clip]')",
+                    timeout=10000,
+                )
+                assert page.locator("#film-studio-panel.fs-studio-expanded").is_visible()
+                assert page.locator("#fs-project-switch-host #editor-project-switch-row").count() == 1
+                assert page.locator("#editor-project").count() == 1
+                assert fd.read_project_film(target_project_id)["exists"]
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
+
+                page.evaluate("() => window.filmStudioClose()")
+                page.wait_for_function(
+                    "() => !document.querySelector('#film-studio-panel')?.classList.contains('fs-studio-expanded')",
+                    timeout=5000,
+                )
+                assert page.locator("#editor-project-switch-home #editor-project-switch-row").count() == 1
+                assert page.locator("#fs-project-switch-host #editor-project-switch-row").count() == 0
+                assert page.locator("#editor-project").count() == 1
             finally:
                 context.close()
                 browser.close()

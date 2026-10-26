@@ -97,12 +97,14 @@
 
   <!-- ============ Tab 工作台（§9 唯一正式创作编辑环境）============ -->
   <main id="pane-editor" class="pane" style="display:none">
-    <!-- 项目切换行（始终可见：§9 工作台必须有打开的 Project；legacy 不入列） -->
-    <div class="btn-row" style="align-items:center;margin-top:0">
-      <select id="editor-project" style="max-width:320px" title="切换项目（只列可编辑项目）"
-              onchange="if(this.value)editorLoad()"></select>
-      <button class="btn-secondary btn-sm" onclick="editorLoad()">打开</button>
-      <span class="hint" id="editor-lib-hint">选中场景/图层后，Inspector 会给出对应的修改项</span>
+    <!-- The same project selector moves into Studio while open; it is never cloned. -->
+    <div id="editor-project-switch-home">
+      <div id="editor-project-switch-row" class="btn-row" style="align-items:center;margin-top:0">
+        <select id="editor-project" style="max-width:320px" title="切换项目（只列可编辑项目）"
+                onchange="if(this.value)editorLoad()"></select>
+        <button class="btn-secondary btn-sm" onclick="editorLoad()">打开</button>
+        <span class="hint" id="editor-lib-hint">选中场景/图层后，Inspector 会给出对应的修改项</span>
+      </div>
     </div>
     <div class="film-studio-launch panel">
       <div>
@@ -113,7 +115,8 @@
     </div>
     <section id="film-studio-panel" class="film-studio-panel" style="display:none" aria-label="OpenFilm 多轨影片工作台">
       <header class="fs-topbar">
-        <div><strong>影片 Studio</strong><span class="fs-project-label" id="fs-project-label">尚未载入项目</span></div>
+        <div class="fs-topbar-title"><strong>影片 Studio</strong><span class="fs-project-label" id="fs-project-label">尚未载入项目</span></div>
+        <div id="fs-project-switch-host" class="fs-project-switch-host" aria-label="当前项目切换"></div>
         <div id="fs-react-toolbar" class="fs-toolbar" style="display:none" aria-label="React Studio 工具栏"></div>
         <div id="fs-static-toolbar" class="fs-toolbar" aria-label="兼容工具栏">
           <button class="fs-btn" type="button" data-film-action="undo">撤销</button>

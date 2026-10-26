@@ -2719,6 +2719,15 @@
       if(input)input.focus();
     }
   };
+  function moveProjectSwitcherToStudio(inStudio){
+    var row=$('editor-project-switch-row'),
+        home=$('editor-project-switch-home'),
+        host=$('fs-project-switch-host'),
+        destination=inStudio?host:home;
+    // Move the existing DOM node so project selection, inline onchange and
+    // authority/revision guards stay single-owned; never mirror selector state.
+    if(row&&destination&&row.parentNode!==destination)destination.appendChild(row);
+  }
   window.filmStudioToggle=async function(knownFilmDocument){
     if(S.open){window.filmStudioClose();return false;}
     S.open=true;
@@ -2726,6 +2735,7 @@
     mountDirectorPlanning(false);
     var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
     panel.classList.add('fs-studio-expanded');panel.style.display='flex';
+    moveProjectSwitcherToStudio(true);
     document.documentElement.classList.add('fs-studio-open');
     if(launcher)launcher.style.display='none';
     $('film-studio-toggle').textContent='重新打开 Studio';
@@ -2800,6 +2810,7 @@
     if(timelineBridge&&typeof timelineBridge.clearSurface==='function')timelineBridge.clearSurface();
     var panel=$('film-studio-panel'),launcher=document.querySelector('.film-studio-launch');
     if(panel){panel.classList.remove('fs-studio-expanded');panel.style.display='none';}
+    moveProjectSwitcherToStudio(false);
     document.documentElement.classList.remove('fs-studio-open');
     if(launcher)launcher.style.display='flex';
     $('film-studio-toggle').textContent='重新打开 Studio';
