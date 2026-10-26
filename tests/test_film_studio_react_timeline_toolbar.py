@@ -288,8 +288,9 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert 'data-react-timeline-surface="true"' in component
     assert 'style={{width:model.totalWidth,position:"relative"}}' in component
     assert "if(!reactTimeline)$('fs-timeline').style.width=" in studio
-    assert 'const playhead=useFilmStoreField("playhead");' in component
-    assert 'style={{left:132 + filmTimelineMath.clipLeft(playhead,model.pixelsPerSecond)}}' in component
+    playhead_line = component.split("const TimelinePlayheadLine: React.FC", 1)[1].split("const TimelineScrubRuler: React.FC", 1)[0]
+    assert 'useFilmStoreField("playhead")' in playhead_line
+    assert 'style={{left:132 + filmTimelineMath.clipLeft(playhead,pixelsPerSecond)}}' in playhead_line
     assert "if(line&&!reactTimeline)line.style.left=" in studio
     assert "window.filmStudioJumpToKeyframe?.(clip.id, mark.at)" in component
     assert "onPointerDown={(event) => {\n                    // A marker is a seek target" in component
