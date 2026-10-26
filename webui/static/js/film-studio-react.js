@@ -24184,8 +24184,8 @@
       const destinationIndex = member.trackIndex + trackDelta;
       if (destinationIndex < 0 || destinationIndex >= gesture.trackOrder.length) return null;
       const at = Math.max(0, member.originalAt + resolution.deltaSeconds);
-      const frameAligned = input.snapEnabled && Math.abs(at * input.frameRate - Math.round(at * input.frameRate)) < 2e-5;
-      const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned;
+      const frameAligned2 = input.snapEnabled && Math.abs(at * input.frameRate - Math.round(at * input.frameRate)) < 2e-5;
+      const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned2;
       operations.push({
         op: "move",
         clip: member.id,
@@ -24229,8 +24229,8 @@
     const previewStart = input.edge === "start" ? resolution.target : originalAt;
     const previewEnd = input.edge === "end" ? resolution.target : originalEnd;
     const frameRate = Number.isFinite(input.frameRate) ? input.frameRate : 0;
-    const frameAligned = frameRate > 0 && Math.abs(resolution.target * frameRate - Math.round(resolution.target * frameRate)) < 2e-5;
-    const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned;
+    const frameAligned2 = frameRate > 0 && Math.abs(resolution.target * frameRate - Math.round(resolution.target * frameRate)) < 2e-5;
+    const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned2;
     const target = Number(resolution.target.toFixed(preserveFramePrecision ? 6 : 3));
     const operation = input.edge === "start" ? { op: "trim", clip: clipId, edge: "start", at: target } : { op: "trim", clip: clipId, edge: "end", end: target };
     return {
@@ -24242,9 +24242,126 @@
       operation
     };
   };
+  var frameAligned = (value, frameRate) => Number.isFinite(frameRate) && frameRate > 0 && Math.abs(value * frameRate - Math.round(value * frameRate)) < 2e-5;
+  var operationNumber = (value, preserveFramePrecision) => Number(value.toFixed(preserveFramePrecision ? 6 : 3));
+  var resolveRollGesture = (input) => {
+    const leftClipId = String(input.leftClipId || "").trim();
+    const rightClipId = String(input.rightClipId || "").trim();
+    if (!leftClipId || !rightClipId || leftClipId === rightClipId || !Number.isFinite(input.rightAt) || input.rightAt < 0 || !Number.isFinite(input.leftDuration) || input.leftDuration <= 0.04 || !Number.isFinite(input.rightDuration) || input.rightDuration <= 0.04 || !Number.isFinite(input.rawDeltaSeconds)) return null;
+    const resolution = filmTimelineMath.resolveRollGesture(
+      input.rightAt,
+      input.rawDeltaSeconds,
+      input.leftDuration,
+      input.rightDuration,
+      input.candidates,
+      input.pixelsPerSecond,
+      input.thresholdPixels,
+      input.snapEnabled,
+      input.frameRate
+    );
+    const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned(resolution.targetAt, input.frameRate);
+    const delta = resolution.deltaSeconds;
+    const activeClipId = input.activeClipId;
+    if (activeClipId !== leftClipId && activeClipId !== rightClipId) return null;
+    const preview = {
+      [leftClipId]: {
+        width: Math.max(3, filmTimelineMath.secondsToPixels(input.leftDuration + delta, input.pixelsPerSecond))
+      },
+      [rightClipId]: {
+        left: Math.max(0, filmTimelineMath.clipLeft(input.rightAt + delta, input.pixelsPerSecond)),
+        width: Math.max(3, filmTimelineMath.secondsToPixels(input.rightDuration - delta, input.pixelsPerSecond))
+      }
+    };
+    preview[activeClipId] = {
+      ...preview[activeClipId],
+      mode: "roll",
+      deltaLabel: "\u5207\u53E3 " + (delta >= 0 ? "+" : "") + delta.toFixed(2) + "s"
+    };
+    return {
+      resolution,
+      operation: {
+        op: "roll",
+        clip: leftClipId,
+        other_clip: rightClipId,
+        delta: operationNumber(delta, preserveFramePrecision)
+      },
+      preview
+    };
+  };
+  var resolveSlideGesture = (input) => {
+    const leftClipId = String(input.leftClipId || "").trim();
+    const centerClipId = String(input.centerClipId || "").trim();
+    const rightClipId = String(input.rightClipId || "").trim();
+    if (!leftClipId || !centerClipId || !rightClipId || (/* @__PURE__ */ new Set([leftClipId, centerClipId, rightClipId])).size !== 3 || !Number.isFinite(input.centerAt) || input.centerAt < 0 || !Number.isFinite(input.rightAt) || input.rightAt < 0 || !Number.isFinite(input.leftDuration) || input.leftDuration <= 0.04 || !Number.isFinite(input.centerDuration) || input.centerDuration <= 0.04 || !Number.isFinite(input.rightDuration) || input.rightDuration <= 0.04 || !Number.isFinite(input.rawDeltaSeconds)) return null;
+    const resolution = filmTimelineMath.resolveSlideGesture(
+      input.centerAt,
+      input.rawDeltaSeconds,
+      input.leftDuration,
+      input.centerDuration,
+      input.rightDuration,
+      input.candidates,
+      input.pixelsPerSecond,
+      input.thresholdPixels,
+      input.snapEnabled,
+      input.frameRate
+    );
+    const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned(resolution.targetAt, input.frameRate);
+    const delta = resolution.deltaSeconds;
+    const preview = {
+      [leftClipId]: {
+        width: Math.max(3, filmTimelineMath.secondsToPixels(input.leftDuration + delta, input.pixelsPerSecond))
+      },
+      [centerClipId]: {
+        left: Math.max(0, filmTimelineMath.clipLeft(input.centerAt + delta, input.pixelsPerSecond)),
+        mode: "slide",
+        deltaLabel: "\u6ED1\u79FB " + (delta >= 0 ? "+" : "") + delta.toFixed(2) + "s"
+      },
+      [rightClipId]: {
+        left: Math.max(0, filmTimelineMath.clipLeft(input.rightAt + delta, input.pixelsPerSecond)),
+        width: Math.max(3, filmTimelineMath.secondsToPixels(input.rightDuration - delta, input.pixelsPerSecond))
+      }
+    };
+    return {
+      resolution,
+      operation: {
+        op: "slide",
+        clip: centerClipId,
+        delta: operationNumber(delta, preserveFramePrecision)
+      },
+      preview
+    };
+  };
+  var resolveSlipGesture = (input) => {
+    const clipId = String(input.clipId || "").trim();
+    if (!clipId || !Number.isFinite(input.rawDeltaSeconds) || !Number.isFinite(input.playbackSpeed) || input.playbackSpeed <= 0) return null;
+    const resolution = filmTimelineMath.resolveSlipGesture(
+      input.rawDeltaSeconds,
+      input.playbackSpeed,
+      input.snapEnabled,
+      input.frameRate
+    );
+    const delta = resolution.sourceDeltaSeconds;
+    return {
+      resolution,
+      operation: {
+        op: "slip",
+        clip: clipId,
+        delta_source: operationNumber(delta, input.snapEnabled)
+      },
+      preview: {
+        [clipId]: {
+          mode: "slip",
+          deltaLabel: "\u6E90\u504F\u79FB " + (delta >= 0 ? "+" : "") + delta.toFixed(2) + "s"
+        }
+      }
+    };
+  };
   var filmTimelineGestureController = {
     resolveMoveGesture: resolveMove,
     resolveTrimGesture,
+    resolveRollGesture,
+    resolveSlideGesture,
+    resolveSlipGesture,
     validateMoveTarget,
     buildMovePreview,
     buildMoveOperations
