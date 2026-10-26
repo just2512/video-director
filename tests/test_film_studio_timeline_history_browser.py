@@ -928,3 +928,148 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
         server.server_close()
         thread.join(timeout=5)
 
+
+
+
+def test_react_dock_dividers_persist_layout_and_keep_inspector_and_ai_visible(tmp_path, monkeypatch):
+    """Real Chromium pointer drags resize all dock seams and restore dimensions on reload."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    project_id = "film-studio-dock-layout-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    initial_revision = fd.read_project_film(project_id)["rev"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def open_studio():
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function("""() => {
+                  const inspector=document.querySelector('#fs-side-inspector');
+                  const ai=document.querySelector('#fs-side-ai');
+                  return !!inspector && !!ai &&
+                    inspector.getBoundingClientRect().height > 80 &&
+                    ai.getBoundingClientRect().height > 90;
+                }""", timeout=10_000)
+
+            def drag(selector: str, dx: float = 0, dy: float = 0):
+                bounds = page.locator(selector).bounding_box()
+                assert bounds and bounds["width"] > 0 and bounds["height"] > 0, {
+                    "selector": selector, "bounds": bounds
+                }
+                x = bounds["x"] + bounds["width"] / 2
+                y = bounds["y"] + bounds["height"] / 2
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + dx, y + dy, steps=6)
+                page.mouse.up()
+
+            try:
+                open_studio()
+                assert page.locator(".fs-pane-divider[data-divider='left']").is_visible()
+                assert page.locator(".fs-pane-divider[data-divider='right']").is_visible()
+                both = page.evaluate("""() => {
+                  const workbench=document.querySelector('#fs-side-workbench').getBoundingClientRect();
+                  const inspector=document.querySelector('#fs-side-inspector').getBoundingClientRect();
+                  const ai=document.querySelector('#fs-side-ai').getBoundingClientRect();
+                  return {workbench:{left:workbench.left,right:workbench.right},
+                    inspector:{left:inspector.left,right:inspector.right,height:inspector.height},
+                    ai:{left:ai.left,right:ai.right,height:ai.height}};
+                }""")
+                assert both["inspector"]["height"] > 80 and both["ai"]["height"] > 90, both
+                assert both["inspector"]["left"] >= both["workbench"]["left"], both
+                assert both["ai"]["right"] <= both["workbench"]["right"] + 1, both
+
+                drag(".fs-pane-divider[data-divider='left']", dx=56)
+                drag(".fs-pane-divider[data-divider='right']", dx=-52)
+                drag("#fs-side-divider", dy=34)
+                drag("#fs-timeline-divider", dy=-32)
+
+                page.wait_for_function("""() => [
+                  'film-studio-left-pane','film-studio-right-pane',
+                  'film-studio-inspector-share','film-studio-timeline-height'
+                ].every(key => localStorage.getItem(key) !== null)""", timeout=5000)
+                before = page.evaluate("""() => ({
+                  left:Number(localStorage.getItem('film-studio-left-pane')),
+                  right:Number(localStorage.getItem('film-studio-right-pane')),
+                  share:Number(localStorage.getItem('film-studio-inspector-share')),
+                  height:Number(localStorage.getItem('film-studio-timeline-height')),
+                  cssLeft:parseFloat(getComputedStyle(document.querySelector('#fs-workspace-dock')).getPropertyValue('--fs-left')),
+                  cssRight:parseFloat(getComputedStyle(document.querySelector('#fs-workspace-dock')).getPropertyValue('--fs-right')),
+                  cssShare:parseFloat(getComputedStyle(document.querySelector('#fs-side-workbench')).getPropertyValue('--fs-inspector-share')),
+                  cssHeight:parseFloat(getComputedStyle(document.querySelector('#film-studio-panel')).getPropertyValue('--fs-timeline-height'))
+                })""")
+                for key in ("left","right","share","height","cssLeft","cssRight","cssShare","cssHeight"):
+                    assert before[key] > 0, {"field":key,"state":before}
+                assert abs(before["left"]-before["cssLeft"]) < 0.1, before
+                assert abs(before["right"]-before["cssRight"]) < 0.1, before
+                assert abs(before["share"]-before["cssShare"]) < 0.1, before
+                assert abs(before["height"]-before["cssHeight"]) <= 1.1, before
+
+                page.reload(wait_until="domcontentloaded")
+                open_studio()
+                after = page.evaluate("""() => ({
+                  left:Number(localStorage.getItem('film-studio-left-pane')),
+                  right:Number(localStorage.getItem('film-studio-right-pane')),
+                  share:Number(localStorage.getItem('film-studio-inspector-share')),
+                  height:Number(localStorage.getItem('film-studio-timeline-height')),
+                  cssLeft:parseFloat(getComputedStyle(document.querySelector('#fs-workspace-dock')).getPropertyValue('--fs-left')),
+                  cssRight:parseFloat(getComputedStyle(document.querySelector('#fs-workspace-dock')).getPropertyValue('--fs-right')),
+                  cssShare:parseFloat(getComputedStyle(document.querySelector('#fs-side-workbench')).getPropertyValue('--fs-inspector-share')),
+                  cssHeight:parseFloat(getComputedStyle(document.querySelector('#film-studio-panel')).getPropertyValue('--fs-timeline-height')),
+                  inspectorHeight:document.querySelector('#fs-side-inspector').getBoundingClientRect().height,
+                  aiHeight:document.querySelector('#fs-side-ai').getBoundingClientRect().height
+                })""")
+                for key in ("left","right","share","height","cssLeft","cssRight","cssShare","cssHeight"):
+                    assert after[key] > 0, {"field":key,"state":after}
+                for key in ("left","right","share"):
+                    assert abs(after[key]-before[key]) < 0.1, {"field":key,"before":before,"after":after}
+                assert abs(after["height"]-before["height"]) <= 1.1, {"before":before,"after":after}
+                assert abs(after["left"]-after["cssLeft"]) < 0.1, after
+                assert abs(after["right"]-after["cssRight"]) < 0.1, after
+                assert abs(after["share"]-after["cssShare"]) < 0.1, after
+                assert abs(after["height"]-after["cssHeight"]) <= 1.1, after
+                assert after["inspectorHeight"] > 80 and after["aiHeight"] > 90, after
+                assert fd.read_project_film(project_id)["rev"] == initial_revision
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
