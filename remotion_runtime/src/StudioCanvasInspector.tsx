@@ -457,7 +457,6 @@ export interface FilmClipInspectorModel {
   duration: number | null;
   attrs: Record<string, string>;
   fps?: number;
-  playhead?: number;
   trackLocked?: boolean;
 }
 type FilmKeyframeProperty = "x"|"y"|"scale"|"scale_x"|"scale_y"|"rotation"|"opacity"|"blur"|"camera_x"|"camera_y"|"camera_scale"|"offset_x"|"offset_y";
@@ -706,7 +705,6 @@ const asNumber = (value: unknown, fallback: number): number => {
 const buildClipInspectorModel = (
   filmValue: unknown,
   selectedId: string,
-  playheadValue: number,
 ): FilmClipInspectorModel | null => {
   const film = timelineRecord(filmValue);
   if (film.exists !== true || !selectedId || !Array.isArray(film.tracks)) return null;
@@ -728,7 +726,6 @@ const buildClipInspectorModel = (
         duration,
         attrs,
         fps,
-        playhead:asNumber(playheadValue,0),
         trackLocked:Object.prototype.hasOwnProperty.call(trackAttrs,"locked"),
       };
     }
@@ -975,6 +972,13 @@ const rotateDegrees = (styles: Record<string, string>): number => {
   return match ? Number(match[0]) : 0;
 };
 
+const FilmKeyframePlayheadLine: React.FC<{clipAt:number;clipDuration:number}> = ({clipAt,clipDuration}) => {
+  const playhead=useFilmStoreField("playhead");
+  const ratio=clipDuration > 0 ? clampKeyframe((playhead-clipAt)/clipDuration,0,1) : 0;
+  const x=8+ratio*344;
+  return <line x1={x} x2={x} y1="4" y2="84" className="fs-keyframe-playhead" />;
+};
+
 const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage?: string}> = ({clip, emptyMessage}) => {
   const [feedback, setFeedback] = useState("");
   const keyframesAttribute = clip?.attrs?.["data-film-keyframes"] || "";
@@ -1013,7 +1017,8 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
     setKeyframeChannels(parseFilmKeyframes(keyframesAttribute));
     setKeyframeDirty(false);setDraggingKeyframe(null);setKeyframeFeedback("");
     const duration=clip?.duration;
-    const relative=clip&&typeof clip.playhead==="number"?clip.playhead-clip.at:0;
+    const livePlayhead=asNumber(filmStore.getField("playhead"),0);
+    const relative=clip?livePlayhead-clip.at:0;
     setNewKeyframeAt((duration!=null&&duration>0?clampKeyframe(relative,0,duration):0).toFixed(3));
     setNewKeyframeValue(String(keyframeInfo(animationProperty).initial));
     setNewKeyframeEasing("linear");setNewBezierCurve({...DEFAULT_FILM_BEZIER});
@@ -1211,7 +1216,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
             onPointerMove={handleKeyframePointerMove} onPointerUp={()=>setDraggingKeyframe(null)} onPointerCancel={()=>setDraggingKeyframe(null)}>
             {[0,.25,.5,.75,1].map(ratio=><line key={"h"+ratio} x1="8" x2="352" y1={8+ratio*72} y2={8+ratio*72} className="fs-keyframe-grid"/>)}
             {[0,.25,.5,.75,1].map(ratio=><line key={"v"+ratio} x1={8+ratio*344} x2={8+ratio*344} y1="8" y2="80" className="fs-keyframe-grid"/>)}
-            {typeof clip.playhead==="number"&&<line x1={8+clampKeyframe((clip.playhead-clip.at)/clip.duration,0,1)*344} x2={8+clampKeyframe((clip.playhead-clip.at)/clip.duration,0,1)*344} y1="4" y2="84" className="fs-keyframe-playhead"/>}
+            <FilmKeyframePlayheadLine clipAt={clip.at} clipDuration={clip.duration} />
             {activeChannel&&activeChannel.keyframes.length>1&&<path d={keyframePath(activeChannel,clip.duration,animationInfo.min,animationInfo.max)} className="fs-keyframe-curve" fill="none"/>}
             {activeChannel?.keyframes.map((point,index)=><circle key={point.at}
               cx={8+clampKeyframe(point.at/clipDuration,0,1)*344}
@@ -2632,10 +2637,9 @@ const StudioClipInspectorPanel: React.FC = () => {
   const timelineRevision = useFilmStoreField("revision");
   const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
   const clipInspectorSelectedId = useFilmStoreField("selectedId");
-  const clipInspectorPlayhead = useFilmStoreField("playhead");
   const clip = useMemo(
-    () => buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead),
-    [timelineFilm,timelineRevision,clipInspectorSelectedId,clipInspectorPlayhead],
+    () => buildClipInspectorModel(timelineFilm,clipInspectorSelectedId),
+    [timelineFilm,timelineRevision,clipInspectorSelectedId],
   );
   const clipKey = clip
     ? clip.id + ":" + JSON.stringify(clip.attrs || {})

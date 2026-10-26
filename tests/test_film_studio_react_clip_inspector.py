@@ -12,8 +12,11 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "const ClipInspector: React.FC" in component
     assert 'data-react-clip-inspector="true"' in component
     assert 'const clipInspectorSelectedId = useFilmStoreField("selectedId");' in component
-    assert 'const clipInspectorPlayhead = useFilmStoreField("playhead");' in component
-    assert "buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead)" in component
+    assert "const FilmKeyframePlayheadLine: React.FC" in component
+    assert 'const playhead=useFilmStoreField("playhead");' in component
+    assert "buildClipInspectorModel(timelineFilm,clipInspectorSelectedId)" in component
+    assert 'filmStore.getField("playhead")' in component
+    assert "clip.playhead" not in component
     assert "const clip = state.clipInspector;" not in component
     assert "clipInspector: FilmClipInspectorModel | null;" not in component
     assert "renderClip(emptyMessage?: string): void;" in component

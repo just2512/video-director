@@ -127,16 +127,20 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "updateReactGestureTarget(pointerEvent)" in component
     assert "if(d.mode==='move'&&gestureDomRefs){" in legacy
 
-def test_react_owner_does_not_subscribe_to_playhead_for_clip_inspector():
-    """Playhead ticks should update only the inspector and focused timeline leaves, not the React owner."""
+def test_clip_inspector_does_not_rerender_on_playhead_updates():
+    """Playback updates the keyframe playhead marker without rebuilding the full inspector."""
     root = Path(__file__).resolve().parents[1]
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     inspector_panel = component.split("const StudioClipInspectorPanel: React.FC", 1)[1].split("const StudioReactOwner: React.FC", 1)[0]
+    keyframe_playhead = component.split("const FilmKeyframePlayheadLine: React.FC", 1)[1].split("const ClipInspector: React.FC", 1)[0]
     owner = component.split("const StudioReactOwner: React.FC = () => {", 1)[1].split("function renderStudioReactOwner", 1)[0]
 
-    assert 'useFilmStoreField("playhead")' in inspector_panel
+    assert 'useFilmStoreField("playhead")' in keyframe_playhead
+    assert 'useFilmStoreField("playhead")' not in inspector_panel
     assert 'useFilmStoreField("selectedId")' in inspector_panel
-    assert "buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead)" in inspector_panel
+    assert "buildClipInspectorModel(timelineFilm,clipInspectorSelectedId)" in inspector_panel
+    assert 'filmStore.getField("playhead")' in component
+    assert '<FilmKeyframePlayheadLine clipAt={clip.at} clipDuration={clip.duration} />' in component
     assert 'useFilmStoreField("playhead")' not in owner
     assert 'useFilmStoreField("selectedId")' not in owner
     assert '<StudioClipInspectorPanel />' in owner
