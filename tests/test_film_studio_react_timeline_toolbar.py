@@ -366,5 +366,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "if(!setTimelineDropTarget(nextTrack,!!targetError))" in studio
     assert "var outsideTrackMessage='请将片段放置到有效轨道上，多选移动已取消。';" in studio
     assert "d=updateTimelineGestureContext({targetTrackId:d.trackId,invalidTargetMessage:outsideTrackMessage})||d;" in studio
-    assert "clearDragAutoScroll();\n    showTimelineSnapGuide(null);" in studio
+    assert "finishReactDragAutoScroll(pointerId)" in component
+    assert "stopReactDragAutoScroll();" in component
+    assert "clearDragAutoScroll" not in studio
     assert "if(S.reactGesturePointerId===e.pointerId)return;" not in studio
