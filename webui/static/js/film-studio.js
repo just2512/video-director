@@ -1132,6 +1132,16 @@
   }
   function resolveTimelineRoll(d,deltaSeconds,thresholdPx){
     var excluded=[d.leftClipId,d.rightClipId],candidates=timelineSnapCandidates(excluded),math=timelineMath();
+    var controller=window.filmStudioTimelineController;
+    if(controller&&typeof controller.resolveRollGesture==='function'){
+      var managed=controller.resolveRollGesture({
+        leftClipId:d.leftClipId,rightClipId:d.rightClipId,rightAt:d.rightAt,
+        leftDuration:d.leftDuration,rightDuration:d.rightDuration,rawDeltaSeconds:deltaSeconds,
+        candidates:candidates,pixelsPerSecond:S.pxPerSec,thresholdPixels:thresholdPx,
+        snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+      });
+      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation});
+    }
     if(math&&typeof math.resolveRollGesture==='function')
       return math.resolveRollGesture(d.rightAt,deltaSeconds,d.leftDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
     var snap=findTimelineSnap(d.rightAt+deltaSeconds,excluded,thresholdPx);
@@ -1142,6 +1152,16 @@
   }
   function resolveTimelineSlide(d,deltaSeconds,thresholdPx){
     var excluded=[d.leftClipId,d.centerClipId,d.rightClipId],candidates=timelineSnapCandidates(excluded),math=timelineMath();
+    var controller=window.filmStudioTimelineController;
+    if(controller&&typeof controller.resolveSlideGesture==='function'){
+      var managed=controller.resolveSlideGesture({
+        leftClipId:d.leftClipId,centerClipId:d.centerClipId,rightClipId:d.rightClipId,
+        centerAt:d.centerAt,leftDuration:d.leftDuration,centerDuration:d.centerDuration,rightDuration:d.rightDuration,
+        rawDeltaSeconds:deltaSeconds,candidates:candidates,pixelsPerSecond:S.pxPerSec,
+        thresholdPixels:thresholdPx,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+      });
+      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation});
+    }
     if(math&&typeof math.resolveSlideGesture==='function')
       return math.resolveSlideGesture(d.centerAt,deltaSeconds,d.leftDuration,d.centerDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
     var snap=findTimelineSnap(d.centerAt+deltaSeconds,excluded,thresholdPx);
@@ -1151,8 +1171,15 @@
     var usedSnap=snap&&Math.abs(d.centerAt+delta-snap.at)<0.001?snap:null;
     return {targetAt:d.centerAt+delta,deltaSeconds:delta,snapCandidate:usedSnap};
   }
-  function resolveTimelineSlip(rawDeltaSeconds, playbackSpeed){
-    var math=timelineMath();
+  function resolveTimelineSlip(rawDeltaSeconds, playbackSpeed, clipId){
+    var math=timelineMath(),controller=window.filmStudioTimelineController;
+    if(controller&&typeof controller.resolveSlipGesture==='function'){
+      var managed=controller.resolveSlipGesture({
+        clipId:clipId,rawDeltaSeconds:rawDeltaSeconds,playbackSpeed:playbackSpeed,
+        snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
+      });
+      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation});
+    }
     if(math&&typeof math.resolveSlipGesture==='function')
       return math.resolveSlipGesture(rawDeltaSeconds,playbackSpeed,S.snapEnabled,timelineFrameRate());
     var sourceDelta=num(rawDeltaSeconds,0)*num(playbackSpeed,1),fps=timelineFrameRate();
@@ -2338,7 +2365,7 @@
       }
     }else if(d.mode==='slip'){
       var slipClip=findClip(d.id),slipSpeed=slipClip?num(slipClip.attrs.speed,1):1;
-      var sourceDelta=resolveTimelineSlip(deltaSeconds,slipSpeed).sourceDeltaSeconds;
+      var sourceDelta=resolveTimelineSlip(deltaSeconds,slipSpeed,d.id).sourceDeltaSeconds;
       var slipPreview={};
       slipPreview[d.id]={mode:'slip',deltaLabel:'源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s'};
       if(!setTimelineGesturePreview(slipPreview)){
@@ -2535,20 +2562,21 @@
       var slideCommitResolution=resolveTimelineSlide(d,deltaSeconds,8);
       var slideDelta=slideCommitResolution.deltaSeconds;
       if(Math.abs(slideDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([{op:'slide',clip:d.centerClipId,delta:timelineOperationNumber(slideDelta,(slideCommitResolution.snapCandidate&&slideCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(slideCommitResolution.targetAt))}]);return;
+      await filmStudioCommit([slideCommitResolution.operation||{op:'slide',clip:d.centerClipId,delta:timelineOperationNumber(slideDelta,(slideCommitResolution.snapCandidate&&slideCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(slideCommitResolution.targetAt))}]);return;
     }
     if(d.mode==='roll'){
       var rollCommitResolution=resolveTimelineRoll(d,deltaSeconds,8);
       var rollDelta=rollCommitResolution.deltaSeconds;
       if(Math.abs(rollDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:timelineOperationNumber(rollDelta,(rollCommitResolution.snapCandidate&&rollCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(rollCommitResolution.targetAt))}]);return;
+      await filmStudioCommit([rollCommitResolution.operation||{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:timelineOperationNumber(rollDelta,(rollCommitResolution.snapCandidate&&rollCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(rollCommitResolution.targetAt))}]);return;
     }
     if(d.mode==='slip'){
       var slipClip=findClip(d.id);
       if(!slipClip||slipClip.duration==null){clearTimelineGesturePreview();renderTimeline();return;}
-      var sourceDelta=resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1)).sourceDeltaSeconds;
+      var slipResolution=resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1),d.id);
+      var sourceDelta=slipResolution.sourceDeltaSeconds;
       if(Math.abs(sourceDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}]);return;
+      await filmStudioCommit([slipResolution.operation||{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}]);return;
     }
     if(d.mode==='trim-start'){
       var startTrimCommitController=window.filmStudioTimelineController;

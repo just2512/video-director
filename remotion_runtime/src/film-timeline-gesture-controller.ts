@@ -1,5 +1,5 @@
 import type {FilmOperation} from "./film-timeline-contract";
-import {filmTimelineMath, type FilmTimelineMoveResolution, type FilmTimelineTrimResolution, type FilmTimelineSnapCandidate} from "./film-timeline-math";
+import {filmTimelineMath, type FilmTimelineLinkedEditResolution, type FilmTimelineMoveResolution, type FilmTimelineSlipResolution, type FilmTimelineTrimResolution, type FilmTimelineSnapCandidate} from "./film-timeline-math";
 
 export interface FilmTimelineMoveMemberSnapshot {
   id: string;
@@ -78,6 +78,54 @@ export interface FilmTimelineTrimGestureInput {
 export interface FilmTimelineTrimGestureResult {
   resolution: FilmTimelineTrimResolution;
   preview: {left: number; width: number};
+  operation: FilmOperation;
+}
+
+export interface FilmTimelineRollGestureInput {
+  leftClipId: string;
+  rightClipId: string;
+  rightAt: number;
+  leftDuration: number;
+  rightDuration: number;
+  rawDeltaSeconds: number;
+  candidates: readonly FilmTimelineSnapCandidate[];
+  pixelsPerSecond: number;
+  thresholdPixels: number;
+  snapEnabled: boolean;
+  frameRate: number;
+}
+
+export interface FilmTimelineSlideGestureInput {
+  leftClipId: string;
+  centerClipId: string;
+  rightClipId: string;
+  centerAt: number;
+  leftDuration: number;
+  centerDuration: number;
+  rightDuration: number;
+  rawDeltaSeconds: number;
+  candidates: readonly FilmTimelineSnapCandidate[];
+  pixelsPerSecond: number;
+  thresholdPixels: number;
+  snapEnabled: boolean;
+  frameRate: number;
+}
+
+export interface FilmTimelineSlipGestureInput {
+  clipId: string;
+  rawDeltaSeconds: number;
+  playbackSpeed: number;
+  snapEnabled: boolean;
+  frameRate: number;
+}
+
+export interface FilmTimelineLinkedGestureResult {
+  resolution: FilmTimelineLinkedEditResolution;
+  operation: FilmOperation;
+}
+
+export interface FilmTimelineSlipGestureResult {
+  resolution: FilmTimelineSlipResolution;
   operation: FilmOperation;
 }
 
@@ -294,9 +342,85 @@ const resolveTrimGesture = (input: FilmTimelineTrimGestureInput): FilmTimelineTr
   };
 };
 
+
+const frameAligned = (value: number, frameRate: number): boolean =>
+  Number.isFinite(frameRate) && frameRate > 0 &&
+  Math.abs(value * frameRate - Math.round(value * frameRate)) < 0.00002;
+
+const operationNumber = (value: number, preserveFramePrecision: boolean): number =>
+  Number(value.toFixed(preserveFramePrecision ? 6 : 3));
+
+const resolveRollGesture = (input: FilmTimelineRollGestureInput): FilmTimelineLinkedGestureResult | null => {
+  const leftClipId = String(input.leftClipId || "").trim();
+  const rightClipId = String(input.rightClipId || "").trim();
+  if (!leftClipId || !rightClipId || leftClipId === rightClipId ||
+      !Number.isFinite(input.rightAt) || input.rightAt < 0 ||
+      !Number.isFinite(input.leftDuration) || input.leftDuration <= 0.04 ||
+      !Number.isFinite(input.rightDuration) || input.rightDuration <= 0.04 ||
+      !Number.isFinite(input.rawDeltaSeconds)) return null;
+  const resolution = filmTimelineMath.resolveRollGesture(
+    input.rightAt, input.rawDeltaSeconds, input.leftDuration, input.rightDuration,
+    input.candidates, input.pixelsPerSecond, input.thresholdPixels, input.snapEnabled, input.frameRate,
+  );
+  const preserveFramePrecision = resolution.snapCandidate?.kind === "帧" ||
+    frameAligned(resolution.targetAt, input.frameRate);
+  return {
+    resolution,
+    operation: {
+      op: "roll", clip: leftClipId, other_clip: rightClipId,
+      delta: operationNumber(resolution.deltaSeconds, preserveFramePrecision),
+    },
+  };
+};
+
+const resolveSlideGesture = (input: FilmTimelineSlideGestureInput): FilmTimelineLinkedGestureResult | null => {
+  const leftClipId = String(input.leftClipId || "").trim();
+  const centerClipId = String(input.centerClipId || "").trim();
+  const rightClipId = String(input.rightClipId || "").trim();
+  if (!leftClipId || !centerClipId || !rightClipId ||
+      new Set([leftClipId, centerClipId, rightClipId]).size !== 3 ||
+      !Number.isFinite(input.centerAt) || input.centerAt < 0 ||
+      !Number.isFinite(input.leftDuration) || input.leftDuration <= 0.04 ||
+      !Number.isFinite(input.centerDuration) || input.centerDuration <= 0.04 ||
+      !Number.isFinite(input.rightDuration) || input.rightDuration <= 0.04 ||
+      !Number.isFinite(input.rawDeltaSeconds)) return null;
+  const resolution = filmTimelineMath.resolveSlideGesture(
+    input.centerAt, input.rawDeltaSeconds, input.leftDuration, input.centerDuration, input.rightDuration,
+    input.candidates, input.pixelsPerSecond, input.thresholdPixels, input.snapEnabled, input.frameRate,
+  );
+  const preserveFramePrecision = resolution.snapCandidate?.kind === "帧" ||
+    frameAligned(resolution.targetAt, input.frameRate);
+  return {
+    resolution,
+    operation: {
+      op: "slide", clip: centerClipId,
+      delta: operationNumber(resolution.deltaSeconds, preserveFramePrecision),
+    },
+  };
+};
+
+const resolveSlipGesture = (input: FilmTimelineSlipGestureInput): FilmTimelineSlipGestureResult | null => {
+  const clipId = String(input.clipId || "").trim();
+  if (!clipId || !Number.isFinite(input.rawDeltaSeconds) ||
+      !Number.isFinite(input.playbackSpeed) || input.playbackSpeed <= 0) return null;
+  const resolution = filmTimelineMath.resolveSlipGesture(
+    input.rawDeltaSeconds, input.playbackSpeed, input.snapEnabled, input.frameRate,
+  );
+  return {
+    resolution,
+    operation: {
+      op: "slip", clip: clipId,
+      delta_source: operationNumber(resolution.sourceDeltaSeconds, input.snapEnabled),
+    },
+  };
+};
+
 export const filmTimelineGestureController = {
   resolveMoveGesture: resolveMove,
   resolveTrimGesture,
+  resolveRollGesture,
+  resolveSlideGesture,
+  resolveSlipGesture,
   validateMoveTarget,
   buildMovePreview,
   buildMoveOperations,
