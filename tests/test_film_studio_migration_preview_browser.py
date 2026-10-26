@@ -164,7 +164,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                     timeout=10000,
                 )
                 assert page.evaluate("() => window.filmStudioStore.getSnapshot().projectId") == project_id
-                assert "未提交的属性草稿" in page.locator("#film-studio-alert").inner_text()
+                assert "有未提交草稿" in page.locator("#film-studio-alert").inner_text()
                 assert title_input.input_value() == draft_title
                 title_input.fill(original_title)
 
