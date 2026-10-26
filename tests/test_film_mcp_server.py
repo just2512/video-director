@@ -102,7 +102,9 @@ def test_standalone_mcp_rejects_invalid_request_envelopes_and_tool_params():
         assert response["error"]["code"] == -32600, response
     assert mcp.handle_message({"jsonrpc": "2.0", "id": 8, "method": "ping"})["result"] == {}
 
-    schema_invalid = mcp.call_tool("film.render", {"project_id": "some-project", "fps": "fast"})
+    schema_invalid = mcp.call_tool("film.render", {
+        "project_id": "some-project", "expected_revision": "rev-1", "fps": "fast"
+    })
     assert schema_invalid["isError"] is True, schema_invalid
     assert "fps" in schema_invalid["content"][0]["text"], schema_invalid
 
@@ -144,6 +146,65 @@ def test_standalone_mcp_parse_error_does_not_break_stdio_loop(monkeypatch):
     assert len(responses) == 2, responses
     assert responses[0]["error"]["code"] == -32700, responses[0]
     assert responses[1]["id"] == 9 and responses[1]["result"] == {}, responses[1]
+
+
+def test_mcp_look_and_render_require_revision_and_render_forwards_exact_pin(monkeypatch):
+    calls = []
+
+    def fake_run_cli(args, timeout):
+        calls.append((list(args), timeout))
+        return mcp._json_result({
+            "ok": True,
+            "rendered_revision": "revision-exact",
+            "fps": 60,
+        })
+
+    monkeypatch.setattr(mcp, "_run_cli", fake_run_cli)
+
+    missing_render_revision = mcp.call_tool("film.render", {"project_id": "mcp-render-pin"})
+    assert missing_render_revision["isError"] is True
+    assert "expected_revision" in missing_render_revision["content"][0]["text"]
+
+    missing_look_revision = mcp.call_tool("film.look", {"project_id": "mcp-look-pin"})
+    assert missing_look_revision["isError"] is True
+    assert "revision" in missing_look_revision["content"][0]["text"]
+    assert calls == []
+
+    invalid_fps = mcp.call_tool("film.render", {
+        "project_id": "mcp-render-pin",
+        "expected_revision": "revision-exact",
+        "fps": 61,
+    })
+    assert invalid_fps["isError"] is True
+    assert "60" in invalid_fps["content"][0]["text"]
+    assert calls == []
+
+    rendered = mcp.call_tool("film.render", {
+        "project_id": "mcp-render-pin",
+        "expected_revision": "revision-exact",
+        "fps": 60,
+    })
+    assert rendered["isError"] is False
+    args, timeout = calls.pop()
+    assert args == [
+        "film", "render", "--project-id", "mcp-render-pin",
+        "--expected-revision", "revision-exact", "--fps", "60",
+    ]
+    assert timeout == 3600
+
+    looked = mcp.call_tool("film.look", {
+        "project_id": "mcp-look-pin",
+        "revision": "revision-exact",
+        "times": [0, 1.5],
+    })
+    assert looked["isError"] is False
+    args, timeout = calls.pop()
+    assert args == [
+        "film", "look", "--project-id", "mcp-look-pin",
+        "--revision", "revision-exact", "--times", "0,1.5",
+    ]
+    assert timeout == 1800
+    assert calls == []
 
 
 def test_film_edit_mcp_uses_the_same_revision_guard_and_undo_history(tmp_path, monkeypatch):
@@ -226,5 +287,7 @@ def test_mcp_look_rejects_nonfinite_and_boolean_times(monkeypatch):
 
     monkeypatch.setattr(mcp.subprocess, "run", forbidden_run)
     for times in ([float("inf")], [True], [-0.1], []):
-        result = mcp.call_tool("film.look", {"project_id": "some-project", "times": times})
+        result = mcp.call_tool("film.look", {
+            "project_id": "some-project", "revision": "rev-1", "times": times
+        })
         assert result["isError"] is True

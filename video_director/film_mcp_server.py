@@ -111,20 +111,21 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "minItems": 1,
                 },
             },
-            "required": ["project_id"],
+            "required": ["project_id", "revision"],
             "additionalProperties": False,
         },
     },
     {
         "name": "film.render",
-        "description": "Export the current authoritative film revision with the real browser/FFmpeg pipeline. Returns the exported revision and QC evidence; technical PASS does not replace human visual/audio review.",
+        "description": "Export the exact film revision returned by film.status. expected_revision is mandatory; stale revisions are rejected before rendering. Returns the pinned revision and QC evidence; technical PASS does not replace human visual/audio review.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "project_id": {"type": "string", "minLength": 1},
-                "fps": {"type": "integer", "minimum": 1, "maximum": 120},
+                "expected_revision": {"type": "string", "minLength": 1},
+                "fps": {"type": "integer", "minimum": 1, "maximum": 60},
             },
-            "required": ["project_id"],
+            "required": ["project_id", "expected_revision"],
             "additionalProperties": False,
         },
     },
@@ -303,10 +304,14 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
             timeout = 1800
 
         elif name == "film.render":
+            expected_revision = arguments.get("expected_revision")
+            if not isinstance(expected_revision, str) or not expected_revision.strip():
+                raise ValueError("expected_revision 必须是从 film.status 获取的精确 revision。")
+            args += ["--expected-revision", expected_revision.strip()]
             fps = arguments.get("fps")
             if fps is not None:
-                if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 120:
-                    raise ValueError("fps 必须是 1–120 之间的整数。")
+                if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
+                    raise ValueError("fps 必须是 1–60 之间的整数。")
                 args += ["--fps", str(fps)]
             timeout = 3600
 

@@ -124,3 +124,29 @@ def test_agent_cli_diff_from_after_revision_uses_the_after_snapshot(tmp_path, mo
     assert len(added) == 1, diff.stdout
     assert 'at="0.5"' in removed[0], diff.stdout
     assert 'at="1"' in added[0], diff.stdout
+
+
+
+def test_agent_cli_render_rejects_stale_expected_revision_before_side_effects(tmp_path, monkeypatch):
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    project_id = "agent-cli-render-revision"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    (project / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+
+    stale = _cli(
+        repo_root, env, "film", "render", "--project-id", project_id,
+        "--expected-revision", "stale-revision", "--fps", "30",
+    )
+    assert stale.returncode != 0, stale.stdout + stale.stderr
+    failure = json.loads(stale.stdout)
+    assert failure["ok"] is False
+    assert failure["code"] == "REVISION_CONFLICT", failure
+    current = fd.read_project_film(project_id)
+    assert current["rev"] == before["rev"]
+    assert not (project / "render").exists(), "revision conflict must fail before creating export artifacts"
