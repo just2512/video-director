@@ -792,7 +792,10 @@ def test_slide_trim_alt_shift_drag_and_ai_contract_are_wired():
     assert ".fs-btn.fs-slide-mode-active" in (root / "webui" / "static" / "css" / "film-studio.css").read_text(encoding="utf-8")
     assert "e.altKey&&e.shiftKey" in script
     assert "data-slide-delta" in script
-    assert "if(d.mode==='move'){\n      var target=document.elementFromPoint" in script
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    assert "document.elementFromPoint(event.clientX,event.clientY)" in component
+    assert "filmTimelineGestureController.validateMoveTarget(input)" in component
+    assert "if(d.mode==='move'&&gestureDomRefs){" in script
     assert 'elif kind == "slide"' in module
     assert "Alt+Shift 拖动滑移式修剪" in index
     assert "可用 slide 操作" in module
