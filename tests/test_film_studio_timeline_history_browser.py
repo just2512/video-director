@@ -589,6 +589,37 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 target_y = target_box["y"] + target_box["height"] / 2
                 before_revision = original["rev"]
 
+                # A cross-track drop that would overlap an existing clip must be
+                # rejected before persistence. The clip starts at 0 and is 2s long;
+                # moving its start to 7s would overlap clip-target at 8s.
+                invalid_target_x = start_x + 7 * pixels_per_second
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(invalid_target_x, target_y, steps=8)
+                page.wait_for_function(
+                    """() => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state?.timelineGestureContext?.active &&
+                        state.timelineGestureContext.targetTrackId==='video-secondary' &&
+                        state.timelineDropTarget?.trackId==='video-secondary' &&
+                        state.timelineDropTarget.invalid===true &&
+                        String(state.timelineGestureContext.invalidTargetMessage||'').includes('时间重叠');
+                    }""",
+                    timeout=5000,
+                )
+                page.mouse.up()
+                page.wait_for_function(
+                    """() => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction===null &&
+                        state.timelineGestureContext===null && state.timelineGesturePreview===null;
+                    }""",
+                    timeout=10000,
+                )
+                assert edit_requests == [], edit_requests
+                assert film_path.read_bytes() == original_bytes
+                assert fd.read_project_film(project_id)["rev"] == before_revision
+
                 # Move a real pointer into the other video track. React must render a
                 # cross-track ghost and a valid drop target without touching film.html.
                 page.mouse.move(start_x, start_y)
